@@ -122,8 +122,8 @@ A developer closes cc-deck and reopens it the next day. When creating a new sess
 - **FR-011**: cc-deck MUST group sessions by project (git repo name or directory) and assign each group a distinct color from a configurable palette
 - **FR-012**: cc-deck MUST display a persistent status bar showing all sessions as compact tabs with group color, name, and status indicator
 - **FR-013**: cc-deck MUST highlight the currently focused session in the status bar
-- **FR-014**: All keybindings MUST be configurable via plugin configuration, with sensible defaults (Ctrl-T for picker, configurable prefix key defaulting to Ctrl-B for other commands)
-- **FR-015**: cc-deck MUST support direct session switching via prefix + number keys (1-9)
+- **FR-014**: All keybindings MUST be configurable via plugin configuration, with sensible defaults using Ctrl+Shift modifiers (Ctrl+Shift+T for picker, Ctrl+Shift+N for new session, Ctrl+Shift+R for rename, Ctrl+Shift+X for close). No prefix key model; all actions are direct single-keystroke bindings registered via Zellij's `reconfigure` API.
+- **FR-015**: cc-deck MUST support direct session switching via Ctrl+Shift+1-9 number keys
 - **FR-016**: cc-deck MUST persist recently used session directories and names across restarts, stored as structured data accessible via the WASI filesystem
 - **FR-017**: The recent sessions list MUST be capped at 20 entries with least-recently-used eviction
 - **FR-018**: When a session's Claude process exits, cc-deck MUST keep the pane visible with exit status and mark the session as "exited" in the status bar
