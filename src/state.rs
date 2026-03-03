@@ -264,6 +264,15 @@ mod tests {
         assert_eq!(state.focused_pane_id, None);
         assert!(!state.picker_active);
         assert_eq!(state.next_session_id, 0);
+        assert!(state.recent.is_empty());
+    }
+
+    #[test]
+    fn test_iso_timestamp() {
+        let ts = PluginState::iso_timestamp();
+        // Should be a valid numeric string (epoch seconds)
+        let secs: u64 = ts.parse().expect("timestamp should be numeric");
+        assert!(secs > 0);
     }
 
     #[test]
