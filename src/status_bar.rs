@@ -1,17 +1,21 @@
+use crate::group::ansi_fg;
 use crate::state::PluginState;
+
+const RESET: &str = "\u{1b}[0m";
 
 impl PluginState {
     /// Render a compact status bar showing all sessions.
     ///
     /// Each session is displayed as a compact tab with a status indicator
     /// and display name. The currently focused session is highlighted
-    /// with bold+reverse ANSI styling.
+    /// with bold+reverse ANSI styling. Session tabs are colored by their
+    /// project group color.
     pub fn render_status_bar(&self, cols: usize) {
         if self.sessions.is_empty() {
             let msg = " cc-deck: no sessions ";
             let padded = format!("{:<width$}", msg, width = cols);
             // Dim style for empty state
-            print!("\u{1b}[2m{}\u{1b}[0m", padded);
+            print!("\u{1b}[2m{}{}", padded, RESET);
             return;
         }
 
@@ -21,16 +25,24 @@ impl PluginState {
                 .focused_pane_id
                 .is_some_and(|id| id == session.pane_id);
 
+            let group_color = self
+                .groups
+                .get(&session.group_id)
+                .map(|g| g.color.as_str())
+                .unwrap_or("white");
+            let color = ansi_fg(group_color);
+
             let indicator = session.status.indicator();
             let name = &session.display_name;
             let num = idx + 1;
             let tab = format!(" {}:{} {} ", num, indicator, name);
 
             if is_focused {
-                // Bold + reverse for focused session
-                bar.push_str(&format!("\u{1b}[1;7m{}\u{1b}[0m", tab));
+                // Group color + bold + reverse for focused session
+                bar.push_str(&format!("{}\u{1b}[1;7m{}{}", color, tab, RESET));
             } else {
-                bar.push_str(&tab);
+                // Group color for non-focused session
+                bar.push_str(&format!("{}{}{}", color, tab, RESET));
             }
             bar.push('|');
         }
@@ -48,6 +60,25 @@ impl PluginState {
             print!("{}…", truncated);
         } else {
             print!("{}", bar);
+        }
+    }
+
+    /// Render a rename prompt overlay in the status bar area.
+    pub fn render_rename_prompt(&self, cols: usize) {
+        let label = " Rename: ";
+        let cursor = "_";
+        let suffix = " [Enter] apply  [Esc] cancel";
+
+        let content = format!(
+            "\u{1b}[1m{}\u{1b}[0m{}{}\u{1b}[2m{}\u{1b}[0m",
+            label, self.rename_buffer, cursor, suffix
+        );
+
+        let visible = visible_width(&content);
+        if visible < cols {
+            print!("{}{}", content, " ".repeat(cols - visible));
+        } else {
+            print!("{}", content);
         }
     }
 }
