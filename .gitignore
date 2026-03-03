@@ -1,0 +1,19 @@
+# Rust build artifacts
+/target/
+*.rs.bk
+*.rlib
+
+# OS files
+.DS_Store
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+
+# Environment
+.env*
