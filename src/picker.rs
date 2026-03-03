@@ -6,6 +6,7 @@ use crate::state::PluginState;
 
 /// A picker entry representing a session in the fuzzy picker list.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct PickerEntry {
     pub session_id: u32,
     pub pane_id: u32,

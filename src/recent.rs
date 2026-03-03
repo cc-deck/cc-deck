@@ -37,6 +37,7 @@ impl Default for RecentEntries {
     }
 }
 
+#[allow(dead_code)]
 impl RecentEntries {
     /// Create a new empty RecentEntries.
     pub fn new() -> Self {

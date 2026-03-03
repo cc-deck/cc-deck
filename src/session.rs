@@ -20,6 +20,7 @@ pub enum SessionStatus {
 
 impl SessionStatus {
     /// Returns a short label for status bar display.
+    #[allow(dead_code)]
     pub fn label(&self) -> &str {
         match self {
             SessionStatus::Working => "working",
@@ -47,6 +48,7 @@ impl SessionStatus {
 
 /// A running Claude Code session managed by cc-deck.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct Session {
     /// Unique session identifier (sequential)
     pub id: u32,
