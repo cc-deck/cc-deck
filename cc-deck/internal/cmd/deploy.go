@@ -20,6 +20,7 @@ type DeployFlags struct {
 	SyncDir         string
 	AllowEgress     []string
 	NoNetworkPolicy bool
+	Overlay         string
 }
 
 // NewDeployCmd creates the deploy cobra command.
@@ -49,6 +50,7 @@ The session name must be unique within the namespace.`,
 	cmd.Flags().StringVar(&flags.SyncDir, "sync-dir", "", "Local directory to sync to the Pod on deploy")
 	cmd.Flags().StringSliceVar(&flags.AllowEgress, "allow-egress", nil, "Additional egress hosts to allow (can be repeated)")
 	cmd.Flags().BoolVar(&flags.NoNetworkPolicy, "no-network-policy", false, "Skip creating NetworkPolicy")
+	cmd.Flags().StringVar(&flags.Overlay, "overlay", "", "Path to a kustomize overlay directory to merge with generated resources")
 
 	return cmd
 }
@@ -111,6 +113,7 @@ func runDeploy(ctx context.Context, sessionName string, flags *DeployFlags, gf *
 		SyncDir:         flags.SyncDir,
 		NoNetworkPolicy: flags.NoNetworkPolicy,
 		AllowEgress:     flags.AllowEgress,
+		Overlay:         flags.Overlay,
 		Clientset:       client.Clientset,
 		RestConfig:      client.RestConfig,
 		Caps:            caps,
