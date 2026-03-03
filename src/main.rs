@@ -278,14 +278,14 @@ register_plugin!(PluginState);
                                 .unwrap_or_else(|| PathBuf::from("."))
                         });
                     let session_id = self.prepare_session(cwd.clone());
-                    let cmd = CommandToRun {
-                        path: PathBuf::from("claude"),
-                        args: vec![],
-                        cwd: Some(cwd),
-                    };
-                    let context =
-                        BTreeMap::from([("session_id".to_string(), session_id.to_string())]);
-                    open_command_pane(cmd, context);
+                    let cwd_str = cwd.to_string_lossy();
+                    // Open claude in a new tab so each session gets full screen
+                    let layout = format!(
+                        r#"layout {{ tab name="claude-{id}" {{ pane command="claude" {{ cwd "{cwd}" }} }} }}"#,
+                        id = session_id,
+                        cwd = cwd_str,
+                    );
+                    new_tabs_with_layout(&layout);
                     return true;
                 }
                 "rename_session" => {
