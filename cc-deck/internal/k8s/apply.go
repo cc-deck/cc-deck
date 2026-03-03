@@ -16,6 +16,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 )
 
 const fieldManager = "cc-deck"
@@ -79,7 +80,34 @@ func (a *Applier) applyObject(
 	return nil
 }
 
+// ApplyNetworkPolicy applies a NetworkPolicy using Server-Side Apply.
+func (a *Applier) ApplyNetworkPolicy(ctx context.Context, np *networkingv1.NetworkPolicy) error {
+	gvr := networkingv1.SchemeGroupVersion.WithResource("networkpolicies")
+	return a.applyObject(ctx, np, "networking.k8s.io/v1", "NetworkPolicy", np.Namespace, gvr)
+}
+
+// ApplyUnstructured applies an unstructured resource using Server-Side Apply.
+// The GVR must be provided since it cannot be inferred from unstructured objects.
+func (a *Applier) ApplyUnstructured(ctx context.Context, obj *unstructured.Unstructured, gvr schema.GroupVersionResource) error {
+	patchData, err := json.Marshal(obj)
+	if err != nil {
+		return fmt.Errorf("marshaling patch data: %w", err)
+	}
+
+	ns := obj.GetNamespace()
+	resource := a.dynamicClient.Resource(gvr).Namespace(ns)
+	_, err = resource.Patch(ctx, obj.GetName(), types.ApplyPatchType, patchData, metav1.PatchOptions{
+		FieldManager: fieldManager,
+	})
+	if err != nil {
+		return fmt.Errorf("applying %s %q: %w", obj.GetKind(), obj.GetName(), err)
+	}
+
+	return nil
+}
+
 func init() {
 	_ = appsv1.AddToScheme(scheme.Scheme)
 	_ = corev1.AddToScheme(scheme.Scheme)
+	_ = networkingv1.AddToScheme(scheme.Scheme)
 }
