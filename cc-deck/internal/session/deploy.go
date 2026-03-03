@@ -43,6 +43,7 @@ type DeployOptions struct {
 	SyncDir         string
 	NoNetworkPolicy bool
 	AllowEgress     []string
+	Overlay         string
 	Clientset       kubernetes.Interface
 	RestConfig      *rest.Config
 	Caps            *k8s.ClusterCapabilities
@@ -95,22 +96,26 @@ func Deploy(ctx context.Context, opts DeployOptions) (*DeployResult, error) {
 		return nil, fmt.Errorf("creating applier: %w", err)
 	}
 
-	// T013: Build and apply ConfigMap for Zellij config
+	// Build resources
 	cm := k8s.BuildZellijConfigMap(params)
-	if err := applier.ApplyConfigMap(ctx, cm); err != nil {
-		return nil, fmt.Errorf("applying Zellij ConfigMap: %w", err)
-	}
-
-	// T011: Build and apply StatefulSet
 	sts := k8s.BuildStatefulSet(params)
-	if err := applier.ApplyStatefulSet(ctx, sts); err != nil {
-		return nil, fmt.Errorf("applying StatefulSet: %w", err)
-	}
-
-	// T011: Build and apply headless Service
 	svc := k8s.BuildHeadlessService(params)
-	if err := applier.ApplyService(ctx, svc); err != nil {
-		return nil, fmt.Errorf("applying Service: %w", err)
+
+	// Apply resources, using kustomize overlay if specified
+	if opts.Overlay != "" {
+		if err := k8s.ApplyWithOverlay(ctx, applier, opts.Overlay, cm, sts, svc); err != nil {
+			return nil, fmt.Errorf("applying resources with overlay: %w", err)
+		}
+	} else {
+		if err := applier.ApplyConfigMap(ctx, cm); err != nil {
+			return nil, fmt.Errorf("applying Zellij ConfigMap: %w", err)
+		}
+		if err := applier.ApplyStatefulSet(ctx, sts); err != nil {
+			return nil, fmt.Errorf("applying StatefulSet: %w", err)
+		}
+		if err := applier.ApplyService(ctx, svc); err != nil {
+			return nil, fmt.Errorf("applying Service: %w", err)
+		}
 	}
 
 	// Deploy NetworkPolicy
