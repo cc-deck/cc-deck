@@ -49,8 +49,60 @@ and managing remote Claude Code sessions.`,
 	rootCmd.AddCommand(cmd.NewDeleteCmd(gf))
 	rootCmd.AddCommand(cmd.NewLogsCmd(gf))
 	rootCmd.AddCommand(cmd.NewVersionCmd(gf))
+	rootCmd.AddCommand(newCompletionCmd())
 
 	return rootCmd
+}
+
+func newCompletionCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "completion [bash|zsh|fish]",
+		Short: "Generate shell completion scripts",
+		Long: `Generate shell completion scripts for cc-deck.
+
+To load completions:
+
+Bash:
+  $ source <(cc-deck completion bash)
+
+  # To load completions for each session, execute once:
+  # Linux:
+  $ cc-deck completion bash > /etc/bash_completion.d/cc-deck
+  # macOS:
+  $ cc-deck completion bash > $(brew --prefix)/etc/bash_completion.d/cc-deck
+
+Zsh:
+  # If shell completion is not already enabled in your environment,
+  # you will need to enable it. Execute the following once:
+  $ echo "autoload -U compinit; compinit" >> ~/.zshrc
+
+  # To load completions for each session, execute once:
+  $ cc-deck completion zsh > "${fpath[1]}/_cc-deck"
+
+  # You will need to start a new shell for this setup to take effect.
+
+Fish:
+  $ cc-deck completion fish | source
+
+  # To load completions for each session, execute once:
+  $ cc-deck completion fish > ~/.config/fish/completions/cc-deck.fish
+`,
+		DisableFlagsInUseLine: true,
+		ValidArgs:             []string{"bash", "zsh", "fish"},
+		Args:                  cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			switch args[0] {
+			case "bash":
+				return cmd.Root().GenBashCompletion(os.Stdout)
+			case "zsh":
+				return cmd.Root().GenZshCompletion(os.Stdout)
+			case "fish":
+				return cmd.Root().GenFishCompletion(os.Stdout, true)
+			default:
+				return fmt.Errorf("unsupported shell: %s", args[0])
+			}
+		},
+	}
 }
 
 func initConfig(gf *cmd.GlobalFlags) {
