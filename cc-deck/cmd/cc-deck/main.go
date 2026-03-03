@@ -8,6 +8,8 @@ import (
 	"github.com/adrg/xdg"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+
+	"github.com/rhuss/cc-mux/cc-deck/internal/cmd"
 )
 
 const (
@@ -16,16 +18,9 @@ const (
 	configFile    = "config.yaml"
 )
 
-var (
-	cfgFile    string
-	kubeconfig string
-	namespace  string
-	profile    string
-	verbose    bool
-	output     string
-)
-
 func newRootCmd() *cobra.Command {
+	gf := &cmd.GlobalFlags{}
+
 	rootCmd := &cobra.Command{
 		Use:   appName,
 		Short: "Deploy and manage Claude Code sessions on Kubernetes/OpenShift",
@@ -36,21 +31,26 @@ and managing remote Claude Code sessions.`,
 		SilenceUsage: true,
 	}
 
-	rootCmd.PersistentFlags().StringVar(&kubeconfig, "kubeconfig", "", "Path to kubeconfig (default: $KUBECONFIG or ~/.kube/config)")
-	rootCmd.PersistentFlags().StringVarP(&namespace, "namespace", "n", "", "Target namespace (default: current context namespace)")
-	rootCmd.PersistentFlags().StringVarP(&profile, "profile", "p", "", "Credential profile to use (default: config default)")
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", fmt.Sprintf("Config file (default: $XDG_CONFIG_HOME/%s/%s)", configDirName, configFile))
-	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
-	rootCmd.PersistentFlags().StringVarP(&output, "output", "o", "text", "Output format (text, json, yaml)")
+	rootCmd.PersistentFlags().StringVar(&gf.Kubeconfig, "kubeconfig", "", "Path to kubeconfig (default: $KUBECONFIG or ~/.kube/config)")
+	rootCmd.PersistentFlags().StringVarP(&gf.Namespace, "namespace", "n", "", "Target namespace (default: current context namespace)")
+	rootCmd.PersistentFlags().StringVarP(&gf.Profile, "profile", "p", "", "Credential profile to use (default: config default)")
+	rootCmd.PersistentFlags().StringVar(&gf.ConfigFile, "config", "", fmt.Sprintf("Config file (default: $XDG_CONFIG_HOME/%s/%s)", configDirName, configFile))
+	rootCmd.PersistentFlags().BoolVarP(&gf.Verbose, "verbose", "v", false, "Verbose output")
+	rootCmd.PersistentFlags().StringVarP(&gf.Output, "output", "o", "text", "Output format (text, json, yaml)")
 
-	cobra.OnInitialize(initConfig)
+	cobra.OnInitialize(func() {
+		initConfig(gf)
+	})
+
+	rootCmd.AddCommand(cmd.NewConnectCmd(gf))
+	rootCmd.AddCommand(cmd.NewProfileCmd(gf))
 
 	return rootCmd
 }
 
-func initConfig() {
-	if cfgFile != "" {
-		viper.SetConfigFile(cfgFile)
+func initConfig(gf *cmd.GlobalFlags) {
+	if gf.ConfigFile != "" {
+		viper.SetConfigFile(gf.ConfigFile)
 	} else {
 		configDir := filepath.Join(xdg.ConfigHome, configDirName)
 		viper.AddConfigPath(configDir)
@@ -61,7 +61,7 @@ func initConfig() {
 	viper.AutomaticEnv()
 
 	if err := viper.ReadInConfig(); err != nil {
-		if verbose {
+		if gf.Verbose {
 			if _, ok := err.(viper.ConfigFileNotFoundError); ok {
 				fmt.Fprintf(os.Stderr, "Config file not found, using defaults\n")
 			} else {

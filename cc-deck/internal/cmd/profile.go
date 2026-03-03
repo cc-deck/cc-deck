@@ -1,0 +1,221 @@
+package cmd
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"text/tabwriter"
+
+	"github.com/spf13/cobra"
+
+	"github.com/rhuss/cc-mux/cc-deck/internal/config"
+	"github.com/rhuss/cc-mux/cc-deck/internal/k8s"
+	"github.com/rhuss/cc-mux/cc-deck/internal/session"
+)
+
+// NewProfileCmd creates the profile cobra command with subcommands.
+func NewProfileCmd(globalFlags *GlobalFlags) *cobra.Command {
+	profileCmd := &cobra.Command{
+		Use:   "profile",
+		Short: "Manage credential profiles",
+		Long:  "Create, list, switch, and inspect credential profiles for AI backends.",
+	}
+
+	profileCmd.AddCommand(
+		newProfileAddCmd(globalFlags),
+		newProfileListCmd(globalFlags),
+		newProfileUseCmd(globalFlags),
+		newProfileShowCmd(globalFlags),
+	)
+
+	return profileCmd
+}
+
+func newProfileAddCmd(gf *GlobalFlags) *cobra.Command {
+	return &cobra.Command{
+		Use:   "add <name>",
+		Short: "Add a credential profile",
+		Long: `Interactively create a new credential profile.
+
+Prompts for backend type (anthropic or vertex), credential Secret references,
+and optional settings like model. Validates that referenced K8s Secrets exist.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runProfileAdd(cmd.Context(), args[0], gf)
+		},
+	}
+}
+
+func newProfileListCmd(gf *GlobalFlags) *cobra.Command {
+	return &cobra.Command{
+		Use:   "list",
+		Short: "List all credential profiles",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runProfileList(gf)
+		},
+	}
+}
+
+func newProfileUseCmd(gf *GlobalFlags) *cobra.Command {
+	return &cobra.Command{
+		Use:   "use <name>",
+		Short: "Set the default credential profile",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runProfileUse(args[0], gf)
+		},
+	}
+}
+
+func newProfileShowCmd(gf *GlobalFlags) *cobra.Command {
+	return &cobra.Command{
+		Use:   "show <name>",
+		Short: "Show details of a credential profile",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runProfileShow(args[0], gf)
+		},
+	}
+}
+
+func runProfileAdd(ctx context.Context, name string, gf *GlobalFlags) error {
+	cfg, err := config.Load(gf.ConfigFile)
+	if err != nil {
+		return fmt.Errorf("loading config: %w", err)
+	}
+
+	// Check if profile already exists
+	if _, err := cfg.GetProfile(name); err == nil {
+		return fmt.Errorf("profile %q already exists (delete it first or choose a different name)", name)
+	}
+
+	// Interactive prompt
+	profile, err := config.PromptProfile(os.Stdin, os.Stdout)
+	if err != nil {
+		return fmt.Errorf("creating profile: %w", err)
+	}
+
+	// Validate Secrets exist on cluster
+	client, err := k8s.NewClient(k8s.ClientOptions{
+		Kubeconfig: gf.Kubeconfig,
+		Namespace:  gf.Namespace,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not connect to cluster for Secret validation: %v\n", err)
+	} else {
+		if valErr := session.ValidateProfileSecrets(ctx, client.Clientset, client.Namespace, profile); valErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: %v\n", valErr)
+			fmt.Fprintf(os.Stderr, "Profile will be saved, but deploy will fail until Secrets are created.\n")
+		}
+	}
+
+	if err := cfg.AddProfile(name, profile); err != nil {
+		return fmt.Errorf("adding profile: %w", err)
+	}
+
+	// Set as default if it's the first profile
+	if len(cfg.Profiles) == 1 {
+		cfg.DefaultProfile = name
+		fmt.Fprintf(os.Stdout, "Set %q as default profile.\n", name)
+	}
+
+	if err := cfg.Save(gf.ConfigFile); err != nil {
+		return fmt.Errorf("saving config: %w", err)
+	}
+
+	fmt.Fprintf(os.Stdout, "Profile %q added.\n", name)
+	return nil
+}
+
+func runProfileList(gf *GlobalFlags) error {
+	cfg, err := config.Load(gf.ConfigFile)
+	if err != nil {
+		return fmt.Errorf("loading config: %w", err)
+	}
+
+	names := cfg.ListProfiles()
+	if len(names) == 0 {
+		fmt.Fprintln(os.Stdout, "No profiles configured. Run 'cc-deck profile add <name>' to create one.")
+		return nil
+	}
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(w, "NAME\tBACKEND\tDEFAULT")
+	for _, name := range names {
+		p := cfg.Profiles[name]
+		defaultMarker := ""
+		if name == cfg.DefaultProfile {
+			defaultMarker = "*"
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\n", name, p.Backend, defaultMarker)
+	}
+	return w.Flush()
+}
+
+func runProfileUse(name string, gf *GlobalFlags) error {
+	cfg, err := config.Load(gf.ConfigFile)
+	if err != nil {
+		return fmt.Errorf("loading config: %w", err)
+	}
+
+	if err := cfg.SetDefaultProfile(name); err != nil {
+		return err
+	}
+
+	if err := cfg.Save(gf.ConfigFile); err != nil {
+		return fmt.Errorf("saving config: %w", err)
+	}
+
+	fmt.Fprintf(os.Stdout, "Default profile set to %q.\n", name)
+	return nil
+}
+
+func runProfileShow(name string, gf *GlobalFlags) error {
+	cfg, err := config.Load(gf.ConfigFile)
+	if err != nil {
+		return fmt.Errorf("loading config: %w", err)
+	}
+
+	p, err := cfg.GetProfile(name)
+	if err != nil {
+		return err
+	}
+
+	defaultMarker := ""
+	if name == cfg.DefaultProfile {
+		defaultMarker = " (default)"
+	}
+
+	fmt.Fprintf(os.Stdout, "Profile: %s%s\n", name, defaultMarker)
+	fmt.Fprintf(os.Stdout, "  Backend:  %s\n", p.Backend)
+
+	switch p.Backend {
+	case config.BackendAnthropic:
+		fmt.Fprintf(os.Stdout, "  API Key Secret:  %s\n", p.APIKeySecret)
+	case config.BackendVertex:
+		fmt.Fprintf(os.Stdout, "  Project:  %s\n", p.Project)
+		fmt.Fprintf(os.Stdout, "  Region:   %s\n", p.Region)
+		if p.CredentialsSecret != "" {
+			fmt.Fprintf(os.Stdout, "  Credentials Secret:  %s\n", p.CredentialsSecret)
+		} else {
+			fmt.Fprintf(os.Stdout, "  Credentials:  Workload Identity\n")
+		}
+	}
+
+	if p.Model != "" {
+		fmt.Fprintf(os.Stdout, "  Model:    %s\n", p.Model)
+	}
+	if p.Permissions != "" {
+		fmt.Fprintf(os.Stdout, "  Permissions:  %s\n", p.Permissions)
+	}
+	if len(p.AllowedEgress) > 0 {
+		fmt.Fprintf(os.Stdout, "  Allowed Egress:  %v\n", p.AllowedEgress)
+	}
+	if p.GitCredentialType != "" {
+		fmt.Fprintf(os.Stdout, "  Git Credential Type:  %s\n", p.GitCredentialType)
+		fmt.Fprintf(os.Stdout, "  Git Credential Secret:  %s\n", p.GitCredentialSecret)
+	}
+
+	return nil
+}

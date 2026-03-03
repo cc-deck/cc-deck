@@ -47,6 +47,7 @@ type Session struct {
 type Connection struct {
 	ExecTarget string `yaml:"exec_target,omitempty"`
 	WebURL     string `yaml:"web_url,omitempty"`
+	WebPort    int    `yaml:"web_port,omitempty"`
 	Method     string `yaml:"method,omitempty"`
 }
 
