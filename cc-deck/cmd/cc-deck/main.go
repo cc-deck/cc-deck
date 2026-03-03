@@ -42,11 +42,13 @@ and managing remote Claude Code sessions.`,
 		initConfig(gf)
 	})
 
+	rootCmd.AddCommand(cmd.NewDeployCmd(gf))
 	rootCmd.AddCommand(cmd.NewConnectCmd(gf))
 	rootCmd.AddCommand(cmd.NewProfileCmd(gf))
 	rootCmd.AddCommand(cmd.NewListCmd(gf))
 	rootCmd.AddCommand(cmd.NewDeleteCmd(gf))
 	rootCmd.AddCommand(cmd.NewLogsCmd(gf))
+	rootCmd.AddCommand(cmd.NewVersionCmd(gf))
 
 	return rootCmd
 }
