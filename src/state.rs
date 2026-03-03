@@ -40,6 +40,16 @@ pub struct PluginState {
     pub rename_buffer: String,
     /// Recently used session directories (LRU cache)
     pub recent: RecentEntries,
+    /// Transient error message displayed in the status bar
+    pub error_message: Option<String>,
+    /// Countdown counter for clearing the error message (decremented on each timer tick)
+    pub error_clear_counter: u8,
+    /// Whether a close-session confirmation is active
+    pub close_confirm_active: bool,
+    /// Pane ID of the session pending close confirmation
+    pub close_target_pane_id: Option<u32>,
+    /// Cooldown counter for picker toggle debounce (decremented on each timer tick)
+    pub picker_toggle_cooldown: u8,
 }
 
 impl PluginState {
@@ -146,6 +156,36 @@ impl PluginState {
         }
     }
 
+    /// Handle a key event while the close confirmation is active.
+    ///
+    /// 'y' confirms the close, 'n' or Escape cancels.
+    #[cfg(target_arch = "wasm32")]
+    pub fn handle_close_confirm_key(&mut self, key: zellij_tile::prelude::KeyWithModifier) {
+        use zellij_tile::prelude::*;
+        match key.bare_key {
+            BareKey::Char('y') | BareKey::Char('Y') => {
+                if let Some(pane_id) = self.close_target_pane_id {
+                    close_terminal_pane(pane_id);
+                    self.remove_session_by_pane(pane_id);
+                }
+                self.close_confirm_active = false;
+                self.close_target_pane_id = None;
+                // Return focus to next available pane
+                if let Some(prev_pane) = self.focused_pane_id {
+                    focus_terminal_pane(prev_pane, true);
+                }
+            }
+            BareKey::Char('n') | BareKey::Char('N') | BareKey::Esc => {
+                self.close_confirm_active = false;
+                self.close_target_pane_id = None;
+                if let Some(prev_pane) = self.focused_pane_id {
+                    focus_terminal_pane(prev_pane, true);
+                }
+            }
+            _ => {} // Ignore other keys
+        }
+    }
+
     /// Handle a key event while the rename prompt is active.
     ///
     /// Processes character input, backspace, Enter (apply), and Escape (cancel).
@@ -211,7 +251,7 @@ impl PluginState {
     pub fn unique_display_name(&self, base_name: &str, exclude_id: Option<u32>) -> String {
         let is_taken = |name: &str| -> bool {
             self.sessions.values().any(|s| {
-                s.display_name == name && exclude_id.map_or(true, |eid| s.id != eid)
+                s.display_name == name && (exclude_id != Some(s.id))
             })
         };
 
@@ -466,5 +506,88 @@ mod tests {
         state.remove_session_by_pane(42);
         assert_eq!(state.sessions.len(), 1);
         assert!(state.sessions.contains_key(&1));
+    }
+
+    #[test]
+    fn test_default_state_new_fields() {
+        let state = PluginState::default();
+        assert!(state.error_message.is_none());
+        assert_eq!(state.error_clear_counter, 0);
+        assert!(!state.close_confirm_active);
+        assert!(state.close_target_pane_id.is_none());
+        assert_eq!(state.picker_toggle_cooldown, 0);
+    }
+
+    #[test]
+    fn test_error_message_set_and_clear() {
+        let mut state = PluginState::default();
+        state.error_message = Some("test error".to_string());
+        state.error_clear_counter = 3;
+
+        // Simulate timer ticks
+        state.error_clear_counter -= 1;
+        assert_eq!(state.error_clear_counter, 2);
+        assert!(state.error_message.is_some());
+
+        state.error_clear_counter -= 1;
+        state.error_clear_counter -= 1;
+        assert_eq!(state.error_clear_counter, 0);
+        // Caller would clear the message when counter reaches 0
+        state.error_message = None;
+        assert!(state.error_message.is_none());
+    }
+
+    #[test]
+    fn test_close_confirm_state() {
+        let mut state = PluginState::default();
+        state.sessions.insert(0, Session::new(0, 42, PathBuf::from("/tmp/test")));
+
+        // Initiate close confirmation
+        state.close_confirm_active = true;
+        state.close_target_pane_id = Some(42);
+        assert!(state.close_confirm_active);
+        assert_eq!(state.close_target_pane_id, Some(42));
+
+        // Cancel
+        state.close_confirm_active = false;
+        state.close_target_pane_id = None;
+        assert!(!state.close_confirm_active);
+    }
+
+    #[test]
+    fn test_picker_toggle_cooldown() {
+        let mut state = PluginState::default();
+        assert_eq!(state.picker_toggle_cooldown, 0);
+
+        // Simulate setting cooldown on toggle
+        state.picker_toggle_cooldown = 3;
+
+        // Simulate timer ticks decrementing cooldown
+        state.picker_toggle_cooldown -= 1;
+        assert_eq!(state.picker_toggle_cooldown, 2);
+
+        state.picker_toggle_cooldown -= 1;
+        assert_eq!(state.picker_toggle_cooldown, 1);
+
+        state.picker_toggle_cooldown -= 1;
+        assert_eq!(state.picker_toggle_cooldown, 0);
+    }
+
+    #[test]
+    fn test_close_confirm_removes_session() {
+        let mut state = PluginState::default();
+        state.sessions.insert(0, Session::new(0, 42, PathBuf::from("/tmp/test")));
+        state.get_or_create_group("test", "test");
+
+        state.close_confirm_active = true;
+        state.close_target_pane_id = Some(42);
+
+        // Simulate confirming close
+        state.remove_session_by_pane(42);
+        state.close_confirm_active = false;
+        state.close_target_pane_id = None;
+
+        assert!(state.sessions.is_empty());
+        assert!(!state.close_confirm_active);
     }
 }

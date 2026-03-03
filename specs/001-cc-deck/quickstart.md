@@ -25,8 +25,8 @@ zellij --layout zellij-dev.kdl
 
 This opens a split with:
 - Left: Your editor
-- Right top: cc-deck plugin (auto-reloads on build)
-- Right bottom: Build terminal
+- Right top: Build terminal
+- Right bottom: cc-deck plugin (auto-loads on start)
 
 Rebuild and reload:
 ```bash
@@ -43,7 +43,9 @@ cargo build --target wasm32-wasip1 --release
 mkdir -p ~/.config/zellij/plugins
 cp target/wasm32-wasip1/release/cc_deck.wasm ~/.config/zellij/plugins/
 
-# Add to Zellij config (config.kdl)
+# Start Zellij with the production layout
+zellij --layout zellij-layout.kdl
+
 # See contracts/pipe-protocol.md for configuration options
 ```
 
@@ -53,8 +55,8 @@ cp target/wasm32-wasip1/release/cc_deck.wasm ~/.config/zellij/plugins/
 # Unit tests (native target)
 cargo test
 
-# Integration test (manual, requires Zellij)
-zellij --layout test-layout.kdl
+# Lint
+cargo clippy
 ```
 
 ## Claude Code Hook Setup
