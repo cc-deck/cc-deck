@@ -2,11 +2,13 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 
 	"github.com/rhuss/cc-mux/cc-deck/internal/config"
 	"github.com/rhuss/cc-mux/cc-deck/internal/k8s"
@@ -128,6 +130,13 @@ func runProfileAdd(ctx context.Context, name string, gf *GlobalFlags) error {
 	return nil
 }
 
+// profileListEntry is used for JSON/YAML serialization of profile list output.
+type profileListEntry struct {
+	Name    string `json:"name" yaml:"name"`
+	Backend string `json:"backend" yaml:"backend"`
+	Default bool   `json:"default" yaml:"default"`
+}
+
 func runProfileList(gf *GlobalFlags) error {
 	cfg, err := config.Load(gf.ConfigFile)
 	if err != nil {
@@ -140,17 +149,46 @@ func runProfileList(gf *GlobalFlags) error {
 		return nil
 	}
 
-	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "NAME\tBACKEND\tDEFAULT")
-	for _, name := range names {
-		p := cfg.Profiles[name]
-		defaultMarker := ""
-		if name == cfg.DefaultProfile {
-			defaultMarker = "*"
+	switch gf.Output {
+	case "json":
+		entries := make([]profileListEntry, 0, len(names))
+		for _, name := range names {
+			p := cfg.Profiles[name]
+			entries = append(entries, profileListEntry{
+				Name:    name,
+				Backend: string(p.Backend),
+				Default: name == cfg.DefaultProfile,
+			})
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\n", name, p.Backend, defaultMarker)
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(entries)
+
+	case "yaml":
+		entries := make([]profileListEntry, 0, len(names))
+		for _, name := range names {
+			p := cfg.Profiles[name]
+			entries = append(entries, profileListEntry{
+				Name:    name,
+				Backend: string(p.Backend),
+				Default: name == cfg.DefaultProfile,
+			})
+		}
+		return yaml.NewEncoder(os.Stdout).Encode(entries)
+
+	default:
+		w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+		fmt.Fprintln(w, "NAME\tBACKEND\tDEFAULT")
+		for _, name := range names {
+			p := cfg.Profiles[name]
+			defaultMarker := ""
+			if name == cfg.DefaultProfile {
+				defaultMarker = "*"
+			}
+			fmt.Fprintf(w, "%s\t%s\t%s\n", name, p.Backend, defaultMarker)
+		}
+		return w.Flush()
 	}
-	return w.Flush()
 }
 
 func runProfileUse(name string, gf *GlobalFlags) error {
