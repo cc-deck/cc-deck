@@ -111,7 +111,7 @@ A developer closes cc-deck and reopens it the next day. When creating a new sess
 
 - **FR-001**: cc-deck MUST run as a Zellij WASM plugin, loaded via Zellij's plugin configuration
 - **FR-002**: cc-deck MUST spawn Claude Code sessions as Zellij command panes, each running `claude` in a user-specified working directory
-- **FR-003**: cc-deck MUST provide a fuzzy picker overlay activated by a configurable keybinding (default: Ctrl-T) rendered as a floating pane
+- **FR-003**: cc-deck MUST provide a fuzzy picker overlay activated by a configurable keybinding (default: Ctrl+Shift+T) rendered as a floating pane
 - **FR-004**: The fuzzy picker MUST support incremental text search, filtering the session list on every keystroke
 - **FR-005**: The fuzzy picker MUST display session name, activity status indicator, and project group color for each session
 - **FR-006**: cc-deck MUST auto-detect session names from the git repository name in the session's working directory
@@ -179,8 +179,8 @@ A developer closes cc-deck and reopens it the next day. When creating a new sess
 - Auto-updating or plugin version management
 - **Container/remote backends (e.g., paude integration)**: Future consideration for v2. The session model should include an extensible backend field to support container-based autonomous sessions later, but v1 covers local interactive sessions only.
 
-## Open Questions
+## Resolved Questions
 
-- The exact Claude Code hook event names and pipe message format for status detection need to be validated against Claude Code's current hook API. The zellij-attention plugin's approach is a reference implementation.
-- The WASI filesystem path for persisting `recent.json` needs testing against Zellij's sandbox restrictions.
-- The default prefix key (Ctrl-B) needs verification that it does not conflict with Claude Code's own keybindings.
+- **Claude Code hook format**: Validated. Uses `cc-deck::EVENT_TYPE::PANE_ID` pipe messages with events: `working`, `waiting`, `done`. Matches the zellij-attention plugin pattern. See `contracts/claude-hooks.md`.
+- **WASI filesystem persistence**: Resolved. The `/cache` virtual directory is persistent across sessions and requires no special permissions. Recent sessions stored at `/cache/recent.json`.
+- **Keybinding conflicts**: Resolved. Replaced Ctrl-B/Ctrl-T (conflict with Zellij and Claude Code) with Ctrl+Shift modifiers. All keybindings registered via Zellij's `reconfigure` API. See `research.md` Decision 3.
