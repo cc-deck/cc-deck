@@ -5,9 +5,12 @@ import (
 	"fmt"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 
 	"github.com/rhuss/cc-mux/cc-deck/internal/config"
 	"github.com/rhuss/cc-mux/cc-deck/internal/k8s"
+	filesync "github.com/rhuss/cc-mux/cc-deck/internal/sync"
 )
 
 // DeployNetworkPolicyOptions holds parameters for deploying network policies.
@@ -64,6 +67,43 @@ func DeployNetworkPolicy(ctx context.Context, opts DeployNetworkPolicyOptions) e
 		if err := opts.Applier.ApplyUnstructured(ctx, ef, egressFirewallGVR); err != nil {
 			return fmt.Errorf("applying EgressFirewall: %w", err)
 		}
+	}
+
+	return nil
+}
+
+// DeployInitialSyncOptions holds parameters for initial file sync during deploy.
+type DeployInitialSyncOptions struct {
+	SessionName string
+	Namespace   string
+	SyncDir     string
+	Excludes    []string
+	Clientset   kubernetes.Interface
+	RestConfig  *rest.Config
+}
+
+// DeployInitialSync performs a push sync from the local directory to the Pod
+// as part of the deploy workflow. Skipped if SyncDir is empty.
+func DeployInitialSync(ctx context.Context, opts DeployInitialSyncOptions) error {
+	if opts.SyncDir == "" {
+		return nil
+	}
+
+	podName := k8s.ResourcePrefix(opts.SessionName) + "-0"
+
+	syncOpts := filesync.SyncOptions{
+		PodName:       podName,
+		Namespace:     opts.Namespace,
+		ContainerName: "claude",
+		LocalDir:      opts.SyncDir,
+		RemoteDir:     "/workspace",
+		Excludes:      opts.Excludes,
+		Clientset:     opts.Clientset,
+		RestConfig:    opts.RestConfig,
+	}
+
+	if err := filesync.Push(ctx, syncOpts); err != nil {
+		return fmt.Errorf("initial sync to Pod %q: %w", podName, err)
 	}
 
 	return nil

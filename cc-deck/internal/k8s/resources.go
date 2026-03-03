@@ -19,8 +19,12 @@ const (
 	appName        = "cc-deck"
 	componentValue = "claude-session"
 
-	containerPort    = 8082
+	containerPort      = 8082
 	workspaceMountPath = "/workspace"
+
+	zellijConfigVolume    = "zellij-config"
+	zellijConfigMountPath = "/home/claude/.config/zellij"
+	zellijConfigKey       = "config.kdl"
 )
 
 // SessionParams holds parameters for building K8s resources for a session.
@@ -208,6 +212,34 @@ func applyCredentialConfig(c *corev1.Container, p config.Profile) {
 	}
 }
 
+// BuildZellijConfigMap creates a ConfigMap containing Zellij configuration
+// with web server enabled for remote access.
+func BuildZellijConfigMap(p SessionParams) *corev1.ConfigMap {
+	name := ResourcePrefix(p.Name)
+	labels := standardLabels(p.Name)
+
+	configContent := `// Zellij configuration for cc-deck sessions
+web_server true
+web_server_ip "0.0.0.0"
+web_server_port 8082
+`
+
+	return &corev1.ConfigMap{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "v1",
+			Kind:       "ConfigMap",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name + "-zellij",
+			Namespace: p.Namespace,
+			Labels:    labels,
+		},
+		Data: map[string]string{
+			zellijConfigKey: configContent,
+		},
+	}
+}
+
 // GCPCredentialVolume returns the Volume definition for Vertex AI credentials.
 // This should be added to the PodSpec when using the Vertex backend.
 func GCPCredentialVolume(secretName string) corev1.Volume {
@@ -218,5 +250,62 @@ func GCPCredentialVolume(secretName string) corev1.Volume {
 				SecretName: secretName,
 			},
 		},
+	}
+}
+
+// ApplyGitCredentialConfig adds volume mounts and volumes for git credentials
+// to the container and PodSpec volumes slice. Two modes are supported:
+//   - SSH: Mounts the Secret at /home/claude/.ssh with key "ssh-privatekey"
+//   - Token: Mounts the Secret as env vars and configures git credential helper
+func ApplyGitCredentialConfig(container *corev1.Container, volumes *[]corev1.Volume, p config.Profile) {
+	if p.GitCredentialSecret == "" || p.GitCredentialType == "" {
+		return
+	}
+
+	switch p.GitCredentialType {
+	case config.GitCredentialSSH:
+		sshVolumeName := "git-ssh"
+		defaultMode := int32(0o400)
+
+		*volumes = append(*volumes, corev1.Volume{
+			Name: sshVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName:  p.GitCredentialSecret,
+					DefaultMode: &defaultMode,
+				},
+			},
+		})
+
+		container.VolumeMounts = append(container.VolumeMounts, corev1.VolumeMount{
+			Name:      sshVolumeName,
+			MountPath: "/home/claude/.ssh",
+			ReadOnly:  true,
+		})
+
+		// Disable strict host key checking for automated use
+		container.Env = append(container.Env, corev1.EnvVar{
+			Name:  "GIT_SSH_COMMAND",
+			Value: "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null",
+		})
+
+	case config.GitCredentialToken:
+		container.Env = append(container.Env,
+			corev1.EnvVar{
+				Name: "GIT_TOKEN",
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: p.GitCredentialSecret,
+						},
+						Key: "token",
+					},
+				},
+			},
+			corev1.EnvVar{
+				Name:  "GIT_ASKPASS",
+				Value: "/bin/sh -c 'echo $GIT_TOKEN'",
+			},
+		)
 	}
 }
