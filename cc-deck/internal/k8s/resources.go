@@ -1,0 +1,222 @@
+package k8s
+
+import (
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
+
+	"github.com/rhuss/cc-mux/cc-deck/internal/config"
+)
+
+const (
+	appLabel       = "app.kubernetes.io/name"
+	instanceLabel  = "app.kubernetes.io/instance"
+	managedByLabel = "app.kubernetes.io/managed-by"
+	componentLabel = "app.kubernetes.io/component"
+
+	appName        = "cc-deck"
+	componentValue = "claude-session"
+
+	containerPort    = 8082
+	workspaceMountPath = "/workspace"
+)
+
+// SessionParams holds parameters for building K8s resources for a session.
+type SessionParams struct {
+	Name        string
+	Namespace   string
+	Profile     config.Profile
+	Image       string
+	ImageTag    string
+	StorageSize string
+}
+
+// ResourcePrefix returns the standard resource name prefix for a session.
+func ResourcePrefix(sessionName string) string {
+	return appName + "-" + sessionName
+}
+
+// standardLabels returns the standard set of labels for all cc-deck resources.
+func standardLabels(sessionName string) map[string]string {
+	return map[string]string{
+		appLabel:       appName,
+		instanceLabel:  sessionName,
+		managedByLabel: appName,
+		componentLabel: componentValue,
+	}
+}
+
+// BuildStatefulSet creates a StatefulSet for a Claude Code session.
+func BuildStatefulSet(p SessionParams) *appsv1.StatefulSet {
+	name := ResourcePrefix(p.Name)
+	labels := standardLabels(p.Name)
+	replicas := int32(1)
+
+	container := corev1.Container{
+		Name:    "claude",
+		Image:   p.Image + ":" + p.ImageTag,
+		Command: []string{"zellij"},
+		Ports: []corev1.ContainerPort{
+			{
+				Name:          "web",
+				ContainerPort: containerPort,
+				Protocol:      corev1.ProtocolTCP,
+			},
+		},
+		VolumeMounts: []corev1.VolumeMount{
+			{
+				Name:      "data",
+				MountPath: workspaceMountPath,
+			},
+		},
+	}
+
+	applyCredentialConfig(&container, p.Profile)
+
+	var volumes []corev1.Volume
+	if p.Profile.Backend == config.BackendVertex {
+		volumes = append(volumes, GCPCredentialVolume(p.Profile.CredentialsSecret))
+	}
+
+	storageSize := p.StorageSize
+	if storageSize == "" {
+		storageSize = "10Gi"
+	}
+
+	return &appsv1.StatefulSet{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "apps/v1",
+			Kind:       "StatefulSet",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: p.Namespace,
+			Labels:    labels,
+		},
+		Spec: appsv1.StatefulSetSpec{
+			Replicas:    &replicas,
+			ServiceName: name,
+			Selector: &metav1.LabelSelector{
+				MatchLabels: labels,
+			},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: labels,
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{container},
+					Volumes:    volumes,
+				},
+			},
+			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "data",
+					},
+					Spec: corev1.PersistentVolumeClaimSpec{
+						AccessModes: []corev1.PersistentVolumeAccessMode{
+							corev1.ReadWriteOnce,
+						},
+						Resources: corev1.VolumeResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceStorage: resource.MustParse(storageSize),
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+// BuildHeadlessService creates a headless Service for the StatefulSet.
+func BuildHeadlessService(p SessionParams) *corev1.Service {
+	name := ResourcePrefix(p.Name)
+	labels := standardLabels(p.Name)
+
+	return &corev1.Service{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "v1",
+			Kind:       "Service",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: p.Namespace,
+			Labels:    labels,
+		},
+		Spec: corev1.ServiceSpec{
+			ClusterIP: "None",
+			Selector:  labels,
+			Ports: []corev1.ServicePort{
+				{
+					Name:       "web",
+					Port:       containerPort,
+					TargetPort: intstr.FromInt32(containerPort),
+					Protocol:   corev1.ProtocolTCP,
+				},
+			},
+		},
+	}
+}
+
+// applyCredentialConfig configures environment variables and volume mounts
+// based on the profile's backend type.
+func applyCredentialConfig(c *corev1.Container, p config.Profile) {
+	switch p.Backend {
+	case config.BackendAnthropic:
+		c.Env = append(c.Env, corev1.EnvVar{
+			Name: "ANTHROPIC_API_KEY",
+			ValueFrom: &corev1.EnvVarSource{
+				SecretKeyRef: &corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: p.APIKeySecret,
+					},
+					Key: "api-key",
+				},
+			},
+		})
+
+	case config.BackendVertex:
+		credPath := "/var/run/secrets/gcp/credentials.json"
+
+		c.Env = append(c.Env,
+			corev1.EnvVar{
+				Name:  "GOOGLE_APPLICATION_CREDENTIALS",
+				Value: credPath,
+			},
+			corev1.EnvVar{
+				Name:  "CLOUD_ML_REGION",
+				Value: p.Region,
+			},
+			corev1.EnvVar{
+				Name:  "GOOGLE_CLOUD_PROJECT",
+				Value: p.Project,
+			},
+		)
+
+		volumeName := "gcp-credentials"
+		c.VolumeMounts = append(c.VolumeMounts, corev1.VolumeMount{
+			Name:      volumeName,
+			MountPath: "/var/run/secrets/gcp",
+			ReadOnly:  true,
+		})
+
+		// The volume itself must be added to the PodSpec by the caller
+		// or by a wrapper that has access to the PodSpec.
+	}
+}
+
+// GCPCredentialVolume returns the Volume definition for Vertex AI credentials.
+// This should be added to the PodSpec when using the Vertex backend.
+func GCPCredentialVolume(secretName string) corev1.Volume {
+	return corev1.Volume{
+		Name: "gcp-credentials",
+		VolumeSource: corev1.VolumeSource{
+			Secret: &corev1.SecretVolumeSource{
+				SecretName: secretName,
+			},
+		},
+	}
+}
