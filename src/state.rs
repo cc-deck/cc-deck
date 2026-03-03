@@ -1,25 +1,9 @@
 use std::collections::{BTreeMap, HashMap};
 
 use crate::config::PluginConfig;
+use crate::group::{ProjectGroup, GROUP_COLORS};
+use crate::recent::RecentEntries;
 use crate::session::Session;
-
-/// Color palette for project groups.
-pub const GROUP_COLORS: &[&str] = &[
-    "blue", "green", "yellow", "magenta", "cyan", "red", "white",
-];
-
-/// A logical grouping of sessions sharing the same project.
-#[derive(Debug, Clone)]
-pub struct ProjectGroup {
-    /// Normalized project name (lowercase)
-    pub id: String,
-    /// Original-case project name
-    pub display_name: String,
-    /// Assigned color from palette
-    pub color: String,
-    /// Number of active sessions in this group
-    pub session_count: usize,
-}
 
 /// Main plugin state holding all runtime data.
 #[derive(Default)]
@@ -50,9 +34,27 @@ pub struct PluginState {
     pub mru_counter: u64,
     /// Pending sessions: session_id -> cwd, waiting for CommandPaneOpened
     pub pending_sessions: BTreeMap<u32, std::path::PathBuf>,
+    /// Whether the rename text input is active
+    pub rename_active: bool,
+    /// Buffer for the rename text input
+    pub rename_buffer: String,
+    /// Recently used session directories (LRU cache)
+    pub recent: RecentEntries,
 }
 
 impl PluginState {
+    /// Generate an ISO 8601 timestamp from the current system time.
+    ///
+    /// Returns seconds since the Unix epoch as a simple numeric string.
+    /// In a WASI environment, full date formatting libraries are not available,
+    /// so we use epoch seconds as a sortable timestamp.
+    pub fn iso_timestamp() -> String {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs().to_string())
+            .unwrap_or_else(|_| "0".to_string())
+    }
+
     /// Find a session by its Zellij pane ID.
     pub fn session_by_pane_id(&self, pane_id: u32) -> Option<&Session> {
         self.sessions.values().find(|s| s.pane_id == pane_id)
@@ -82,7 +84,9 @@ impl PluginState {
     }
 
     /// Register a session when its command pane has been opened by Zellij.
-    pub fn register_session(&mut self, pane_id: u32, context: BTreeMap<String, String>) {
+    ///
+    /// Returns the session ID so the caller can trigger git detection.
+    pub fn register_session(&mut self, pane_id: u32, context: BTreeMap<String, String>) -> Option<u32> {
         let session_id = context
             .get("session_id")
             .and_then(|s| s.parse::<u32>().ok());
@@ -94,6 +98,13 @@ impl PluginState {
         let id = session_id.unwrap_or_else(|| self.next_id());
         let mut session = Session::new(id, pane_id, cwd.clone());
 
+        // Apply duplicate name detection for the initial directory-based name
+        let unique_name = self.unique_display_name(&session.display_name, Some(id));
+        if unique_name != session.display_name {
+            session.display_name = unique_name.clone();
+            session.auto_name = unique_name;
+        }
+
         // Update MRU timestamp
         self.mru_counter += 1;
         session.last_activity_secs = self.mru_counter;
@@ -104,6 +115,7 @@ impl PluginState {
         self.get_or_create_group(&group_id, &display_name);
 
         self.sessions.insert(id, session);
+        Some(id)
     }
 
     /// Update MRU timestamp for a session when it gains focus.
@@ -134,12 +146,87 @@ impl PluginState {
         }
     }
 
+    /// Handle a key event while the rename prompt is active.
+    ///
+    /// Processes character input, backspace, Enter (apply), and Escape (cancel).
+    #[cfg(target_arch = "wasm32")]
+    pub fn handle_rename_key(&mut self, key: zellij_tile::prelude::KeyWithModifier) {
+        use zellij_tile::prelude::*;
+        match key.bare_key {
+            BareKey::Esc => {
+                self.rename_active = false;
+                self.rename_buffer.clear();
+                // Return focus to the previously focused terminal pane
+                if let Some(prev_pane) = self.focused_pane_id {
+                    focus_terminal_pane(prev_pane, true);
+                }
+            }
+            BareKey::Enter => {
+                let new_name = self.rename_buffer.trim().to_string();
+                if !new_name.is_empty() {
+                    if let Some(pane_id) = self.focused_pane_id {
+                        // Apply the rename to the focused session
+                        let unique_name = {
+                            // Find the session ID for exclusion
+                            let session_id = self
+                                .sessions
+                                .values()
+                                .find(|s| s.pane_id == pane_id)
+                                .map(|s| s.id);
+                            self.unique_display_name(&new_name, session_id)
+                        };
+                        if let Some(session) = self.session_by_pane_id_mut(pane_id) {
+                            session.set_name(unique_name, true);
+                        }
+                    }
+                }
+                self.rename_active = false;
+                self.rename_buffer.clear();
+                if let Some(prev_pane) = self.focused_pane_id {
+                    focus_terminal_pane(prev_pane, true);
+                }
+            }
+            BareKey::Backspace => {
+                self.rename_buffer.pop();
+            }
+            BareKey::Char(c) => {
+                self.rename_buffer.push(c);
+            }
+            _ => {}
+        }
+    }
+
     /// Get the Nth session (1-indexed) for direct switching.
     pub fn session_pane_by_index(&self, index: usize) -> Option<u32> {
         self.sessions
             .values()
             .nth(index.saturating_sub(1))
             .map(|s| s.pane_id)
+    }
+
+    /// Generate a unique display name, appending a numeric suffix if needed.
+    ///
+    /// If `base_name` is already used by another session (excluding `exclude_id`),
+    /// appends "-2", "-3", etc. until a unique name is found.
+    pub fn unique_display_name(&self, base_name: &str, exclude_id: Option<u32>) -> String {
+        let is_taken = |name: &str| -> bool {
+            self.sessions.values().any(|s| {
+                s.display_name == name && exclude_id.map_or(true, |eid| s.id != eid)
+            })
+        };
+
+        if !is_taken(base_name) {
+            return base_name.to_string();
+        }
+
+        let mut suffix = 2;
+        loop {
+            let candidate = format!("{}-{}", base_name, suffix);
+            if !is_taken(&candidate) {
+                return candidate;
+            }
+            suffix += 1;
+        }
     }
 
     /// Get or create a project group for the given group ID.
@@ -279,6 +366,86 @@ mod tests {
         assert!(state.sessions.is_empty());
         // Group should be removed since session count reached 0
         assert!(!state.groups.contains_key("test"));
+    }
+
+    #[test]
+    fn test_unique_display_name_no_conflict() {
+        let state = PluginState::default();
+        assert_eq!(state.unique_display_name("api-server", None), "api-server");
+    }
+
+    #[test]
+    fn test_unique_display_name_with_conflict() {
+        let mut state = PluginState::default();
+        let mut session = Session::new(0, 10, PathBuf::from("/tmp/api-server"));
+        session.display_name = "api-server".to_string();
+        state.sessions.insert(0, session);
+
+        // New name should get suffix "-2"
+        assert_eq!(
+            state.unique_display_name("api-server", None),
+            "api-server-2"
+        );
+    }
+
+    #[test]
+    fn test_unique_display_name_with_multiple_conflicts() {
+        let mut state = PluginState::default();
+
+        let mut s1 = Session::new(0, 10, PathBuf::from("/a"));
+        s1.display_name = "api-server".to_string();
+        state.sessions.insert(0, s1);
+
+        let mut s2 = Session::new(1, 11, PathBuf::from("/b"));
+        s2.display_name = "api-server-2".to_string();
+        state.sessions.insert(1, s2);
+
+        assert_eq!(
+            state.unique_display_name("api-server", None),
+            "api-server-3"
+        );
+    }
+
+    #[test]
+    fn test_unique_display_name_excludes_own_session() {
+        let mut state = PluginState::default();
+
+        let mut session = Session::new(0, 10, PathBuf::from("/tmp/api-server"));
+        session.display_name = "api-server".to_string();
+        state.sessions.insert(0, session);
+
+        // When excluding session 0, "api-server" should be available
+        assert_eq!(
+            state.unique_display_name("api-server", Some(0)),
+            "api-server"
+        );
+    }
+
+    #[test]
+    fn test_register_session_returns_session_id() {
+        let mut state = PluginState::default();
+        let id = state.prepare_session(PathBuf::from("/home/user/my-project"));
+        let context = BTreeMap::from([("session_id".to_string(), id.to_string())]);
+        let result = state.register_session(42, context);
+        assert_eq!(result, Some(0));
+    }
+
+    #[test]
+    fn test_register_session_deduplicates_names() {
+        let mut state = PluginState::default();
+
+        // Register first session
+        let id1 = state.prepare_session(PathBuf::from("/home/user/my-project"));
+        let ctx1 = BTreeMap::from([("session_id".to_string(), id1.to_string())]);
+        state.register_session(42, ctx1);
+
+        // Register second session with same directory name
+        let id2 = state.prepare_session(PathBuf::from("/other/path/my-project"));
+        let ctx2 = BTreeMap::from([("session_id".to_string(), id2.to_string())]);
+        state.register_session(43, ctx2);
+
+        assert_eq!(state.sessions[&0].display_name, "my-project");
+        assert_eq!(state.sessions[&1].display_name, "my-project-2");
     }
 
     #[test]
