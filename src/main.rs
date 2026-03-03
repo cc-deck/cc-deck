@@ -83,7 +83,8 @@ register_plugin!(PluginState);
 
             let ids = get_plugin_ids();
             self.plugin_id = ids.plugin_id;
-            register_keybindings(self.plugin_id, &self.config);
+            // Keybindings are registered after permissions are granted
+            // (in the PermissionRequestResult handler below)
 
             self.recent = RecentEntries::load();
             set_timeout(60.0);
@@ -200,7 +201,12 @@ register_plugin!(PluginState);
                     }
                     true
                 }
-                Event::PermissionRequestResult(_status) => false,
+                Event::PermissionRequestResult(status) => {
+                    if status == PermissionStatus::Granted {
+                        register_keybindings(self.plugin_id, &self.config);
+                    }
+                    true
+                }
                 _ => false,
             }
         }
