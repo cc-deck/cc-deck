@@ -80,6 +80,12 @@ func (a *Applier) applyObject(
 	return nil
 }
 
+// ApplyConfigMap applies a ConfigMap using Server-Side Apply.
+func (a *Applier) ApplyConfigMap(ctx context.Context, cm *corev1.ConfigMap) error {
+	gvr := corev1.SchemeGroupVersion.WithResource("configmaps")
+	return a.applyObject(ctx, cm, "v1", "ConfigMap", cm.Namespace, gvr)
+}
+
 // ApplyNetworkPolicy applies a NetworkPolicy using Server-Side Apply.
 func (a *Applier) ApplyNetworkPolicy(ctx context.Context, np *networkingv1.NetworkPolicy) error {
 	gvr := networkingv1.SchemeGroupVersion.WithResource("networkpolicies")

@@ -74,15 +74,34 @@ func BuildStatefulSet(p SessionParams) *appsv1.StatefulSet {
 				Name:      "data",
 				MountPath: workspaceMountPath,
 			},
+			{
+				Name:      zellijConfigVolume,
+				MountPath: zellijConfigMountPath,
+				ReadOnly:  true,
+			},
 		},
 	}
 
 	applyCredentialConfig(&container, p.Profile)
 
-	var volumes []corev1.Volume
+	configMapName := ResourcePrefix(p.Name) + "-zellij"
+	volumes := []corev1.Volume{
+		{
+			Name: zellijConfigVolume,
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: configMapName,
+					},
+				},
+			},
+		},
+	}
 	if p.Profile.Backend == config.BackendVertex {
 		volumes = append(volumes, GCPCredentialVolume(p.Profile.CredentialsSecret))
 	}
+
+	ApplyGitCredentialConfig(&container, &volumes, p.Profile)
 
 	storageSize := p.StorageSize
 	if storageSize == "" {
