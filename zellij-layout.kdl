@@ -6,6 +6,6 @@ layout {
 
     // cc-deck status bar at the bottom
     pane size=1 borderless=true {
-        plugin location="file:~/.config/zellij/plugins/cc-deck.wasm"
+        plugin location="file:~/.config/zellij/plugins/cc_deck.wasm"
     }
 }
