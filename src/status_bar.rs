@@ -183,6 +183,7 @@ fn visible_width(s: &str) -> usize {
 }
 
 /// Truncate a string with ANSI escapes to a visible width.
+#[allow(dead_code)]
 fn truncate_visible(s: &str, max_width: usize) -> String {
     let mut result = String::new();
     let mut width = 0;

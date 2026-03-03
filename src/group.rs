@@ -5,6 +5,7 @@ pub const GROUP_COLORS: &[&str] = &[
 
 /// A logical grouping of sessions sharing the same project.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct ProjectGroup {
     /// Normalized project name (lowercase)
     pub id: String,
@@ -31,6 +32,7 @@ pub fn ansi_fg(color: &str) -> &str {
 }
 
 /// ANSI background color code for a group color name.
+#[allow(dead_code)]
 pub fn ansi_bg(color: &str) -> &str {
     match color {
         "blue" => "\x1b[44m",
@@ -45,6 +47,7 @@ pub fn ansi_bg(color: &str) -> &str {
 }
 
 /// ANSI reset code.
+#[allow(dead_code)]
 pub const RESET: &str = "\x1b[0m";
 
 #[cfg(test)]
