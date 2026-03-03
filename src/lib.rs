@@ -291,12 +291,20 @@ mod plugin_impl {
                 }
                 "new_session" => {
                     // Create a new Claude Code session.
-                    // If a payload path is provided, use it; otherwise use "." (plugin CWD).
+                    // If a payload path is provided, use it. Otherwise, fall back
+                    // to the most recently used directory (from recent entries),
+                    // or "." (plugin CWD) if no recent entries exist.
                     let cwd = pipe_message
                         .payload
                         .as_ref()
                         .filter(|p| !p.is_empty())
                         .map(PathBuf::from)
+                        .or_else(|| {
+                            self.recent
+                                .all()
+                                .first()
+                                .map(|entry| entry.directory.clone())
+                        })
                         .unwrap_or_else(|| PathBuf::from("."));
                     let session_id = self.prepare_session(cwd.clone());
                     let cmd = CommandToRun {
