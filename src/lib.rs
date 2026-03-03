@@ -130,9 +130,22 @@ mod plugin_impl {
                     true
                 }
                 Event::CommandPaneExited(pane_id, exit_code, _context) => {
+                    let code = exit_code.unwrap_or(-1);
                     if let Some(session) = self.session_by_pane_id_mut(pane_id) {
-                        let code = exit_code.unwrap_or(-1);
-                        session.transition_status(SessionStatus::Exited(code));
+                        // If the pane exits while status is still Unknown and exit
+                        // code is non-zero, the command likely was not found.
+                        if matches!(session.status, SessionStatus::Unknown) && code != 0 {
+                            let name = session.display_name.clone();
+                            self.error_message = Some(
+                                format!("Error: 'claude' not found for session '{}'", name),
+                            );
+                            // Clear after 5 timer ticks (roughly 5 minutes at 60s interval,
+                            // but effectively ~5 renders since the bar re-renders on events)
+                            self.error_clear_counter = 5;
+                        }
+                        if let Some(session) = self.session_by_pane_id_mut(pane_id) {
+                            session.transition_status(SessionStatus::Exited(code));
+                        }
                     }
                     true
                 }
@@ -159,12 +172,29 @@ mod plugin_impl {
                         }
                     }
 
+                    // Decrement picker toggle cooldown
+                    if self.picker_toggle_cooldown > 0 {
+                        self.picker_toggle_cooldown -= 1;
+                    }
+
+                    // Decrement error clear counter
+                    if self.error_clear_counter > 0 {
+                        self.error_clear_counter -= 1;
+                        if self.error_clear_counter == 0 {
+                            self.error_message = None;
+                            needs_render = true;
+                        }
+                    }
+
                     // Re-arm the timer
                     set_timeout(60.0);
                     needs_render
                 }
                 Event::Key(key) => {
-                    if self.rename_active {
+                    if self.close_confirm_active {
+                        self.handle_close_confirm_key(key);
+                        true
+                    } else if self.rename_active {
                         self.handle_rename_key(key);
                         true
                     } else if self.picker_active {
@@ -242,7 +272,9 @@ mod plugin_impl {
                 return;
             }
 
-            if self.rename_active {
+            if self.close_confirm_active {
+                self.render_close_confirm(cols);
+            } else if self.rename_active {
                 self.render_rename_prompt(cols);
             } else if self.picker_active && rows > 1 {
                 // Render the fuzzy picker overlay
@@ -275,7 +307,23 @@ mod plugin_impl {
             // Handle keybinding messages from reconfigure
             match message_name {
                 "open_picker" => {
+                    // Debounce: ignore rapid toggles
+                    if self.picker_toggle_cooldown > 0 {
+                        return false;
+                    }
+
+                    // Cancel other modal states before toggling picker
+                    if self.close_confirm_active {
+                        self.close_confirm_active = false;
+                        self.close_target_pane_id = None;
+                    }
+                    if self.rename_active {
+                        self.rename_active = false;
+                        self.rename_buffer.clear();
+                    }
+
                     self.picker_active = !self.picker_active;
+                    self.picker_toggle_cooldown = 3;
                     if self.picker_active {
                         // Focus the plugin pane so it receives key events
                         focus_plugin_pane(self.plugin_id, true);
@@ -330,8 +378,15 @@ mod plugin_impl {
                     return true;
                 }
                 "close_session" => {
-                    // Will trigger session close in Phase 8
-                    return false;
+                    if let Some(pane_id) = self.focused_pane_id {
+                        if self.session_by_pane_id(pane_id).is_some() {
+                            self.close_confirm_active = true;
+                            self.close_target_pane_id = Some(pane_id);
+                            // Focus plugin to receive key events for confirmation
+                            focus_plugin_pane(self.plugin_id, true);
+                        }
+                    }
+                    return true;
                 }
                 _ => {}
             }

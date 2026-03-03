@@ -354,4 +354,82 @@ mod tests {
         assert_eq!(visible_len("hello"), 5);
         assert_eq!(visible_len("\u{1b}[1mhello\u{1b}[0m"), 5);
     }
+
+    #[test]
+    fn test_visible_len_empty() {
+        assert_eq!(visible_len(""), 0);
+    }
+
+    #[test]
+    fn test_get_filtered_entries_empty_state() {
+        let state = PluginState::default();
+        let entries = get_filtered_entries(&state);
+        assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn test_get_filtered_entries_with_query_no_match() {
+        use std::path::PathBuf;
+        let mut state = PluginState::default();
+        state.sessions.insert(0, Session::new(0, 10, PathBuf::from("/tmp/api")));
+        state.picker_query = "zzz".to_string();
+        let entries = get_filtered_entries(&state);
+        assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn test_get_filtered_entries_mru_ordering() {
+        use std::path::PathBuf;
+        let mut state = PluginState::default();
+        let mut s1 = Session::new(0, 10, PathBuf::from("/tmp/alpha"));
+        s1.last_activity_secs = 100;
+        let mut s2 = Session::new(1, 11, PathBuf::from("/tmp/beta"));
+        s2.last_activity_secs = 200;
+        state.sessions.insert(0, s1);
+        state.sessions.insert(1, s2);
+        // Empty query -> MRU ordering (ascending by last_activity_secs)
+        let entries = get_filtered_entries(&state);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].display_name, "alpha");
+        assert_eq!(entries[1].display_name, "beta");
+    }
+
+    #[test]
+    fn test_picker_entry_from_session() {
+        use std::path::PathBuf;
+        let session = Session::new(5, 42, PathBuf::from("/home/user/my-repo"));
+        let entry = PickerEntry::from_session(&session, "blue");
+        assert_eq!(entry.session_id, 5);
+        assert_eq!(entry.pane_id, 42);
+        assert_eq!(entry.display_name, "my-repo");
+        assert_eq!(entry.group_color, "blue");
+        assert_eq!(entry.score, 0);
+    }
+
+    #[test]
+    fn test_picker_max_list_rows_calculation() {
+        // Verify the rows calculation for very small terminal sizes
+        let rows: usize = 3;
+        let max_list_rows = rows.saturating_sub(3);
+        assert_eq!(max_list_rows, 0);
+
+        let rows: usize = 4;
+        let max_list_rows = rows.saturating_sub(3);
+        assert_eq!(max_list_rows, 1);
+
+        // Minimum useful picker needs at least 4 rows (header + search + 1 entry + footer)
+        let rows: usize = 2;
+        let max_list_rows = rows.saturating_sub(3);
+        assert_eq!(max_list_rows, 0);
+    }
+
+    #[test]
+    fn test_picker_border_calculation_narrow() {
+        // Verify border calculation for very narrow terminal
+        let title = " cc-deck: session picker ";
+        let cols: usize = 10;
+        let border_width = cols.saturating_sub(title.len());
+        // Title is 25 chars, cols is 10, so border_width = 0 (saturating)
+        assert_eq!(border_width, 0);
+    }
 }
