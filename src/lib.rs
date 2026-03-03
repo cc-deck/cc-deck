@@ -1,8 +1,11 @@
 mod config;
+mod git;
+mod group;
 #[cfg(target_arch = "wasm32")]
 mod keybindings;
 mod picker;
 mod pipe_handler;
+mod recent;
 mod session;
 mod state;
 mod status_bar;
@@ -15,8 +18,10 @@ mod plugin_impl {
     use zellij_tile::prelude::*;
 
     use crate::config::PluginConfig;
+    use crate::git;
     use crate::keybindings::register_keybindings;
     use crate::pipe_handler::{parse_pipe_message, PipeEventType};
+    use crate::recent::RecentEntries;
     use crate::session::SessionStatus;
     use crate::state::PluginState;
 
@@ -57,6 +62,12 @@ mod plugin_impl {
             let ids = get_plugin_ids();
             self.plugin_id = ids.plugin_id;
             register_keybindings(self.plugin_id, &self.config);
+
+            // Load recent session entries from cache
+            self.recent = RecentEntries::load();
+
+            // Start periodic timer for idle detection (check every 60 seconds)
+            set_timeout(60.0);
         }
 
         fn update(&mut self, event: Event) -> bool {
@@ -74,13 +85,48 @@ mod plugin_impl {
                                     self.touch_session_mru(pane.id);
                                 }
                             }
+
+                            // Fallback activity detection: when hooks are not active,
+                            // use title changes as a basic signal that the session is active
+                            if !pane.is_plugin {
+                                if let Some(session) = self.session_by_pane_id_mut(pane.id) {
+                                    if !session.hooks_active {
+                                        let current_title = pane.title.clone();
+                                        let title_changed = session
+                                            .last_title
+                                            .as_ref()
+                                            .is_none_or(|prev| *prev != current_title);
+                                        if title_changed {
+                                            // Title changed: reset idle timer as a basic activity signal
+                                            session.idle_elapsed_secs = 0;
+                                            session.last_title = Some(current_title);
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                     true // re-render to update focused highlight
                 }
                 Event::CommandPaneOpened(pane_id, context) => {
                     // Register the new session now that Zellij has assigned it a pane ID
-                    self.register_session(pane_id, context);
+                    let session_id = self.register_session(pane_id, context);
+                    // Trigger git repo detection for auto-naming
+                    if let Some(id) = session_id {
+                        git::detect_git_repo(id);
+
+                        // Add to recent entries and persist
+                        if let Some(session) = self.sessions.get(&id) {
+                            let max_recent = self.config.max_recent;
+                            self.recent.add(
+                                session.working_dir.clone(),
+                                &session.display_name,
+                                &Self::iso_timestamp(),
+                                max_recent,
+                            );
+                            let _ = self.recent.save();
+                        }
+                    }
                     true
                 }
                 Event::CommandPaneExited(pane_id, exit_code, _context) => {
@@ -91,11 +137,37 @@ mod plugin_impl {
                     true
                 }
                 Event::Timer(_elapsed) => {
-                    // Will be used for idle detection in Phase 5
-                    false
+                    let idle_timeout = self.idle_timeout_secs;
+                    let mut needs_render = false;
+
+                    // Increment idle elapsed time for sessions in Done or Unknown state
+                    for session in self.sessions.values_mut() {
+                        if matches!(session.status, SessionStatus::Exited(_)) {
+                            continue;
+                        }
+                        match session.status {
+                            SessionStatus::Done | SessionStatus::Unknown => {
+                                session.idle_elapsed_secs += 60;
+                                if session.idle_elapsed_secs >= idle_timeout {
+                                    session.transition_status(SessionStatus::Idle(
+                                        std::time::Duration::from_secs(session.idle_elapsed_secs),
+                                    ));
+                                    needs_render = true;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    // Re-arm the timer
+                    set_timeout(60.0);
+                    needs_render
                 }
                 Event::Key(key) => {
-                    if self.picker_active {
+                    if self.rename_active {
+                        self.handle_rename_key(key);
+                        true
+                    } else if self.picker_active {
                         match self.handle_picker_key(key) {
                             Ok(Some(pane_id)) => {
                                 // Session selected: switch focus to that terminal pane
@@ -127,9 +199,33 @@ mod plugin_impl {
                     }
                     true
                 }
-                Event::RunCommandResult(_exit_code, _stdout, _stderr, _context) => {
-                    // Will handle git detection results in Phase 4
-                    false
+                Event::RunCommandResult(exit_code, stdout, _stderr, context) => {
+                    if context.get("type").map(|t| t.as_str()) == Some("git_detect") {
+                        if exit_code == Some(0) {
+                            if let Some(repo_name) = git::repo_name_from_stdout(&stdout) {
+                                if let Some(session_id) = context
+                                    .get("session_id")
+                                    .and_then(|s| s.parse::<u32>().ok())
+                                {
+                                    let unique_name =
+                                        self.unique_display_name(&repo_name, Some(session_id));
+                                    if let Some(session) = self.sessions.get_mut(&session_id) {
+                                        session.set_auto_name(unique_name);
+                                    }
+                                    // Update project group for the new name
+                                    if let Some(session) = self.sessions.get(&session_id) {
+                                        let group_id = session.group_id.clone();
+                                        let display = session.display_name.clone();
+                                        self.get_or_create_group(&group_id, &display);
+                                    }
+                                }
+                            }
+                        }
+                        // Non-zero exit = not a git repo; directory basename is already set
+                        true
+                    } else {
+                        false
+                    }
                 }
                 Event::PermissionRequestResult(status) => {
                     if status == PermissionStatus::Granted {
@@ -146,7 +242,9 @@ mod plugin_impl {
                 return;
             }
 
-            if self.picker_active && rows > 1 {
+            if self.rename_active {
+                self.render_rename_prompt(cols);
+            } else if self.picker_active && rows > 1 {
                 // Render the fuzzy picker overlay
                 self.render_picker(rows, cols);
             } else {
@@ -213,8 +311,15 @@ mod plugin_impl {
                     return true;
                 }
                 "rename_session" => {
-                    // Will trigger rename flow in Phase 4
-                    return false;
+                    if self.focused_pane_id.is_some()
+                        && self.session_by_pane_id(self.focused_pane_id.unwrap()).is_some()
+                    {
+                        self.rename_active = true;
+                        self.rename_buffer.clear();
+                        // Focus the plugin pane so it receives key events
+                        focus_plugin_pane(self.plugin_id, true);
+                    }
+                    return true;
                 }
                 "close_session" => {
                     // Will trigger session close in Phase 8
@@ -226,6 +331,8 @@ mod plugin_impl {
             // Handle Claude Code hook messages (cc-deck::EVENT_TYPE::PANE_ID)
             if let Some(event) = parse_pipe_message(message_name) {
                 if let Some(session) = self.session_by_pane_id_mut(event.pane_id) {
+                    // Mark that this session has hooks configured
+                    session.hooks_active = true;
                     let new_status = match event.event_type {
                         PipeEventType::Working => SessionStatus::Working,
                         PipeEventType::Waiting => SessionStatus::Waiting,
