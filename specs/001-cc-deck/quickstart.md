@@ -2,14 +2,14 @@
 
 ## Prerequisites
 
-- Rust toolchain: `rustup target add wasm32-wasip1`
+- Rust toolchain with WASM target: `rustup target add wasm32-wasip1`
 - Zellij 0.42.0+: `cargo install zellij` or package manager
 - Claude Code: `claude` binary on PATH
 
 ## Project Setup
 
 ```bash
-cd cc-deck
+# Clone and build
 cargo build --target wasm32-wasip1 --release
 ```
 
@@ -45,9 +45,9 @@ cp target/wasm32-wasip1/release/cc_deck.wasm ~/.config/zellij/plugins/
 
 # Start Zellij with the production layout
 zellij --layout zellij-layout.kdl
-
-# See contracts/pipe-protocol.md for configuration options
 ```
+
+See `specs/001-cc-deck/contracts/pipe-protocol.md` for configuration options.
 
 ## Testing
 
@@ -61,4 +61,4 @@ cargo clippy
 
 ## Claude Code Hook Setup
 
-See `contracts/claude-hooks.md` for the hook configuration that enables smart status detection.
+See `specs/001-cc-deck/contracts/claude-hooks.md` for the hook configuration that enables smart status detection.
