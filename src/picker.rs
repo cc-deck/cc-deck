@@ -1,5 +1,6 @@
 use zellij_tile::prelude::*;
 
+use crate::group::ansi_fg;
 use crate::session::Session;
 use crate::state::PluginState;
 
@@ -134,20 +135,6 @@ pub fn get_filtered_entries(state: &PluginState) -> Vec<PickerEntry> {
     entries
 }
 
-/// ANSI color code for a group color name.
-fn ansi_color(color: &str) -> &str {
-    match color {
-        "blue" => "\u{1b}[34m",
-        "green" => "\u{1b}[32m",
-        "yellow" => "\u{1b}[33m",
-        "magenta" => "\u{1b}[35m",
-        "cyan" => "\u{1b}[36m",
-        "red" => "\u{1b}[31m",
-        "white" => "\u{1b}[37m",
-        _ => "\u{1b}[37m",
-    }
-}
-
 const RESET: &str = "\u{1b}[0m";
 const BOLD: &str = "\u{1b}[1m";
 const REVERSE: &str = "\u{1b}[7m";
@@ -199,17 +186,17 @@ impl PluginState {
         } else {
             for (idx, entry) in entries.iter().take(max_list_rows).enumerate() {
                 let is_selected = idx == self.picker_selected;
-                let color = ansi_color(&entry.group_color);
+                let color = ansi_fg(&entry.group_color);
                 let num = idx + 1;
 
                 if is_selected {
                     print!(
-                        "{}{} {}:{} {} {}",
-                        BOLD, REVERSE, num, entry.status_indicator, entry.display_name, RESET
+                        "{}{}{} {}:{} {} {}",
+                        color, BOLD, REVERSE, num, entry.status_indicator, entry.display_name, RESET
                     );
                 } else {
                     print!(
-                        "  {}:{}{} {} {}",
+                        "  {}:{}{}  {} {}",
                         num, color, entry.status_indicator, entry.display_name, RESET
                     );
                 }
