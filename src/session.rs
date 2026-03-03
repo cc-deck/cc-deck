@@ -66,8 +66,14 @@ pub struct Session {
     pub group_id: String,
     /// Elapsed seconds since session was created
     pub created_at_secs: u64,
-    /// Elapsed seconds since last activity
+    /// Elapsed seconds since last activity (used as MRU counter)
     pub last_activity_secs: u64,
+    /// Seconds elapsed since entering Done state (for idle detection)
+    pub idle_elapsed_secs: u64,
+    /// Whether pipe messages (hooks) have been received for this session
+    pub hooks_active: bool,
+    /// Last known pane title (for fallback activity detection)
+    pub last_title: Option<String>,
     /// Exit code if Claude process has terminated
     pub exit_code: Option<i32>,
 }
@@ -92,6 +98,9 @@ impl Session {
             group_id,
             created_at_secs: 0,
             last_activity_secs: 0,
+            idle_elapsed_secs: 0,
+            hooks_active: false,
+            last_title: None,
             exit_code: None,
         }
     }
@@ -106,18 +115,19 @@ impl Session {
         match &new_status {
             SessionStatus::Working => {
                 self.status = SessionStatus::Working;
-                self.last_activity_secs = 0;
+                self.idle_elapsed_secs = 0;
             }
             SessionStatus::Waiting => {
                 self.status = SessionStatus::Waiting;
-                self.last_activity_secs = 0;
+                self.idle_elapsed_secs = 0;
             }
             SessionStatus::Done => {
                 self.status = SessionStatus::Done;
-                self.last_activity_secs = 0;
+                self.idle_elapsed_secs = 0;
             }
             SessionStatus::Idle(duration) => {
                 // Only transition to Idle from Done or Unknown
+                // Waiting sessions should not become Idle (they need user input)
                 if matches!(self.status, SessionStatus::Done | SessionStatus::Unknown) {
                     self.status = SessionStatus::Idle(*duration);
                 }
@@ -236,5 +246,59 @@ mod tests {
         assert_eq!(SessionStatus::Done.indicator(), "✓");
         assert_eq!(SessionStatus::Exited(1).indicator(), "✗");
         assert_eq!(SessionStatus::Exited(0).indicator(), "✓");
+    }
+
+    #[test]
+    fn test_new_session_initializes_idle_fields() {
+        let session = Session::new(1, 42, PathBuf::from("/tmp/test"));
+        assert_eq!(session.idle_elapsed_secs, 0);
+        assert!(!session.hooks_active);
+        assert_eq!(session.last_title, None);
+    }
+
+    #[test]
+    fn test_transition_resets_idle_elapsed() {
+        let mut session = Session::new(1, 42, PathBuf::from("/tmp/test"));
+        session.idle_elapsed_secs = 120;
+        session.transition_status(SessionStatus::Working);
+        assert_eq!(session.idle_elapsed_secs, 0);
+    }
+
+    #[test]
+    fn test_transition_done_resets_idle_elapsed() {
+        let mut session = Session::new(1, 42, PathBuf::from("/tmp/test"));
+        session.transition_status(SessionStatus::Working);
+        session.idle_elapsed_secs = 60;
+        session.transition_status(SessionStatus::Done);
+        assert_eq!(session.idle_elapsed_secs, 0);
+    }
+
+    #[test]
+    fn test_waiting_blocks_idle() {
+        let mut session = Session::new(1, 42, PathBuf::from("/tmp/test"));
+        session.transition_status(SessionStatus::Waiting);
+        session.transition_status(SessionStatus::Idle(Duration::from_secs(300)));
+        // Should remain Waiting, not transition to Idle
+        assert_eq!(session.status, SessionStatus::Waiting);
+    }
+
+    #[test]
+    fn test_unknown_to_idle() {
+        let mut session = Session::new(1, 42, PathBuf::from("/tmp/test"));
+        // Unknown is the initial state
+        assert_eq!(session.status, SessionStatus::Unknown);
+        session.transition_status(SessionStatus::Idle(Duration::from_secs(300)));
+        assert!(matches!(session.status, SessionStatus::Idle(_)));
+    }
+
+    #[test]
+    fn test_idle_preserves_last_activity_secs() {
+        let mut session = Session::new(1, 42, PathBuf::from("/tmp/test"));
+        // Simulate MRU counter being set
+        session.last_activity_secs = 42;
+        session.transition_status(SessionStatus::Done);
+        // last_activity_secs should NOT be reset by status transitions (it's for MRU)
+        // idle_elapsed_secs is the one that resets
+        assert_eq!(session.idle_elapsed_secs, 0);
     }
 }
