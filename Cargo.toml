@@ -4,8 +4,13 @@ version = "0.1.0"
 edition = "2021"
 description = "Zellij plugin for managing multiple Claude Code sessions"
 
+[[bin]]
+name = "cc_deck"
+path = "src/main.rs"
+
 [lib]
-crate-type = ["cdylib"]
+name = "cc_deck_lib"
+path = "src/lib.rs"
 
 [dependencies]
 zellij-tile = "0.43"
