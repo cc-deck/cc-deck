@@ -46,6 +46,10 @@ pub struct PluginState {
     pub next_color_index: usize,
     /// This plugin's own ID (set during load)
     pub plugin_id: u32,
+    /// Monotonic counter for MRU ordering (incremented on each focus change)
+    pub mru_counter: u64,
+    /// Pending sessions: session_id -> cwd, waiting for CommandPaneOpened
+    pub pending_sessions: BTreeMap<u32, std::path::PathBuf>,
 }
 
 impl PluginState {
@@ -64,6 +68,78 @@ impl PluginState {
         let id = self.next_session_id;
         self.next_session_id += 1;
         id
+    }
+
+    /// Prepare a new session for creation and return the session ID.
+    ///
+    /// Records the session as "pending" until we receive CommandPaneOpened
+    /// with the matching session_id in its context. The caller is responsible
+    /// for calling `open_command_pane` with the returned session_id.
+    pub fn prepare_session(&mut self, cwd: std::path::PathBuf) -> u32 {
+        let session_id = self.next_id();
+        self.pending_sessions.insert(session_id, cwd);
+        session_id
+    }
+
+    /// Register a session when its command pane has been opened by Zellij.
+    pub fn register_session(&mut self, pane_id: u32, context: BTreeMap<String, String>) {
+        let session_id = context
+            .get("session_id")
+            .and_then(|s| s.parse::<u32>().ok());
+
+        let cwd = session_id
+            .and_then(|id| self.pending_sessions.remove(&id))
+            .unwrap_or_else(|| std::path::PathBuf::from("."));
+
+        let id = session_id.unwrap_or_else(|| self.next_id());
+        let mut session = Session::new(id, pane_id, cwd.clone());
+
+        // Update MRU timestamp
+        self.mru_counter += 1;
+        session.last_activity_secs = self.mru_counter;
+
+        // Create or join project group
+        let group_id = session.group_id.clone();
+        let display_name = session.display_name.clone();
+        self.get_or_create_group(&group_id, &display_name);
+
+        self.sessions.insert(id, session);
+    }
+
+    /// Update MRU timestamp for a session when it gains focus.
+    pub fn touch_session_mru(&mut self, pane_id: u32) {
+        self.mru_counter += 1;
+        let counter = self.mru_counter;
+        if let Some(session) = self.session_by_pane_id_mut(pane_id) {
+            session.last_activity_secs = counter;
+        }
+    }
+
+    /// Remove a session by its pane ID, cleaning up the associated project group.
+    pub fn remove_session_by_pane(&mut self, pane_id: u32) {
+        let session_id = self
+            .sessions
+            .iter()
+            .find(|(_, s)| s.pane_id == pane_id)
+            .map(|(id, _)| *id);
+        if let Some(id) = session_id {
+            if let Some(session) = self.sessions.remove(&id) {
+                if let Some(group) = self.groups.get_mut(&session.group_id) {
+                    group.session_count = group.session_count.saturating_sub(1);
+                    if group.session_count == 0 {
+                        self.groups.remove(&session.group_id);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Get the Nth session (1-indexed) for direct switching.
+    pub fn session_pane_by_index(&self, index: usize) -> Option<u32> {
+        self.sessions
+            .values()
+            .nth(index.saturating_sub(1))
+            .map(|s| s.pane_id)
     }
 
     /// Get or create a project group for the given group ID.
@@ -137,5 +213,82 @@ mod tests {
         // New group gets next color
         state.get_or_create_group("frontend", "frontend");
         assert_eq!(state.groups["frontend"].color, "green");
+    }
+
+    #[test]
+    fn test_prepare_session() {
+        let mut state = PluginState::default();
+        let id = state.prepare_session(PathBuf::from("/tmp/project"));
+        assert_eq!(id, 0);
+        assert!(state.pending_sessions.contains_key(&0));
+        assert_eq!(
+            state.pending_sessions[&0],
+            PathBuf::from("/tmp/project")
+        );
+    }
+
+    #[test]
+    fn test_register_session() {
+        let mut state = PluginState::default();
+        let id = state.prepare_session(PathBuf::from("/home/user/my-project"));
+
+        let context = BTreeMap::from([("session_id".to_string(), id.to_string())]);
+        state.register_session(42, context);
+
+        assert!(state.sessions.contains_key(&0));
+        let session = &state.sessions[&0];
+        assert_eq!(session.pane_id, 42);
+        assert_eq!(session.display_name, "my-project");
+        assert!(state.pending_sessions.is_empty());
+        assert!(state.groups.contains_key("my-project"));
+    }
+
+    #[test]
+    fn test_touch_session_mru() {
+        let mut state = PluginState::default();
+        let session = Session::new(0, 42, PathBuf::from("/tmp/test"));
+        state.sessions.insert(0, session);
+
+        state.touch_session_mru(42);
+        assert_eq!(state.sessions[&0].last_activity_secs, 1);
+
+        state.touch_session_mru(42);
+        assert_eq!(state.sessions[&0].last_activity_secs, 2);
+    }
+
+    #[test]
+    fn test_session_pane_by_index() {
+        let mut state = PluginState::default();
+        state.sessions.insert(0, Session::new(0, 10, PathBuf::from("/a")));
+        state.sessions.insert(1, Session::new(1, 20, PathBuf::from("/b")));
+        state.sessions.insert(2, Session::new(2, 30, PathBuf::from("/c")));
+
+        assert_eq!(state.session_pane_by_index(1), Some(10));
+        assert_eq!(state.session_pane_by_index(2), Some(20));
+        assert_eq!(state.session_pane_by_index(3), Some(30));
+        assert_eq!(state.session_pane_by_index(4), None);
+    }
+
+    #[test]
+    fn test_remove_session_by_pane() {
+        let mut state = PluginState::default();
+        state.sessions.insert(0, Session::new(0, 42, PathBuf::from("/tmp/test")));
+        state.get_or_create_group("test", "test");
+
+        state.remove_session_by_pane(42);
+        assert!(state.sessions.is_empty());
+        // Group should be removed since session count reached 0
+        assert!(!state.groups.contains_key("test"));
+    }
+
+    #[test]
+    fn test_remove_session_preserves_other_sessions() {
+        let mut state = PluginState::default();
+        state.sessions.insert(0, Session::new(0, 42, PathBuf::from("/tmp/a")));
+        state.sessions.insert(1, Session::new(1, 43, PathBuf::from("/tmp/b")));
+
+        state.remove_session_by_pane(42);
+        assert_eq!(state.sessions.len(), 1);
+        assert!(state.sessions.contains_key(&1));
     }
 }

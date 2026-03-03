@@ -31,6 +31,51 @@ keybinds {{
                 name "close_session"
             }}
         }}
+        bind "Ctrl Shift 1" {{
+            MessagePluginId {id} {{
+                name "switch_session_1"
+            }}
+        }}
+        bind "Ctrl Shift 2" {{
+            MessagePluginId {id} {{
+                name "switch_session_2"
+            }}
+        }}
+        bind "Ctrl Shift 3" {{
+            MessagePluginId {id} {{
+                name "switch_session_3"
+            }}
+        }}
+        bind "Ctrl Shift 4" {{
+            MessagePluginId {id} {{
+                name "switch_session_4"
+            }}
+        }}
+        bind "Ctrl Shift 5" {{
+            MessagePluginId {id} {{
+                name "switch_session_5"
+            }}
+        }}
+        bind "Ctrl Shift 6" {{
+            MessagePluginId {id} {{
+                name "switch_session_6"
+            }}
+        }}
+        bind "Ctrl Shift 7" {{
+            MessagePluginId {id} {{
+                name "switch_session_7"
+            }}
+        }}
+        bind "Ctrl Shift 8" {{
+            MessagePluginId {id} {{
+                name "switch_session_8"
+            }}
+        }}
+        bind "Ctrl Shift 9" {{
+            MessagePluginId {id} {{
+                name "switch_session_9"
+            }}
+        }}
     }}
 }}
 "#,
