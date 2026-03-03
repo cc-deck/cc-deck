@@ -1,0 +1,31 @@
+// cc-deck development layout for hot-reload plugin testing
+// Usage: zellij --layout zellij-dev.kdl
+layout {
+    pane split_direction="vertical" {
+        // Editor pane (left side)
+        pane size="60%" {
+            name "editor"
+            focus true
+        }
+        pane split_direction="horizontal" {
+            // Build/test pane (top right)
+            pane size="70%" {
+                name "build"
+                command "bash"
+                args "-c" "echo 'Build with: cargo build --target wasm32-wasip1' && exec $SHELL"
+            }
+            // cc-deck plugin pane (bottom right)
+            pane size="30%" {
+                plugin location="file:target/wasm32-wasip1/debug/cc_deck.wasm"
+            }
+        }
+    }
+    // Define a keybinding for quick plugin reload
+    keybinds {
+        shared {
+            bind "Ctrl Shift r" {
+                CloseFocus
+            }
+        }
+    }
+}
