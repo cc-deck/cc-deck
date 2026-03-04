@@ -1,5 +1,5 @@
 # Rust build artifacts
-/target/
+**/target/
 *.rs.bk
 *.rlib
 
@@ -17,3 +17,6 @@
 
 # Environment
 .env*
+
+# Embedded WASM binary (built from cc-zellij-plugin)
+cc-deck/internal/plugin/cc_deck.wasm
