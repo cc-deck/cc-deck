@@ -53,18 +53,6 @@ pub struct PluginState {
 }
 
 impl PluginState {
-    /// Generate an ISO 8601 timestamp from the current system time.
-    ///
-    /// Returns seconds since the Unix epoch as a simple numeric string.
-    /// In a WASI environment, full date formatting libraries are not available,
-    /// so we use epoch seconds as a sortable timestamp.
-    pub fn iso_timestamp() -> String {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs().to_string())
-            .unwrap_or_else(|_| "0".to_string())
-    }
-
     /// Find a session by its Zellij pane ID.
     pub fn session_by_pane_id(&self, pane_id: u32) -> Option<&Session> {
         self.sessions.values().find(|s| s.pane_id == pane_id)
@@ -305,14 +293,6 @@ mod tests {
         assert!(!state.picker_active);
         assert_eq!(state.next_session_id, 0);
         assert!(state.recent.is_empty());
-    }
-
-    #[test]
-    fn test_iso_timestamp() {
-        let ts = PluginState::iso_timestamp();
-        // Should be a valid numeric string (epoch seconds)
-        let secs: u64 = ts.parse().expect("timestamp should be numeric");
-        assert!(secs > 0);
     }
 
     #[test]
