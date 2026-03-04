@@ -9,12 +9,20 @@ Last updated: 2026-03-03
 | 01 | 2026-03-02 | cc-deck-session-manager | spec-created | 001 |
 | 02 | 2026-03-03 | cc-deck-k8s-cli | active | - |
 | 03 | 2026-03-03 | repo-restructure | parked | - |
+| 04 | 2026-03-03 | session-flavors | active | - |
+| 05 | 2026-03-03 | clipboard-bridge | active | - |
+| 06 | 2026-03-04 | plugin-lifecycle | complete | - |
 
 ## Open Threads
 
 - Vertex AI Workload Identity vs service account key for GKE/OpenShift (from #02)
 - Base container image definition (from #02)
 - Move Rust code to cc-zellij-plugin/ subdirectory (from #03)
+- Image building out of scope, future separate project (from #04)
+- Composable features (devcontainer-style) deferred to future iteration (from #04)
+- Zellij plugin clipboard integration is stretch goal (from #05)
+- Build pipeline orchestration: Makefile/Taskfile location (from #06)
+- Zellij version compatibility matrix for plugin SDK (from #06)
 
 ## Parked Ideas
 
