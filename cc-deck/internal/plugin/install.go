@@ -56,15 +56,15 @@ func Install(opts InstallOptions) error {
 
 	// 3. Create directories
 	if err := os.MkdirAll(zInfo.PluginsDir, 0o755); err != nil {
-		return fmt.Errorf("creating plugins directory: %w", err)
+		return wrapPermissionError(err, zInfo.PluginsDir, "write")
 	}
 	if err := os.MkdirAll(zInfo.LayoutsDir, 0o755); err != nil {
-		return fmt.Errorf("creating layouts directory: %w", err)
+		return wrapPermissionError(err, zInfo.LayoutsDir, "write")
 	}
 
 	// 4. Atomic write WASM binary (temp file + rename)
 	if err := atomicWrite(pluginPath, pInfo.Binary, 0o644); err != nil {
-		return fmt.Errorf("writing plugin binary: %w", err)
+		return wrapPermissionError(err, pluginPath, "write")
 	}
 
 	// 5. Write layout file
@@ -77,7 +77,7 @@ func Install(opts InstallOptions) error {
 		layoutContent = MinimalLayout(zInfo.PluginsDir)
 	}
 	if err := atomicWrite(layoutPath, []byte(layoutContent), 0o644); err != nil {
-		return fmt.Errorf("writing layout file: %w", err)
+		return wrapPermissionError(err, layoutPath, "write")
 	}
 
 	// 6. If --inject-default: call InjectDefault
@@ -140,6 +140,15 @@ func printInstallSummary(opts InstallOptions, zInfo ZellijInfo, pInfo PluginInfo
 	fmt.Fprintln(opts.Stdout, "To start Zellij with the plugin:")
 	fmt.Fprintln(opts.Stdout)
 	fmt.Fprintln(opts.Stdout, "  zellij --layout cc-deck")
+}
+
+// wrapPermissionError adds actionable guidance when a file operation fails due
+// to insufficient permissions.
+func wrapPermissionError(err error, path string, access string) error {
+	if os.IsPermission(err) {
+		return fmt.Errorf("permission denied at %s: check directory permissions (need %s access): %w", path, access, err)
+	}
+	return fmt.Errorf("file operation failed at %s: %w", path, err)
 }
 
 // atomicWrite writes data to a temporary file and renames it to the target path.
