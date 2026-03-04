@@ -133,8 +133,13 @@ func (r StatusReport) FormatYAML(w io.Writer) error {
 
 // RunStatus is the command runner function for the status command.
 // It gathers status and writes output in the requested format to w.
-func RunStatus(w io.Writer, outputFormat string) error {
+// If Zellij is not found, a warning is printed to stderr.
+func RunStatus(w io.Writer, stderr io.Writer, outputFormat string) error {
 	report := Status()
+
+	if !report.Zellij.Installed {
+		fmt.Fprintln(stderr, "Warning: Zellij not found on PATH. Install Zellij first.")
+	}
 
 	switch strings.ToLower(outputFormat) {
 	case "json":

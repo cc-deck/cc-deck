@@ -37,14 +37,14 @@ func Remove(opts RemoveOptions) error {
 
 	if state.PluginInstalled {
 		if err := os.Remove(state.PluginPath); err != nil {
-			return fmt.Errorf("failed to remove plugin binary: %w", err)
+			return wrapPermissionError(err, state.PluginPath, "write")
 		}
 		fmt.Fprintf(opts.Stdout, "  Removed: %s\n", tildeHome(state.PluginPath))
 	}
 
 	if state.LayoutInstalled {
 		if err := os.Remove(state.LayoutPath); err != nil {
-			return fmt.Errorf("failed to remove layout file: %w", err)
+			return wrapPermissionError(err, state.LayoutPath, "write")
 		}
 		fmt.Fprintf(opts.Stdout, "  Removed: %s\n", tildeHome(state.LayoutPath))
 	}
@@ -52,11 +52,11 @@ func Remove(opts RemoveOptions) error {
 	if state.DefaultInjected {
 		content, err := os.ReadFile(state.DefaultLayoutPath)
 		if err != nil {
-			return fmt.Errorf("failed to read default layout: %w", err)
+			return wrapPermissionError(err, state.DefaultLayoutPath, "read")
 		}
 		cleaned := RemoveInjection(string(content))
 		if err := os.WriteFile(state.DefaultLayoutPath, []byte(cleaned), 0644); err != nil {
-			return fmt.Errorf("failed to write default layout: %w", err)
+			return wrapPermissionError(err, state.DefaultLayoutPath, "write")
 		}
 		fmt.Fprintf(opts.Stdout, "  Reverted: %s (plugin pane removed)\n", tildeHome(state.DefaultLayoutPath))
 	}
