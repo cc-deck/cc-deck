@@ -19,6 +19,8 @@ func NewPluginCmd(gf *GlobalFlags) *cobra.Command {
 
 	pluginCmd.AddCommand(
 		newPluginInstallCmd(gf),
+		newPluginStatusCmd(gf),
+		newPluginRemoveCmd(gf),
 	)
 
 	return pluginCmd
@@ -52,6 +54,30 @@ the --inject-default flag.`,
 	installCmd.Flags().BoolVar(&f.injectDefault, "inject-default", false, "Inject plugin pane into default layout")
 
 	return installCmd
+}
+
+func newPluginStatusCmd(gf *GlobalFlags) *cobra.Command {
+	return &cobra.Command{
+		Use:   "status",
+		Short: "Show plugin installation status",
+		Long:  "Display the current installation status of the cc-deck Zellij plugin, layout, and Zellij itself.",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return plugin.RunStatus(os.Stdout, os.Stderr, gf.Output)
+		},
+	}
+}
+
+func newPluginRemoveCmd(_ *GlobalFlags) *cobra.Command {
+	return &cobra.Command{
+		Use:   "remove",
+		Short: "Remove the Zellij plugin and layout",
+		Long:  "Remove the cc-deck WASM plugin, layout file, and any injection from the default layout.",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return plugin.RunRemove(os.Stdout, os.Stderr)
+		},
+	}
 }
 
 func runPluginInstall(f *pluginInstallFlags) error {
