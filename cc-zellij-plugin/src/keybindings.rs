@@ -97,8 +97,8 @@ mod tests {
     fn test_default_config_generates_valid_keybindings() {
         let config = PluginConfig::default();
         // Verify the config values are as expected
-        assert_eq!(config.picker_key, "Ctrl Shift t");
-        assert_eq!(config.new_session_key, "Ctrl Shift n");
+        assert_eq!(config.picker_key, "Alt Shift t");
+        assert_eq!(config.new_session_key, "Alt Shift n");
         assert_eq!(config.rename_key, "Ctrl Shift r");
         assert_eq!(config.close_key, "Ctrl Shift x");
     }

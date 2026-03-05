@@ -43,6 +43,10 @@ func FullLayout(pluginsDir string) string {
         pane size=1 borderless=true {
             plugin location="file:%s/cc_deck.wasm" {
                 idle_timeout "300"
+                picker_key "Alt Shift t"
+                new_session_key "Alt Shift n"
+                rename_key "Alt Shift r"
+                close_key "Alt Shift x"
             }
         }
     }
