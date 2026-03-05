@@ -78,6 +78,8 @@ pub struct Session {
     pub last_title: Option<String>,
     /// Exit code if Claude process has terminated
     pub exit_code: Option<i32>,
+    /// Tab index this session's pane belongs to (updated via TabUpdate events)
+    pub tab_index: Option<usize>,
 }
 
 impl Session {
@@ -104,6 +106,7 @@ impl Session {
             hooks_active: false,
             last_title: None,
             exit_code: None,
+            tab_index: None,
         }
     }
 
@@ -148,6 +151,11 @@ impl Session {
     pub fn set_name(&mut self, name: String, manual: bool) {
         self.display_name = name;
         self.is_name_manual = manual;
+    }
+
+    /// Returns a tab title combining the status indicator and display name.
+    pub fn tab_title(&self) -> String {
+        format!("{} {}", self.status.indicator(), self.display_name)
     }
 
     /// Set the auto-detected name (from git repo or directory).

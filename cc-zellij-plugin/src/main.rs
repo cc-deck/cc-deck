@@ -93,6 +93,14 @@ register_plugin!(PluginState);
         fn update(&mut self, event: Event) -> bool {
             match event {
                 Event::PaneUpdate(manifest) => {
+                    // Rebuild tab_pane_mapping from the manifest
+                    self.tab_pane_mapping.clear();
+                    for (tab_index, panes) in &manifest.panes {
+                        let pane_ids: Vec<u32> = panes.iter().map(|p| p.id).collect();
+                        self.tab_pane_mapping.insert(*tab_index, pane_ids);
+                    }
+
+                    // Existing focus tracking
                     for panes in manifest.panes.values() {
                         for pane in panes {
                             if pane.is_focused && !pane.is_plugin {
@@ -102,6 +110,32 @@ register_plugin!(PluginState);
                                     self.touch_session_mru(pane.id);
                                 }
                             }
+                        }
+                    }
+                    true
+                }
+                Event::TabUpdate(tab_info) => {
+                    // Update tab_index for each tracked session by cross-referencing
+                    // which tab contains the session's pane_id
+                    for session in self.sessions.values_mut() {
+                        let tab_index = self.tab_pane_mapping.iter().find_map(
+                            |(tab_idx, pane_ids)| {
+                                if pane_ids.contains(&session.pane_id) {
+                                    Some(*tab_idx)
+                                } else {
+                                    None
+                                }
+                            },
+                        );
+                        // Verify the tab still exists in tab_info before assigning
+                        if let Some(idx) = tab_index {
+                            if tab_info.iter().any(|t| t.position == idx) {
+                                session.tab_index = Some(idx);
+                            } else {
+                                session.tab_index = None;
+                            }
+                        } else {
+                            session.tab_index = None;
                         }
                     }
                     true
