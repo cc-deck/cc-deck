@@ -275,17 +275,17 @@ register_plugin!(PluginState);
                                 .all()
                                 .first()
                                 .map(|e| e.directory.clone())
-                                .unwrap_or_else(|| PathBuf::from("."))
+                                .unwrap_or_else(|| {
+                                    std::env::var("HOME")
+                                        .map(PathBuf::from)
+                                        .unwrap_or_else(|_| PathBuf::from("/tmp"))
+                                })
                         });
-                    let session_id = self.prepare_session(cwd.clone());
-                    let cwd_str = cwd.to_string_lossy();
-                    // Open claude in a new tab so each session gets full screen
-                    let layout = format!(
-                        r#"layout {{ tab name="claude-{id}" {{ pane command="claude" {{ cwd "{cwd}" }} }} }}"#,
-                        id = session_id,
-                        cwd = cwd_str,
-                    );
-                    new_tabs_with_layout(&layout);
+                    self.prepare_session(cwd.clone());
+                    // Use open_terminal instead of new_tabs_with_layout
+                    // which silently fails in Zellij 0.43
+                    let cwd_str = cwd.to_string_lossy().to_string();
+                    open_terminal(&cwd_str);
                     return true;
                 }
                 "rename_session" => {
