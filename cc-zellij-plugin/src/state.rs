@@ -50,12 +50,24 @@ pub struct PluginState {
     pub close_target_pane_id: Option<u32>,
     /// Cooldown counter for picker toggle debounce (decremented on each timer tick)
     pub picker_toggle_cooldown: u8,
+    /// Mapping from tab index to pane IDs within that tab (rebuilt on PaneUpdate)
+    pub tab_pane_mapping: HashMap<usize, Vec<u32>>,
+    /// Pending auto-start: (pane_id, working_dir) for deferred session launch
+    pub pending_auto_start: Option<(u32, std::path::PathBuf)>,
 }
 
 impl PluginState {
     /// Find a session by its Zellij pane ID.
     pub fn session_by_pane_id(&self, pane_id: u32) -> Option<&Session> {
         self.sessions.values().find(|s| s.pane_id == pane_id)
+    }
+
+    /// Rename the tab associated with a session to reflect its current status.
+    #[cfg(target_arch = "wasm32")]
+    pub fn update_tab_title(&self, session: &Session) {
+        if let Some(tab_index) = session.tab_index {
+            zellij_tile::prelude::rename_tab(tab_index as u32, &session.tab_title());
+        }
     }
 
     /// Find a mutable session by its Zellij pane ID.
