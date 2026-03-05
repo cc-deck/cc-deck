@@ -281,11 +281,11 @@ register_plugin!(PluginState);
                                         .unwrap_or_else(|_| PathBuf::from("/tmp"))
                                 })
                         });
-                    self.prepare_session(cwd.clone());
-                    // Use open_terminal instead of new_tabs_with_layout
-                    // which silently fails in Zellij 0.43
+                    let session_id = self.prepare_session(cwd.clone());
+                    let tab_name = format!("cc-{}", session_id);
                     let cwd_str = cwd.to_string_lossy().to_string();
-                    open_terminal(&cwd_str);
+                    // Create a new tab with name and cwd
+                    new_tab(Some(&tab_name), Some(&cwd_str));
                     return true;
                 }
                 "rename_session" => {
