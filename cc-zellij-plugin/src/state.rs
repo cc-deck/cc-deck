@@ -1,4 +1,6 @@
 use std::collections::{BTreeMap, HashMap};
+#[cfg(target_arch = "wasm32")]
+use std::path::PathBuf;
 
 use crate::config::PluginConfig;
 use crate::group::{ProjectGroup, GROUP_COLORS};
@@ -66,8 +68,63 @@ impl PluginState {
     #[cfg(target_arch = "wasm32")]
     pub fn update_tab_title(&self, session: &Session) {
         if let Some(tab_index) = session.tab_index {
-            zellij_tile::prelude::rename_tab(tab_index as u32, &session.tab_title());
+            zellij_tile::prelude::rename_tab(tab_index as u32, session.tab_title());
         }
+    }
+
+    /// Detect Claude sessions from the pane manifest.
+    ///
+    /// Scans all terminal panes for titles containing "claude" (case-insensitive).
+    /// Creates new sessions for any untracked Claude panes, triggers git repo
+    /// detection for each, and returns the IDs of newly detected sessions so the
+    /// caller can trigger tab title updates.
+    #[cfg(target_arch = "wasm32")]
+    pub fn detect_claude_sessions(
+        &mut self,
+        manifest: &zellij_tile::prelude::PaneManifest,
+    ) -> Vec<u32> {
+        let mut new_session_ids = Vec::new();
+
+        for (tab_index, panes) in &manifest.panes {
+            for pane in panes {
+                if pane.is_plugin {
+                    continue;
+                }
+                if !pane.title.to_lowercase().contains("claude") {
+                    continue;
+                }
+                // T013: Skip already-tracked panes
+                if self.sessions.values().any(|s| s.pane_id == pane.id) {
+                    continue;
+                }
+
+                let session_id = self.next_id();
+                let display_name = pane
+                    .title
+                    .split_whitespace()
+                    .last()
+                    .unwrap_or("claude")
+                    .to_string();
+                let unique_name = self.unique_display_name(&display_name, Some(session_id));
+                let group_id = unique_name.to_lowercase();
+
+                let mut session = Session::new(session_id, pane.id, PathBuf::from("."));
+                session.tab_index = Some(*tab_index);
+                session.display_name = unique_name.clone();
+                session.auto_name = unique_name.clone();
+                session.group_id = group_id.clone();
+
+                self.sessions.insert(session_id, session);
+                self.get_or_create_group(&group_id, &unique_name);
+
+                // T015: Trigger git repo detection for the new session
+                crate::git::detect_git_repo(session_id);
+
+                new_session_ids.push(session_id);
+            }
+        }
+
+        new_session_ids
     }
 
     /// Find a mutable session by its Zellij pane ID.
@@ -125,6 +182,13 @@ impl PluginState {
         self.get_or_create_group(&group_id, &display_name);
 
         self.sessions.insert(id, session);
+
+        // Set initial tab title for the new session
+        #[cfg(target_arch = "wasm32")]
+        if let Some(session) = self.sessions.get(&id) {
+            self.update_tab_title(session);
+        }
+
         Some(id)
     }
 
@@ -217,6 +281,9 @@ impl PluginState {
                         };
                         if let Some(session) = self.session_by_pane_id_mut(pane_id) {
                             session.set_name(unique_name, true);
+                        }
+                        if let Some(session) = self.session_by_pane_id(pane_id) {
+                            self.update_tab_title(session);
                         }
                     }
                 }
