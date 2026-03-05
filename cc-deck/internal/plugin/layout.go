@@ -38,6 +38,9 @@ func FullLayout(pluginsDir string) string {
         }
         children
         pane size=1 borderless=true {
+            plugin location="status-bar"
+        }
+        pane size=1 borderless=true {
             plugin location="file:%s/cc_deck.wasm" {
                 idle_timeout "300"
             }
