@@ -24,10 +24,16 @@ func MinimalLayout(pluginsDir string) string {
 `, pluginsDir)
 }
 
-// FullLayout returns a full KDL layout with tab template and plugin bar.
+// FullLayout returns an opinionated KDL layout for Claude Code sessions.
+// Compared to MinimalLayout it:
+//   - Uses default_tab_template so every new tab gets the plugin bar
+//   - Omits the built-in tab-bar (cc-deck handles session switching)
+//   - Sets plugin config (idle_timeout)
+//   - Unbinds Alt+N keys that conflict with cc-deck session switching
 func FullLayout(pluginsDir string) string {
 	return fmt.Sprintf(`layout {
     default_tab_template {
+        // No tab-bar pane: cc-deck replaces Zellij tab switching
         children
         pane size=1 borderless=true {
             plugin location="file:%s/cc_deck.wasm" {
@@ -37,6 +43,14 @@ func FullLayout(pluginsDir string) string {
     }
     tab name="claude" focus=true {
         pane
+    }
+}
+
+keybinds {
+    shared {
+        // Unbind default Zellij tab keys (cc-deck manages sessions)
+        unbind "Alt 1" "Alt 2" "Alt 3" "Alt 4" "Alt 5"
+        unbind "Alt 6" "Alt 7" "Alt 8" "Alt 9"
     }
 }
 `, pluginsDir)
