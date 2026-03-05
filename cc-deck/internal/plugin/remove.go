@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 )
 
 // RemoveOptions configures the remove command.
@@ -42,6 +43,9 @@ func Remove(opts RemoveOptions) error {
 		fmt.Fprintf(opts.Stdout, "  Removed: %s\n", tildeHome(state.PluginPath))
 	}
 
+	// Clean up any symlinks pointing to the plugin binary (e.g. cc-deck.wasm -> cc_deck.wasm)
+	cleanupPluginSymlinks(zInfo.PluginsDir, opts.Stdout)
+
 	if state.LayoutInstalled {
 		if err := os.Remove(state.LayoutPath); err != nil {
 			return wrapPermissionError(err, state.LayoutPath, "write")
@@ -74,6 +78,30 @@ func RunRemove(stdout, stderr io.Writer) error {
 		Stdout: stdout,
 		Stderr: stderr,
 	})
+}
+
+// cleanupPluginSymlinks removes any symlinks in the plugins directory that
+// point to cc_deck.wasm (e.g. cc-deck.wasm -> cc_deck.wasm from manual setup).
+func cleanupPluginSymlinks(pluginsDir string, stdout io.Writer) {
+	entries, err := os.ReadDir(pluginsDir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		path := filepath.Join(pluginsDir, e.Name())
+		fi, err := os.Lstat(path)
+		if err != nil || fi.Mode()&os.ModeSymlink == 0 {
+			continue
+		}
+		target, err := os.Readlink(path)
+		if err != nil {
+			continue
+		}
+		if target == "cc_deck.wasm" || filepath.Base(target) == "cc_deck.wasm" {
+			os.Remove(path)
+			fmt.Fprintf(stdout, "  Removed: %s (symlink)\n", tildeHome(path))
+		}
+	}
 }
 
 // isZellijRunning checks if any Zellij process is currently running.
