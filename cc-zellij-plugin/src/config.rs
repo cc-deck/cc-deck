@@ -6,9 +6,9 @@ use std::collections::BTreeMap;
 pub struct PluginConfig {
     /// Seconds before a session is considered idle (default: 300)
     pub idle_timeout: u64,
-    /// Keybinding for fuzzy picker (default: "Ctrl Shift t")
+    /// Keybinding for fuzzy picker (default: "Alt Shift t")
     pub picker_key: String,
-    /// Keybinding for new session (default: "Ctrl Shift n")
+    /// Keybinding for new session (default: "Alt Shift n")
     pub new_session_key: String,
     /// Keybinding for rename session (default: "Ctrl Shift r")
     pub rename_key: String,
@@ -22,10 +22,10 @@ impl Default for PluginConfig {
     fn default() -> Self {
         Self {
             idle_timeout: 300,
-            picker_key: "Ctrl Shift t".to_string(),
-            new_session_key: "Ctrl Shift n".to_string(),
-            rename_key: "Ctrl Shift r".to_string(),
-            close_key: "Ctrl Shift x".to_string(),
+            picker_key: "Alt Shift t".to_string(),
+            new_session_key: "Alt Shift n".to_string(),
+            rename_key: "Alt Shift r".to_string(),
+            close_key: "Alt Shift x".to_string(),
             max_recent: 20,
         }
     }
@@ -71,8 +71,8 @@ mod tests {
     fn test_default_config() {
         let config = PluginConfig::default();
         assert_eq!(config.idle_timeout, 300);
-        assert_eq!(config.picker_key, "Ctrl Shift t");
-        assert_eq!(config.new_session_key, "Ctrl Shift n");
+        assert_eq!(config.picker_key, "Alt Shift t");
+        assert_eq!(config.new_session_key, "Alt Shift n");
         assert_eq!(config.rename_key, "Ctrl Shift r");
         assert_eq!(config.close_key, "Ctrl Shift x");
         assert_eq!(config.max_recent, 20);
@@ -90,7 +90,7 @@ mod tests {
         assert_eq!(config.picker_key, "Ctrl Shift p");
         assert_eq!(config.max_recent, 50);
         // Unset values keep defaults
-        assert_eq!(config.new_session_key, "Ctrl Shift n");
+        assert_eq!(config.new_session_key, "Alt Shift n");
     }
 
     #[test]
