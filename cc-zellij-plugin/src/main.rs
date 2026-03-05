@@ -100,6 +100,16 @@ register_plugin!(PluginState);
                         self.tab_pane_mapping.insert(*tab_index, pane_ids);
                     }
 
+                    // T014: Detect Claude sessions from pane titles
+                    let new_ids = self.detect_claude_sessions(&manifest);
+
+                    // T016: Update tab titles for newly detected sessions
+                    for sid in new_ids {
+                        if let Some(session) = self.sessions.get(&sid).cloned() {
+                            self.update_tab_title(&session);
+                        }
+                    }
+
                     // Existing focus tracking
                     for panes in manifest.panes.values() {
                         for pane in panes {
@@ -164,13 +174,20 @@ register_plugin!(PluginState);
                     true
                 }
                 Event::Timer(_elapsed) => {
+                    let mut idle_sessions: Vec<u32> = Vec::new();
                     for session in self.sessions.values_mut() {
                         if matches!(session.status, SessionStatus::Done | SessionStatus::Unknown) {
                             session.idle_elapsed_secs += 60;
                             if session.idle_elapsed_secs >= self.idle_timeout_secs {
                                 let duration = Duration::from_secs(session.idle_elapsed_secs);
                                 session.transition_status(SessionStatus::Idle(duration));
+                                idle_sessions.push(session.id);
                             }
+                        }
+                    }
+                    for id in idle_sessions {
+                        if let Some(session) = self.sessions.get(&id) {
+                            self.update_tab_title(session);
                         }
                     }
                     if self.error_clear_counter > 0 {
@@ -227,6 +244,9 @@ register_plugin!(PluginState);
                                             self.unique_display_name(&repo_name, Some(session_id));
                                         if let Some(session) = self.sessions.get_mut(&session_id) {
                                             session.set_auto_name(unique_name);
+                                        }
+                                        if let Some(session) = self.sessions.get(&session_id) {
+                                            self.update_tab_title(session);
                                         }
                                     }
                                 }
@@ -346,7 +366,7 @@ register_plugin!(PluginState);
             }
 
             if let Some(event) = parse_pipe_message(message_name) {
-                if let Some(session) = self.session_by_pane_id_mut(event.pane_id) {
+                let found = if let Some(session) = self.session_by_pane_id_mut(event.pane_id) {
                     session.hooks_active = true;
                     let new_status = match event.event_type {
                         PipeEventType::Working => SessionStatus::Working,
@@ -354,6 +374,14 @@ register_plugin!(PluginState);
                         PipeEventType::Done => SessionStatus::Done,
                     };
                     session.transition_status(new_status);
+                    true
+                } else {
+                    false
+                };
+                if found {
+                    if let Some(session) = self.session_by_pane_id(event.pane_id) {
+                        self.update_tab_title(session);
+                    }
                     return true;
                 }
             }
