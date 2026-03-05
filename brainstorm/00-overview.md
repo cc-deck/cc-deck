@@ -12,6 +12,7 @@ Last updated: 2026-03-03
 | 04 | 2026-03-03 | session-flavors | active | - |
 | 05 | 2026-03-03 | clipboard-bridge | active | - |
 | 06 | 2026-03-04 | plugin-lifecycle | complete | - |
+| 07 | 2026-03-05 | plugin-bugfixes | complete | - |
 
 ## Open Threads
 
@@ -23,6 +24,8 @@ Last updated: 2026-03-03
 - Zellij plugin clipboard integration is stretch goal (from #05)
 - Build pipeline orchestration: Makefile/Taskfile location (from #06)
 - Zellij version compatibility matrix for plugin SDK (from #06)
+- Floating plugin pane API availability in zellij-tile 0.43 (from #07)
+- Headless Zellij testing approach for CI (from #07)
 
 ## Parked Ideas
 
