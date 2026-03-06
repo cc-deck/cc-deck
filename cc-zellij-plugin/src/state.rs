@@ -220,6 +220,55 @@ impl PluginState {
         }
     }
 
+    /// Build a CommandToRun for the floating session picker.
+    ///
+    /// Generates an inline bash script that displays a numbered menu of sessions,
+    /// reads the user's selection, and sends a `pick_session` pipe message back
+    /// to the plugin with the selected pane ID.
+    #[cfg(target_arch = "wasm32")]
+    pub fn build_picker_command(&self) -> zellij_tile::prelude::CommandToRun {
+        use zellij_tile::prelude::CommandToRun;
+
+        // Build session entries as "PANE_ID:STATUS:NAME" arguments
+        let entries: Vec<String> = self
+            .sessions
+            .values()
+            .map(|s| {
+                let indicator = s.status.indicator();
+                format!("{}:{}:{}", s.pane_id, indicator, s.display_name)
+            })
+            .collect();
+
+        // Build the inline bash script
+        let script = String::from(
+            "entries=( \"$@\" )\n\
+             echo '── cc-deck: session picker ──'\n\
+             echo ''\n\
+             i=1\n\
+             for entry in \"${entries[@]}\"; do\n\
+               IFS=: read -r pid status name <<< \"$entry\"\n\
+               printf '  %d) %s %s\\n' \"$i\" \"$status\" \"$name\"\n\
+               i=$((i+1))\n\
+             done\n\
+             echo ''\n\
+             printf 'Select session [1-%d]: ' \"${#entries[@]}\"\n\
+             read -r choice\n\
+             if [ -n \"$choice\" ] && [ \"$choice\" -ge 1 ] 2>/dev/null && [ \"$choice\" -le \"${#entries[@]}\" ] 2>/dev/null; then\n\
+               selected=\"${entries[$((choice-1))]}\"\n\
+               pid=\"${selected%%:*}\"\n\
+               zellij pipe --name pick_session -- \"$pid\"\n\
+             fi\n",
+        );
+        let mut args = vec!["-c".to_string(), script];
+        args.extend(entries);
+
+        CommandToRun {
+            path: std::path::PathBuf::from("bash"),
+            args,
+            cwd: None,
+        }
+    }
+
     /// Handle a key event while the close confirmation is active.
     ///
     /// 'y' confirms the close, 'n' or Escape cancels.
