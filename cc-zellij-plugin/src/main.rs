@@ -334,12 +334,21 @@ register_plugin!(PluginState);
                         // No sessions to pick from
                         return false;
                     } else {
-                        // Open floating picker command pane
+                        // Open floating picker using run_command which executes
+                        // a command in the background and returns output via
+                        // RunCommandResult. We use this to trigger a floating
+                        // terminal via zellij CLI action instead.
                         self.picker_active = true;
                         let cmd = self.build_picker_command();
                         let mut ctx = BTreeMap::new();
                         ctx.insert("type".to_string(), "picker".to_string());
-                        open_command_pane_floating_near_plugin(cmd, None, ctx);
+                        // Use open_command_pane_floating with explicit coordinates
+                        let coords = FloatingPaneCoordinates::default()
+                            .with_x_percent(15)
+                            .with_y_percent(15)
+                            .with_width_percent(70)
+                            .with_height_percent(70);
+                        open_command_pane_floating(cmd, Some(coords), ctx);
                     }
                     return true;
                 }
