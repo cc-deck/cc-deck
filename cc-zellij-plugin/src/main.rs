@@ -101,33 +101,6 @@ register_plugin!(PluginState);
                         self.tab_pane_mapping.insert(*tab_index, pane_ids);
                     }
 
-                    // T018: Auto-start Claude in the new tab's terminal pane
-                    if let Some((session_id, cwd)) = self.pending_auto_start.take() {
-                        // Find a terminal pane that is not already tracked as a session
-                        let tracked_panes: Vec<u32> =
-                            self.sessions.values().map(|s| s.pane_id).collect();
-                        let new_pane = manifest
-                            .panes
-                            .values()
-                            .flat_map(|panes| panes.iter())
-                            .find(|p| !p.is_plugin && !tracked_panes.contains(&p.id));
-                        if let Some(pane) = new_pane {
-                            let pane_id = pane.id;
-                            focus_terminal_pane(pane_id, true);
-                            let mut context = BTreeMap::new();
-                            context
-                                .insert("session_id".to_string(), session_id.to_string());
-                            open_command_pane_in_place(
-                                CommandToRun {
-                                    path: PathBuf::from("claude"),
-                                    args: vec![],
-                                    cwd: Some(cwd),
-                                },
-                                context,
-                            );
-                        }
-                    }
-
                     // T014: Detect Claude sessions from pane titles
                     let new_ids = self.detect_claude_sessions(&manifest);
 
@@ -391,17 +364,17 @@ register_plugin!(PluginState);
                                 })
                         });
                     let session_id = self.prepare_session(cwd.clone());
-                    let tab_name = format!("cc-{}", session_id);
-                    let cwd_str = cwd.to_string_lossy().to_string();
-                    // Create a new tab with name and cwd
-                    new_tab(Some(&tab_name), Some(&cwd_str));
-                    // T017: Set pending auto-start so PaneUpdate can launch Claude.
-                    // T031: Only one pending auto-start is tracked at a time. If
-                    // multiple rapid new_session calls arrive before PaneUpdate fires,
-                    // only the last one will auto-start Claude. Earlier calls still
-                    // create tabs with plain shells, which session detection will pick
-                    // up once the user starts Claude manually in them.
-                    self.pending_auto_start = Some((session_id, cwd));
+                    // Launch Claude directly as a command pane.
+                    // CommandPaneOpened will fire and register the session.
+                    let mut context = BTreeMap::new();
+                    context.insert("session_id".to_string(), session_id.to_string());
+                    open_command_pane(
+                        CommandToRun::new_with_args(
+                            PathBuf::from("claude"),
+                            Vec::<String>::new(),
+                        ),
+                        context,
+                    );
                     return true;
                 }
                 "rename_session" => {
