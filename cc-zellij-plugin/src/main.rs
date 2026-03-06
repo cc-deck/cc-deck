@@ -339,7 +339,7 @@ register_plugin!(PluginState);
                         let cmd = self.build_picker_command();
                         let mut ctx = BTreeMap::new();
                         ctx.insert("type".to_string(), "picker".to_string());
-                        open_command_pane_floating(cmd, None, ctx);
+                        open_command_pane_floating_near_plugin(cmd, None, ctx);
                     }
                     return true;
                 }
