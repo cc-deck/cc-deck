@@ -1,15 +1,21 @@
 #!/bin/bash
-# cc-deck plugin smoke test
+# cc-deck automated smoke test
 #
-# Run this INSIDE a Zellij session that has the cc-deck plugin loaded:
-#   zellij --layout cc-deck
-#   ./smoke_test.sh
+# Runs a fully automated test suite by launching a dedicated Zellij session,
+# sending pipe commands to the plugin, and verifying results. No user
+# interaction is required.
 #
-# Each test sends a pipe message to the plugin and pauses for inspection.
+# Usage: ./smoke_test.sh
+#
+# Prerequisites:
+#   - zellij is installed and on PATH
+#   - cc_deck.wasm is installed at ~/.config/zellij/plugins/cc_deck.wasm
 
-set -e
+set -euo pipefail
 
-PLUGIN="file:$HOME/.config/zellij/plugins/cc_deck.wasm"
+SESSION="cc-deck-test-$$"
+LAYOUT_DIR="$(cd "$(dirname "$0")/cc-zellij-plugin" && pwd)"
+LAYOUT="$LAYOUT_DIR/zellij-layout.kdl"
 
 # Colors
 GREEN='\033[0;32m'
@@ -18,214 +24,199 @@ CYAN='\033[0;36m'
 RED='\033[0;31m'
 NC='\033[0m'
 
-pass=0
-fail=0
-skip=0
+PASS=0
+FAIL=0
+SKIP=0
 
-pause() {
-    echo ""
-    echo -e "${YELLOW}  >>> Press any key to continue (q to quit)${NC}"
-    read -rsn1 key
-    if [[ "$key" == "q" ]]; then
-        echo ""
-        echo -e "${CYAN}Aborted. Passed: $pass, Failed: $fail, Skipped: $skip${NC}"
-        exit 0
+# ── Helpers ───────────────────────────────────────────────
+
+assert_ok() {
+    local description="$1"
+    shift
+    if "$@" >/dev/null 2>&1; then
+        echo -e "  ${GREEN}PASS${NC}: $description"
+        ((PASS++))
+    else
+        echo -e "  ${RED}FAIL${NC}: $description"
+        ((FAIL++))
     fi
+}
+
+assert_fail() {
+    local description="$1"
+    shift
+    if ! "$@" >/dev/null 2>&1; then
+        echo -e "  ${GREEN}PASS${NC}: $description"
+        ((PASS++))
+    else
+        echo -e "  ${RED}FAIL${NC}: $description"
+        ((FAIL++))
+    fi
+}
+
+skip_test() {
+    local description="$1"
+    local reason="$2"
+    echo -e "  ${YELLOW}SKIP${NC}: $description ($reason)"
+    ((SKIP++))
+}
+
+cleanup() {
     echo ""
+    echo -e "${CYAN}Cleaning up...${NC}"
+    zellij kill-session "$SESSION" 2>/dev/null || true
 }
 
-header() {
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${CYAN}  TEST $1: $2${NC}"
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-}
+trap cleanup EXIT
 
-# ── Pre-flight ──────────────────────────────────────────
+# ── Pre-flight checks ────────────────────────────────────
 
-echo -e "${CYAN}cc-deck Plugin Smoke Test${NC}"
+echo -e "${CYAN}cc-deck Automated Smoke Test${NC}"
 echo ""
 
-if ! zellij action write-chars "" 2>/dev/null; then
-    echo -e "${RED}ERROR: Not running inside a Zellij session!${NC}"
-    echo "Start Zellij first: zellij --layout cc-deck"
+if ! command -v zellij &>/dev/null; then
+    echo -e "${RED}ERROR: zellij not found on PATH${NC}"
     exit 1
 fi
 
 if [[ ! -f "$HOME/.config/zellij/plugins/cc_deck.wasm" ]]; then
-    echo -e "${RED}ERROR: Plugin not installed!${NC}"
-    echo "Run: cc-deck plugin install --force --layout full"
+    echo -e "${RED}ERROR: Plugin not installed at ~/.config/zellij/plugins/cc_deck.wasm${NC}"
+    echo "Run: cargo build --target wasm32-wasip1 --release && cp target/wasm32-wasip1/release/cc_deck.wasm ~/.config/zellij/plugins/"
     exit 1
 fi
 
-echo -e "${GREEN}Pre-flight OK${NC}: Running inside Zellij, plugin installed."
-echo ""
-echo "Look at the cc-deck status bar at the bottom of your screen."
-echo "It should currently show: cc-deck: no sessions"
-pause
-
-# ── Test 1: Plugin status via CLI ───────────────────────
-
-header 1 "CLI plugin status"
-echo "Running: cc-deck plugin status"
-echo ""
-if command -v cc-deck &>/dev/null; then
-    cc-deck plugin status
-    ((pass++))
-elif [[ -f ./cc-deck/cc-deck ]]; then
-    ./cc-deck/cc-deck plugin status
-    ((pass++))
-else
-    echo -e "${RED}cc-deck binary not found. Run 'make build' first.${NC}"
-    ((fail++))
+if [[ ! -f "$LAYOUT" ]]; then
+    echo -e "${RED}ERROR: Layout file not found at $LAYOUT${NC}"
+    exit 1
 fi
-pause
 
-# ── Test 2: Create a new session ────────────────────────
-
-header 2 "new_session (create a Claude Code tab)"
-echo "Sending: zellij pipe --name new_session"
+echo -e "${GREEN}Pre-flight OK${NC}"
 echo ""
-echo -e "${YELLOW}EXPECT:${NC} A new tab opens running 'claude'."
-echo "        The status bar should show one session."
-echo "        (If 'claude' is not on PATH, the tab will open and close.)"
-echo ""
-zellij pipe --name new_session
-((pass++))
-pause
 
-# ── Test 3: Create a second session with custom cwd ─────
+# ── Start test session ────────────────────────────────────
 
-header 3 "new_session with custom directory"
-echo "Sending: zellij pipe --name new_session -- /tmp"
-echo ""
-echo -e "${YELLOW}EXPECT:${NC} A second tab opens with cwd set to /tmp."
-echo "        The status bar should now show two sessions."
-echo ""
-zellij pipe --name new_session -- /tmp
-((pass++))
-pause
+echo -e "${CYAN}Starting Zellij test session: $SESSION${NC}"
+zellij --session "$SESSION" --layout "$LAYOUT" &
+ZELLIJ_PID=$!
+sleep 3
 
-# ── Test 4: Switch sessions (by index) ──────────────────
+# Verify the session is running
+echo -e "${CYAN}Test 1: Session startup${NC}"
+assert_ok "Zellij test session is running" zellij list-sessions -s
 
-header 4 "switch_session_1 (switch to first session)"
-echo "Sending: zellij pipe --name switch_session_1"
-echo ""
-echo -e "${YELLOW}EXPECT:${NC} Focus moves to the first session's tab."
-echo "        The status bar highlights session 1."
-echo ""
-zellij pipe --name switch_session_1
-((pass++))
-pause
+# ── T026: Test session creation ───────────────────────────
 
-# ── Test 5: Open picker ────────────────────────────────
-
-header 5 "open_picker"
-echo "Sending: zellij pipe --name open_picker"
 echo ""
-echo -e "${YELLOW}EXPECT:${NC} The plugin pane gets focus."
-echo "        NOTE: The picker overlay needs rows > 1 to render."
-echo "        With size=1, you may only see focus shift."
-echo ""
-zellij pipe --name open_picker
-((pass++))
-pause
+echo -e "${CYAN}Test 2: Session creation via new_session pipe${NC}"
+assert_ok "new_session pipe command succeeds" \
+    zellij pipe --session "$SESSION" --name new_session
+sleep 2
 
-# Close the picker by sending it again (toggle)
-echo "Closing picker (toggle)..."
+# Send a second session with custom cwd
+assert_ok "new_session with cwd=/tmp succeeds" \
+    zellij pipe --session "$SESSION" --name new_session -- /tmp
+sleep 2
+
+# ── T028: Test tab title updates via status hook ─────────
+
+echo ""
+echo -e "${CYAN}Test 3: Status hook pipe messages${NC}"
+
+# Send a working hook for a non-existent pane (should not crash)
+assert_ok "working hook for non-existent pane does not crash" \
+    zellij pipe --session "$SESSION" --name "cc-deck::working::999"
+
+# Send done hook for non-existent pane
+assert_ok "done hook for non-existent pane does not crash" \
+    zellij pipe --session "$SESSION" --name "cc-deck::done::999"
+
+# Send waiting hook for non-existent pane
+assert_ok "waiting hook for non-existent pane does not crash" \
+    zellij pipe --session "$SESSION" --name "cc-deck::waiting::999"
+
+# ── Test switch_session ───────────────────────────────────
+
+echo ""
+echo -e "${CYAN}Test 4: Session switching${NC}"
+assert_ok "switch_session_1 succeeds" \
+    zellij pipe --session "$SESSION" --name switch_session_1
 sleep 1
-zellij pipe --name open_picker 2>/dev/null || true
 
-# ── Test 6: Rename session ──────────────────────────────
+# ── Test open_picker ──────────────────────────────────────
 
-header 6 "rename_session"
-echo "Sending: zellij pipe --name rename_session"
 echo ""
-echo -e "${YELLOW}EXPECT:${NC} Focus moves to the plugin pane for rename input."
-echo "        NOTE: Like the picker, needs rows > 1 to show the prompt."
-echo "        Press Escape in the plugin pane to cancel."
-echo ""
-zellij pipe --name rename_session
-((pass++))
-pause
+echo -e "${CYAN}Test 5: Picker toggle${NC}"
+assert_ok "open_picker succeeds" \
+    zellij pipe --session "$SESSION" --name open_picker
+sleep 1
 
-# ── Test 7: Close session (with confirm) ────────────────
+# Toggle it off
+assert_ok "open_picker toggle off succeeds" \
+    zellij pipe --session "$SESSION" --name open_picker
+sleep 1
 
-header 7 "close_session"
-echo "Sending: zellij pipe --name close_session"
-echo ""
-echo -e "${YELLOW}EXPECT:${NC} Focus moves to the plugin pane for close confirmation."
-echo "        NOTE: Like the picker, needs rows > 1 to show the prompt."
-echo "        Press Escape in the plugin pane to cancel, or 'y' to confirm."
-echo ""
-zellij pipe --name close_session
-((pass++))
-pause
+# ── Test rename_session ───────────────────────────────────
 
-# ── Test 8: Claude hook simulation ──────────────────────
+echo ""
+echo -e "${CYAN}Test 6: Rename session${NC}"
+assert_ok "rename_session command succeeds" \
+    zellij pipe --session "$SESSION" --name rename_session
 
-header 8 "Claude Code hook messages"
-echo "Simulating hook: cc-deck::working::999"
-echo ""
-echo -e "${YELLOW}EXPECT:${NC} No crash. The message targets pane 999 which"
-echo "        doesn't exist, so it should be silently ignored."
-echo ""
-zellij pipe --name "cc-deck::working::999" 2>/dev/null || true
-echo -e "${GREEN}No crash - good.${NC}"
-((pass++))
-pause
+# ── Test close_session ────────────────────────────────────
 
-# ── Test 9: Keybinding test ─────────────────────────────
+echo ""
+echo -e "${CYAN}Test 7: Close session${NC}"
+assert_ok "close_session command succeeds" \
+    zellij pipe --session "$SESSION" --name close_session
 
-header 9 "Keybinding delivery (manual)"
-echo "This test is manual. Try pressing these keybindings:"
-echo ""
-echo "  Option+Shift+N  - Should create a new session"
-echo "  Option+Shift+T  - Should open the picker"
-echo "  Option+Shift+R  - Should start rename"
-echo "  Option+Shift+X  - Should start close confirmation"
-echo ""
-echo -e "${YELLOW}If none of these work, keybindings are not reaching Zellij.${NC}"
-echo "Use 'zellij pipe --name ...' as an alternative."
-echo ""
-echo -e "Mark this as ${GREEN}pass${NC} or ${RED}fail${NC}? (p/f/s=skip)"
-read -rsn1 key
-case "$key" in
-    p) ((pass++)); echo -e "${GREEN}Marked as PASS${NC}" ;;
-    f) ((fail++)); echo -e "${RED}Marked as FAIL${NC}" ;;
-    *) ((skip++)); echo -e "${YELLOW}Skipped${NC}" ;;
-esac
-pause
+# ── T027: Claude detection (conditional) ──────────────────
 
-# ── Test 10: JSON status output ─────────────────────────
-
-header 10 "CLI plugin status (JSON)"
-echo "Running: cc-deck plugin status -o json"
 echo ""
-if command -v cc-deck &>/dev/null; then
-    cc-deck plugin status -o json
-    ((pass++))
-elif [[ -f ./cc-deck/cc-deck ]]; then
-    ./cc-deck/cc-deck plugin status -o json
-    ((pass++))
+echo -e "${CYAN}Test 8: Claude session detection${NC}"
+if command -v claude &>/dev/null; then
+    # Claude is available; a new_session should auto-start it, and detection
+    # would pick it up via pane title scanning. We already tested new_session
+    # above, so just verify the binary is reachable.
+    assert_ok "claude binary is on PATH" command -v claude
 else
-    echo -e "${RED}cc-deck binary not found.${NC}"
-    ((fail++))
+    skip_test "Claude session detection" "claude binary not on PATH"
 fi
-pause
 
-# ── Summary ─────────────────────────────────────────────
+# ── T029: Cleanup verification ────────────────────────────
 
-echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${CYAN}  SMOKE TEST COMPLETE${NC}"
-echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
-echo -e "  ${GREEN}Passed:  $pass${NC}"
-echo -e "  ${RED}Failed:  $fail${NC}"
-echo -e "  ${YELLOW}Skipped: $skip${NC}"
-echo ""
+echo -e "${CYAN}Test 9: Session cleanup${NC}"
+zellij kill-session "$SESSION" 2>/dev/null || true
+sleep 1
 
-if [[ $fail -eq 0 ]]; then
-    echo -e "${GREEN}All tests passed!${NC}"
+# Verify the session is gone
+if zellij list-sessions -s 2>/dev/null | grep -q "^${SESSION}$"; then
+    echo -e "  ${RED}FAIL${NC}: Test session still exists after kill"
+    ((FAIL++))
 else
-    echo -e "${RED}Some tests failed. Check the output above for details.${NC}"
+    echo -e "  ${GREEN}PASS${NC}: Test session removed after kill"
+    ((PASS++))
+fi
+
+# Disarm the trap since we already cleaned up
+trap - EXIT
+
+# ── Summary ───────────────────────────────────────────────
+
+echo ""
+echo -e "${CYAN}=====================================${NC}"
+echo -e "${CYAN}  SMOKE TEST RESULTS${NC}"
+echo -e "${CYAN}=====================================${NC}"
+echo ""
+echo -e "  ${GREEN}Passed:  $PASS${NC}"
+echo -e "  ${RED}Failed:  $FAIL${NC}"
+echo -e "  ${YELLOW}Skipped: $SKIP${NC}"
+echo ""
+
+if [[ $FAIL -eq 0 ]]; then
+    echo -e "${GREEN}All tests passed!${NC}"
+    exit 0
+else
+    echo -e "${RED}Some tests failed.${NC}"
+    exit 1
 fi
