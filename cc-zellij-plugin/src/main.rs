@@ -178,13 +178,22 @@ register_plugin!(PluginState);
                     true
                 }
                 Event::CommandPaneOpened(pane_id, context) => {
+                    // Skip registration for picker floating panes
+                    if context.get("type").map(|t| t.as_str()) == Some("picker") {
+                        return true;
+                    }
                     let session_id = self.register_session(pane_id, context);
                     if let Some(sid) = session_id {
                         git::detect_git_repo(sid);
                     }
                     true
                 }
-                Event::CommandPaneExited(pane_id, exit_code, _context) => {
+                Event::CommandPaneExited(pane_id, exit_code, context) => {
+                    // Handle picker floating pane dismissal
+                    if context.get("type").map(|t| t.as_str()) == Some("picker") {
+                        self.picker_active = false;
+                        return true;
+                    }
                     let is_early_exit = self
                         .session_by_pane_id(pane_id)
                         .map(|s| matches!(s.status, SessionStatus::Unknown))
@@ -233,22 +242,7 @@ register_plugin!(PluginState);
                     true
                 }
                 Event::Key(key) => {
-                    if self.picker_active {
-                        match self.handle_picker_key(key) {
-                            Ok(Some(pane_id)) => {
-                                focus_terminal_pane(pane_id, true);
-                                self.touch_session_mru(pane_id);
-                                true
-                            }
-                            Ok(None) => true,
-                            Err(()) => {
-                                if let Some(prev_pane) = self.focused_pane_id {
-                                    focus_terminal_pane(prev_pane, true);
-                                }
-                                true
-                            }
-                        }
-                    } else if self.rename_active {
+                    if self.rename_active {
                         self.handle_rename_key(key);
                         true
                     } else if self.close_confirm_active {
@@ -299,9 +293,7 @@ register_plugin!(PluginState);
             if rows == 0 || cols == 0 {
                 return;
             }
-            if self.picker_active && rows > 1 {
-                self.render_picker(rows, cols);
-            } else if self.rename_active && rows > 1 {
+            if self.rename_active && rows > 1 {
                 self.render_rename_prompt(cols);
             } else if self.close_confirm_active && rows > 1 {
                 self.render_close_confirm(cols);
@@ -336,16 +328,35 @@ register_plugin!(PluginState);
                     self.picker_toggle_cooldown = 3;
                     self.close_confirm_active = false;
                     self.rename_active = false;
-                    self.picker_active = !self.picker_active;
                     if self.picker_active {
-                        focus_plugin_pane(self.plugin_id, true);
-                    } else {
+                        // Toggle off: reset state
+                        self.picker_active = false;
                         self.picker_query.clear();
                         self.picker_selected = 0;
                         if let Some(prev_pane) = self.focused_pane_id {
                             focus_terminal_pane(prev_pane, true);
                         }
+                    } else if self.sessions.is_empty() {
+                        // No sessions to pick from
+                        return false;
+                    } else {
+                        // Open floating picker command pane
+                        self.picker_active = true;
+                        let cmd = self.build_picker_command();
+                        let mut ctx = BTreeMap::new();
+                        ctx.insert("type".to_string(), "picker".to_string());
+                        open_command_pane_floating(cmd, None, ctx);
                     }
+                    return true;
+                }
+                "pick_session" => {
+                    if let Some(payload) = pipe_message.payload.as_deref() {
+                        if let Ok(pane_id) = payload.trim().parse::<u32>() {
+                            focus_terminal_pane(pane_id, true);
+                            self.touch_session_mru(pane_id);
+                        }
+                    }
+                    self.picker_active = false;
                     return true;
                 }
                 "new_session" => {
