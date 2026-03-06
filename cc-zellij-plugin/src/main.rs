@@ -172,6 +172,13 @@ register_plugin!(PluginState);
                     let session_id = self.register_session(pane_id, context);
                     if let Some(sid) = session_id {
                         git::detect_git_repo(sid);
+                        // Move the command pane to its own tab
+                        let tab_name = format!("cc-{}", sid);
+                        break_panes_to_new_tab(
+                            &[PaneId::Terminal(pane_id)],
+                            Some(tab_name),
+                            true,
+                        );
                     }
                     true
                 }
