@@ -15,6 +15,7 @@ mod group;
 #[cfg(target_arch = "wasm32")]
 mod keybindings;
 #[cfg(target_arch = "wasm32")]
+#[allow(dead_code)]
 mod picker;
 #[cfg(target_arch = "wasm32")]
 mod pipe_handler;
@@ -153,8 +154,12 @@ register_plugin!(PluginState);
                 }
                 Event::TabUpdate(tab_info) => {
                     // Update tab_index for each tracked session by cross-referencing
-                    // which tab contains the session's pane_id
+                    // which tab contains the session's pane_id.
+                    // Track sessions whose tab_index changed so we can re-apply
+                    // their tab titles (T030: handle tab index shifting after reorder).
+                    let mut shifted_ids: Vec<u32> = Vec::new();
                     for session in self.sessions.values_mut() {
+                        let old_tab_index = session.tab_index;
                         let tab_index = self.tab_pane_mapping.iter().find_map(
                             |(tab_idx, pane_ids)| {
                                 if pane_ids.contains(&session.pane_id) {
@@ -173,6 +178,15 @@ register_plugin!(PluginState);
                             }
                         } else {
                             session.tab_index = None;
+                        }
+                        if session.tab_index != old_tab_index {
+                            shifted_ids.push(session.id);
+                        }
+                    }
+                    // Re-apply tab titles for sessions whose tab_index changed
+                    for sid in shifted_ids {
+                        if let Some(session) = self.sessions.get(&sid).cloned() {
+                            self.update_tab_title(&session);
                         }
                     }
                     true
@@ -381,7 +395,12 @@ register_plugin!(PluginState);
                     let cwd_str = cwd.to_string_lossy().to_string();
                     // Create a new tab with name and cwd
                     new_tab(Some(&tab_name), Some(&cwd_str));
-                    // T017: Set pending auto-start so PaneUpdate can launch Claude
+                    // T017: Set pending auto-start so PaneUpdate can launch Claude.
+                    // T031: Only one pending auto-start is tracked at a time. If
+                    // multiple rapid new_session calls arrive before PaneUpdate fires,
+                    // only the last one will auto-start Claude. Earlier calls still
+                    // create tabs with plain shells, which session detection will pick
+                    // up once the user starts Claude manually in them.
                     self.pending_auto_start = Some((session_id, cwd));
                     return true;
                 }
