@@ -54,8 +54,6 @@ pub struct PluginState {
     pub picker_toggle_cooldown: u8,
     /// Mapping from tab index to pane IDs within that tab (rebuilt on PaneUpdate)
     pub tab_pane_mapping: HashMap<usize, Vec<u32>>,
-    /// Pending auto-start: (pane_id, working_dir) for deferred session launch
-    pub pending_auto_start: Option<(u32, std::path::PathBuf)>,
 }
 
 impl PluginState {
