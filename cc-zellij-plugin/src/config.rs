@@ -73,8 +73,8 @@ mod tests {
         assert_eq!(config.idle_timeout, 300);
         assert_eq!(config.picker_key, "Alt Shift t");
         assert_eq!(config.new_session_key, "Alt Shift n");
-        assert_eq!(config.rename_key, "Ctrl Shift r");
-        assert_eq!(config.close_key, "Ctrl Shift x");
+        assert_eq!(config.rename_key, "Alt Shift r");
+        assert_eq!(config.close_key, "Alt Shift x");
         assert_eq!(config.max_recent, 20);
     }
 
