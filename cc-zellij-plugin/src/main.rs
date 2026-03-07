@@ -15,6 +15,21 @@ mod sidebar;
 mod state;
 mod sync;
 
+#[cfg(target_family = "wasm")]
+fn debug_log(msg: &str) {
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("/cache/debug.log")
+    {
+        use std::io::Write;
+        let _ = writeln!(f, "{}", msg);
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn debug_log(_msg: &str) {}
+
 use config::PluginConfig;
 use git::GitResult;
 use pipe_handler::{hook_event_to_activity, is_session_end, parse_pipe_message, PipeAction};
@@ -84,6 +99,13 @@ impl ZellijPlugin for PluginState {
     }
 
     fn pipe(&mut self, pipe_message: PipeMessage) -> bool {
+        // Trace log
+        debug_log(&format!("PIPE name={} payload={} sessions={} pane_keys={:?}",
+            pipe_message.name,
+            pipe_message.payload.as_deref().unwrap_or("None"),
+            self.sessions.len(),
+            self.pane_to_tab.keys().collect::<Vec<_>>()));
+
         let action = parse_pipe_message(
             &pipe_message.name,
             pipe_message.payload.as_deref(),
@@ -91,7 +113,7 @@ impl ZellijPlugin for PluginState {
 
         match action {
             PipeAction::HookEvent(hook) => {
-                if is_session_end(&hook.hook_event) {
+                if is_session_end(&hook.hook_event_name) {
                     let removed = self.sessions.remove(&hook.pane_id).is_some();
                     if removed {
                         sync::broadcast_state(self);
@@ -100,7 +122,7 @@ impl ZellijPlugin for PluginState {
                 }
 
                 let activity = match hook_event_to_activity(
-                    &hook.hook_event,
+                    &hook.hook_event_name,
                     hook.tool_name.as_deref(),
                 ) {
                     Some(a) => a,

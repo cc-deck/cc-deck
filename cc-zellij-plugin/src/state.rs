@@ -90,13 +90,21 @@ impl PluginState {
     /// Remove sessions whose panes no longer exist.
     pub fn remove_dead_sessions(&mut self) -> bool {
         let before = self.sessions.len();
+        if before == 0 {
+            return false;
+        }
         if self.pane_to_tab.is_empty() && self.pane_manifest.is_some() {
-            // Pane manifest loaded but no panes mapped, keep sessions until we have data
             return false;
         }
         if self.pane_manifest.is_some() {
+            let session_keys: Vec<_> = self.sessions.keys().cloned().collect();
+            let pane_keys: Vec<_> = self.pane_to_tab.keys().cloned().collect();
             self.sessions
                 .retain(|pane_id, _| self.pane_to_tab.contains_key(pane_id));
+            if self.sessions.len() != before {
+                crate::debug_log(&format!("CLEANUP removed: session_keys={:?} pane_keys={:?} remaining={}",
+                    session_keys, pane_keys, self.sessions.len()));
+            }
         }
         self.sessions.len() != before
     }
