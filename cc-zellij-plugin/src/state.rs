@@ -1,0 +1,164 @@
+// T003: PluginState with session tracking, tab/pane state, and mode enum
+
+use crate::config::PluginConfig;
+use crate::session::{Activity, Session};
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, HashMap};
+use zellij_tile::prelude::*;
+
+/// Plugin instance mode, set via configuration.
+#[derive(Default, Debug, Clone, PartialEq)]
+pub enum PluginMode {
+    #[default]
+    Sidebar,
+    Picker,
+}
+
+/// Transient state for an active inline rename operation.
+#[derive(Debug, Clone)]
+pub struct RenameState {
+    pub pane_id: u32,
+    pub input_buffer: String,
+    pub cursor_pos: usize,
+}
+
+/// A brief notification message displayed in the sidebar.
+#[derive(Debug, Clone)]
+pub struct Notification {
+    pub message: String,
+    pub expires_at_ms: u64,
+}
+
+/// The aggregate state held by each plugin instance.
+#[derive(Default)]
+pub struct PluginState {
+    /// All known Claude sessions, keyed by pane_id.
+    pub sessions: BTreeMap<u32, Session>,
+    /// Current tab list from TabUpdate events.
+    pub tabs: Vec<TabInfo>,
+    /// Current pane manifest from PaneUpdate events.
+    pub pane_manifest: Option<PaneManifest>,
+    /// Pane ID -> (tab_index, tab_name) mapping.
+    pub pane_to_tab: HashMap<u32, (usize, String)>,
+    /// Currently focused tab position.
+    pub active_tab_index: Option<usize>,
+    /// Plugin instance mode.
+    pub mode: PluginMode,
+    /// Configuration.
+    pub config: PluginConfig,
+    /// Whether plugin permissions have been granted.
+    pub permissions_granted: bool,
+    /// Current Zellij input mode.
+    pub input_mode: InputMode,
+    /// Active rename operation (if any).
+    pub rename_state: Option<RenameState>,
+    /// Brief notification to display.
+    pub notification: Option<Notification>,
+    /// Guard flag to prevent re-entrancy from rename_tab -> TabUpdate loops.
+    pub updating_tabs: bool,
+    /// Events received before permissions were granted.
+    pub pending_events: Vec<Event>,
+}
+
+impl PluginState {
+    /// Rebuild the pane-to-tab mapping from current tab and pane data.
+    pub fn rebuild_pane_map(&mut self) {
+        self.pane_to_tab.clear();
+        if let Some(ref manifest) = self.pane_manifest {
+            for tab in &self.tabs {
+                if let Some(panes) = manifest.panes.get(&tab.position) {
+                    for pane in panes {
+                        if !pane.is_plugin {
+                            self.pane_to_tab
+                                .insert(pane.id, (tab.position, tab.name.clone()));
+                        }
+                    }
+                }
+            }
+        }
+        // Refresh tab info on all sessions
+        for session in self.sessions.values_mut() {
+            if let Some((idx, name)) = self.pane_to_tab.get(&session.pane_id) {
+                session.tab_index = Some(*idx);
+                session.tab_name = Some(name.clone());
+            }
+        }
+    }
+
+    /// Remove sessions whose panes no longer exist.
+    pub fn remove_dead_sessions(&mut self) -> bool {
+        let before = self.sessions.len();
+        if self.pane_to_tab.is_empty() && self.pane_manifest.is_some() {
+            // Pane manifest loaded but no panes mapped, keep sessions until we have data
+            return false;
+        }
+        if self.pane_manifest.is_some() {
+            self.sessions
+                .retain(|pane_id, _| self.pane_to_tab.contains_key(pane_id));
+        }
+        self.sessions.len() != before
+    }
+
+    /// Get sessions sorted by tab index for display.
+    pub fn sessions_by_tab_order(&self) -> Vec<&Session> {
+        let mut sessions: Vec<&Session> = self.sessions.values().collect();
+        sessions.sort_by_key(|s| s.tab_index.unwrap_or(usize::MAX));
+        sessions
+    }
+
+    /// Find the oldest waiting session.
+    pub fn oldest_waiting_session(&self) -> Option<&Session> {
+        self.sessions
+            .values()
+            .filter(|s| s.activity.is_waiting())
+            .min_by_key(|s| s.last_event_ts)
+    }
+
+    /// Get all session display names (for deduplication).
+    pub fn session_names(&self) -> Vec<&str> {
+        self.sessions.values().map(|s| s.display_name.as_str()).collect()
+    }
+
+    /// Merge incoming sessions from another instance (sync protocol).
+    pub fn merge_sessions(&mut self, incoming: BTreeMap<u32, Session>) {
+        for (pane_id, mut session) in incoming {
+            let dominated = self
+                .sessions
+                .get(&pane_id)
+                .map(|existing| session.last_event_ts > existing.last_event_ts)
+                .unwrap_or(true);
+            if dominated {
+                // Refresh tab info from our local pane map
+                if let Some((idx, name)) = self.pane_to_tab.get(&pane_id) {
+                    session.tab_index = Some(*idx);
+                    session.tab_name = Some(name.clone());
+                }
+                self.sessions.insert(pane_id, session);
+            }
+        }
+    }
+
+    /// Transition Done/AgentDone sessions to Idle after timeout.
+    pub fn cleanup_stale_sessions(&mut self, timeout_secs: u64) -> bool {
+        let now = crate::session::unix_now();
+        let mut changed = false;
+        for session in self.sessions.values_mut() {
+            match session.activity {
+                Activity::Done | Activity::AgentDone => {
+                    if now.saturating_sub(session.last_event_ts) >= timeout_secs {
+                        session.activity = Activity::Idle;
+                        changed = true;
+                    }
+                }
+                _ => {}
+            }
+        }
+        changed
+    }
+}
+
+/// Serializable subset of session state for pipe sync messages.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SyncPayload {
+    pub sessions: BTreeMap<u32, Session>,
+}
