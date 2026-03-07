@@ -1,18 +1,19 @@
 # Brainstorm Overview
 
-Last updated: 2026-03-03
+Last updated: 2026-03-07
 
 ## Sessions
 
 | # | Date | Topic | Status | Spec |
 |---|------|-------|--------|------|
-| 01 | 2026-03-02 | cc-deck-session-manager | spec-created | 001 |
+| 01 | 2026-03-02 | cc-deck-session-manager | superseded-by-08 | 001 |
 | 02 | 2026-03-03 | cc-deck-k8s-cli | active | - |
 | 03 | 2026-03-03 | repo-restructure | parked | - |
 | 04 | 2026-03-03 | session-flavors | active | - |
 | 05 | 2026-03-03 | clipboard-bridge | active | - |
-| 06 | 2026-03-04 | plugin-lifecycle | complete | - |
-| 07 | 2026-03-05 | plugin-bugfixes | complete | - |
+| 06 | 2026-03-04 | plugin-lifecycle | superseded-by-08 | - |
+| 07 | 2026-03-05 | plugin-bugfixes | superseded-by-08 | - |
+| 08 | 2026-03-07 | cc-deck-v2-redesign | active | - |
 
 ## Open Threads
 
