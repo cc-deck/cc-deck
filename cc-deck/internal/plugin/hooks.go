@@ -29,7 +29,7 @@ var hookEvents = []string{
 }
 
 type hookEntry struct {
-	Matcher string `json:"matcher"`
+	Matcher map[string]any `json:"matcher"`
 	Hooks   []hookAction   `json:"hooks"`
 }
 
@@ -40,7 +40,7 @@ type hookAction struct {
 
 func ccDeckHookEntry() hookEntry {
 	return hookEntry{
-		Matcher: "",
+		Matcher: map[string]any{},
 		Hooks:   []hookAction{{Type: "command", Command: ccDeckHookCommand()}},
 	}
 }
