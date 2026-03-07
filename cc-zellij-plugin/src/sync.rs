@@ -41,10 +41,9 @@ pub fn handle_sync(state: &mut PluginState, payload: &str) -> bool {
     if incoming.is_empty() {
         return false;
     }
-    let before_count = state.sessions.len();
     state.merge_sessions(incoming);
     // Always re-render after sync (state may have updated even if count unchanged)
-    state.sessions.len() != before_count || true
+    true
 }
 
 #[cfg(test)]

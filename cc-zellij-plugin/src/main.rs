@@ -1,3 +1,4 @@
+#![allow(dead_code, unused_imports)]
 // cc-deck v2: Zellij plugin for Claude Code session management
 //
 // Two instance modes (differentiated by config):

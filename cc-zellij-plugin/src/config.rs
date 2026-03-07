@@ -29,7 +29,7 @@ impl PluginConfig {
 
         if let Some(v) = config.get("sidebar_width") {
             if let Ok(w) = v.parse::<usize>() {
-                if w >= 10 && w <= 60 {
+                if (10..=60).contains(&w) {
                     result.sidebar_width = w;
                 }
             }
