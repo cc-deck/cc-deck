@@ -157,8 +157,3 @@ impl PluginState {
     }
 }
 
-/// Serializable subset of session state for pipe sync messages.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct SyncPayload {
-    pub sessions: BTreeMap<u32, Session>,
-}
