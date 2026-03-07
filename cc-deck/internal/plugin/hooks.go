@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // ClaudeSettingsPath returns the path to ~/.claude/settings.json.
@@ -17,20 +18,22 @@ func ClaudeSettingsPath() string {
 }
 
 func ccDeckHookCommand() string {
-	return "cc-deck hook"
+	return "cc-deck hook --pane-id \"$ZELLIJ_PANE_ID\""
 }
 
 var hookEvents = []string{
+	"SessionStart",
 	"PreToolUse",
 	"PostToolUse",
 	"Notification",
 	"Stop",
 	"SubagentStop",
+	"SessionEnd",
 }
 
 type hookEntry struct {
-	Matcher map[string]any `json:"matcher"`
-	Hooks   []hookAction   `json:"hooks"`
+	Matcher *string      `json:"matcher,omitempty"`
+	Hooks   []hookAction `json:"hooks"`
 }
 
 type hookAction struct {
@@ -38,11 +41,22 @@ type hookAction struct {
 	Command string `json:"command"`
 }
 
-func ccDeckHookEntry() hookEntry {
-	return hookEntry{
-		Matcher: map[string]any{},
-		Hooks:   []hookAction{{Type: "command", Command: ccDeckHookCommand()}},
+// hookEventsWithMatcher lists events that support the matcher field.
+var hookEventsWithMatcher = map[string]bool{
+	"PreToolUse":  true,
+	"PostToolUse": true,
+	"Notification": true,
+}
+
+func ccDeckHookEntry(event string) hookEntry {
+	entry := hookEntry{
+		Hooks: []hookAction{{Type: "command", Command: ccDeckHookCommand()}},
 	}
+	if hookEventsWithMatcher[event] {
+		m := ""
+		entry.Matcher = &m
+	}
+	return entry
 }
 
 // RegisterHooks adds cc-deck hook entries to settings.json.
@@ -58,10 +72,10 @@ func RegisterHooks(settingsPath string) error {
 		hooks = make(map[string]any)
 	}
 
-	entry := ccDeckHookEntry()
-	entryMap := structToMap(entry)
-
 	for _, event := range hookEvents {
+		entry := ccDeckHookEntry(event)
+		entryMap := structToMap(entry)
+
 		eventHooks, _ := hooks[event].([]any)
 		// Remove old-format or duplicate entries, then add fresh
 		eventHooks = removeCCDeckHooks(eventHooks)
@@ -185,20 +199,22 @@ func removeCCDeckHooks(hooks []any) []any {
 }
 
 // isCCDeckEntry checks both new format (object) and old format (string).
-func isCCDeckEntry(entry any, cmd string) bool {
-	// New format: {"matcher": {}, "hooks": [{"type": "command", "command": "..."}]}
+// Matches any command starting with "cc-deck hook" to catch old and new variants.
+func isCCDeckEntry(entry any, _ string) bool {
+	const prefix = "cc-deck hook"
+	// New format: {"matcher": "", "hooks": [{"type": "command", "command": "..."}]}
 	if m, ok := entry.(map[string]any); ok {
 		hooksArr, _ := m["hooks"].([]any)
 		for _, h := range hooksArr {
 			if action, ok := h.(map[string]any); ok {
-				if action["command"] == cmd {
+				if cmd, ok := action["command"].(string); ok && strings.HasPrefix(cmd, prefix) {
 					return true
 				}
 			}
 		}
 	}
 	// Old format: plain string
-	if s, ok := entry.(string); ok && s == cmd {
+	if s, ok := entry.(string); ok && strings.HasPrefix(s, prefix) {
 		return true
 	}
 	return false

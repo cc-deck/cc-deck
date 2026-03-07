@@ -8,7 +8,7 @@ use serde::Deserialize;
 pub struct HookPayload {
     pub session_id: Option<String>,
     pub pane_id: u32,
-    pub hook_event: String,
+    pub hook_event_name: String,
     pub tool_name: Option<String>,
     pub cwd: Option<String>,
 }
@@ -87,19 +87,19 @@ mod tests {
 
     #[test]
     fn test_parse_hook_payload() {
-        let json = r#"{"session_id":"abc","pane_id":42,"hook_event":"PreToolUse","tool_name":"Bash","cwd":"/tmp"}"#;
+        let json = r#"{"session_id":"abc","pane_id":42,"hook_event_name":"PreToolUse","tool_name":"Bash","cwd":"/tmp"}"#;
         let payload: HookPayload = serde_json::from_str(json).unwrap();
         assert_eq!(payload.pane_id, 42);
-        assert_eq!(payload.hook_event, "PreToolUse");
+        assert_eq!(payload.hook_event_name, "PreToolUse");
         assert_eq!(payload.tool_name.as_deref(), Some("Bash"));
     }
 
     #[test]
     fn test_parse_hook_payload_minimal() {
-        let json = r#"{"pane_id":1,"hook_event":"Stop"}"#;
+        let json = r#"{"pane_id":1,"hook_event_name":"Stop"}"#;
         let payload: HookPayload = serde_json::from_str(json).unwrap();
         assert_eq!(payload.pane_id, 1);
-        assert_eq!(payload.hook_event, "Stop");
+        assert_eq!(payload.hook_event_name, "Stop");
         assert!(payload.session_id.is_none());
         assert!(payload.tool_name.is_none());
     }
@@ -125,9 +125,9 @@ mod tests {
 
     #[test]
     fn test_parse_pipe_message() {
-        let json = r#"{"pane_id":1,"hook_event":"Stop"}"#;
+        let json = r#"{"pane_id":1,"hook_event_name":"Stop"}"#;
         match parse_pipe_message("cc-deck:hook", Some(json)) {
-            PipeAction::HookEvent(h) => assert_eq!(h.hook_event, "Stop"),
+            PipeAction::HookEvent(h) => assert_eq!(h.hook_event_name, "Stop"),
             _ => panic!("expected HookEvent"),
         }
 
