@@ -166,7 +166,7 @@ A developer wants to remove cc-deck. They run `cc-deck uninstall`, which safely 
 - **FR-007**: The sidebar MUST auto-detect Claude Code sessions by tracking panes that receive hook events
 - **FR-008**: The sidebar MUST auto-name sessions based on git repository detection, falling back to directory basename
 - **FR-009**: The sidebar MUST handle sessions disappearing (tab/pane closed) by removing them from the list
-- **FR-010**: The sidebar MUST display elapsed time since the last activity change for sessions in non-idle states
+- **FR-010**: The sidebar MUST display elapsed time since the last activity change for sessions in Working, Waiting, and Done states (not for Init or Idle)
 - **FR-011**: The sidebar MUST have a configurable width with a sensible default, adjustable via plugin configuration parameters
 
 **Hook Integration:**
