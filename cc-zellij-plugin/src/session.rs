@@ -11,8 +11,9 @@ pub fn unix_now() -> u64 {
 }
 
 /// Current activity state of a Claude Code session.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub enum Activity {
+    #[default]
     Init,
     Working,
     ToolUse(String),
@@ -22,11 +23,6 @@ pub enum Activity {
     AgentDone,
 }
 
-impl Default for Activity {
-    fn default() -> Self {
-        Activity::Init
-    }
-}
 
 impl Activity {
     /// Activity indicator character for sidebar rendering.
