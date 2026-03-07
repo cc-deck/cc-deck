@@ -58,6 +58,8 @@ pub struct PluginState {
     pub updating_tabs: bool,
     /// Events received before permissions were granted.
     pub pending_events: Vec<Event>,
+    /// Click regions from the last render (row, pane_id, tab_index).
+    pub click_regions: Vec<(usize, u32, usize)>,
 }
 
 impl PluginState {
