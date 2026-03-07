@@ -206,11 +206,11 @@ fn render_empty_state(rows: usize, cols: usize) {
 }
 
 /// Handle a mouse click on the sidebar.
-/// Returns the tab index to switch to, if a session was clicked.
-pub fn handle_click(click_row: usize, click_regions: &[ClickRegion]) -> Option<usize> {
-    for &(row, _pane_id, tab_index) in click_regions {
+/// Returns (tab_index, pane_id) if a session was clicked.
+pub fn handle_click(click_row: usize, click_regions: &[ClickRegion]) -> Option<(usize, u32)> {
+    for &(row, pane_id, tab_index) in click_regions {
         if click_row >= row && click_row < row + 3 {
-            return Some(tab_index);
+            return Some((tab_index, pane_id));
         }
     }
     None
@@ -330,9 +330,9 @@ mod tests {
             (2, 1, 0),
             (5, 2, 1),
         ];
-        assert_eq!(handle_click(2, &regions), Some(0));
-        assert_eq!(handle_click(3, &regions), Some(0));
-        assert_eq!(handle_click(5, &regions), Some(1));
+        assert_eq!(handle_click(2, &regions), Some((0, 1)));
+        assert_eq!(handle_click(3, &regions), Some((0, 1)));
+        assert_eq!(handle_click(5, &regions), Some((1, 2)));
         assert_eq!(handle_click(10, &regions), None);
     }
 }
