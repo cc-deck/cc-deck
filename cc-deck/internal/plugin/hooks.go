@@ -1,4 +1,5 @@
 // T019: settings.json hook management (add/remove cc-deck hooks)
+// Uses the new matcher-based hook format required by Claude Code 2.1+
 
 package plugin
 
@@ -15,12 +16,10 @@ func ClaudeSettingsPath() string {
 	return filepath.Join(home, ".claude", "settings.json")
 }
 
-// ccDeckHookCommand returns the hook command to register.
 func ccDeckHookCommand() string {
 	return "cc-deck hook"
 }
 
-// hookEvents lists all Claude Code hook event types to register.
 var hookEvents = []string{
 	"PreToolUse",
 	"PostToolUse",
@@ -29,28 +28,45 @@ var hookEvents = []string{
 	"SubagentStop",
 }
 
+type hookEntry struct {
+	Matcher map[string]any `json:"matcher"`
+	Hooks   []hookAction   `json:"hooks"`
+}
+
+type hookAction struct {
+	Type    string `json:"type"`
+	Command string `json:"command"`
+}
+
+func ccDeckHookEntry() hookEntry {
+	return hookEntry{
+		Matcher: map[string]any{},
+		Hooks:   []hookAction{{Type: "command", Command: ccDeckHookCommand()}},
+	}
+}
+
 // RegisterHooks adds cc-deck hook entries to settings.json.
-// Creates the file if it doesn't exist.
-// Preserves all existing content.
+// Removes any old-format entries and adds new matcher-based format.
 func RegisterHooks(settingsPath string) error {
 	settings, err := readSettings(settingsPath)
 	if err != nil {
 		return err
 	}
 
-	hooks, _ := settings["hooks"].(map[string]interface{})
+	hooks, _ := settings["hooks"].(map[string]any)
 	if hooks == nil {
-		hooks = make(map[string]interface{})
+		hooks = make(map[string]any)
 	}
 
-	hookCmd := ccDeckHookCommand()
+	entry := ccDeckHookEntry()
+	entryMap := structToMap(entry)
 
 	for _, event := range hookEvents {
-		eventHooks, _ := hooks[event].([]interface{})
-		if !containsHook(eventHooks, hookCmd) {
-			eventHooks = append(eventHooks, hookCmd)
-			hooks[event] = eventHooks
-		}
+		eventHooks, _ := hooks[event].([]any)
+		// Remove old-format or duplicate entries, then add fresh
+		eventHooks = removeCCDeckHooks(eventHooks)
+		eventHooks = append(eventHooks, entryMap)
+		hooks[event] = eventHooks
 	}
 
 	settings["hooks"] = hooks
@@ -58,30 +74,27 @@ func RegisterHooks(settingsPath string) error {
 }
 
 // RemoveHooks removes only cc-deck hook entries from settings.json.
-// Preserves all other hooks and settings.
 func RemoveHooks(settingsPath string) error {
 	settings, err := readSettings(settingsPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil // nothing to remove
+			return nil
 		}
 		return err
 	}
 
-	hooks, _ := settings["hooks"].(map[string]interface{})
+	hooks, _ := settings["hooks"].(map[string]any)
 	if hooks == nil {
 		return nil
 	}
 
-	hookCmd := ccDeckHookCommand()
 	changed := false
-
 	for event, val := range hooks {
-		eventHooks, ok := val.([]interface{})
+		eventHooks, ok := val.([]any)
 		if !ok {
 			continue
 		}
-		filtered := removeHook(eventHooks, hookCmd)
+		filtered := removeCCDeckHooks(eventHooks)
 		if len(filtered) != len(eventHooks) {
 			changed = true
 			if len(filtered) == 0 {
@@ -111,19 +124,16 @@ func HasHooks(settingsPath string) bool {
 	if err != nil {
 		return false
 	}
-
-	hooks, _ := settings["hooks"].(map[string]interface{})
+	hooks, _ := settings["hooks"].(map[string]any)
 	if hooks == nil {
 		return false
 	}
-
-	hookCmd := ccDeckHookCommand()
 	for _, val := range hooks {
-		eventHooks, ok := val.([]interface{})
+		eventHooks, ok := val.([]any)
 		if !ok {
 			continue
 		}
-		if containsHook(eventHooks, hookCmd) {
+		if containsCCDeckHook(eventHooks) {
 			return true
 		}
 	}
@@ -136,77 +146,98 @@ func HookEventCount(settingsPath string) int {
 	if err != nil {
 		return 0
 	}
-
-	hooks, _ := settings["hooks"].(map[string]interface{})
+	hooks, _ := settings["hooks"].(map[string]any)
 	if hooks == nil {
 		return 0
 	}
-
-	hookCmd := ccDeckHookCommand()
 	count := 0
 	for _, val := range hooks {
-		eventHooks, ok := val.([]interface{})
+		eventHooks, ok := val.([]any)
 		if !ok {
 			continue
 		}
-		if containsHook(eventHooks, hookCmd) {
+		if containsCCDeckHook(eventHooks) {
 			count++
 		}
 	}
 	return count
 }
 
-func readSettings(path string) (map[string]interface{}, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return make(map[string]interface{}), nil
-		}
-		return nil, fmt.Errorf("reading settings: %w", err)
-	}
-
-	if len(data) == 0 {
-		return make(map[string]interface{}), nil
-	}
-
-	var settings map[string]interface{}
-	if err := json.Unmarshal(data, &settings); err != nil {
-		return nil, fmt.Errorf("parsing settings.json: %w", err)
-	}
-	return settings, nil
-}
-
-func writeSettings(path string, settings map[string]interface{}) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("creating directory %s: %w", dir, err)
-	}
-
-	data, err := json.MarshalIndent(settings, "", "  ")
-	if err != nil {
-		return fmt.Errorf("encoding settings: %w", err)
-	}
-	data = append(data, '\n')
-
-	return atomicWrite(path, data, 0o644)
-}
-
-func containsHook(hooks []interface{}, cmd string) bool {
+func containsCCDeckHook(hooks []any) bool {
+	cmd := ccDeckHookCommand()
 	for _, h := range hooks {
-		if s, ok := h.(string); ok && s == cmd {
+		if isCCDeckEntry(h, cmd) {
 			return true
 		}
 	}
 	return false
 }
 
-func removeHook(hooks []interface{}, cmd string) []interface{} {
-	var result []interface{}
+func removeCCDeckHooks(hooks []any) []any {
+	cmd := ccDeckHookCommand()
+	var result []any
 	for _, h := range hooks {
-		if s, ok := h.(string); ok && s == cmd {
-			continue
+		if !isCCDeckEntry(h, cmd) {
+			result = append(result, h)
 		}
-		result = append(result, h)
 	}
 	return result
+}
+
+// isCCDeckEntry checks both new format (object) and old format (string).
+func isCCDeckEntry(entry any, cmd string) bool {
+	// New format: {"matcher": {}, "hooks": [{"type": "command", "command": "..."}]}
+	if m, ok := entry.(map[string]any); ok {
+		hooksArr, _ := m["hooks"].([]any)
+		for _, h := range hooksArr {
+			if action, ok := h.(map[string]any); ok {
+				if action["command"] == cmd {
+					return true
+				}
+			}
+		}
+	}
+	// Old format: plain string
+	if s, ok := entry.(string); ok && s == cmd {
+		return true
+	}
+	return false
+}
+
+func structToMap(v any) map[string]any {
+	data, _ := json.Marshal(v)
+	var result map[string]any
+	json.Unmarshal(data, &result)
+	return result
+}
+
+func readSettings(path string) (map[string]any, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return make(map[string]any), nil
+		}
+		return nil, fmt.Errorf("reading settings: %w", err)
+	}
+	if len(data) == 0 {
+		return make(map[string]any), nil
+	}
+	var settings map[string]any
+	if err := json.Unmarshal(data, &settings); err != nil {
+		return nil, fmt.Errorf("parsing settings.json: %w", err)
+	}
+	return settings, nil
+}
+
+func writeSettings(path string, settings map[string]any) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("creating directory %s: %w", dir, err)
+	}
+	data, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encoding settings: %w", err)
+	}
+	data = append(data, '\n')
+	return atomicWrite(path, data, 0o644)
 }
