@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -27,9 +26,8 @@ func NewPluginCmd(gf *GlobalFlags) *cobra.Command {
 }
 
 type pluginInstallFlags struct {
-	force         bool
-	layout        string
-	injectDefault bool
+	force      bool
+	skipBackup bool
 }
 
 func newPluginInstallCmd(_ *GlobalFlags) *cobra.Command {
@@ -37,12 +35,13 @@ func newPluginInstallCmd(_ *GlobalFlags) *cobra.Command {
 
 	installCmd := &cobra.Command{
 		Use:   "install",
-		Short: "Install the Zellij plugin and layout",
-		Long: `Install the embedded cc-deck WASM plugin into the Zellij plugins directory
-and write a layout file to the Zellij layouts directory.
+		Short: "Install the Zellij plugin, layout, and hooks",
+		Long: `Install the embedded cc-deck WASM plugin into the Zellij plugins directory,
+write a sidebar layout to the Zellij layouts directory, and register Claude Code
+hooks in ~/.claude/settings.json.
 
-Optionally inject the plugin pane into an existing default layout with
-the --inject-default flag.`,
+A timestamped backup of settings.json is created before modification
+unless --skip-backup is specified.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runPluginInstall(f)
@@ -50,8 +49,7 @@ the --inject-default flag.`,
 	}
 
 	installCmd.Flags().BoolVarP(&f.force, "force", "f", false, "Overwrite without prompting")
-	installCmd.Flags().StringVarP(&f.layout, "layout", "l", "minimal", `Layout template: "minimal" or "full"`)
-	installCmd.Flags().BoolVar(&f.injectDefault, "inject-default", false, "Inject plugin pane into default layout")
+	installCmd.Flags().BoolVar(&f.skipBackup, "skip-backup", false, "Skip creating backup of settings.json")
 
 	return installCmd
 }
@@ -60,7 +58,7 @@ func newPluginStatusCmd(gf *GlobalFlags) *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
 		Short: "Show plugin installation status",
-		Long:  "Display the current installation status of the cc-deck Zellij plugin, layout, and Zellij itself.",
+		Long:  "Display the current installation status of the cc-deck Zellij plugin, layout, hooks, and Zellij itself.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return plugin.RunStatus(os.Stdout, os.Stderr, gf.Output)
@@ -68,30 +66,38 @@ func newPluginStatusCmd(gf *GlobalFlags) *cobra.Command {
 	}
 }
 
+type pluginRemoveFlags struct {
+	skipBackup bool
+}
+
 func newPluginRemoveCmd(_ *GlobalFlags) *cobra.Command {
-	return &cobra.Command{
-		Use:   "remove",
-		Short: "Remove the Zellij plugin and layout",
-		Long:  "Remove the cc-deck WASM plugin, layout file, and any injection from the default layout.",
-		Args:  cobra.NoArgs,
+	f := &pluginRemoveFlags{}
+
+	removeCmd := &cobra.Command{
+		Use:     "remove",
+		Aliases: []string{"uninstall"},
+		Short:   "Remove the Zellij plugin, layout, and hooks",
+		Long: `Remove the cc-deck WASM plugin, layout file, and Claude Code hooks from
+settings.json. A timestamped backup of settings.json is created before
+modification unless --skip-backup is specified.`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return plugin.RunRemove(os.Stdout, os.Stderr)
+			return runPluginRemove(f)
 		},
 	}
+
+	removeCmd.Flags().BoolVar(&f.skipBackup, "skip-backup", false, "Skip creating backup of settings.json")
+
+	return removeCmd
 }
 
 func runPluginInstall(f *pluginInstallFlags) error {
-	if f.layout != "minimal" && f.layout != "full" {
-		return fmt.Errorf("invalid layout %q: must be \"minimal\" or \"full\"", f.layout)
-	}
-
 	err := plugin.Install(plugin.InstallOptions{
-		Force:         f.force,
-		Layout:        f.layout,
-		InjectDefault: f.injectDefault,
-		Stdout:        os.Stdout,
-		Stderr:        os.Stderr,
-		Stdin:         os.Stdin,
+		Force:      f.force,
+		SkipBackup: f.skipBackup,
+		Stdout:     os.Stdout,
+		Stderr:     os.Stderr,
+		Stdin:      os.Stdin,
 	})
 	if err != nil {
 		if err.Error() == "cancelled by user" {
@@ -100,4 +106,12 @@ func runPluginInstall(f *pluginInstallFlags) error {
 		return err
 	}
 	return nil
+}
+
+func runPluginRemove(f *pluginRemoveFlags) error {
+	return plugin.Remove(plugin.RemoveOptions{
+		SkipBackup: f.skipBackup,
+		Stdout:     os.Stdout,
+		Stderr:     os.Stderr,
+	})
 }
