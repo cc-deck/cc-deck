@@ -42,6 +42,8 @@ register_plugin!(PluginState);
 
 impl ZellijPlugin for PluginState {
     fn load(&mut self, configuration: BTreeMap<String, String>) {
+        debug_log("LOAD start");
+
         self.mode = match configuration.get("mode").map(|s| s.as_str()) {
             Some("picker") => PluginMode::Picker,
             _ => PluginMode::Sidebar,
@@ -49,15 +51,7 @@ impl ZellijPlugin for PluginState {
 
         self.config = PluginConfig::from_configuration(&configuration);
 
-        request_permission(&[
-            PermissionType::ReadApplicationState,
-            PermissionType::ChangeApplicationState,
-            PermissionType::RunCommands,
-            PermissionType::ReadCliPipes,
-            PermissionType::MessageAndLaunchOtherPlugins,
-            PermissionType::Reconfigure,
-        ]);
-
+        debug_log("LOAD subscribing");
         subscribe(&[
             EventType::TabUpdate,
             EventType::PaneUpdate,
@@ -71,13 +65,28 @@ impl ZellijPlugin for PluginState {
             EventType::PaneClosed,
         ]);
 
+        debug_log("LOAD requesting permissions");
+        request_permission(&[
+            PermissionType::ReadApplicationState,
+            PermissionType::ChangeApplicationState,
+            PermissionType::RunCommands,
+            PermissionType::ReadCliPipes,
+            PermissionType::MessageAndLaunchOtherPlugins,
+            PermissionType::Reconfigure,
+        ]);
+
+        debug_log("LOAD setting timeout");
         set_timeout(self.config.timer_interval);
+
+        debug_log("LOAD complete");
     }
 
     fn update(&mut self, event: Event) -> bool {
         if let Event::PermissionRequestResult(status) = event {
+            debug_log(&format!("PERMISSION result={status:?}"));
             if status == PermissionStatus::Granted {
                 self.permissions_granted = true;
+                debug_log("PERMISSION granted, calling set_selectable(false)");
                 set_selectable(false);
                 sync::request_state();
                 let pending = std::mem::take(&mut self.pending_events);
@@ -236,14 +245,22 @@ impl PluginState {
                 // Re-render to update elapsed times
                 stale || !self.sessions.is_empty()
             }
-            Event::Mouse(Mouse::LeftClick(row, _col)) => {
-                if let Some(tab_idx) = sidebar::handle_click(row as usize, &self.click_regions) {
-                    // switch_tab_to is 1-indexed
-                    switch_tab_to(tab_idx as u32 + 1);
+            Event::Mouse(Mouse::LeftClick(row, col)) => {
+                debug_log(&format!("CLICK row={row} col={col} regions={:?}", self.click_regions));
+                if let Some((tab_idx, pane_id)) = sidebar::handle_click(row as usize, &self.click_regions) {
+                    debug_log(&format!("CLICK tab_idx={tab_idx} pane_id={pane_id}"));
+                    // Switch tab if on a different tab, then focus the pane
+                    if self.active_tab_index != Some(tab_idx) {
+                        switch_tab_to(tab_idx as u32 + 1);
+                    }
+                    focus_terminal_pane(pane_id, false);
                 }
                 false
             }
-            Event::Mouse(_) => false,
+            Event::Mouse(mouse) => {
+                debug_log(&format!("MOUSE event={mouse:?}"));
+                false
+            }
             Event::Key(_key) => {
                 // TODO (Phase 7/US5): handle rename key input
                 false
