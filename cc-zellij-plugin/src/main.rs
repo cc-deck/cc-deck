@@ -11,6 +11,7 @@ mod config;
 mod git;
 mod pipe_handler;
 mod session;
+mod sidebar;
 mod state;
 mod sync;
 
@@ -63,9 +64,7 @@ impl ZellijPlugin for PluginState {
             if status == PermissionStatus::Granted {
                 self.permissions_granted = true;
                 set_selectable(false);
-                // Request state from other instances
                 sync::request_state();
-                // Process any events that arrived before permissions
                 let pending = std::mem::take(&mut self.pending_events);
                 let mut render = true;
                 for e in pending {
@@ -106,7 +105,6 @@ impl ZellijPlugin for PluginState {
                 ) {
                     Some(a) => a,
                     None => {
-                        // Notification: just update timestamp
                         if let Some(session) = self.sessions.get_mut(&hook.pane_id) {
                             session.last_event_ts = session::unix_now();
                         }
@@ -177,14 +175,7 @@ impl ZellijPlugin for PluginState {
     fn render(&mut self, rows: usize, cols: usize) {
         match self.mode {
             PluginMode::Sidebar => {
-                // TODO (Phase 3/US1): render vertical session list
-                let session_count = self.sessions.len();
-                if session_count == 0 {
-                    print!("\x1b[2mcc-deck: no sessions\x1b[0m");
-                } else {
-                    let _ = (rows, cols);
-                    print!("cc-deck: {session_count} sessions");
-                }
+                self.click_regions = sidebar::render_sidebar(self, rows, cols);
             }
             PluginMode::Picker => {
                 print!("cc-deck picker ({rows}x{cols})");
@@ -220,12 +211,17 @@ impl PluginState {
             Event::Timer(_) => {
                 let stale = self.cleanup_stale_sessions(self.config.done_timeout);
                 set_timeout(self.config.timer_interval);
-                stale
+                // Re-render to update elapsed times
+                stale || !self.sessions.is_empty()
             }
-            Event::Mouse(_mouse) => {
-                // TODO (Phase 3/US1): handle click-to-switch
+            Event::Mouse(Mouse::LeftClick(row, _col)) => {
+                if let Some(tab_idx) = sidebar::handle_click(row as usize, &self.click_regions) {
+                    // switch_tab_to is 1-indexed
+                    switch_tab_to(tab_idx as u32 + 1);
+                }
                 false
             }
+            Event::Mouse(_) => false,
             Event::Key(_key) => {
                 // TODO (Phase 7/US5): handle rename key input
                 false
@@ -260,7 +256,6 @@ impl PluginState {
     ) -> bool {
         match git::parse_git_result(exit_code, stdout, context) {
             GitResult::RepoDetected { pane_id, repo_path } => {
-                // Check if we should rename (immutable borrow)
                 let should_rename = self
                     .sessions
                     .get(&pane_id)
@@ -268,12 +263,10 @@ impl PluginState {
                     .unwrap_or(false);
 
                 if should_rename {
-                    // Compute new name (immutable borrow for other names)
                     let repo_name = git::repo_name_from_path(&repo_path).to_string();
                     let names = self.session_names_except(pane_id);
                     let new_name = session::deduplicate_name(&repo_name, &names);
 
-                    // Apply (mutable borrow)
                     if let Some(session) = self.sessions.get_mut(&pane_id) {
                         session.display_name = new_name;
                     }
