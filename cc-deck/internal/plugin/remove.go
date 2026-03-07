@@ -10,12 +10,13 @@ import (
 
 // RemoveOptions configures the remove command.
 type RemoveOptions struct {
-	Stdout io.Writer
-	Stderr io.Writer
+	SkipBackup bool
+	Stdout     io.Writer
+	Stderr     io.Writer
 }
 
-// Remove deletes the cc-deck plugin binary, layout file, and any injection
-// from the default layout. It prints a summary of actions taken.
+// Remove deletes the cc-deck plugin binary, layout file, and hooks from
+// settings.json. It creates a backup of settings.json before modification.
 func Remove(opts RemoveOptions) error {
 	if opts.Stdout == nil {
 		opts.Stdout = os.Stdout
@@ -28,12 +29,15 @@ func Remove(opts RemoveOptions) error {
 	pInfo := EmbeddedPlugin()
 	state := DetectInstallState(zInfo, pInfo)
 
-	if !state.PluginInstalled && !state.LayoutInstalled && !state.DefaultInjected {
-		fmt.Fprintln(opts.Stdout, "Nothing to remove. Plugin is not installed.")
+	settingsPath := ClaudeSettingsPath()
+	hasHooks := HasHooks(settingsPath)
+
+	if !state.PluginInstalled && !state.LayoutInstalled && !state.DefaultInjected && !hasHooks {
+		fmt.Fprintln(opts.Stdout, "Nothing to remove. cc-deck is not installed.")
 		return nil
 	}
 
-	fmt.Fprintln(opts.Stdout, "Plugin removed.")
+	fmt.Fprintln(opts.Stdout, "cc-deck removed.")
 	fmt.Fprintln(opts.Stdout)
 
 	if state.PluginInstalled {
@@ -43,7 +47,6 @@ func Remove(opts RemoveOptions) error {
 		fmt.Fprintf(opts.Stdout, "  Removed: %s\n", tildeHome(state.PluginPath))
 	}
 
-	// Clean up any symlinks pointing to the plugin binary (e.g. cc-deck.wasm -> cc_deck.wasm)
 	cleanupPluginSymlinks(zInfo.PluginsDir, opts.Stdout)
 
 	if state.LayoutInstalled {
@@ -65,8 +68,24 @@ func Remove(opts RemoveOptions) error {
 		fmt.Fprintf(opts.Stdout, "  Reverted: %s (plugin pane removed)\n", tildeHome(state.DefaultLayoutPath))
 	}
 
+	// Remove hooks from settings.json (with backup)
+	if hasHooks {
+		backupPath, err := BackupFile(settingsPath, opts.SkipBackup)
+		if err != nil {
+			fmt.Fprintf(opts.Stderr, "Warning: Could not backup settings.json: %v\n", err)
+		}
+		if err := RemoveHooks(settingsPath); err != nil {
+			return fmt.Errorf("removing hooks: %w", err)
+		}
+		fmt.Fprintf(opts.Stdout, "  Hooks:   removed from %s\n", tildeHome(settingsPath))
+		if backupPath != "" {
+			fmt.Fprintf(opts.Stdout, "  Backup:  %s\n", tildeHome(backupPath))
+		}
+	}
+
 	if isZellijRunning() {
-		fmt.Fprintf(opts.Stdout, "  Warning: Zellij may be running. Restart Zellij sessions to fully unload the plugin.\n")
+		fmt.Fprintln(opts.Stdout)
+		fmt.Fprintln(opts.Stdout, "  Note: Zellij may be running. Restart sessions to fully unload the plugin.")
 	}
 
 	return nil
@@ -81,7 +100,7 @@ func RunRemove(stdout, stderr io.Writer) error {
 }
 
 // cleanupPluginSymlinks removes any symlinks in the plugins directory that
-// point to cc_deck.wasm (e.g. cc-deck.wasm -> cc_deck.wasm from manual setup).
+// point to cc_deck.wasm.
 func cleanupPluginSymlinks(pluginsDir string, stdout io.Writer) {
 	entries, err := os.ReadDir(pluginsDir)
 	if err != nil {
