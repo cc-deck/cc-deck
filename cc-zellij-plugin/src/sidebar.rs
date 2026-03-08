@@ -1,7 +1,7 @@
 // T011-T013: Sidebar rendering with activity indicators, click-to-switch, empty state
 
 use crate::session::Session;
-use crate::state::PluginState;
+use crate::state::{PluginState, RenameState};
 
 /// Click region: (row, pane_id, tab_index).
 pub type ClickRegion = (usize, u32, usize);
@@ -60,7 +60,10 @@ pub fn render_sidebar(state: &PluginState, rows: usize, cols: usize) -> Vec<Clic
             .map(|idx| session.tab_index == Some(idx))
             .unwrap_or(false);
 
-        if let Some(region) = render_session_entry(session, is_active, row, cols) {
+        // Check if this session is being renamed
+        let rename_for_session = state.rename_state.as_ref().filter(|rs| rs.pane_id == session.pane_id);
+
+        if let Some(region) = render_session_entry(session, is_active, row, cols, rename_for_session) {
             click_regions.push(region);
         }
         row += lines_per_session;
@@ -119,29 +122,52 @@ fn render_session_entry(
     is_active: bool,
     start_row: usize,
     cols: usize,
+    rename_state: Option<&RenameState>,
 ) -> Option<ClickRegion> {
     let indicator = session.activity.indicator();
     let (r, g, b) = session.activity.color();
 
-    // Line 1: indicator + name (+ elapsed if applicable)
-    let elapsed = session.elapsed_display().unwrap_or_default();
-    let name = &session.display_name;
+    // Line 1: indicator + name (or rename input buffer)
+    let line1 = if let Some(rs) = rename_state {
+        // Render rename input with cursor
+        let prefix = format!("\x1b[38;2;{r};{g};{b}m{indicator}\x1b[0m ");
+        let max_input = cols.saturating_sub(2); // indicator + space
+        let buf = &rs.input_buffer;
+        let cursor_pos = rs.cursor_pos.min(buf.len());
 
-    let prefix_len = 2; // indicator + space
-    let elapsed_len = if elapsed.is_empty() { 0 } else { elapsed.len() + 1 };
-    let max_name = cols.saturating_sub(prefix_len + elapsed_len);
-    let truncated_name = truncate(name, max_name);
+        let before = &buf[..cursor_pos];
+        let cursor_char = buf.get(cursor_pos..cursor_pos + 1).unwrap_or(" ");
+        let after = if cursor_pos < buf.len() { &buf[cursor_pos + 1..] } else { "" };
 
-    let name_part = if is_active {
-        format!("\x1b[1m{truncated_name}\x1b[0m")
+        // Truncate if needed (simple approach)
+        let input_display = if buf.len() <= max_input {
+            format!("{before}\x1b[7m{cursor_char}\x1b[0m{after}")
+        } else {
+            let truncated = truncate(buf, max_input);
+            truncated.to_string()
+        };
+
+        format!("{prefix}{input_display}")
     } else {
-        truncated_name.to_string()
-    };
+        let elapsed = session.elapsed_display().unwrap_or_default();
+        let name = &session.display_name;
 
-    let line1 = if elapsed.is_empty() {
-        format!("\x1b[38;2;{r};{g};{b}m{indicator}\x1b[0m {name_part}")
-    } else {
-        format!("\x1b[38;2;{r};{g};{b}m{indicator}\x1b[0m {name_part} \x1b[2m{elapsed}\x1b[0m")
+        let prefix_len = 2; // indicator + space
+        let elapsed_len = if elapsed.is_empty() { 0 } else { elapsed.len() + 1 };
+        let max_name = cols.saturating_sub(prefix_len + elapsed_len);
+        let truncated_name = truncate(name, max_name);
+
+        let name_part = if is_active {
+            format!("\x1b[1m{truncated_name}\x1b[0m")
+        } else {
+            truncated_name.to_string()
+        };
+
+        if elapsed.is_empty() {
+            format!("\x1b[38;2;{r};{g};{b}m{indicator}\x1b[0m {name_part}")
+        } else {
+            format!("\x1b[38;2;{r};{g};{b}m{indicator}\x1b[0m {name_part} \x1b[2m{elapsed}\x1b[0m")
+        }
     };
 
     if is_active {
