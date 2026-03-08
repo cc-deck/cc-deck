@@ -1,10 +1,51 @@
 // T011-T013: Sidebar rendering with activity indicators, click-to-switch, empty state
 
-use crate::session::Session;
+use crate::session::{Activity, Session};
 use crate::state::{PluginState, RenameState};
 
 /// Click region: (row, pane_id, tab_index).
 pub type ClickRegion = (usize, u32, usize);
+
+// Active session highlight: dark teal background with brighter teal foreground
+const ACTIVE_BG: &str = "\x1b[48;2;25;45;55m"; // dark teal background
+const ACTIVE_FG: &str = "\x1b[38;2;120;200;220m"; // bright teal foreground
+const RESET: &str = "\x1b[0m";
+
+/// Render the status header with orange star and session counts.
+fn render_header(state: &PluginState, cols: usize) {
+    let sessions: Vec<_> = state.sessions.values().collect();
+    let total = sessions.len();
+
+    if total == 0 {
+        // Orange star + "Claude Code"
+        let header = "\x1b[38;2;255;170;50m\u{2731}\x1b[0m \x1b[1mClaude Code\x1b[0m".to_string();
+        print!("\x1b[1;1H{}", pad(&header, cols));
+    } else {
+        let waiting = sessions.iter().filter(|s| s.activity.is_waiting()).count();
+        let working = sessions.iter().filter(|s| matches!(s.activity, Activity::Working | Activity::ToolUse(_))).count();
+        let idle = sessions.iter().filter(|s| matches!(s.activity, Activity::Done | Activity::AgentDone | Activity::Idle | Activity::Init)).count();
+
+        // Orange star + counts: total | waiting | working
+        let mut parts = vec![format!("{total}")];
+        if waiting > 0 {
+            parts.push(format!("\x1b[38;2;255;60;60m\u{26a0}{waiting}\x1b[0m"));
+        }
+        if working > 0 {
+            parts.push(format!("\x1b[38;2;180;140;255m\u{25cf}{working}\x1b[0m"));
+        }
+        if idle > 0 {
+            parts.push(format!("\x1b[2m\u{25cb}{idle}\x1b[0m"));
+        }
+
+        let status = parts.join(" ");
+        let header = format!("\x1b[38;2;255;170;50m\u{2731}\x1b[0m {status}");
+        print!("\x1b[1;1H{}", pad(&header, cols));
+    }
+
+    // Separator
+    let sep: String = "\u{2500}".repeat(cols.min(40));
+    print!("\x1b[2;1H\x1b[2m{}\x1b[0m{}", sep, " ".repeat(cols.saturating_sub(sep.len())));
+}
 
 /// Render the sidebar into the plugin's stdout.
 /// Returns click regions for mouse handling.
@@ -13,16 +54,12 @@ pub fn render_sidebar(state: &PluginState, rows: usize, cols: usize) -> Vec<Clic
     let mut click_regions = Vec::new();
 
     if sessions.is_empty() {
-        render_empty_state(rows, cols);
+        render_empty_state(state, rows, cols);
         return click_regions;
     }
 
-    // Header
-    print_line(0, cols, "CC-DECK", Style::Header);
-
-    // Separator
-    let sep: String = "\u{2500}".repeat(cols.min(40));
-    print_line(1, cols, &sep, Style::Dim);
+    // Header with status
+    render_header(state, cols);
 
     // Available rows for sessions (header + sep at top)
     let content_start = 2;
@@ -178,15 +215,37 @@ fn render_session_entry(
         }
     };
 
+    // Line 1: indicator (no highlight) + name (highlighted if active)
     if is_active {
-        print!("\x1b[{};1H\x1b[48;5;236m{}\x1b[0m", start_row + 1, pad(&line1, cols));
+        // Print indicator without background, then name with teal bg+fg
+        let indicator_part = format!("\x1b[38;2;{r};{g};{b}m{indicator}\x1b[0m");
+        // Build the name portion (everything after indicator+space)
+        let elapsed = session.elapsed_display().unwrap_or_default();
+        let name = &session.display_name;
+        let prefix_len = 2;
+        let elapsed_len = if elapsed.is_empty() { 0 } else { elapsed.len() + 1 };
+        let max_name = cols.saturating_sub(prefix_len + elapsed_len);
+        let truncated_name = truncate(name, max_name);
+
+        let name_content = if elapsed.is_empty() {
+            format!("{ACTIVE_BG}{ACTIVE_FG}\x1b[1m {truncated_name}{RESET}")
+        } else {
+            format!("{ACTIVE_BG}{ACTIVE_FG}\x1b[1m {truncated_name} \x1b[2m{elapsed}{RESET}")
+        };
+        // Use rename buffer if renaming
+        let final_line1 = if rename_state.is_some() {
+            line1 // already built with rename input
+        } else {
+            format!("{indicator_part}{name_content}")
+        };
+        print!("\x1b[{};1H{}", start_row + 1, pad_with_bg(&final_line1, cols, true));
     } else {
         print!("\x1b[{};1H{}", start_row + 1, pad(&line1, cols));
     }
 
-    // Line 2: branch or tool info (dimmed)
+    // Line 2: branch or tool info
     let line2 = if let Some(ref branch) = session.git_branch {
-        format!("  \x1b[2m{branch}\x1b[0m")
+        format!("  \x1b[2m\u{2387} {branch}\x1b[0m")
     } else if let crate::session::Activity::ToolUse(ref tool) = session.activity {
         format!("  \x1b[2m{tool}\x1b[0m")
     } else {
@@ -194,7 +253,9 @@ fn render_session_entry(
     };
 
     if is_active {
-        print!("\x1b[{};1H\x1b[48;5;236m{}\x1b[0m", start_row + 2, pad(&line2, cols));
+        // Highlight line 2 starting from column 2 (skip indicator column)
+        let highlighted = format!("{ACTIVE_BG}{ACTIVE_FG}{line2}{RESET}");
+        print!("\x1b[{};1H{}", start_row + 2, pad_with_bg(&highlighted, cols, true));
     } else {
         print!("\x1b[{};1H{}", start_row + 2, pad(&line2, cols));
     }
@@ -207,11 +268,8 @@ fn render_session_entry(
 }
 
 /// Render the empty state (no Claude sessions).
-fn render_empty_state(rows: usize, cols: usize) {
-    print_line(0, cols, "CC-DECK", Style::Header);
-
-    let sep: String = "\u{2500}".repeat(cols.min(40));
-    print_line(1, cols, &sep, Style::Dim);
+fn render_empty_state(state: &PluginState, rows: usize, cols: usize) {
+    render_header(state, cols);
 
     let messages = [
         "",
@@ -265,6 +323,21 @@ fn print_line(row: usize, cols: usize, text: &str, style: Style) {
         Style::Normal => text.to_string(),
     };
     print!("\x1b[{};1H{}", row + 1, pad(&styled, cols));
+}
+
+/// Pad a string, optionally continuing active background color for padding spaces.
+fn pad_with_bg(s: &str, width: usize, with_bg: bool) -> String {
+    let display_len = display_width(s);
+    if display_len >= width {
+        format!("{s}{RESET}")
+    } else {
+        let padding = width - display_len;
+        if with_bg {
+            format!("{s}{ACTIVE_BG}{}{RESET}", " ".repeat(padding))
+        } else {
+            format!("{s}{}{RESET}", " ".repeat(padding))
+        }
+    }
 }
 
 fn pad(s: &str, width: usize) -> String {
