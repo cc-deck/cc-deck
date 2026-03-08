@@ -50,17 +50,9 @@ fn create_new_session_tab() {
 
 #[cfg(target_family = "wasm")]
 fn start_claude_in_focused_pane() {
-    use std::collections::BTreeMap;
-    let mut context = BTreeMap::new();
-    context.insert("cc-deck".to_string(), "new-session".to_string());
-    zellij_tile::prelude::open_command_pane_in_place(
-        zellij_tile::prelude::CommandToRun {
-            path: std::path::PathBuf::from("claude"),
-            args: vec![],
-            cwd: None,
-        },
-        context,
-    );
+    // write_chars writes to the currently focused pane across all tabs.
+    // After new_tab(), the new tab's terminal is focused, so this lands there.
+    zellij_tile::prelude::write_chars("claude\n");
 }
 
 #[cfg(not(target_family = "wasm"))]
