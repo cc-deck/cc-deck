@@ -8,8 +8,8 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
-	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -60,33 +60,33 @@ input is malformed, or any error occurs. Never disrupts Claude Code.`,
 	return cmd
 }
 
-func runHook(stdin io.Reader, paneIDStr string) {
-	// Lightweight trace log for debugging hook delivery
-	if f, err := os.OpenFile("/tmp/cc-deck-hook.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil {
-		fmt.Fprintf(f, "pane=%q zellij_env=", paneIDStr)
-		for _, e := range os.Environ() {
-			if strings.HasPrefix(e, "ZELLIJ") {
-				fmt.Fprintf(f, "%s ", e)
-			}
-		}
-		fmt.Fprintln(f)
-		f.Close()
-	}
+// paneMapFile is the path for the session_id -> pane_id cache.
+// Claude Code strips ZELLIJ env vars from hook subprocesses, so $ZELLIJ_PANE_ID
+// is often empty. When we DO get a pane_id, we cache it keyed by session_id so
+// subsequent events for the same session can recover the pane_id.
+var paneMapFile = filepath.Join(os.TempDir(), "cc-deck-pane-map.json")
 
-	// If pane_id is empty or not a number, we're not inside Zellij. Exit silently.
-	if paneIDStr == "" {
-		return
-	}
-	paneID64, err := strconv.ParseUint(paneIDStr, 10, 32)
+func loadPaneMap() map[string]uint32 {
+	data, err := os.ReadFile(paneMapFile)
 	if err != nil {
-		return
+		return make(map[string]uint32)
 	}
-	paneID := uint32(paneID64)
+	var m map[string]uint32
+	if err := json.Unmarshal(data, &m); err != nil {
+		return make(map[string]uint32)
+	}
+	return m
+}
 
-	// Check if zellij CLI is available
+func savePaneMap(m map[string]uint32) {
+	data, _ := json.Marshal(m)
+	_ = os.WriteFile(paneMapFile, data, 0644)
+}
+
+func runHook(stdin io.Reader, paneIDStr string) {
+	// Check if zellij CLI is available first (fast exit if not in Zellij)
 	zellijPath, err := exec.LookPath("zellij")
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "cc-deck hook: zellij command not found on PATH, skipping")
 		return
 	}
 
@@ -98,6 +98,33 @@ func runHook(stdin io.Reader, paneIDStr string) {
 	}
 
 	if hook.HookEvent == "" {
+		return
+	}
+
+	// Resolve pane_id: prefer flag, fallback to session_id cache
+	var paneID uint32
+	if paneIDStr != "" {
+		paneID64, err := strconv.ParseUint(paneIDStr, 10, 32)
+		if err != nil {
+			return
+		}
+		paneID = uint32(paneID64)
+		// Cache successful mapping for future calls
+		if hook.SessionID != "" {
+			m := loadPaneMap()
+			m[hook.SessionID] = paneID
+			savePaneMap(m)
+		}
+	} else if hook.SessionID != "" {
+		// Pane ID missing (CC stripped env vars). Try cache lookup.
+		m := loadPaneMap()
+		cached, ok := m[hook.SessionID]
+		if !ok {
+			return
+		}
+		paneID = cached
+	} else {
+		// No pane_id and no session_id: nothing we can do
 		return
 	}
 
@@ -122,6 +149,13 @@ func runHook(stdin io.Reader, paneIDStr string) {
 		"--", string(payloadJSON))
 	if err := cmd.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "cc-deck hook: zellij pipe failed: %v\n", err)
+	}
+
+	// Clean up cache on session end
+	if (hook.HookEvent == "Stop" || hook.HookEvent == "SessionEnd") && hook.SessionID != "" {
+		m := loadPaneMap()
+		delete(m, hook.SessionID)
+		savePaneMap(m)
 	}
 }
 
