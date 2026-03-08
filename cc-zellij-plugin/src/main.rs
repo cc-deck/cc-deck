@@ -7,9 +7,12 @@
 //
 // See brainstorm/08-cc-deck-v2-redesign.md for architecture details.
 
+mod attend;
 mod config;
 mod git;
+mod notification;
 mod pipe_handler;
+mod rename;
 mod session;
 mod sidebar;
 mod state;
@@ -29,6 +32,14 @@ fn debug_log(msg: &str) {
 
 #[cfg(not(target_family = "wasm"))]
 fn debug_log(_msg: &str) {}
+
+#[cfg(target_family = "wasm")]
+fn set_selectable_wasm(selectable: bool) {
+    zellij_tile::prelude::set_selectable(selectable);
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn set_selectable_wasm(_selectable: bool) {}
 
 use config::PluginConfig;
 use git::GitResult;
@@ -185,13 +196,35 @@ impl ZellijPlugin for PluginState {
             }
 
             PipeAction::Attend => {
-                // TODO (Phase 6/US4): implement attend action
-                false
+                match attend::perform_attend(self) {
+                    attend::AttendResult::Switched { display_name, .. } => {
+                        self.notification = Some(notification::create_notification(
+                            &format!(">> {display_name}"),
+                            3,
+                        ));
+                    }
+                    attend::AttendResult::NoneWaiting => {
+                        self.notification = Some(notification::create_notification(
+                            "No sessions waiting",
+                            3,
+                        ));
+                    }
+                }
+                true
             }
 
             PipeAction::Rename => {
-                // TODO (Phase 7/US5): implement rename action
-                false
+                if let Some(rs) = rename::start_rename(self) {
+                    self.rename_state = Some(rs);
+                    set_selectable_wasm(true);
+                    true
+                } else {
+                    self.notification = Some(notification::create_notification(
+                        "No session to rename",
+                        3,
+                    ));
+                    true
+                }
             }
 
             PipeAction::NewSession => {
@@ -207,6 +240,15 @@ impl ZellijPlugin for PluginState {
         match self.mode {
             PluginMode::Sidebar => {
                 self.click_regions = sidebar::render_sidebar(self, rows, cols);
+
+                // Render notification on the last row if active
+                if let Some(ref notif) = self.notification {
+                    if notification::is_expired(notif) {
+                        self.notification = None;
+                    } else if rows > 0 {
+                        notification::render_notification(notif, rows - 1, cols);
+                    }
+                }
             }
             PluginMode::Picker => {
                 print!("cc-deck picker ({rows}x{cols})");
@@ -220,6 +262,7 @@ impl PluginState {
         match event {
             Event::TabUpdate(tabs) => {
                 if self.updating_tabs {
+                    self.updating_tabs = false;
                     return false;
                 }
                 let new_active = tabs.iter().find(|t| t.active).map(|t| t.position);
@@ -261,9 +304,26 @@ impl PluginState {
                 debug_log(&format!("MOUSE event={mouse:?}"));
                 false
             }
-            Event::Key(_key) => {
-                // TODO (Phase 7/US5): handle rename key input
-                false
+            Event::Key(key) => {
+                if let Some(ref mut rs) = self.rename_state {
+                    match rename::handle_key(rs, key) {
+                        rename::RenameAction::Continue => true,
+                        rename::RenameAction::Confirm(new_name) => {
+                            let pane_id = rs.pane_id;
+                            self.rename_state = None;
+                            set_selectable_wasm(false);
+                            rename::complete_rename(self, pane_id, new_name);
+                            true
+                        }
+                        rename::RenameAction::Cancel => {
+                            self.rename_state = None;
+                            set_selectable_wasm(false);
+                            true
+                        }
+                    }
+                } else {
+                    false
+                }
             }
             Event::RunCommandResult(exit_code, stdout, _stderr, context) => {
                 self.handle_git_result(exit_code, stdout, context)
