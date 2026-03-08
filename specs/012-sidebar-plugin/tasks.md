@@ -167,10 +167,10 @@
 
 **Purpose**: Final validation and cleanup
 
-- [ ] T040 Verify full end-to-end flow: install (including re-install idempotency and config.kdl non-modification), start Zellij, create Claude sessions, see activity, attend, rename, create new, uninstall
-- [ ] T041 [P] Update Makefile dev target with cc-deck layout for development workflow in Makefile
-- [ ] T042 [P] Run quickstart.md validation: build, install, run, test hook, uninstall
-- [ ] T043 Run `cargo clippy -- -D warnings` and fix any linter issues in cc-zellij-plugin/
+- [x] T040 Verify full end-to-end flow: install (including re-install idempotency and config.kdl non-modification), start Zellij, create Claude sessions, see activity, attend, rename, create new, uninstall
+- [x] T041 [P] Update Makefile dev target with cc-deck layout for development workflow in Makefile
+- [x] T042 [P] Run quickstart.md validation: build, install, run, test hook, uninstall
+- [x] T043 Run `cargo clippy -- -D warnings` and fix any linter issues in cc-zellij-plugin/
 
 ---
 
