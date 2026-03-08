@@ -96,10 +96,14 @@ pub fn render_sidebar(state: &PluginState, rows: usize, cols: usize) -> Vec<Clic
         if row >= content_end {
             break;
         }
-        let is_active = state
-            .active_tab_index
-            .map(|idx| session.tab_index == Some(idx))
-            .unwrap_or(false);
+        // Highlight the focused pane's session, falling back to active tab if no focus info
+        let is_active = if let Some(focused_id) = state.focused_pane_id {
+            session.pane_id == focused_id
+        } else {
+            state.active_tab_index
+                .map(|idx| session.tab_index == Some(idx))
+                .unwrap_or(false)
+        };
 
         // Check if this session is being renamed
         let rename_for_session = state.rename_state.as_ref().filter(|rs| rs.pane_id == session.pane_id);
