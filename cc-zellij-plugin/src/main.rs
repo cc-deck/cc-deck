@@ -44,12 +44,17 @@ fn set_selectable_wasm(_selectable: bool) {}
 #[cfg(target_family = "wasm")]
 fn create_new_session_tab() {
     // Create a new tab using the session's new_tab_template (respects user's layout)
-    // This is the same as Ctrl-T n: uses default_tab_template or new_tab_template
     zellij_tile::prelude::new_tab(None::<&str>, None::<&str>);
-    // TODO: After the tab is created, we could open claude in it via
-    // open_command_pane, but that requires waiting for the tab to be ready.
-    // For now, the user starts claude manually in the new tab.
+    // Claude is started on the next TabUpdate via pending_claude_start flag
 }
+
+#[cfg(target_family = "wasm")]
+fn start_claude_in_focused_pane() {
+    zellij_tile::prelude::write_chars("claude\n");
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn start_claude_in_focused_pane() {}
 
 #[cfg(not(target_family = "wasm"))]
 fn create_new_session_tab() {}
@@ -296,7 +301,10 @@ impl ZellijPlugin for PluginState {
 
             PipeAction::NewSession => {
                 match self.config.new_session_mode {
-                    config::NewSessionMode::Tab => create_new_session_tab(),
+                    config::NewSessionMode::Tab => {
+                        create_new_session_tab();
+                        self.pending_claude_start = true;
+                    }
                     config::NewSessionMode::Pane => create_new_session_pane(),
                 }
                 self.notification = Some(notification::create_notification(
@@ -344,6 +352,13 @@ impl PluginState {
                 self.tabs = tabs;
                 self.rebuild_pane_map();
                 self.remove_dead_sessions();
+
+                // Start claude in the new tab after it's created
+                if self.pending_claude_start {
+                    self.pending_claude_start = false;
+                    start_claude_in_focused_pane();
+                }
+
                 true
             }
             Event::PaneUpdate(manifest) => {
@@ -369,7 +384,10 @@ impl PluginState {
                     if pane_id == u32::MAX {
                         // [+] New session button clicked
                         match self.config.new_session_mode {
-                            config::NewSessionMode::Tab => create_new_session_tab(),
+                            config::NewSessionMode::Tab => {
+                                create_new_session_tab();
+                                self.pending_claude_start = true;
+                            }
                             config::NewSessionMode::Pane => create_new_session_pane(),
                         }
                         self.notification = Some(notification::create_notification(
