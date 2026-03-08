@@ -41,6 +41,25 @@ fn set_selectable_wasm(selectable: bool) {
 #[cfg(not(target_family = "wasm"))]
 fn set_selectable_wasm(_selectable: bool) {}
 
+#[cfg(target_family = "wasm")]
+fn create_new_session() {
+    use std::collections::BTreeMap;
+    let mut context = BTreeMap::new();
+    context.insert("cc-deck".to_string(), "new-session".to_string());
+    zellij_tile::prelude::open_command_pane_floating(
+        zellij_tile::prelude::CommandToRun {
+            path: std::path::PathBuf::from("claude"),
+            args: vec![],
+            cwd: None,
+        },
+        None,
+        context,
+    );
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn create_new_session() {}
+
 use config::PluginConfig;
 use git::GitResult;
 use pipe_handler::{hook_event_to_activity, is_session_end, parse_pipe_message, PipeAction};
@@ -228,8 +247,12 @@ impl ZellijPlugin for PluginState {
             }
 
             PipeAction::NewSession => {
-                // TODO (Phase 8/US6): implement new session creation
-                false
+                create_new_session();
+                self.notification = Some(notification::create_notification(
+                    "Creating session...",
+                    2,
+                ));
+                true
             }
 
             PipeAction::Unknown => false,
@@ -292,11 +315,20 @@ impl PluginState {
                 debug_log(&format!("CLICK row={row} col={col} regions={:?}", self.click_regions));
                 if let Some((tab_idx, pane_id)) = sidebar::handle_click(row as usize, &self.click_regions) {
                     debug_log(&format!("CLICK tab_idx={tab_idx} pane_id={pane_id}"));
-                    // Switch tab if on a different tab, then focus the pane
-                    if self.active_tab_index != Some(tab_idx) {
-                        switch_tab_to(tab_idx as u32 + 1);
+                    if pane_id == u32::MAX {
+                        // [+] New session button clicked
+                        create_new_session();
+                        self.notification = Some(notification::create_notification(
+                            "Creating session...",
+                            2,
+                        ));
+                    } else {
+                        // Switch tab if on a different tab, then focus the pane
+                        if self.active_tab_index != Some(tab_idx) {
+                            switch_tab_to(tab_idx as u32 + 1);
+                        }
+                        focus_terminal_pane(pane_id, false);
                     }
-                    focus_terminal_pane(pane_id, false);
                 }
                 false
             }
@@ -328,9 +360,21 @@ impl PluginState {
             Event::RunCommandResult(exit_code, stdout, _stderr, context) => {
                 self.handle_git_result(exit_code, stdout, context)
             }
-            Event::CommandPaneOpened(_pane_id, _context) => {
-                // TODO (Phase 8/US6): handle new session creation
-                false
+            Event::CommandPaneOpened(terminal_pane_id, context) => {
+                // Check if this was created by cc-deck
+                if context.get("cc-deck").map(|v| v.as_str()) == Some("new-session") {
+                    let session = Session::new(terminal_pane_id, String::new());
+                    self.sessions.insert(terminal_pane_id, session);
+                    // Trigger git detection for auto-naming
+                    if let Some(cwd) = std::env::current_dir().ok().and_then(|p| p.to_str().map(String::from)) {
+                        git::detect_git_repo(terminal_pane_id, &cwd);
+                        git::detect_git_branch(terminal_pane_id, &cwd);
+                    }
+                    sync::broadcast_state(self);
+                    true
+                } else {
+                    false
+                }
             }
             Event::PaneClosed(pane_id) => {
                 let id = match pane_id {

@@ -104,10 +104,10 @@
 
 ### Implementation for User Story 4
 
-- [ ] T025 [P] [US4] Implement attend action: scan for Waiting sessions, find oldest, switch_tab_to() in cc-zellij-plugin/src/attend.rs
-- [ ] T026 [P] [US4] Implement inline notification display (brief message with auto-dismiss via timer) in cc-zellij-plugin/src/notification.rs
-- [ ] T027 [US4] Wire attend pipe message (cc-deck:attend) into pipe handler and notification rendering into sidebar in cc-zellij-plugin/src/main.rs
-- [ ] T028 [US4] Register attend keybinding via reconfigure() with configurable key in cc-zellij-plugin/src/config.rs
+- [x] T025 [P] [US4] Implement attend action: scan for Waiting sessions, find oldest, switch_tab_to() in cc-zellij-plugin/src/attend.rs
+- [x] T026 [P] [US4] Implement inline notification display (brief message with auto-dismiss via timer) in cc-zellij-plugin/src/notification.rs
+- [x] T027 [US4] Wire attend pipe message (cc-deck:attend) into pipe handler and notification rendering into sidebar in cc-zellij-plugin/src/main.rs
+- [x] T028 [US4] Register attend keybinding via reconfigure() with configurable key in cc-zellij-plugin/src/config.rs
 
 **Checkpoint**: Attend key finds and jumps to waiting sessions, shows notification when none waiting
 
@@ -121,11 +121,11 @@
 
 ### Implementation for User Story 5
 
-- [ ] T029 [US5] Implement inline rename: RenameState, key event handling (chars, Enter, Escape, Backspace), cursor management in cc-zellij-plugin/src/rename.rs
-- [ ] T030 [US5] Implement rename completion: update display_name, rename_tab(), duplicate name suffix logic, re-entrancy guard for TabUpdate in cc-zellij-plugin/src/rename.rs
-- [ ] T031 [US5] Wire rename pipe message (cc-deck:rename) and Key events during rename mode into main.rs dispatch in cc-zellij-plugin/src/main.rs
-- [ ] T032 [US5] Render rename input overlay in sidebar when rename is active in cc-zellij-plugin/src/sidebar.rs
-- [ ] T033 [US5] Register rename keybinding via reconfigure() with configurable key in cc-zellij-plugin/src/config.rs
+- [x] T029 [US5] Implement inline rename: RenameState, key event handling (chars, Enter, Escape, Backspace), cursor management in cc-zellij-plugin/src/rename.rs
+- [x] T030 [US5] Implement rename completion: update display_name, rename_tab(), duplicate name suffix logic, re-entrancy guard for TabUpdate in cc-zellij-plugin/src/rename.rs
+- [x] T031 [US5] Wire rename pipe message (cc-deck:rename) and Key events during rename mode into main.rs dispatch in cc-zellij-plugin/src/main.rs
+- [x] T032 [US5] Render rename input overlay in sidebar when rename is active in cc-zellij-plugin/src/sidebar.rs
+- [x] T033 [US5] Register rename keybinding via reconfigure() with configurable key in cc-zellij-plugin/src/config.rs
 
 **Checkpoint**: Sessions can be renamed inline, tab titles update, duplicates get suffixes
 
@@ -139,10 +139,10 @@
 
 ### Implementation for User Story 6
 
-- [ ] T034 [US6] Implement new session action: open_command_pane() with claude command, track pending session for auto-naming in cc-zellij-plugin/src/state.rs
-- [ ] T035 [US6] Handle CommandPaneOpened event to register new session and trigger git detection in cc-zellij-plugin/src/main.rs
-- [ ] T036 [US6] Add clickable [+] New button rendering in sidebar action bar with mouse hit region in cc-zellij-plugin/src/sidebar.rs
-- [ ] T037 [US6] Wire cc-deck:new pipe message and register new-session keybinding via reconfigure() in cc-zellij-plugin/src/config.rs
+- [x] T034 [US6] Implement new session action: open_command_pane() with claude command, track pending session for auto-naming in cc-zellij-plugin/src/state.rs
+- [x] T035 [US6] Handle CommandPaneOpened event to register new session and trigger git detection in cc-zellij-plugin/src/main.rs
+- [x] T036 [US6] Add clickable [+] New button rendering in sidebar action bar with mouse hit region in cc-zellij-plugin/src/sidebar.rs
+- [x] T037 [US6] Wire cc-deck:new pipe message and register new-session keybinding via reconfigure() in cc-zellij-plugin/src/config.rs
 
 **Checkpoint**: New sessions can be created from keyboard or sidebar, auto-named, appear in session list
 
@@ -156,8 +156,8 @@
 
 ### Implementation for User Story 7
 
-- [ ] T038 [US7] Implement safe uninstall: backup settings.json, remove only cc-deck hooks, delete WASM and layout files, --skip-backup flag in cc-deck/internal/plugin/remove.go
-- [ ] T039 [US7] Handle "not installed" case gracefully (no-op with message) in cc-deck/internal/plugin/remove.go
+- [x] T038 [US7] Implement safe uninstall: backup settings.json, remove only cc-deck hooks, delete WASM and layout files, --skip-backup flag in cc-deck/internal/plugin/remove.go
+- [x] T039 [US7] Handle "not installed" case gracefully (no-op with message) in cc-deck/internal/plugin/remove.go
 
 **Checkpoint**: `cc-deck uninstall` safely removes all artifacts without data loss
 
