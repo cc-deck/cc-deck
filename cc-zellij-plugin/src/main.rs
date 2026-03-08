@@ -42,7 +42,18 @@ fn set_selectable_wasm(selectable: bool) {
 fn set_selectable_wasm(_selectable: bool) {}
 
 #[cfg(target_family = "wasm")]
-fn create_new_session() {
+fn create_new_session_tab() {
+    // Create a new tab with a command pane running claude
+    zellij_tile::prelude::new_tabs_with_layout(
+        "layout { tab { pane command=\"claude\" } }"
+    );
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn create_new_session_tab() {}
+
+#[cfg(target_family = "wasm")]
+fn create_new_session_pane() {
     use std::collections::BTreeMap;
     let mut context = BTreeMap::new();
     context.insert("cc-deck".to_string(), "new-session".to_string());
@@ -57,7 +68,20 @@ fn create_new_session() {
 }
 
 #[cfg(not(target_family = "wasm"))]
-fn create_new_session() {}
+fn create_new_session_pane() {}
+
+#[cfg(target_family = "wasm")]
+fn close_session_pane(pane_id: u32, tab_index: Option<usize>, is_only_pane: bool) {
+    zellij_tile::prelude::close_terminal_pane(pane_id);
+    if is_only_pane {
+        if let Some(idx) = tab_index {
+            zellij_tile::prelude::close_tab_with_index(idx);
+        }
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn close_session_pane(_pane_id: u32, _tab_index: Option<usize>, _is_only_pane: bool) {}
 
 #[cfg(target_family = "wasm")]
 fn auto_rename_tab(tab_idx: usize, name: &str) {
@@ -160,8 +184,23 @@ impl ZellijPlugin for PluginState {
         match action {
             PipeAction::HookEvent(hook) => {
                 if is_session_end(&hook.hook_event_name) {
+                    // Get tab info before removing the session
+                    let session_info = self.sessions.get(&hook.pane_id).map(|s| {
+                        let tab_idx = s.tab_index;
+                        let is_only = tab_idx.map(|idx| {
+                            self.sessions.values()
+                                .filter(|s2| s2.tab_index == Some(idx))
+                                .count() <= 1
+                        }).unwrap_or(false);
+                        (tab_idx, is_only)
+                    });
+
                     let removed = self.sessions.remove(&hook.pane_id).is_some();
                     if removed {
+                        // Close the command pane (and tab if it was the only session)
+                        if let Some((tab_idx, is_only)) = session_info {
+                            close_session_pane(hook.pane_id, tab_idx, is_only);
+                        }
                         sync::broadcast_state(self);
                     }
                     return removed;
@@ -254,7 +293,10 @@ impl ZellijPlugin for PluginState {
             }
 
             PipeAction::NewSession => {
-                create_new_session();
+                match self.config.new_session_mode {
+                    config::NewSessionMode::Tab => create_new_session_tab(),
+                    config::NewSessionMode::Pane => create_new_session_pane(),
+                }
                 self.notification = Some(notification::create_notification(
                     "Creating session...",
                     2,
@@ -324,7 +366,10 @@ impl PluginState {
                     debug_log(&format!("CLICK tab_idx={tab_idx} pane_id={pane_id}"));
                     if pane_id == u32::MAX {
                         // [+] New session button clicked
-                        create_new_session();
+                        match self.config.new_session_mode {
+                            config::NewSessionMode::Tab => create_new_session_tab(),
+                            config::NewSessionMode::Pane => create_new_session_pane(),
+                        }
                         self.notification = Some(notification::create_notification(
                             "Creating session...",
                             2,

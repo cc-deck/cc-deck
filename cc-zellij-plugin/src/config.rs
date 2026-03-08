@@ -2,6 +2,16 @@
 
 use std::collections::BTreeMap;
 
+/// How new sessions are created.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum NewSessionMode {
+    /// Create in a new tab (default).
+    #[default]
+    Tab,
+    /// Create as a tiled pane in the current tab.
+    Pane,
+}
+
 /// Plugin configuration parsed from KDL layout parameters.
 pub struct PluginConfig {
     /// Sidebar width in characters (default 22).
@@ -10,6 +20,8 @@ pub struct PluginConfig {
     pub done_timeout: u64,
     /// Timer interval in seconds for elapsed time updates (default 1.0).
     pub timer_interval: f64,
+    /// How new sessions are created (default: Tab).
+    pub new_session_mode: NewSessionMode,
 }
 
 impl Default for PluginConfig {
@@ -18,6 +30,7 @@ impl Default for PluginConfig {
             sidebar_width: 22,
             done_timeout: 30,
             timer_interval: 1.0,
+            new_session_mode: NewSessionMode::Tab,
         }
     }
 }
@@ -46,6 +59,13 @@ impl PluginConfig {
                 if t >= 0.1 {
                     result.timer_interval = t;
                 }
+            }
+        }
+
+        if let Some(v) = config.get("new_session") {
+            match v.as_str() {
+                "pane" => result.new_session_mode = NewSessionMode::Pane,
+                _ => result.new_session_mode = NewSessionMode::Tab,
             }
         }
 

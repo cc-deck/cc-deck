@@ -272,28 +272,21 @@ fn render_session_entry(
 fn render_empty_state(state: &PluginState, rows: usize, cols: usize) {
     render_header(state, cols);
 
-    let messages = [
-        "",
-        "  No Claude sessions",
-        "",
-        "  Start Claude Code in",
-        "  a terminal tab to",
-        "  see sessions here.",
-        "",
-        "  Hooks must be",
-        "  installed via:",
-        "  cc-deck install",
-    ];
-
-    for (i, msg) in messages.iter().enumerate() {
-        let row = 2 + i;
-        if row >= rows {
-            break;
-        }
-        print_line(row, cols, msg, Style::Dim);
+    if rows > 2 {
+        print_line(2, cols, "", Style::Normal);
+    }
+    if rows > 3 {
+        print_line(3, cols, "  No Claude sessions", Style::Dim);
+    }
+    if rows > 4 {
+        print_line(4, cols, "", Style::Normal);
+    }
+    if rows > 5 {
+        let btn = "  [+] New session";
+        print_line(5, cols, btn, Style::Dim);
     }
 
-    for row in (2 + messages.len())..rows {
+    for row in 6..rows {
         print_line(row, cols, "", Style::Normal);
     }
 }
