@@ -79,10 +79,20 @@ status:  ## Show plugin installation status
 
 ## -- Development ------------------------------------------
 
-dev: build-wasm-debug  ## Start Zellij with cc-deck dev layout
-	@echo "TODO: create dev layout for v2 sidebar mode"
+ZELLIJ_PLUGINS_DIR ?= $(HOME)/.config/zellij/plugins
+ZELLIJ_CACHE_DIR   ?= $(HOME)/Library/Caches/org.Zellij-Contributors.Zellij
 
-reload: build-wasm-debug  ## Rebuild debug WASM and reload in running Zellij
+dev: dev-install  ## Build debug WASM, install to Zellij plugins dir, clear cache
+	@echo "Ready. Start Zellij with: zellij --layout cc-deck"
+
+dev-install: build-wasm-debug  ## Quick install: copy debug WASM to Zellij plugins dir
+	mkdir -p $(ZELLIJ_PLUGINS_DIR)
+	cp cc-zellij-plugin/target/$(WASM_TARGET)/debug/cc_deck.wasm $(ZELLIJ_PLUGINS_DIR)/cc_deck.wasm
+	@# Clear compiled WASM cache so Zellij picks up the new binary
+	rm -f $(ZELLIJ_CACHE_DIR)/0.43.1/[0-9]* 2>/dev/null || true
+	@echo "Installed cc_deck.wasm to $(ZELLIJ_PLUGINS_DIR)/ and cleared cache"
+
+reload: build-wasm-debug  ## Rebuild debug WASM and hot-reload in running Zellij
 	zellij action start-or-reload-plugin "file:cc-zellij-plugin/target/$(WASM_TARGET)/debug/cc_deck.wasm"
 
 ## -- Clean ------------------------------------------------

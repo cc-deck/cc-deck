@@ -62,6 +62,11 @@ pub struct PluginState {
     pub pending_events: Vec<Event>,
     /// Click regions from the last render (row, pane_id, tab_index).
     pub click_regions: Vec<(usize, u32, usize)>,
+    /// Tab count before new_tab(), used to detect and auto-start claude in new tabs.
+    /// Flow: set on [+] click -> TabUpdate detects new tab -> PaneUpdate finds terminal -> write_chars_to_pane_id
+    pub pending_auto_start_tab_count: Option<usize>,
+    /// Tab index of newly created tab, waiting for PaneUpdate to find its terminal pane.
+    pub auto_start_tab_index: Option<usize>,
 }
 
 impl PluginState {
