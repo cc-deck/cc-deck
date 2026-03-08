@@ -25,19 +25,23 @@ fn render_header(state: &PluginState, cols: usize) {
         let working = sessions.iter().filter(|s| matches!(s.activity, Activity::Working | Activity::ToolUse(_))).count();
         let idle = sessions.iter().filter(|s| matches!(s.activity, Activity::Done | Activity::AgentDone | Activity::Idle | Activity::Init)).count();
 
-        // Orange star + counts: total | waiting | working
-        let mut parts = vec![format!("{total}")];
+        // Orange star + total | status counts
+        let mut status_parts = Vec::new();
         if waiting > 0 {
-            parts.push(format!("\x1b[38;2;255;60;60m\u{26a0}{waiting}\x1b[0m"));
+            status_parts.push(format!("\x1b[38;2;255;60;60m\u{26a0} {waiting}\x1b[0m"));
         }
         if working > 0 {
-            parts.push(format!("\x1b[38;2;180;140;255m\u{25cf}{working}\x1b[0m"));
+            status_parts.push(format!("\x1b[38;2;180;140;255m\u{25cf} {working}\x1b[0m"));
         }
         if idle > 0 {
-            parts.push(format!("\x1b[2m\u{25cb}{idle}\x1b[0m"));
+            status_parts.push(format!("\x1b[2m\u{25cb} {idle}\x1b[0m"));
         }
 
-        let status = parts.join(" ");
+        let status = if status_parts.is_empty() {
+            format!("{total}")
+        } else {
+            format!("{total} \x1b[2m\u{2502}\x1b[0m {}", status_parts.join(" "))
+        };
         let header = format!("\x1b[38;2;255;170;50m\u{2731}\x1b[0m {status}");
         print!("\x1b[1;1H{}", pad(&header, cols));
     }
@@ -215,11 +219,8 @@ fn render_session_entry(
         }
     };
 
-    // Line 1: indicator (no highlight) + name (highlighted if active)
+    // Line 1: full line highlighted if active (including indicator)
     if is_active {
-        // Print indicator without background, then name with teal bg+fg
-        let indicator_part = format!("\x1b[38;2;{r};{g};{b}m{indicator}\x1b[0m");
-        // Build the name portion (everything after indicator+space)
         let elapsed = session.elapsed_display().unwrap_or_default();
         let name = &session.display_name;
         let prefix_len = 2;
@@ -227,37 +228,33 @@ fn render_session_entry(
         let max_name = cols.saturating_sub(prefix_len + elapsed_len);
         let truncated_name = truncate(name, max_name);
 
-        let name_content = if elapsed.is_empty() {
-            format!("{ACTIVE_BG}{ACTIVE_FG}\x1b[1m {truncated_name}{RESET}")
-        } else {
-            format!("{ACTIVE_BG}{ACTIVE_FG}\x1b[1m {truncated_name} \x1b[2m{elapsed}{RESET}")
-        };
-        // Use rename buffer if renaming
-        let final_line1 = if rename_state.is_some() {
+        let active_line1 = if rename_state.is_some() {
             line1 // already built with rename input
+        } else if elapsed.is_empty() {
+            format!("{ACTIVE_BG}\x1b[38;2;{r};{g};{b}m{indicator}{ACTIVE_FG}\x1b[1m {truncated_name}{RESET}")
         } else {
-            format!("{indicator_part}{name_content}")
+            format!("{ACTIVE_BG}\x1b[38;2;{r};{g};{b}m{indicator}{ACTIVE_FG}\x1b[1m {truncated_name} \x1b[2m{elapsed}{RESET}")
         };
-        print!("\x1b[{};1H{}", start_row + 1, pad_with_bg(&final_line1, cols, true));
+        print!("\x1b[{};1H{}", start_row + 1, pad_with_bg(&active_line1, cols, true));
     } else {
         print!("\x1b[{};1H{}", start_row + 1, pad(&line1, cols));
     }
 
     // Line 2: branch or tool info
-    let line2 = if let Some(ref branch) = session.git_branch {
-        format!("  \x1b[2m\u{2387} {branch}\x1b[0m")
+    let line2_content = if let Some(ref branch) = session.git_branch {
+        format!("  \u{2387} {branch}")
     } else if let crate::session::Activity::ToolUse(ref tool) = session.activity {
-        format!("  \x1b[2m{tool}\x1b[0m")
+        format!("  {tool}")
     } else {
         String::new()
     };
 
     if is_active {
-        // Highlight line 2 starting from column 2 (skip indicator column)
-        let highlighted = format!("{ACTIVE_BG}{ACTIVE_FG}{line2}{RESET}");
+        let highlighted = format!("{ACTIVE_BG}{ACTIVE_FG}\x1b[2m{line2_content}{RESET}");
         print!("\x1b[{};1H{}", start_row + 2, pad_with_bg(&highlighted, cols, true));
     } else {
-        print!("\x1b[{};1H{}", start_row + 2, pad(&line2, cols));
+        let dimmed = format!("\x1b[2m{line2_content}\x1b[0m");
+        print!("\x1b[{};1H{}", start_row + 2, pad(&dimmed, cols));
     }
 
     // Line 3: blank separator
