@@ -46,19 +46,26 @@ fn create_new_session() {
     use std::collections::BTreeMap;
     let mut context = BTreeMap::new();
     context.insert("cc-deck".to_string(), "new-session".to_string());
-    zellij_tile::prelude::open_command_pane_floating(
+    zellij_tile::prelude::open_command_pane(
         zellij_tile::prelude::CommandToRun {
             path: std::path::PathBuf::from("claude"),
             args: vec![],
             cwd: None,
         },
-        None,
         context,
     );
 }
 
 #[cfg(not(target_family = "wasm"))]
 fn create_new_session() {}
+
+#[cfg(target_family = "wasm")]
+fn auto_rename_tab(tab_idx: usize, name: &str) {
+    zellij_tile::prelude::rename_tab(tab_idx as u32 + 1, name);
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn auto_rename_tab(_tab_idx: usize, _name: &str) {}
 
 use config::PluginConfig;
 use git::GitResult;
@@ -411,8 +418,20 @@ impl PluginState {
                     let new_name = session::deduplicate_name(&repo_name, &names);
 
                     if let Some(session) = self.sessions.get_mut(&pane_id) {
-                        session.display_name = new_name;
+                        session.display_name = new_name.clone();
                     }
+
+                    // Auto-rename tab if this is the only session on it
+                    if let Some(tab_idx) = self.sessions.get(&pane_id).and_then(|s| s.tab_index) {
+                        let sessions_on_tab = self.sessions.values()
+                            .filter(|s| s.tab_index == Some(tab_idx))
+                            .count();
+                        if sessions_on_tab == 1 {
+                            auto_rename_tab(tab_idx, &new_name);
+                            self.updating_tabs = true;
+                        }
+                    }
+
                     sync::broadcast_state(self);
                     true
                 } else {

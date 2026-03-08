@@ -42,6 +42,8 @@ pub struct PluginState {
     pub pane_to_tab: HashMap<u32, (usize, String)>,
     /// Currently focused tab position.
     pub active_tab_index: Option<usize>,
+    /// Currently focused terminal pane ID.
+    pub focused_pane_id: Option<u32>,
     /// Plugin instance mode.
     pub mode: PluginMode,
     /// Configuration.
@@ -66,6 +68,7 @@ impl PluginState {
     /// Rebuild the pane-to-tab mapping from current tab and pane data.
     pub fn rebuild_pane_map(&mut self) {
         self.pane_to_tab.clear();
+        self.focused_pane_id = None;
         if let Some(ref manifest) = self.pane_manifest {
             for tab in &self.tabs {
                 if let Some(panes) = manifest.panes.get(&tab.position) {
@@ -73,6 +76,9 @@ impl PluginState {
                         if !pane.is_plugin {
                             self.pane_to_tab
                                 .insert(pane.id, (tab.position, tab.name.clone()));
+                            if pane.is_focused && tab.active {
+                                self.focused_pane_id = Some(pane.id);
+                            }
                         }
                     }
                 }
