@@ -99,10 +99,15 @@ pub fn complete_rename(state: &mut PluginState, pane_id: u32, new_name: String) 
         return;
     };
 
-    // Rename the Zellij tab to match
+    // Only rename the Zellij tab if this is the sole session on the tab
     if let Some(idx) = tab_index {
-        rename_tab(idx, &final_name);
-        state.updating_tabs = true;
+        let sessions_on_tab = state.sessions.values()
+            .filter(|s| s.tab_index == Some(idx))
+            .count();
+        if sessions_on_tab <= 1 {
+            rename_tab(idx, &final_name);
+            state.updating_tabs = true;
+        }
     }
 
     crate::sync::broadcast_state(state);
