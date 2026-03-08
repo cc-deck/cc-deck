@@ -76,6 +76,14 @@ pub fn render_sidebar(state: &PluginState, rows: usize, cols: usize) -> Vec<Clic
         row += 1;
     }
 
+    // [+] New button (use sentinel pane_id u32::MAX, tab_index u32::MAX)
+    if row < rows.saturating_sub(1) {
+        let btn = "  [+] New session";
+        print_line(row, cols, btn, Style::Dim);
+        click_regions.push((row, u32::MAX, usize::MAX));
+        row += 1;
+    }
+
     // Fill remaining rows
     while row < rows {
         print_line(row, cols, "", Style::Normal);
