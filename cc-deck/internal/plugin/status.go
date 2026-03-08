@@ -15,6 +15,13 @@ type StatusReport struct {
 	Plugin  PluginStatus `json:"plugin" yaml:"plugin"`
 	Zellij  ZellijStatus `json:"zellij" yaml:"zellij"`
 	Layouts LayoutStatus `json:"layouts" yaml:"layouts"`
+	Hooks   HookStatus   `json:"hooks" yaml:"hooks"`
+}
+
+// HookStatus describes the hook registration state.
+type HookStatus struct {
+	Registered bool `json:"registered" yaml:"registered"`
+	EventCount int  `json:"eventCount" yaml:"eventCount"`
 }
 
 // PluginStatus describes the installed plugin state.
@@ -67,6 +74,10 @@ func Status() StatusReport {
 	report.Layouts.CcDeckLayout = state.LayoutType
 	report.Layouts.DefaultInjected = state.DefaultInjected
 
+	settingsPath := ClaudeSettingsPath()
+	report.Hooks.Registered = HasHooks(settingsPath)
+	report.Hooks.EventCount = HookEventCount(settingsPath)
+
 	return report
 }
 
@@ -112,6 +123,13 @@ func (r StatusReport) FormatText(w io.Writer) error {
 		injectedStr = "injected"
 	}
 	b.WriteString(fmt.Sprintf("  Default layout: %s\n", injectedStr))
+
+	b.WriteString("\nHooks\n")
+	if r.Hooks.Registered {
+		b.WriteString(fmt.Sprintf("  Registered:     yes (%d event types)\n", r.Hooks.EventCount))
+	} else {
+		b.WriteString("  Registered:     no\n")
+	}
 
 	_, err := io.WriteString(w, b.String())
 	return err
