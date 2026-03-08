@@ -17,11 +17,11 @@
 
 **Purpose**: Project structure and shared infrastructure for the plugin rebuild
 
-- [ ] T001 Update Cargo.toml with version 0.2.0 and correct dependencies in cc-zellij-plugin/Cargo.toml
-- [ ] T002 [P] Create Session struct with Activity enum and state transition logic in cc-zellij-plugin/src/session.rs
-- [ ] T003 [P] Create PluginState struct with session tracking (BTreeMap), tab/pane state, and mode enum in cc-zellij-plugin/src/state.rs
-- [ ] T004 [P] Create plugin configuration parsing (sidebar width, mode, keybindings) from KDL in cc-zellij-plugin/src/config.rs
-- [ ] T005 Implement ZellijPlugin trait (load, update, pipe, render) with event dispatch in cc-zellij-plugin/src/main.rs
+- [x] T001 Update Cargo.toml with version 0.2.0 and correct dependencies in cc-zellij-plugin/Cargo.toml
+- [x] T002 [P] Create Session struct with Activity enum and state transition logic in cc-zellij-plugin/src/session.rs
+- [x] T003 [P] Create PluginState struct with session tracking (BTreeMap), tab/pane state, and mode enum in cc-zellij-plugin/src/state.rs
+- [x] T004 [P] Create plugin configuration parsing (sidebar width, mode, keybindings) from KDL in cc-zellij-plugin/src/config.rs
+- [x] T005 Implement ZellijPlugin trait (load, update, pipe, render) with event dispatch in cc-zellij-plugin/src/main.rs
 
 **Checkpoint**: Plugin compiles and loads in Zellij (renders placeholder sidebar, requests permissions)
 
@@ -33,11 +33,11 @@
 
 **CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T006 Implement pipe message parsing for cc-deck:hook with JSON payload extraction in cc-zellij-plugin/src/pipe_handler.rs
-- [ ] T007 Implement hook event to Activity state transition mapping in cc-zellij-plugin/src/pipe_handler.rs
-- [ ] T008 [P] Implement multi-instance state sync (cc-deck:sync broadcast, cc-deck:request, merge logic) in cc-zellij-plugin/src/sync.rs
-- [ ] T009 [P] Implement async git repo and branch detection via run_command() in cc-zellij-plugin/src/git.rs
-- [ ] T010 Wire pipe handler and sync into main.rs event dispatch (pipe method, RunCommandResult handling) in cc-zellij-plugin/src/main.rs
+- [x] T006 Implement pipe message parsing for cc-deck:hook with JSON payload extraction in cc-zellij-plugin/src/pipe_handler.rs
+- [x] T007 Implement hook event to Activity state transition mapping in cc-zellij-plugin/src/pipe_handler.rs
+- [x] T008 [P] Implement multi-instance state sync (cc-deck:sync broadcast, cc-deck:request, merge logic) in cc-zellij-plugin/src/sync.rs
+- [x] T009 [P] Implement async git repo and branch detection via run_command() in cc-zellij-plugin/src/git.rs
+- [x] T010 Wire pipe handler and sync into main.rs event dispatch (pipe method, RunCommandResult handling) in cc-zellij-plugin/src/main.rs
 
 **Checkpoint**: Plugin receives hook events via pipe, transitions session state, syncs across instances
 
@@ -51,13 +51,13 @@
 
 ### Implementation for User Story 1
 
-- [ ] T011 [US1] Implement sidebar rendering: vertical session list with activity indicators, active tab highlighting, elapsed time, name truncation, overflow indicators in cc-zellij-plugin/src/sidebar.rs
-- [ ] T012 [US1] Implement empty state display (no sessions message with instructions) in cc-zellij-plugin/src/sidebar.rs
-- [ ] T013 [US1] Implement mouse click handling for click-to-switch (Mouse::LeftClick event, row-to-session mapping, switch_tab_to) in cc-zellij-plugin/src/sidebar.rs
-- [ ] T014 [US1] Implement pane-to-tab mapping from TabUpdate and PaneUpdate events for session-to-tab association in cc-zellij-plugin/src/state.rs
-- [ ] T015 [US1] Implement session auto-detection from hook events and session removal on pane close (PaneClosed/PaneUpdate) in cc-zellij-plugin/src/state.rs
-- [ ] T016 [US1] Implement session auto-naming from git detection results and directory basename fallback with duplicate suffix logic in cc-zellij-plugin/src/state.rs
-- [ ] T017 [US1] Wire sidebar rendering into main.rs render method, TabUpdate/PaneUpdate into update method in cc-zellij-plugin/src/main.rs
+- [x] T011 [US1] Implement sidebar rendering: vertical session list with activity indicators, active tab highlighting, elapsed time, name truncation, overflow indicators in cc-zellij-plugin/src/sidebar.rs
+- [x] T012 [US1] Implement empty state display (no sessions message with instructions) in cc-zellij-plugin/src/sidebar.rs
+- [x] T013 [US1] Implement mouse click handling for click-to-switch (Mouse::LeftClick event, row-to-session mapping, switch_tab_to) in cc-zellij-plugin/src/sidebar.rs
+- [x] T014 [US1] Implement pane-to-tab mapping from TabUpdate and PaneUpdate events for session-to-tab association in cc-zellij-plugin/src/state.rs
+- [x] T015 [US1] Implement session auto-detection from hook events and session removal on pane close (PaneClosed/PaneUpdate) in cc-zellij-plugin/src/state.rs
+- [x] T016 [US1] Implement session auto-naming from git detection results and directory basename fallback with duplicate suffix logic in cc-zellij-plugin/src/state.rs
+- [x] T017 [US1] Wire sidebar rendering into main.rs render method, TabUpdate/PaneUpdate into update method in cc-zellij-plugin/src/main.rs
 
 **Checkpoint**: Sidebar displays sessions with live activity indicators, click switches tabs, state syncs across tabs
 
@@ -71,11 +71,11 @@
 
 ### Implementation for User Story 2
 
-- [ ] T018 [P] [US2] Implement timestamped backup logic (create backup before modify, --skip-backup flag) in cc-deck/internal/plugin/backup.go
-- [ ] T019 [P] [US2] Implement settings.json hook management (read, add cc-deck hooks, remove cc-deck hooks, preserve other content) in cc-deck/internal/plugin/hooks.go
-- [ ] T020 [US2] Update install command to copy WASM, generate and install cc-deck layout (tab_template with sidebar), register hooks with backup in cc-deck/internal/plugin/install.go
-- [ ] T021 [US2] Generate cc-deck KDL layout with tab_template containing sidebar plugin pane and compact-bar in cc-deck/internal/plugin/layout.go
-- [ ] T022 [US2] Update plugin status command to report hook registration state in cc-deck/internal/cmd/plugin.go
+- [x] T018 [P] [US2] Implement timestamped backup logic (create backup before modify, --skip-backup flag) in cc-deck/internal/plugin/backup.go
+- [x] T019 [P] [US2] Implement settings.json hook management (read, add cc-deck hooks, remove cc-deck hooks, preserve other content) in cc-deck/internal/plugin/hooks.go
+- [x] T020 [US2] Update install command to copy WASM, generate and install cc-deck layout (tab_template with sidebar), register hooks with backup in cc-deck/internal/plugin/install.go
+- [x] T021 [US2] Generate cc-deck KDL layout with tab_template containing sidebar plugin pane and compact-bar in cc-deck/internal/plugin/layout.go
+- [x] T022 [US2] Update plugin status command to report hook registration state in cc-deck/internal/cmd/plugin.go
 
 **Checkpoint**: `cc-deck install` and `cc-deck plugin status` work end-to-end
 
@@ -89,8 +89,8 @@
 
 ### Implementation for User Story 3
 
-- [ ] T023 [US3] Implement `cc-deck hook` subcommand: read stdin JSON, parse hook payload, read ZELLIJ_PANE_ID env, forward via `zellij pipe --name cc-deck:hook`, silent failure on all errors in cc-deck/internal/cmd/hook.go
-- [ ] T024 [US3] Register hook subcommand in root command in cc-deck/cmd/cc-deck/main.go
+- [x] T023 [US3] Implement `cc-deck hook` subcommand: read stdin JSON, parse hook payload, read ZELLIJ_PANE_ID env, forward via `zellij pipe --name cc-deck:hook`, silent failure on all errors in cc-deck/internal/cmd/hook.go
+- [x] T024 [US3] Register hook subcommand in root command in cc-deck/cmd/cc-deck/main.go
 
 **Checkpoint**: Full hook flow works: Claude Code -> cc-deck hook -> zellij pipe -> sidebar plugin updates
 
