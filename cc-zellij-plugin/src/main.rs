@@ -43,9 +43,23 @@ fn set_selectable_wasm(_selectable: bool) {}
 
 #[cfg(target_family = "wasm")]
 fn create_new_session_tab() {
-    // Create a new tab with a command pane running claude
+    // Create a new tab with sidebar + command pane running claude + compact-bar
     zellij_tile::prelude::new_tabs_with_layout(
-        "layout { tab { pane command=\"claude\" } }"
+        r#"layout {
+    tab {
+        pane split_direction="vertical" {
+            pane size=22 borderless=true {
+                plugin location="file:~/.config/zellij/plugins/cc_deck.wasm" {
+                    mode "sidebar"
+                }
+            }
+            pane command="claude"
+        }
+        pane size=1 borderless=true {
+            plugin location="compact-bar"
+        }
+    }
+}"#
     );
 }
 
