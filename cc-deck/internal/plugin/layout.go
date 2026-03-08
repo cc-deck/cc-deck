@@ -13,48 +13,57 @@ const (
 	InjectionEnd = "// cc-deck-plugin-end"
 )
 
-// MinimalLayout returns a minimal KDL layout with the cc-deck plugin bar.
-func MinimalLayout(pluginsDir string) string {
-	return fmt.Sprintf(`layout {
-    pane
-    pane size=1 borderless=true {
-        plugin location="file:%s/cc_deck.wasm"
-    }
-}
-`, pluginsDir)
+// sidebarPluginBlock returns the KDL snippet for the sidebar plugin pane.
+func sidebarPluginBlock(pluginsDir string) string {
+	return fmt.Sprintf(`pane size=22 borderless=true {
+                plugin location="file:%s/cc_deck.wasm" {
+                    mode "sidebar"
+                }
+            }`, pluginsDir)
 }
 
-// FullLayout returns an opinionated KDL layout for Claude Code sessions.
-// Compared to MinimalLayout it:
-//   - Uses default_tab_template so every new tab auto-includes the plugin bar
-//   - Keeps the Zellij tab-bar at the top for tab visibility
-//   - Sets plugin config (idle_timeout)
-//   - Starts with a named "main" tab
-func FullLayout(pluginsDir string) string {
-	return fmt.Sprintf(`layout {
+// SidebarLayout returns a KDL layout with the cc-deck sidebar on every tab.
+// Uses default_tab_template for layout-defined tabs and new_tab_template for
+// dynamically created tabs (zellij action new-tab). The difference: default_tab_template
+// uses "children" placeholder, new_tab_template uses explicit "pane".
+func SidebarLayout(pluginsDir string) string {
+	sidebar := sidebarPluginBlock(pluginsDir)
+	return fmt.Sprintf(`// cc-deck layout (managed by cc-deck install)
+layout {
     default_tab_template {
-        pane size=1 borderless=true {
-            plugin location="tab-bar"
-        }
-        children
-        pane size=1 borderless=true {
-            plugin location="status-bar"
+        pane split_direction="vertical" {
+            %s
+            children
         }
         pane size=1 borderless=true {
-            plugin location="file:%s/cc_deck.wasm" {
-                idle_timeout "300"
-                picker_key "Alt Shift t"
-                new_session_key "Alt Shift n"
-                rename_key "Alt Shift r"
-                close_key "Alt Shift x"
-            }
+            plugin location="compact-bar"
+        }
+    }
+    new_tab_template {
+        pane split_direction="vertical" {
+            %s
+            pane
+        }
+        pane size=1 borderless=true {
+            plugin location="compact-bar"
         }
     }
     tab name="main" focus=true {
         pane
     }
 }
-`, pluginsDir)
+`, sidebar, sidebar)
+}
+
+// MinimalLayout returns a minimal KDL layout with the cc-deck plugin bar.
+// Kept for backwards compatibility.
+func MinimalLayout(pluginsDir string) string {
+	return SidebarLayout(pluginsDir)
+}
+
+// FullLayout returns the sidebar layout (same as SidebarLayout in v2).
+func FullLayout(pluginsDir string) string {
+	return SidebarLayout(pluginsDir)
 }
 
 // InjectionBlock returns the KDL snippet that gets appended to a default layout.
@@ -97,12 +106,9 @@ func RemoveInjection(content string) string {
 	}
 	endIdx += len(InjectionEnd)
 
-	// Remove trailing newline after the end marker if present
 	if endIdx < len(content) && content[endIdx] == '\n' {
 		endIdx++
 	}
-
-	// Remove leading newline before the start marker if present
 	if startIdx > 0 && content[startIdx-1] == '\n' {
 		startIdx--
 	}
