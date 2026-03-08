@@ -71,12 +71,13 @@ pub fn parse_git_result(
             repo_path: output,
         },
         GIT_TYPE_BRANCH => {
-            match filter_default_branch(&output) {
-                Some(b) => GitResult::BranchDetected {
+            if output == "HEAD" {
+                GitResult::NotGit
+            } else {
+                GitResult::BranchDetected {
                     pane_id,
-                    branch: b.to_string(),
-                },
-                None => GitResult::NotGit,
+                    branch: output,
+                }
             }
         }
         _ => GitResult::NotGit,
@@ -88,14 +89,6 @@ pub fn repo_name_from_path(path: &str) -> &str {
     path.rsplit('/').next().unwrap_or(path)
 }
 
-/// Filter out default branches (main, master, HEAD).
-fn filter_default_branch(branch: &str) -> Option<&str> {
-    match branch {
-        "main" | "master" | "HEAD" | "" => None,
-        b => Some(b),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -105,15 +98,6 @@ mod tests {
         assert_eq!(repo_name_from_path("/home/user/projects/api-server"), "api-server");
         assert_eq!(repo_name_from_path("/tmp/test"), "test");
         assert_eq!(repo_name_from_path("simple"), "simple");
-    }
-
-    #[test]
-    fn test_filter_default_branch() {
-        assert_eq!(filter_default_branch("main"), None);
-        assert_eq!(filter_default_branch("master"), None);
-        assert_eq!(filter_default_branch("HEAD"), None);
-        assert_eq!(filter_default_branch("feature/auth"), Some("feature/auth"));
-        assert_eq!(filter_default_branch("fix-123"), Some("fix-123"));
     }
 
     #[test]
@@ -147,15 +131,18 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_git_result_default_branch_filtered() {
+    fn test_parse_git_result_main_branch_shown() {
         let mut ctx = BTreeMap::new();
         ctx.insert("type".into(), "git_branch".into());
         ctx.insert("pane_id".into(), "42".into());
 
-        assert!(matches!(
-            parse_git_result(Some(0), b"main\n".to_vec(), ctx),
-            GitResult::NotGit
-        ));
+        match parse_git_result(Some(0), b"main\n".to_vec(), ctx) {
+            GitResult::BranchDetected { pane_id, branch } => {
+                assert_eq!(pane_id, 42);
+                assert_eq!(branch, "main");
+            }
+            _ => panic!("expected BranchDetected for main"),
+        }
     }
 
     #[test]
