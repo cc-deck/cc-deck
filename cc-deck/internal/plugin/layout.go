@@ -13,19 +13,36 @@ const (
 	InjectionEnd = "// cc-deck-plugin-end"
 )
 
+// sidebarPluginBlock returns the KDL snippet for the sidebar plugin pane.
+func sidebarPluginBlock(pluginsDir string) string {
+	return fmt.Sprintf(`pane size=22 borderless=true {
+                plugin location="file:%s/cc_deck.wasm" {
+                    mode "sidebar"
+                }
+            }`, pluginsDir)
+}
+
 // SidebarLayout returns a KDL layout with the cc-deck sidebar on every tab.
-// This is the v2 default layout using default_tab_template.
+// Uses default_tab_template for layout-defined tabs and new_tab_template for
+// dynamically created tabs (zellij action new-tab). The difference: default_tab_template
+// uses "children" placeholder, new_tab_template uses explicit "pane".
 func SidebarLayout(pluginsDir string) string {
+	sidebar := sidebarPluginBlock(pluginsDir)
 	return fmt.Sprintf(`// cc-deck layout (managed by cc-deck install)
 layout {
     default_tab_template {
         pane split_direction="vertical" {
-            pane size=22 borderless=true {
-                plugin location="file:%s/cc_deck.wasm" {
-                    mode "sidebar"
-                }
-            }
+            %s
             children
+        }
+        pane size=1 borderless=true {
+            plugin location="compact-bar"
+        }
+    }
+    new_tab_template {
+        pane split_direction="vertical" {
+            %s
+            pane
         }
         pane size=1 borderless=true {
             plugin location="compact-bar"
@@ -35,7 +52,7 @@ layout {
         pane
     }
 }
-`, pluginsDir)
+`, sidebar, sidebar)
 }
 
 // MinimalLayout returns a minimal KDL layout with the cc-deck plugin bar.
