@@ -43,24 +43,12 @@ fn set_selectable_wasm(_selectable: bool) {}
 
 #[cfg(target_family = "wasm")]
 fn create_new_session_tab() {
-    // Create a new tab with sidebar + command pane running claude + compact-bar
-    zellij_tile::prelude::new_tabs_with_layout(
-        r#"layout {
-    tab {
-        pane split_direction="vertical" {
-            pane size=22 borderless=true {
-                plugin location="file:~/.config/zellij/plugins/cc_deck.wasm" {
-                    mode "sidebar"
-                }
-            }
-            pane command="claude"
-        }
-        pane size=1 borderless=true {
-            plugin location="compact-bar"
-        }
-    }
-}"#
-    );
+    // Create a new tab using the session's new_tab_template (respects user's layout)
+    // This is the same as Ctrl-T n: uses default_tab_template or new_tab_template
+    zellij_tile::prelude::new_tab(None::<&str>, None::<&str>);
+    // TODO: After the tab is created, we could open claude in it via
+    // open_command_pane, but that requires waiting for the tab to be ready.
+    // For now, the user starts claude manually in the new tab.
 }
 
 #[cfg(not(target_family = "wasm"))]
