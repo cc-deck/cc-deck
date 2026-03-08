@@ -58,8 +58,7 @@ pub fn render_sidebar(state: &PluginState, rows: usize, cols: usize) -> Vec<Clic
     let mut click_regions = Vec::new();
 
     if sessions.is_empty() {
-        render_empty_state(state, rows, cols);
-        return click_regions;
+        return render_empty_state(state, rows, cols);
     }
 
     // Header with status
@@ -269,8 +268,10 @@ fn render_session_entry(
 }
 
 /// Render the empty state (no Claude sessions).
-fn render_empty_state(state: &PluginState, rows: usize, cols: usize) {
+/// Returns click regions for the [+] button.
+fn render_empty_state(state: &PluginState, rows: usize, cols: usize) -> Vec<ClickRegion> {
     render_header(state, cols);
+    let mut click_regions = Vec::new();
 
     if rows > 2 {
         print_line(2, cols, "", Style::Normal);
@@ -284,11 +285,14 @@ fn render_empty_state(state: &PluginState, rows: usize, cols: usize) {
     if rows > 5 {
         let btn = "  [+] New session";
         print_line(5, cols, btn, Style::Dim);
+        click_regions.push((5, u32::MAX, usize::MAX));
     }
 
     for row in 6..rows {
         print_line(row, cols, "", Style::Normal);
     }
+
+    click_regions
 }
 
 /// Handle a mouse click on the sidebar.
