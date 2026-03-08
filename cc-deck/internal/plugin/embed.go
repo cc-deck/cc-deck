@@ -19,7 +19,7 @@ type PluginInfo struct {
 // EmbeddedPlugin returns info about the embedded WASM plugin.
 func EmbeddedPlugin() PluginInfo {
 	return PluginInfo{
-		Version:    "0.1.0",
+		Version:    "0.2.0",
 		SDKVersion: "0.43",
 		MinZellij:  "0.40",
 		BinarySize: int64(len(wasmBinary)),

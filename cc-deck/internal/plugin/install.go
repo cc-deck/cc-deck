@@ -11,19 +11,18 @@ import (
 
 // InstallOptions configures the install behavior.
 type InstallOptions struct {
-	Force         bool
-	Layout        string // "minimal" or "full"
-	InjectDefault bool
-	Stdout        io.Writer
-	Stderr        io.Writer
-	Stdin         io.Reader // for confirmation prompt
+	Force      bool
+	SkipBackup bool
+	Layout     string // layout name (currently only "cc-deck")
+	Stdout     io.Writer
+	Stderr     io.Writer
+	Stdin      io.Reader // for confirmation prompt
 }
 
-// Install copies the embedded WASM binary and a layout file into the Zellij
-// config directories. It optionally injects a plugin pane into the default
-// layout when InjectDefault is set.
+// Install copies the embedded WASM binary, writes a layout file, and registers
+// hooks in ~/.claude/settings.json with a timestamped backup.
 func Install(opts InstallOptions) error {
-	// 1. Detect Zellij and warn if missing or incompatible
+	// 1. Detect Zellij and warn if missing
 	zInfo := DetectZellij()
 	pInfo := EmbeddedPlugin()
 
@@ -62,88 +61,49 @@ func Install(opts InstallOptions) error {
 		return wrapPermissionError(err, zInfo.LayoutsDir, "write")
 	}
 
-	// 4. Atomic write WASM binary (temp file + rename)
+	// 4. Atomic write WASM binary
 	if err := atomicWrite(pluginPath, pInfo.Binary, 0o644); err != nil {
 		return wrapPermissionError(err, pluginPath, "write")
 	}
 
-	// 5. Write layout file
+	// 5. Write sidebar layout file
 	layoutPath := filepath.Join(zInfo.LayoutsDir, "cc-deck.kdl")
-	var layoutContent string
-	switch opts.Layout {
-	case "full":
-		layoutContent = FullLayout(zInfo.PluginsDir)
-	default:
-		layoutContent = MinimalLayout(zInfo.PluginsDir)
-	}
+	layoutContent := SidebarLayout(zInfo.PluginsDir)
 	if err := atomicWrite(layoutPath, []byte(layoutContent), 0o644); err != nil {
 		return wrapPermissionError(err, layoutPath, "write")
 	}
 
-	// 6. If --inject-default: call InjectDefault
-	if opts.InjectDefault {
-		if err := InjectDefault(zInfo, opts.Stderr); err != nil {
-			return err
-		}
+	// 6. Register hooks in settings.json (with backup)
+	settingsPath := ClaudeSettingsPath()
+	backupPath, err := BackupFile(settingsPath, opts.SkipBackup)
+	if err != nil {
+		fmt.Fprintf(opts.Stderr, "Warning: Could not backup settings.json: %v\n", err)
+	}
+	if err := RegisterHooks(settingsPath); err != nil {
+		return fmt.Errorf("registering hooks: %w", err)
 	}
 
 	// 7. Print summary
-	printInstallSummary(opts, zInfo, pInfo, pluginPath, layoutPath)
-
-	return nil
-}
-
-// InjectDefault locates default.kdl in the Zellij layouts directory, reads its
-// content, checks for existing injection, and appends the cc-deck plugin block.
-func InjectDefault(zInfo ZellijInfo, stderr io.Writer) error {
-	defaultPath := filepath.Join(zInfo.LayoutsDir, "default.kdl")
-
-	content, err := os.ReadFile(defaultPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			fmt.Fprintln(stderr, "Warning: No default layout found at "+defaultPath)
-			fmt.Fprintln(stderr, "  Use the dedicated layout instead: zellij --layout cc-deck")
-			return nil
-		}
-		fmt.Fprintf(stderr, "Warning: Could not read default layout: %v\n", err)
-		fmt.Fprintln(stderr, "  Skipping injection. Use the dedicated layout instead: zellij --layout cc-deck")
-		return nil
-	}
-
-	if HasInjection(string(content)) {
-		// Already injected, nothing to do
-		return nil
-	}
-
-	injected := InjectPlugin(string(content), zInfo.PluginsDir)
-	if err := atomicWrite(defaultPath, []byte(injected), 0o644); err != nil {
-		fmt.Fprintf(stderr, "Warning: Could not write default layout: %v\n", err)
-		fmt.Fprintln(stderr, "  Skipping injection. Use the dedicated layout instead: zellij --layout cc-deck")
-		return nil
-	}
-
-	return nil
-}
-
-// printInstallSummary writes the installation summary to stdout.
-func printInstallSummary(opts InstallOptions, zInfo ZellijInfo, pInfo PluginInfo, pluginPath, layoutPath string) {
+	fmt.Fprintln(opts.Stdout, "cc-deck installed successfully.")
+	fmt.Fprintln(opts.Stdout)
 	sizeMB := float64(pInfo.BinarySize) / (1024 * 1024)
-	fmt.Fprintln(opts.Stdout, "Plugin installed successfully.")
-	fmt.Fprintln(opts.Stdout)
-	fmt.Fprintf(opts.Stdout, "  Binary:  %s (%.1f MB)\n", pluginPath, sizeMB)
-	fmt.Fprintf(opts.Stdout, "  Layout:  %s (%s)\n", layoutPath, opts.Layout)
-	if opts.InjectDefault {
-		defaultPath := filepath.Join(zInfo.LayoutsDir, "default.kdl")
-		fmt.Fprintf(opts.Stdout, "  Default layout injected: %s\n", defaultPath)
+	fmt.Fprintf(opts.Stdout, "  Plugin:   %s (%.1f MB)\n", tildeHome(pluginPath), sizeMB)
+	fmt.Fprintf(opts.Stdout, "  Layout:   %s\n", tildeHome(layoutPath))
+	hookCount := HookEventCount(settingsPath)
+	fmt.Fprintf(opts.Stdout, "  Hooks:    registered (%d event types)\n", hookCount)
+	if backupPath != "" {
+		fmt.Fprintf(opts.Stdout, "  Backup:   %s\n", tildeHome(backupPath))
 	}
 	fmt.Fprintln(opts.Stdout)
-	fmt.Fprintln(opts.Stdout, "To start Zellij with the plugin:")
+	fmt.Fprintln(opts.Stdout, "Start Zellij with the cc-deck layout:")
 	fmt.Fprintln(opts.Stdout)
 	fmt.Fprintln(opts.Stdout, "  zellij --layout cc-deck")
+	fmt.Fprintln(opts.Stdout)
+
+	return nil
 }
 
-// wrapPermissionError adds actionable guidance when a file operation fails due
-// to insufficient permissions.
+// wrapPermissionError adds actionable guidance when a file operation fails.
 func wrapPermissionError(err error, path string, access string) error {
 	if os.IsPermission(err) {
 		return fmt.Errorf("permission denied at %s: check directory permissions (need %s access): %w", path, access, err)
