@@ -62,6 +62,8 @@ pub struct PluginState {
     pub pending_events: Vec<Event>,
     /// Click regions from the last render (row, pane_id, tab_index).
     pub click_regions: Vec<(usize, u32, usize)>,
+    /// Pending new session: after new_tab(), write "claude" on next TabUpdate.
+    pub pending_claude_start: bool,
 }
 
 impl PluginState {
