@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -62,7 +63,13 @@ input is malformed, or any error occurs. Never disrupts Claude Code.`,
 func runHook(stdin io.Reader, paneIDStr string) {
 	// Lightweight trace log for debugging hook delivery
 	if f, err := os.OpenFile("/tmp/cc-deck-hook.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil {
-		fmt.Fprintf(f, "pane=%q\n", paneIDStr)
+		fmt.Fprintf(f, "pane=%q zellij_env=", paneIDStr)
+		for _, e := range os.Environ() {
+			if strings.HasPrefix(e, "ZELLIJ") {
+				fmt.Fprintf(f, "%s ", e)
+			}
+		}
+		fmt.Fprintln(f)
 		f.Close()
 	}
 
