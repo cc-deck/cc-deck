@@ -91,10 +91,12 @@ pub fn render_sidebar(state: &PluginState, rows: usize, cols: usize) -> Vec<Clic
     }
 
     // Render visible sessions
-    for session in &sessions[start_idx..end_idx] {
+    for (list_idx, session) in sessions[start_idx..end_idx].iter().enumerate() {
         if row >= content_end {
             break;
         }
+        let abs_idx = start_idx + list_idx;
+
         // Highlight the focused pane's session, falling back to active tab if no focus info
         let is_active = if let Some(focused_id) = state.focused_pane_id {
             session.pane_id == focused_id
@@ -104,10 +106,13 @@ pub fn render_sidebar(state: &PluginState, rows: usize, cols: usize) -> Vec<Clic
                 .unwrap_or(false)
         };
 
+        // Navigation mode: show cursor on the selected session
+        let has_cursor = state.navigation_mode && abs_idx == state.cursor_index;
+
         // Check if this session is being renamed
         let rename_for_session = state.rename_state.as_ref().filter(|rs| rs.pane_id == session.pane_id);
 
-        if let Some(region) = render_session_entry(session, is_active, row, cols, rename_for_session) {
+        if let Some(region) = render_session_entry(session, is_active, has_cursor, row, cols, rename_for_session) {
             click_regions.push(region);
         }
         row += lines_per_session;
@@ -172,18 +177,21 @@ fn visible_range(
 fn render_session_entry(
     session: &Session,
     is_active: bool,
+    has_cursor: bool,
     start_row: usize,
     cols: usize,
     rename_state: Option<&RenameState>,
 ) -> Option<ClickRegion> {
     let indicator = session.activity.indicator();
     let (r, g, b) = session.activity.color();
+    // Navigation cursor: ▶ replaces leading space when cursor is on this session
+    let cursor_prefix = if has_cursor { "\x1b[38;2;255;170;50m▶\x1b[0m" } else { " " };
 
     // Line 1: indicator + name (or rename input buffer)
     let line1 = if let Some(rs) = rename_state {
         // Render rename input with cursor
-        let prefix = format!("\x1b[38;2;{r};{g};{b}m{indicator}\x1b[0m ");
-        let max_input = cols.saturating_sub(2); // indicator + space
+        let prefix = format!("{cursor_prefix}\x1b[38;2;{r};{g};{b}m{indicator}\x1b[0m ");
+        let max_input = cols.saturating_sub(3); // cursor + indicator + space
         let buf = &rs.input_buffer;
         let cursor_pos = rs.cursor_pos.min(buf.len());
 
@@ -216,9 +224,9 @@ fn render_session_entry(
         };
 
         if elapsed.is_empty() {
-            format!("\x1b[38;2;{r};{g};{b}m{indicator}\x1b[0m {name_part}")
+            format!("{cursor_prefix}\x1b[38;2;{r};{g};{b}m{indicator}\x1b[0m {name_part}")
         } else {
-            format!("\x1b[38;2;{r};{g};{b}m{indicator}\x1b[0m {name_part} \x1b[2m{elapsed}\x1b[0m")
+            format!("{cursor_prefix}\x1b[38;2;{r};{g};{b}m{indicator}\x1b[0m {name_part} \x1b[2m{elapsed}\x1b[0m")
         }
     };
 
@@ -226,7 +234,7 @@ fn render_session_entry(
     if is_active {
         let elapsed = session.elapsed_display().unwrap_or_default();
         let name = &session.display_name;
-        let prefix_len = 2;
+        let prefix_len = 3; // cursor + indicator + space
         let elapsed_len = if elapsed.is_empty() { 0 } else { elapsed.len() + 1 };
         let max_name = cols.saturating_sub(prefix_len + elapsed_len);
         let truncated_name = truncate(name, max_name);
@@ -234,9 +242,9 @@ fn render_session_entry(
         let active_line1 = if rename_state.is_some() {
             line1 // already built with rename input
         } else if elapsed.is_empty() {
-            format!("{ACTIVE_BG}\x1b[38;2;{r};{g};{b}m{indicator}{ACTIVE_FG}\x1b[1m {truncated_name}{RESET}")
+            format!("{ACTIVE_BG}{cursor_prefix}\x1b[38;2;{r};{g};{b}m{indicator}{ACTIVE_FG}\x1b[1m {truncated_name}{RESET}")
         } else {
-            format!("{ACTIVE_BG}\x1b[38;2;{r};{g};{b}m{indicator}{ACTIVE_FG}\x1b[1m {truncated_name} \x1b[2m{elapsed}{RESET}")
+            format!("{ACTIVE_BG}{cursor_prefix}\x1b[38;2;{r};{g};{b}m{indicator}{ACTIVE_FG}\x1b[1m {truncated_name} \x1b[2m{elapsed}{RESET}")
         };
         print!("\x1b[{};1H{}", start_row + 1, pad_with_bg(&active_line1, cols, true));
     } else {
@@ -245,9 +253,9 @@ fn render_session_entry(
 
     // Line 2: branch or tool info
     let line2_content = if let Some(ref branch) = session.git_branch {
-        format!("  \u{2387} {branch}")
+        format!("   \u{2387} {branch}")
     } else if let crate::session::Activity::ToolUse(ref tool) = session.activity {
-        format!("  {tool}")
+        format!("   {tool}")
     } else {
         String::new()
     };
