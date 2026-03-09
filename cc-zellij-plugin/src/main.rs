@@ -41,6 +41,74 @@ fn set_selectable_wasm(selectable: bool) {
 #[cfg(not(target_family = "wasm"))]
 fn set_selectable_wasm(_selectable: bool) {}
 
+/// Register global keybindings via reconfigure() so Alt+s and Alt+a
+/// send pipe messages to the plugin from any Zellij mode except locked.
+#[cfg(target_family = "wasm")]
+fn register_keybindings(config: &config::PluginConfig) {
+    let kdl = format!(
+        r#"keybinds {{
+    shared_except "locked" {{
+        bind "{}" {{
+            MessagePlugin "cc-deck" {{
+                name "navigate"
+            }}
+        }}
+        bind "{}" {{
+            MessagePlugin "cc-deck" {{
+                name "attend"
+            }}
+        }}
+    }}
+}}"#,
+        config.navigate_key, config.attend_key
+    );
+    debug_log(&format!("KEYBINDS registering: navigate={} attend={}", config.navigate_key, config.attend_key));
+    zellij_tile::prelude::reconfigure(kdl, false);
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn register_keybindings(_config: &config::PluginConfig) {}
+
+/// Enter navigation mode: make sidebar selectable and focusable, initialize cursor.
+fn enter_navigation_mode(state: &mut PluginState) {
+    state.navigation_mode = true;
+    // Initialize cursor to the currently focused session, or 0
+    let sessions = state.sessions_by_tab_order();
+    state.cursor_index = if let Some(focused_id) = state.focused_pane_id {
+        sessions.iter().position(|s| s.pane_id == focused_id).unwrap_or(0)
+    } else {
+        0
+    };
+    set_selectable_wasm(true);
+    #[cfg(target_family = "wasm")]
+    {
+        let plugin_id = zellij_tile::prelude::get_plugin_ids().plugin_id;
+        zellij_tile::prelude::focus_plugin_pane(plugin_id, false);
+    }
+    debug_log(&format!("NAV entered, cursor_index={}", state.cursor_index));
+}
+
+/// Exit navigation mode: return to passive, focus the terminal pane.
+fn exit_navigation_mode(state: &mut PluginState) {
+    state.navigation_mode = false;
+    state.filter_state = None;
+    state.delete_confirm = None;
+    set_selectable_wasm(false);
+    // Focus the terminal pane that was active, or the cursor session's pane
+    let sessions = state.sessions_by_tab_order();
+    if let Some(session) = sessions.get(state.cursor_index) {
+        let pane_id = session.pane_id;
+        if let Some(tab_idx) = session.tab_index {
+            #[cfg(target_family = "wasm")]
+            {
+                zellij_tile::prelude::switch_tab_to(tab_idx as u32 + 1);
+                zellij_tile::prelude::focus_terminal_pane(pane_id, false);
+            }
+        }
+    }
+    debug_log("NAV exited");
+}
+
 #[cfg(target_family = "wasm")]
 fn create_new_session_tab() {
     zellij_tile::prelude::new_tab(None::<&str>, None::<&str>);
@@ -162,6 +230,7 @@ impl ZellijPlugin for PluginState {
                 self.permissions_granted = true;
                 debug_log("PERMISSION granted, calling set_selectable(false)");
                 set_selectable(false);
+                register_keybindings(&self.config);
                 sync::request_state();
                 let pending = std::mem::take(&mut self.pending_events);
                 let mut render = true;
@@ -274,6 +343,9 @@ impl ZellijPlugin for PluginState {
             }
 
             PipeAction::Attend => {
+                if !self.is_on_active_tab() {
+                    return false;
+                }
                 match attend::perform_attend(self) {
                     attend::AttendResult::Switched { display_name, .. } => {
                         self.notification = Some(notification::create_notification(
@@ -321,8 +393,16 @@ impl ZellijPlugin for PluginState {
             }
 
             PipeAction::Navigate => {
-                // TODO: Phase 2 (US2) will implement full navigation mode toggle
-                false
+                // Only the active tab's sidebar should respond
+                if !self.is_on_active_tab() {
+                    return false;
+                }
+                if self.navigation_mode {
+                    exit_navigation_mode(self);
+                } else {
+                    enter_navigation_mode(self);
+                }
+                true
             }
 
             PipeAction::Unknown => false,
@@ -500,6 +580,29 @@ impl PluginState {
             }
             _ => false,
         }
+    }
+
+    /// Check if this plugin instance is on the currently active tab.
+    fn is_on_active_tab(&self) -> bool {
+        let active = match self.active_tab_index {
+            Some(idx) => idx,
+            None => return true, // If unknown, assume yes
+        };
+        // Find our plugin pane in the manifest to determine our tab
+        #[cfg(target_family = "wasm")]
+        {
+            let my_id = zellij_tile::prelude::get_plugin_ids().plugin_id;
+            if let Some(ref manifest) = self.pane_manifest {
+                for (&tab_idx, panes) in &manifest.panes {
+                    for pane in panes {
+                        if pane.is_plugin && pane.id == my_id {
+                            return tab_idx == active;
+                        }
+                    }
+                }
+            }
+        }
+        true // Fallback: assume yes
     }
 
     fn handle_git_result(
