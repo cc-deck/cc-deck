@@ -9,9 +9,6 @@ pub type ClickRegion = (usize, u32, usize);
 // Active session highlight: dark teal background with brighter teal foreground
 const ACTIVE_BG: &str = "\x1b[48;2;25;45;55m"; // dark teal background
 const ACTIVE_FG: &str = "\x1b[38;2;120;200;220m"; // bright teal foreground
-// Dimmed active: darker teal for "home" session during navigation mode
-const HOME_BG: &str = "\x1b[48;2;15;28;35m"; // very dark teal
-const HOME_FG: &str = "\x1b[38;2;80;130;150m"; // muted teal foreground
 // Navigation cursor: warm amber tint background
 const CURSOR_BG: &str = "\x1b[48;2;50;40;20m"; // muted amber background
 const CURSOR_FG: &str = "\x1b[38;2;230;200;140m"; // warm amber foreground
@@ -118,11 +115,8 @@ pub fn render_sidebar(state: &PluginState, rows: usize, cols: usize) -> Vec<Clic
         }
         let abs_idx = start_idx + list_idx;
 
-        // Highlight the focused pane's session, or the "home" session during navigation
-        let is_active = if state.navigation_mode {
-            // During navigation, use nav_restore to show the "home" session
-            state.nav_restore.map(|(pid, _)| session.pane_id == pid).unwrap_or(false)
-        } else if let Some(focused_id) = state.focused_pane_id {
+        // Highlight the focused pane's session
+        let is_active = if let Some(focused_id) = state.focused_pane_id {
             session.pane_id == focused_id
         } else {
             state.active_tab_index
@@ -150,7 +144,7 @@ pub fn render_sidebar(state: &PluginState, rows: usize, cols: usize) -> Vec<Clic
             // Check if this session is being renamed
             let rename_for_session = state.rename_state.as_ref().filter(|rs| rs.pane_id == session.pane_id);
 
-            if let Some(region) = render_session_entry(session, is_active, has_cursor, state.navigation_mode, row, cols, rename_for_session) {
+            if let Some(region) = render_session_entry(session, is_active, has_cursor, row, cols, rename_for_session) {
                 click_regions.push(region);
             }
         }
@@ -244,7 +238,6 @@ fn render_session_entry(
     session: &Session,
     is_active: bool,
     has_cursor: bool,
-    is_nav_mode: bool,
     start_row: usize,
     cols: usize,
     rename_state: Option<&RenameState>,
@@ -297,14 +290,9 @@ fn render_session_entry(
         }
     };
 
-    // Determine background style: cursor > home > active > normal
-    // Cursor (navigation pre-selection): amber tint
-    // Home (where Esc returns to, during navigation): dimmed teal
-    // Active (focused session, outside navigation): full teal
+    // Determine background style: cursor > active > normal
     let (bg, fg, use_bg) = if has_cursor {
         (CURSOR_BG, CURSOR_FG, true)
-    } else if is_active && is_nav_mode {
-        (HOME_BG, HOME_FG, true)
     } else if is_active {
         (ACTIVE_BG, ACTIVE_FG, true)
     } else {
