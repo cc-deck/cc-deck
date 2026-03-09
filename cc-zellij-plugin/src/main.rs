@@ -461,6 +461,7 @@ impl PluginState {
                 self.tabs = tabs;
                 self.rebuild_pane_map();
                 self.remove_dead_sessions();
+                self.preserve_cursor();
 
                 true
             }
@@ -483,6 +484,7 @@ impl PluginState {
                 self.pane_manifest = Some(manifest);
                 self.rebuild_pane_map();
                 self.remove_dead_sessions();
+                self.preserve_cursor();
                 true
             }
             Event::ModeUpdate(mode_info) => {
@@ -534,16 +536,23 @@ impl PluginState {
                         rename::RenameAction::Confirm(new_name) => {
                             let pane_id = rs.pane_id;
                             self.rename_state = None;
-                            set_selectable_wasm(false);
+                            // Return to navigation mode if it was active, otherwise passive
+                            if !self.navigation_mode {
+                                set_selectable_wasm(false);
+                            }
                             rename::complete_rename(self, pane_id, new_name);
                             true
                         }
                         rename::RenameAction::Cancel => {
                             self.rename_state = None;
-                            set_selectable_wasm(false);
+                            if !self.navigation_mode {
+                                set_selectable_wasm(false);
+                            }
                             true
                         }
                     }
+                } else if self.navigation_mode {
+                    self.handle_navigation_key(key)
                 } else {
                     false
                 }
@@ -578,6 +587,100 @@ impl PluginState {
                 }
                 removed
             }
+            _ => false,
+        }
+    }
+
+    /// Preserve cursor position by pane_id after session list changes.
+    fn preserve_cursor(&mut self) {
+        if !self.navigation_mode {
+            return;
+        }
+        let sessions = self.sessions_by_tab_order();
+        let count = sessions.len();
+        if count == 0 {
+            self.cursor_index = 0;
+            return;
+        }
+        // Clamp cursor to valid range
+        if self.cursor_index >= count {
+            self.cursor_index = count - 1;
+        }
+    }
+
+    /// Handle a key event in navigation mode.
+    fn handle_navigation_key(&mut self, key: KeyWithModifier) -> bool {
+        let session_count = self.sessions.len();
+        if session_count == 0 {
+            // Only Esc and n are useful with no sessions
+            match key.bare_key {
+                BareKey::Esc => {
+                    exit_navigation_mode(self);
+                    return true;
+                }
+                BareKey::Char('n') => {
+                    self.pending_auto_start_tab_count = Some(self.tabs.len());
+                    create_new_session_tab();
+                    exit_navigation_mode(self);
+                    return true;
+                }
+                _ => return false,
+            }
+        }
+
+        match key.bare_key {
+            // Cursor movement
+            BareKey::Char('j') | BareKey::Down => {
+                self.cursor_index = (self.cursor_index + 1) % session_count;
+                true
+            }
+            BareKey::Char('k') | BareKey::Up => {
+                self.cursor_index = if self.cursor_index == 0 {
+                    session_count - 1
+                } else {
+                    self.cursor_index - 1
+                };
+                true
+            }
+            BareKey::Char('g') | BareKey::Home => {
+                self.cursor_index = 0;
+                true
+            }
+            BareKey::Char('G') | BareKey::End => {
+                self.cursor_index = session_count.saturating_sub(1);
+                true
+            }
+
+            // Switch to cursor session
+            BareKey::Enter => {
+                let sessions = self.sessions_by_tab_order();
+                if let Some(session) = sessions.get(self.cursor_index) {
+                    let pane_id = session.pane_id;
+                    let tab_idx = session.tab_index;
+                    exit_navigation_mode(self);
+                    #[cfg(target_family = "wasm")]
+                    if let Some(idx) = tab_idx {
+                        zellij_tile::prelude::switch_tab_to(idx as u32 + 1);
+                        zellij_tile::prelude::focus_terminal_pane(pane_id, false);
+                    }
+                }
+                true
+            }
+
+            // Exit navigation mode
+            BareKey::Esc => {
+                exit_navigation_mode(self);
+                true
+            }
+
+            // New session
+            BareKey::Char('n') => {
+                self.pending_auto_start_tab_count = Some(self.tabs.len());
+                create_new_session_tab();
+                exit_navigation_mode(self);
+                true
+            }
+
             _ => false,
         }
     }
