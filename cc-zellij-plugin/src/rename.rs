@@ -94,6 +94,7 @@ pub fn complete_rename(state: &mut PluginState, pane_id: u32, new_name: String) 
     let tab_index = if let Some(session) = state.sessions.get_mut(&pane_id) {
         session.display_name = final_name.clone();
         session.manually_renamed = true;
+        session.last_event_ts = crate::session::unix_now();
         session.tab_index
     } else {
         return;
