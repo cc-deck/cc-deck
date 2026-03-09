@@ -41,28 +41,42 @@ fn set_selectable_wasm(selectable: bool) {
 #[cfg(not(target_family = "wasm"))]
 fn set_selectable_wasm(_selectable: bool) {}
 
-/// Register global keybindings via reconfigure() so Alt+s and Alt+a
-/// send pipe messages to the plugin from any Zellij mode except locked.
+/// Register global keybindings via reconfigure() with MessagePluginId.
+/// Uses the plugin's own numeric ID so Zellij routes the pipe message
+/// directly to this instance without needing a URL or creating new panes.
+/// Only the first instance (plugin_id 0) registers to avoid overwrites.
 #[cfg(target_family = "wasm")]
 fn register_keybindings(config: &config::PluginConfig) {
+    let plugin_id = zellij_tile::prelude::get_plugin_ids().plugin_id;
+
+    // Only the first plugin instance registers keybindings.
+    // It handles navigation for all tabs via switch_tab_to + focus_terminal_pane.
+    if plugin_id != 0 {
+        debug_log(&format!("KEYBINDS skipping (plugin_id={}, not first)", plugin_id));
+        return;
+    }
+
     let kdl = format!(
         r#"keybinds {{
     shared_except "locked" {{
-        bind "{}" {{
-            MessagePlugin "cc-deck" {{
-                name "navigate"
+        bind "{nav}" {{
+            MessagePluginId {id} {{
+                name "cc-deck:navigate"
             }}
         }}
-        bind "{}" {{
-            MessagePlugin "cc-deck" {{
-                name "attend"
+        bind "{att}" {{
+            MessagePluginId {id} {{
+                name "cc-deck:attend"
             }}
         }}
     }}
 }}"#,
-        config.navigate_key, config.attend_key
+        nav = config.navigate_key,
+        att = config.attend_key,
+        id = plugin_id,
     );
-    debug_log(&format!("KEYBINDS registering: navigate={} attend={}", config.navigate_key, config.attend_key));
+    debug_log(&format!("KEYBINDS registering: navigate={} attend={} plugin_id={}",
+        config.navigate_key, config.attend_key, plugin_id));
     zellij_tile::prelude::reconfigure(kdl, false);
 }
 
@@ -343,9 +357,6 @@ impl ZellijPlugin for PluginState {
             }
 
             PipeAction::Attend => {
-                if !self.is_on_active_tab() {
-                    return false;
-                }
                 match attend::perform_attend(self) {
                     attend::AttendResult::Switched { display_name, .. } => {
                         self.notification = Some(notification::create_notification(
@@ -393,10 +404,6 @@ impl ZellijPlugin for PluginState {
             }
 
             PipeAction::Navigate => {
-                // Only the active tab's sidebar should respond
-                if !self.is_on_active_tab() {
-                    return false;
-                }
                 if self.navigation_mode {
                     exit_navigation_mode(self);
                 } else {
