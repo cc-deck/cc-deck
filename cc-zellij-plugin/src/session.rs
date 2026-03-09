@@ -10,6 +10,15 @@ pub fn unix_now() -> u64 {
         .unwrap_or(0)
 }
 
+/// Why a session is in a waiting state.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum WaitReason {
+    /// Session blocked on user permission decision (critical, blocking).
+    Permission,
+    /// Session paused with informational notification (soft, non-blocking).
+    Notification,
+}
+
 /// Current activity state of a Claude Code session.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub enum Activity {
@@ -17,7 +26,7 @@ pub enum Activity {
     Init,
     Working,
     ToolUse(String),
-    Waiting,
+    Waiting(WaitReason),
     Idle,
     Done,
     AgentDone,
@@ -31,7 +40,7 @@ impl Activity {
             Activity::Init => "◆",
             Activity::Working => "●",
             Activity::ToolUse(_) => "⚙",
-            Activity::Waiting => "⚠",
+            Activity::Waiting(_) => "⚠",
             Activity::Idle => "○",
             Activity::Done => "✓",
             Activity::AgentDone => "✓",
@@ -40,7 +49,7 @@ impl Activity {
 
     /// Whether this activity should show elapsed time in the sidebar.
     pub fn shows_elapsed(&self) -> bool {
-        matches!(self, Activity::Working | Activity::ToolUse(_) | Activity::Waiting | Activity::Done | Activity::AgentDone)
+        matches!(self, Activity::Working | Activity::ToolUse(_) | Activity::Waiting(_) | Activity::Done | Activity::AgentDone)
     }
 
     /// RGB color for the activity indicator.
@@ -49,7 +58,8 @@ impl Activity {
             Activity::Init => (180, 175, 195),
             Activity::Working => (180, 140, 255),
             Activity::ToolUse(_) => (255, 170, 50),
-            Activity::Waiting => (255, 60, 60),
+            Activity::Waiting(WaitReason::Permission) => (255, 60, 60),
+            Activity::Waiting(WaitReason::Notification) => (255, 180, 60),
             Activity::Idle => (180, 175, 195),
             Activity::Done => (80, 200, 120),
             Activity::AgentDone => (80, 180, 100),
@@ -58,7 +68,7 @@ impl Activity {
 
     /// Whether this state represents "needs human attention".
     pub fn is_waiting(&self) -> bool {
-        matches!(self, Activity::Waiting)
+        matches!(self, Activity::Waiting(_))
     }
 }
 
@@ -97,9 +107,11 @@ impl Session {
     /// Returns true if the state actually changed.
     pub fn transition(&mut self, new_activity: Activity) -> bool {
         // Waiting can only transition to Working or Done, not back to Idle
-        if self.activity == Activity::Waiting {
+        if matches!(self.activity, Activity::Waiting(_)) {
             match new_activity {
                 Activity::Working | Activity::ToolUse(_) | Activity::Done | Activity::AgentDone => {}
+                // Allow upgrading Notification wait to Permission wait
+                Activity::Waiting(_) => {}
                 _ => return false,
             }
         }
@@ -159,7 +171,7 @@ mod tests {
     #[test]
     fn test_activity_indicators() {
         assert_eq!(Activity::Working.indicator(), "●");
-        assert_eq!(Activity::Waiting.indicator(), "⚠");
+        assert_eq!(Activity::Waiting(WaitReason::Permission).indicator(), "⚠");
         assert_eq!(Activity::Idle.indicator(), "○");
         assert_eq!(Activity::Done.indicator(), "✓");
     }
@@ -167,7 +179,7 @@ mod tests {
     #[test]
     fn test_activity_shows_elapsed() {
         assert!(Activity::Working.shows_elapsed());
-        assert!(Activity::Waiting.shows_elapsed());
+        assert!(Activity::Waiting(WaitReason::Permission).shows_elapsed());
         assert!(Activity::Done.shows_elapsed());
         assert!(!Activity::Init.shows_elapsed());
         assert!(!Activity::Idle.shows_elapsed());
@@ -176,12 +188,12 @@ mod tests {
     #[test]
     fn test_waiting_transition_restrictions() {
         let mut session = Session::new(1, "test".into());
-        session.activity = Activity::Waiting;
+        session.activity = Activity::Waiting(WaitReason::Permission);
         session.last_event_ts = unix_now();
 
         // Waiting should not transition to Idle
         assert!(!session.transition(Activity::Idle));
-        assert_eq!(session.activity, Activity::Waiting);
+        assert_eq!(session.activity, Activity::Waiting(WaitReason::Permission));
 
         // Waiting should transition to Working
         assert!(session.transition(Activity::Working));
@@ -191,7 +203,7 @@ mod tests {
     #[test]
     fn test_waiting_transition_to_done() {
         let mut session = Session::new(1, "test".into());
-        session.activity = Activity::Waiting;
+        session.activity = Activity::Waiting(WaitReason::Permission);
         session.last_event_ts = unix_now();
 
         assert!(session.transition(Activity::Done));
