@@ -179,7 +179,7 @@ pub fn render_sidebar(state: &PluginState, rows: usize, cols: usize) -> Vec<Clic
             row += 1;
         }
     } else if row < rows.saturating_sub(1) {
-        let btn = "  [+] New session";
+        let btn = "  [+] New tab";
         print_line(row, cols, btn, Style::Dim);
         click_regions.push((row, u32::MAX, usize::MAX));
         row += 1;
@@ -359,7 +359,7 @@ fn render_empty_state(state: &PluginState, rows: usize, cols: usize) -> Vec<Clic
         print_line(4, cols, "", Style::Normal);
     }
     if rows > 5 {
-        let btn = "  [+] New session";
+        let btn = "  [+] New tab";
         print_line(5, cols, btn, Style::Dim);
         click_regions.push((5, u32::MAX, usize::MAX));
     }
