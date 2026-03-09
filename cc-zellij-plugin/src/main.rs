@@ -552,6 +552,25 @@ impl PluginState {
                 }
                 false
             }
+            Event::Mouse(Mouse::RightClick(row, _col)) => {
+                // Right-click on a session starts rename
+                if let Some((_tab_idx, pane_id)) = sidebar::handle_click(row as usize, &self.click_regions) {
+                    if pane_id != u32::MAX {
+                        if let Some(session) = self.sessions.get(&pane_id) {
+                            let name = session.display_name.clone();
+                            let len = name.len();
+                            self.rename_state = Some(crate::state::RenameState {
+                                pane_id,
+                                input_buffer: name,
+                                cursor_pos: len,
+                            });
+                            set_selectable_wasm(true);
+                            return true;
+                        }
+                    }
+                }
+                false
+            }
             Event::Mouse(mouse) => {
                 debug_log(&format!("MOUSE event={mouse:?}"));
                 false
