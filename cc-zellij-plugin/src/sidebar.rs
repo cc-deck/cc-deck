@@ -112,11 +112,26 @@ pub fn render_sidebar(state: &PluginState, rows: usize, cols: usize) -> Vec<Clic
         // Navigation mode: show cursor on the selected session
         let has_cursor = state.navigation_mode && abs_idx == state.cursor_index;
 
-        // Check if this session is being renamed
-        let rename_for_session = state.rename_state.as_ref().filter(|rs| rs.pane_id == session.pane_id);
+        // Check if this session has a pending delete confirmation
+        let is_delete_confirm = state.delete_confirm == Some(session.pane_id);
 
-        if let Some(region) = render_session_entry(session, is_active, has_cursor, row, cols, rename_for_session) {
-            click_regions.push(region);
+        if is_delete_confirm {
+            // Render delete confirmation instead of normal entry
+            let prompt = format!(" Delete \"{}\"?", truncate(&session.display_name, cols.saturating_sub(14)));
+            let confirm_hint = " [y/N]";
+            print!("\x1b[{};1H{}", row + 1, pad(&format!("\x1b[38;2;255;60;60m{prompt}\x1b[0m"), cols));
+            print!("\x1b[{};1H{}", row + 2, pad(&format!("\x1b[2m{confirm_hint}\x1b[0m"), cols));
+            print!("\x1b[{};1H{}", row + 3, " ".repeat(cols));
+            if let Some(tab_idx) = session.tab_index {
+                click_regions.push((row, session.pane_id, tab_idx));
+            }
+        } else {
+            // Check if this session is being renamed
+            let rename_for_session = state.rename_state.as_ref().filter(|rs| rs.pane_id == session.pane_id);
+
+            if let Some(region) = render_session_entry(session, is_active, has_cursor, row, cols, rename_for_session) {
+                click_regions.push(region);
+            }
         }
         row += lines_per_session;
     }
