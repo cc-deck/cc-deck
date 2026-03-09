@@ -269,23 +269,10 @@ impl ZellijPlugin for PluginState {
         match action {
             PipeAction::HookEvent(hook) => {
                 if is_session_end(&hook.hook_event_name) {
-                    // Get tab info before removing the session
-                    let session_info = self.sessions.get(&hook.pane_id).map(|s| {
-                        let tab_idx = s.tab_index;
-                        let is_only = tab_idx.map(|idx| {
-                            self.sessions.values()
-                                .filter(|s2| s2.tab_index == Some(idx))
-                                .count() <= 1
-                        }).unwrap_or(false);
-                        (tab_idx, is_only)
-                    });
-
+                    // Just remove from tracking, don't close panes or tabs.
+                    // The user manages tabs themselves.
                     let removed = self.sessions.remove(&hook.pane_id).is_some();
                     if removed {
-                        // Close the command pane (and tab if it was the only session)
-                        if let Some((tab_idx, is_only)) = session_info {
-                            close_session_pane(hook.pane_id, tab_idx, is_only);
-                        }
                         sync::broadcast_state(self);
                     }
                     return removed;
