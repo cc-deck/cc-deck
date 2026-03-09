@@ -374,11 +374,8 @@ impl ZellijPlugin for PluginState {
                     set_selectable_wasm(false);
                 }
                 match attend::perform_attend(self) {
-                    attend::AttendResult::Switched { display_name, .. } => {
-                        self.notification = Some(notification::create_notification(
-                            &format!(">> {display_name}"),
-                            3,
-                        ));
+                    attend::AttendResult::Switched { .. } => {
+                        // No notification needed, tab switch is visible feedback
                     }
                     attend::AttendResult::NoneWaiting => {
                         self.notification = Some(notification::create_notification(
