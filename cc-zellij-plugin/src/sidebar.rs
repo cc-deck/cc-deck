@@ -57,10 +57,25 @@ fn render_header(state: &PluginState, cols: usize) {
 /// Render the sidebar into the plugin's stdout.
 /// Returns click regions for mouse handling.
 pub fn render_sidebar(state: &PluginState, rows: usize, cols: usize) -> Vec<ClickRegion> {
-    let sessions = state.sessions_by_tab_order();
+    // Use filtered sessions when filter is active
+    let sessions = if state.filter_state.is_some() {
+        let filter = state.filter_state.as_ref().map(|f| &f.input_buffer).unwrap();
+        if filter.is_empty() {
+            state.sessions_by_tab_order()
+        } else {
+            let lower = filter.to_lowercase();
+            let mut filtered: Vec<_> = state.sessions.values()
+                .filter(|s| s.display_name.to_lowercase().contains(&lower))
+                .collect();
+            filtered.sort_by_key(|s| s.tab_index.unwrap_or(usize::MAX));
+            filtered
+        }
+    } else {
+        state.sessions_by_tab_order()
+    };
     let mut click_regions = Vec::new();
 
-    if sessions.is_empty() {
+    if sessions.is_empty() && state.filter_state.is_none() {
         return render_empty_state(state, rows, cols);
     }
 
@@ -143,8 +158,27 @@ pub fn render_sidebar(state: &PluginState, rows: usize, cols: usize) -> Vec<Clic
         row += 1;
     }
 
-    // [+] New button (use sentinel pane_id u32::MAX, tab_index u32::MAX)
-    if row < rows.saturating_sub(1) {
+    // Bottom row: search input (when filtering) or [+] button
+    if let Some(ref fs) = state.filter_state {
+        // Render search input
+        if row < rows.saturating_sub(1) {
+            let prefix = " / ";
+            let max_input = cols.saturating_sub(prefix.len());
+            let buf = &fs.input_buffer;
+            let cursor_pos = fs.cursor_pos.min(buf.len());
+            let before = &buf[..cursor_pos];
+            let cursor_char = buf.get(cursor_pos..cursor_pos + 1).unwrap_or(" ");
+            let after = if cursor_pos < buf.len() { &buf[cursor_pos + 1..] } else { "" };
+            let input_display = if buf.len() <= max_input {
+                format!("{before}\x1b[7m{cursor_char}\x1b[0m{after}")
+            } else {
+                truncate(buf, max_input).to_string()
+            };
+            let search_line = format!("\x1b[2m{prefix}\x1b[0m{input_display}");
+            print!("\x1b[{};1H{}", row + 1, pad(&search_line, cols));
+            row += 1;
+        }
+    } else if row < rows.saturating_sub(1) {
         let btn = "  [+] New session";
         print_line(row, cols, btn, Style::Dim);
         click_regions.push((row, u32::MAX, usize::MAX));
