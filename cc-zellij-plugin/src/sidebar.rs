@@ -9,6 +9,9 @@ pub type ClickRegion = (usize, u32, usize);
 // Active session highlight: dark teal background with brighter teal foreground
 const ACTIVE_BG: &str = "\x1b[48;2;25;45;55m"; // dark teal background
 const ACTIVE_FG: &str = "\x1b[38;2;120;200;220m"; // bright teal foreground
+// Navigation cursor: warm amber tint background
+const CURSOR_BG: &str = "\x1b[48;2;50;40;20m"; // muted amber background
+const CURSOR_FG: &str = "\x1b[38;2;230;200;140m"; // warm amber foreground
 const RESET: &str = "\x1b[0m";
 
 /// Render the status header with orange star and session counts.
@@ -184,14 +187,12 @@ fn render_session_entry(
 ) -> Option<ClickRegion> {
     let indicator = session.activity.indicator();
     let (r, g, b) = session.activity.color();
-    // Navigation cursor: ▶ replaces leading space when cursor is on this session
-    let cursor_prefix = if has_cursor { "\x1b[38;2;255;170;50m▶\x1b[0m" } else { " " };
 
     // Line 1: indicator + name (or rename input buffer)
     let line1 = if let Some(rs) = rename_state {
         // Render rename input with cursor
-        let prefix = format!("{cursor_prefix}\x1b[38;2;{r};{g};{b}m{indicator}\x1b[0m ");
-        let max_input = cols.saturating_sub(3); // cursor + indicator + space
+        let prefix = format!(" \x1b[38;2;{r};{g};{b}m{indicator}\x1b[0m ");
+        let max_input = cols.saturating_sub(3); // space + indicator + space
         let buf = &rs.input_buffer;
         let cursor_pos = rs.cursor_pos.min(buf.len());
 
@@ -224,29 +225,40 @@ fn render_session_entry(
         };
 
         if elapsed.is_empty() {
-            format!("{cursor_prefix}\x1b[38;2;{r};{g};{b}m{indicator}\x1b[0m {name_part}")
+            format!(" \x1b[38;2;{r};{g};{b}m{indicator}\x1b[0m {name_part}")
         } else {
-            format!("{cursor_prefix}\x1b[38;2;{r};{g};{b}m{indicator}\x1b[0m {name_part} \x1b[2m{elapsed}\x1b[0m")
+            format!(" \x1b[38;2;{r};{g};{b}m{indicator}\x1b[0m {name_part} \x1b[2m{elapsed}\x1b[0m")
         }
     };
 
-    // Line 1: full line highlighted if active (including indicator)
-    if is_active {
+    // Determine background style: cursor > active > normal
+    // Cursor (navigation pre-selection) uses amber tint
+    // Active (focused session) uses teal tint
+    // Both: cursor wins (amber over teal)
+    let (bg, fg, use_bg) = if has_cursor {
+        (CURSOR_BG, CURSOR_FG, true)
+    } else if is_active {
+        (ACTIVE_BG, ACTIVE_FG, true)
+    } else {
+        ("", "", false)
+    };
+
+    if use_bg {
         let elapsed = session.elapsed_display().unwrap_or_default();
         let name = &session.display_name;
-        let prefix_len = 3; // cursor + indicator + space
+        let prefix_len = 2; // indicator + space
         let elapsed_len = if elapsed.is_empty() { 0 } else { elapsed.len() + 1 };
         let max_name = cols.saturating_sub(prefix_len + elapsed_len);
         let truncated_name = truncate(name, max_name);
 
-        let active_line1 = if rename_state.is_some() {
-            line1 // already built with rename input
+        let styled_line1 = if rename_state.is_some() {
+            line1
         } else if elapsed.is_empty() {
-            format!("{ACTIVE_BG}{cursor_prefix}\x1b[38;2;{r};{g};{b}m{indicator}{ACTIVE_FG}\x1b[1m {truncated_name}{RESET}")
+            format!("{bg} \x1b[38;2;{r};{g};{b}m{indicator}{fg}\x1b[1m {truncated_name}{RESET}")
         } else {
-            format!("{ACTIVE_BG}{cursor_prefix}\x1b[38;2;{r};{g};{b}m{indicator}{ACTIVE_FG}\x1b[1m {truncated_name} \x1b[2m{elapsed}{RESET}")
+            format!("{bg} \x1b[38;2;{r};{g};{b}m{indicator}{fg}\x1b[1m {truncated_name} \x1b[2m{elapsed}{RESET}")
         };
-        print!("\x1b[{};1H{}", start_row + 1, pad_with_bg(&active_line1, cols, true));
+        print!("\x1b[{};1H{}", start_row + 1, pad_with_bg_color(&styled_line1, cols, bg));
     } else {
         print!("\x1b[{};1H{}", start_row + 1, pad(&line1, cols));
     }
@@ -260,9 +272,9 @@ fn render_session_entry(
         String::new()
     };
 
-    if is_active {
-        let highlighted = format!("{ACTIVE_BG}{ACTIVE_FG}\x1b[2m{line2_content}{RESET}");
-        print!("\x1b[{};1H{}", start_row + 2, pad_with_bg(&highlighted, cols, true));
+    if use_bg {
+        let highlighted = format!("{bg}{fg}\x1b[2m{line2_content}{RESET}");
+        print!("\x1b[{};1H{}", start_row + 2, pad_with_bg_color(&highlighted, cols, bg));
     } else {
         let dimmed = format!("\x1b[2m{line2_content}\x1b[0m");
         print!("\x1b[{};1H{}", start_row + 2, pad(&dimmed, cols));
@@ -331,15 +343,15 @@ fn print_line(row: usize, cols: usize, text: &str, style: Style) {
     print!("\x1b[{};1H{}", row + 1, pad(&styled, cols));
 }
 
-/// Pad a string, optionally continuing active background color for padding spaces.
-fn pad_with_bg(s: &str, width: usize, with_bg: bool) -> String {
+/// Pad a string, continuing the given background color for padding spaces.
+fn pad_with_bg_color(s: &str, width: usize, bg: &str) -> String {
     let display_len = display_width(s);
     if display_len >= width {
         format!("{s}{RESET}")
     } else {
         let padding = width - display_len;
-        if with_bg {
-            format!("{s}{ACTIVE_BG}{}{RESET}", " ".repeat(padding))
+        if !bg.is_empty() {
+            format!("{s}{bg}{}{RESET}", " ".repeat(padding))
         } else {
             format!("{s}{}{RESET}", " ".repeat(padding))
         }
