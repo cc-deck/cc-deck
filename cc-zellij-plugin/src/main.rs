@@ -86,41 +86,46 @@ fn register_keybindings(_config: &config::PluginConfig) {}
 /// Enter navigation mode: make sidebar selectable and focusable, initialize cursor.
 fn enter_navigation_mode(state: &mut PluginState) {
     state.navigation_mode = true;
-    // Initialize cursor to the currently focused session, or 0
-    let sessions = state.sessions_by_tab_order();
-    state.cursor_index = if let Some(focused_id) = state.focused_pane_id {
-        sessions.iter().position(|s| s.pane_id == focused_id).unwrap_or(0)
-    } else {
-        0
+    // Save the currently focused pane so Esc can restore it, and find cursor position
+    let (restore, cursor) = {
+        let sessions = state.sessions_by_tab_order();
+        let restore = state.focused_pane_id.and_then(|pid| {
+            sessions.iter()
+                .find(|s| s.pane_id == pid)
+                .and_then(|s| s.tab_index.map(|idx| (pid, idx)))
+        });
+        let cursor = state.focused_pane_id
+            .and_then(|pid| sessions.iter().position(|s| s.pane_id == pid))
+            .unwrap_or(0);
+        (restore, cursor)
     };
+    state.nav_restore = restore;
+    state.cursor_index = cursor;
     set_selectable_wasm(true);
     #[cfg(target_family = "wasm")]
     {
         let plugin_id = zellij_tile::prelude::get_plugin_ids().plugin_id;
         zellij_tile::prelude::focus_plugin_pane(plugin_id, false);
     }
-    debug_log(&format!("NAV entered, cursor_index={}", state.cursor_index));
+    debug_log(&format!("NAV entered, cursor_index={} restore={:?}", state.cursor_index, state.nav_restore));
 }
 
-/// Exit navigation mode: return to passive, focus the terminal pane.
+/// Exit navigation mode: return to passive, restore the original pane focus.
 fn exit_navigation_mode(state: &mut PluginState) {
+    let restore = state.nav_restore.take();
     state.navigation_mode = false;
     state.filter_state = None;
     state.delete_confirm = None;
     set_selectable_wasm(false);
-    // Focus the terminal pane that was active, or the cursor session's pane
-    let sessions = state.sessions_by_tab_order();
-    if let Some(session) = sessions.get(state.cursor_index) {
-        let pane_id = session.pane_id;
-        if let Some(tab_idx) = session.tab_index {
-            #[cfg(target_family = "wasm")]
-            {
-                zellij_tile::prelude::switch_tab_to(tab_idx as u32 + 1);
-                zellij_tile::prelude::focus_terminal_pane(pane_id, false);
-            }
+    // Restore the pane that was focused before navigation mode
+    if let Some((pane_id, tab_idx)) = restore {
+        #[cfg(target_family = "wasm")]
+        {
+            zellij_tile::prelude::switch_tab_to(tab_idx as u32 + 1);
+            zellij_tile::prelude::focus_terminal_pane(pane_id, false);
         }
     }
-    debug_log("NAV exited");
+    debug_log("NAV exited (restored original pane)");
 }
 
 #[cfg(target_family = "wasm")]
