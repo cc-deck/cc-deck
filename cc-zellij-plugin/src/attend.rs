@@ -84,7 +84,7 @@ mod tests {
         s1.tab_index = Some(0);
 
         let mut s2 = Session::new(2, "b".into());
-        s2.activity = Activity::Waiting;
+        s2.activity = Activity::Waiting(crate::session::WaitReason::Permission);
         s2.tab_index = Some(1);
         s2.display_name = "my-session".into();
 
@@ -107,13 +107,13 @@ mod tests {
     #[test]
     fn test_attend_oldest_waiting() {
         let mut s1 = Session::new(1, "a".into());
-        s1.activity = Activity::Waiting;
+        s1.activity = Activity::Waiting(crate::session::WaitReason::Permission);
         s1.tab_index = Some(0);
         s1.last_event_ts = 100;
         s1.display_name = "older".into();
 
         let mut s2 = Session::new(2, "b".into());
-        s2.activity = Activity::Waiting;
+        s2.activity = Activity::Waiting(crate::session::WaitReason::Permission);
         s2.tab_index = Some(1);
         s2.last_event_ts = 200;
         s2.display_name = "newer".into();

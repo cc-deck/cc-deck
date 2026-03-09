@@ -320,6 +320,11 @@ impl ZellijPlugin for PluginState {
                 true
             }
 
+            PipeAction::Navigate => {
+                // TODO: Phase 2 (US2) will implement full navigation mode toggle
+                false
+            }
+
             PipeAction::Unknown => false,
         }
     }
