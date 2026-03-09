@@ -239,8 +239,10 @@ fn render_session_entry(
 
     // Line 1: indicator + name (or rename input buffer)
     let line1 = if let Some(rs) = rename_state {
-        // Render rename input with cursor
-        let prefix = format!(" \x1b[38;2;{r};{g};{b}m{indicator}\x1b[0m ");
+        // Render rename input with amber bg when in navigation mode
+        let rename_bg = if has_cursor { CURSOR_BG } else { "" };
+        let rename_fg = if has_cursor { CURSOR_FG } else { "" };
+        let prefix = format!("{rename_bg} \x1b[38;2;{r};{g};{b}m{indicator}{rename_fg} ");
         let max_input = cols.saturating_sub(3); // space + indicator + space
         let buf = &rs.input_buffer;
         let cursor_pos = rs.cursor_pos.min(buf.len());
@@ -251,13 +253,13 @@ fn render_session_entry(
 
         // Truncate if needed (simple approach)
         let input_display = if buf.len() <= max_input {
-            format!("{before}\x1b[7m{cursor_char}\x1b[0m{after}")
+            format!("{before}\x1b[7m{cursor_char}\x1b[0m{rename_bg}{rename_fg}{after}")
         } else {
             let truncated = truncate(buf, max_input);
             truncated.to_string()
         };
 
-        format!("{prefix}{input_display}")
+        format!("{prefix}{input_display}{RESET}")
     } else {
         let elapsed = session.elapsed_display().unwrap_or_default();
         let name = &session.display_name;
