@@ -1,50 +1,61 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+# cc-deck Constitution
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. Two-Component Architecture
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+cc-deck consists of a Rust WASM plugin (`cc-zellij-plugin/`) and a Go CLI (`cc-deck/`). Features that touch both components must be coordinated. The WASM plugin runs inside Zellij, the CLI runs on the host.
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+### II. Plugin Installation (NON-NEGOTIABLE)
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+ALWAYS run `make install` from the **project root directory** (where the Makefile lives). NEVER run it from a subdirectory like `cc-zellij-plugin/` or `cc-deck/`. NEVER use `make dev-install`, ad-hoc `cp` commands, or manual file copies. The plugin has been silently not picked up multiple times with shortcuts. `make install` does a release build and runs `cc-deck plugin install --force` which handles WASM binary, layout, hooks, and settings.json correctly.
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+After installation, ALWAYS kill all Zellij sessions before testing:
+```bash
+make install
+zellij kill-all-sessions -y 2>/dev/null; zellij --layout cc-deck
+```
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+Running Zellij sessions keep compiled plugins in memory. Clearing disk cache does NOT affect running sessions.
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+### III. WASM Filename Convention
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+The WASM binary is ALWAYS `cc_deck.wasm` (underscore), matching Cargo's output. The layout files reference this name. Never use `cc-deck.wasm` (hyphen).
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+### IV. WASM Host Function Gating
+
+All Zellij host functions (`run_command`, `pipe_message_to_plugin`, `set_selectable`, `focus_plugin_pane`, `reconfigure`, etc.) MUST be `#[cfg(target_family = "wasm")]` gated with no-op stubs for native builds. They link-fail on native targets. Tests run on native.
+
+### V. Zellij API Research Order (NON-NEGOTIABLE)
+
+When a Zellij plugin API feature doesn't work as expected, research in this order:
+
+1. **Official documentation first**: Check `zellij.dev` (plugin API commands, keybindings, possible actions, pipe documentation)
+2. **Zellij source code second**: Check the zellij-tile SDK source and zellij-utils KDL parser for exact syntax and available options
+3. **Reference plugins third**: Check existing plugins for working patterns
+
+Do NOT guess at API syntax or invent approaches without verifying against the documentation and source. Many hours have been wasted on incorrect API usage (wrong `MessagePlugin` URL, `Run` creating visible panes, `KeybindPipe` without targets).
+
+### VI. Simplicity
+
+Follow YAGNI. Don't add features, abstractions, or error handling beyond what's needed. Three similar lines of code is better than a premature abstraction.
+
+## Development Workflow
+
+- `make install` for plugin installation (NON-NEGOTIABLE)
+- `make test` for running all tests (Go + Rust)
+- `make lint` for linting (Go vet + Rust clippy)
+- `cargo clippy --target wasm32-wasip1` to verify WASM-specific compilation
+- Commit after each logical task or phase
+
+## Testing
+
+- `cargo test` runs on native target with WASM host function stubs
+- Live testing requires Zellij with the cc-deck layout
+- Debug logging via `/cache/debug.log` in the WASI filesystem (check `~/Library/Caches/org.Zellij-Contributors.Zellij/`)
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+This constitution supersedes ad-hoc practices. Amendments require updating this file and the project memory.
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+**Version**: 1.1.0 | **Ratified**: 2026-03-09 | **Last Amended**: 2026-03-09
