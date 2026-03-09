@@ -335,9 +335,29 @@ impl ZellijPlugin for PluginState {
                 if let Some(ref cwd) = hook.cwd {
                     if session.working_dir.as_deref() != Some(cwd) {
                         session.working_dir = Some(cwd.clone());
-                        if !session.manually_renamed {
-                            git::detect_git_repo(hook.pane_id, cwd);
-                            git::detect_git_branch(hook.pane_id, cwd);
+                        let needs_dir_name = !session.manually_renamed && session.display_name.starts_with("session-");
+                        let not_renamed = !session.manually_renamed;
+                        let pane = hook.pane_id;
+                        let cwd_clone = cwd.clone();
+
+                        if needs_dir_name {
+                            let dir_name = std::path::Path::new(&cwd_clone)
+                                .file_name()
+                                .and_then(|n| n.to_str())
+                                .unwrap_or("session")
+                                .to_string();
+                            let names: Vec<String> = self.sessions.iter()
+                                .filter(|(&id, _)| id != pane)
+                                .map(|(_, s)| s.display_name.clone())
+                                .collect();
+                            let name_refs: Vec<&str> = names.iter().map(|s| s.as_str()).collect();
+                            if let Some(s) = self.sessions.get_mut(&pane) {
+                                s.display_name = session::deduplicate_name(&dir_name, &name_refs);
+                            }
+                        }
+                        if not_renamed {
+                            git::detect_git_repo(pane, &cwd_clone);
+                            git::detect_git_branch(pane, &cwd_clone);
                         }
                     }
                 }
