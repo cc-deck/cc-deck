@@ -576,6 +576,8 @@ impl PluginState {
                             true
                         }
                     }
+                } else if self.delete_confirm.is_some() {
+                    self.handle_delete_confirm_key(key)
                 } else if self.navigation_mode {
                     self.handle_navigation_key(key)
                 } else {
@@ -614,6 +616,36 @@ impl PluginState {
             }
             _ => false,
         }
+    }
+
+    /// Handle a key during delete confirmation: y confirms, anything else cancels.
+    fn handle_delete_confirm_key(&mut self, key: KeyWithModifier) -> bool {
+        let pane_id = match self.delete_confirm.take() {
+            Some(id) => id,
+            None => return false,
+        };
+
+        if key.bare_key == BareKey::Char('y') {
+            // Get session info before removing
+            let session_info = self.sessions.get(&pane_id).map(|s| {
+                let tab_idx = s.tab_index;
+                let is_only = tab_idx.map(|idx| {
+                    self.sessions.values()
+                        .filter(|s2| s2.tab_index == Some(idx))
+                        .count() <= 1
+                }).unwrap_or(false);
+                (tab_idx, is_only)
+            });
+
+            self.sessions.remove(&pane_id);
+            if let Some((tab_idx, is_only)) = session_info {
+                close_session_pane(pane_id, tab_idx, is_only);
+            }
+            sync::broadcast_state(self);
+            self.preserve_cursor();
+        }
+        // Any other key: just cancel (delete_confirm already taken)
+        true
     }
 
     /// Preserve cursor position by pane_id after session list changes.
@@ -695,6 +727,31 @@ impl PluginState {
             // Exit navigation mode
             BareKey::Esc => {
                 exit_navigation_mode(self);
+                true
+            }
+
+            // Rename cursor session
+            BareKey::Char('r') => {
+                let sessions = self.sessions_by_tab_order();
+                if let Some(session) = sessions.get(self.cursor_index) {
+                    let pane_id = session.pane_id;
+                    let name = session.display_name.clone();
+                    let len = name.len();
+                    self.rename_state = Some(crate::state::RenameState {
+                        pane_id,
+                        input_buffer: name,
+                        cursor_pos: len,
+                    });
+                }
+                true
+            }
+
+            // Delete cursor session (show confirmation)
+            BareKey::Char('d') => {
+                let sessions = self.sessions_by_tab_order();
+                if let Some(session) = sessions.get(self.cursor_index) {
+                    self.delete_confirm = Some(session.pane_id);
+                }
                 true
             }
 
