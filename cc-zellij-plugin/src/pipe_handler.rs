@@ -71,7 +71,9 @@ pub fn hook_event_to_activity(event: &str, tool_name: Option<&str>) -> Option<Ac
         "PermissionRequest" => Some(Activity::Waiting(WaitReason::Permission)),
         "Stop" => Some(Activity::Done),
         "SubagentStop" => Some(Activity::AgentDone),
-        "Notification" => Some(Activity::Waiting(WaitReason::Notification)),
+        // Notification is informational (e.g., "task complete"), not a blocking state.
+        // Just refresh the timestamp, don't change activity.
+        "Notification" => None,
         // SessionEnd is handled separately (removes session entirely)
         "SessionEnd" => None,
         _ => None,
@@ -114,7 +116,7 @@ mod tests {
         assert_eq!(hook_event_to_activity("PermissionRequest", None), Some(Activity::Waiting(WaitReason::Permission)));
         assert_eq!(hook_event_to_activity("Stop", None), Some(Activity::Done));
         assert_eq!(hook_event_to_activity("SubagentStop", None), Some(Activity::AgentDone));
-        assert_eq!(hook_event_to_activity("Notification", None), Some(Activity::Waiting(WaitReason::Notification)));
+        assert_eq!(hook_event_to_activity("Notification", None), None);
         assert_eq!(hook_event_to_activity("SessionEnd", None), None);
     }
 
