@@ -1,6 +1,6 @@
 // T006-T007: Pipe message parsing and hook event to Activity mapping
 
-use crate::session::Activity;
+use crate::session::{Activity, WaitReason};
 use serde::Deserialize;
 
 /// Hook event payload received from `cc-deck hook` CLI via pipe.
@@ -27,6 +27,8 @@ pub enum PipeAction {
     Rename,
     /// New session action (cc-deck:new).
     NewSession,
+    /// Navigate action - toggle sidebar navigation mode (cc-deck:navigate).
+    Navigate,
     /// Unknown message.
     Unknown,
 }
@@ -51,6 +53,7 @@ pub fn parse_pipe_message(name: &str, payload: Option<&str>) -> PipeAction {
         "cc-deck:attend" => PipeAction::Attend,
         "cc-deck:rename" => PipeAction::Rename,
         "cc-deck:new" => PipeAction::NewSession,
+        "cc-deck:navigate" | "navigate" => PipeAction::Navigate,
         _ => PipeAction::Unknown,
     }
 }
@@ -65,11 +68,10 @@ pub fn hook_event_to_activity(event: &str, tool_name: Option<&str>) -> Option<Ac
             Some(Activity::ToolUse(name))
         }
         "PostToolUse" | "PostToolUseFailure" | "UserPromptSubmit" => Some(Activity::Working),
-        "PermissionRequest" => Some(Activity::Waiting),
+        "PermissionRequest" => Some(Activity::Waiting(WaitReason::Permission)),
         "Stop" => Some(Activity::Done),
         "SubagentStop" => Some(Activity::AgentDone),
-        // Notification just refreshes the timestamp, no state change
-        "Notification" => None,
+        "Notification" => Some(Activity::Waiting(WaitReason::Notification)),
         // SessionEnd is handled separately (removes session entirely)
         "SessionEnd" => None,
         _ => None,
@@ -109,10 +111,10 @@ mod tests {
         assert_eq!(hook_event_to_activity("SessionStart", None), Some(Activity::Init));
         assert_eq!(hook_event_to_activity("PreToolUse", Some("Bash")), Some(Activity::ToolUse("Bash".into())));
         assert_eq!(hook_event_to_activity("PostToolUse", None), Some(Activity::Working));
-        assert_eq!(hook_event_to_activity("PermissionRequest", None), Some(Activity::Waiting));
+        assert_eq!(hook_event_to_activity("PermissionRequest", None), Some(Activity::Waiting(WaitReason::Permission)));
         assert_eq!(hook_event_to_activity("Stop", None), Some(Activity::Done));
         assert_eq!(hook_event_to_activity("SubagentStop", None), Some(Activity::AgentDone));
-        assert_eq!(hook_event_to_activity("Notification", None), None);
+        assert_eq!(hook_event_to_activity("Notification", None), Some(Activity::Waiting(WaitReason::Notification)));
         assert_eq!(hook_event_to_activity("SessionEnd", None), None);
     }
 
