@@ -357,6 +357,13 @@ impl ZellijPlugin for PluginState {
             }
 
             PipeAction::Attend => {
+                // Exit navigation mode if active
+                if self.navigation_mode {
+                    self.navigation_mode = false;
+                    self.filter_state = None;
+                    self.delete_confirm = None;
+                    set_selectable_wasm(false);
+                }
                 match attend::perform_attend(self) {
                     attend::AttendResult::Switched { display_name, .. } => {
                         self.notification = Some(notification::create_notification(
@@ -367,6 +374,12 @@ impl ZellijPlugin for PluginState {
                     attend::AttendResult::NoneWaiting => {
                         self.notification = Some(notification::create_notification(
                             "No sessions waiting",
+                            3,
+                        ));
+                    }
+                    attend::AttendResult::AllBusy => {
+                        self.notification = Some(notification::create_notification(
+                            "All sessions busy",
                             3,
                         ));
                     }
