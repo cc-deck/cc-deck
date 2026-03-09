@@ -82,6 +82,8 @@ pub struct PluginState {
     pub filter_state: Option<FilterState>,
     /// Pane ID of session pending delete confirmation.
     pub delete_confirm: Option<u32>,
+    /// Pane ID + tab index that was focused before entering navigation mode (for Esc restore).
+    pub nav_restore: Option<(u32, usize)>,
 }
 
 impl PluginState {
