@@ -20,57 +20,67 @@ pub enum AttendResult {
 /// Find the next session needing attention using tiered priority:
 /// 1. Permission waiting (oldest first) - critical, blocks progress
 /// 2. Notification waiting (oldest first) - soft, informational
-/// 3. Idle/Done/AgentDone (newest first) - older idle may be intentionally parked
-/// 4. Skip Working/ToolUse/Init - actively running
+/// 3. Idle/Done/AgentDone/Init (newest first) - older idle may be intentionally parked
+/// 4. Skip Working/ToolUse - actively running
 ///
-/// Skips the currently focused session unless it's the only one.
-pub fn perform_attend(state: &PluginState) -> AttendResult {
+/// Round-robin: subsequent presses cycle through the priority-ordered list,
+/// starting after the last attended session.
+pub fn perform_attend(state: &mut PluginState) -> AttendResult {
     let sessions = state.sessions_by_tab_order();
     if sessions.is_empty() {
         return AttendResult::NoneWaiting;
     }
 
-    let focused = state.focused_pane_id;
-    let only_one = sessions.len() == 1;
+    // Build priority-ordered candidate list
+    let mut candidates: Vec<&crate::session::Session> = Vec::new();
 
     // Tier 1: Permission waiting (oldest first)
-    let mut permission_waiting: Vec<_> = sessions.iter()
+    let mut t1: Vec<_> = sessions.iter()
         .filter(|s| matches!(s.activity, Activity::Waiting(WaitReason::Permission)))
-        .filter(|s| only_one || Some(s.pane_id) != focused)
-        .collect();
-    permission_waiting.sort_by_key(|s| s.last_event_ts);
-    if let Some(session) = permission_waiting.first() {
-        return switch_to(session);
-    }
+        .copied().collect();
+    t1.sort_by_key(|s| s.last_event_ts);
+    candidates.extend(t1);
 
     // Tier 2: Notification waiting (oldest first)
-    let mut notification_waiting: Vec<_> = sessions.iter()
+    let mut t2: Vec<_> = sessions.iter()
         .filter(|s| matches!(s.activity, Activity::Waiting(WaitReason::Notification)))
-        .filter(|s| only_one || Some(s.pane_id) != focused)
-        .collect();
-    notification_waiting.sort_by_key(|s| s.last_event_ts);
-    if let Some(session) = notification_waiting.first() {
-        return switch_to(session);
+        .copied().collect();
+    t2.sort_by_key(|s| s.last_event_ts);
+    candidates.extend(t2);
+
+    // Tier 3: Idle/Done/AgentDone/Init (newest first)
+    let mut t3: Vec<_> = sessions.iter()
+        .filter(|s| matches!(s.activity, Activity::Idle | Activity::Done | Activity::AgentDone | Activity::Init))
+        .copied().collect();
+    t3.sort_by_key(|s| std::cmp::Reverse(s.last_event_ts));
+    candidates.extend(t3);
+
+    if candidates.is_empty() {
+        return AttendResult::AllBusy;
     }
 
-    // Tier 3: Idle/Done/AgentDone (newest first)
-    let mut idle: Vec<_> = sessions.iter()
-        .filter(|s| matches!(s.activity, Activity::Idle | Activity::Done | Activity::AgentDone))
-        .filter(|s| only_one || Some(s.pane_id) != focused)
-        .collect();
-    idle.sort_by_key(|s| std::cmp::Reverse(s.last_event_ts));
-    if let Some(session) = idle.first() {
-        return switch_to(session);
-    }
-
-    // All sessions are working/init
-    let all_working = sessions.iter().all(|s| {
-        matches!(s.activity, Activity::Working | Activity::ToolUse(_) | Activity::Init)
-    });
-    if all_working {
-        AttendResult::AllBusy
+    // Round-robin: find the position after the last attended session
+    let start_idx = if let Some(last_id) = state.last_attended_pane_id {
+        candidates.iter()
+            .position(|s| s.pane_id == last_id)
+            .map(|pos| (pos + 1) % candidates.len())
+            .unwrap_or(0)
     } else {
-        AttendResult::NoneWaiting
+        0
+    };
+
+    // Extract data before dropping the borrow on state
+    let pane_id = candidates[start_idx].pane_id;
+    let tab_index = candidates[start_idx].tab_index.unwrap_or(0);
+    let display_name = candidates[start_idx].display_name.clone();
+
+    state.last_attended_pane_id = Some(pane_id);
+    switch_and_focus(tab_index, pane_id);
+
+    AttendResult::Switched {
+        tab_index,
+        pane_id,
+        display_name,
     }
 }
 
@@ -112,16 +122,16 @@ mod tests {
 
     #[test]
     fn test_attend_empty() {
-        let state = PluginState::default();
-        assert!(matches!(perform_attend(&state), AttendResult::NoneWaiting));
+        let mut state = PluginState::default();
+        assert!(matches!(perform_attend(&mut state), AttendResult::NoneWaiting));
     }
 
     #[test]
     fn test_attend_all_working() {
         let mut s1 = Session::new(1, "a".into());
         s1.activity = Activity::Working;
-        let state = make_state(vec![s1]);
-        assert!(matches!(perform_attend(&state), AttendResult::AllBusy));
+        let mut state = make_state(vec![s1]);
+        assert!(matches!(perform_attend(&mut state), AttendResult::AllBusy));
     }
 
     #[test]
@@ -138,8 +148,8 @@ mod tests {
         s2.last_event_ts = 200;
         s2.display_name = "perm".into();
 
-        let state = make_state(vec![s1, s2]);
-        match perform_attend(&state) {
+        let mut state = make_state(vec![s1, s2]);
+        match perform_attend(&mut state) {
             AttendResult::Switched { display_name, .. } => assert_eq!(display_name, "perm"),
             _ => panic!("expected Switched to permission session"),
         }
@@ -159,8 +169,8 @@ mod tests {
         s2.last_event_ts = 200;
         s2.display_name = "newer".into();
 
-        let state = make_state(vec![s1, s2]);
-        match perform_attend(&state) {
+        let mut state = make_state(vec![s1, s2]);
+        match perform_attend(&mut state) {
             AttendResult::Switched { display_name, .. } => assert_eq!(display_name, "older"),
             _ => panic!("expected Switched"),
         }
@@ -180,47 +190,59 @@ mod tests {
         s2.last_event_ts = 200;
         s2.display_name = "new-done".into();
 
-        let state = make_state(vec![s1, s2]);
-        match perform_attend(&state) {
+        let mut state = make_state(vec![s1, s2]);
+        match perform_attend(&mut state) {
             AttendResult::Switched { display_name, .. } => assert_eq!(display_name, "new-done"),
             _ => panic!("expected Switched to newest idle"),
         }
     }
 
     #[test]
-    fn test_attend_skips_focused() {
+    fn test_attend_round_robin() {
         let mut s1 = Session::new(1, "a".into());
         s1.activity = Activity::Waiting(WaitReason::Permission);
         s1.tab_index = Some(0);
-        s1.display_name = "focused".into();
+        s1.last_event_ts = 100;
+        s1.display_name = "first".into();
 
         let mut s2 = Session::new(2, "b".into());
         s2.activity = Activity::Waiting(WaitReason::Permission);
         s2.tab_index = Some(1);
-        s2.display_name = "other".into();
+        s2.last_event_ts = 200;
+        s2.display_name = "second".into();
 
         let mut state = make_state(vec![s1, s2]);
-        state.focused_pane_id = Some(1); // s1 is focused
 
-        match perform_attend(&state) {
-            AttendResult::Switched { display_name, .. } => assert_eq!(display_name, "other"),
-            _ => panic!("expected Switched to non-focused"),
+        // First attend: picks "first" (oldest permission)
+        match perform_attend(&mut state) {
+            AttendResult::Switched { display_name, .. } => assert_eq!(display_name, "first"),
+            _ => panic!("expected first"),
+        }
+
+        // Second attend: round-robin to "second"
+        match perform_attend(&mut state) {
+            AttendResult::Switched { display_name, .. } => assert_eq!(display_name, "second"),
+            _ => panic!("expected second"),
+        }
+
+        // Third attend: wraps back to "first"
+        match perform_attend(&mut state) {
+            AttendResult::Switched { display_name, .. } => assert_eq!(display_name, "first"),
+            _ => panic!("expected first again"),
         }
     }
 
     #[test]
-    fn test_attend_single_session_not_skipped() {
+    fn test_attend_includes_init() {
         let mut s1 = Session::new(1, "a".into());
-        s1.activity = Activity::Waiting(WaitReason::Permission);
+        s1.activity = Activity::Init;
         s1.tab_index = Some(0);
-        s1.display_name = "only".into();
+        s1.display_name = "init-session".into();
 
         let mut state = make_state(vec![s1]);
-        state.focused_pane_id = Some(1); // focused on the only session
-
-        match perform_attend(&state) {
-            AttendResult::Switched { display_name, .. } => assert_eq!(display_name, "only"),
-            _ => panic!("expected Switched even though focused"),
+        match perform_attend(&mut state) {
+            AttendResult::Switched { display_name, .. } => assert_eq!(display_name, "init-session"),
+            _ => panic!("expected Init session to be attended"),
         }
     }
 
@@ -236,8 +258,8 @@ mod tests {
         s2.tab_index = Some(1);
         s2.display_name = "notif".into();
 
-        let state = make_state(vec![s1, s2]);
-        match perform_attend(&state) {
+        let mut state = make_state(vec![s1, s2]);
+        match perform_attend(&mut state) {
             AttendResult::Switched { display_name, .. } => assert_eq!(display_name, "notif"),
             _ => panic!("expected Switched to notification"),
         }

@@ -84,6 +84,8 @@ pub struct PluginState {
     pub delete_confirm: Option<u32>,
     /// Pane ID + tab index that was focused before entering navigation mode (for Esc restore).
     pub nav_restore: Option<(u32, usize)>,
+    /// Last pane_id that attend switched to, for round-robin cycling.
+    pub last_attended_pane_id: Option<u32>,
 }
 
 impl PluginState {
