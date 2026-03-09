@@ -185,6 +185,14 @@ pub fn render_sidebar(state: &PluginState, rows: usize, cols: usize) -> Vec<Clic
         row += 1;
     }
 
+    // Render notification right below session list (if active)
+    if let Some(ref notif) = state.notification {
+        if !crate::notification::is_expired(notif) && row < rows {
+            crate::notification::render_notification(notif, row, cols);
+            row += 1;
+        }
+    }
+
     // Fill remaining rows
     while row < rows {
         print_line(row, cols, "", Style::Normal);
