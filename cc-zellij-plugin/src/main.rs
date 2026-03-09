@@ -439,12 +439,10 @@ impl ZellijPlugin for PluginState {
             PluginMode::Sidebar => {
                 self.click_regions = sidebar::render_sidebar(self, rows, cols);
 
-                // Render notification on the last row if active
+                // Clear expired notifications
                 if let Some(ref notif) = self.notification {
                     if notification::is_expired(notif) {
                         self.notification = None;
-                    } else if rows > 0 {
-                        notification::render_notification(notif, rows - 1, cols);
                     }
                 }
             }
