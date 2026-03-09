@@ -423,7 +423,11 @@ impl ZellijPlugin for PluginState {
 
             PipeAction::Navigate => {
                 if self.navigation_mode {
-                    exit_navigation_mode(self);
+                    // Move cursor down with wrapping (same as j/↓)
+                    let count = self.filtered_sessions_by_tab_order().len();
+                    if count > 0 {
+                        self.cursor_index = (self.cursor_index + 1) % count;
+                    }
                 } else {
                     enter_navigation_mode(self);
                 }
