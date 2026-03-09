@@ -578,6 +578,8 @@ impl PluginState {
                     }
                 } else if self.delete_confirm.is_some() {
                     self.handle_delete_confirm_key(key)
+                } else if self.filter_state.is_some() {
+                    self.handle_filter_key(key)
                 } else if self.navigation_mode {
                     self.handle_navigation_key(key)
                 } else {
@@ -616,6 +618,83 @@ impl PluginState {
             }
             _ => false,
         }
+    }
+
+    /// Handle a key in filter/search mode: characters filter, Enter confirms, Esc clears.
+    fn handle_filter_key(&mut self, key: KeyWithModifier) -> bool {
+        let fs = match self.filter_state.as_mut() {
+            Some(fs) => fs,
+            None => return false,
+        };
+
+        match key.bare_key {
+            BareKey::Char(c) => {
+                fs.input_buffer.insert(fs.cursor_pos, c);
+                fs.cursor_pos += 1;
+                // Reset cursor to 0 when filter changes
+                self.cursor_index = 0;
+                true
+            }
+            BareKey::Backspace => {
+                if fs.cursor_pos > 0 {
+                    fs.cursor_pos -= 1;
+                    fs.input_buffer.remove(fs.cursor_pos);
+                    self.cursor_index = 0;
+                }
+                true
+            }
+            BareKey::Enter => {
+                // Confirm filter: if no matches, show notification and clear
+                let filter = self.filter_state.as_ref().map(|f| f.input_buffer.clone()).unwrap_or_default();
+                let matches = self.filtered_session_count(&filter);
+                if matches == 0 && !filter.is_empty() {
+                    self.notification = Some(notification::create_notification("No matches", 2));
+                    self.filter_state = None;
+                } else {
+                    // Keep filter active, cursor at 0
+                    self.cursor_index = 0;
+                    // Exit filter input mode but keep the filter text for rendering
+                    // Actually just close filter input, the filter stays applied via filter_state
+                }
+                true
+            }
+            BareKey::Esc => {
+                // Clear filter and return to unfiltered navigation
+                self.filter_state = None;
+                self.cursor_index = 0;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Count sessions matching the current filter.
+    fn filtered_session_count(&self, filter: &str) -> usize {
+        if filter.is_empty() {
+            return self.sessions.len();
+        }
+        let lower = filter.to_lowercase();
+        self.sessions.values()
+            .filter(|s| s.display_name.to_lowercase().contains(&lower))
+            .count()
+    }
+
+    /// Get filtered sessions in tab order.
+    fn filtered_sessions_by_tab_order(&self) -> Vec<&session::Session> {
+        let mut sessions: Vec<_> = if let Some(ref fs) = self.filter_state {
+            if fs.input_buffer.is_empty() {
+                self.sessions.values().collect()
+            } else {
+                let lower = fs.input_buffer.to_lowercase();
+                self.sessions.values()
+                    .filter(|s| s.display_name.to_lowercase().contains(&lower))
+                    .collect()
+            }
+        } else {
+            self.sessions.values().collect()
+        };
+        sessions.sort_by_key(|s| s.tab_index.unwrap_or(usize::MAX));
+        sessions
     }
 
     /// Handle a key during delete confirmation: y confirms, anything else cancels.
@@ -667,7 +746,7 @@ impl PluginState {
 
     /// Handle a key event in navigation mode.
     fn handle_navigation_key(&mut self, key: KeyWithModifier) -> bool {
-        let session_count = self.sessions.len();
+        let session_count = self.filtered_sessions_by_tab_order().len();
         if session_count == 0 {
             // Only Esc and n are useful with no sessions
             match key.bare_key {
@@ -710,7 +789,7 @@ impl PluginState {
 
             // Switch to cursor session
             BareKey::Enter => {
-                let sessions = self.sessions_by_tab_order();
+                let sessions = self.filtered_sessions_by_tab_order();
                 if let Some(session) = sessions.get(self.cursor_index) {
                     let pane_id = session.pane_id;
                     let tab_idx = session.tab_index;
@@ -730,9 +809,15 @@ impl PluginState {
                 true
             }
 
+            // Search/filter mode
+            BareKey::Char('/') => {
+                self.filter_state = Some(crate::state::FilterState::default());
+                true
+            }
+
             // Rename cursor session
             BareKey::Char('r') => {
-                let sessions = self.sessions_by_tab_order();
+                let sessions = self.filtered_sessions_by_tab_order();
                 if let Some(session) = sessions.get(self.cursor_index) {
                     let pane_id = session.pane_id;
                     let name = session.display_name.clone();
@@ -748,7 +833,7 @@ impl PluginState {
 
             // Delete cursor session (show confirmation)
             BareKey::Char('d') => {
-                let sessions = self.sessions_by_tab_order();
+                let sessions = self.filtered_sessions_by_tab_order();
                 if let Some(session) = sessions.get(self.cursor_index) {
                     self.delete_confirm = Some(session.pane_id);
                 }
