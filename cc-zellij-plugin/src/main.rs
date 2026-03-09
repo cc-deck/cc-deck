@@ -409,7 +409,6 @@ impl ZellijPlugin for PluginState {
             PipeAction::NewSession => {
                 match self.config.new_session_mode {
                     config::NewSessionMode::Tab => {
-                        self.pending_auto_start_tab_count = Some(self.tabs.len());
                         create_new_session_tab();
                     }
                     config::NewSessionMode::Pane => create_new_session_pane(),
@@ -533,8 +532,7 @@ impl PluginState {
                         match self.config.new_session_mode {
                             config::NewSessionMode::Tab => {
                                 debug_log(&format!("AUTO-START [+] clicked, tabs.len()={}", self.tabs.len()));
-                                self.pending_auto_start_tab_count = Some(self.tabs.len());
-                                create_new_session_tab();
+                                        create_new_session_tab();
                             }
                             config::NewSessionMode::Pane => create_new_session_pane(),
                         }
@@ -776,7 +774,6 @@ impl PluginState {
                     return true;
                 }
                 BareKey::Char('n') => {
-                    self.pending_auto_start_tab_count = Some(self.tabs.len());
                     create_new_session_tab();
                     exit_navigation_mode(self);
                     return true;
@@ -863,7 +860,6 @@ impl PluginState {
 
             // New session
             BareKey::Char('n') => {
-                self.pending_auto_start_tab_count = Some(self.tabs.len());
                 create_new_session_tab();
                 exit_navigation_mode(self);
                 true
