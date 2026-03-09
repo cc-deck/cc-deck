@@ -136,21 +136,6 @@ fn create_new_session_tab() {
 #[cfg(not(target_family = "wasm"))]
 fn create_new_session_tab() {}
 
-/// Auto-start claude in a specific pane by ID using write_chars_to_pane_id.
-/// Unlike write_chars (which targets the focused pane in the plugin's tab context),
-/// write_chars_to_pane_id targets a specific pane regardless of tab.
-#[cfg(target_family = "wasm")]
-fn auto_start_claude_in_pane(pane_id: u32) {
-    debug_log(&format!("AUTO-START writing 'claude\\n' to pane_id={pane_id}"));
-    zellij_tile::prelude::write_chars_to_pane_id(
-        "claude\n",
-        zellij_tile::prelude::PaneId::Terminal(pane_id),
-    );
-}
-
-#[cfg(not(target_family = "wasm"))]
-fn auto_start_claude_in_pane(_pane_id: u32) {}
-
 #[cfg(target_family = "wasm")]
 fn create_new_session_pane() {
     use std::collections::BTreeMap;
@@ -233,7 +218,6 @@ impl ZellijPlugin for PluginState {
             PermissionType::ReadCliPipes,
             PermissionType::MessageAndLaunchOtherPlugins,
             PermissionType::Reconfigure,
-            PermissionType::WriteToStdin,
         ]);
 
         debug_log("LOAD setting timeout");
@@ -434,7 +418,7 @@ impl ZellijPlugin for PluginState {
                     config::NewSessionMode::Pane => create_new_session_pane(),
                 }
                 self.notification = Some(notification::create_notification(
-                    "Creating session...",
+                    "Creating tab...",
                     2,
                 ));
                 true
@@ -485,23 +469,6 @@ impl PluginState {
                     return false;
                 }
 
-                // Detect new tab created by [+] button
-                if let Some(prev_count) = self.pending_auto_start_tab_count.take() {
-                    debug_log(&format!("AUTO-START TabUpdate: prev_count={prev_count} new_count={}", tabs.len()));
-                    if tabs.len() > prev_count {
-                        // Find the NEW tab (not in our previous tab list)
-                        let known: std::collections::HashSet<usize> =
-                            self.tabs.iter().map(|t| t.position).collect();
-                        let new_tab = tabs.iter()
-                            .find(|t| !known.contains(&t.position))
-                            .or_else(|| tabs.iter().max_by_key(|t| t.position));
-                        if let Some(tab) = new_tab {
-                            debug_log(&format!("AUTO-START new tab detected: position={} name={}", tab.position, tab.name));
-                            self.auto_start_tab_index = Some(tab.position);
-                        }
-                    }
-                }
-
                 let new_active = tabs.iter().find(|t| t.active).map(|t| t.position);
                 self.active_tab_index = new_active;
                 self.tabs = tabs;
@@ -512,21 +479,6 @@ impl PluginState {
                 true
             }
             Event::PaneUpdate(manifest) => {
-                // Auto-start claude: find the terminal pane on the newly created tab
-                if let Some(tab_idx) = self.auto_start_tab_index.take() {
-                    if let Some(panes) = manifest.panes.get(&tab_idx) {
-                        debug_log(&format!("AUTO-START PaneUpdate for tab {tab_idx}: {} panes", panes.len()));
-                        if let Some(terminal) = panes.iter().find(|p| !p.is_plugin) {
-                            debug_log(&format!("AUTO-START found terminal pane_id={} is_focused={}", terminal.id, terminal.is_focused));
-                            auto_start_claude_in_pane(terminal.id);
-                        } else {
-                            debug_log(&format!("AUTO-START no terminal pane found on tab {tab_idx}"));
-                        }
-                    } else {
-                        debug_log(&format!("AUTO-START no panes for tab {tab_idx} in manifest"));
-                    }
-                }
-
                 self.pane_manifest = Some(manifest);
                 self.rebuild_pane_map();
                 self.remove_dead_sessions();
@@ -557,7 +509,7 @@ impl PluginState {
                             config::NewSessionMode::Pane => create_new_session_pane(),
                         }
                         self.notification = Some(notification::create_notification(
-                            "Creating session...",
+                            "Creating tab...",
                             2,
                         ));
                     } else {
