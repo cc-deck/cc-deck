@@ -83,6 +83,8 @@ pub struct PluginState {
     pub last_attended_pane_id: Option<u32>,
     /// Whether the help overlay is displayed.
     pub show_help: bool,
+    /// Tab index that this plugin instance lives on (derived from PaneManifest).
+    pub my_tab_index: Option<usize>,
 }
 
 impl PluginState {
@@ -90,10 +92,17 @@ impl PluginState {
     pub fn rebuild_pane_map(&mut self) {
         self.pane_to_tab.clear();
         self.focused_pane_id = None;
+        #[cfg(target_family = "wasm")]
+        let my_plugin_id = zellij_tile::prelude::get_plugin_ids().plugin_id;
+        #[cfg(not(target_family = "wasm"))]
+        let my_plugin_id = 0u32;
         if let Some(ref manifest) = self.pane_manifest {
             for tab in &self.tabs {
                 if let Some(panes) = manifest.panes.get(&tab.position) {
                     for pane in panes {
+                        if pane.is_plugin && pane.id == my_plugin_id {
+                            self.my_tab_index = Some(tab.position);
+                        }
                         if !pane.is_plugin {
                             self.pane_to_tab
                                 .insert(pane.id, (tab.position, tab.name.clone()));

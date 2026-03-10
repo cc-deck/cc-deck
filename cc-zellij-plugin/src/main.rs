@@ -43,18 +43,11 @@ fn set_selectable_wasm(_selectable: bool) {}
 
 /// Register global keybindings via reconfigure() with MessagePluginId.
 /// Uses the plugin's own numeric ID so Zellij routes the pipe message
-/// directly to this instance without needing a URL or creating new panes.
-/// Only the first instance (plugin_id 0) registers to avoid overwrites.
+/// directly to this instance. Each instance registers; last one wins.
+/// The receiving instance forwards to the active-tab instance if needed.
 #[cfg(target_family = "wasm")]
 fn register_keybindings(config: &config::PluginConfig) {
     let plugin_id = zellij_tile::prelude::get_plugin_ids().plugin_id;
-
-    // Only the first plugin instance registers keybindings.
-    // It handles navigation for all tabs via switch_tab_to + focus_terminal_pane.
-    if plugin_id != 0 {
-        debug_log(&format!("KEYBINDS skipping (plugin_id={}, not first)", plugin_id));
-        return;
-    }
 
     let kdl = format!(
         r#"keybinds {{
@@ -82,6 +75,19 @@ fn register_keybindings(config: &config::PluginConfig) {
 
 #[cfg(not(target_family = "wasm"))]
 fn register_keybindings(_config: &config::PluginConfig) {}
+
+/// Broadcast an action to all cc_deck instances via pipe_message_to_plugin.
+/// Uses "zellij:OWN_URL" so Zellij resolves it to this plugin's URL,
+/// sending only to other instances of the same plugin (not tab-bar etc.).
+#[cfg(target_family = "wasm")]
+fn broadcast_action(name: &str) {
+    let mut msg = MessageToPlugin::new(name);
+    msg.plugin_url = Some("zellij:OWN_URL".to_string());
+    pipe_message_to_plugin(msg);
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn broadcast_action(_name: &str) {}
 
 /// Enter navigation mode: make sidebar selectable and focusable, initialize cursor.
 fn enter_navigation_mode(state: &mut PluginState) {
@@ -254,10 +260,12 @@ impl ZellijPlugin for PluginState {
     }
 
     fn pipe(&mut self, pipe_message: PipeMessage) -> bool {
+        let is_from_keybind = matches!(pipe_message.source, PipeSource::Keybind);
         // Trace log
-        debug_log(&format!("PIPE name={} payload={} sessions={} pane_keys={:?}",
+        debug_log(&format!("PIPE name={} payload={} source={} sessions={} pane_keys={:?}",
             pipe_message.name,
             pipe_message.payload.as_deref().unwrap_or("None"),
+            if is_from_keybind { "keybind" } else { "plugin/cli" },
             self.sessions.len(),
             self.pane_to_tab.keys().collect::<Vec<_>>()));
 
@@ -364,6 +372,14 @@ impl ZellijPlugin for PluginState {
             }
 
             PipeAction::Attend => {
+                // Only the active-tab instance handles attend
+                if !self.is_on_active_tab() {
+                    if is_from_keybind {
+                        debug_log("ATTEND forwarding to active tab via broadcast");
+                        broadcast_action("cc-deck:attend");
+                    }
+                    return false;
+                }
                 // Exit navigation mode if active
                 if self.navigation_mode {
                     self.navigation_mode = false;
@@ -420,6 +436,14 @@ impl ZellijPlugin for PluginState {
             }
 
             PipeAction::Navigate => {
+                // Only the active-tab instance handles navigate
+                if !self.is_on_active_tab() {
+                    if is_from_keybind {
+                        debug_log("NAVIGATE forwarding to active tab via broadcast");
+                        broadcast_action("cc-deck:navigate");
+                    }
+                    return false;
+                }
                 if self.navigation_mode {
                     // Move cursor down with wrapping (same as j/↓)
                     let count = self.filtered_sessions_by_tab_order().len();
@@ -862,25 +886,10 @@ impl PluginState {
 
     /// Check if this plugin instance is on the currently active tab.
     fn is_on_active_tab(&self) -> bool {
-        let active = match self.active_tab_index {
-            Some(idx) => idx,
-            None => return true, // If unknown, assume yes
-        };
-        // Find our plugin pane in the manifest to determine our tab
-        #[cfg(target_family = "wasm")]
-        {
-            let my_id = zellij_tile::prelude::get_plugin_ids().plugin_id;
-            if let Some(ref manifest) = self.pane_manifest {
-                for (&tab_idx, panes) in &manifest.panes {
-                    for pane in panes {
-                        if pane.is_plugin && pane.id == my_id {
-                            return tab_idx == active;
-                        }
-                    }
-                }
-            }
+        match (self.my_tab_index, self.active_tab_index) {
+            (Some(my), Some(active)) => my == active,
+            _ => true, // if unknown, assume active (safe default)
         }
-        true // Fallback: assume yes
     }
 
     fn handle_git_result(
