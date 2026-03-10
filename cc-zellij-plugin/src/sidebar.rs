@@ -9,9 +9,9 @@ pub type ClickRegion = (usize, u32, usize);
 // Active session highlight: dark teal background with brighter teal foreground
 const ACTIVE_BG: &str = "\x1b[48;2;25;45;55m"; // dark teal background
 const ACTIVE_FG: &str = "\x1b[38;2;120;200;220m"; // bright teal foreground
-// Navigation cursor: steel blue tint background (visible against dark bg)
-const CURSOR_BG: &str = "\x1b[48;2;40;60;80m"; // steel blue background
-const CURSOR_FG: &str = "\x1b[38;2;180;210;240m"; // light blue foreground
+// Navigation cursor: warm amber tint background
+const CURSOR_BG: &str = "\x1b[48;2;50;40;20m"; // muted amber background
+const CURSOR_FG: &str = "\x1b[38;2;230;200;140m"; // warm amber foreground
 const RESET: &str = "\x1b[0m";
 
 /// Render the status header with orange star and session counts.
