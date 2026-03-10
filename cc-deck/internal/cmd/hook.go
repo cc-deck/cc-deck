@@ -12,6 +12,8 @@ import (
 	"strconv"
 
 	"github.com/spf13/cobra"
+
+	"github.com/rhuss/cc-mux/cc-deck/internal/session"
 )
 
 // hookPayload represents the JSON structure from Claude Code hook events.
@@ -150,6 +152,11 @@ func runHook(stdin io.Reader, paneIDStr string) {
 	if err := cmd.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "cc-deck hook: zellij pipe failed: %v\n", err)
 	}
+
+	// Auto-save session state (5-minute cooldown, rolling retention)
+	go func() {
+		session.AutoSave()
+	}()
 
 	// Clean up cache on session end
 	if (hook.HookEvent == "Stop" || hook.HookEvent == "SessionEnd") && hook.SessionID != "" {
