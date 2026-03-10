@@ -88,20 +88,18 @@ Key syntax follows [Zellij key format](https://zellij.dev/documentation/keybindi
 
 After editing, restart Zellij to apply.
 
-> **Note**: `make install` overwrites the layout file. To preserve custom keybindings, edit the file after install or use a separate layout file.
+> **Note**: `make install` overwrites the managed layout files (`cc-deck.kdl`, `cc-deck-standard.kdl`, `cc-deck-clean.kdl`). Use a **personal layout file** to preserve custom keybindings across reinstalls.
 
-### Using Cmd Keys (macOS + Ghostty)
+### Personal Layout (Recommended)
 
-To use Cmd-based shortcuts instead of Alt, configure Ghostty to pass Cmd keys through to Zellij:
+Create a personal layout that won't be overwritten by `make install`:
 
-**Ghostty** (`~/.config/ghostty/config`):
-
-```
-keybind = cmd+s=unbind
-keybind = cmd+n=unbind
+```bash
+# Copy the base layout
+cp ~/.config/zellij/layouts/cc-deck.kdl ~/.config/zellij/layouts/cc-deck-personal.kdl
 ```
 
-**Layout** (`~/.config/zellij/layouts/cc-deck.kdl`):
+Edit `~/.config/zellij/layouts/cc-deck-personal.kdl` and add your custom keys to the plugin blocks:
 
 ```kdl
 plugin location="file:~/.config/zellij/plugins/cc_deck.wasm" {
@@ -109,6 +107,25 @@ plugin location="file:~/.config/zellij/plugins/cc_deck.wasm" {
     navigate_key "Super s"
     attend_key "Super n"
 }
+```
+
+Then set it as default in `~/.config/zellij/config.kdl`:
+
+```kdl
+default_layout "cc-deck-personal"
+```
+
+Now `zellij` (without `--layout`) uses your personal keybindings automatically.
+
+### Using Cmd Keys (macOS + Ghostty)
+
+To use Cmd-based shortcuts, configure Ghostty to pass Cmd keys through to Zellij:
+
+**Ghostty** (`~/.config/ghostty/config`):
+
+```
+keybind = cmd+s=unbind
+keybind = cmd+n=unbind
 ```
 
 ### Other Useful Cmd Key Bindings
