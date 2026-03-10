@@ -66,7 +66,7 @@ func Install(opts InstallOptions) error {
 		return wrapPermissionError(err, pluginPath, "write")
 	}
 
-	// 5. Write all layout variants
+	// 5. Write all layout variants (with diff check for existing files)
 	defaultVariant := LayoutVariant(opts.Layout)
 	if defaultVariant == "" {
 		defaultVariant = LayoutStandard
@@ -76,15 +76,15 @@ func Install(opts InstallOptions) error {
 		filename := LayoutFilename(v)
 		path := filepath.Join(zInfo.LayoutsDir, filename)
 		content := GenerateLayout(zInfo.PluginsDir, v)
-		if err := atomicWrite(path, []byte(content), 0o644); err != nil {
-			return wrapPermissionError(err, path, "write")
+		if err := writeLayoutWithDiff(path, []byte(content), opts); err != nil {
+			return err
 		}
 	}
-	// Write the default as cc-deck.kdl (symlink or copy)
+	// Write the default as cc-deck.kdl
 	defaultLayoutPath := filepath.Join(zInfo.LayoutsDir, "cc-deck.kdl")
 	defaultContent := GenerateLayout(zInfo.PluginsDir, defaultVariant)
-	if err := atomicWrite(defaultLayoutPath, []byte(defaultContent), 0o644); err != nil {
-		return wrapPermissionError(err, defaultLayoutPath, "write")
+	if err := writeLayoutWithDiff(defaultLayoutPath, []byte(defaultContent), opts); err != nil {
+		return err
 	}
 	layoutPath := defaultLayoutPath
 
@@ -123,6 +123,87 @@ func Install(opts InstallOptions) error {
 	fmt.Fprintln(opts.Stdout)
 
 	return nil
+}
+
+// writeLayoutWithDiff writes a layout file, checking for differences with existing content.
+// If the file exists and differs, shows a colored diff and prompts for action.
+func writeLayoutWithDiff(path string, newContent []byte, opts InstallOptions) error {
+	existing, err := os.ReadFile(path)
+	if err != nil {
+		// File doesn't exist, write directly
+		return atomicWrite(path, newContent, 0o644)
+	}
+
+	// File exists, check if identical
+	if string(existing) == string(newContent) {
+		return nil // No changes needed
+	}
+
+	// Force mode: overwrite without prompting
+	if opts.Force {
+		return atomicWrite(path, newContent, 0o644)
+	}
+
+	// Show diff and prompt
+	fmt.Fprintf(opts.Stdout, "\n\x1b[33mLayout %s has local changes:\x1b[0m\n", tildeHome(path))
+	showColorDiff(string(existing), string(newContent), opts.Stdout)
+	fmt.Fprintln(opts.Stdout)
+	fmt.Fprint(opts.Stdout, "  [o]verwrite  [s]kip  [b]ackup+overwrite  ? ")
+
+	reader := bufio.NewReader(opts.Stdin)
+	answer, err := reader.ReadString('\n')
+	if err != nil {
+		return fmt.Errorf("reading response: %w", err)
+	}
+	answer = strings.TrimSpace(strings.ToLower(answer))
+
+	switch answer {
+	case "o", "overwrite":
+		return atomicWrite(path, newContent, 0o644)
+	case "b", "backup":
+		backupPath := path + ".bak"
+		if err := os.WriteFile(backupPath, existing, 0o644); err != nil {
+			return fmt.Errorf("creating backup: %w", err)
+		}
+		fmt.Fprintf(opts.Stdout, "  Backed up to %s\n", tildeHome(backupPath))
+		return atomicWrite(path, newContent, 0o644)
+	default:
+		fmt.Fprintf(opts.Stdout, "  Skipped %s\n", tildeHome(path))
+		return nil
+	}
+}
+
+// showColorDiff prints a simple colored unified diff between old and new content.
+func showColorDiff(old, new string, w io.Writer) {
+	oldLines := strings.Split(old, "\n")
+	newLines := strings.Split(new, "\n")
+
+	// Simple line-by-line comparison (not a full diff algorithm, but sufficient for small layouts)
+	maxLines := len(oldLines)
+	if len(newLines) > maxLines {
+		maxLines = len(newLines)
+	}
+
+	for i := 0; i < maxLines; i++ {
+		oldLine := ""
+		newLine := ""
+		if i < len(oldLines) {
+			oldLine = oldLines[i]
+		}
+		if i < len(newLines) {
+			newLine = newLines[i]
+		}
+
+		if oldLine == newLine {
+			continue // Skip identical lines
+		}
+		if i < len(oldLines) && oldLine != "" {
+			fmt.Fprintf(w, "  \x1b[31m- %s\x1b[0m\n", oldLine)
+		}
+		if i < len(newLines) && newLine != "" {
+			fmt.Fprintf(w, "  \x1b[32m+ %s\x1b[0m\n", newLine)
+		}
+	}
 }
 
 // wrapPermissionError adds actionable guidance when a file operation fails.
