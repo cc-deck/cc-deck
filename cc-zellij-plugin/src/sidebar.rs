@@ -57,6 +57,9 @@ fn render_header(state: &PluginState, cols: usize) {
 /// Render the sidebar into the plugin's stdout.
 /// Returns click regions for mouse handling.
 pub fn render_sidebar(state: &PluginState, rows: usize, cols: usize) -> Vec<ClickRegion> {
+    if state.show_help {
+        return render_help_overlay(rows, cols);
+    }
     // Use filtered sessions when filter is active
     let sessions = if state.filter_state.is_some() {
         let filter = state.filter_state.as_ref().map(|f| &f.input_buffer).unwrap();
@@ -242,8 +245,13 @@ fn render_session_entry(
     cols: usize,
     rename_state: Option<&RenameState>,
 ) -> Option<ClickRegion> {
-    let indicator = session.activity.indicator();
-    let (r, g, b) = session.activity.color();
+    // Paused sessions show ⏸ icon with grey color
+    let (indicator, r, g, b) = if session.paused {
+        ("⏸", 100u8, 100u8, 100u8)
+    } else {
+        let (r, g, b) = session.activity.color();
+        (session.activity.indicator(), r, g, b)
+    };
 
     // Line 1: indicator + name (or rename input buffer)
     let line1 = if let Some(rs) = rename_state {
@@ -277,7 +285,9 @@ fn render_session_entry(
         let max_name = cols.saturating_sub(prefix_len + elapsed_len);
         let truncated_name = truncate(name, max_name);
 
-        let name_part = if is_active {
+        let name_part = if session.paused {
+            format!("\x1b[2m{truncated_name}\x1b[0m") // dimmed for paused
+        } else if is_active {
             format!("\x1b[1m{truncated_name}\x1b[0m")
         } else {
             truncated_name.to_string()
@@ -380,6 +390,43 @@ pub fn handle_click(click_row: usize, click_regions: &[ClickRegion]) -> Option<(
         }
     }
     None
+}
+
+/// Render a help overlay listing all keyboard shortcuts.
+fn render_help_overlay(rows: usize, cols: usize) -> Vec<ClickRegion> {
+    let help_lines = [
+        "\x1b[1m Keyboard Shortcuts\x1b[0m",
+        "\x1b[2m \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\x1b[0m",
+        " \x1b[1mAlt+s\x1b[0m  Session list",
+        " \x1b[1mAlt+a\x1b[0m  Next session",
+        "",
+        " \x1b[2mNavigation:\x1b[0m",
+        " \x1b[1mj/\u{2193}\x1b[0m    Move down",
+        " \x1b[1mk/\u{2191}\x1b[0m    Move up",
+        " \x1b[1mEnter\x1b[0m  Go to session",
+        " \x1b[1mEsc\x1b[0m    Cancel",
+        "",
+        " \x1b[2mActions:\x1b[0m",
+        " \x1b[1mr\x1b[0m      Rename",
+        " \x1b[1md\x1b[0m      Delete",
+        " \x1b[1mp\x1b[0m      Pause/unpause",
+        " \x1b[1mn\x1b[0m      New tab",
+        " \x1b[1m/\x1b[0m      Search",
+        " \x1b[1m?\x1b[0m      This help",
+    ];
+
+    for (i, line) in help_lines.iter().enumerate() {
+        if i >= rows {
+            break;
+        }
+        print!("\x1b[{};1H{}", i + 1, pad(line, cols));
+    }
+    // Fill remaining rows
+    for i in help_lines.len()..rows {
+        print!("\x1b[{};1H{}", i + 1, " ".repeat(cols));
+    }
+
+    Vec::new() // No click regions in help mode
 }
 
 // --- Rendering helpers ---
