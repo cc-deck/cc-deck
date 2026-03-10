@@ -28,8 +28,8 @@ Three layout styles are installed:
 
 | Layout | Command | Description |
 |--------|---------|-------------|
-| `minimal` | `zellij --layout cc-deck` | Sidebar + compact-bar (default) |
-| `standard` | `zellij --layout cc-deck-standard` | Sidebar + tab-bar + status-bar |
+| `standard` | `zellij --layout cc-deck` | Sidebar + tab-bar + status-bar (default) |
+| `minimal` | `zellij --layout cc-deck-minimal` | Sidebar + compact-bar |
 | `clean` | `zellij --layout cc-deck-clean` | Sidebar only, no bars |
 
 To change the default variant:
