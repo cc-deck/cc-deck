@@ -20,8 +20,8 @@ fn render_header(state: &PluginState, cols: usize) {
     let total = sessions.len();
 
     if total == 0 {
-        // Orange star + "Claude Code"
-        let header = "\x1b[38;2;255;170;50m\u{2731}\x1b[0m \x1b[1mClaude Code\x1b[0m".to_string();
+        // Orange star + "Claude Code" (space-aligned with session indicators)
+        let header = " \x1b[38;2;255;170;50m\u{2605}\x1b[0m \x1b[1mClaude Code\x1b[0m".to_string();
         print!("\x1b[1;1H{}", pad(&header, cols));
     } else {
         let waiting = sessions.iter().filter(|s| s.activity.is_waiting()).count();
@@ -45,7 +45,7 @@ fn render_header(state: &PluginState, cols: usize) {
         } else {
             format!("{total} \x1b[2m\u{2502}\x1b[0m {}", status_parts.join(" "))
         };
-        let header = format!("\x1b[38;2;255;170;50m\u{2731}\x1b[0m {status}");
+        let header = format!(" \x1b[38;2;255;170;50m\u{2605}\x1b[0m {status}");
         print!("\x1b[1;1H{}", pad(&header, cols));
     }
 
