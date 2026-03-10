@@ -69,7 +69,7 @@ func Install(opts InstallOptions) error {
 	// 5. Write all layout variants
 	defaultVariant := LayoutVariant(opts.Layout)
 	if defaultVariant == "" {
-		defaultVariant = LayoutMinimal
+		defaultVariant = LayoutStandard
 	}
 	variants := []LayoutVariant{LayoutMinimal, LayoutStandard, LayoutClean}
 	for _, v := range variants {
@@ -115,7 +115,7 @@ func Install(opts InstallOptions) error {
 	fmt.Fprintln(opts.Stdout, "  zellij --layout cc-deck")
 	fmt.Fprintln(opts.Stdout)
 	fmt.Fprintln(opts.Stdout, "Other layout variants:")
-	fmt.Fprintln(opts.Stdout, "  zellij --layout cc-deck-standard  (tab-bar + status-bar)")
+	fmt.Fprintln(opts.Stdout, "  zellij --layout cc-deck-minimal   (compact-bar only)")
 	fmt.Fprintln(opts.Stdout, "  zellij --layout cc-deck-clean     (no bars)")
 	fmt.Fprintln(opts.Stdout)
 	fmt.Fprintln(opts.Stdout, "To make cc-deck the default, add to ~/.config/zellij/config.kdl:")

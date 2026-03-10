@@ -59,7 +59,7 @@ unless --skip-backup is specified.`,
 
 	installCmd.Flags().BoolVarP(&f.force, "force", "f", false, "Overwrite without prompting")
 	installCmd.Flags().BoolVar(&f.skipBackup, "skip-backup", false, "Skip creating backup of settings.json")
-	installCmd.Flags().StringVar(&f.layout, "layout", "minimal", "Default layout variant (minimal, standard, clean)")
+	installCmd.Flags().StringVar(&f.layout, "layout", "standard", "Default layout variant (standard, minimal, clean)")
 
 	return installCmd
 }
