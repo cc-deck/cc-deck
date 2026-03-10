@@ -312,7 +312,10 @@ impl ZellijPlugin for PluginState {
                     session.session_id = sid.clone();
                 }
                 if let Some(ref cwd) = hook.cwd {
-                    if session.working_dir.as_deref() != Some(cwd) {
+                    // Ignore CWD changes into .claude/ subdirectories (agent worktrees).
+                    // These are transient and cause display name flickering.
+                    let is_worktree_cwd = cwd.contains("/.claude/");
+                    if !is_worktree_cwd && session.working_dir.as_deref() != Some(cwd) {
                         session.working_dir = Some(cwd.clone());
                         let needs_dir_name = !session.manually_renamed && session.display_name.starts_with("session-");
                         let not_renamed = !session.manually_renamed;
