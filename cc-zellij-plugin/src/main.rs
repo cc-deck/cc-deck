@@ -339,6 +339,17 @@ impl ZellijPlugin for PluginState {
                     session.tab_name = Some(name.clone());
                 }
 
+                // Auto-rename tab to match the session name (last session wins)
+                if let Some(session) = self.sessions.get(&hook.pane_id) {
+                    if !session.display_name.starts_with("session-") {
+                        if let Some(tab_idx) = session.tab_index {
+                            let display_name = session.display_name.clone();
+                            auto_rename_tab(tab_idx, &display_name);
+                            self.updating_tabs = true;
+                        }
+                    }
+                }
+
                 if changed {
                     sync::broadcast_state(self);
                 }
