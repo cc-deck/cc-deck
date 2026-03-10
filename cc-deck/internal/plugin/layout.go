@@ -22,13 +22,48 @@ func sidebarPluginBlock(pluginsDir string) string {
             }`, pluginsDir)
 }
 
-// SidebarLayout returns a KDL layout with the cc-deck sidebar on every tab.
-// Uses default_tab_template for layout-defined tabs and new_tab_template for
-// dynamically created tabs (zellij action new-tab). The difference: default_tab_template
-// uses "children" placeholder, new_tab_template uses explicit "pane".
-func SidebarLayout(pluginsDir string) string {
+// LayoutVariant identifies a layout style.
+type LayoutVariant string
+
+const (
+	LayoutMinimal  LayoutVariant = "minimal"  // sidebar + compact-bar (default)
+	LayoutStandard LayoutVariant = "standard" // sidebar + tab-bar top + status-bar bottom
+	LayoutClean    LayoutVariant = "clean"    // sidebar only, no bars
+)
+
+// ValidLayouts returns the list of supported layout variant names.
+func ValidLayouts() []string {
+	return []string{string(LayoutMinimal), string(LayoutStandard), string(LayoutClean)}
+}
+
+// GenerateLayout creates a layout KDL string for the given variant.
+func GenerateLayout(pluginsDir string, variant LayoutVariant) string {
+	switch variant {
+	case LayoutStandard:
+		return standardLayout(pluginsDir)
+	case LayoutClean:
+		return cleanLayout(pluginsDir)
+	default:
+		return minimalLayout(pluginsDir)
+	}
+}
+
+// LayoutFilename returns the layout filename for a variant.
+func LayoutFilename(variant LayoutVariant) string {
+	switch variant {
+	case LayoutStandard:
+		return "cc-deck-standard.kdl"
+	case LayoutClean:
+		return "cc-deck-clean.kdl"
+	default:
+		return "cc-deck.kdl"
+	}
+}
+
+// minimalLayout: sidebar + compact-bar at bottom. The default.
+func minimalLayout(pluginsDir string) string {
 	sidebar := sidebarPluginBlock(pluginsDir)
-	return fmt.Sprintf(`// cc-deck layout (managed by cc-deck install)
+	return fmt.Sprintf(`// cc-deck layout: minimal (sidebar + compact-bar)
 layout {
     default_tab_template {
         pane split_direction="vertical" {
@@ -55,15 +90,69 @@ layout {
 `, sidebar, sidebar)
 }
 
-// MinimalLayout returns a minimal KDL layout with the cc-deck plugin bar.
-// Kept for backwards compatibility.
-func MinimalLayout(pluginsDir string) string {
-	return SidebarLayout(pluginsDir)
+// standardLayout: sidebar + tab-bar at top + status-bar at bottom (beginner-friendly).
+func standardLayout(pluginsDir string) string {
+	sidebar := sidebarPluginBlock(pluginsDir)
+	return fmt.Sprintf(`// cc-deck layout: standard (sidebar + tab-bar + status-bar)
+layout {
+    default_tab_template {
+        pane size=1 borderless=true {
+            plugin location="tab-bar"
+        }
+        pane split_direction="vertical" {
+            %s
+            children
+        }
+        pane size=2 borderless=true {
+            plugin location="status-bar"
+        }
+    }
+    new_tab_template {
+        pane size=1 borderless=true {
+            plugin location="tab-bar"
+        }
+        pane split_direction="vertical" {
+            %s
+            pane
+        }
+        pane size=2 borderless=true {
+            plugin location="status-bar"
+        }
+    }
+    tab name="main" focus=true {
+        pane
+    }
+}
+`, sidebar, sidebar)
 }
 
-// FullLayout returns the sidebar layout (same as SidebarLayout in v2).
-func FullLayout(pluginsDir string) string {
-	return SidebarLayout(pluginsDir)
+// cleanLayout: sidebar only, no bars. Maximum terminal space.
+func cleanLayout(pluginsDir string) string {
+	sidebar := sidebarPluginBlock(pluginsDir)
+	return fmt.Sprintf(`// cc-deck layout: clean (sidebar only, no bars)
+layout {
+    default_tab_template {
+        pane split_direction="vertical" {
+            %s
+            children
+        }
+    }
+    new_tab_template {
+        pane split_direction="vertical" {
+            %s
+            pane
+        }
+    }
+    tab name="main" focus=true {
+        pane
+    }
+}
+`, sidebar, sidebar)
+}
+
+// SidebarLayout returns the default (minimal) layout. Kept for backwards compatibility.
+func SidebarLayout(pluginsDir string) string {
+	return minimalLayout(pluginsDir)
 }
 
 // InjectionBlock returns the KDL snippet that gets appended to a default layout.

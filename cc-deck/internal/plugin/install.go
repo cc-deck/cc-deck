@@ -66,12 +66,27 @@ func Install(opts InstallOptions) error {
 		return wrapPermissionError(err, pluginPath, "write")
 	}
 
-	// 5. Write sidebar layout file
-	layoutPath := filepath.Join(zInfo.LayoutsDir, "cc-deck.kdl")
-	layoutContent := SidebarLayout(zInfo.PluginsDir)
-	if err := atomicWrite(layoutPath, []byte(layoutContent), 0o644); err != nil {
-		return wrapPermissionError(err, layoutPath, "write")
+	// 5. Write all layout variants
+	defaultVariant := LayoutVariant(opts.Layout)
+	if defaultVariant == "" {
+		defaultVariant = LayoutMinimal
 	}
+	variants := []LayoutVariant{LayoutMinimal, LayoutStandard, LayoutClean}
+	for _, v := range variants {
+		filename := LayoutFilename(v)
+		path := filepath.Join(zInfo.LayoutsDir, filename)
+		content := GenerateLayout(zInfo.PluginsDir, v)
+		if err := atomicWrite(path, []byte(content), 0o644); err != nil {
+			return wrapPermissionError(err, path, "write")
+		}
+	}
+	// Write the default as cc-deck.kdl (symlink or copy)
+	defaultLayoutPath := filepath.Join(zInfo.LayoutsDir, "cc-deck.kdl")
+	defaultContent := GenerateLayout(zInfo.PluginsDir, defaultVariant)
+	if err := atomicWrite(defaultLayoutPath, []byte(defaultContent), 0o644); err != nil {
+		return wrapPermissionError(err, defaultLayoutPath, "write")
+	}
+	layoutPath := defaultLayoutPath
 
 	// 6. Register hooks in settings.json (with backup)
 	settingsPath := ClaudeSettingsPath()
@@ -88,7 +103,7 @@ func Install(opts InstallOptions) error {
 	fmt.Fprintln(opts.Stdout)
 	sizeMB := float64(pInfo.BinarySize) / (1024 * 1024)
 	fmt.Fprintf(opts.Stdout, "  Plugin:   %s (%.1f MB)\n", tildeHome(pluginPath), sizeMB)
-	fmt.Fprintf(opts.Stdout, "  Layout:   %s\n", tildeHome(layoutPath))
+	fmt.Fprintf(opts.Stdout, "  Layout:   %s (%s)\n", tildeHome(layoutPath), defaultVariant)
 	hookCount := HookEventCount(settingsPath)
 	fmt.Fprintf(opts.Stdout, "  Hooks:    registered (%d event types)\n", hookCount)
 	if backupPath != "" {
@@ -98,6 +113,13 @@ func Install(opts InstallOptions) error {
 	fmt.Fprintln(opts.Stdout, "Start Zellij with the cc-deck layout:")
 	fmt.Fprintln(opts.Stdout)
 	fmt.Fprintln(opts.Stdout, "  zellij --layout cc-deck")
+	fmt.Fprintln(opts.Stdout)
+	fmt.Fprintln(opts.Stdout, "Other layout variants:")
+	fmt.Fprintln(opts.Stdout, "  zellij --layout cc-deck-standard  (tab-bar + status-bar)")
+	fmt.Fprintln(opts.Stdout, "  zellij --layout cc-deck-clean     (no bars)")
+	fmt.Fprintln(opts.Stdout)
+	fmt.Fprintln(opts.Stdout, "To make cc-deck the default, add to ~/.config/zellij/config.kdl:")
+	fmt.Fprintln(opts.Stdout, "  default_layout \"cc-deck\"")
 	fmt.Fprintln(opts.Stdout)
 
 	return nil
