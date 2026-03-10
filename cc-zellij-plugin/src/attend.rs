@@ -34,23 +34,23 @@ pub fn perform_attend(state: &mut PluginState) -> AttendResult {
     // Build priority-ordered candidate list
     let mut candidates: Vec<&crate::session::Session> = Vec::new();
 
-    // Tier 1: Permission waiting (oldest first)
+    // Tier 1: Permission waiting (oldest first), skip paused
     let mut t1: Vec<_> = sessions.iter()
-        .filter(|s| matches!(s.activity, Activity::Waiting(WaitReason::Permission)))
+        .filter(|s| !s.paused && matches!(s.activity, Activity::Waiting(WaitReason::Permission)))
         .copied().collect();
     t1.sort_by_key(|s| s.last_event_ts);
     candidates.extend(t1);
 
-    // Tier 2: Notification waiting (oldest first)
+    // Tier 2: Notification waiting (oldest first), skip paused
     let mut t2: Vec<_> = sessions.iter()
-        .filter(|s| matches!(s.activity, Activity::Waiting(WaitReason::Notification)))
+        .filter(|s| !s.paused && matches!(s.activity, Activity::Waiting(WaitReason::Notification)))
         .copied().collect();
     t2.sort_by_key(|s| s.last_event_ts);
     candidates.extend(t2);
 
-    // Tier 3: Idle/Done/AgentDone/Init (newest first)
+    // Tier 3: Idle/Done/AgentDone/Init (newest first), skip paused
     let mut t3: Vec<_> = sessions.iter()
-        .filter(|s| matches!(s.activity, Activity::Idle | Activity::Done | Activity::AgentDone | Activity::Init))
+        .filter(|s| !s.paused && matches!(s.activity, Activity::Idle | Activity::Done | Activity::AgentDone | Activity::Init))
         .copied().collect();
     t3.sort_by_key(|s| std::cmp::Reverse(s.last_event_ts));
     candidates.extend(t3);
@@ -244,6 +244,37 @@ mod tests {
             AttendResult::Switched { display_name, .. } => assert_eq!(display_name, "init-session"),
             _ => panic!("expected Init session to be attended"),
         }
+    }
+
+    #[test]
+    fn test_attend_skips_paused() {
+        let mut s1 = Session::new(1, "a".into());
+        s1.activity = Activity::Waiting(WaitReason::Permission);
+        s1.tab_index = Some(0);
+        s1.display_name = "paused-one".into();
+        s1.paused = true;
+
+        let mut s2 = Session::new(2, "b".into());
+        s2.activity = Activity::Idle;
+        s2.tab_index = Some(1);
+        s2.display_name = "active-idle".into();
+
+        let mut state = make_state(vec![s1, s2]);
+        match perform_attend(&mut state) {
+            AttendResult::Switched { display_name, .. } => assert_eq!(display_name, "active-idle"),
+            _ => panic!("expected Switched to non-paused session"),
+        }
+    }
+
+    #[test]
+    fn test_attend_all_paused() {
+        let mut s1 = Session::new(1, "a".into());
+        s1.activity = Activity::Idle;
+        s1.tab_index = Some(0);
+        s1.paused = true;
+
+        let mut state = make_state(vec![s1]);
+        assert!(matches!(perform_attend(&mut state), AttendResult::AllBusy));
     }
 
     #[test]
