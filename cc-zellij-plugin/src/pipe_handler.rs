@@ -29,6 +29,8 @@ pub enum PipeAction {
     NewSession,
     /// Navigate action - toggle sidebar navigation mode (cc-deck:navigate).
     Navigate,
+    /// Dump state action - serialize all sessions for CLI (cc-deck:dump-state).
+    DumpState,
     /// Unknown message.
     Unknown,
 }
@@ -54,6 +56,7 @@ pub fn parse_pipe_message(name: &str, payload: Option<&str>) -> PipeAction {
         "cc-deck:rename" => PipeAction::Rename,
         "cc-deck:new" => PipeAction::NewSession,
         "cc-deck:navigate" | "navigate" => PipeAction::Navigate,
+        "cc-deck:dump-state" => PipeAction::DumpState,
         _ => PipeAction::Unknown,
     }
 }
@@ -138,6 +141,7 @@ mod tests {
         assert!(matches!(parse_pipe_message("cc-deck:request", None), PipeAction::RequestState));
         assert!(matches!(parse_pipe_message("cc-deck:attend", None), PipeAction::Attend));
         assert!(matches!(parse_pipe_message("cc-deck:new", None), PipeAction::NewSession));
+        assert!(matches!(parse_pipe_message("cc-deck:dump-state", None), PipeAction::DumpState));
         assert!(matches!(parse_pipe_message("unknown", None), PipeAction::Unknown));
     }
 

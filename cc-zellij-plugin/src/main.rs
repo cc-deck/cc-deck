@@ -456,6 +456,24 @@ impl ZellijPlugin for PluginState {
                 true
             }
 
+            PipeAction::DumpState => {
+                // Only respond from the active-tab instance to avoid duplicate output
+                if !self.is_on_active_tab() {
+                    return false;
+                }
+                let state_json = serde_json::to_string(&self.sessions)
+                    .unwrap_or_else(|_| "{}".to_string());
+                #[cfg(target_family = "wasm")]
+                {
+                    if let PipeSource::Cli(ref pipe_id) = pipe_message.source {
+                        zellij_tile::prelude::cli_pipe_output(pipe_id, &state_json);
+                        zellij_tile::prelude::unblock_cli_pipe_input(pipe_id);
+                    }
+                }
+                debug_log(&format!("DUMP-STATE responded with {} sessions", self.sessions.len()));
+                false
+            }
+
             PipeAction::Unknown => false,
         }
     }
