@@ -81,6 +81,8 @@ pub struct PluginState {
     pub nav_restore: Option<(u32, usize)>,
     /// Last pane_id that attend switched to, for round-robin cycling.
     pub last_attended_pane_id: Option<u32>,
+    /// Whether the help overlay is displayed.
+    pub show_help: bool,
 }
 
 impl PluginState {
