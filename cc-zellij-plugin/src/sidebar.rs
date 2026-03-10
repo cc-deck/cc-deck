@@ -9,6 +9,9 @@ pub type ClickRegion = (usize, u32, usize);
 // Active session highlight: dark teal background with brighter teal foreground
 const ACTIVE_BG: &str = "\x1b[48;2;25;45;55m"; // dark teal background
 const ACTIVE_FG: &str = "\x1b[38;2;120;200;220m"; // bright teal foreground
+// Navigation cursor: warm amber tint background
+const CURSOR_BG: &str = "\x1b[48;2;50;40;20m"; // muted amber background
+const CURSOR_FG: &str = "\x1b[38;2;230;200;140m"; // warm amber foreground
 const RESET: &str = "\x1b[0m";
 
 /// Render the status header with orange star and session counts.
@@ -54,10 +57,25 @@ fn render_header(state: &PluginState, cols: usize) {
 /// Render the sidebar into the plugin's stdout.
 /// Returns click regions for mouse handling.
 pub fn render_sidebar(state: &PluginState, rows: usize, cols: usize) -> Vec<ClickRegion> {
-    let sessions = state.sessions_by_tab_order();
+    // Use filtered sessions when filter is active
+    let sessions = if state.filter_state.is_some() {
+        let filter = state.filter_state.as_ref().map(|f| &f.input_buffer).unwrap();
+        if filter.is_empty() {
+            state.sessions_by_tab_order()
+        } else {
+            let lower = filter.to_lowercase();
+            let mut filtered: Vec<_> = state.sessions.values()
+                .filter(|s| s.display_name.to_lowercase().contains(&lower))
+                .collect();
+            filtered.sort_by_key(|s| s.tab_index.unwrap_or(usize::MAX));
+            filtered
+        }
+    } else {
+        state.sessions_by_tab_order()
+    };
     let mut click_regions = Vec::new();
 
-    if sessions.is_empty() {
+    if sessions.is_empty() && state.filter_state.is_none() {
         return render_empty_state(state, rows, cols);
     }
 
@@ -91,11 +109,13 @@ pub fn render_sidebar(state: &PluginState, rows: usize, cols: usize) -> Vec<Clic
     }
 
     // Render visible sessions
-    for session in &sessions[start_idx..end_idx] {
+    for (list_idx, session) in sessions[start_idx..end_idx].iter().enumerate() {
         if row >= content_end {
             break;
         }
-        // Highlight the focused pane's session, falling back to active tab if no focus info
+        let abs_idx = start_idx + list_idx;
+
+        // Highlight the focused pane's session
         let is_active = if let Some(focused_id) = state.focused_pane_id {
             session.pane_id == focused_id
         } else {
@@ -104,11 +124,29 @@ pub fn render_sidebar(state: &PluginState, rows: usize, cols: usize) -> Vec<Clic
                 .unwrap_or(false)
         };
 
-        // Check if this session is being renamed
-        let rename_for_session = state.rename_state.as_ref().filter(|rs| rs.pane_id == session.pane_id);
+        // Navigation mode: show cursor on the selected session
+        let has_cursor = state.navigation_mode && abs_idx == state.cursor_index;
 
-        if let Some(region) = render_session_entry(session, is_active, row, cols, rename_for_session) {
-            click_regions.push(region);
+        // Check if this session has a pending delete confirmation
+        let is_delete_confirm = state.delete_confirm == Some(session.pane_id);
+
+        if is_delete_confirm {
+            // Render delete confirmation instead of normal entry
+            let prompt = format!(" Delete \"{}\"?", truncate(&session.display_name, cols.saturating_sub(14)));
+            let confirm_hint = " [y/N]";
+            print!("\x1b[{};1H{}", row + 1, pad(&format!("\x1b[38;2;255;60;60m{prompt}\x1b[0m"), cols));
+            print!("\x1b[{};1H{}", row + 2, pad(&format!("\x1b[2m{confirm_hint}\x1b[0m"), cols));
+            print!("\x1b[{};1H{}", row + 3, " ".repeat(cols));
+            if let Some(tab_idx) = session.tab_index {
+                click_regions.push((row, session.pane_id, tab_idx));
+            }
+        } else {
+            // Check if this session is being renamed
+            let rename_for_session = state.rename_state.as_ref().filter(|rs| rs.pane_id == session.pane_id);
+
+            if let Some(region) = render_session_entry(session, is_active, has_cursor, row, cols, rename_for_session) {
+                click_regions.push(region);
+            }
         }
         row += lines_per_session;
     }
@@ -120,12 +158,39 @@ pub fn render_sidebar(state: &PluginState, rows: usize, cols: usize) -> Vec<Clic
         row += 1;
     }
 
-    // [+] New button (use sentinel pane_id u32::MAX, tab_index u32::MAX)
-    if row < rows.saturating_sub(1) {
-        let btn = "  [+] New session";
+    // Bottom row: search input (when filtering) or [+] button
+    if let Some(ref fs) = state.filter_state {
+        // Render search input
+        if row < rows.saturating_sub(1) {
+            let prefix = " / ";
+            let max_input = cols.saturating_sub(prefix.len());
+            let buf = &fs.input_buffer;
+            let cursor_pos = fs.cursor_pos.min(buf.len());
+            let before = &buf[..cursor_pos];
+            let cursor_char = buf.get(cursor_pos..cursor_pos + 1).unwrap_or(" ");
+            let after = if cursor_pos < buf.len() { &buf[cursor_pos + 1..] } else { "" };
+            let input_display = if buf.len() <= max_input {
+                format!("{before}\x1b[7m{cursor_char}\x1b[0m{after}")
+            } else {
+                truncate(buf, max_input).to_string()
+            };
+            let search_line = format!("\x1b[2m{prefix}\x1b[0m{input_display}");
+            print!("\x1b[{};1H{}", row + 1, pad(&search_line, cols));
+            row += 1;
+        }
+    } else if row < rows.saturating_sub(1) {
+        let btn = "  [+] New tab";
         print_line(row, cols, btn, Style::Dim);
         click_regions.push((row, u32::MAX, usize::MAX));
         row += 1;
+    }
+
+    // Render notification right below session list (if active)
+    if let Some(ref notif) = state.notification {
+        if !crate::notification::is_expired(notif) && row < rows {
+            crate::notification::render_notification(notif, row, cols);
+            row += 1;
+        }
     }
 
     // Fill remaining rows
@@ -172,6 +237,7 @@ fn visible_range(
 fn render_session_entry(
     session: &Session,
     is_active: bool,
+    has_cursor: bool,
     start_row: usize,
     cols: usize,
     rename_state: Option<&RenameState>,
@@ -181,9 +247,11 @@ fn render_session_entry(
 
     // Line 1: indicator + name (or rename input buffer)
     let line1 = if let Some(rs) = rename_state {
-        // Render rename input with cursor
-        let prefix = format!("\x1b[38;2;{r};{g};{b}m{indicator}\x1b[0m ");
-        let max_input = cols.saturating_sub(2); // indicator + space
+        // Render rename input with amber bg when in navigation mode
+        let rename_bg = if has_cursor { CURSOR_BG } else { "" };
+        let rename_fg = if has_cursor { CURSOR_FG } else { "" };
+        let prefix = format!("{rename_bg} \x1b[38;2;{r};{g};{b}m{indicator}{rename_fg} ");
+        let max_input = cols.saturating_sub(3); // space + indicator + space
         let buf = &rs.input_buffer;
         let cursor_pos = rs.cursor_pos.min(buf.len());
 
@@ -193,13 +261,13 @@ fn render_session_entry(
 
         // Truncate if needed (simple approach)
         let input_display = if buf.len() <= max_input {
-            format!("{before}\x1b[7m{cursor_char}\x1b[0m{after}")
+            format!("{before}\x1b[7m{cursor_char}\x1b[0m{rename_bg}{rename_fg}{after}")
         } else {
             let truncated = truncate(buf, max_input);
             truncated.to_string()
         };
 
-        format!("{prefix}{input_display}")
+        format!("{prefix}{input_display}{RESET}")
     } else {
         let elapsed = session.elapsed_display().unwrap_or_default();
         let name = &session.display_name;
@@ -216,45 +284,53 @@ fn render_session_entry(
         };
 
         if elapsed.is_empty() {
-            format!("\x1b[38;2;{r};{g};{b}m{indicator}\x1b[0m {name_part}")
+            format!(" \x1b[38;2;{r};{g};{b}m{indicator}\x1b[0m {name_part}")
         } else {
-            format!("\x1b[38;2;{r};{g};{b}m{indicator}\x1b[0m {name_part} \x1b[2m{elapsed}\x1b[0m")
+            format!(" \x1b[38;2;{r};{g};{b}m{indicator}\x1b[0m {name_part} \x1b[2m{elapsed}\x1b[0m")
         }
     };
 
-    // Line 1: full line highlighted if active (including indicator)
-    if is_active {
+    // Determine background style: cursor > active > normal
+    let (bg, fg, use_bg) = if has_cursor {
+        (CURSOR_BG, CURSOR_FG, true)
+    } else if is_active {
+        (ACTIVE_BG, ACTIVE_FG, true)
+    } else {
+        ("", "", false)
+    };
+
+    if use_bg {
         let elapsed = session.elapsed_display().unwrap_or_default();
         let name = &session.display_name;
-        let prefix_len = 2;
+        let prefix_len = 2; // indicator + space
         let elapsed_len = if elapsed.is_empty() { 0 } else { elapsed.len() + 1 };
         let max_name = cols.saturating_sub(prefix_len + elapsed_len);
         let truncated_name = truncate(name, max_name);
 
-        let active_line1 = if rename_state.is_some() {
-            line1 // already built with rename input
+        let styled_line1 = if rename_state.is_some() {
+            line1
         } else if elapsed.is_empty() {
-            format!("{ACTIVE_BG}\x1b[38;2;{r};{g};{b}m{indicator}{ACTIVE_FG}\x1b[1m {truncated_name}{RESET}")
+            format!("{bg} \x1b[38;2;{r};{g};{b}m{indicator}{fg}\x1b[1m {truncated_name}{RESET}")
         } else {
-            format!("{ACTIVE_BG}\x1b[38;2;{r};{g};{b}m{indicator}{ACTIVE_FG}\x1b[1m {truncated_name} \x1b[2m{elapsed}{RESET}")
+            format!("{bg} \x1b[38;2;{r};{g};{b}m{indicator}{fg}\x1b[1m {truncated_name} \x1b[2m{elapsed}{RESET}")
         };
-        print!("\x1b[{};1H{}", start_row + 1, pad_with_bg(&active_line1, cols, true));
+        print!("\x1b[{};1H{}", start_row + 1, pad_with_bg_color(&styled_line1, cols, bg));
     } else {
         print!("\x1b[{};1H{}", start_row + 1, pad(&line1, cols));
     }
 
     // Line 2: branch or tool info
     let line2_content = if let Some(ref branch) = session.git_branch {
-        format!("  \u{2387} {branch}")
+        format!("   \u{2387} {branch}")
     } else if let crate::session::Activity::ToolUse(ref tool) = session.activity {
-        format!("  {tool}")
+        format!("   {tool}")
     } else {
         String::new()
     };
 
-    if is_active {
-        let highlighted = format!("{ACTIVE_BG}{ACTIVE_FG}\x1b[2m{line2_content}{RESET}");
-        print!("\x1b[{};1H{}", start_row + 2, pad_with_bg(&highlighted, cols, true));
+    if use_bg {
+        let highlighted = format!("{bg}{fg}\x1b[2m{line2_content}{RESET}");
+        print!("\x1b[{};1H{}", start_row + 2, pad_with_bg_color(&highlighted, cols, bg));
     } else {
         let dimmed = format!("\x1b[2m{line2_content}\x1b[0m");
         print!("\x1b[{};1H{}", start_row + 2, pad(&dimmed, cols));
@@ -283,7 +359,7 @@ fn render_empty_state(state: &PluginState, rows: usize, cols: usize) -> Vec<Clic
         print_line(4, cols, "", Style::Normal);
     }
     if rows > 5 {
-        let btn = "  [+] New session";
+        let btn = "  [+] New tab";
         print_line(5, cols, btn, Style::Dim);
         click_regions.push((5, u32::MAX, usize::MAX));
     }
@@ -323,15 +399,15 @@ fn print_line(row: usize, cols: usize, text: &str, style: Style) {
     print!("\x1b[{};1H{}", row + 1, pad(&styled, cols));
 }
 
-/// Pad a string, optionally continuing active background color for padding spaces.
-fn pad_with_bg(s: &str, width: usize, with_bg: bool) -> String {
+/// Pad a string, continuing the given background color for padding spaces.
+fn pad_with_bg_color(s: &str, width: usize, bg: &str) -> String {
     let display_len = display_width(s);
     if display_len >= width {
         format!("{s}{RESET}")
     } else {
         let padding = width - display_len;
-        if with_bg {
-            format!("{s}{ACTIVE_BG}{}{RESET}", " ".repeat(padding))
+        if !bg.is_empty() {
+            format!("{s}{bg}{}{RESET}", " ".repeat(padding))
         } else {
             format!("{s}{}{RESET}", " ".repeat(padding))
         }

@@ -11,6 +11,7 @@ Auto-generated from all feature plans. Last updated: 2026-03-03
 - WASI `/cache/` directory for persistent state (recent.json) (010-plugin-bugfixes)
 - Rust stable (edition 2021, wasm32-wasip1 target) for plugin; Go 1.22+ for CLI + zellij-tile 0.43.1 (plugin SDK), serde/serde_json 1.x; cobra (CLI), encoding/json (Go stdlib) (012-sidebar-plugin)
 - WASI `/cache/` directory for plugin state; filesystem for installation artifacts (012-sidebar-plugin)
+- WASI `/cache/` for plugin state (013-keyboard-navigation)
 
 - Rust (stable, latest edition 2021+) + `zellij-tile` (plugin SDK), `serde`/`serde_json` (serialization) (001-cc-deck)
 
@@ -32,9 +33,9 @@ cargo test [ONLY COMMANDS FOR ACTIVE TECHNOLOGIES][ONLY COMMANDS FOR ACTIVE TECH
 Rust (stable, latest edition 2021+): Follow standard conventions
 
 ## Recent Changes
+- 013-keyboard-navigation: Added Rust stable (edition 2021, wasm32-wasip1 target) for plugin; Go 1.22+ for CLI + zellij-tile 0.43.1 (plugin SDK), serde/serde_json 1.x
 - 012-sidebar-plugin: Added Rust stable (edition 2021, wasm32-wasip1 target) for plugin; Go 1.22+ for CLI + zellij-tile 0.43.1 (plugin SDK), serde/serde_json 1.x; cobra (CLI), encoding/json (Go stdlib)
 - 010-plugin-bugfixes: Added Rust (stable, wasm32-wasip1 target) with zellij-tile 0.43.1 + zellij-tile 0.43 (plugin SDK), serde/serde_json (serialization)
-- 009-plugin-lifecycle: Added Go 1.22+ (existing project uses Go 1.25 in go.mod) + cobra (CLI), go:embed (binary embedding), os/exec (Zellij detection)
 
 
 <!-- MANUAL ADDITIONS START -->
