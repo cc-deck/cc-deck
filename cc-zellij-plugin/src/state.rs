@@ -22,6 +22,13 @@ pub struct RenameState {
     pub cursor_pos: usize,
 }
 
+/// Search/filter state during `/` sub-mode in navigation.
+#[derive(Debug, Clone, Default)]
+pub struct FilterState {
+    pub input_buffer: String,
+    pub cursor_pos: usize,
+}
+
 /// A brief notification message displayed in the sidebar.
 #[derive(Debug, Clone)]
 pub struct Notification {
@@ -62,11 +69,18 @@ pub struct PluginState {
     pub pending_events: Vec<Event>,
     /// Click regions from the last render (row, pane_id, tab_index).
     pub click_regions: Vec<(usize, u32, usize)>,
-    /// Tab count before new_tab(), used to detect and auto-start claude in new tabs.
-    /// Flow: set on [+] click -> TabUpdate detects new tab -> PaneUpdate finds terminal -> write_chars_to_pane_id
-    pub pending_auto_start_tab_count: Option<usize>,
-    /// Tab index of newly created tab, waiting for PaneUpdate to find its terminal pane.
-    pub auto_start_tab_index: Option<usize>,
+    /// Whether the sidebar is in keyboard navigation mode.
+    pub navigation_mode: bool,
+    /// Cursor index in the sorted session list (navigation mode).
+    pub cursor_index: usize,
+    /// Active search/filter state (navigation mode `/` sub-mode).
+    pub filter_state: Option<FilterState>,
+    /// Pane ID of session pending delete confirmation.
+    pub delete_confirm: Option<u32>,
+    /// Pane ID + tab index that was focused before entering navigation mode (for Esc restore).
+    pub nav_restore: Option<(u32, usize)>,
+    /// Last pane_id that attend switched to, for round-robin cycling.
+    pub last_attended_pane_id: Option<u32>,
 }
 
 impl PluginState {

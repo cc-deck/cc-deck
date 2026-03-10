@@ -22,6 +22,10 @@ pub struct PluginConfig {
     pub timer_interval: f64,
     /// How new sessions are created (default: Tab).
     pub new_session_mode: NewSessionMode,
+    /// Global shortcut to toggle sidebar navigation mode (default: "Alt s").
+    pub navigate_key: String,
+    /// Global shortcut for smart attend action (default: "Alt a").
+    pub attend_key: String,
 }
 
 impl Default for PluginConfig {
@@ -31,6 +35,8 @@ impl Default for PluginConfig {
             done_timeout: 30,
             timer_interval: 1.0,
             new_session_mode: NewSessionMode::Tab,
+            navigate_key: "Alt s".to_string(),
+            attend_key: "Alt a".to_string(),
         }
     }
 }
@@ -66,6 +72,18 @@ impl PluginConfig {
             match v.as_str() {
                 "pane" => result.new_session_mode = NewSessionMode::Pane,
                 _ => result.new_session_mode = NewSessionMode::Tab,
+            }
+        }
+
+        if let Some(v) = config.get("navigate_key") {
+            if !v.is_empty() {
+                result.navigate_key = v.clone();
+            }
+        }
+
+        if let Some(v) = config.get("attend_key") {
+            if !v.is_empty() {
+                result.attend_key = v.clone();
             }
         }
 
