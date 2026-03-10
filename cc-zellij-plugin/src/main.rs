@@ -842,6 +842,7 @@ impl PluginState {
                     let pane_id = session.pane_id;
                     if let Some(s) = self.sessions.get_mut(&pane_id) {
                         s.paused = !s.paused;
+                        s.last_event_ts = session::unix_now();
                     }
                     sync::broadcast_state(self);
                 }
