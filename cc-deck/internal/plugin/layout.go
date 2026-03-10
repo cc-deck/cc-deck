@@ -90,14 +90,14 @@ layout {
 `, sidebar, sidebar)
 }
 
-// standardLayout: sidebar + compact-bar at top + status-bar at bottom (beginner-friendly).
+// standardLayout: sidebar + tab-bar at top + status-bar at bottom (beginner-friendly).
 func standardLayout(pluginsDir string) string {
 	sidebar := sidebarPluginBlock(pluginsDir)
-	return fmt.Sprintf(`// cc-deck layout: standard (sidebar + compact-bar top + status-bar bottom)
+	return fmt.Sprintf(`// cc-deck layout: standard (sidebar + tab-bar top + status-bar bottom)
 layout {
     default_tab_template {
         pane size=1 borderless=true {
-            plugin location="compact-bar"
+            plugin location="tab-bar"
         }
         pane split_direction="vertical" {
             %s
@@ -109,7 +109,7 @@ layout {
     }
     new_tab_template {
         pane size=1 borderless=true {
-            plugin location="compact-bar"
+            plugin location="tab-bar"
         }
         pane split_direction="vertical" {
             %s
