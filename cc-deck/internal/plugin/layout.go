@@ -51,8 +51,8 @@ func GenerateLayout(pluginsDir string, variant LayoutVariant) string {
 // LayoutFilename returns the layout filename for a variant.
 func LayoutFilename(variant LayoutVariant) string {
 	switch variant {
-	case LayoutStandard:
-		return "cc-deck-standard.kdl"
+	case LayoutMinimal:
+		return "cc-deck-minimal.kdl"
 	case LayoutClean:
 		return "cc-deck-clean.kdl"
 	default:
