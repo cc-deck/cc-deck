@@ -562,6 +562,10 @@ impl PluginState {
                             true
                         }
                     }
+                } else if self.show_help {
+                    // Any key dismisses help overlay
+                    self.show_help = false;
+                    true
                 } else if self.delete_confirm.is_some() {
                     self.handle_delete_confirm_key(key)
                 } else if self.filter_state.is_some() {
@@ -825,7 +829,27 @@ impl PluginState {
                 true
             }
 
-            // New session
+            // Show help overlay
+            BareKey::Char('?') => {
+                self.show_help = true;
+                true
+            }
+
+            // Toggle pause on cursor session
+            BareKey::Char('p') => {
+                let sessions = self.filtered_sessions_by_tab_order();
+                if let Some(session) = sessions.get(self.cursor_index) {
+                    let pane_id = session.pane_id;
+                    if let Some(s) = self.sessions.get_mut(&pane_id) {
+                        s.paused = !s.paused;
+                        s.last_event_ts = session::unix_now();
+                    }
+                    sync::broadcast_state(self);
+                }
+                true
+            }
+
+            // New tab
             BareKey::Char('n') => {
                 create_new_session_tab();
                 exit_navigation_mode(self);

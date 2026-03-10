@@ -85,6 +85,8 @@ pub struct Session {
     pub git_branch: Option<String>,
     pub last_event_ts: u64,
     pub manually_renamed: bool,
+    #[serde(default)]
+    pub paused: bool,
 }
 
 impl Session {
@@ -100,6 +102,7 @@ impl Session {
             git_branch: None,
             last_event_ts: unix_now(),
             manually_renamed: false,
+            paused: false,
         }
     }
 
