@@ -317,12 +317,13 @@ fn render_session_entry(
         let max_name = cols.saturating_sub(prefix_len + elapsed_len);
         let truncated_name = truncate(name, max_name);
 
+        let bold_or_dim = if session.paused { "\x1b[2m" } else { "\x1b[1m" };
         let styled_line1 = if rename_state.is_some() {
             line1
         } else if elapsed.is_empty() {
-            format!("{bg} \x1b[38;2;{r};{g};{b}m{indicator}{fg}\x1b[1m {truncated_name}{RESET}")
+            format!("{bg} \x1b[38;2;{r};{g};{b}m{indicator}{fg}{bold_or_dim} {truncated_name}{RESET}")
         } else {
-            format!("{bg} \x1b[38;2;{r};{g};{b}m{indicator}{fg}\x1b[1m {truncated_name} \x1b[2m{elapsed}{RESET}")
+            format!("{bg} \x1b[38;2;{r};{g};{b}m{indicator}{fg}{bold_or_dim} {truncated_name} \x1b[2m{elapsed}{RESET}")
         };
         print!("\x1b[{};1H{}", start_row + 1, pad_with_bg_color(&styled_line1, cols, bg));
     } else {
