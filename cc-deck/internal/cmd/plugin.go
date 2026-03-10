@@ -28,6 +28,7 @@ func NewPluginCmd(gf *GlobalFlags) *cobra.Command {
 type pluginInstallFlags struct {
 	force      bool
 	skipBackup bool
+	layout     string
 }
 
 func newPluginInstallCmd(_ *GlobalFlags) *cobra.Command {
@@ -37,8 +38,16 @@ func newPluginInstallCmd(_ *GlobalFlags) *cobra.Command {
 		Use:   "install",
 		Short: "Install the Zellij plugin, layout, and hooks",
 		Long: `Install the embedded cc-deck WASM plugin into the Zellij plugins directory,
-write a sidebar layout to the Zellij layouts directory, and register Claude Code
+write sidebar layouts to the Zellij layouts directory, and register Claude Code
 hooks in ~/.claude/settings.json.
+
+Layout variants:
+  minimal   Sidebar + compact-bar at bottom (default)
+  standard  Sidebar + tab-bar at top + status-bar at bottom (beginner-friendly)
+  clean     Sidebar only, no bars (maximum terminal space)
+
+All variants are written as layout files. The --layout flag sets the default
+(cc-deck.kdl). Use "zellij --layout cc-deck-standard" to try other variants.
 
 A timestamped backup of settings.json is created before modification
 unless --skip-backup is specified.`,
@@ -50,6 +59,7 @@ unless --skip-backup is specified.`,
 
 	installCmd.Flags().BoolVarP(&f.force, "force", "f", false, "Overwrite without prompting")
 	installCmd.Flags().BoolVar(&f.skipBackup, "skip-backup", false, "Skip creating backup of settings.json")
+	installCmd.Flags().StringVar(&f.layout, "layout", "minimal", "Default layout variant (minimal, standard, clean)")
 
 	return installCmd
 }
@@ -95,6 +105,7 @@ func runPluginInstall(f *pluginInstallFlags) error {
 	err := plugin.Install(plugin.InstallOptions{
 		Force:      f.force,
 		SkipBackup: f.skipBackup,
+		Layout:     f.layout,
 		Stdout:     os.Stdout,
 		Stderr:     os.Stderr,
 		Stdin:      os.Stdin,
