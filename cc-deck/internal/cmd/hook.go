@@ -153,10 +153,10 @@ func runHook(stdin io.Reader, paneIDStr string) {
 		fmt.Fprintf(os.Stderr, "cc-deck hook: zellij pipe failed: %v\n", err)
 	}
 
-	// Auto-save session state (5-minute cooldown, rolling retention)
-	go func() {
-		session.AutoSave()
-	}()
+	// Auto-save session state (5-minute cooldown, rolling retention).
+	// cooldownElapsed() returns immediately most of the time; only every 5 min
+	// does the full save (zellij pipe + file write) run.
+	session.AutoSave()
 
 	// Clean up cache on session end
 	if (hook.HookEvent == "Stop" || hook.HookEvent == "SessionEnd") && hook.SessionID != "" {
@@ -176,8 +176,7 @@ Or manually add to settings.json:
 
   {
     "hooks": {
-      "PreToolUse": [{"matcher": "", "hooks": [{"type": "command", "command": "cc-deck hook --pane-id \"$ZELLIJ_PANE_ID\""}]}],
-      "PostToolUse": [{"matcher": "", "hooks": [{"type": "command", "command": "cc-deck hook --pane-id \"$ZELLIJ_PANE_ID\""}]}],
+      "PermissionRequest": [{"matcher": "", "hooks": [{"type": "command", "command": "cc-deck hook --pane-id \"$ZELLIJ_PANE_ID\""}]}],
       "Notification": [{"matcher": "", "hooks": [{"type": "command", "command": "cc-deck hook --pane-id \"$ZELLIJ_PANE_ID\""}]}],
       "Stop": [{"hooks": [{"type": "command", "command": "cc-deck hook --pane-id \"$ZELLIJ_PANE_ID\""}]}],
       "SubagentStop": [{"hooks": [{"type": "command", "command": "cc-deck hook --pane-id \"$ZELLIJ_PANE_ID\""}]}]

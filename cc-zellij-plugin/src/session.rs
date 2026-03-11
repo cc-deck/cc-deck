@@ -25,7 +25,6 @@ pub enum Activity {
     #[default]
     Init,
     Working,
-    ToolUse(String),
     Waiting(WaitReason),
     Idle,
     Done,
@@ -37,30 +36,20 @@ impl Activity {
     /// Activity indicator character for sidebar rendering.
     pub fn indicator(&self) -> &str {
         match self {
-            Activity::Init => "◆",
+            Activity::Init | Activity::Idle => "○",
             Activity::Working => "●",
-            Activity::ToolUse(_) => "⚙",
             Activity::Waiting(_) => "⚠",
-            Activity::Idle => "○",
-            Activity::Done => "✓",
-            Activity::AgentDone => "✓",
+            Activity::Done | Activity::AgentDone => "✓",
         }
-    }
-
-    /// Whether this activity should show elapsed time in the sidebar.
-    pub fn shows_elapsed(&self) -> bool {
-        matches!(self, Activity::Working | Activity::ToolUse(_) | Activity::Waiting(_) | Activity::Done | Activity::AgentDone)
     }
 
     /// RGB color for the activity indicator.
     pub fn color(&self) -> (u8, u8, u8) {
         match self {
-            Activity::Init => (180, 175, 195),
+            Activity::Init | Activity::Idle => (180, 175, 195),
             Activity::Working => (180, 140, 255),
-            Activity::ToolUse(_) => (255, 170, 50),
             Activity::Waiting(WaitReason::Permission) => (255, 60, 60),
             Activity::Waiting(WaitReason::Notification) => (255, 180, 60),
-            Activity::Idle => (180, 175, 195),
             Activity::Done => (80, 200, 120),
             Activity::AgentDone => (80, 180, 100),
         }
@@ -112,7 +101,7 @@ impl Session {
         // Waiting can only transition to Working or Done, not back to Idle
         if matches!(self.activity, Activity::Waiting(_)) {
             match new_activity {
-                Activity::Working | Activity::ToolUse(_) | Activity::Done | Activity::AgentDone => {}
+                Activity::Working | Activity::Done | Activity::AgentDone => {}
                 // Allow upgrading Notification wait to Permission wait
                 Activity::Waiting(_) => {}
                 _ => return false,
@@ -132,24 +121,6 @@ impl Session {
     /// Elapsed seconds since last activity change.
     pub fn elapsed_secs(&self) -> u64 {
         unix_now().saturating_sub(self.last_event_ts)
-    }
-
-    /// Format elapsed time for display.
-    pub fn elapsed_display(&self) -> Option<String> {
-        if !self.activity.shows_elapsed() {
-            return None;
-        }
-        let secs = self.elapsed_secs();
-        if secs < 30 {
-            return None;
-        }
-        Some(if secs < 60 {
-            format!("{secs}s")
-        } else if secs < 3600 {
-            format!("{}m", secs / 60)
-        } else {
-            format!("{}h", secs / 3600)
-        })
     }
 }
 
@@ -177,15 +148,6 @@ mod tests {
         assert_eq!(Activity::Waiting(WaitReason::Permission).indicator(), "⚠");
         assert_eq!(Activity::Idle.indicator(), "○");
         assert_eq!(Activity::Done.indicator(), "✓");
-    }
-
-    #[test]
-    fn test_activity_shows_elapsed() {
-        assert!(Activity::Working.shows_elapsed());
-        assert!(Activity::Waiting(WaitReason::Permission).shows_elapsed());
-        assert!(Activity::Done.shows_elapsed());
-        assert!(!Activity::Init.shows_elapsed());
-        assert!(!Activity::Idle.shows_elapsed());
     }
 
     #[test]

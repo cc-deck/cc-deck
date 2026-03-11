@@ -63,14 +63,10 @@ pub fn parse_pipe_message(name: &str, payload: Option<&str>) -> PipeAction {
 
 /// Map a Claude Code hook event name to an Activity state.
 /// Returns None for events that should not change the activity (e.g., Notification).
-pub fn hook_event_to_activity(event: &str, tool_name: Option<&str>) -> Option<Activity> {
+pub fn hook_event_to_activity(event: &str, _tool_name: Option<&str>) -> Option<Activity> {
     match event {
         "SessionStart" => Some(Activity::Init),
-        "PreToolUse" => {
-            let name = tool_name.unwrap_or("").to_string();
-            Some(Activity::ToolUse(name))
-        }
-        "PostToolUse" | "PostToolUseFailure" | "UserPromptSubmit" => Some(Activity::Working),
+        "PreToolUse" | "PostToolUse" | "PostToolUseFailure" | "UserPromptSubmit" => Some(Activity::Working),
         "PermissionRequest" => Some(Activity::Waiting(WaitReason::Permission)),
         "Stop" => Some(Activity::Done),
         "SubagentStop" => Some(Activity::AgentDone),
@@ -114,7 +110,7 @@ mod tests {
     #[test]
     fn test_hook_event_to_activity() {
         assert_eq!(hook_event_to_activity("SessionStart", None), Some(Activity::Init));
-        assert_eq!(hook_event_to_activity("PreToolUse", Some("Bash")), Some(Activity::ToolUse("Bash".into())));
+        assert_eq!(hook_event_to_activity("PreToolUse", Some("Bash")), Some(Activity::Working));
         assert_eq!(hook_event_to_activity("PostToolUse", None), Some(Activity::Working));
         assert_eq!(hook_event_to_activity("PermissionRequest", None), Some(Activity::Waiting(WaitReason::Permission)));
         assert_eq!(hook_event_to_activity("Stop", None), Some(Activity::Done));
