@@ -104,7 +104,7 @@ func TestDeployCreatesResources(t *testing.T) {
 	assertResourceExists(t, "StatefulSet", prefix)
 	assertResourceExists(t, "Service", prefix)
 	assertResourceExists(t, "ConfigMap", prefix+"-zellij")
-	assertResourceExists(t, "NetworkPolicy", prefix+"-egress")
+	assertResourceExists(t, "NetworkPolicy", prefix)
 }
 
 func TestDeployPodReachesRunning(t *testing.T) {
@@ -193,7 +193,7 @@ func TestDeleteRemovesAllResources(t *testing.T) {
 	assertResourceNotExists(t, "StatefulSet", prefix)
 	assertResourceNotExists(t, "Service", prefix)
 	assertResourceNotExists(t, "ConfigMap", prefix+"-zellij")
-	assertResourceNotExists(t, "NetworkPolicy", prefix+"-egress")
+	assertResourceNotExists(t, "NetworkPolicy", prefix)
 }
 
 // --- Phase 3: Resource Validation Tests (US3) ---
@@ -207,7 +207,7 @@ func TestDeployWithNoNetworkPolicy(t *testing.T) {
 
 	prefix := k8s.ResourcePrefix(name)
 	assertResourceExists(t, "StatefulSet", prefix)
-	assertResourceNotExists(t, "NetworkPolicy", prefix+"-egress")
+	assertResourceNotExists(t, "NetworkPolicy", prefix)
 }
 
 func TestDeployCustomStorageSize(t *testing.T) {
@@ -237,7 +237,7 @@ func TestNetworkPolicyEgressRules(t *testing.T) {
 
 	ctx := context.Background()
 	prefix := k8s.ResourcePrefix(name)
-	npName := prefix + "-egress"
+	npName := prefix
 
 	np, err := env.clientset.NetworkingV1().NetworkPolicies(env.namespace).Get(ctx, npName, metav1.GetOptions{})
 	require.NoError(t, err, "NetworkPolicy should exist")

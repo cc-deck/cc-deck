@@ -47,10 +47,9 @@ func Delete(ctx context.Context, clientset kubernetes.Interface, restConfig *res
 		return clientset.CoreV1().PersistentVolumeClaims(namespace).Delete(ctx, pvcName, metav1.DeleteOptions{})
 	})
 
-	// Delete NetworkPolicy
-	npName := prefix + "-egress"
-	deleteResource(ctx, w, opts.Verbose, "NetworkPolicy", npName, func() error {
-		return clientset.NetworkingV1().NetworkPolicies(namespace).Delete(ctx, npName, metav1.DeleteOptions{})
+	// Delete NetworkPolicy (same name as prefix, matching BuildNetworkPolicy)
+	deleteResource(ctx, w, opts.Verbose, "NetworkPolicy", prefix, func() error {
+		return clientset.NetworkingV1().NetworkPolicies(namespace).Delete(ctx, prefix, metav1.DeleteOptions{})
 	})
 
 	// Delete ConfigMap (Zellij config)
