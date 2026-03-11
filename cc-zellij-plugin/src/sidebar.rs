@@ -282,7 +282,7 @@ fn render_session_entry(
     } else {
         let name = &session.display_name;
 
-        let prefix_len = 2; // indicator + space
+        let prefix_len = 3; // leading space + indicator + space
         let max_name = cols.saturating_sub(prefix_len);
         let truncated_name = truncate(name, max_name);
 
@@ -308,7 +308,7 @@ fn render_session_entry(
 
     if use_bg {
         let name = &session.display_name;
-        let prefix_len = 2; // indicator + space
+        let prefix_len = 3; // leading space + indicator + space
         let max_name = cols.saturating_sub(prefix_len);
         let truncated_name = truncate(name, max_name);
 
