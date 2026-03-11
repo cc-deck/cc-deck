@@ -1,125 +1,91 @@
 package session
 
 import (
-	"fmt"
+	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
-	"sort"
-	"strings"
+	"syscall"
 	"time"
 )
 
 const (
-	autoSavePrefix   = "auto-"
-	maxAutoSaves     = 5
+	autoSaveName     = "auto"
 	autoSaveCooldown = 5 * time.Minute
 )
 
-// AutoSave performs a rolling auto-save if the cooldown has elapsed.
-// Returns true if a save was performed, false if skipped.
-func AutoSave() (bool, error) {
-	if !cooldownElapsed() {
-		return false, nil
+// AutoSave checks the cooldown and, if elapsed, spawns a detached background
+// process to perform the actual save. This avoids blocking the caller (hook
+// subprocess) on the blocking zellij pipe query.
+func AutoSave() {
+	if !CooldownElapsed() {
+		return
 	}
 
-	snap, err := QueryPluginState("", true)
+	// Spawn cc-deck snapshot save --auto as a detached background process.
+	// The binary path is resolved from $PATH or the current executable.
+	binPath, err := os.Executable()
 	if err != nil {
-		return false, err
+		return
 	}
-
-	// Generate auto-save name
-	snap.Name = autoSavePrefix + "1"
-	snap.AutoSave = true
-
-	// Rotate existing auto-saves: auto-1 -> auto-2, etc.
-	if err := rotateAutoSaves(); err != nil {
-		return false, fmt.Errorf("rotating auto-saves: %w", err)
+	cmd := exec.Command(binPath, "snapshot", "save", "--auto")
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	cmd.Stdin = nil
+	_ = cmd.Start()
+	// Don't wait - let it run independently of the hook subprocess.
+	if cmd.Process != nil {
+		_ = cmd.Process.Release()
 	}
-
-	if err := SaveSnapshot(snap); err != nil {
-		return false, err
-	}
-
-	return true, nil
 }
 
-// cooldownElapsed checks if enough time has passed since the last auto-save.
-func cooldownElapsed() bool {
-	dir := SessionsDir()
-	entries, err := os.ReadDir(dir)
+// RunAutoSave performs the actual auto-save: queries plugin state and
+// overwrites the single "auto" snapshot. Called by "cc-deck snapshot save --auto".
+// Uses a file lock to ensure only one auto-save runs at a time.
+func RunAutoSave() error {
+	// Acquire exclusive lock to prevent concurrent auto-saves.
+	lockPath := filepath.Join(SessionsDir(), ".autosave.lock")
+	if err := os.MkdirAll(SessionsDir(), 0o755); err != nil {
+		return err
+	}
+	lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
-		return true // no dir = no previous saves = proceed
+		return err
+	}
+	defer lockFile.Close()
+	defer os.Remove(lockPath)
+
+	// Non-blocking exclusive lock: if another auto-save is running, exit.
+	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		return nil // another auto-save is in progress
+	}
+	defer syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN)
+
+	// Re-check cooldown under lock (another process may have saved).
+	if !CooldownElapsed() {
+		return nil
 	}
 
-	var latest time.Time
-	for _, e := range entries {
-		if !strings.HasPrefix(e.Name(), autoSavePrefix) || !strings.HasSuffix(e.Name(), ".json") {
-			continue
-		}
-		info, err := e.Info()
-		if err != nil {
-			continue
-		}
-		if info.ModTime().After(latest) {
-			latest = info.ModTime()
-		}
-	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-	if latest.IsZero() {
-		return true
-	}
-	return time.Since(latest) >= autoSaveCooldown
-}
-
-// rotateAutoSaves shifts auto-N.json to auto-(N+1).json, deleting the oldest
-// if it exceeds maxAutoSaves.
-func rotateAutoSaves() error {
-	dir := SessionsDir()
-
-	// Collect existing auto-save numbers
-	entries, err := os.ReadDir(dir)
+	snap, err := QueryPluginStateCtx(ctx, autoSaveName)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
 		return err
 	}
 
-	type autoFile struct {
-		num  int
-		name string
-	}
-	var files []autoFile
-	for _, e := range entries {
-		if !strings.HasPrefix(e.Name(), autoSavePrefix) || !strings.HasSuffix(e.Name(), ".json") {
-			continue
-		}
-		numStr := strings.TrimPrefix(e.Name(), autoSavePrefix)
-		numStr = strings.TrimSuffix(numStr, ".json")
-		var num int
-		if _, err := fmt.Sscanf(numStr, "%d", &num); err == nil {
-			files = append(files, autoFile{num: num, name: e.Name()})
-		}
-	}
-
-	// Sort descending so we rename from highest to lowest
-	sort.Slice(files, func(i, j int) bool {
-		return files[i].num > files[j].num
-	})
-
-	for _, f := range files {
-		newNum := f.num + 1
-		if newNum > maxAutoSaves {
-			// Delete the oldest
-			os.Remove(filepath.Join(dir, f.name))
-		} else {
-			newName := fmt.Sprintf("%s%d.json", autoSavePrefix, newNum)
-			os.Rename(
-				filepath.Join(dir, f.name),
-				filepath.Join(dir, newName),
-			)
-		}
+	if err := SaveSnapshot(snap); err != nil {
+		return err
 	}
 
 	return nil
+}
+
+// CooldownElapsed checks if enough time has passed since the last auto-save.
+func CooldownElapsed() bool {
+	info, err := os.Stat(snapshotPath(autoSaveName))
+	if err != nil {
+		return true // no previous auto-save = proceed
+	}
+	return time.Since(info.ModTime()) >= autoSaveCooldown
 }

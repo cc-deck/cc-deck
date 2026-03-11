@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os/exec"
@@ -23,8 +24,13 @@ type pluginSession struct {
 
 // QueryPluginState queries the cc-deck plugin for current session state
 // via zellij pipe and returns a Snapshot.
-func QueryPluginState(name string, autoSave bool) (*Snapshot, error) {
-	raw, err := queryPlugin()
+func QueryPluginState(name string) (*Snapshot, error) {
+	return QueryPluginStateCtx(context.Background(), name)
+}
+
+// QueryPluginStateCtx is like QueryPluginState but with a context for timeout.
+func QueryPluginStateCtx(ctx context.Context, name string) (*Snapshot, error) {
+	raw, err := queryPluginCtx(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -63,21 +69,20 @@ func QueryPluginState(name string, autoSave bool) (*Snapshot, error) {
 	})
 
 	if name == "" {
-		name = fmt.Sprintf("save-%s", time.Now().Format("2006-01-02T15-04-05"))
+		name = nextSnapshotName()
 	}
 
 	return &Snapshot{
 		Version:  1,
 		Name:     name,
 		SavedAt:  time.Now().UTC(),
-		AutoSave: autoSave,
 		Sessions: entries,
 	}, nil
 }
 
-// queryPlugin runs zellij pipe to get session state JSON from the plugin.
-func queryPlugin() ([]byte, error) {
-	cmd := exec.Command("zellij", "pipe", "--name", "cc-deck:dump-state", "--", "")
+// queryPluginCtx runs zellij pipe to get session state JSON from the plugin.
+func queryPluginCtx(ctx context.Context) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "zellij", "pipe", "--name", "cc-deck:dump-state", "--", "")
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("querying plugin state: %w", err)

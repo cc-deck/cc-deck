@@ -30,7 +30,6 @@ type Snapshot struct {
 	Version  int            `json:"version"`
 	Name     string         `json:"name"`
 	SavedAt  time.Time      `json:"saved_at"`
-	AutoSave bool           `json:"auto_save"`
 	Sessions []SessionEntry `json:"sessions"`
 }
 
@@ -86,7 +85,6 @@ type SnapshotInfo struct {
 	Name         string
 	SavedAt      time.Time
 	SessionCount int
-	AutoSave     bool
 }
 
 // ListSnapshots returns all snapshots sorted by timestamp (newest first).
@@ -114,7 +112,6 @@ func ListSnapshots() ([]SnapshotInfo, error) {
 			Name:         snap.Name,
 			SavedAt:      snap.SavedAt,
 			SessionCount: len(snap.Sessions),
-			AutoSave:     snap.AutoSave,
 		})
 	}
 
@@ -143,6 +140,25 @@ func RemoveSnapshot(name string) error {
 		return fmt.Errorf("snapshot %q not found", name)
 	}
 	return os.Remove(path)
+}
+
+// nextSnapshotName returns "snapshot-N" where N is the next unused number.
+func nextSnapshotName() string {
+	infos, err := ListSnapshots()
+	if err != nil {
+		return "snapshot-1"
+	}
+	max := 0
+	for _, info := range infos {
+		if strings.HasPrefix(info.Name, "snapshot-") {
+			numStr := strings.TrimPrefix(info.Name, "snapshot-")
+			var n int
+			if _, err := fmt.Sscanf(numStr, "%d", &n); err == nil && n > max {
+				max = n
+			}
+		}
+	}
+	return fmt.Sprintf("snapshot-%d", max+1)
 }
 
 // RemoveAllSnapshots deletes all snapshots.

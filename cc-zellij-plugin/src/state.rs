@@ -85,6 +85,10 @@ pub struct PluginState {
     pub show_help: bool,
     /// Tab index that this plugin instance lives on (derived from PaneManifest).
     pub my_tab_index: Option<usize>,
+    /// Guard: skip next PaneUpdate auto-exit after entering navigation mode.
+    /// Entering nav mode triggers a PaneUpdate with stale focus before
+    /// focus_plugin_pane takes effect, which would immediately exit nav mode.
+    pub nav_enter_guard: bool,
 }
 
 impl PluginState {
