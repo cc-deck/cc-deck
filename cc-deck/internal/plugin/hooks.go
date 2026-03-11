@@ -24,9 +24,7 @@ func ccDeckHookCommand() string {
 var hookEvents = []string{
 	"SessionStart",
 	"UserPromptSubmit",
-	"PreToolUse",
 	"PermissionRequest",
-	"PostToolUse",
 	"Notification",
 	"Stop",
 	"SubagentStop",
@@ -45,9 +43,7 @@ type hookAction struct {
 
 // hookEventsWithMatcher lists events that support the matcher field.
 var hookEventsWithMatcher = map[string]bool{
-	"PreToolUse":        true,
 	"PermissionRequest": true,
-	"PostToolUse":       true,
 	"Notification":      true,
 }
 

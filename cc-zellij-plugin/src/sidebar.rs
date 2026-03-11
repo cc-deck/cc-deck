@@ -25,7 +25,7 @@ fn render_header(state: &PluginState, cols: usize) {
         print!("\x1b[1;1H{}", pad(&header, cols));
     } else {
         let waiting = sessions.iter().filter(|s| s.activity.is_waiting()).count();
-        let working = sessions.iter().filter(|s| matches!(s.activity, Activity::Working | Activity::ToolUse(_))).count();
+        let working = sessions.iter().filter(|s| matches!(s.activity, Activity::Working)).count();
         let idle = sessions.iter().filter(|s| matches!(s.activity, Activity::Done | Activity::AgentDone | Activity::Idle | Activity::Init)).count();
 
         // Orange star + total | status counts
@@ -202,6 +202,9 @@ pub fn render_sidebar(state: &PluginState, rows: usize, cols: usize) -> Vec<Clic
         row += 1;
     }
 
+    // Header click region last so session regions at row 2 take priority
+    click_regions.push((0, u32::MAX - 1, usize::MAX));
+
     click_regions
 }
 
@@ -277,12 +280,10 @@ fn render_session_entry(
 
         format!("{prefix}{input_display}{RESET}")
     } else {
-        let elapsed = session.elapsed_display().unwrap_or_default();
         let name = &session.display_name;
 
         let prefix_len = 2; // indicator + space
-        let elapsed_len = if elapsed.is_empty() { 0 } else { elapsed.len() + 1 };
-        let max_name = cols.saturating_sub(prefix_len + elapsed_len);
+        let max_name = cols.saturating_sub(prefix_len);
         let truncated_name = truncate(name, max_name);
 
         let name_part = if session.paused {
@@ -293,11 +294,7 @@ fn render_session_entry(
             truncated_name.to_string()
         };
 
-        if elapsed.is_empty() {
-            format!(" \x1b[38;2;{r};{g};{b}m{indicator}\x1b[0m {name_part}")
-        } else {
-            format!(" \x1b[38;2;{r};{g};{b}m{indicator}\x1b[0m {name_part} \x1b[2m{elapsed}\x1b[0m")
-        }
+        format!(" \x1b[38;2;{r};{g};{b}m{indicator}\x1b[0m {name_part}")
     };
 
     // Determine background style: cursor > active > normal
@@ -310,31 +307,25 @@ fn render_session_entry(
     };
 
     if use_bg {
-        let elapsed = session.elapsed_display().unwrap_or_default();
         let name = &session.display_name;
         let prefix_len = 2; // indicator + space
-        let elapsed_len = if elapsed.is_empty() { 0 } else { elapsed.len() + 1 };
-        let max_name = cols.saturating_sub(prefix_len + elapsed_len);
+        let max_name = cols.saturating_sub(prefix_len);
         let truncated_name = truncate(name, max_name);
 
         let bold_or_dim = if session.paused { "\x1b[2m" } else { "\x1b[1m" };
         let styled_line1 = if rename_state.is_some() {
             line1
-        } else if elapsed.is_empty() {
-            format!("{bg} \x1b[38;2;{r};{g};{b}m{indicator}{fg}{bold_or_dim} {truncated_name}{RESET}")
         } else {
-            format!("{bg} \x1b[38;2;{r};{g};{b}m{indicator}{fg}{bold_or_dim} {truncated_name} \x1b[2m{elapsed}{RESET}")
+            format!("{bg} \x1b[38;2;{r};{g};{b}m{indicator}{fg}{bold_or_dim} {truncated_name}{RESET}")
         };
         print!("\x1b[{};1H{}", start_row + 1, pad_with_bg_color(&styled_line1, cols, bg));
     } else {
         print!("\x1b[{};1H{}", start_row + 1, pad(&line1, cols));
     }
 
-    // Line 2: branch or tool info
+    // Line 2: branch info
     let line2_content = if let Some(ref branch) = session.git_branch {
         format!("   \u{2387} {branch}")
-    } else if let crate::session::Activity::ToolUse(ref tool) = session.activity {
-        format!("   {tool}")
     } else {
         String::new()
     };
@@ -378,6 +369,9 @@ fn render_empty_state(state: &PluginState, rows: usize, cols: usize) -> Vec<Clic
     for row in 6..rows {
         print_line(row, cols, "", Style::Normal);
     }
+
+    // Header click region last so other regions take priority
+    click_regions.push((0, u32::MAX - 1, usize::MAX));
 
     click_regions
 }

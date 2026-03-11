@@ -20,8 +20,8 @@ pub enum AttendResult {
 /// Find the next session needing attention using tiered priority:
 /// 1. Permission waiting (oldest first) - critical, blocks progress
 /// 2. Notification waiting (oldest first) - soft, informational
-/// 3. Idle/Done/AgentDone/Init (newest first) - older idle may be intentionally parked
-/// 4. Skip Working/ToolUse - actively running
+/// 3. Idle/Done/AgentDone/Init (tab order, top-to-bottom)
+/// 4. Skip Working - actively running
 ///
 /// Round-robin: subsequent presses cycle through the priority-ordered list,
 /// starting after the last attended session.
@@ -48,11 +48,11 @@ pub fn perform_attend(state: &mut PluginState) -> AttendResult {
     t2.sort_by_key(|s| s.last_event_ts);
     candidates.extend(t2);
 
-    // Tier 3: Idle/Done/AgentDone/Init (newest first), skip paused
+    // Tier 3: Idle/Done/AgentDone/Init (tab order, top-to-bottom), skip paused
     let mut t3: Vec<_> = sessions.iter()
         .filter(|s| !s.paused && matches!(s.activity, Activity::Idle | Activity::Done | Activity::AgentDone | Activity::Init))
         .copied().collect();
-    t3.sort_by_key(|s| std::cmp::Reverse(s.last_event_ts));
+    t3.sort_by_key(|s| s.tab_index.unwrap_or(usize::MAX));
     candidates.extend(t3);
 
     if candidates.is_empty() {
@@ -177,23 +177,23 @@ mod tests {
     }
 
     #[test]
-    fn test_attend_idle_newest_first() {
+    fn test_attend_idle_tab_order() {
         let mut s1 = Session::new(1, "a".into());
         s1.activity = Activity::Idle;
         s1.tab_index = Some(0);
         s1.last_event_ts = 100;
-        s1.display_name = "old-idle".into();
+        s1.display_name = "first-tab".into();
 
         let mut s2 = Session::new(2, "b".into());
         s2.activity = Activity::Done;
         s2.tab_index = Some(1);
         s2.last_event_ts = 200;
-        s2.display_name = "new-done".into();
+        s2.display_name = "second-tab".into();
 
         let mut state = make_state(vec![s1, s2]);
         match perform_attend(&mut state) {
-            AttendResult::Switched { display_name, .. } => assert_eq!(display_name, "new-done"),
-            _ => panic!("expected Switched to newest idle"),
+            AttendResult::Switched { display_name, .. } => assert_eq!(display_name, "first-tab"),
+            _ => panic!("expected Switched to first tab"),
         }
     }
 
