@@ -1,2 +1,4 @@
 FROM docker.io/library/alpine:3.21
-CMD ["sleep", "infinity"]
+# Create a fake zellij that just sleeps (the StatefulSet command is ["zellij"])
+RUN printf '#!/bin/sh\nexec sleep infinity\n' > /usr/local/bin/zellij && chmod +x /usr/local/bin/zellij
+CMD ["zellij"]
