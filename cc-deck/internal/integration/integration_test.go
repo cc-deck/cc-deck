@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -88,22 +89,7 @@ func TestMain(m *testing.M) {
 }
 
 func isAlreadyExists(err error) bool {
-	return err != nil && err.Error() != "" && // simple check
-		(err.Error() == "already exists" ||
-			contains(err.Error(), "already exists"))
-}
-
-func contains(s, sub string) bool {
-	return len(s) >= len(sub) && searchString(s, sub)
-}
-
-func searchString(s, sub string) bool {
-	for i := 0; i <= len(s)-len(sub); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
+	return k8serrors.IsAlreadyExists(err)
 }
 
 // --- Phase 2: Core Lifecycle Tests (US1) ---
