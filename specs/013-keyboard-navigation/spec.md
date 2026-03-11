@@ -57,7 +57,7 @@ When the plugin loads, it registers global keybindings with Zellij so that the n
 
 ### User Story 3 - Smart Attend (Priority: P2)
 
-A user presses a global shortcut (`Alt+a`) to jump directly to the next session that needs attention. The algorithm prioritizes sessions that are blocking on user input (PermissionRequest) over informational notifications, and cycles through idle sessions with the newest first (older idle sessions may be intentionally parked). The currently focused session is skipped.
+A user presses a global shortcut (`Alt+a`) to jump directly to the next session that needs attention. The algorithm prioritizes sessions that are blocking on user input (PermissionRequest) over informational notifications, and cycles through idle sessions in tab order (top-to-bottom). The currently focused session is skipped.
 
 **Why this priority**: Smart attend provides a one-keystroke workflow for managing multiple Claude sessions. It's the most common keyboard action but depends on the global shortcut registration (US2).
 
@@ -69,7 +69,7 @@ A user presses a global shortcut (`Alt+a`) to jump directly to the next session 
 
 2. **Given** multiple sessions are waiting for PermissionRequest, **When** the user presses attend, **Then** the oldest waiting session is focused first.
 
-3. **Given** no sessions are waiting but some are idle, **When** the user presses attend, **Then** the newest idle session is focused (most recently completed work).
+3. **Given** no sessions are waiting but some are idle, **When** the user presses attend, **Then** the idle session in tab order (top-to-bottom) is focused.
 
 4. **Given** all sessions are actively working, **When** the user presses attend, **Then** a notification "All sessions busy" is displayed.
 
@@ -146,6 +146,9 @@ While in navigation mode, the user presses `n` to create a new session. This beh
 - What happens when a new session appears (via hook) while in navigation mode? The session list updates and the cursor position is preserved by tracking the pane_id under the cursor.
 - What happens when the navigate shortcut is pressed while already in navigation mode? It acts as a toggle and exits navigation mode.
 - What happens when the attend shortcut is pressed while in navigation mode? Attend executes (jumps to the target session) and navigation mode exits.
+- What happens when the user switches tabs while in navigation mode? Navigation mode auto-exits (detected via TabUpdate).
+- What happens when the user clicks a terminal pane while in navigation mode? Navigation mode auto-exits (detected via PaneUpdate focus change).
+- What happens when the user clicks the sidebar header? Navigation mode toggles on/off.
 
 ## Requirements *(mandatory)*
 
@@ -153,7 +156,7 @@ While in navigation mode, the user presses `n` to create a new session. This beh
 
 - **FR-001**: The sidebar MUST support two distinct modes: passive (default, mouse-only) and navigation (keyboard-driven).
 - **FR-002**: A configurable global shortcut (default `Alt+s`) MUST activate navigation mode on the active tab's sidebar instance.
-- **FR-003**: Navigation mode MUST display a large triangle cursor (`▶`) on the currently pre-selected session, visually distinct from the active session highlight.
+- **FR-003**: Navigation mode MUST display the cursor session with an amber tint background (`50,40,20` bg / `230,200,140` fg), visually distinct from the active session's teal highlight.
 - **FR-004**: The `j`/`↓` and `k`/`↑` keys MUST move the cursor down and up through the session list in navigation mode.
 - **FR-005**: The `Enter` key MUST switch focus to the cursor session's tab and pane, then exit navigation mode.
 - **FR-006**: The `Esc` key MUST exit navigation mode and return focus to the previously active terminal pane.
@@ -165,17 +168,22 @@ While in navigation mode, the user presses `n` to create a new session. This beh
 - **FR-012**: The `n` key MUST create a new session (identical to the [+] button action) in navigation mode.
 - **FR-013**: The `g`/`Home` and `G`/`End` keys MUST jump to the first and last session respectively.
 - **FR-014**: A configurable global shortcut (default `Alt+a`) MUST trigger the smart attend action from any Zellij mode except locked.
-- **FR-015**: Smart attend MUST prioritize sessions in this order: (1) PermissionRequest waiting (oldest first), (2) Notification waiting (oldest first), (3) idle/done sessions (newest first), (4) skip working sessions.
+- **FR-015**: Smart attend MUST prioritize sessions in this order: (1) PermissionRequest waiting (oldest first), (2) Notification waiting (oldest first), (3) idle/done sessions (tab order, top-to-bottom), (4) skip working sessions.
 - **FR-016**: Smart attend MUST skip the currently focused session when cycling, unless it is the only session.
 - **FR-017**: Global shortcuts MUST be registered dynamically at plugin load without modifying the user's config.kdl file.
 - **FR-018**: Global shortcuts MUST NOT override user-configured Zellij keybindings.
-- **FR-019**: Only the sidebar instance on the active tab MUST respond to global shortcut messages.
+- **FR-019**: Only plugin_id 0 MUST handle attend messages to preserve round-robin state. Both navigate and attend messages are forwarded from non-active instances to the correct handler via broadcast: navigate forwards to the active-tab instance, attend forwards to plugin_id 0. This is necessary because keybindings are registered by the last-loaded plugin instance, which may not be plugin_id 0 or on the active tab.
 - **FR-020**: The cursor position MUST persist when exiting and re-entering navigation mode within the same Zellij session.
+- **FR-021**: Navigation mode MUST auto-exit when the user switches to a different tab (detected via TabUpdate when the plugin is no longer on the active tab).
+- **FR-022**: Navigation mode MUST auto-exit when a terminal pane gains focus (detected via PaneUpdate, indicating the user clicked away from the sidebar). The first PaneUpdate after entering navigation mode MUST be ignored because it arrives with stale focus state before `focus_plugin_pane` takes effect.
+- **FR-023**: Clicking the sidebar header (row 0) MUST toggle navigation mode on and off.
+- **FR-024**: The `Enter` key MUST switch to the selected session without restoring the previously focused pane (the user is intentionally navigating to a new target, not returning to their original position).
+- **FR-025**: Broadcast messages between plugin instances MUST NOT use URL-based filtering (`plugin_url`). Zellij's `pipe_message_to_plugin` matches by both URL and configuration, and since running instances have varying config (mode, keys), URL filtering causes spurious floating pane creation instead of routing to existing instances.
 
 ### Key Entities
 
 - **Navigation Mode**: A sidebar interaction state where the plugin is selectable and processes keyboard events for session list traversal and actions.
-- **Cursor**: A visual pre-selection marker (`▶`) indicating which session will receive the next action. Distinct from the active session highlight.
+- **Cursor**: A visual pre-selection marker shown as an amber tint background, indicating which session will receive the next action. Distinct from the active session's teal highlight.
 - **Smart Attend**: An enhanced session cycling algorithm that uses priority tiers (critical attention, soft attention, idle, working) to determine the next session to focus.
 - **Wait Reason**: A distinction between PermissionRequest (blocking, critical) and Notification (informational, soft) waiting states, used by the smart attend algorithm.
 
