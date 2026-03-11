@@ -29,12 +29,13 @@ const (
 
 // SessionParams holds parameters for building K8s resources for a session.
 type SessionParams struct {
-	Name        string
-	Namespace   string
-	Profile     config.Profile
-	Image       string
-	ImageTag    string
-	StorageSize string
+	Name            string
+	Namespace       string
+	Profile         config.Profile
+	Image           string
+	ImageTag        string
+	StorageSize     string
+	ImagePullPolicy corev1.PullPolicy
 }
 
 // ResourcePrefix returns the standard resource name prefix for a session.
@@ -58,10 +59,16 @@ func BuildStatefulSet(p SessionParams) *appsv1.StatefulSet {
 	labels := standardLabels(p.Name)
 	replicas := int32(1)
 
+	pullPolicy := p.ImagePullPolicy
+	if pullPolicy == "" {
+		pullPolicy = corev1.PullIfNotPresent
+	}
+
 	container := corev1.Container{
-		Name:    "claude",
-		Image:   p.Image + ":" + p.ImageTag,
-		Command: []string{"zellij"},
+		Name:            "claude",
+		Image:           p.Image + ":" + p.ImageTag,
+		ImagePullPolicy: pullPolicy,
+		Command:         []string{"zellij"},
 		Ports: []corev1.ContainerPort{
 			{
 				Name:          "web",
