@@ -1,19 +1,24 @@
 # Brainstorm Overview
 
-Last updated: 2026-03-07
+Last updated: 2026-03-11
 
 ## Sessions
 
 | # | Date | Topic | Status | Spec |
 |---|------|-------|--------|------|
 | 01 | 2026-03-02 | cc-deck-session-manager | superseded-by-08 | 001 |
-| 02 | 2026-03-03 | cc-deck-k8s-cli | active | - |
+| 02 | 2026-03-03 | cc-deck-k8s-cli | active | 002 |
 | 03 | 2026-03-03 | repo-restructure | parked | - |
 | 04 | 2026-03-03 | session-flavors | active | - |
 | 05 | 2026-03-03 | clipboard-bridge | active | - |
-| 06 | 2026-03-04 | plugin-lifecycle | superseded-by-08 | - |
-| 07 | 2026-03-05 | plugin-bugfixes | superseded-by-08 | - |
-| 08 | 2026-03-07 | cc-deck-v2-redesign | active | - |
+| 06 | 2026-03-04 | plugin-lifecycle | superseded-by-08 | 009 |
+| 07 | 2026-03-05 | plugin-bugfixes | superseded-by-08 | 010 |
+| 08 | 2026-03-07 | cc-deck-v2-redesign | active | 012 |
+| 09 | 2026-03-08 | cross-session-visibility | active | - |
+| 10 | 2026-03-09 | keyboard-navigation | active | 013 |
+| 11 | 2026-03-10 | pause-and-help | active | 014 |
+| 15 | 2026-03-10 | session-save-restore | active | 015 |
+| 16 | 2026-03-11 | k8s-integration-tests | active | - |
 
 ## Open Threads
 
