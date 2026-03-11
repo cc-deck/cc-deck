@@ -145,16 +145,6 @@ func assertResourceNotExists(t *testing.T, kind, name string) {
 	require.True(t, errors.IsNotFound(err), "%s %q should not exist, got: %v", kind, name, err)
 }
 
-// waitForPodRunning waits for a Pod to reach Running phase.
-func waitForPodRunning(t *testing.T, podName string, timeout time.Duration) {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	err := session.WaitForPodRunning(ctx, env.clientset, env.namespace, podName, timeout, false)
-	require.NoError(t, err, "Pod %q should reach Running phase", podName)
-}
-
 // getPodPhase returns the current phase of a Pod.
 func getPodPhase(t *testing.T, podName string) corev1.PodPhase {
 	t.Helper()
