@@ -1,0 +1,40 @@
+name: Integration Tests
+
+on:
+  push:
+    branches: ["*"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: cc-deck/go.mod
+
+      - name: Create kind cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: cc-deck-test
+
+      - name: Build stub image
+        run: docker build -t localhost/cc-deck-stub:latest -f cc-deck/test/Containerfile.stub .
+
+      - name: Load image into kind
+        run: kind load docker-image localhost/cc-deck-stub:latest --name cc-deck-test
+
+      - name: Setup test namespace
+        run: |
+          kubectl create namespace cc-deck-test
+          kubectl create secret generic test-api-key \
+            --from-literal=api-key="test-key-not-real" \
+            -n cc-deck-test
+
+      - name: Run integration tests
+        working-directory: cc-deck
+        run: go test -tags integration -v -timeout 5m -count=1 ./internal/integration/
