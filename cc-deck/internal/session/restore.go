@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"strings"
 	"time"
 )
 
@@ -40,9 +41,11 @@ func Restore(name string, w io.Writer) error {
 		// Brief pause for tab initialization
 		time.Sleep(500 * time.Millisecond)
 
-		// Change to the working directory
+		// Change to the working directory, preferring git root so that
+		// claude --resume finds the session in the correct project.
 		if entry.WorkingDir != "" {
-			writeChars(fmt.Sprintf("cd %q\n", entry.WorkingDir))
+			dir := resolveProjectDir(entry.WorkingDir)
+			writeChars(fmt.Sprintf("cd %q\n", dir))
 			time.Sleep(200 * time.Millisecond)
 		}
 
@@ -71,4 +74,18 @@ func zellijAction(args ...string) error {
 
 func writeChars(text string) {
 	exec.Command("zellij", "action", "write-chars", text).Run()
+}
+
+// resolveProjectDir returns the git root of dir if it's inside a git repo,
+// otherwise returns dir unchanged. This ensures claude --resume finds
+// sessions stored under the project root rather than a subdirectory.
+func resolveProjectDir(dir string) string {
+	out, err := exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		return dir
+	}
+	if root := strings.TrimSpace(string(out)); root != "" {
+		return root
+	}
+	return dir
 }
