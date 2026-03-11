@@ -76,13 +76,15 @@ fn register_keybindings(config: &config::PluginConfig) {
 #[cfg(not(target_family = "wasm"))]
 fn register_keybindings(_config: &config::PluginConfig) {}
 
-/// Broadcast an action to all cc_deck instances via pipe_message_to_plugin.
-/// Uses "zellij:OWN_URL" so Zellij resolves it to this plugin's URL,
-/// sending only to other instances of the same plugin (not tab-bar etc.).
+/// Broadcast an action to all plugins via pipe_message_to_plugin.
+/// Only cc_deck instances handle cc-deck:* messages, so no URL filtering needed.
+/// NOTE: Do NOT use plugin_url here. Zellij's pipe_to_specific_plugins matches
+/// by both URL and configuration. Since we can't pass the running instances'
+/// config (mode, navigate_key, etc.), the match fails and Zellij creates a
+/// spurious floating pane instead of routing to existing instances.
 #[cfg(target_family = "wasm")]
 fn broadcast_action(name: &str) {
-    let mut msg = MessageToPlugin::new(name);
-    msg.plugin_url = Some("zellij:OWN_URL".to_string());
+    let msg = MessageToPlugin::new(name);
     pipe_message_to_plugin(msg);
 }
 
@@ -107,6 +109,7 @@ fn enter_navigation_mode(state: &mut PluginState) {
     };
     state.nav_restore = restore;
     state.cursor_index = cursor;
+    state.nav_enter_guard = true;
     set_selectable_wasm(true);
     #[cfg(target_family = "wasm")]
     {
@@ -120,6 +123,7 @@ fn enter_navigation_mode(state: &mut PluginState) {
 fn exit_navigation_mode(state: &mut PluginState) {
     let restore = state.nav_restore.take();
     state.navigation_mode = false;
+    state.nav_enter_guard = false;
     state.filter_state = None;
     state.delete_confirm = None;
     set_selectable_wasm(false);
@@ -260,12 +264,14 @@ impl ZellijPlugin for PluginState {
     }
 
     fn pipe(&mut self, pipe_message: PipeMessage) -> bool {
-        let is_from_keybind = matches!(pipe_message.source, PipeSource::Keybind);
+        // Keybinds and CLI pipes both represent direct user actions.
+        // Plugin-to-plugin broadcasts (PipeSource::Plugin) are internal forwarding.
+        let is_user_action = !matches!(pipe_message.source, PipeSource::Plugin(_));
         // Trace log
         debug_log(&format!("PIPE name={} payload={} source={} sessions={} pane_keys={:?}",
             pipe_message.name,
             pipe_message.payload.as_deref().unwrap_or("None"),
-            if is_from_keybind { "keybind" } else { "plugin/cli" },
+            if is_user_action { "keybind" } else { "plugin/cli" },
             self.sessions.len(),
             self.pane_to_tab.keys().collect::<Vec<_>>()));
 
@@ -336,6 +342,18 @@ impl ZellijPlugin for PluginState {
                             if let Some(s) = self.sessions.get_mut(&pane) {
                                 s.display_name = session::deduplicate_name(&dir_name, &name_refs);
                             }
+                            // Auto-rename tab once when display name is first set
+                            if let Some(tab_idx) = self.sessions.get(&pane).and_then(|s| s.tab_index) {
+                                let sessions_on_tab = self.sessions.values()
+                                    .filter(|s| s.tab_index == Some(tab_idx))
+                                    .count();
+                                if sessions_on_tab == 1 {
+                                    if let Some(s) = self.sessions.get(&pane) {
+                                        auto_rename_tab(tab_idx, &s.display_name);
+                                        self.updating_tabs = true;
+                                    }
+                                }
+                            }
                         }
                         if not_renamed {
                             git::detect_git_repo(pane, &cwd_clone);
@@ -348,17 +366,6 @@ impl ZellijPlugin for PluginState {
                     let session = self.sessions.get_mut(&hook.pane_id).unwrap();
                     session.tab_index = Some(*idx);
                     session.tab_name = Some(name.clone());
-                }
-
-                // Auto-rename tab to match the session name (last session wins)
-                if let Some(session) = self.sessions.get(&hook.pane_id) {
-                    if !session.display_name.starts_with("session-") {
-                        if let Some(tab_idx) = session.tab_index {
-                            let display_name = session.display_name.clone();
-                            auto_rename_tab(tab_idx, &display_name);
-                            self.updating_tabs = true;
-                        }
-                    }
                 }
 
                 if changed {
@@ -375,17 +382,23 @@ impl ZellijPlugin for PluginState {
             }
 
             PipeAction::Attend => {
-                // Only the active-tab instance handles attend
-                if !self.is_on_active_tab() {
-                    if is_from_keybind {
-                        debug_log("ATTEND forwarding to active tab via broadcast");
-                        broadcast_action("cc-deck:attend");
+                // Only plugin_id 0 handles attend to preserve round-robin state.
+                // Non-0 instances forward via broadcast; plugin 0 handles from any source.
+                #[cfg(target_family = "wasm")]
+                {
+                    let my_id = zellij_tile::prelude::get_plugin_ids().plugin_id;
+                    if my_id != 0 {
+                        if is_user_action {
+                            broadcast_action("cc-deck:attend");
+                        }
+                        return false;
                     }
-                    return false;
                 }
                 // Exit navigation mode if active
                 if self.navigation_mode {
                     self.navigation_mode = false;
+                    self.nav_enter_guard = false;
+                    self.nav_restore = None;
                     self.filter_state = None;
                     self.delete_confirm = None;
                     set_selectable_wasm(false);
@@ -441,7 +454,7 @@ impl ZellijPlugin for PluginState {
             PipeAction::Navigate => {
                 // Only the active-tab instance handles navigate
                 if !self.is_on_active_tab() {
-                    if is_from_keybind {
+                    if is_user_action {
                         debug_log("NAVIGATE forwarding to active tab via broadcast");
                         broadcast_action("cc-deck:navigate");
                     }
@@ -516,6 +529,17 @@ impl PluginState {
                 self.remove_dead_sessions();
                 self.preserve_cursor();
 
+                // Exit navigation mode if user switched away from this tab
+                if self.navigation_mode && !self.is_on_active_tab() {
+                    self.navigation_mode = false;
+                    self.nav_enter_guard = false;
+                    self.nav_restore = None;
+                    self.filter_state = None;
+                    self.delete_confirm = None;
+                    set_selectable_wasm(false);
+                    debug_log("NAV auto-exited: tab switched away");
+                }
+
                 true
             }
             Event::PaneUpdate(manifest) => {
@@ -523,6 +547,23 @@ impl PluginState {
                 self.rebuild_pane_map();
                 self.remove_dead_sessions();
                 self.preserve_cursor();
+
+                // Exit navigation mode if a terminal pane gained focus
+                // (user clicked away from the sidebar).
+                // Skip the first PaneUpdate after entering nav mode: it arrives
+                // with stale focus before focus_plugin_pane takes effect.
+                if self.navigation_mode && self.focused_pane_id.is_some() {
+                    if self.nav_enter_guard {
+                        self.nav_enter_guard = false;
+                    } else {
+                        self.navigation_mode = false;
+                        self.nav_restore = None;
+                        self.filter_state = None;
+                        self.delete_confirm = None;
+                        set_selectable_wasm(false);
+                    }
+                }
+
                 true
             }
             Event::ModeUpdate(mode_info) => {
@@ -532,14 +573,21 @@ impl PluginState {
             Event::Timer(_) => {
                 let stale = self.cleanup_stale_sessions(self.config.done_timeout);
                 set_timeout(self.config.timer_interval);
-                // Re-render to update elapsed times
-                stale || !self.sessions.is_empty()
+                stale
             }
             Event::Mouse(Mouse::LeftClick(row, col)) => {
                 debug_log(&format!("CLICK row={row} col={col} regions={:?}", self.click_regions));
                 if let Some((tab_idx, pane_id)) = sidebar::handle_click(row as usize, &self.click_regions) {
                     debug_log(&format!("CLICK tab_idx={tab_idx} pane_id={pane_id}"));
-                    if pane_id == u32::MAX {
+                    if pane_id == u32::MAX - 1 {
+                        // Header clicked: toggle navigation mode
+                        if self.navigation_mode {
+                            exit_navigation_mode(self);
+                        } else {
+                            enter_navigation_mode(self);
+                        }
+                        return true;
+                    } else if pane_id == u32::MAX {
                         // [+] New session button clicked
                         match self.config.new_session_mode {
                             config::NewSessionMode::Tab => {
@@ -827,12 +875,20 @@ impl PluginState {
                 if let Some(session) = sessions.get(self.cursor_index) {
                     let pane_id = session.pane_id;
                     let tab_idx = session.tab_index;
-                    exit_navigation_mode(self);
+                    // Clear navigation state without restoring original pane
+                    // (we're switching to the selected session, not going back)
+                    self.navigation_mode = false;
+                    self.nav_enter_guard = false;
+                    self.nav_restore = None;
+                    self.filter_state = None;
+                    self.delete_confirm = None;
+                    set_selectable_wasm(false);
                     #[cfg(target_family = "wasm")]
                     if let Some(idx) = tab_idx {
                         zellij_tile::prelude::switch_tab_to(idx as u32 + 1);
                         zellij_tile::prelude::focus_terminal_pane(pane_id, false);
                     }
+                    debug_log(&format!("NAV Enter: switched to pane={pane_id} tab={tab_idx:?}"));
                 }
                 true
             }
