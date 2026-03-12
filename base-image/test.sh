@@ -5,17 +5,27 @@
 
 set -euo pipefail
 
+# Use podman if available, fall back to docker
+if command -v podman >/dev/null 2>&1; then
+  RUNTIME=podman
+elif command -v docker >/dev/null 2>&1; then
+  RUNTIME=docker
+else
+  echo "Error: neither podman nor docker found"
+  exit 1
+fi
+
 IMAGE="${1:-cc-deck-base:local}"
 PASS=0
 FAIL=0
 
-echo "Testing image: $IMAGE"
+echo "Testing image: $IMAGE (runtime: $RUNTIME)"
 echo "========================================"
 
 run_check() {
   local label="$1"
   shift
-  if podman run --rm "$IMAGE" bash -c "$*" >/dev/null 2>&1; then
+  if $RUNTIME run --rm "$IMAGE" bash -c "$*" >/dev/null 2>&1; then
     echo "  ✓ $label"
     PASS=$((PASS + 1))
   else
@@ -68,7 +78,7 @@ run_check "git pager = delta"    '[ "$(git config --global core.pager)" = "delta
 # --- Image metadata ---
 echo ""
 echo "Image info:"
-SIZE=$(podman image inspect "$IMAGE" --format '{{.Size}}' 2>/dev/null)
+SIZE=$($RUNTIME image inspect "$IMAGE" --format '{{.Size}}' 2>/dev/null)
 SIZE_MB=$((SIZE / 1024 / 1024))
 echo "  Image size: ${SIZE_MB} MB"
 if [ "$SIZE_MB" -lt 1536 ]; then
