@@ -47,8 +47,8 @@ RUN <language tool installs>
 RUN <curl downloads for each github_tool>
 
 # Layer: cc-deck self-install (Zellij + plugin + layouts)
-COPY .build-context/cc-deck /usr/local/bin/cc-deck
-RUN cc-deck plugin install --install-zellij --force
+COPY .build-context/cc-deck-linux-${TARGETARCH} /usr/local/bin/cc-deck
+RUN chmod +x /usr/local/bin/cc-deck && cc-deck plugin install --install-zellij --force
 
 # Layer: Claude Code
 RUN npm install -g @anthropic-ai/claude-code
@@ -91,13 +91,19 @@ If no Containerfile exists, write the generated one directly.
 ### Step 4: Prepare the build context
 
 1. Create `.build-context/` directory
-2. Copy the `cc-deck` binary:
+2. Cross-compile `cc-deck` for all target platforms. Find the cc-deck source repo (look for the Makefile with the `cross-cli` target):
+   ```bash
+   # From the cc-deck source repo root
+   make cross-cli
+   ```
+   This produces `cc-deck/cc-deck-linux-amd64` and `cc-deck/cc-deck-linux-arm64`.
+3. Copy the cross-compiled binaries to the build context:
    ```bash
    mkdir -p .build-context
-   cp "$(which cc-deck)" .build-context/cc-deck
-   chmod +x .build-context/cc-deck
+   cp <cc-deck-repo>/cc-deck/cc-deck-linux-amd64 .build-context/
+   cp <cc-deck-repo>/cc-deck/cc-deck-linux-arm64 .build-context/
    ```
-3. If `cc-deck` is not on PATH, check `/usr/local/bin/cc-deck` and `~/go/bin/cc-deck`
+4. To find the cc-deck source repo, check: the parent of the current build directory, `$GOPATH/src/*/cc-deck`, or ask the user for the path
 
 ### Step 5: Build the image
 
@@ -142,7 +148,7 @@ On success, show:
 ### Key Rules
 
 - Never modify `cc-deck-build.yaml` (the manifest is the source of truth)
-- Always use `.build-context/cc-deck` as the COPY source in the Containerfile
+- Always use `.build-context/cc-deck-linux-${TARGETARCH}` as the COPY source in the Containerfile
 - Containerfile fixes during the build loop are expected and encouraged
 - Combine related `dnf install` calls into a single RUN for layer efficiency
 - Clean package caches in the same layer as installs (`&& dnf clean all`)
