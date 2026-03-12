@@ -36,16 +36,32 @@ When a Zellij plugin API feature doesn't work as expected, research in this orde
 
 Do NOT guess at API syntax or invent approaches without verifying against the documentation and source. Many hours have been wasted on incorrect API usage (wrong `MessagePlugin` URL, `Run` creating visible panes, `KeybindPipe` without targets).
 
-### VI. Simplicity
+### VI. Build via Makefile Only (NON-NEGOTIABLE)
+
+NEVER run `go build` or `cargo build` directly. ALWAYS use the Makefile targets from the **project root**. The Go project directory is named `cc-deck/`, which collides with the binary output name. Running `go build -o cc-deck` inside `cc-deck/` overwrites the directory with a binary, destroying all source files.
+
+Safe commands:
+```bash
+make install    # Full build (Rust + Go) + install plugin
+make test       # Run all tests
+make lint       # Run linters
+```
+
+If you must build the Go binary in isolation (e.g., for testing a new command), use an explicit output path that does NOT match any directory name:
+```bash
+cd cc-deck && go build -o /tmp/cc-deck-test ./cmd/cc-deck
+```
+
+### VII. Simplicity
 
 Follow YAGNI. Don't add features, abstractions, or error handling beyond what's needed. Three similar lines of code is better than a premature abstraction.
 
 ## Development Workflow
 
-- `make install` for plugin installation (NON-NEGOTIABLE)
+- `make install` for building and installing (NON-NEGOTIABLE, see Principle VI)
 - `make test` for running all tests (Go + Rust)
 - `make lint` for linting (Go vet + Rust clippy)
-- `cargo clippy --target wasm32-wasip1` to verify WASM-specific compilation
+- NEVER run `go build` or `cargo build` directly (see Principle VI)
 - Commit after each logical task or phase
 
 ## Testing
@@ -58,4 +74,4 @@ Follow YAGNI. Don't add features, abstractions, or error handling beyond what's 
 
 This constitution supersedes ad-hoc practices. Amendments require updating this file and the project memory.
 
-**Version**: 1.1.0 | **Ratified**: 2026-03-09 | **Last Amended**: 2026-03-09
+**Version**: 1.2.0 | **Ratified**: 2026-03-09 | **Last Amended**: 2026-03-12
