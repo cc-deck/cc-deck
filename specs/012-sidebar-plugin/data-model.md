@@ -28,13 +28,14 @@ The current state of a session. Determines the sidebar indicator.
 
 | State | Indicator | Triggered By | Transitions To |
 |-------|-----------|-------------|----------------|
-| Init | dim dot | SessionStart hook | Working, Idle |
-| Working | active dot | PreToolUse, PostToolUse, UserPromptSubmit hooks | Waiting, Done, Idle |
-| ToolUse(name) | tool icon | PreToolUse hook (sub-state of Working) | Working (on PostToolUse) |
-| Waiting | attention marker | PermissionRequest hook | Working (on PostToolUse), Done |
-| Idle | idle dot | Timer (no activity for configurable threshold) | Working, Done |
-| Done | checkmark | Stop hook | Idle (after timeout) |
-| AgentDone | checkmark (dim) | SubagentStop hook | Idle (after timeout) |
+| Init | ○ (idle dot) | SessionStart hook | Working, Idle |
+| Working | ● (active dot) | PreToolUse, PostToolUse, UserPromptSubmit hooks | Waiting, Done, Idle |
+| Waiting | ⚡ (attention marker) | PermissionRequest hook | Working (on PostToolUse), Done |
+| Idle | ○ (idle dot) | Timer (no activity for configurable threshold) | Working, Done |
+| Done | ✓ (checkmark) | Stop hook | Idle (after timeout) |
+| AgentDone | ✓ (checkmark, dim) | SubagentStop hook | Idle (after timeout) |
+
+Note: Init displays identically to Idle (same indicator ○, same color). Sessions are removed entirely on SessionEnd; there is no intermediate Exited state.
 
 State transition rules:
 - Waiting can only transition to Working or Done (never back to Idle directly)

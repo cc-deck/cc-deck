@@ -124,3 +124,15 @@ A user wants to remove old or unwanted saved snapshots to keep the list clean.
 - Zellij's `new-tab` action creates tabs using the configured `new_tab_template`, which includes the cc-deck sidebar plugin.
 - The XDG config directory is writable and available on all target platforms (macOS, Linux).
 - Tab creation and Claude startup can be sequenced with brief pauses to allow each tab's plugin instance to initialize.
+
+## Evolution Notes (post-implementation)
+
+### Pending Overrides for Restore
+Snapshot restore sends a `cc-deck:restore-meta` pipe message (via CLI pipe) before
+creating tabs. The payload is a JSON map keyed by resolved working directory:
+`{"/path/to/project": {"display_name": "...", "paused": false}}`.
+
+Plugin instances store these as pending overrides in memory. When a hook event arrives
+with a matching CWD, the override is applied (display name, manually_renamed flag,
+paused state) and removed from the pending map. This ensures custom names and pause
+state survive restore despite pane IDs changing.

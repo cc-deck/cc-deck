@@ -12,10 +12,10 @@
 
 ```bash
 # Save current workspace (auto-generated name)
-cc-deck session save
+cc-deck snapshot save
 
 # Save with a name
-cc-deck session save my-projects
+cc-deck snapshot save my-projects
 ```
 
 ### Restart and restore
@@ -26,23 +26,23 @@ zellij kill-all-sessions -y
 zellij --layout cc-deck
 
 # In the new session, restore
-cc-deck session restore
+cc-deck snapshot restore
 
 # Or restore a specific named snapshot
-cc-deck session restore my-projects
+cc-deck snapshot restore my-projects
 ```
 
 ### Manage snapshots
 
 ```bash
 # List all snapshots
-cc-deck session list
+cc-deck snapshot list
 
 # Remove a specific snapshot
-cc-deck session remove old-setup
+cc-deck snapshot remove old-setup
 
 # Remove all snapshots
-cc-deck session remove --all
+cc-deck snapshot remove --all
 ```
 
 ## Auto-save

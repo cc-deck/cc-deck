@@ -38,15 +38,15 @@
 
 **Goal**: Users can explicitly save workspace state and restore it after Zellij restart
 
-**Independent Test**: Run `cc-deck session save`, restart Zellij, run `cc-deck session restore`, verify tabs recreated with correct working dirs and Claude resumed
+**Independent Test**: Run `cc-deck snapshot save`, restart Zellij, run `cc-deck snapshot restore`, verify tabs recreated with correct working dirs and Claude resumed
 
 ### Implementation for User Story 1
 
-- [ ] T008 (cc-mux-ms9.1) [US1] Create cobra command group NewSessionCmd with save/restore/list/remove subcommands in cc-deck/internal/cmd/session.go
-- [ ] T009 (cc-mux-ms9.2) [US1] Register NewSessionCmd in cc-deck/cmd/cc-deck/main.go (add to rootCmd.AddCommand)
+- [ ] T008 (cc-mux-ms9.1) [US1] Create cobra command group NewSnapshotCmd with save/restore/list/remove subcommands in cc-deck/internal/cmd/snapshot.go
+- [ ] T009 (cc-mux-ms9.2) [US1] Register NewSnapshotCmd in cc-deck/cmd/cc-deck/main.go (add to rootCmd.AddCommand)
 - [ ] T010 (cc-mux-ms9.3) [US1] Implement save command logic in cc-deck/internal/session/save.go: query plugin, generate timestamp name if unnamed, write snapshot file, print confirmation
 - [ ] T011 (cc-mux-ms9.4) [US1] Implement restore command logic in cc-deck/internal/session/restore.go: load snapshot, for each session create tab via `zellij action new-tab`, write cd + claude --resume commands via `zellij action write-chars`, show progress output, handle resume failure fallback
-- [ ] T012 (cc-mux-ms9.5) [US1] Wire save and restore RunE functions in cc-deck/internal/cmd/session.go to call session package functions
+- [ ] T012 (cc-mux-ms9.5) [US1] Wire save and restore RunE functions in cc-deck/internal/cmd/snapshot.go to call session package functions
 
 **Checkpoint**: Save and restore fully functional for explicit use
 
@@ -60,8 +60,8 @@
 
 ### Implementation for User Story 2
 
-- [ ] T013 (cc-mux-07e.1) [US2] Implement auto-save logic in cc-deck/internal/session/autosave.go: check cooldown (5 min), query plugin state, write auto-N.json with rotation (keep latest 5), atomic rename
-- [ ] T014 (cc-mux-07e.2) [US2] Add auto-save side-effect to cc-deck hook command in cc-deck/internal/cmd/hook.go: call autosave after zellij pipe succeeds
+- [ ] T013 (cc-mux-07e.1) [US2] Implement auto-save logic in cc-deck/internal/session/autosave.go: check cooldown (5 min), spawn detached `cc-deck snapshot save --auto` process, use flock to prevent concurrent saves, query plugin state with 5s timeout, write auto-N.json with rotation (keep latest 5), atomic rename
+- [ ] T014 (cc-mux-07e.2) [US2] Add auto-save trigger to cc-deck hook command in cc-deck/internal/cmd/hook.go: call AutoSave() (spawns background process) after zellij pipe succeeds
 
 **Checkpoint**: Auto-save fires on hook events with cooldown and rotation
 
@@ -71,12 +71,12 @@
 
 **Goal**: Users can save with custom names, list all snapshots, and restore specific named snapshots
 
-**Independent Test**: Run `cc-deck session save my-setup`, run `cc-deck session list`, verify name/timestamp/count shown, run `cc-deck session restore my-setup`
+**Independent Test**: Run `cc-deck snapshot save my-setup`, run `cc-deck snapshot list`, verify name/timestamp/count shown, run `cc-deck snapshot restore my-setup`
 
 ### Implementation for User Story 3
 
 - [ ] T015 (cc-mux-psp.1) [US3] Implement list command logic in cc-deck/internal/session/snapshot.go: scan sessions directory, parse each JSON file, display name/timestamp/session-count/type table sorted by timestamp
-- [ ] T016 (cc-mux-psp.2) [US3] Wire list RunE function in cc-deck/internal/cmd/session.go
+- [ ] T016 (cc-mux-psp.2) [US3] Wire list RunE function in cc-deck/internal/cmd/snapshot.go
 - [ ] T017 (cc-mux-psp.3) [US3] Update restore to select most recent snapshot (auto or named) when no name argument provided in cc-deck/internal/session/restore.go
 
 **Checkpoint**: Named saves, listing, and argument-less restore all working
@@ -87,12 +87,12 @@
 
 **Goal**: Users can remove individual or all snapshots
 
-**Independent Test**: Create named saves, run `cc-deck session remove <name>`, verify deleted, run `cc-deck session remove --all`, verify all cleared
+**Independent Test**: Create named saves, run `cc-deck snapshot remove <name>`, verify deleted, run `cc-deck snapshot remove --all`, verify all cleared
 
 ### Implementation for User Story 4
 
 - [ ] T018 (cc-mux-kab.1) [US4] Implement remove command logic in cc-deck/internal/session/snapshot.go: delete by name, delete all with --all flag, error with available names if not found
-- [ ] T019 (cc-mux-kab.2) [US4] Wire remove RunE function with --all flag in cc-deck/internal/cmd/session.go
+- [ ] T019 (cc-mux-kab.2) [US4] Wire remove RunE function with --all flag in cc-deck/internal/cmd/snapshot.go
 
 **Checkpoint**: All CRUD operations on snapshots complete
 
@@ -147,7 +147,7 @@ Task: "Add DumpState to PipeAction in cc-zellij-plugin/src/pipe_handler.rs"
 
 ```bash
 # All user stories can start simultaneously:
-Task: "US1 - Implement save command in cc-deck/internal/session/save.go"
+Task: "US1 - Implement save command in cc-deck/internal/cmd/snapshot.go"
 Task: "US2 - Implement auto-save in cc-deck/internal/session/autosave.go"
 Task: "US3 - Implement list in cc-deck/internal/session/snapshot.go"
 Task: "US4 - Implement remove in cc-deck/internal/session/snapshot.go"

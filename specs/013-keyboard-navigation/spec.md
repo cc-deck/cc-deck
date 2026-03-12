@@ -168,7 +168,7 @@ While in navigation mode, the user presses `n` to create a new session. This beh
 - **FR-012**: The `n` key MUST create a new session (identical to the [+] button action) in navigation mode.
 - **FR-013**: The `g`/`Home` and `G`/`End` keys MUST jump to the first and last session respectively.
 - **FR-014**: A configurable global shortcut (default `Alt+a`) MUST trigger the smart attend action from any Zellij mode except locked.
-- **FR-015**: Smart attend MUST prioritize sessions in this order: (1) PermissionRequest waiting (oldest first), (2) Notification waiting (oldest first), (3) idle/done sessions (tab order, top-to-bottom), (4) skip working sessions.
+- **FR-015**: Smart attend MUST prioritize sessions in this order: (1) PermissionRequest waiting (oldest first), (2) Notification waiting (oldest first, currently unreachable since Notification hooks are informational only and do not change activity state), (3) Done/AgentDone sessions (tab order, just finished and need review), (4) Idle/Init sessions (tab order, already seen), (5) skip Working sessions (actively running), (6) skip Paused sessions.
 - **FR-016**: Smart attend MUST skip the currently focused session when cycling, unless it is the only session.
 - **FR-017**: Global shortcuts MUST be registered dynamically at plugin load without modifying the user's config.kdl file.
 - **FR-018**: Global shortcuts MUST NOT override user-configured Zellij keybindings.
@@ -185,7 +185,7 @@ While in navigation mode, the user presses `n` to create a new session. This beh
 - **Navigation Mode**: A sidebar interaction state where the plugin is selectable and processes keyboard events for session list traversal and actions.
 - **Cursor**: A visual pre-selection marker shown as an amber tint background, indicating which session will receive the next action. Distinct from the active session's teal highlight.
 - **Smart Attend**: An enhanced session cycling algorithm that uses priority tiers (critical attention, soft attention, idle, working) to determine the next session to focus.
-- **Wait Reason**: A distinction between PermissionRequest (blocking, critical) and Notification (informational, soft) waiting states, used by the smart attend algorithm.
+- **Wait Reason**: A distinction between PermissionRequest (blocking, critical) and Notification (informational, soft) waiting states, used by the smart attend algorithm. Note: Notification hooks are informational only and do not create Activity::Waiting; only PermissionRequest sets the Waiting state. Tier 2 (Notification waiting) exists in the algorithm but is currently unreachable via hooks.
 
 ## Success Criteria *(mandatory)*
 
@@ -205,3 +205,10 @@ While in navigation mode, the user presses `n` to create a new session. This beh
 - Claude Code hook events provide enough information to distinguish PermissionRequest from Notification waiting states via the `hook_event_name` field values.
 - Cursor wrapping at list boundaries (top wraps to bottom, bottom wraps to top) is the expected behavior.
 - The navigate shortcut acts as a toggle: pressing it while in navigation mode exits to passive mode.
+
+## Evolution Notes (post-implementation)
+
+### Shared Attend Round-Robin State
+The `last_attended_pane_id` is persisted to `/cache/attend-state.json` so all plugin
+instances share the round-robin position. This is necessary because keybind re-registration
+on TabUpdate causes consecutive Alt+a presses to be handled by different instances.
