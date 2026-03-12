@@ -11,15 +11,19 @@
 #   make dev            Start Zellij with cc-deck layout for development
 
 VERSION    ?= 0.2.0
+REGISTRY   ?= quay.io/rhuss
 WASM_TARGET = wasm32-wasip1
 WASM_SRC    = cc-zellij-plugin/target/$(WASM_TARGET)/release/cc_deck.wasm
 WASM_DBG    = cc-zellij-plugin/target/$(WASM_TARGET)/debug/cc_deck.wasm
 WASM_DST    = cc-deck/internal/plugin/cc_deck.wasm
 CLI_BIN     = cc-deck/cc-deck
 
+BASE_IMAGE  = $(REGISTRY)/cc-deck-base
+
 .PHONY: build build-wasm build-wasm-debug copy-wasm build-cli \
         test test-go test-rust lint lint-go lint-rust \
         install uninstall status \
+        base-image base-image-push \
         dev reload clean help
 
 ## -- Build -------------------------------------------------
@@ -38,7 +42,8 @@ copy-wasm: $(WASM_SRC)  ## Copy WASM binary to Go embed location
 
 build-cli: $(WASM_DST)  ## Build Go CLI (requires WASM to be copied first)
 	cd cc-deck && go build \
-		-ldflags "-X main.Version=$(VERSION)" \
+		-ldflags "-X github.com/rhuss/cc-mux/cc-deck/internal/cmd.Version=$(VERSION) \
+		          -X github.com/rhuss/cc-mux/cc-deck/internal/cmd.ImageRegistry=$(REGISTRY)" \
 		-o cc-deck ./cmd/cc-deck
 
 $(WASM_DST):
@@ -76,6 +81,14 @@ uninstall:  ## Remove plugin from Zellij
 
 status:  ## Show plugin installation status
 	$(CLI_BIN) plugin status
+
+## -- Base Image -------------------------------------------
+
+base-image:  ## Build the cc-deck base container image
+	podman build -t $(BASE_IMAGE):latest base-image/
+
+base-image-push: base-image  ## Build and push the base image
+	podman push $(BASE_IMAGE):latest
 
 ## -- Development ------------------------------------------
 

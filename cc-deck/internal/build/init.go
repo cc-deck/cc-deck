@@ -53,6 +53,7 @@ func InitBuildDir(dir string, force bool) error {
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, map[string]string{
 		"ImageName": imageName,
+		"BaseImage": DefaultBaseImage,
 	}); err != nil {
 		return fmt.Errorf("executing manifest template: %w", err)
 	}

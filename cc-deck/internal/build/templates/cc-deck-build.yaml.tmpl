@@ -8,7 +8,7 @@ version: 1
 image:
   name: {{.ImageName}}
   # tag: latest
-  # base: ghcr.io/rhuss/cc-deck-base:latest
+  # base: {{.BaseImage}}
 
 # Tool dependencies (free-form text, resolved during Containerfile generation).
 # Add manually or discover automatically with /cc-deck.extract
@@ -16,6 +16,8 @@ image:
 #   - "Go compiler >= 1.22"
 #   - "Python 3.12 with uv package manager"
 #   - "Node.js 22 LTS"
+#   - "protoc and buf CLI"
+#   - "Rust stable toolchain"
 
 # Repositories analyzed for tool discovery (provenance tracking).
 # Populated by /cc-deck.extract
@@ -23,8 +25,8 @@ image:
 #   - url: https://github.com/org/repo
 #     ref: main
 #     path: /local/checkout/path
-#     detected_tools: ["Go 1.23"]
-#     detected_from: [go.mod]
+#     detected_tools: ["Go 1.23", "protoc >= 25.0"]
+#     detected_from: [go.mod, buf.yaml, .github/workflows/ci.yml]
 
 # Claude Code plugins to install.
 # Add with /cc-deck.plugin
@@ -44,6 +46,7 @@ image:
 #     auth:
 #       type: token
 #       env_vars: [GITHUB_TOKEN]
+#     description: GitHub API access for issue and PR management
 
 # Additional tools from GitHub releases.
 # github_tools:
@@ -56,4 +59,4 @@ image:
 # settings:
 #   claude_md: ./CLAUDE.md
 #   hooks: ./hooks.json
-#   zellij_config: current  # "current", "vanilla", or a path
+#   zellij_config: current  # "current" (copy local), "vanilla" (defaults), or a path

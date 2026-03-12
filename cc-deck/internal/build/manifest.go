@@ -103,10 +103,14 @@ func (m *Manifest) ImageRef() string {
 	return m.Image.Name + ":" + tag
 }
 
+// DefaultBaseImage is the fallback base image reference.
+// The registry prefix is set at build time via ldflags.
+var DefaultBaseImage = "quay.io/rhuss/cc-deck-base:latest"
+
 // BaseImage returns the base image reference, with default.
 func (m *Manifest) BaseImage() string {
 	if m.Image.Base != "" {
 		return m.Image.Base
 	}
-	return "ghcr.io/rhuss/cc-deck-base:latest"
+	return DefaultBaseImage
 }
