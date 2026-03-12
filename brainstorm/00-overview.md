@@ -1,6 +1,6 @@
 # Brainstorm Overview
 
-Last updated: 2026-03-11
+Last updated: 2026-03-12
 
 ## Sessions
 
@@ -19,13 +19,17 @@ Last updated: 2026-03-11
 | 11 | 2026-03-10 | pause-and-help | active | 014 |
 | 15 | 2026-03-10 | session-save-restore | active | 015 |
 | 16 | 2026-03-11 | k8s-integration-tests | active | - |
+| 17 | 2026-03-12 | base-image | active | - |
+| 18 | 2026-03-12 | build-manifest | active | - |
+| 19 | 2026-03-12 | build-commands | active | - |
+| 20 | 2026-03-12 | deploy-integration | active | - |
 
 ## Open Threads
 
 - Vertex AI Workload Identity vs service account key for GKE/OpenShift (from #02)
 - Base container image definition (from #02)
 - Move Rust code to cc-zellij-plugin/ subdirectory (from #03)
-- Image building out of scope, future separate project (from #04)
+- Image building: addressed in #17-#20 (base image, build manifest, build commands, deploy)
 - Composable features (devcontainer-style) deferred to future iteration (from #04)
 - Zellij plugin clipboard integration is stretch goal (from #05)
 - Build pipeline orchestration: Makefile/Taskfile location (from #06)
