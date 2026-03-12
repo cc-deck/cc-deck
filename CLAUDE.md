@@ -12,6 +12,13 @@ Auto-generated from all feature plans. Last updated: 2026-03-03
 - Rust stable (edition 2021, wasm32-wasip1 target) for plugin; Go 1.22+ for CLI + zellij-tile 0.43.1 (plugin SDK), serde/serde_json 1.x; cobra (CLI), encoding/json (Go stdlib) (012-sidebar-plugin)
 - WASI `/cache/` directory for plugin state; filesystem for installation artifacts (012-sidebar-plugin)
 - WASI `/cache/` for plugin state (013-keyboard-navigation)
+- Rust stable (edition 2021, wasm32-wasip1 target) + zellij-tile 0.43.1, serde/serde_json 1.x (014-pause-and-help)
+- Go 1.22+ (CLI), Rust stable wasm32-wasip1 (plugin) + cobra (CLI), adrg/xdg (XDG paths), serde/serde_json (plugin serialization), zellij-tile 0.43.1 (plugin SDK) (015-session-save-restore)
+- JSON files in `$XDG_CONFIG_HOME/cc-deck/sessions/` (015-session-save-restore)
+- Go 1.22+ (go.mod specifies 1.25) + k8s.io/client-go v0.35.2, github.com/stretchr/testify (new), cobra (existing) (016-k8s-integration-tests)
+- N/A (tests create/delete K8s resources) (016-k8s-integration-tests)
+- Containerfile (OCI image build), shell scripts (bash) + Fedora 41 base image, dnf packages, starship (GitHub release) (017-base-image)
+- N/A (stateless image artifact) (017-base-image)
 
 - Rust (stable, latest edition 2021+) + `zellij-tile` (plugin SDK), `serde`/`serde_json` (serialization) (001-cc-deck)
 
@@ -33,9 +40,9 @@ cargo test [ONLY COMMANDS FOR ACTIVE TECHNOLOGIES][ONLY COMMANDS FOR ACTIVE TECH
 Rust (stable, latest edition 2021+): Follow standard conventions
 
 ## Recent Changes
-- 013-keyboard-navigation: Added Rust stable (edition 2021, wasm32-wasip1 target) for plugin; Go 1.22+ for CLI + zellij-tile 0.43.1 (plugin SDK), serde/serde_json 1.x
-- 012-sidebar-plugin: Added Rust stable (edition 2021, wasm32-wasip1 target) for plugin; Go 1.22+ for CLI + zellij-tile 0.43.1 (plugin SDK), serde/serde_json 1.x; cobra (CLI), encoding/json (Go stdlib)
-- 010-plugin-bugfixes: Added Rust (stable, wasm32-wasip1 target) with zellij-tile 0.43.1 + zellij-tile 0.43 (plugin SDK), serde/serde_json (serialization)
+- 017-base-image: Added Containerfile (OCI image build), shell scripts (bash) + Fedora 41 base image, dnf packages, starship (GitHub release)
+- 016-k8s-integration-tests: Added Go 1.22+ (go.mod specifies 1.25) + k8s.io/client-go v0.35.2, github.com/stretchr/testify (new), cobra (existing)
+- 015-session-save-restore: Added Go 1.22+ (CLI), Rust stable wasm32-wasip1 (plugin) + cobra (CLI), adrg/xdg (XDG paths), serde/serde_json (plugin serialization), zellij-tile 0.43.1 (plugin SDK)
 
 
 <!-- MANUAL ADDITIONS START -->
