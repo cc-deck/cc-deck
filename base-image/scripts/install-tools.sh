@@ -27,6 +27,7 @@ dnf install -y --setopt=install_weak_deps=False \
   make \
   sudo \
   tree \
+  unzip \
   less \
   ca-certificates \
   nodejs \
