@@ -89,6 +89,16 @@ pub struct PluginState {
     /// Entering nav mode triggers a PaneUpdate with stale focus before
     /// focus_plugin_pane takes effect, which would immediately exit nav mode.
     pub nav_enter_guard: bool,
+    /// Pending metadata overrides from snapshot restore, keyed by working directory.
+    /// Applied when a hook event arrives with a matching CWD, then removed.
+    pub pending_overrides: HashMap<String, PendingOverride>,
+}
+
+/// Metadata override to apply when a restored session is discovered.
+#[derive(Debug, Clone)]
+pub struct PendingOverride {
+    pub display_name: String,
+    pub paused: bool,
 }
 
 impl PluginState {
@@ -128,23 +138,40 @@ impl PluginState {
     }
 
     /// Remove sessions whose panes no longer exist.
+    /// Uses the raw pane manifest (stable pane IDs) instead of the derived
+    /// pane_to_tab map, which can be temporarily wrong when tab positions
+    /// shift after a tab close (TabUpdate arrives before PaneUpdate).
     pub fn remove_dead_sessions(&mut self) -> bool {
         let before = self.sessions.len();
         if before == 0 {
             return false;
         }
-        if self.pane_to_tab.is_empty() && self.pane_manifest.is_some() {
+        let manifest = match self.pane_manifest {
+            Some(ref m) => m,
+            None => return false,
+        };
+
+        // Collect all terminal pane IDs from the manifest (across all tabs).
+        // Pane IDs are globally unique and stable regardless of tab position shifts.
+        let mut all_pane_ids = std::collections::HashSet::new();
+        for panes in manifest.panes.values() {
+            for pane in panes {
+                if !pane.is_plugin {
+                    all_pane_ids.insert(pane.id);
+                }
+            }
+        }
+
+        if all_pane_ids.is_empty() {
+            // Manifest has no terminal panes at all; don't remove anything
+            // (could be a transient state during startup).
             return false;
         }
-        if self.pane_manifest.is_some() {
-            let session_keys: Vec<_> = self.sessions.keys().cloned().collect();
-            let pane_keys: Vec<_> = self.pane_to_tab.keys().cloned().collect();
-            self.sessions
-                .retain(|pane_id, _| self.pane_to_tab.contains_key(pane_id));
-            if self.sessions.len() != before {
-                crate::debug_log(&format!("CLEANUP removed: session_keys={:?} pane_keys={:?} remaining={}",
-                    session_keys, pane_keys, self.sessions.len()));
-            }
+
+        self.sessions.retain(|pane_id, _| all_pane_ids.contains(pane_id));
+        if self.sessions.len() != before {
+            crate::debug_log(&format!("CLEANUP removed {} dead sessions, {} remaining",
+                before - self.sessions.len(), self.sessions.len()));
         }
         self.sessions.len() != before
     }

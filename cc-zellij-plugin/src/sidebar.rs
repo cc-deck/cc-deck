@@ -169,13 +169,24 @@ pub fn render_sidebar(state: &PluginState, rows: usize, cols: usize) -> Vec<Clic
             let max_input = cols.saturating_sub(prefix.len());
             let buf = &fs.input_buffer;
             let cursor_pos = fs.cursor_pos.min(buf.len());
-            let before = &buf[..cursor_pos];
-            let cursor_char = buf.get(cursor_pos..cursor_pos + 1).unwrap_or(" ");
-            let after = if cursor_pos < buf.len() { &buf[cursor_pos + 1..] } else { "" };
-            let input_display = if buf.len() <= max_input {
-                format!("{before}\x1b[7m{cursor_char}\x1b[0m{after}")
+            let (vis_start, vis_end) = if buf.len() <= max_input {
+                (0, buf.len())
+            } else if cursor_pos <= max_input {
+                (0, max_input)
             } else {
-                truncate(buf, max_input).to_string()
+                (cursor_pos - max_input + 1, cursor_pos + 1)
+            };
+            let vis_end = vis_end.min(buf.len());
+            let vis_cursor = cursor_pos - vis_start;
+            let visible = &buf[vis_start..vis_end];
+            let input_display = if cursor_pos == buf.len() && visible.len() >= max_input {
+                let last_start = visible.len().saturating_sub(1);
+                format!("{}\x1b[7m{}\x1b[0m", &visible[..last_start], &visible[last_start..])
+            } else {
+                let before = &visible[..vis_cursor];
+                let cursor_char = visible.get(vis_cursor..vis_cursor + 1).unwrap_or(" ");
+                let after = if vis_cursor < visible.len() { &visible[vis_cursor + 1..] } else { "" };
+                format!("{before}\x1b[7m{cursor_char}\x1b[0m{after}")
             };
             let search_line = format!("\x1b[2m{prefix}\x1b[0m{input_display}");
             print!("\x1b[{};1H{}", row + 1, pad(&search_line, cols));
@@ -266,16 +277,31 @@ fn render_session_entry(
         let buf = &rs.input_buffer;
         let cursor_pos = rs.cursor_pos.min(buf.len());
 
-        let before = &buf[..cursor_pos];
-        let cursor_char = buf.get(cursor_pos..cursor_pos + 1).unwrap_or(" ");
-        let after = if cursor_pos < buf.len() { &buf[cursor_pos + 1..] } else { "" };
-
-        // Truncate if needed (simple approach)
-        let input_display = if buf.len() <= max_input {
-            format!("{before}\x1b[7m{cursor_char}\x1b[0m{rename_bg}{rename_fg}{after}")
+        // Window the visible portion around the cursor when text overflows
+        let (vis_start, vis_end) = if buf.len() <= max_input {
+            (0, buf.len())
+        } else if cursor_pos <= max_input {
+            (0, max_input)
         } else {
-            let truncated = truncate(buf, max_input);
-            truncated.to_string()
+            (cursor_pos - max_input + 1, cursor_pos + 1)
+        };
+        let vis_end = vis_end.min(buf.len());
+
+        let vis_cursor = cursor_pos - vis_start; // cursor position within visible window
+        let visible = &buf[vis_start..vis_end];
+
+        // When cursor is at end and name fills the width, show cursor on last char
+        let input_display = if cursor_pos == buf.len() && visible.len() >= max_input {
+            // Place cursor (reverse video) over the last visible character
+            let last_char_start = visible.len().saturating_sub(1);
+            let before_last = &visible[..last_char_start];
+            let last_ch = &visible[last_char_start..];
+            format!("{before_last}\x1b[7m{last_ch}\x1b[0m{rename_bg}{rename_fg}")
+        } else {
+            let before = &visible[..vis_cursor];
+            let cursor_char = visible.get(vis_cursor..vis_cursor + 1).unwrap_or(" ");
+            let after = if vis_cursor < visible.len() { &visible[vis_cursor + 1..] } else { "" };
+            format!("{before}\x1b[7m{cursor_char}\x1b[0m{rename_bg}{rename_fg}{after}")
         };
 
         format!("{prefix}{input_display}{RESET}")

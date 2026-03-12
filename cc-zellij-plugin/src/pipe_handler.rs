@@ -31,6 +31,8 @@ pub enum PipeAction {
     Navigate,
     /// Dump state action - serialize all sessions for CLI (cc-deck:dump-state).
     DumpState,
+    /// Restore metadata overrides from snapshot (cc-deck:restore-meta).
+    RestoreMeta(String),
     /// Unknown message.
     Unknown,
 }
@@ -57,6 +59,9 @@ pub fn parse_pipe_message(name: &str, payload: Option<&str>) -> PipeAction {
         "cc-deck:new" => PipeAction::NewSession,
         "cc-deck:navigate" | "navigate" => PipeAction::Navigate,
         "cc-deck:dump-state" => PipeAction::DumpState,
+        "cc-deck:restore-meta" => {
+            PipeAction::RestoreMeta(payload.unwrap_or("").to_string())
+        }
         _ => PipeAction::Unknown,
     }
 }

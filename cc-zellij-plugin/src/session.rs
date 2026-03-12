@@ -76,6 +76,10 @@ pub struct Session {
     pub manually_renamed: bool,
     #[serde(default)]
     pub paused: bool,
+    /// Timestamp of last user metadata change (rename, pause toggle).
+    /// Separate from last_event_ts which tracks hook events.
+    #[serde(default)]
+    pub meta_ts: u64,
 }
 
 impl Session {
@@ -92,6 +96,7 @@ impl Session {
             last_event_ts: unix_now(),
             manually_renamed: false,
             paused: false,
+            meta_ts: 0,
         }
     }
 
