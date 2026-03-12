@@ -1,0 +1,37 @@
+# cc-deck base .zshrc
+# Provides a productive shell environment with modern tool integrations.
+
+# Shell options
+setopt no_beep hist_ignore_all_dups share_history autocd
+
+# History
+HISTFILE=~/.zsh_history
+HISTSIZE=10000
+SAVEHIST=10000
+
+# Starship prompt
+eval "$(starship init zsh)"
+
+# Zoxide (smart cd)
+eval "$(zoxide init zsh)"
+
+# fzf integration
+source <(fzf --zsh) 2>/dev/null
+
+# Modern tool aliases
+alias cat="bat"
+alias ls="lsd"
+alias ll="lsd -l"
+alias la="lsd -a"
+alias lla="lsd -la"
+alias lt="lsd --tree"
+
+# Git aliases
+alias gl="git log --oneline --graph"
+
+# npm global bin on PATH
+export PATH="$HOME/.local/lib/npm/bin:$HOME/.local/bin:$PATH"
+
+# Editor
+export EDITOR="hx"
+export VISUAL="hx"

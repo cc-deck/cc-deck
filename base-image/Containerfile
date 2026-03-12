@@ -1,0 +1,29 @@
+# cc-deck Base Container Image
+# Fedora-based developer toolbox for Claude Code environments.
+# Does NOT include Zellij, Claude Code, or cc-deck (added during user image build).
+#
+# Build:  podman build -t cc-deck-base:local .
+# Run:    podman run -it --rm cc-deck-base:local
+
+ARG FEDORA_VERSION=41
+FROM registry.fedoraproject.org/fedora:${FEDORA_VERSION}
+
+LABEL org.opencontainers.image.title="cc-deck-base" \
+      org.opencontainers.image.description="Developer toolbox for Claude Code environments" \
+      org.opencontainers.image.source="https://github.com/rhuss/cc-deck"
+
+# Install all developer tools + starship
+COPY scripts/install-tools.sh /tmp/install-tools.sh
+RUN /tmp/install-tools.sh && rm /tmp/install-tools.sh
+
+# Create non-root user with sudo, XDG dirs, npm prefix, git config
+COPY scripts/setup-user.sh /tmp/setup-user.sh
+RUN /tmp/setup-user.sh && rm /tmp/setup-user.sh
+
+# Shell configuration (as coder user's dotfiles)
+COPY --chown=1000:1000 config/starship.toml /home/coder/.config/starship.toml
+COPY --chown=1000:1000 config/zshrc /home/coder/.zshrc
+
+USER coder
+WORKDIR /home/coder
+CMD ["/bin/zsh"]
