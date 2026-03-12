@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"github.com/rhuss/cc-mux/cc-deck/internal/build"
 	"github.com/rhuss/cc-mux/cc-deck/internal/cmd"
 )
 
@@ -52,7 +53,7 @@ and managing remote Claude Code sessions.`,
 	rootCmd.AddCommand(cmd.NewPluginCmd(gf))
 	rootCmd.AddCommand(cmd.NewSnapshotCmd(gf))
 	rootCmd.AddCommand(cmd.NewHookCmd())
-	rootCmd.AddCommand(cmd.NewBuildCmd(gf))
+	rootCmd.AddCommand(cmd.NewImageCmd(gf))
 	rootCmd.AddCommand(newCompletionCmd())
 
 	return rootCmd
@@ -133,6 +134,11 @@ func initConfig(gf *cmd.GlobalFlags) {
 }
 
 func main() {
+	// Propagate build-time registry to the build package
+	if cmd.ImageRegistry != "" {
+		build.DefaultBaseImage = cmd.ImageRegistry + "/cc-deck-base:latest"
+	}
+
 	rootCmd := newRootCmd()
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)

@@ -12,9 +12,10 @@ import (
 
 // Build-time variables set via ldflags.
 var (
-	Version = "dev"
-	Commit  = "unknown"
-	Date    = "unknown"
+	Version       = "dev"
+	Commit        = "unknown"
+	Date          = "unknown"
+	ImageRegistry = "quay.io/rhuss"
 )
 
 type versionInfo struct {
