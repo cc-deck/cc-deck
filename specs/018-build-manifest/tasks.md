@@ -17,9 +17,9 @@
 
 **Purpose**: Create the build package structure and shared utilities.
 
-- [ ] T001 (cc-mux-yuq.1) Create `cc-deck/internal/build/` package directory
-- [ ] T002 (cc-mux-yuq.2) [P] Create `cc-deck/internal/build/manifest.go` with Manifest struct and YAML field tags matching the `cc-deck-build.yaml` schema (image, tools, sources, plugins, mcp, github_tools, settings sections)
-- [ ] T003 (cc-mux-yuq.3) [P] Create `cc-deck/internal/build/runtime.go` with `DetectRuntime() string` function that checks for podman first, then docker, returns the binary name or error
+- [x] T001 (cc-mux-yuq.1) Create `internal/build/` package directory
+- [x] T002 (cc-mux-yuq.2) [P] Create `internal/build/manifest.go` with Manifest struct and YAML field tags matching the `cc-deck-build.yaml` schema (image, tools, sources, plugins, mcp, github_tools, settings sections)
+- [x] T003 (cc-mux-yuq.3) [P] Create `internal/build/runtime.go` with `DetectRuntime() string` function that checks for podman first, then docker, returns the binary name or error
 
 **Checkpoint**: Build package exists with manifest model and runtime detection.
 
@@ -31,10 +31,10 @@
 
 **⚠️ CRITICAL**: The init command extracts these embedded files.
 
-- [ ] T004 (cc-mux-dwj.1) Create `cc-deck/internal/build/commands/` directory with the 5 Claude Code command files: `cc-deck.extract.md`, `cc-deck.plugin.md`, `cc-deck.mcp.md`, `cc-deck.containerfile.md`, `cc-deck.publish.md`
-- [ ] T005 (cc-mux-dwj.2) [P] Create `cc-deck/internal/build/scripts/` directory with helper scripts: `validate-manifest.sh`, `update-manifest.sh`
-- [ ] T006 (cc-mux-dwj.3) Create `cc-deck/internal/build/embed.go` with `go:embed` directives for `commands/*` and `scripts/*` directories, plus accessor functions
-- [ ] T007 (cc-mux-dwj.4) [P] Create `cc-deck/internal/build/templates/` with `cc-deck-build.yaml.tmpl` scaffold template (commented examples for each section)
+- [x] T004 (cc-mux-dwj.1) Create `internal/build/commands/` directory with the 5 Claude Code command files: `cc-deck.extract.md`, `cc-deck.plugin.md`, `cc-deck.mcp.md`, `cc-deck.containerfile.md`, `cc-deck.publish.md`
+- [x] T005 (cc-mux-dwj.2) [P] Create `internal/build/scripts/` directory with helper scripts: `validate-manifest.sh`, `update-manifest.sh`
+- [x] T006 (cc-mux-dwj.3) Create `internal/build/embed.go` with `go:embed` directives for `commands/*` and `scripts/*` directories, plus accessor functions
+- [x] T007 (cc-mux-dwj.4) [P] Create `internal/build/templates/` with `cc-deck-build.yaml.tmpl` scaffold template (commented examples for each section)
 
 **Checkpoint**: All embeddable assets exist. `go build` succeeds with embedded assets.
 
@@ -48,10 +48,10 @@
 
 ### Implementation for User Story 1
 
-- [ ] T008 (cc-mux-t9z.1) [US1] Create `cc-deck/internal/build/init.go` with `InitBuildDir(dir string, force bool) error` that creates directory, extracts manifest template, commands, scripts, and generates `.gitignore`
-- [ ] T009 (cc-mux-t9z.2) [US1] Create `cc-deck/internal/cmd/build.go` with cobra parent command `build` and subcommand `init` (args: `<dir>`, flags: `--force`)
-- [ ] T010 (cc-mux-t9z.3) [US1] Register the `build` command in `cc-deck/cmd/cc-deck/main.go`
-- [ ] T011 (cc-mux-t9z.4) [US1] Verify: run `cc-deck build init /tmp/test-build`, confirm directory structure matches plan.md layout, manifest is valid YAML, commands are extracted
+- [x] T008 (cc-mux-t9z.1) [US1] Create `internal/build/init.go` with `InitBuildDir(dir string, force bool) error` that creates directory, extracts manifest template, commands, scripts, and generates `.gitignore`
+- [x] T009 (cc-mux-t9z.2) [US1] Create `internal/cmd/build.go` with cobra parent command `build` and subcommand `init` (args: `<dir>`, flags: `--force`)
+- [x] T010 (cc-mux-t9z.3) [US1] Register the `build` command in `cmd/cc-deck/main.go`
+- [x] T011 (cc-mux-t9z.4) [US1] Verify: run `cc-deck build init /tmp/test-build`, confirm directory structure matches plan.md layout, manifest is valid YAML, commands are extracted
 
 **Checkpoint**: `cc-deck build init` works. Build directory is ready for AI-driven population.
 
