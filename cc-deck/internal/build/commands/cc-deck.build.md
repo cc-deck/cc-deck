@@ -54,6 +54,10 @@ RUN npm install -g @anthropic-ai/claude-code
 # Layer: Plugins
 RUN <plugin install commands>
 
+# Layer: User setup
+RUN useradd -m -s /bin/zsh coder 2>/dev/null || true
+RUN touch /home/coder/.zshrc && chown coder:coder /home/coder/.zshrc
+
 # Layer: Configuration (changes often)
 # <settings-based COPY commands>
 
