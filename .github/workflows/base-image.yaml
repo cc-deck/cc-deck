@@ -84,6 +84,8 @@ jobs:
       contents: read
       packages: write
     steps:
+      - uses: actions/checkout@v4
+
       - name: Log in to registry
         uses: docker/login-action@v3
         with:
@@ -95,6 +97,11 @@ jobs:
         id: tags
         run: |
           TAGS="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
+          # Add fedora version tag (extracted from Containerfile ARG)
+          FEDORA_VERSION=$(grep -oP 'ARG FEDORA_VERSION=\K\d+' base-image/Containerfile || echo "")
+          if [ -n "$FEDORA_VERSION" ]; then
+            TAGS="$TAGS,${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:fedora-${FEDORA_VERSION}"
+          fi
           if [ "${{ github.event_name }}" = "release" ]; then
             VERSION="${{ github.event.release.tag_name }}"
             TAGS="$TAGS,${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${VERSION}"
