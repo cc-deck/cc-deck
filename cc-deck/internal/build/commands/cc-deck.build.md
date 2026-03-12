@@ -48,7 +48,10 @@ RUN <curl downloads for each github_tool>
 
 # Layer: cc-deck self-install (Zellij + plugin + layouts)
 COPY .build-context/cc-deck-linux-${TARGETARCH} /usr/local/bin/cc-deck
-RUN chmod +x /usr/local/bin/cc-deck && cc-deck plugin install --install-zellij --force
+RUN chmod +x /usr/local/bin/cc-deck && \
+    ZELLIJ_CONFIG_DIR=/home/coder/.config/zellij \
+    cc-deck plugin install --install-zellij --force && \
+    chown -R coder:coder /home/coder/.config/zellij
 
 # Layer: Claude Code
 RUN npm install -g @anthropic-ai/claude-code
