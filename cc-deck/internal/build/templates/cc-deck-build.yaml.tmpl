@@ -1,0 +1,59 @@
+# cc-deck Build Manifest
+# This file describes the container image to build for your Claude Code environment.
+# Populate it using Claude Code commands: /cc-deck.extract, /cc-deck.plugin, /cc-deck.mcp
+# Then generate the Containerfile: /cc-deck.containerfile
+
+version: 1
+
+image:
+  name: {{.ImageName}}
+  # tag: latest
+  # base: ghcr.io/rhuss/cc-deck-base:latest
+
+# Tool dependencies (free-form text, resolved during Containerfile generation).
+# Add manually or discover automatically with /cc-deck.extract
+# tools:
+#   - "Go compiler >= 1.22"
+#   - "Python 3.12 with uv package manager"
+#   - "Node.js 22 LTS"
+
+# Repositories analyzed for tool discovery (provenance tracking).
+# Populated by /cc-deck.extract
+# sources:
+#   - url: https://github.com/org/repo
+#     ref: main
+#     path: /local/checkout/path
+#     detected_tools: ["Go 1.23"]
+#     detected_from: [go.mod]
+
+# Claude Code plugins to install.
+# Add with /cc-deck.plugin
+# plugins:
+#   - name: sdd
+#     source: marketplace
+#   - name: custom-plugin
+#     source: "git:https://github.com/org/plugin.git"
+
+# MCP server sidecars (for compose/k8s deployment).
+# Add with /cc-deck.mcp
+# mcp:
+#   - name: github
+#     image: ghcr.io/modelcontextprotocol/github-mcp:latest
+#     transport: sse
+#     port: 8000
+#     auth:
+#       type: token
+#       env_vars: [GITHUB_TOKEN]
+
+# Additional tools from GitHub releases.
+# github_tools:
+#   - repo: rhuss/cc-setup
+#     binary: cc-setup
+#   - repo: rhuss/cc-session
+#     binary: cc-session
+
+# Claude Code configuration to bake into the image.
+# settings:
+#   claude_md: ./CLAUDE.md
+#   hooks: ./hooks.json
+#   zellij_config: current  # "current", "vanilla", or a path
