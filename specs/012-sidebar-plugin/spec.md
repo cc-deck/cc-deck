@@ -164,15 +164,15 @@ A developer wants to remove cc-deck. They run `cc-deck uninstall`, which safely 
 - **FR-005**: Multiple sidebar instances (one per tab) MUST synchronize their state so all show identical session information
 - **FR-006**: Clicking a session entry MUST switch focus to the tab containing that session
 - **FR-007**: The sidebar MUST auto-detect Claude Code sessions by tracking panes that receive hook events
-- **FR-008**: The sidebar MUST auto-name sessions based on git repository detection, falling back to directory basename
+- **FR-008**: The sidebar MUST auto-name sessions based on git repository detection, falling back to directory basename. Tab auto-rename MUST happen once when a session's display name is first set (from directory or git detection), only when there is a single session on that tab.
 - **FR-009**: The sidebar MUST handle sessions disappearing (tab/pane closed) by removing them from the list
-- **FR-010**: The sidebar MUST display elapsed time since the last activity change for sessions in Working, Waiting, and Done states (not for Init or Idle)
+- **FR-010**: ~~REMOVED~~ Elapsed time display was removed. The sidebar no longer shows elapsed time for any activity state. The timer interval (now 10s, non-configurable) is used only for stale session cleanup.
 - **FR-011**: The sidebar MUST have a configurable width with a sensible default, adjustable via plugin configuration parameters
 
 **Hook Integration:**
 - **FR-012**: The `cc-deck hook` command MUST read Claude Code hook JSON from stdin and forward it as a pipe message to the cc-deck plugin
 - **FR-013**: The hook command MUST exit silently (code 0, no output) if Zellij is not running or if input is malformed
-- **FR-014**: The hook command MUST handle all Claude Code hook event types: SessionStart, SessionEnd, PreToolUse, PostToolUse, PostToolUseFailure, UserPromptSubmit, PermissionRequest, Notification, Stop, SubagentStop
+- **FR-014**: The hook command MUST handle all Claude Code hook event types. The following events are registered in `settings.json`: SessionStart, PreToolUse, PostToolUse, UserPromptSubmit, PermissionRequest, Stop, SubagentStop. The hook command accepts any event type, but only these are actively registered.
 - **FR-015**: The hook command MUST include the Zellij pane ID in forwarded messages so the plugin can associate events with sessions
 
 **Installation:**
@@ -202,7 +202,7 @@ A developer wants to remove cc-deck. They run `cc-deck uninstall`, which safely 
 ### Key Entities
 
 - **Session**: Represents a single Claude Code instance. Key attributes: display name, activity state, pane ID, tab index, working directory, git branch, last event timestamp.
-- **Activity**: The current state of a session. States: Init, Working (thinking/tool use), Waiting (permission request), Idle, Done, Exited. Tool-specific sub-states during Working (e.g., Bash, Edit, Read).
+- **Activity**: The current state of a session. States: Init, Working, Waiting (permission request), Idle, Done, AgentDone. Init displays identically to Idle (same ○ indicator, same color). Sessions are removed entirely on SessionEnd (no intermediate Exited state).
 - **Deck**: A logical grouping of sessions. Maps to a Zellij session. Contains zero or more sessions.
 - **HookEvent**: A notification from Claude Code about session activity. Contains: session ID, pane ID, event type, tool name (optional), working directory.
 
@@ -249,3 +249,25 @@ A developer wants to remove cc-deck. They run `cc-deck uninstall`, which safely 
 - Remote/container-based session management
 - Deck lifecycle management from CLI (`cc-deck new`, `cc-deck switch`)
 - Session persistence across Zellij restarts
+
+## Evolution Notes (post-implementation)
+
+### File-Based Metadata Sync
+Pipe-based broadcast (`pipe_message_to_plugin`) proved unreliable for cross-instance
+sync in Zellij 0.43. User-action metadata (rename, pause) is now synced via a shared
+WASI file (`/cache/session-meta.json`). Each instance writes on rename/pause and reads
+on timer. The `meta_ts` field (separate from `last_event_ts`) tracks metadata changes.
+
+### Keybind Re-registration
+`MessagePluginId` routes keybinds to a specific plugin instance. If that instance's tab
+is closed, the keybind breaks (dead plugin ID). Fix: the active-tab instance re-registers
+keybindings on every TabUpdate event, ensuring keybinds always point to a live plugin.
+
+### Dead Session Cleanup
+`remove_dead_sessions` now checks the raw PaneManifest (stable pane IDs) instead of the
+derived pane_to_tab map. This avoids false removal during the brief desync window between
+TabUpdate (shifted positions) and PaneUpdate (stale manifest).
+
+### Git Branch Re-detection
+Git branches are re-detected on every timer tick (10s) for all sessions, not just on
+initial CWD discovery. This picks up branch switches that happen without a CWD change.

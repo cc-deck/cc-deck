@@ -47,14 +47,17 @@ Keys are pane IDs (as strings, from BTreeMap serialization).
 
 ## CLI Command Schemas
 
-### cc-deck session save [name]
+### cc-deck snapshot save [name]
 
 ```
 Arguments:
-  name    Optional snapshot name. If omitted, generates timestamp-based name.
+  name    Optional snapshot name. If omitted, generates sequential name (snapshot-1, snapshot-2, ...).
+
+Flags:
+  --auto  Perform rolling auto-save with cooldown and file lock (hidden, used by hook).
 
 Output:
-  "Saved session snapshot: <name> (N sessions)"
+  "Saved snapshot: <name> (N sessions)"
 
 Exit codes:
   0  Success
@@ -62,7 +65,7 @@ Exit codes:
   1  Failed to write state file
 ```
 
-### cc-deck session restore [name]
+### cc-deck snapshot restore [name]
 
 ```
 Arguments:
@@ -80,7 +83,7 @@ Exit codes:
   1  Not running inside Zellij
 ```
 
-### cc-deck session list
+### cc-deck snapshot list
 
 ```
 Output:
@@ -93,7 +96,7 @@ Exit codes:
   0  Success (even if empty list)
 ```
 
-### cc-deck session remove <name>
+### cc-deck snapshot remove <name>
 
 ```
 Arguments:

@@ -64,9 +64,9 @@
 
 ## Phase 4: User Story 3 - Smart Attend (Priority: P2)
 
-**Goal**: Enhanced attend algorithm with tiered priority: Permission > Notification > idle (newest first). Skip current session.
+**Goal**: Enhanced attend algorithm with tiered priority: Permission > Notification > idle (tab order). Skip current session.
 
-**Independent Test**: Create sessions in different states. Press `Alt+a` repeatedly. Verify PermissionRequest sessions are focused first, then Notification, then idle (newest first).
+**Independent Test**: Create sessions in different states. Press `Alt+a` repeatedly. Verify PermissionRequest sessions are focused first, then Notification, then idle (tab order, top-to-bottom).
 
 ### Implementation for User Story 3
 
