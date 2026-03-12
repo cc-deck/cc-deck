@@ -120,8 +120,8 @@ the image works correctly with the updated base.
 ### Functional Requirements
 
 - **FR-001**: The base image MUST be built from the latest stable Fedora release.
-- **FR-002**: The base image MUST include Node.js (LTS, via system package manager)
-  for Claude Code installation during user image build.
+- **FR-002**: The base image MUST include Node.js (current stable from the OS
+  package manager) and npm for Claude Code installation during user image build.
 - **FR-003**: The base image MUST include Python 3 and the `uv` package manager
   for MCP server tooling and development.
 - **FR-004**: The base image MUST include these version control tools: `git`, `gh`
@@ -136,8 +136,8 @@ the image works correctly with the updated base.
 - **FR-009**: The base image MUST include network and system tools: `curl`, `wget`,
   `htop`, `netcat` (nc), `dig`/`nslookup`, `ssh`/`scp`, `make`, `sudo`.
 - **FR-010**: The base image MUST include `ca-certificates` for TLS trust.
-- **FR-011**: The base image MUST create a non-root user named `coder` with home
-  directory at `/home/coder`.
+- **FR-011**: The base image MUST create a non-root user named `coder` (UID 1000)
+  with home directory at `/home/coder`.
 - **FR-012**: The `coder` user MUST have passwordless sudo access.
 - **FR-013**: The `coder` user MUST have proper XDG directory structure
   (`~/.config/`, `~/.local/`, `~/.cache/`).
@@ -177,8 +177,8 @@ the image works correctly with the updated base.
   listed tools available within 5 seconds of shell startup.
 - **SC-002**: The base image works identically on amd64 and arm64 architectures with
   no tool failures or missing binaries on either platform.
-- **SC-003**: A user image built on top of the base image (adding Claude Code, Zellij,
-  and cc-deck) can be created in under 5 minutes on a typical broadband connection.
+- **SC-003**: The base image can be pulled on a typical broadband connection in
+  under 2 minutes.
 - **SC-004**: The base image size stays under 1.5 GB (compressed) to keep pull times
   reasonable.
 - **SC-005**: The `coder` user can install npm global packages and Python packages
