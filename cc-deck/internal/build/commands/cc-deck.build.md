@@ -18,7 +18,7 @@ Read `cc-deck-build.yaml` and validate it has `version` and `image.name`. Extrac
 
 Generate a complete Containerfile from the manifest. Follow these rules:
 
-**Base image**: Use the `image.base` field from the manifest. If not set, the default is the cc-deck base image (check `cc-deck-build.yaml` for the commented-out `base:` line). The base image is Fedora-based and already includes common developer tools (git, jq, zsh, starship, etc.), so do NOT reinstall packages that the base image already provides.
+**Base image**: Use the `image.base` field from the manifest. The base image is Fedora-based and already includes common developer tools (git, jq, zsh, nodejs, npm, python3, uv, ripgrep, bat, lsd, starship, etc.), so do NOT reinstall packages that the base image already provides. The base image does NOT include Zellij, cc-deck, or Claude Code. Those are installed in the user image layers below.
 
 **Tool resolution**: For each entry in the `tools` section, determine the concrete install command:
 - The base image is Fedora-based. Map to `dnf install` packages where possible
