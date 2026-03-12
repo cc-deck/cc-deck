@@ -50,7 +50,7 @@ and managing remote Claude Code sessions.`,
 	rootCmd.AddCommand(cmd.NewLogsCmd(gf))
 	rootCmd.AddCommand(cmd.NewVersionCmd(gf))
 	rootCmd.AddCommand(cmd.NewPluginCmd(gf))
-	rootCmd.AddCommand(cmd.NewSessionCmd(gf))
+	rootCmd.AddCommand(cmd.NewSnapshotCmd(gf))
 	rootCmd.AddCommand(cmd.NewHookCmd())
 	rootCmd.AddCommand(newCompletionCmd())
 

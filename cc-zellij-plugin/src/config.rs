@@ -18,7 +18,7 @@ pub struct PluginConfig {
     pub sidebar_width: usize,
     /// Done-to-Idle timeout in seconds (default 30).
     pub done_timeout: u64,
-    /// Timer interval in seconds for elapsed time updates (default 1.0).
+    /// Timer interval in seconds for stale session cleanup (default 10.0).
     pub timer_interval: f64,
     /// How new sessions are created (default: Tab).
     pub new_session_mode: NewSessionMode,
@@ -33,7 +33,7 @@ impl Default for PluginConfig {
         Self {
             sidebar_width: 22,
             done_timeout: 30,
-            timer_interval: 1.0,
+            timer_interval: 10.0,
             new_session_mode: NewSessionMode::Tab,
             navigate_key: "Alt s".to_string(),
             attend_key: "Alt a".to_string(),
@@ -57,14 +57,6 @@ impl PluginConfig {
         if let Some(v) = config.get("done_timeout") {
             if let Ok(t) = v.parse::<u64>() {
                 result.done_timeout = t;
-            }
-        }
-
-        if let Some(v) = config.get("timer_interval") {
-            if let Ok(t) = v.parse::<f64>() {
-                if t >= 0.1 {
-                    result.timer_interval = t;
-                }
             }
         }
 
@@ -100,7 +92,7 @@ mod tests {
         let config = PluginConfig::default();
         assert_eq!(config.sidebar_width, 22);
         assert_eq!(config.done_timeout, 30);
-        assert!((config.timer_interval - 1.0).abs() < f64::EPSILON);
+        assert!((config.timer_interval - 10.0).abs() < f64::EPSILON);
     }
 
     #[test]
