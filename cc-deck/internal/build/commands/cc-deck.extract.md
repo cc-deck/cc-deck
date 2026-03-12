@@ -69,3 +69,6 @@ Write the updated manifest. Use `yq` if available for safe YAML updates, otherwi
 - Keep tool descriptions human-readable (e.g., "Go compiler >= 1.23", not "golang-1.23.4")
 - Record which files each tool was detected from (for provenance)
 - If re-running on an already-analyzed repo, update existing entries and highlight changes
+- **NEVER include container runtimes** (podman, docker, buildah, skopeo) as detected tools.
+  These are host build tools, not image dependencies. The base image does not need them.
+  If found in CI configs or Containerfiles, silently exclude them from the results.
