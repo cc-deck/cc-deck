@@ -17,8 +17,8 @@
 
 **Purpose**: Create the base-image directory structure and placeholder files.
 
-- [ ] T001 Create directory structure: `base-image/`, `base-image/scripts/`, `base-image/config/`
-- [ ] T002 [P] Create `base-image/README.md` with build and usage instructions from quickstart.md
+- [ ] T001 (cc-mux-x7o.1) Create directory structure: `base-image/`, `base-image/scripts/`, `base-image/config/`
+- [ ] T002 (cc-mux-x7o.2) [P] Create `base-image/README.md` with build and usage instructions from quickstart.md
 
 **Checkpoint**: Directory structure ready for implementation.
 
@@ -30,8 +30,8 @@
 
 **⚠️ CRITICAL**: These config files are COPY'd into the image by the Containerfile.
 
-- [ ] T003 [P] Create `base-image/config/starship.toml` with default prompt config (git branch, directory, python venv, kubernetes context)
-- [ ] T004 [P] Create `base-image/config/zshrc` with starship init, zoxide init, fzf integration, aliases (cat→bat, ls→lsd, ll→lsd -l, la→lsd -a), and PATH for npm global bin
+- [ ] T003 (cc-mux-tnx.1) [P] Create `base-image/config/starship.toml` with default prompt config (git branch, directory, python venv, kubernetes context)
+- [ ] T004 (cc-mux-tnx.2) [P] Create `base-image/config/zshrc` with starship init, zoxide init, fzf integration, aliases (cat→bat, ls→lsd, ll→lsd -l, la→lsd -a), and PATH for npm global bin
 
 **Checkpoint**: Config files ready to be embedded in the image.
 
@@ -45,11 +45,11 @@
 
 ### Implementation for User Story 1
 
-- [ ] T005 [US1] Create `base-image/scripts/install-tools.sh` with dnf install for all packages: git, gh, glab, ripgrep, fd-find, fzf, jq, yq, bat, lsd, git-delta, zoxide, helix, vim-enhanced, nano, curl, wget, htop, nmap-ncat, bind-utils, openssh-clients, make, sudo, tree, less, ca-certificates, nodejs, python3, python3-pip, zsh, uv
-- [ ] T006 [US1] Add starship download from GitHub releases to `base-image/scripts/install-tools.sh` with architecture detection (x86_64 vs aarch64, using TARGETARCH build arg)
-- [ ] T007 [US1] Create `base-image/scripts/setup-user.sh` to create coder user (UID 1000), set zsh as default shell, configure passwordless sudo, create XDG directories, set npm global prefix to ~/.local/lib/npm, configure git to use delta as pager
-- [ ] T008 [US1] Create `base-image/Containerfile` with parameterized Fedora version ARG, COPY scripts, RUN install-tools.sh, RUN setup-user.sh, COPY config files, set USER coder and WORKDIR /home/coder
-- [ ] T009 [US1] Build and verify image locally with `podman build -t cc-deck-base:local base-image/` and run verification commands from quickstart.md
+- [ ] T005 (cc-mux-kef.1) [US1] Create `base-image/scripts/install-tools.sh` with dnf install for all packages: git, gh, glab, ripgrep, fd-find, fzf, jq, yq, bat, lsd, git-delta, zoxide, helix, vim-enhanced, nano, curl, wget, htop, nmap-ncat, bind-utils, openssh-clients, make, sudo, tree, less, ca-certificates, nodejs, python3, python3-pip, zsh, uv
+- [ ] T006 (cc-mux-kef.2) [US1] Add starship download from GitHub releases to `base-image/scripts/install-tools.sh` with architecture detection (x86_64 vs aarch64, using TARGETARCH build arg)
+- [ ] T007 (cc-mux-kef.3) [US1] Create `base-image/scripts/setup-user.sh` to create coder user (UID 1000), set zsh as default shell, configure passwordless sudo, create XDG directories, set npm global prefix to ~/.local/lib/npm, configure git to use delta as pager
+- [ ] T008 (cc-mux-kef.4) [US1] Create `base-image/Containerfile` with parameterized Fedora version ARG, COPY scripts, RUN install-tools.sh, RUN setup-user.sh, COPY config files, set USER coder and WORKDIR /home/coder
+- [ ] T009 (cc-mux-kef.5) [US1] Build and verify image locally with `podman build -t cc-deck-base:local base-image/` and run verification commands from quickstart.md
 
 **Checkpoint**: Base image builds and all tools are present. User Story 1 is complete.
 
@@ -63,10 +63,10 @@
 
 ### Implementation for User Story 2
 
-- [ ] T010 [US2] Update `base-image/scripts/install-tools.sh` to use TARGETARCH for starship binary download (map amd64→x86_64, arm64→aarch64)
-- [ ] T011 [US2] Build image for arm64 with `podman build --platform linux/arm64 -t cc-deck-base:arm64 base-image/`
-- [ ] T012 [US2] Build image for amd64 with `podman build --platform linux/amd64 -t cc-deck-base:amd64 base-image/`
-- [ ] T013 [US2] Create multi-arch manifest: `podman manifest create cc-deck-base:latest cc-deck-base:amd64 cc-deck-base:arm64`
+- [ ] T010 (cc-mux-b6n.1) [US2] Update `base-image/scripts/install-tools.sh` to use TARGETARCH for starship binary download (map amd64→x86_64, arm64→aarch64)
+- [ ] T011 (cc-mux-b6n.2) [US2] Build image for arm64 with `podman build --platform linux/arm64 -t cc-deck-base:arm64 base-image/`
+- [ ] T012 (cc-mux-b6n.3) [US2] Build image for amd64 with `podman build --platform linux/amd64 -t cc-deck-base:amd64 base-image/`
+- [ ] T013 (cc-mux-b6n.4) [US2] Create multi-arch manifest: `podman manifest create cc-deck-base:latest cc-deck-base:amd64 cc-deck-base:arm64`
 
 **Checkpoint**: Multi-arch manifest created, both architectures verified.
 
@@ -80,10 +80,10 @@
 
 ### Implementation for User Story 3
 
-- [ ] T014 [US3] Verify starship prompt renders correctly in a running container (shows directory and git context)
-- [ ] T015 [US3] Verify aliases work: `ls` shows lsd output, `cat` shows bat output, `git diff` uses delta
-- [ ] T016 [US3] Verify fzf and zoxide are initialized and functional in the zsh shell
-- [ ] T017 [US3] Verify npm global install works without root: `npm install -g cowsay && cowsay hello`
+- [ ] T014 (cc-mux-uwk.1) [US3] Verify starship prompt renders correctly in a running container (shows directory and git context)
+- [ ] T015 (cc-mux-uwk.2) [US3] Verify aliases work: `ls` shows lsd output, `cat` shows bat output, `git diff` uses delta
+- [ ] T016 (cc-mux-uwk.3) [US3] Verify fzf and zoxide are initialized and functional in the zsh shell
+- [ ] T017 (cc-mux-uwk.4) [US3] Verify npm global install works without root: `npm install -g cowsay && cowsay hello`
 
 **Checkpoint**: Shell environment is fully configured and verified.
 
@@ -97,9 +97,9 @@
 
 ### Implementation for User Story 4
 
-- [ ] T018 [US4] Create `.github/workflows/base-image.yml` with manual trigger, multi-arch build (amd64 + arm64), ghcr.io push, and tagging (latest, vX.Y.Z, fedora-NN)
-- [ ] T019 [US4] Add vulnerability scan step to CI workflow (informational, non-blocking) using `podman scan` or `trivy`
-- [ ] T020 [US4] Push initial image to `ghcr.io/rhuss/cc-deck-base:latest` via CI or manual push
+- [ ] T018 (cc-mux-jgv.1) [US4] Create `.github/workflows/base-image.yml` with manual trigger, multi-arch build (amd64 + arm64), ghcr.io push, and tagging (latest, vX.Y.Z, fedora-NN)
+- [ ] T019 (cc-mux-jgv.2) [US4] Add vulnerability scan step to CI workflow (informational, non-blocking) using `podman scan` or `trivy`
+- [ ] T020 (cc-mux-jgv.3) [US4] Push initial image to `ghcr.io/rhuss/cc-deck-base:latest` via CI or manual push
 
 **Checkpoint**: CI pipeline builds, scans, and pushes multi-arch images to ghcr.io.
 
@@ -109,9 +109,9 @@
 
 **Purpose**: Documentation and image size optimization.
 
-- [ ] T021 [P] Verify image size is under 1.5 GB compressed (`podman image inspect --format '{{.Size}}'`)
-- [ ] T022 [P] Optimize Containerfile layer ordering for cache efficiency (system packages first, config last)
-- [ ] T023 Update `base-image/README.md` with final build instructions, image size, and tool inventory
+- [ ] T021 (cc-mux-65c.1) [P] Verify image size is under 1.5 GB compressed (`podman image inspect --format '{{.Size}}'`)
+- [ ] T022 (cc-mux-65c.2) [P] Optimize Containerfile layer ordering for cache efficiency (system packages first, config last)
+- [ ] T023 (cc-mux-65c.3) Update `base-image/README.md` with final build instructions, image size, and tool inventory
 
 ---
 
