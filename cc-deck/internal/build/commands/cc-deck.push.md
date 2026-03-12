@@ -24,6 +24,8 @@ If the image doesn't exist locally, stop and suggest running `/cc-deck.build` fi
 
 ### Step 3: Push the image
 
+**IMPORTANT**: Use a 10-minute timeout (600000ms) for the push command. Large image pushes can be slow.
+
 ```bash
 podman push <image-name>:<tag>
 ```

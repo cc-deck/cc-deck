@@ -97,6 +97,8 @@ If no Containerfile exists, write the generated one directly.
 
 Detect the container runtime (prefer `podman`, fall back to `docker`).
 
+**IMPORTANT**: Use a 10-minute timeout (600000ms) for the build command. Container builds are slow.
+
 ```bash
 podman build -t <image-name>:<tag> -f Containerfile .
 ```
