@@ -4,8 +4,9 @@ Fedora-based developer toolbox for Claude Code development environments.
 
 ## What's Included
 
-- **OS**: Fedora (latest stable)
-- **Runtimes**: Node.js 22.x (LTS), Python 3 + uv
+- **OS**: Fedora 41
+- **Runtimes**: Node.js 22.x, Python 3.13 + uv
+- **Image size**: ~1 GB
 - **Shell**: zsh with starship prompt, zoxide, fzf, aliases
 - **Version Control**: git, gh (GitHub CLI), glab (GitLab CLI)
 - **Search**: ripgrep, fd-find, fzf, jq, yq
@@ -80,3 +81,20 @@ The image runs as a non-root user `coder` (UID 1000) with:
 - Shell: zsh with starship prompt
 - Passwordless sudo access
 - npm global prefix: `~/.local/lib/npm` (no root needed for `npm install -g`)
+
+## Testing
+
+Run the verification suite (43 checks):
+
+```bash
+./test.sh                    # tests cc-deck-base:local
+./test.sh <image-name>       # tests a specific image
+```
+
+## CI
+
+GitHub Actions workflow (`.github/workflows/base-image.yaml`):
+- **Push to main** with `base-image/` changes: rebuild + push `:latest`
+- **Release published**: rebuild + push `:latest` and `:vX.Y.Z`
+- **Manual dispatch**: rebuild + push `:latest`
+- Multi-arch (amd64 + arm64), Trivy vulnerability scan (non-blocking)
