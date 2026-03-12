@@ -48,7 +48,7 @@ version: 1
 image:
   name: my-team/cc-deck-dev     # Required: image name
   tag: latest                    # Default tag
-  base: ghcr.io/cc-deck/base:latest  # Base image (default: cc-deck base)
+  base: ghcr.io/rhuss/cc-deck-base:latest  # Base image (default: cc-deck base)
 
 # Free-form tool requirements, resolved by LLM during containerfile generation.
 # Each entry is human-readable text evaluated during `cc-deck.containerfile`.
@@ -115,10 +115,21 @@ mcp:
         - SLACK_TEAM_ID
     description: "Slack workspace integration"
 
+# Additional tools downloaded from GitHub releases.
+# Each entry specifies a repo and binary name. Multi-arch download is automatic.
+github_tools:
+  - repo: rhuss/cc-setup
+    binary: cc-setup
+  - repo: rhuss/cc-session
+    binary: cc-session
+
 # Optional: CC configuration to bake into image
 settings:
   claude_md: ./project-claude.md    # Project-level CLAUDE.md
   hooks: ./hooks.json               # Claude Code hooks config
+  zellij_config: current            # "current" = copy ~/.config/zellij/
+                                    # "vanilla" = only cc-deck defaults
+                                    # or a path to a custom directory
 ```
 
 ## Schema Principles

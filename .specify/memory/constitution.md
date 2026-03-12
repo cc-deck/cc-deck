@@ -1,1 +1,61 @@
-../../specs/constitution.md
+# cc-deck Constitution
+
+## Core Principles
+
+### I. Two-Component Architecture
+
+cc-deck consists of a Rust WASM plugin (`cc-zellij-plugin/`) and a Go CLI (`cc-deck/`). Features that touch both components must be coordinated. The WASM plugin runs inside Zellij, the CLI runs on the host.
+
+### II. Plugin Installation (NON-NEGOTIABLE)
+
+ALWAYS run `make install` from the **project root directory** (where the Makefile lives). NEVER run it from a subdirectory like `cc-zellij-plugin/` or `cc-deck/`. NEVER use `make dev-install`, ad-hoc `cp` commands, or manual file copies. The plugin has been silently not picked up multiple times with shortcuts. `make install` does a release build and runs `cc-deck plugin install --force` which handles WASM binary, layout, hooks, and settings.json correctly.
+
+After installation, ALWAYS kill all Zellij sessions before testing:
+```bash
+make install
+zellij kill-all-sessions -y 2>/dev/null; zellij --layout cc-deck
+```
+
+Running Zellij sessions keep compiled plugins in memory. Clearing disk cache does NOT affect running sessions.
+
+### III. WASM Filename Convention
+
+The WASM binary is ALWAYS `cc_deck.wasm` (underscore), matching Cargo's output. The layout files reference this name. Never use `cc-deck.wasm` (hyphen).
+
+### IV. WASM Host Function Gating
+
+All Zellij host functions (`run_command`, `pipe_message_to_plugin`, `set_selectable`, `focus_plugin_pane`, `reconfigure`, etc.) MUST be `#[cfg(target_family = "wasm")]` gated with no-op stubs for native builds. They link-fail on native targets. Tests run on native.
+
+### V. Zellij API Research Order (NON-NEGOTIABLE)
+
+When a Zellij plugin API feature doesn't work as expected, research in this order:
+
+1. **Official documentation first**: Check `zellij.dev` (plugin API commands, keybindings, possible actions, pipe documentation)
+2. **Zellij source code second**: Check the zellij-tile SDK source and zellij-utils KDL parser for exact syntax and available options
+3. **Reference plugins third**: Check existing plugins for working patterns
+
+Do NOT guess at API syntax or invent approaches without verifying against the documentation and source. Many hours have been wasted on incorrect API usage (wrong `MessagePlugin` URL, `Run` creating visible panes, `KeybindPipe` without targets).
+
+### VI. Simplicity
+
+Follow YAGNI. Don't add features, abstractions, or error handling beyond what's needed. Three similar lines of code is better than a premature abstraction.
+
+## Development Workflow
+
+- `make install` for plugin installation (NON-NEGOTIABLE)
+- `make test` for running all tests (Go + Rust)
+- `make lint` for linting (Go vet + Rust clippy)
+- `cargo clippy --target wasm32-wasip1` to verify WASM-specific compilation
+- Commit after each logical task or phase
+
+## Testing
+
+- `cargo test` runs on native target with WASM host function stubs
+- Live testing requires Zellij with the cc-deck layout
+- Debug logging via `/cache/debug.log` in the WASI filesystem (check `~/Library/Caches/org.Zellij-Contributors.Zellij/`)
+
+## Governance
+
+This constitution supersedes ad-hoc practices. Amendments require updating this file and the project memory.
+
+**Version**: 1.1.0 | **Ratified**: 2026-03-09 | **Last Amended**: 2026-03-09
