@@ -1,0 +1,51 @@
+add_newline = true
+
+format = """
+$kubernetes\
+$directory\
+$python \
+$git_branch\
+$git_status\
+$line_break\
+$time\
+$character"""
+
+[character]
+success_symbol = "[ ➜](bold green)"
+error_symbol = "[ ✗](bold red)"
+
+[directory]
+style = "green"
+truncation_length = 4
+
+[git_branch]
+style = "yellow"
+format = "[$symbol$branch]($style) "
+
+[git_status]
+conflicted = "🏳"
+ahead = "🏎💨"
+behind = "😰"
+diverged = "😵"
+untracked = "🤷"
+stashed = "📦"
+modified = "💫"
+staged = "++(green)"
+renamed = "👅"
+deleted = "🗑 "
+format = '([\[$all_status$ahead_behind\]]($style) )'
+
+[kubernetes]
+disabled = false
+symbol = "⛵ "
+format = '[$symbol$context( \($namespace\))]($style) '
+style = "blue"
+
+[time]
+disabled = false
+time_format = "%k:%M"
+format = "[$time]($style)"
+
+[python]
+format = '[${symbol}${pyenv_prefix}(${version} )(\($virtualenv\) )]($style)'
+style = 'blue'
