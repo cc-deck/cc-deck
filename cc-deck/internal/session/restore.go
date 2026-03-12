@@ -1,6 +1,7 @@
 package session
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os/exec"
@@ -27,6 +28,11 @@ func Restore(name string, w io.Writer) error {
 		fmt.Fprintln(w, "Snapshot has no sessions to restore.")
 		return nil
 	}
+
+	// Send pending metadata overrides to the plugin before creating tabs.
+	// Keyed by resolved working directory so the plugin can match when
+	// sessions start and report their CWD via hook events.
+	sendPendingOverrides(snap.Sessions)
 
 	total := len(snap.Sessions)
 	for i, entry := range snap.Sessions {
@@ -88,4 +94,34 @@ func resolveProjectDir(dir string) string {
 		return root
 	}
 	return dir
+}
+
+// pendingOverride is the JSON structure sent to the plugin for restore metadata.
+type pendingOverride struct {
+	DisplayName string `json:"display_name"`
+	Paused      bool   `json:"paused"`
+}
+
+// sendPendingOverrides pipes session metadata to the plugin so custom names
+// and paused state survive restore. Keyed by resolved working directory.
+func sendPendingOverrides(sessions []SessionEntry) {
+	overrides := make(map[string]pendingOverride)
+	for _, entry := range sessions {
+		if entry.WorkingDir == "" {
+			continue
+		}
+		dir := resolveProjectDir(entry.WorkingDir)
+		overrides[dir] = pendingOverride{
+			DisplayName: entry.DisplayName,
+			Paused:      entry.Paused,
+		}
+	}
+	if len(overrides) == 0 {
+		return
+	}
+	data, err := json.Marshal(overrides)
+	if err != nil {
+		return
+	}
+	exec.Command("zellij", "pipe", "--name", "cc-deck:restore-meta", "--", string(data)).Run()
 }

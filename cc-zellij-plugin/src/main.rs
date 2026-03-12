@@ -42,9 +42,10 @@ fn set_selectable_wasm(selectable: bool) {
 fn set_selectable_wasm(_selectable: bool) {}
 
 /// Register global keybindings via reconfigure() with MessagePluginId.
-/// Uses the plugin's own numeric ID so Zellij routes the pipe message
-/// directly to this instance. Each instance registers; last one wins.
-/// The receiving instance forwards to the active-tab instance if needed.
+/// Routes to this specific plugin instance. Each instance re-registers
+/// on load, and the active-tab instance re-registers on tab changes
+/// to recover from dead plugin IDs (when a tab with the last-registered
+/// plugin is closed).
 #[cfg(target_family = "wasm")]
 fn register_keybindings(config: &config::PluginConfig) {
     let plugin_id = zellij_tile::prelude::get_plugin_ids().plugin_id;
@@ -245,6 +246,7 @@ impl ZellijPlugin for PluginState {
                 set_selectable(false);
                 register_keybindings(&self.config);
                 sync::request_state();
+                sync::apply_session_meta(&mut self.sessions);
                 let pending = std::mem::take(&mut self.pending_events);
                 let mut render = true;
                 for e in pending {
@@ -305,44 +307,54 @@ impl ZellijPlugin for PluginState {
                     }
                 };
 
-                let session = self.sessions.entry(hook.pane_id).or_insert_with(|| {
-                    Session::new(
+                // Use entry API then drop the borrow so we can access other fields of self.
+                let is_new = !self.sessions.contains_key(&hook.pane_id);
+                if is_new {
+                    self.sessions.insert(
                         hook.pane_id,
-                        hook.session_id.clone().unwrap_or_default(),
-                    )
-                });
+                        Session::new(
+                            hook.pane_id,
+                            hook.session_id.clone().unwrap_or_default(),
+                        ),
+                    );
+                }
 
-                let changed = session.transition(activity);
+                let changed = self.sessions.get_mut(&hook.pane_id).unwrap().transition(activity);
 
                 if let Some(ref sid) = hook.session_id {
-                    session.session_id = sid.clone();
+                    self.sessions.get_mut(&hook.pane_id).unwrap().session_id = sid.clone();
                 }
                 if let Some(ref cwd) = hook.cwd {
                     // Ignore CWD changes into .claude/ subdirectories (agent worktrees).
                     // These are transient and cause display name flickering.
                     let is_worktree_cwd = cwd.contains("/.claude/");
-                    if !is_worktree_cwd && session.working_dir.as_deref() != Some(cwd) {
-                        session.working_dir = Some(cwd.clone());
-                        let needs_dir_name = !session.manually_renamed && session.display_name.starts_with("session-");
-                        let not_renamed = !session.manually_renamed;
+                    let cwd_changed = self.sessions.get(&hook.pane_id)
+                        .map(|s| s.working_dir.as_deref() != Some(cwd))
+                        .unwrap_or(false);
+                    if !is_worktree_cwd && cwd_changed {
+                        self.sessions.get_mut(&hook.pane_id).unwrap().working_dir = Some(cwd.clone());
                         let pane = hook.pane_id;
                         let cwd_clone = cwd.clone();
 
-                        if needs_dir_name {
-                            let dir_name = std::path::Path::new(&cwd_clone)
-                                .file_name()
-                                .and_then(|n| n.to_str())
-                                .unwrap_or("session")
-                                .to_string();
+                        // Check for pending overrides from snapshot restore.
+                        // Match by exact CWD (restore resolves to git root).
+                        let pending = self.pending_overrides.remove(cwd);
+                        if let Some(ovr) = pending {
+                            debug_log(&format!("RESTORE applying override for {cwd}: name={}", ovr.display_name));
                             let names: Vec<String> = self.sessions.iter()
                                 .filter(|(&id, _)| id != pane)
                                 .map(|(_, s)| s.display_name.clone())
                                 .collect();
                             let name_refs: Vec<&str> = names.iter().map(|s| s.as_str()).collect();
                             if let Some(s) = self.sessions.get_mut(&pane) {
-                                s.display_name = session::deduplicate_name(&dir_name, &name_refs);
+                                s.display_name = session::deduplicate_name(&ovr.display_name, &name_refs);
+                                s.manually_renamed = true;
+                                s.paused = ovr.paused;
+                                let now = session::unix_now();
+                                s.last_event_ts = now;
+                                s.meta_ts = now;
                             }
-                            // Auto-rename tab once when display name is first set
+                            // Auto-rename tab
                             if let Some(tab_idx) = self.sessions.get(&pane).and_then(|s| s.tab_index) {
                                 let sessions_on_tab = self.sessions.values()
                                     .filter(|s| s.tab_index == Some(tab_idx))
@@ -354,10 +366,43 @@ impl ZellijPlugin for PluginState {
                                     }
                                 }
                             }
-                        }
-                        if not_renamed {
-                            git::detect_git_repo(pane, &cwd_clone);
-                            git::detect_git_branch(pane, &cwd_clone);
+                            sync::write_session_meta(&self.sessions);
+                        } else {
+                            let session = self.sessions.get(&pane).unwrap();
+                            let needs_dir_name = !session.manually_renamed && session.display_name.starts_with("session-");
+                            let not_renamed = !session.manually_renamed;
+
+                            if needs_dir_name {
+                                let dir_name = std::path::Path::new(&cwd_clone)
+                                    .file_name()
+                                    .and_then(|n| n.to_str())
+                                    .unwrap_or("session")
+                                    .to_string();
+                                let names: Vec<String> = self.sessions.iter()
+                                    .filter(|(&id, _)| id != pane)
+                                    .map(|(_, s)| s.display_name.clone())
+                                    .collect();
+                                let name_refs: Vec<&str> = names.iter().map(|s| s.as_str()).collect();
+                                if let Some(s) = self.sessions.get_mut(&pane) {
+                                    s.display_name = session::deduplicate_name(&dir_name, &name_refs);
+                                }
+                                // Auto-rename tab once when display name is first set
+                                if let Some(tab_idx) = self.sessions.get(&pane).and_then(|s| s.tab_index) {
+                                    let sessions_on_tab = self.sessions.values()
+                                        .filter(|s| s.tab_index == Some(tab_idx))
+                                        .count();
+                                    if sessions_on_tab == 1 {
+                                        if let Some(s) = self.sessions.get(&pane) {
+                                            auto_rename_tab(tab_idx, &s.display_name);
+                                            self.updating_tabs = true;
+                                        }
+                                    }
+                                }
+                            }
+                            if not_renamed {
+                                git::detect_git_repo(pane, &cwd_clone);
+                                git::detect_git_branch(pane, &cwd_clone);
+                            }
                         }
                     }
                 }
@@ -382,18 +427,9 @@ impl ZellijPlugin for PluginState {
             }
 
             PipeAction::Attend => {
-                // Only plugin_id 0 handles attend to preserve round-robin state.
-                // Non-0 instances forward via broadcast; plugin 0 handles from any source.
-                #[cfg(target_family = "wasm")]
-                {
-                    let my_id = zellij_tile::prelude::get_plugin_ids().plugin_id;
-                    if my_id != 0 {
-                        if is_user_action {
-                            broadcast_action("cc-deck:attend");
-                        }
-                        return false;
-                    }
-                }
+                // Any instance can handle attend directly. The keybind routes
+                // to the last-registered plugin (deterministic), so round-robin
+                // state is preserved in that single instance. No forwarding needed.
                 // Exit navigation mode if active
                 if self.navigation_mode {
                     self.navigation_mode = false;
@@ -490,6 +526,30 @@ impl ZellijPlugin for PluginState {
                 false
             }
 
+            PipeAction::RestoreMeta(payload) => {
+                // Parse pending overrides from snapshot restore.
+                // Format: {"<working_dir>": {"display_name": "...", "paused": false}, ...}
+                if let Ok(map) = serde_json::from_str::<std::collections::HashMap<String, serde_json::Value>>(&payload) {
+                    for (dir, val) in map {
+                        let name = val.get("display_name")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let paused = val.get("paused")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
+                        if !name.is_empty() {
+                            self.pending_overrides.insert(dir, state::PendingOverride {
+                                display_name: name,
+                                paused,
+                            });
+                        }
+                    }
+                    debug_log(&format!("RESTORE-META loaded {} pending overrides", self.pending_overrides.len()));
+                }
+                false
+            }
+
             PipeAction::Unknown => false,
         }
     }
@@ -540,6 +600,14 @@ impl PluginState {
                     debug_log("NAV auto-exited: tab switched away");
                 }
 
+                // Re-register keybindings from the active-tab instance.
+                // This recovers from dead plugin IDs: when the tab holding
+                // the last-registered plugin is closed, keybinds break.
+                // The active-tab instance re-registers to point at itself.
+                if self.is_on_active_tab() {
+                    register_keybindings(&self.config);
+                }
+
                 true
             }
             Event::PaneUpdate(manifest) => {
@@ -572,8 +640,16 @@ impl PluginState {
             }
             Event::Timer(_) => {
                 let stale = self.cleanup_stale_sessions(self.config.done_timeout);
+                let meta_changed = sync::apply_session_meta(&mut self.sessions);
+                // Re-detect git branches for all sessions (picks up branch
+                // switches that happen without a CWD change).
+                for session in self.sessions.values() {
+                    if let Some(ref cwd) = session.working_dir {
+                        git::detect_git_branch(session.pane_id, cwd);
+                    }
+                }
                 set_timeout(self.config.timer_interval);
-                stale
+                stale || meta_changed
             }
             Event::Mouse(Mouse::LeftClick(row, col)) => {
                 debug_log(&format!("CLICK row={row} col={col} regions={:?}", self.click_regions));
@@ -943,9 +1019,12 @@ impl PluginState {
                     let pane_id = session.pane_id;
                     if let Some(s) = self.sessions.get_mut(&pane_id) {
                         s.paused = !s.paused;
-                        s.last_event_ts = session::unix_now();
+                        let now = session::unix_now();
+                        s.last_event_ts = now;
+                        s.meta_ts = now;
                     }
                     sync::broadcast_state(self);
+                    sync::write_session_meta(&self.sessions);
                 }
                 true
             }

@@ -3,6 +3,8 @@
 use crate::session::{Activity, WaitReason};
 use crate::state::PluginState;
 
+const ATTEND_STATE_PATH: &str = "/cache/attend-state.json";
+
 /// Result of an attend action.
 pub enum AttendResult {
     /// Switched to a session.
@@ -20,8 +22,9 @@ pub enum AttendResult {
 /// Find the next session needing attention using tiered priority:
 /// 1. Permission waiting (oldest first) - critical, blocks progress
 /// 2. Notification waiting (oldest first) - soft, informational
-/// 3. Idle/Done/AgentDone/Init (tab order, top-to-bottom)
-/// 4. Skip Working - actively running
+/// 3. Done/AgentDone (tab order) - just finished, need review
+/// 4. Idle/Init (tab order) - already seen, nothing new
+/// 5. Skip Working - actively running
 ///
 /// Round-robin: subsequent presses cycle through the priority-ordered list,
 /// starting after the last attended session.
@@ -48,19 +51,29 @@ pub fn perform_attend(state: &mut PluginState) -> AttendResult {
     t2.sort_by_key(|s| s.last_event_ts);
     candidates.extend(t2);
 
-    // Tier 3: Idle/Done/AgentDone/Init (tab order, top-to-bottom), skip paused
+    // Tier 3: Done/AgentDone (tab order) - just finished, likely need review
     let mut t3: Vec<_> = sessions.iter()
-        .filter(|s| !s.paused && matches!(s.activity, Activity::Idle | Activity::Done | Activity::AgentDone | Activity::Init))
+        .filter(|s| !s.paused && matches!(s.activity, Activity::Done | Activity::AgentDone))
         .copied().collect();
     t3.sort_by_key(|s| s.tab_index.unwrap_or(usize::MAX));
     candidates.extend(t3);
+
+    // Tier 4: Idle/Init (tab order) - already seen, nothing new
+    let mut t4: Vec<_> = sessions.iter()
+        .filter(|s| !s.paused && matches!(s.activity, Activity::Idle | Activity::Init))
+        .copied().collect();
+    t4.sort_by_key(|s| s.tab_index.unwrap_or(usize::MAX));
+    candidates.extend(t4);
 
     if candidates.is_empty() {
         return AttendResult::AllBusy;
     }
 
-    // Round-robin: find the position after the last attended session
-    let start_idx = if let Some(last_id) = state.last_attended_pane_id {
+    // Round-robin: read last attended from shared file (survives instance switches).
+    // When the active-tab instance changes (after attend switches tabs and keybinds
+    // re-register), the new instance picks up where the previous one left off.
+    let last_attended = read_last_attended().or(state.last_attended_pane_id);
+    let start_idx = if let Some(last_id) = last_attended {
         candidates.iter()
             .position(|s| s.pane_id == last_id)
             .map(|pos| (pos + 1) % candidates.len())
@@ -75,6 +88,7 @@ pub fn perform_attend(state: &mut PluginState) -> AttendResult {
     let display_name = candidates[start_idx].display_name.clone();
 
     state.last_attended_pane_id = Some(pane_id);
+    write_last_attended(pane_id);
     switch_and_focus(tab_index, pane_id);
 
     AttendResult::Switched {
@@ -82,6 +96,18 @@ pub fn perform_attend(state: &mut PluginState) -> AttendResult {
         pane_id,
         display_name,
     }
+}
+
+/// Read last attended pane_id from shared WASI cache.
+fn read_last_attended() -> Option<u32> {
+    std::fs::read_to_string(ATTEND_STATE_PATH)
+        .ok()
+        .and_then(|s| s.trim().parse::<u32>().ok())
+}
+
+/// Write last attended pane_id to shared WASI cache.
+fn write_last_attended(pane_id: u32) {
+    let _ = std::fs::write(ATTEND_STATE_PATH, pane_id.to_string());
 }
 
 fn switch_to(session: &crate::session::Session) -> AttendResult {
@@ -177,20 +203,43 @@ mod tests {
     }
 
     #[test]
-    fn test_attend_idle_tab_order() {
+    fn test_attend_done_before_idle() {
         let mut s1 = Session::new(1, "a".into());
         s1.activity = Activity::Idle;
         s1.tab_index = Some(0);
         s1.last_event_ts = 100;
-        s1.display_name = "first-tab".into();
+        s1.display_name = "idle-first-tab".into();
 
         let mut s2 = Session::new(2, "b".into());
         s2.activity = Activity::Done;
         s2.tab_index = Some(1);
         s2.last_event_ts = 200;
-        s2.display_name = "second-tab".into();
+        s2.display_name = "done-second-tab".into();
 
         let mut state = make_state(vec![s1, s2]);
+        // Done sessions should be attended before Idle
+        match perform_attend(&mut state) {
+            AttendResult::Switched { display_name, .. } => assert_eq!(display_name, "done-second-tab"),
+            _ => panic!("expected Switched to Done session first"),
+        }
+    }
+
+    #[test]
+    fn test_attend_idle_tab_order() {
+        let mut s1 = Session::new(1, "a".into());
+        s1.activity = Activity::Idle;
+        s1.tab_index = Some(1);
+        s1.last_event_ts = 100;
+        s1.display_name = "second-tab".into();
+
+        let mut s2 = Session::new(2, "b".into());
+        s2.activity = Activity::Init;
+        s2.tab_index = Some(0);
+        s2.last_event_ts = 200;
+        s2.display_name = "first-tab".into();
+
+        let mut state = make_state(vec![s1, s2]);
+        // Init and Idle are same tier, sorted by tab order
         match perform_attend(&mut state) {
             AttendResult::Switched { display_name, .. } => assert_eq!(display_name, "first-tab"),
             _ => panic!("expected Switched to first tab"),
