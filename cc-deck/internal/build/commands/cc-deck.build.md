@@ -99,9 +99,13 @@ Detect the container runtime (prefer `podman`, fall back to `docker`).
 
 **IMPORTANT**: Use a 10-minute timeout (600000ms) for the build command. Container builds are slow.
 
+**Default platforms**: `linux/arm64,linux/amd64`. The user can override via input (e.g., "build for linux/amd64 only").
+
 ```bash
-podman build -t <image-name>:<tag> -f Containerfile .
+podman build --platform linux/arm64,linux/amd64 -t <image-name>:<tag> -f Containerfile .
 ```
+
+If the user specified specific platforms in their input, use those instead of the defaults.
 
 ### Step 6: Handle build failures (self-correction loop)
 
