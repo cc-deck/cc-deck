@@ -1,0 +1,82 @@
+# cc-deck Base Container Image
+
+Fedora-based developer toolbox for Claude Code development environments.
+
+## What's Included
+
+- **OS**: Fedora (latest stable)
+- **Runtimes**: Node.js 22.x (LTS), Python 3 + uv
+- **Shell**: zsh with starship prompt, zoxide, fzf, aliases
+- **Version Control**: git, gh (GitHub CLI), glab (GitLab CLI)
+- **Search**: ripgrep, fd-find, fzf, jq, yq
+- **Modern CLI**: bat (cat), lsd (ls), delta (diff), zoxide (cd)
+- **Editors**: helix (hx), vim, nano
+- **Network**: curl, wget, htop, netcat, dig/nslookup, ssh/scp
+- **Build**: make, sudo, ca-certificates
+
+## What's NOT Included
+
+Zellij, Claude Code, and cc-deck are deliberately excluded. They are added
+during user image build (`cc-deck build`) to ensure version consistency.
+
+## Usage
+
+### Pull and run
+
+```bash
+podman pull ghcr.io/rhuss/cc-deck-base:latest
+podman run -it --rm ghcr.io/rhuss/cc-deck-base:latest
+```
+
+### Build locally
+
+```bash
+podman build -t cc-deck-base:local .
+```
+
+### Multi-arch build
+
+```bash
+podman build --platform linux/amd64 -t cc-deck-base:amd64 .
+podman build --platform linux/arm64 -t cc-deck-base:arm64 .
+podman manifest create cc-deck-base:latest cc-deck-base:amd64 cc-deck-base:arm64
+```
+
+### Use as base for project images
+
+```dockerfile
+FROM ghcr.io/rhuss/cc-deck-base:latest
+
+# Add project tools
+RUN dnf install -y golang && dnf clean all
+
+# Install cc-deck (self-embeds from build context)
+COPY cc-deck /usr/local/bin/cc-deck
+RUN cc-deck plugin install --install-zellij --force
+
+# Install Claude Code
+RUN npm install -g @anthropic-ai/claude-code
+
+USER coder
+WORKDIR /home/coder
+```
+
+### Verify tools
+
+```bash
+podman run --rm cc-deck-base:local sh -c '
+  git --version && gh --version && node --version && python3 --version &&
+  rg --version && fd --version && bat --version && lsd --version &&
+  delta --version && fzf --version && zoxide --version && starship --version &&
+  hx --version && jq --version && yq --version && uv --version &&
+  echo "All tools OK"
+'
+```
+
+## User: coder
+
+The image runs as a non-root user `coder` (UID 1000) with:
+- Home: `/home/coder`
+- Shell: zsh with starship prompt
+- Passwordless sudo access
+- npm global prefix: `~/.local/lib/npm` (no root needed for `npm install -g`)
