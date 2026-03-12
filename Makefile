@@ -20,7 +20,10 @@ CLI_BIN     = cc-deck/cc-deck
 
 BASE_IMAGE  = $(REGISTRY)/cc-deck-base
 
-.PHONY: build build-wasm build-wasm-debug copy-wasm build-cli \
+CLI_LDFLAGS = -X github.com/rhuss/cc-mux/cc-deck/internal/cmd.Version=$(VERSION) \
+              -X github.com/rhuss/cc-mux/cc-deck/internal/cmd.ImageRegistry=$(REGISTRY)
+
+.PHONY: build build-wasm build-wasm-debug copy-wasm build-cli cross-cli \
         test test-go test-rust lint lint-go lint-rust \
         install uninstall status \
         base-image base-image-push \
@@ -41,10 +44,11 @@ copy-wasm: $(WASM_SRC)  ## Copy WASM binary to Go embed location
 	cp $(WASM_SRC) $(WASM_DST)
 
 build-cli: $(WASM_DST)  ## Build Go CLI (requires WASM to be copied first)
-	cd cc-deck && go build \
-		-ldflags "-X github.com/rhuss/cc-mux/cc-deck/internal/cmd.Version=$(VERSION) \
-		          -X github.com/rhuss/cc-mux/cc-deck/internal/cmd.ImageRegistry=$(REGISTRY)" \
-		-o cc-deck ./cmd/cc-deck
+	cd cc-deck && go build -ldflags "$(CLI_LDFLAGS)" -o cc-deck ./cmd/cc-deck
+
+cross-cli: $(WASM_DST)  ## Cross-compile CLI for linux/amd64 and linux/arm64
+	cd cc-deck && GOOS=linux GOARCH=amd64 go build -ldflags "$(CLI_LDFLAGS)" -o cc-deck-linux-amd64 ./cmd/cc-deck
+	cd cc-deck && GOOS=linux GOARCH=arm64 go build -ldflags "$(CLI_LDFLAGS)" -o cc-deck-linux-arm64 ./cmd/cc-deck
 
 $(WASM_DST):
 	@echo "WASM binary not found at $(WASM_DST)"
@@ -116,6 +120,7 @@ clean:  ## Remove all build artifacts
 	cd cc-zellij-plugin && cargo clean
 	rm -f $(WASM_DST)
 	rm -f $(CLI_BIN)
+	rm -f cc-deck/cc-deck-linux-*
 
 ## -- Help -------------------------------------------------
 

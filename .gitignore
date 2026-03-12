@@ -20,3 +20,7 @@
 
 # Embedded WASM binary (built from cc-zellij-plugin)
 cc-deck/internal/plugin/cc_deck.wasm
+
+# Built CLI binaries
+cc-deck/cc-deck
+cc-deck/cc-deck-linux-*
