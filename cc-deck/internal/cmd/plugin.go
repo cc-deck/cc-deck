@@ -26,9 +26,10 @@ func NewPluginCmd(gf *GlobalFlags) *cobra.Command {
 }
 
 type pluginInstallFlags struct {
-	force      bool
-	skipBackup bool
-	layout     string
+	force        bool
+	skipBackup   bool
+	layout       string
+	installZellij bool
 }
 
 func newPluginInstallCmd(_ *GlobalFlags) *cobra.Command {
@@ -60,6 +61,7 @@ unless --skip-backup is specified.`,
 	installCmd.Flags().BoolVarP(&f.force, "force", "f", false, "Overwrite without prompting")
 	installCmd.Flags().BoolVar(&f.skipBackup, "skip-backup", false, "Skip creating backup of settings.json")
 	installCmd.Flags().StringVar(&f.layout, "layout", "standard", "Default layout variant (standard, minimal, clean)")
+	installCmd.Flags().BoolVar(&f.installZellij, "install-zellij", false, "Download and install matching Zellij binary")
 
 	return installCmd
 }
@@ -103,12 +105,13 @@ modification unless --skip-backup is specified.`,
 
 func runPluginInstall(f *pluginInstallFlags) error {
 	err := plugin.Install(plugin.InstallOptions{
-		Force:      f.force,
-		SkipBackup: f.skipBackup,
-		Layout:     f.layout,
-		Stdout:     os.Stdout,
-		Stderr:     os.Stderr,
-		Stdin:      os.Stdin,
+		Force:         f.force,
+		SkipBackup:    f.skipBackup,
+		Layout:        f.layout,
+		InstallZellij: f.installZellij,
+		Stdout:        os.Stdout,
+		Stderr:        os.Stderr,
+		Stdin:         os.Stdin,
 	})
 	if err != nil {
 		if err.Error() == "cancelled by user" {
