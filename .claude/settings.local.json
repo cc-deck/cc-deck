@@ -4,10 +4,14 @@
   },
   "permissions": {
     "allow": [
-      "Bash(*/scripts/sdd-init.sh*)",
-      "Bash(*/scripts/sdd-traits.sh*)",
+      "WebSearch",
+      "WebFetch(domain:tesar.tech)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:zellij.dev)",
       "Bash(*/scripts/sdd-beads-sync.py*)",
       "Bash(bd *)",
+      "Bash(*/scripts/sdd-init.sh*)",
+      "Bash(*/scripts/sdd-traits.sh*)",
       "Bash(specify *)",
       "Bash",
       "Read",

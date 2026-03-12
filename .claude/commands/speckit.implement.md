@@ -147,64 +147,29 @@ Note: This command assumes a complete task breakdown exists in tasks.md. If task
 2. Invoke {Skill: sdd:verification-before-completion} for final verification
 
 
-<!-- SDD-TRAIT:beads -->
-## STOP: Beads Pre-flight Check (MANDATORY)
+<!-- SDD-TRAIT:teams -->
+## Agent Teams: MANDATORY for Multi-Task Implementation
 
-Before executing ANY task, you MUST verify beads issues are synced.
-Run this check FIRST, before any implementation work:
+**ENFORCEMENT**: This section is NON-NEGOTIABLE when implementing 2+ independent tasks.
 
-```bash
-ISSUE_COUNT=$(bd list --json 2>/dev/null | jq 'if type == "object" and .error then 0 else length end')
-```
+### Decision Gate (BEFORE any implementation)
 
-- If `bd` is not installed: **STOP.** Report error. Do not fall back to non-beads execution.
-- If issue count is 0 but tasks.md has tasks: **STOP.** Run `"<sdd-beads-sync-command>" "$SPEC_DIR/tasks.md"` first to create beads issues, then re-check.
-- If issues exist: proceed to beads-execute.
+When the implement skill is invoked with multiple tasks:
 
-## Beads Task Execution (MANDATORY)
+1. **CHECK**: Is `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` set?
+   - If not: Set it in `.claude/settings.local.json`, inform user restart needed, STOP.
+   - If yes: proceed.
 
-Do NOT execute tasks using the standard implementation loop in this command.
-Instead, you MUST use {Skill: sdd:beads-execute} for ALL task execution.
+2. **DELEGATE**: Call `{Skill: sdd:teams-orchestrate}` for task graph analysis,
+   teammate spawning in worktrees, spec compliance review, and merge coordination.
+   Do NOT proceed with direct implementation.
 
-This skill handles:
-1. Dependency-aware scheduling via `bd ready --json`
-2. Marking tasks complete via `bd close <id> -r "reason"` (NOT by editing tasks.md)
-3. Git-backed state persistence via `bd sync` after each task
-4. Discovered work tracking via `bd create`
-5. Reverse sync at completion to update tasks.md
+### When teams are NOT needed
+- Single sequential task with no parallelism opportunity
+- Pure verification/validation work (clippy, test runs)
+- Fixing a single compile error or merge conflict
 
-**Rules:**
-- Do NOT update tasks.md checkboxes during implementation. Task state lives in bd.
-- Do NOT use `--comment` with `bd close` (it does not exist). Use `-r "reason"` instead.
-- Use `bd comments add <id> "text"` for detailed notes.
-- Always use `jq` to parse bd JSON output. NEVER use inline Python one-liners.
-- NEVER use `2>&1` when piping to jq (stderr corrupts JSON). Use `2>/dev/null`.
-- Always guard jq filters: `if type == "object" and .error then error(.error) else ... end`
-
-
-<!-- SDD-TRAIT:teams-vanilla -->
-## Agent Teams: Parallel Implementation
-
-When this trait is active, orchestrate implementation using Claude Code Agent Teams
-for parallel task execution instead of sequential single-session work.
-
-**Pre-flight**: Check if `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` is enabled.
-If not, set it in `.claude/settings.local.json` under `env` and inform the user
-that a restart is needed.
-
-**Execution**: Delegate to {Skill: sdd:teams-orchestrate} for task graph analysis,
-teammate spawning, and completion coordination.
-
-
-<!-- SDD-TRAIT:teams-spec -->
-## Spec Guardian: Lead Reviews, Teammates Implement
-
-When this trait is active, the lead acts as a **spec compliance guardian**.
-The lead MUST NOT implement tasks itself. Instead, it spawns teammates in
-git worktrees, reviews their completed work against spec.md, and only
-merges compliant changes.
-
-**This overrides teams-vanilla behavior** when both traits are active.
-
-**Execution**: Delegate to {Skill: sdd:teams-spec-guardian} for worktree
-spawning, spec compliance review, merge protocol, and beads bridge.
+### Anti-patterns (NEVER do these)
+- Using `Agent` tool with `run_in_background` instead of Agent Teams
+- Implementing tasks directly when 2+ independent tasks exist
+- Skipping the pre-flight check
