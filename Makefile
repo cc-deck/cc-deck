@@ -26,7 +26,7 @@ CLI_LDFLAGS = -X github.com/rhuss/cc-mux/cc-deck/internal/cmd.Version=$(VERSION)
 .PHONY: build build-wasm build-wasm-debug copy-wasm build-cli cross-cli \
         test test-go test-rust lint lint-go lint-rust \
         install uninstall status \
-        base-image base-image-push \
+        test-image base-image base-image-push \
         dev reload clean help
 
 ## -- Build -------------------------------------------------
@@ -85,6 +85,21 @@ uninstall:  ## Remove plugin from Zellij
 
 status:  ## Show plugin installation status
 	$(CLI_BIN) plugin status
+
+## -- Image Testing ----------------------------------------
+
+TEST_IMAGE_DIR ?= /tmp/cc-deck-test-image
+
+test-image: build cross-cli  ## Build cc-deck, cross-compile, init test dir, and open in Claude Code
+	rm -rf $(TEST_IMAGE_DIR)
+	$(CLI_BIN) image init $(TEST_IMAGE_DIR)
+	mkdir -p $(TEST_IMAGE_DIR)/.build-context
+	cp cc-deck/cc-deck-linux-* $(TEST_IMAGE_DIR)/.build-context/
+	@echo ""
+	@echo "Test directory ready: $(TEST_IMAGE_DIR)"
+	@echo ""
+	@echo "Next: cd $(TEST_IMAGE_DIR) && claude"
+	@echo "Then: /cc-deck.build"
 
 ## -- Base Image -------------------------------------------
 
