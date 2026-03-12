@@ -91,19 +91,17 @@ If no Containerfile exists, write the generated one directly.
 ### Step 4: Prepare the build context
 
 1. Create `.build-context/` directory
-2. Cross-compile `cc-deck` for all target platforms. Find the cc-deck source repo (look for the Makefile with the `cross-cli` target):
-   ```bash
-   # From the cc-deck source repo root
-   make cross-cli
-   ```
-   This produces `cc-deck/cc-deck-linux-amd64` and `cc-deck/cc-deck-linux-arm64`.
-3. Copy the cross-compiled binaries to the build context:
+2. Locate pre-built cc-deck binaries. They must already exist (built via `make cross-cli` before running this command). Search in this order:
+   - `.build-context/cc-deck-linux-amd64` and `.build-context/cc-deck-linux-arm64` (already in place)
+   - `cc-deck/cc-deck-linux-amd64` and `cc-deck/cc-deck-linux-arm64` (in the source repo)
+   - Ask the user for the path to the cc-deck source repo
+3. Copy the binaries to `.build-context/` if not already there:
    ```bash
    mkdir -p .build-context
-   cp <cc-deck-repo>/cc-deck/cc-deck-linux-amd64 .build-context/
-   cp <cc-deck-repo>/cc-deck/cc-deck-linux-arm64 .build-context/
+   cp <path>/cc-deck-linux-amd64 .build-context/
+   cp <path>/cc-deck-linux-arm64 .build-context/
    ```
-4. To find the cc-deck source repo, check: the parent of the current build directory, `$GOPATH/src/*/cc-deck`, or ask the user for the path
+4. **NEVER compile cc-deck during the build**. If binaries are not found, stop and tell the user to run `make cross-cli` from the cc-deck source repo first
 
 ### Step 5: Build the image
 
