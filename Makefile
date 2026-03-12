@@ -84,8 +84,10 @@ status:  ## Show plugin installation status
 
 ## -- Base Image -------------------------------------------
 
+PLATFORMS  ?= linux/arm64,linux/amd64
+
 base-image:  ## Build the cc-deck base container image
-	podman build -t $(BASE_IMAGE):latest base-image/
+	podman build --platform $(PLATFORMS) -t $(BASE_IMAGE):latest base-image/
 
 base-image-push: base-image  ## Build and push the base image
 	podman push $(BASE_IMAGE):latest
