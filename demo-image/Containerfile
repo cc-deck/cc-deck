@@ -58,4 +58,4 @@ RUN ARCH=$(uname -m) && \
 
 USER coder
 WORKDIR /home/coder
-CMD ["sleep", "infinity"]
+CMD ["zellij", "--layout", "cc-deck"]
