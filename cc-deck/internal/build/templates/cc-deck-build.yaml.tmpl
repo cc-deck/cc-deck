@@ -56,9 +56,10 @@ image:
 #     binary: cc-session
 
 # User configuration to bake into the image.
-# Run /deck-kit.settings to interactively select what to include.
+# Run /cc-deck.settings to interactively select what to include.
 # settings:
-#   zshrc: ./zshrc                   # Custom .zshrc (-> ~/.zshrc)
+#   shell: zsh                       # Shell to use: "zsh" (default) or "bash"
+#   shell_rc: ./zshrc                # Custom shell config (appended to base image's rc file)
 #   zellij_config: current           # "current" (copy local config.kdl), "vanilla", or a path
 #   claude_md: ./CLAUDE.md           # Global Claude instructions (-> ~/.claude/CLAUDE.md)
 #   claude_settings: ./settings.json # Claude preferences to merge (model, theme, etc.)
