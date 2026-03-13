@@ -1,4 +1,4 @@
-.Plugin
+.Zellij Plugin
 * xref:overview.adoc[Overview]
 * xref:navigation.adoc[Keyboard Navigation]
 * xref:attend.adoc[Smart Attend]
