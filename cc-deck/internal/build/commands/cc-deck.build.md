@@ -63,6 +63,10 @@ RUN chmod +x /usr/local/bin/cc-deck && \
     cc-deck plugin install --install-zellij --force && \
     chown -R coder:coder /home/coder/.config/zellij
 
+# MANDATORY Layer: Node.js 20 for Claude Code (official requirement, Fedora's Node 22 causes segfaults)
+RUN curl -fsSL https://rpm.nodesource.com/setup_20.x | bash - && \
+    dnf install -y nodejs --allowerasing && dnf clean all
+
 # MANDATORY Layer: Claude Code
 # Install as coder user with dedicated npm prefix (matches official Anthropic devcontainer pattern)
 RUN mkdir -p /home/coder/.npm-global && chown coder:coder /home/coder/.npm-global
