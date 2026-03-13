@@ -21,6 +21,8 @@ Auto-generated from all feature plans. Last updated: 2026-03-03
 - N/A (stateless image artifact) (017-base-image)
 - Go 1.22+ (existing cc-deck CLI), Markdown (Claude Code commands) + cobra (CLI), gopkg.in/yaml.v3 (manifest parsing), go:embed (asset embedding) (018-build-manifest)
 - Filesystem (build directory, manifest YAML) (018-build-manifest)
+- TypeScript (Astro 5.x), AsciiDoc (Antora 3.x), Containerfile (demo image) + Astro, Tailwind CSS, Antora, AsciiDoc (019-docs-landing-page)
+- N/A (static site) (019-docs-landing-page)
 
 - Rust (stable, latest edition 2021+) + `zellij-tile` (plugin SDK), `serde`/`serde_json` (serialization) (001-cc-deck)
 
@@ -42,9 +44,9 @@ cargo test [ONLY COMMANDS FOR ACTIVE TECHNOLOGIES][ONLY COMMANDS FOR ACTIVE TECH
 Rust (stable, latest edition 2021+): Follow standard conventions
 
 ## Recent Changes
+- 019-docs-landing-page: Added TypeScript (Astro 5.x), AsciiDoc (Antora 3.x), Containerfile (demo image) + Astro, Tailwind CSS, Antora, AsciiDoc
 - 018-build-manifest: Added Go 1.22+ (existing cc-deck CLI), Markdown (Claude Code commands) + cobra (CLI), gopkg.in/yaml.v3 (manifest parsing), go:embed (asset embedding)
 - 017-base-image: Added Containerfile (OCI image build), shell scripts (bash) + Fedora 41 base image, dnf packages, starship (GitHub release)
-- 016-k8s-integration-tests: Added Go 1.22+ (go.mod specifies 1.25) + k8s.io/client-go v0.35.2, github.com/stretchr/testify (new), cobra (existing)
 
 
 <!-- MANUAL ADDITIONS START -->
