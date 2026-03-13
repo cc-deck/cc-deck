@@ -26,7 +26,7 @@ CLI_LDFLAGS = -X github.com/rhuss/cc-mux/cc-deck/internal/cmd.Version=$(VERSION)
 .PHONY: build build-wasm build-wasm-debug copy-wasm build-cli cross-cli \
         test test-go test-rust lint lint-go lint-rust \
         install uninstall status \
-        test-image base-image base-image-push \
+        test-image demo-image demo-image-push base-image base-image-push \
         dev reload clean help
 
 ## -- Build -------------------------------------------------
@@ -100,6 +100,18 @@ test-image: build cross-cli  ## Build cc-deck, cross-compile, init test dir, and
 	@echo ""
 	@echo "Next: cd $(TEST_IMAGE_DIR) && claude"
 	@echo "Then: /cc-deck.build"
+
+## -- Demo Image -------------------------------------------
+
+DEMO_IMAGE = $(REGISTRY)/cc-deck-demo
+
+demo-image: cross-cli  ## Build the cc-deck demo container image
+	mkdir -p demo-image/.build-context
+	cp cc-deck/cc-deck-linux-* demo-image/.build-context/
+	podman build --platform $(PLATFORMS) -t $(DEMO_IMAGE):latest demo-image/
+
+demo-image-push: demo-image  ## Build and push the demo image
+	podman push $(DEMO_IMAGE):latest
 
 ## -- Base Image -------------------------------------------
 
