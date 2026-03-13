@@ -77,24 +77,11 @@ RUN chmod +x /usr/local/bin/cc-deck && \
     chown -R coder:coder /home/coder/.config/zellij /home/coder/.cache/zellij /home/coder/.claude && \
     rm -rf /root/.claude /root/.cache/zellij
 
-# MANDATORY Layer: Claude Code (self-contained with private Node.js 20)
-# Claude Code requires Node.js 20 (segfaults on Node 22+). Install to /opt/claude-code
-# with its own Node.js to avoid interfering with project toolchains.
-RUN ARCH=$(uname -m) && \
-    case "$ARCH" in \
-      x86_64)  NODE_ARCH=x64 ;; \
-      aarch64) NODE_ARCH=arm64 ;; \
-      *) echo "Unsupported: $ARCH" && exit 1 ;; \
-    esac && \
-    NODE_VERSION=20.19.0 && \
-    mkdir -p /opt/claude-code && \
-    curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz" \
-      | tar -xJ -C /opt/claude-code --strip-components=1 && \
-    /opt/claude-code/bin/npm install -g @anthropic-ai/claude-code \
-      --prefix /opt/claude-code && \
-    printf '#!/bin/sh\nexec /opt/claude-code/bin/node /opt/claude-code/lib/node_modules/@anthropic-ai/claude-code/cli.js "$@"\n' \
-      > /usr/local/bin/claude && \
-    chmod +x /usr/local/bin/claude
+# MANDATORY Layer: Claude Code (native installer, bundles its own Node.js)
+USER coder
+RUN curl -fsSL https://claude.ai/install.sh | sh
+USER root
+ENV PATH="/home/coder/.local/bin:${PATH}"
 
 # ============================================================
 
