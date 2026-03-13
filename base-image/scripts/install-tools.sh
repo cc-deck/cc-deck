@@ -26,6 +26,7 @@ dnf install -y --setopt=install_weak_deps=False \
   openssh-clients \
   make \
   sudo \
+  procps-ng \
   tree \
   unzip \
   less \
