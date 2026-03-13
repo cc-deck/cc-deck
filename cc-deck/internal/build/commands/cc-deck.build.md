@@ -63,18 +63,24 @@ RUN chmod +x /usr/local/bin/cc-deck && \
     cc-deck plugin install --install-zellij --force && \
     chown -R coder:coder /home/coder/.config/zellij
 
-# MANDATORY Layer: Node.js 20 for Claude Code (official requirement, Fedora's Node 22 causes segfaults)
-RUN curl -fsSL https://rpm.nodesource.com/setup_20.x | bash - && \
-    dnf install -y nodejs --allowerasing && dnf clean all
-
-# MANDATORY Layer: Claude Code
-# Install as coder user with dedicated npm prefix (matches official Anthropic devcontainer pattern)
-RUN mkdir -p /home/coder/.npm-global && chown coder:coder /home/coder/.npm-global
-ENV NPM_CONFIG_PREFIX=/home/coder/.npm-global
-ENV PATH="/home/coder/.npm-global/bin:/home/coder/.local/bin:${PATH}"
-USER coder
-RUN npm install -g @anthropic-ai/claude-code
-USER root
+# MANDATORY Layer: Claude Code (self-contained with private Node.js 20)
+# Claude Code requires Node.js 20 (segfaults on Node 22+). Install to /opt/claude-code
+# with its own Node.js to avoid interfering with project toolchains.
+RUN ARCH=$(uname -m) && \
+    case "$ARCH" in \
+      x86_64)  NODE_ARCH=x64 ;; \
+      aarch64) NODE_ARCH=arm64 ;; \
+      *) echo "Unsupported: $ARCH" && exit 1 ;; \
+    esac && \
+    NODE_VERSION=20.19.0 && \
+    mkdir -p /opt/claude-code && \
+    curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz" \
+      | tar -xJ -C /opt/claude-code --strip-components=1 && \
+    /opt/claude-code/bin/npm install -g @anthropic-ai/claude-code \
+      --prefix /opt/claude-code && \
+    printf '#!/bin/sh\nexec /opt/claude-code/bin/node /opt/claude-code/lib/node_modules/@anthropic-ai/claude-code/cli.js "$@"\n' \
+      > /usr/local/bin/claude && \
+    chmod +x /usr/local/bin/claude
 
 # MANDATORY Layer: Claude Code hooks for cc-deck
 RUN CLAUDE_SETTINGS=/home/coder/.claude/settings.json && \
