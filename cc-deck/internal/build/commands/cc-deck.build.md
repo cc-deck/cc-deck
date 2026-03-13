@@ -63,9 +63,14 @@ RUN chmod +x /usr/local/bin/cc-deck && \
     cc-deck plugin install --install-zellij --force && \
     chown -R coder:coder /home/coder/.config/zellij
 
-# MANDATORY Layer: Claude Code (native installer, not npm, to avoid segfaults)
-RUN su - coder -c 'curl -fsSL https://claude.ai/install.sh | sh'
-ENV PATH="/home/coder/.local/bin:${PATH}"
+# MANDATORY Layer: Claude Code
+# Install as coder user with dedicated npm prefix (matches official Anthropic devcontainer pattern)
+RUN mkdir -p /home/coder/.npm-global && chown coder:coder /home/coder/.npm-global
+ENV NPM_CONFIG_PREFIX=/home/coder/.npm-global
+ENV PATH="/home/coder/.npm-global/bin:/home/coder/.local/bin:${PATH}"
+USER coder
+RUN npm install -g @anthropic-ai/claude-code
+USER root
 
 # MANDATORY Layer: Claude Code hooks for cc-deck
 RUN CLAUDE_SETTINGS=/home/coder/.claude/settings.json && \
