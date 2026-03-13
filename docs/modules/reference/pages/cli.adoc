@@ -1,0 +1,198 @@
+= CLI Reference
+
+The `cc-deck` command-line tool manages the plugin, sessions, snapshots, and container images.
+
+== Global Flags
+
+[cols="1,1,3"]
+|===
+| Flag | Short | Description
+
+| `--config`
+|
+| Config file path (default: `$XDG_CONFIG_HOME/cc-deck/config.yaml`)
+
+| `--kubeconfig`
+|
+| Path to kubeconfig (default: `$KUBECONFIG` or `~/.kube/config`)
+
+| `--namespace`
+| `-n`
+| Target Kubernetes namespace
+
+| `--output`
+| `-o`
+| Output format: `text` (default), `json`, `yaml`
+
+| `--profile`
+| `-p`
+| Credential profile to use
+
+| `--verbose`
+| `-v`
+| Verbose output
+|===
+
+== Commands
+
+=== version
+
+Print version information.
+
+[source,bash]
+----
+cc-deck version
+cc-deck version -o json
+----
+
+=== plugin
+
+Manage the Zellij plugin installation.
+
+==== plugin install
+
+Install the WASM plugin, layouts, and Claude Code hooks.
+
+[source,bash]
+----
+cc-deck plugin install
+cc-deck plugin install --layout minimal
+cc-deck plugin install --force
+cc-deck plugin install --install-zellij
+----
+
+[cols="1,3"]
+|===
+| Flag | Description
+
+| `--force`, `-f`
+| Overwrite without prompting
+
+| `--skip-backup`
+| Skip creating backup of `settings.json`
+
+| `--layout`
+| Default layout variant: `standard` (default), `minimal`, `clean`
+
+| `--install-zellij`
+| Download and install matching Zellij binary
+|===
+
+==== plugin status
+
+Show current installation status.
+
+[source,bash]
+----
+cc-deck plugin status
+cc-deck plugin status -o json
+----
+
+==== plugin remove
+
+Remove the plugin, layouts, and hooks.
+
+[source,bash]
+----
+cc-deck plugin remove
+cc-deck plugin remove --skip-backup
+----
+
+=== snapshot
+
+Manage session state snapshots.
+
+==== snapshot save
+
+Save current session state.
+
+[source,bash]
+----
+cc-deck snapshot save my-checkpoint
+cc-deck snapshot save --auto   # sequential naming
+----
+
+==== snapshot restore
+
+Restore a saved snapshot.
+
+[source,bash]
+----
+cc-deck snapshot restore my-checkpoint
+----
+
+==== snapshot list
+
+List all saved snapshots.
+
+[source,bash]
+----
+cc-deck snapshot list
+cc-deck snapshot list -o json
+----
+
+==== snapshot remove
+
+Delete a snapshot.
+
+[source,bash]
+----
+cc-deck snapshot remove my-checkpoint
+----
+
+=== image
+
+Container image lifecycle commands.
+
+==== image init
+
+Scaffold a build directory with manifest and AI commands.
+
+[source,bash]
+----
+cc-deck image init my-team-image
+cc-deck image init my-team-image --force
+----
+
+[cols="1,3"]
+|===
+| Flag | Description
+
+| `--force`, `-f`
+| Overwrite existing build directory
+|===
+
+==== image verify
+
+Smoke-test a built container image.
+
+[source,bash]
+----
+cc-deck image verify my-team-image
+----
+
+Starts a container, checks tool availability, Claude Code startup, and cc-deck version.
+Reports pass/fail for each check.
+
+==== image diff
+
+Compare manifest against generated Containerfile.
+
+[source,bash]
+----
+cc-deck image diff my-team-image
+----
+
+Reports tools, plugins, MCP servers, and GitHub tools that are in the manifest but not reflected in the Containerfile.
+
+=== hook
+
+Internal command used by Claude Code hooks.
+Not intended for direct use.
+
+[source,bash]
+----
+cc-deck hook --pane-id "$ZELLIJ_PANE_ID"
+----
+
+Forwards Claude Code session events to the sidebar plugin.

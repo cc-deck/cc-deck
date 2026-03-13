@@ -1,1 +1,5 @@
-* xref:index.adoc[reference]
+.Reference
+* xref:cli.adoc[CLI Commands]
+* xref:manifest-schema.adoc[Manifest Schema]
+* xref:configuration.adoc[Configuration]
+* xref:mcp-labels.adoc[MCP Label Schema]

@@ -1,0 +1,92 @@
+= MCP Label Schema
+
+Container images for MCP servers can include labels that cc-deck reads to auto-populate the manifest's `mcp` section.
+
+== Label Format
+
+All labels use the `cc-deck.mcp/` prefix:
+
+[cols="1,3"]
+|===
+| Label | Description
+
+| `cc-deck.mcp/name`
+| MCP server name (e.g., `github`)
+
+| `cc-deck.mcp/transport`
+| Transport protocol: `sse` or `stdio`
+
+| `cc-deck.mcp/port`
+| Port number (for `sse` transport)
+
+| `cc-deck.mcp/auth-type`
+| Authentication type: `token`, `oauth`, `none`
+
+| `cc-deck.mcp/auth-env-vars`
+| Comma-separated environment variable names for credentials
+
+| `cc-deck.mcp/description`
+| Human-readable description
+|===
+
+== Example
+
+A container image with MCP labels:
+
+[source,dockerfile]
+----
+FROM python:3.12-slim
+
+LABEL cc-deck.mcp/name="github"
+LABEL cc-deck.mcp/transport="sse"
+LABEL cc-deck.mcp/port="8000"
+LABEL cc-deck.mcp/auth-type="token"
+LABEL cc-deck.mcp/auth-env-vars="GITHUB_TOKEN"
+LABEL cc-deck.mcp/description="GitHub API access for issue and PR management"
+
+# ... MCP server installation ...
+----
+
+== How Labels Are Used
+
+When `/cc-deck.settings` (Section E) encounters a container image reference, it inspects the image for `cc-deck.mcp/*` labels:
+
+[source,bash]
+----
+podman inspect <image> --format '{{json .Config.Labels}}'
+----
+
+If labels are found, the MCP entry is auto-populated in the manifest:
+
+[source,yaml]
+----
+mcp:
+  - name: github
+    image: ghcr.io/org/github-mcp:latest
+    transport: sse
+    port: 8000
+    auth:
+      type: token
+      env_vars: [GITHUB_TOKEN]
+    description: GitHub API access for issue and PR management
+----
+
+If an image does not have labels, the settings command asks for transport, port, and auth details interactively.
+
+== Building Labeled MCP Images
+
+When creating your own MCP server images, add the labels to make them discoverable by cc-deck:
+
+[source,dockerfile]
+----
+FROM python:3.12-slim
+
+LABEL cc-deck.mcp/name="my-api"
+LABEL cc-deck.mcp/transport="sse"
+LABEL cc-deck.mcp/port="9000"
+LABEL cc-deck.mcp/auth-type="none"
+LABEL cc-deck.mcp/description="Custom internal API access"
+
+COPY server.py /app/
+CMD ["python", "/app/server.py"]
+----

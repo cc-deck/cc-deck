@@ -182,11 +182,11 @@
 **Purpose**: ROOT module, reference docs, and final validation.
 
 - [x] T054 [P] Write `docs/modules/ROOT/pages/index.adoc` with project overview, feature highlights, and links to all modules
-- [ ] T055 [P] Write `docs/modules/reference/pages/cli.adoc` with all CLI commands, flags, and examples
-- [ ] T056 [P] Write `docs/modules/reference/pages/manifest-schema.adoc` with full cc-deck-build.yaml schema
-- [ ] T057 [P] Write `docs/modules/reference/pages/configuration.adoc` covering config file, env vars, XDG paths
-- [ ] T058 [P] Write `docs/modules/reference/pages/mcp-labels.adoc` covering MCP label schema for container images
-- [ ] T059 Create `docs/modules/ROOT/nav.adoc` and `docs/modules/reference/nav.adoc`
+- [x] T055 [P] Write `docs/modules/reference/pages/cli.adoc` with all CLI commands, flags, and examples
+- [x] T056 [P] Write `docs/modules/reference/pages/manifest-schema.adoc` with full cc-deck-build.yaml schema
+- [x] T057 [P] Write `docs/modules/reference/pages/configuration.adoc` covering config file, env vars, XDG paths
+- [x] T058 [P] Write `docs/modules/reference/pages/mcp-labels.adoc` covering MCP label schema for container images
+- [x] T059 Create `docs/modules/ROOT/nav.adoc` and `docs/modules/reference/nav.adoc`
 - [ ] T060 Verify: Antora build completes without warnings or broken cross-references
 - [ ] T061 Verify: all 8 modules have substantive content, navigation works end-to-end
 - [ ] T062 Push demo image to `quay.io/rhuss/cc-deck-demo:latest`
