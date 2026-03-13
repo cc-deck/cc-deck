@@ -110,7 +110,7 @@ RUN <plugin install commands>
 
 USER coder
 WORKDIR /home/coder
-CMD ["/bin/zsh"]
+CMD ["sleep", "infinity"]
 ```
 
 **Settings handling** (read the `settings` section from the manifest):

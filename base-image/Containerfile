@@ -26,4 +26,4 @@ COPY --chown=1000:1000 config/zshrc /home/coder/.zshrc
 
 USER coder
 WORKDIR /home/coder
-CMD ["/bin/zsh"]
+CMD ["sleep", "infinity"]
