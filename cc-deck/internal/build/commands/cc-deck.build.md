@@ -38,9 +38,10 @@ FROM <image.base from manifest>
 
 ARG TARGETARCH
 
-# Layer: User setup
+# Layer: User setup (zsh as default shell)
 USER root
 RUN id coder >/dev/null 2>&1 || useradd -m -s /bin/zsh coder
+RUN chsh -s /bin/zsh coder 2>/dev/null || usermod -s /bin/zsh coder
 RUN touch /home/coder/.zshrc && chown coder:coder /home/coder/.zshrc
 
 # Layer: Additional system packages (only what the base image doesn't have)
@@ -65,7 +66,8 @@ RUN chmod +x /usr/local/bin/cc-deck && \
     HOME=/home/coder \
     ZELLIJ_CONFIG_DIR=/home/coder/.config/zellij \
     cc-deck plugin install --install-zellij --force --skip-backup && \
-    chown -R coder:coder /home/coder/.config/zellij /home/coder/.claude
+    chown -R coder:coder /home/coder/.config/zellij /home/coder/.claude && \
+    rm -rf /root/.claude
 
 # MANDATORY Layer: Claude Code (self-contained with private Node.js 20)
 # Claude Code requires Node.js 20 (segfaults on Node 22+). Install to /opt/claude-code
