@@ -22,26 +22,59 @@ Scan the local system and present findings organized by section. For each sectio
 - `~/.zshrc` (standard)
 - User-provided path
 
+Then **parse the zshrc** for sourced files and directories. Look for patterns like:
+- `source ~/path/to/file` or `. ~/path/to/file`
+- `source "$HOME/path/to/file"`
+- `for f in ~/dir/*.zsh; do source $f; done` (custom plugin dirs)
+- `source ${ZSH}/oh-my-zsh.sh` (oh-my-zsh)
+- `source ~/.zsh/plugins/*` or similar glob patterns
+- `fpath+=` entries pointing to custom completions
+- References to `~/.zsh/`, `~/.config/zsh/`, or similar custom directories
+
 **Present**:
 ```
 Zsh Configuration:
   Found: ~/.zshrc (42 lines, last modified: 2026-03-10)
 
-  Include in image? [y/n/path]
-    y     = copy ~/.zshrc
-    n     = skip (use base image defaults)
-    path  = specify a different .zshrc file
+  Sourced files and directories detected:
+    [x] ~/.zsh/aliases.zsh (12 lines)
+    [x] ~/.zsh/functions/ (3 files)
+    [ ] ~/.oh-my-zsh/ (large, 847 files)
+    [x] ~/.zsh/completions/ (5 files)
+    [ ] ~/.local/share/zsh-autosuggestions/ (plugin)
+
+  Include .zshrc? [y/n/path]
+  Select sourced files to include (toggle numbers, 'a' all, 'n' none):
 ```
 
-**Action**: If selected, copy the file to the build directory as `zshrc` and update the manifest:
+For large directories like oh-my-zsh, show the size and file count and default to unchecked. For small custom directories, default to checked.
+
+**Action**: If selected, copy the zshrc and all selected sourced files/directories to the build directory preserving their relative paths under a `zsh/` subdirectory:
+
+```
+zsh/
+  zshrc                    # the main .zshrc (with paths rewritten)
+  .zsh/aliases.zsh
+  .zsh/functions/
+  .zsh/completions/
+```
+
+**Path rewriting**: If the zshrc references `~/` or `$HOME/`, those paths will work as-is in the container since HOME is `/home/coder`. No rewriting needed for standard paths. But if the zshrc uses absolute paths like `/Users/username/...`, warn the user and suggest using `$HOME/` instead.
+
+Update the manifest:
 ```yaml
 settings:
-  zshrc: ./zshrc
+  zshrc: ./zsh/zshrc
+  zsh_extras:
+    - .zsh/aliases.zsh
+    - .zsh/functions/
+    - .zsh/completions/
 ```
 
 Add to the Containerfile template:
 ```dockerfile
-COPY --chown=coder:coder zshrc /home/coder/.zshrc
+COPY --chown=coder:coder zsh/zshrc /home/coder/.zshrc
+COPY --chown=coder:coder zsh/.zsh/ /home/coder/.zsh/
 ```
 
 ---
