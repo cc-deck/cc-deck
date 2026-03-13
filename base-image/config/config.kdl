@@ -1,0 +1,4 @@
+// cc-deck base Zellij configuration
+// Ensures panes start with an interactive login shell
+
+default_shell "zsh"
