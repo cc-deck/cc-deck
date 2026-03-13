@@ -1,6 +1,15 @@
 # cc-mux Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2026-03-03
+Auto-generated from all feature plans. Last updated: 2026-03-13
+
+## Content Creation (MANDATORY)
+
+When creating or editing ANY documentation content (AsciiDoc, Markdown, landing page text):
+- **ALWAYS use the prose plugin** with the `cc-deck` voice profile (`.style/voice.yaml`)
+- **NEVER use em-dashes or en-dashes** (per global CLAUDE.md rules)
+- **One sentence per line** in AsciiDoc files (semantic line breaks)
+- Use the cc-deck voice: professional, thorough, no contractions, terminal-native analogies
+- Run `/prose:check` before committing documentation changes
 
 ## Active Technologies
 - Go 1.22+ + cobra (CLI), viper (config), client-go (K8s API), adrg/xdg (XDG paths), serde/yaml (config parsing) (002-cc-deck-k8s)
