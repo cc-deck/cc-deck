@@ -53,7 +53,7 @@ spec:
                 name: claude-credentials
           volumeMounts:
             - name: home
-              mountPath: /home/coder
+              mountPath: /home/dev
   volumeClaimTemplates:
     - metadata:
         name: home

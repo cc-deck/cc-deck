@@ -11,9 +11,9 @@ ARG TARGETARCH
 
 # User setup (ensure zsh shell, writable dirs)
 USER root
-RUN id coder >/dev/null 2>&1 || useradd -m -s /bin/zsh coder
-RUN chsh -s /bin/zsh coder 2>/dev/null || usermod -s /bin/zsh coder
-RUN touch /home/coder/.zshrc && chown coder:coder /home/coder/.zshrc
+RUN id dev >/dev/null 2>&1 || useradd -m -s /bin/zsh dev
+RUN chsh -s /bin/zsh dev 2>/dev/null || usermod -s /bin/zsh dev
+RUN touch /home/dev/.zshrc && chown dev:dev /home/dev/.zshrc
 
 # cc-session (Rust release: arch-unknown-linux-gnu.tar.xz with nested dir)
 RUN ARCH=$(uname -m) && \
@@ -32,22 +32,22 @@ RUN ARCH=$(uname -m) && \
 # cc-deck self-install (Zellij + plugin + layouts + hooks)
 COPY .build-context/cc-deck-linux-${TARGETARCH} /usr/local/bin/cc-deck
 RUN chmod +x /usr/local/bin/cc-deck && \
-    mkdir -p /home/coder/.claude /home/coder/.cache/zellij && \
-    HOME=/home/coder \
-    ZELLIJ_CONFIG_DIR=/home/coder/.config/zellij \
+    mkdir -p /home/dev/.claude /home/dev/.cache/zellij && \
+    HOME=/home/dev \
+    ZELLIJ_CONFIG_DIR=/home/dev/.config/zellij \
     cc-deck plugin install --install-zellij --force --skip-backup && \
-    mkdir -p /home/coder/.config/zellij/themes && \
-    printf 'default_shell "zsh"\ntheme "claude-dark"\n\nthemes {\n    claude-dark {\n        fg "#E5E5E5"\n        bg "#264F78"\n        black "#2D2D2D"\n        red "#FF6B6B"\n        green "#7EC699"\n        yellow "#E5C07B"\n        blue "#61AFEF"\n        magenta "#C678DD"\n        cyan "#56B6C2"\n        white "#E5E5E5"\n        orange "#D19A66"\n    }\n}\n' > /home/coder/.config/zellij/config.kdl && \
-    chown -R coder:coder /home/coder/.config/zellij /home/coder/.cache/zellij /home/coder/.claude && \
+    mkdir -p /home/dev/.config/zellij/themes && \
+    printf 'default_shell "zsh"\ntheme "claude-dark"\n\nthemes {\n    claude-dark {\n        fg "#E5E5E5"\n        bg "#264F78"\n        black "#2D2D2D"\n        red "#FF6B6B"\n        green "#7EC699"\n        yellow "#E5C07B"\n        blue "#61AFEF"\n        magenta "#C678DD"\n        cyan "#56B6C2"\n        white "#E5E5E5"\n        orange "#D19A66"\n    }\n}\n' > /home/dev/.config/zellij/config.kdl && \
+    chown -R dev:dev /home/dev/.config/zellij /home/dev/.cache/zellij /home/dev/.claude && \
     rm -rf /root/.claude /root/.cache/zellij
-COPY --chown=coder:coder themes/claude-dark.kdl /home/coder/.config/zellij/themes/claude-dark.kdl
+COPY --chown=dev:dev themes/claude-dark.kdl /home/dev/.config/zellij/themes/claude-dark.kdl
 
 # Claude Code via native installer (bundles its own Node.js runtime)
-USER coder
+USER dev
 RUN curl -fsSL https://claude.ai/install.sh | sh
 USER root
-ENV PATH="/home/coder/.local/bin:${PATH}"
+ENV PATH="/home/dev/.local/bin:${PATH}"
 
-USER coder
-WORKDIR /home/coder
+USER dev
+WORKDIR /home/dev
 CMD ["zellij", "--layout", "cc-deck"]

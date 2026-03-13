@@ -48,7 +48,7 @@ spec:
                 name: alice-credentials
           volumeMounts:
             - name: home
-              mountPath: /home/coder
+              mountPath: /home/dev
       volumes:
         - name: home
           persistentVolumeClaim:
