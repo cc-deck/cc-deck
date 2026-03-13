@@ -63,8 +63,9 @@ RUN chmod +x /usr/local/bin/cc-deck && \
     cc-deck plugin install --install-zellij --force && \
     chown -R coder:coder /home/coder/.config/zellij
 
-# MANDATORY Layer: Claude Code (use native installer, not npm, to avoid segfaults)
-RUN curl -fsSL https://claude.ai/install.sh | sh
+# MANDATORY Layer: Claude Code (native installer, not npm, to avoid segfaults)
+RUN su - coder -c 'curl -fsSL https://claude.ai/install.sh | sh'
+ENV PATH="/home/coder/.local/bin:${PATH}"
 
 # MANDATORY Layer: Claude Code hooks for cc-deck
 RUN CLAUDE_SETTINGS=/home/coder/.claude/settings.json && \
