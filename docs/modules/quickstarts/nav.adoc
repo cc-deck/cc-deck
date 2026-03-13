@@ -1,1 +1,2 @@
-* xref:index.adoc[quickstarts]
+.Quickstarts
+* xref:one-liner.adoc[One-Liner Demo]

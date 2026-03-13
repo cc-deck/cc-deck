@@ -1,0 +1,53 @@
+= One-Liner Quickstart
+
+Get cc-deck running in under two minutes.
+
+== With API Key
+
+[source,bash]
+----
+podman run -d --name cc-demo \
+  -e ANTHROPIC_API_KEY=sk-ant-... \
+  quay.io/cc-deck/cc-deck-demo:latest
+
+podman exec -it cc-demo zellij --layout cc-deck
+----
+
+== With Vertex AI
+
+[source,bash]
+----
+podman run -d --name cc-demo \
+  -e CLAUDE_CODE_USE_VERTEX=1 \
+  -e CLOUD_ML_REGION=us-east5 \
+  -e ANTHROPIC_VERTEX_PROJECT_ID=your-project-id \
+  -v ~/.config/gcloud:/home/coder/.config/gcloud:ro \
+  quay.io/cc-deck/cc-deck-demo:latest
+
+podman exec -it cc-demo zellij --layout cc-deck
+----
+
+== What You Get
+
+A terminal environment with:
+
+* The cc-deck sidebar tracking all your Claude Code sessions
+* Smart attend to cycle through sessions that need attention
+* Keyboard navigation for fast session switching
+* Claude Code pre-installed and ready to use
+
+== Reconnecting
+
+The container stays running in the background.
+Reconnect anytime:
+
+[source,bash]
+----
+podman exec -it cc-demo zellij attach
+----
+
+== Next Steps
+
+* xref:podman:quickstart.adoc[Podman Guide] for volume mounts and advanced setup
+* xref:plugin:overview.adoc[Plugin Guide] to learn the sidebar features
+* xref:images:overview.adoc[Build Pipeline] to create custom images

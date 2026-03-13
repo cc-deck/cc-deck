@@ -1,0 +1,208 @@
+= Manifest Schema Reference
+
+The `cc-deck-build.yaml` manifest defines the desired contents of a container image.
+For usage context, see xref:images:manifest.adoc[Manifest Reference] in the Images module.
+
+This page provides the complete field reference.
+
+== Schema Version
+
+[source,yaml]
+----
+version: 1
+----
+
+Required.
+Currently only version `1` is supported.
+
+== image
+
+[cols="1,1,1,3"]
+|===
+| Field | Type | Required | Description
+
+| `name`
+| string
+| Yes
+| Image name (e.g., `my-team-image`)
+
+| `base`
+| string
+| No
+| Base image reference. Default: `quay.io/rhuss/cc-deck-base:latest`
+
+| `tag`
+| string
+| No
+| Image tag. Default: `latest`
+|===
+
+== tools
+
+Type: list of strings.
+Optional.
+
+Free-form text descriptions of required tools.
+Resolved to concrete install commands during `/cc-deck.build`.
+
+[source,yaml]
+----
+tools:
+  - "Go compiler >= 1.25"
+  - "Python 3.12 with uv package manager"
+----
+
+== sources
+
+Type: list of objects.
+Optional.
+Populated by `/cc-deck.extract`.
+
+[cols="1,1,3"]
+|===
+| Field | Type | Description
+
+| `url`
+| string
+| Repository URL
+
+| `ref`
+| string
+| Branch or tag
+
+| `path`
+| string
+| Local checkout path
+
+| `detected_tools`
+| list
+| Tools discovered in this repo
+
+| `detected_from`
+| list
+| Files the tools were detected from
+|===
+
+== plugins
+
+Type: list of objects.
+Optional.
+
+[cols="1,1,3"]
+|===
+| Field | Type | Description
+
+| `name`
+| string
+| Plugin name
+
+| `source`
+| string
+| `marketplace` or `git:<url>`
+|===
+
+== mcp
+
+Type: list of objects.
+Optional.
+
+[cols="1,1,3"]
+|===
+| Field | Type | Description
+
+| `name`
+| string
+| MCP server name
+
+| `image`
+| string
+| Container image reference
+
+| `transport`
+| string
+| `sse` or `stdio`
+
+| `port`
+| integer
+| Port number (for `sse` transport)
+
+| `auth.type`
+| string
+| Authentication type (e.g., `token`)
+
+| `auth.env_vars`
+| list
+| Environment variable names for credentials
+
+| `description`
+| string
+| Human-readable description
+|===
+
+== github_tools
+
+Type: list of objects.
+Optional.
+
+[cols="1,1,3"]
+|===
+| Field | Type | Description
+
+| `repo`
+| string
+| GitHub repository (e.g., `rhuss/cc-setup`)
+
+| `binary`
+| string
+| Binary name to extract from the release
+|===
+
+== settings
+
+Type: object.
+Optional.
+
+[cols="1,1,3"]
+|===
+| Field | Type | Description
+
+| `zshrc`
+| string
+| Path to curated `.zshrc` file
+
+| `zellij_config`
+| string
+| `current`, `vanilla`, or a file path
+
+| `claude_md`
+| string
+| Path to global Claude instructions
+
+| `claude_settings`
+| string
+| Path to Claude preferences JSON (merged with hooks)
+
+| `hooks`
+| string
+| Path to additional hooks JSON (merged)
+
+| `mcp_settings`
+| string
+| Path to npx-based MCP configs (merged)
+
+| `cc_setup_mcp`
+| string
+| Path to cc-setup MCP cache file
+|===
+
+== Validation
+
+Required fields: `version` (must be `1`), `image.name`.
+All other sections are optional.
+
+Validate with:
+
+[source,bash]
+----
+cc-deck image diff <build-dir>
+----
