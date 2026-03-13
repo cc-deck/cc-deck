@@ -112,8 +112,8 @@ services:
     environment:
       - ANTHROPIC_API_KEY
     volumes:
-      - ~/projects:/home/coder/projects
-      - cc-state:/home/coder
+      - ~/projects:/home/dev/projects
+      - cc-state:/home/dev
     ports:
       - "8000:8000"
 

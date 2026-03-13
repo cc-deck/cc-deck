@@ -40,9 +40,9 @@ ARG TARGETARCH
 
 # Layer: User setup (zsh as default shell)
 USER root
-RUN id coder >/dev/null 2>&1 || useradd -m -s /bin/zsh coder
-RUN chsh -s /bin/zsh coder 2>/dev/null || usermod -s /bin/zsh coder
-RUN touch /home/coder/.zshrc && chown coder:coder /home/coder/.zshrc
+RUN id dev >/dev/null 2>&1 || useradd -m -s /bin/zsh dev
+RUN chsh -s /bin/zsh dev 2>/dev/null || usermod -s /bin/zsh dev
+RUN touch /home/dev/.zshrc && chown dev:dev /home/dev/.zshrc
 
 # Layer: Additional system packages (only what the base image doesn't have)
 RUN dnf install -y <packages not in base image> && dnf clean all
@@ -66,22 +66,22 @@ RUN ARCH=$(uname -m) && \
     done
 
 # MANDATORY Layer: cc-deck self-install (Zellij + plugin + layouts + hooks)
-# Single install pass with HOME=/home/coder so both Zellij config and
-# Claude hooks (~/.claude/settings.json) go to the coder user's home.
+# Single install pass with HOME=/home/dev so both Zellij config and
+# Claude hooks (~/.claude/settings.json) go to the dev user's home.
 COPY .build-context/cc-deck-linux-${TARGETARCH} /usr/local/bin/cc-deck
 RUN chmod +x /usr/local/bin/cc-deck && \
-    mkdir -p /home/coder/.claude /home/coder/.cache/zellij && \
-    HOME=/home/coder \
-    ZELLIJ_CONFIG_DIR=/home/coder/.config/zellij \
+    mkdir -p /home/dev/.claude /home/dev/.cache/zellij && \
+    HOME=/home/dev \
+    ZELLIJ_CONFIG_DIR=/home/dev/.config/zellij \
     cc-deck plugin install --install-zellij --force --skip-backup && \
-    chown -R coder:coder /home/coder/.config/zellij /home/coder/.cache/zellij /home/coder/.claude && \
+    chown -R dev:dev /home/dev/.config/zellij /home/dev/.cache/zellij /home/dev/.claude && \
     rm -rf /root/.claude /root/.cache/zellij
 
 # MANDATORY Layer: Claude Code (native installer, bundles its own Node.js)
-USER coder
+USER dev
 RUN curl -fsSL https://claude.ai/install.sh | sh
 USER root
-ENV PATH="/home/coder/.local/bin:${PATH}"
+ENV PATH="/home/dev/.local/bin:${PATH}"
 
 # ============================================================
 
@@ -91,8 +91,8 @@ RUN <plugin install commands>
 # Layer: User configuration (changes often, keep last for cache efficiency)
 # <settings-based COPY commands, see Settings handling below>
 
-USER coder
-WORKDIR /home/coder
+USER dev
+WORKDIR /home/dev
 CMD ["sleep", "infinity"]
 ```
 
@@ -104,14 +104,14 @@ For each setting, copy the source file to `.build-context/` during Step 4, then 
 |---|---|---|---|
 | `settings.shell` | `zsh` or `bash` | Sets `default_shell` in config.kdl and `chsh` | Default: `zsh` |
 | `settings.shell_rc` | The specified path | Appended to shell rc file (`.zshrc` or `.bashrc`) | Curated additions (base image rc preserved) |
-| `settings.zellij_config: current` | `~/.config/zellij/config.kdl` | `/home/coder/.config/zellij/config.kdl` | Only config, not layouts/plugins (managed by cc-deck) |
-| `settings.zellij_config: <path>` | The specified path | `/home/coder/.config/zellij/config.kdl` | Custom config file |
+| `settings.zellij_config: current` | `~/.config/zellij/config.kdl` | `/home/dev/.config/zellij/config.kdl` | Only config, not layouts/plugins (managed by cc-deck) |
+| `settings.zellij_config: <path>` | The specified path | `/home/dev/.config/zellij/config.kdl` | Custom config file |
 | `settings.zellij_config: vanilla` | (skip) | (nothing) | Use cc-deck defaults only |
-| `settings.claude_md` | The specified path | `/home/coder/.claude/CLAUDE.md` | Global user instructions for Claude |
-| `settings.claude_settings` | The specified path | Merge into `/home/coder/.claude/settings.json` | Merge user preferences with existing settings |
-| `settings.hooks` | The specified path | Merge into `/home/coder/.claude/settings.json` | Merge with cc-deck hooks, do not overwrite |
-| `settings.mcp_settings` | The specified path | Merge into `/home/coder/.claude/settings.json` | npx-based MCP server configs |
-| `settings.cc_setup_mcp` | The specified path | `/home/coder/.config/cc-setup/mcp.json` | cc-setup MCP server cache |
+| `settings.claude_md` | The specified path | `/home/dev/.claude/CLAUDE.md` | Global user instructions for Claude |
+| `settings.claude_settings` | The specified path | Merge into `/home/dev/.claude/settings.json` | Merge user preferences with existing settings |
+| `settings.hooks` | The specified path | Merge into `/home/dev/.claude/settings.json` | Merge with cc-deck hooks, do not overwrite |
+| `settings.mcp_settings` | The specified path | Merge into `/home/dev/.claude/settings.json` | npx-based MCP server configs |
+| `settings.cc_setup_mcp` | The specified path | `/home/dev/.config/cc-setup/mcp.json` | cc-setup MCP server cache |
 
 Use `/cc-deck.settings` to interactively select what to include before building.
 
@@ -120,26 +120,26 @@ Use `/cc-deck.settings` to interactively select what to include before building.
 ```dockerfile
 # Shell config (if settings.shell_rc is set, append to base image rc file)
 # For zsh: appends to .zshrc. For bash: appends to .bashrc and sets chsh.
-COPY --chown=coder:coder <shell_rc_file> /home/coder/.<shell>rc.custom
-RUN cat /home/coder/.<shell>rc.custom >> /home/coder/.<shell>rc && rm /home/coder/.<shell>rc.custom
+COPY --chown=dev:dev <shell_rc_file> /home/dev/.<shell>rc.custom
+RUN cat /home/dev/.<shell>rc.custom >> /home/dev/.<shell>rc && rm /home/dev/.<shell>rc.custom
 
 # Zellij user config (if settings.zellij_config is set)
 # IMPORTANT: ensure default_shell matches the chosen shell (from settings.shell, default "zsh")
-COPY --chown=coder:coder .build-context/zellij-config.kdl /home/coder/.config/zellij/config.kdl
-RUN grep -q 'default_shell' /home/coder/.config/zellij/config.kdl || \
-    echo 'default_shell "<chosen-shell>"' >> /home/coder/.config/zellij/config.kdl
+COPY --chown=dev:dev .build-context/zellij-config.kdl /home/dev/.config/zellij/config.kdl
+RUN grep -q 'default_shell' /home/dev/.config/zellij/config.kdl || \
+    echo 'default_shell "<chosen-shell>"' >> /home/dev/.config/zellij/config.kdl
 
 # Claude global instructions (if settings.claude_md is set)
-COPY --chown=coder:coder .build-context/CLAUDE.md /home/coder/.claude/CLAUDE.md
+COPY --chown=dev:dev .build-context/CLAUDE.md /home/dev/.claude/CLAUDE.md
 
 # Claude settings merge (if settings.claude_settings, hooks, or mcp_settings is set)
-COPY --chown=coder:coder .build-context/settings.json /home/coder/.claude/settings.json
+COPY --chown=dev:dev .build-context/settings.json /home/dev/.claude/settings.json
 
 # cc-setup MCP cache (if settings.cc_setup_mcp is set)
-COPY --chown=coder:coder .build-context/cc-setup-mcp.json /home/coder/.config/cc-setup/mcp.json
+COPY --chown=dev:dev .build-context/cc-setup-mcp.json /home/dev/.config/cc-setup/mcp.json
 ```
 
-**Merge strategy for settings.json**: Read the existing `/home/coder/.claude/settings.json` (created by cc-deck plugin install with hooks), merge in user preferences from the specified file, write the merged result to `.build-context/settings.json`. Never overwrite cc-deck hooks.
+**Merge strategy for settings.json**: Read the existing `/home/dev/.claude/settings.json` (created by cc-deck plugin install with hooks), merge in user preferences from the specified file, write the merged result to `.build-context/settings.json`. Never overwrite cc-deck hooks.
 
 ### Step 3: Check for existing Containerfile
 
@@ -250,7 +250,7 @@ On success, show:
 - Never modify `cc-deck-build.yaml` (the manifest is the source of truth)
 - **NEVER omit the 3 mandatory layers** (cc-deck+Zellij, Claude Code, hooks). Every Containerfile must include them
 - Always use `.build-context/cc-deck-linux-${TARGETARCH}` as the COPY source in the Containerfile
-- Always set `ZELLIJ_CONFIG_DIR=/home/coder/.config/zellij` when running `cc-deck plugin install` as root
+- Always set `ZELLIJ_CONFIG_DIR=/home/dev/.config/zellij` when running `cc-deck plugin install` as root
 - Containerfile fixes during the build loop are expected and encouraged
 - Combine related `dnf install` calls into a single RUN for layer efficiency
 - Clean package caches in the same layer as installs (`&& dnf clean all`)

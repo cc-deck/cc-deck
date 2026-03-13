@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-USERNAME="coder"
+USERNAME="dev"
 USER_UID=1000
 USER_GID=1000
 

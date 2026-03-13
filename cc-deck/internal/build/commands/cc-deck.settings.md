@@ -107,8 +107,8 @@ settings:
 ```
 The Containerfile appends the curated content to the base image's `.zshrc` (do not replace it):
 ```dockerfile
-COPY --chown=coder:coder zshrc /home/coder/.zshrc.custom
-RUN cat /home/coder/.zshrc.custom >> /home/coder/.zshrc && rm /home/coder/.zshrc.custom
+COPY --chown=dev:dev zshrc /home/dev/.zshrc.custom
+RUN cat /home/dev/.zshrc.custom >> /home/dev/.zshrc && rm /home/dev/.zshrc.custom
 ```
 
 For **bash**:
@@ -119,9 +119,9 @@ settings:
 ```
 The Containerfile sets bash as the default shell and appends the curated config:
 ```dockerfile
-RUN chsh -s /bin/bash coder 2>/dev/null || usermod -s /bin/bash coder
-COPY --chown=coder:coder bashrc /home/coder/.bashrc.custom
-RUN cat /home/coder/.bashrc.custom >> /home/coder/.bashrc && rm /home/coder/.bashrc.custom
+RUN chsh -s /bin/bash dev 2>/dev/null || usermod -s /bin/bash dev
+COPY --chown=dev:dev bashrc /home/dev/.bashrc.custom
+RUN cat /home/dev/.bashrc.custom >> /home/dev/.bashrc && rm /home/dev/.bashrc.custom
 ```
 
 The Zellij `config.kdl` `default_shell` is set to match the chosen shell.
@@ -276,7 +276,7 @@ MCP Servers:
   }
   ```
 
-- **cc-setup cache**: If the user selects MCP servers from cc-setup, copy the relevant entries from `~/.config/cc-setup/mcp.json` to the build directory as `cc-setup-mcp.json`. The Containerfile will place it at `/home/coder/.config/cc-setup/mcp.json`.
+- **cc-setup cache**: If the user selects MCP servers from cc-setup, copy the relevant entries from `~/.config/cc-setup/mcp.json` to the build directory as `cc-setup-mcp.json`. The Containerfile will place it at `/home/dev/.config/cc-setup/mcp.json`.
 
 ---
 

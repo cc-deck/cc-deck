@@ -58,8 +58,8 @@ RUN cc-deck plugin install --install-zellij --force
 # Install Claude Code
 RUN npm install -g @anthropic-ai/claude-code
 
-USER coder
-WORKDIR /home/coder
+USER dev
+WORKDIR /home/dev
 ```
 
 ### Verify tools
@@ -74,10 +74,10 @@ podman run --rm cc-deck-base:local sh -c '
 '
 ```
 
-## User: coder
+## User: dev
 
-The image runs as a non-root user `coder` (UID 1000) with:
-- Home: `/home/coder`
+The image runs as a non-root user `dev` (UID 1000) with:
+- Home: `/home/dev`
 - Shell: zsh with starship prompt
 - Passwordless sudo access
 - npm global prefix: `~/.local/lib/npm` (no root needed for `npm install -g`)

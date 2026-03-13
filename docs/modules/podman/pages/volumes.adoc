@@ -9,11 +9,11 @@ Changes are bidirectional: edits inside the container appear on your host, and v
 ----
 podman run -d --name mydev \
   -e ANTHROPIC_API_KEY=sk-ant-... \
-  -v ~/projects/my-app:/home/coder/my-app \
+  -v ~/projects/my-app:/home/dev/my-app \
   quay.io/cc-deck/cc-deck-demo:latest
 ----
 
-Inside the container, the project is at `/home/coder/my-app`.
+Inside the container, the project is at `/home/dev/my-app`.
 
 == Mount Multiple Projects
 
@@ -21,9 +21,9 @@ Inside the container, the project is at `/home/coder/my-app`.
 ----
 podman run -d --name mydev \
   -e ANTHROPIC_API_KEY=sk-ant-... \
-  -v ~/projects/frontend:/home/coder/frontend \
-  -v ~/projects/backend:/home/coder/backend \
-  -v ~/projects/infra:/home/coder/infra \
+  -v ~/projects/frontend:/home/dev/frontend \
+  -v ~/projects/backend:/home/dev/backend \
+  -v ~/projects/infra:/home/dev/infra \
   quay.io/cc-deck/cc-deck-demo:latest
 ----
 
@@ -38,20 +38,20 @@ To preserve container state (Zellij sessions, Claude Code history, snapshots) ac
 ----
 podman run -d --name mydev \
   -e ANTHROPIC_API_KEY=sk-ant-... \
-  -v mydev-home:/home/coder \
-  -v ~/projects/my-app:/home/coder/my-app \
+  -v mydev-home:/home/dev \
+  -v ~/projects/my-app:/home/dev/my-app \
   quay.io/cc-deck/cc-deck-demo:latest
 ----
 
 The named volume `mydev-home` persists even when the container is removed.
 
-WARNING: When mounting a volume on `/home/coder`, the container's default configuration files (`.zshrc`, `.config/zellij/`) are replaced by the volume contents.
+WARNING: When mounting a volume on `/home/dev`, the container's default configuration files (`.zshrc`, `.config/zellij/`) are replaced by the volume contents.
 On the first run, these files are populated from the image.
 On subsequent runs, the volume's contents take precedence.
 
 == File Permissions
 
-The container runs as `coder` (UID 1000).
+The container runs as `dev` (UID 1000).
 If your host files are owned by a different UID, you may see permission issues.
 
 On Linux, the simplest fix is `--userns=keep-id`:
@@ -60,11 +60,11 @@ On Linux, the simplest fix is `--userns=keep-id`:
 ----
 podman run -d --name mydev \
   --userns=keep-id \
-  -v ~/projects/my-app:/home/coder/my-app \
+  -v ~/projects/my-app:/home/dev/my-app \
   quay.io/cc-deck/cc-deck-demo:latest
 ----
 
-This maps your host UID to the container's `coder` UID.
+This maps your host UID to the container's `dev` UID.
 
 On macOS, file permissions are handled automatically by the Podman VM.
 
@@ -74,7 +74,7 @@ For reference material you do not want modified:
 
 [source,bash]
 ----
--v ~/docs/api-spec:/home/coder/api-spec:ro
+-v ~/docs/api-spec:/home/dev/api-spec:ro
 ----
 
 The `:ro` suffix makes the mount read-only inside the container.
