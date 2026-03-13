@@ -18,63 +18,77 @@ Scan the local system and present findings organized by section. For each sectio
 
 ### Section A: Zsh Configuration
 
-**Scan**: Check for `.zshrc` files in these locations:
-- `~/.zshrc` (standard)
-- User-provided path
+**Scan**: Read `~/.zshrc` (or user-provided path) and analyze its contents.
 
-Then **parse the zshrc** for sourced files and directories. Look for patterns like:
-- `source ~/path/to/file` or `. ~/path/to/file`
-- `source "$HOME/path/to/file"`
-- `for f in ~/dir/*.zsh; do source $f; done` (custom plugin dirs)
-- `source ${ZSH}/oh-my-zsh.sh` (oh-my-zsh)
-- `source ~/.zsh/plugins/*` or similar glob patterns
-- `fpath+=` entries pointing to custom completions
-- References to `~/.zsh/`, `~/.config/zsh/`, or similar custom directories
+**Curate a container-ready .zshrc**: Generate a new `.zshrc` for the container by analyzing the local one. The base image already provides starship, zoxide, fzf, bat, lsd, git-delta, so don't duplicate those.
+
+**Extract** (include in curated .zshrc):
+- Custom aliases (but skip macOS-specific ones like `pbcopy`, `open`, `brew`)
+- Custom functions
+- Environment variables (PATH additions, EDITOR, GOPATH, etc.)
+- Git configuration aliases
+- Custom keybindings (`bindkey`)
+- Plugin manager config (oh-my-zsh plugins list, zinit/zplug declarations) if portable
+- Custom prompt settings (but note starship is available in the base image)
+- Tool initializations that work on Linux (pyenv, rbenv, nvm, sdkman, etc.)
+
+**Strip out** (exclude from curated .zshrc):
+- macOS-specific: `pbcopy`, `pbpaste`, `open`, `osascript`, Homebrew paths (`/opt/homebrew/`, `/usr/local/Cellar/`)
+- macOS conditionals: `[[ "$OSTYPE" == "darwin"* ]]` blocks
+- Hardware-specific: display/audio settings, Bluetooth, macOS defaults
+- Local tool paths: `/Users/<username>/`, `/Applications/`
+- Desktop app integrations: iTerm2 shell integration, VS Code shell integration
+- Duplicate of base image defaults: starship init, zoxide init, fzf source, bat/lsd aliases (already in base image .zshrc)
 
 **Present**:
 ```
 Zsh Configuration:
-  Found: ~/.zshrc (42 lines, last modified: 2026-03-10)
+  Analyzed: ~/.zshrc (85 lines)
 
-  Sourced files and directories detected:
-    [x] ~/.zsh/aliases.zsh (12 lines)
-    [x] ~/.zsh/functions/ (3 files)
-    [ ] ~/.oh-my-zsh/ (large, 847 files)
-    [x] ~/.zsh/completions/ (5 files)
-    [ ] ~/.local/share/zsh-autosuggestions/ (plugin)
+  Proposed curated .zshrc for container:
+  ─────────────────────────────────────
+  # Custom aliases
+  alias k='kubectl'
+  alias kx='kubectx'
+  alias tf='terraform'
 
-  Include .zshrc? [y/n/path]
-  Select sourced files to include (toggle numbers, 'a' all, 'n' none):
+  # Environment
+  export EDITOR="hx"
+  export GOPATH="$HOME/go"
+  export PATH="$HOME/go/bin:$PATH"
+
+  # Git aliases
+  alias gs='git status'
+  alias gd='git diff'
+
+  # Custom functions
+  mkcd() { mkdir -p "$1" && cd "$1" }
+  ─────────────────────────────────────
+
+  Stripped (macOS/local-specific):
+    - 3 Homebrew path entries
+    - 2 pbcopy/pbpaste aliases
+    - 1 iTerm2 shell integration block
+    - 5 lines already in base image .zshrc
+
+  Accept proposed .zshrc? [y/edit/skip]
+    y    = use the proposed curated .zshrc
+    edit = open for manual editing before saving
+    skip = don't include custom zsh config
 ```
 
-For large directories like oh-my-zsh, show the size and file count and default to unchecked. For small custom directories, default to checked.
+Let the user review and edit before accepting. If they choose "edit", show the content and let them modify it.
 
-**Action**: If selected, copy the zshrc and all selected sourced files/directories to the build directory preserving their relative paths under a `zsh/` subdirectory:
-
-```
-zsh/
-  zshrc                    # the main .zshrc (with paths rewritten)
-  .zsh/aliases.zsh
-  .zsh/functions/
-  .zsh/completions/
-```
-
-**Path rewriting**: If the zshrc references `~/` or `$HOME/`, those paths will work as-is in the container since HOME is `/home/coder`. No rewriting needed for standard paths. But if the zshrc uses absolute paths like `/Users/username/...`, warn the user and suggest using `$HOME/` instead.
-
-Update the manifest:
+**Action**: Write the curated `.zshrc` to the build directory as `zshrc` and update manifest:
 ```yaml
 settings:
-  zshrc: ./zsh/zshrc
-  zsh_extras:
-    - .zsh/aliases.zsh
-    - .zsh/functions/
-    - .zsh/completions/
+  zshrc: ./zshrc
 ```
 
-Add to the Containerfile template:
+The Containerfile appends the curated content to the base image's `.zshrc` (don't replace it):
 ```dockerfile
-COPY --chown=coder:coder zsh/zshrc /home/coder/.zshrc
-COPY --chown=coder:coder zsh/.zsh/ /home/coder/.zsh/
+COPY --chown=coder:coder zshrc /home/coder/.zshrc.custom
+RUN cat /home/coder/.zshrc.custom >> /home/coder/.zshrc && rm /home/coder/.zshrc.custom
 ```
 
 ---
