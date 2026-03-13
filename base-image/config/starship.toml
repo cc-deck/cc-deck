@@ -1,6 +1,8 @@
 add_newline = true
 
 format = """
+$container\
+$hostname\
 $kubernetes\
 $directory\
 $python \
@@ -45,6 +47,18 @@ style = "blue"
 disabled = false
 time_format = "%k:%M"
 format = "[$time]($style)"
+
+[container]
+disabled = false
+symbol = "📦 "
+format = '[$symbol$name]($style) '
+style = "dimmed red"
+
+[hostname]
+ssh_only = false
+detect_env_vars = ["DEVCONTAINER", "CONTAINER_ID"]
+format = '[$hostname]($style) '
+style = "dimmed yellow"
 
 [python]
 format = '[${symbol}${pyenv_prefix}(${version} )(\($virtualenv\) )]($style)'
