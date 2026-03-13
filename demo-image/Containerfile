@@ -37,7 +37,7 @@ RUN chmod +x /usr/local/bin/cc-deck && \
     ZELLIJ_CONFIG_DIR=/home/coder/.config/zellij \
     cc-deck plugin install --install-zellij --force --skip-backup && \
     mkdir -p /home/coder/.config/zellij/themes && \
-    printf 'default_shell "zsh"\ntheme "claude-dark"\n\nthemes {\n    claude-dark {\n        fg "#c8d0dc"\n        bg "#0f172a"\n        black "#1e293b"\n        red "#ef4444"\n        green "#60a5fa"\n        yellow "#e87b35"\n        blue "#3b82f6"\n        magenta "#a78bfa"\n        cyan "#38bdf8"\n        white "#e2e8f0"\n        orange "#e87b35"\n    }\n}\n' > /home/coder/.config/zellij/config.kdl && \
+    printf 'default_shell "zsh"\ntheme "claude-dark"\n\nthemes {\n    claude-dark {\n        fg "#E5E5E5"\n        bg "#264F78"\n        black "#2D2D2D"\n        red "#FF6B6B"\n        green "#7EC699"\n        yellow "#E5C07B"\n        blue "#61AFEF"\n        magenta "#C678DD"\n        cyan "#56B6C2"\n        white "#E5E5E5"\n        orange "#D19A66"\n    }\n}\n' > /home/coder/.config/zellij/config.kdl && \
     chown -R coder:coder /home/coder/.config/zellij /home/coder/.cache/zellij /home/coder/.claude && \
     rm -rf /root/.claude /root/.cache/zellij
 COPY --chown=coder:coder themes/claude-dark.kdl /home/coder/.config/zellij/themes/claude-dark.kdl
