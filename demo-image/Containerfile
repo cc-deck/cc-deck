@@ -42,31 +42,10 @@ RUN chmod +x /usr/local/bin/cc-deck && \
     rm -rf /root/.claude /root/.cache/zellij
 COPY --chown=coder:coder themes/claude-dark.kdl /home/coder/.config/zellij/themes/claude-dark.kdl
 
-# Claude Code via native installer with private Node.js 20
-# Install Node.js 20 to /opt/node20 (Claude Code segfaults on Node 22+)
-RUN ARCH=$(uname -m) && \
-    case "$ARCH" in \
-      x86_64)  NODE_ARCH=x64 ;; \
-      aarch64) NODE_ARCH=arm64 ;; \
-      *) echo "Unsupported: $ARCH" && exit 1 ;; \
-    esac && \
-    NODE_VERSION=20.19.0 && \
-    mkdir -p /opt/node20 && \
-    curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz" \
-      | tar -xJ -C /opt/node20 --strip-components=1
-
-# Install Claude Code using native installer (as coder user)
+# Claude Code via native installer (bundles its own Node.js runtime)
 USER coder
-RUN PATH="/opt/node20/bin:$PATH" curl -fsSL https://claude.ai/install.sh | sh
+RUN curl -fsSL https://claude.ai/install.sh | sh
 USER root
-
-# Create wrapper that uses Node.js 20 for Claude Code
-RUN CLAUDE_BIN=$(find /home/coder/.local/share/claude -name cli.js 2>/dev/null | head -1) && \
-    if [ -n "$CLAUDE_BIN" ]; then \
-      printf '#!/bin/sh\nexec /opt/node20/bin/node "%s" "$@"\n' "$CLAUDE_BIN" \
-        > /usr/local/bin/claude && \
-      chmod +x /usr/local/bin/claude; \
-    fi
 ENV PATH="/home/coder/.local/bin:${PATH}"
 
 USER coder
