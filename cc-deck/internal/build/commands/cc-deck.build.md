@@ -119,7 +119,7 @@ For each setting, copy the source file to `.build-context/` during Step 4, then 
 
 | Manifest field | Source | Container destination | Notes |
 |---|---|---|---|
-| `settings.zshrc` | The specified path | `/home/coder/.zshrc` | Custom shell config |
+| `settings.zshrc` | The specified path | Appended to `/home/coder/.zshrc` | Curated additions (base image .zshrc preserved) |
 | `settings.zellij_config: current` | `~/.config/zellij/config.kdl` | `/home/coder/.config/zellij/config.kdl` | Only config, not layouts/plugins (managed by cc-deck) |
 | `settings.zellij_config: <path>` | The specified path | `/home/coder/.config/zellij/config.kdl` | Custom config file |
 | `settings.zellij_config: vanilla` | (skip) | (nothing) | Use cc-deck defaults only |
@@ -134,8 +134,9 @@ Use `/cc-deck.settings` to interactively select what to include before building.
 **Containerfile COPY examples** (add these to the "User configuration" layer):
 
 ```dockerfile
-# Zsh config (if settings.zshrc is set)
-COPY --chown=coder:coder zshrc /home/coder/.zshrc
+# Zsh custom config (if settings.zshrc is set, append to base image .zshrc)
+COPY --chown=coder:coder zshrc /home/coder/.zshrc.custom
+RUN cat /home/coder/.zshrc.custom >> /home/coder/.zshrc && rm /home/coder/.zshrc.custom
 
 # Zellij user config (if settings.zellij_config is set)
 COPY --chown=coder:coder .build-context/zellij-config.kdl /home/coder/.config/zellij/config.kdl
