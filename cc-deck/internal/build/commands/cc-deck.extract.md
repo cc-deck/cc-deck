@@ -22,11 +22,13 @@ Validate that each path exists and contains source code.
 
 For each repository, examine these files (if present):
 
-**Build files**: `go.mod`, `package.json`, `Cargo.toml`, `pyproject.toml`, `Gemfile`, `pom.xml`, `build.gradle`, `Makefile`, `CMakeLists.txt`
+**Build files**: `go.mod`, `package.json`, `Cargo.toml`, `pyproject.toml`, `Gemfile`, `pom.xml`, `build.gradle`, `build.gradle.kts`, `settings.gradle`, `Makefile`, `CMakeLists.txt`
 
 **CI configs**: `.github/workflows/*.yml`, `.gitlab-ci.yml`, `Jenkinsfile`, `.circleci/config.yml`
 
-**Tool version files**: `.tool-versions`, `.nvmrc`, `.python-version`, `.sdkmanrc`, `.go-version`, `.ruby-version`, `rust-toolchain.toml`
+**Tool version files**: `.tool-versions`, `.nvmrc`, `.python-version`, `.sdkmanrc`, `.go-version`, `.ruby-version`, `.java-version`, `rust-toolchain.toml`
+
+**Java-specific**: `mvnw` / `gradlew` (detect Maven/Gradle version from wrapper properties), `jvm.config`, `.mvn/jvm.config` (JVM flags), `pom.xml` `<maven.compiler.source>` / `<maven.compiler.target>` / `<java.version>` properties
 
 **Container files**: `Dockerfile`, `Containerfile` (for system package hints)
 
