@@ -107,24 +107,35 @@ For each setting, copy the source file to `.build-context/` during Step 4, then 
 
 | Manifest field | Source | Container destination | Notes |
 |---|---|---|---|
-| `settings.zellij_config: current` | `~/.config/zellij/config.kdl` | `/home/coder/.config/zellij/config.kdl` | Only the config file, not layouts/plugins (those are managed by cc-deck) |
+| `settings.zshrc` | The specified path | `/home/coder/.zshrc` | Custom shell config |
+| `settings.zellij_config: current` | `~/.config/zellij/config.kdl` | `/home/coder/.config/zellij/config.kdl` | Only config, not layouts/plugins (managed by cc-deck) |
 | `settings.zellij_config: <path>` | The specified path | `/home/coder/.config/zellij/config.kdl` | Custom config file |
 | `settings.zellij_config: vanilla` | (skip) | (nothing) | Use cc-deck defaults only |
 | `settings.claude_md` | The specified path | `/home/coder/.claude/CLAUDE.md` | Global user instructions for Claude |
-| `settings.hooks` | The specified path | Merge into `/home/coder/.claude/settings.json` | Merge with existing cc-deck hooks, do not overwrite |
-| `settings.claude_settings` | The specified path | Merge into `/home/coder/.claude/settings.json` | Merge user preferences (model, theme, etc.) with existing settings |
+| `settings.claude_settings` | The specified path | Merge into `/home/coder/.claude/settings.json` | Merge user preferences with existing settings |
+| `settings.hooks` | The specified path | Merge into `/home/coder/.claude/settings.json` | Merge with cc-deck hooks, do not overwrite |
+| `settings.mcp_settings` | The specified path | Merge into `/home/coder/.claude/settings.json` | npx-based MCP server configs |
+| `settings.cc_setup_mcp` | The specified path | `/home/coder/.config/cc-setup/mcp.json` | cc-setup MCP server cache |
+
+Use `/deck-kit.settings` to interactively select what to include before building.
 
 **Containerfile COPY examples** (add these to the "User configuration" layer):
 
 ```dockerfile
+# Zsh config (if settings.zshrc is set)
+COPY --chown=coder:coder zshrc /home/coder/.zshrc
+
 # Zellij user config (if settings.zellij_config is set)
 COPY --chown=coder:coder .build-context/zellij-config.kdl /home/coder/.config/zellij/config.kdl
 
 # Claude global instructions (if settings.claude_md is set)
 COPY --chown=coder:coder .build-context/CLAUDE.md /home/coder/.claude/CLAUDE.md
 
-# Claude settings merge (if settings.hooks or settings.claude_settings is set)
+# Claude settings merge (if settings.claude_settings, hooks, or mcp_settings is set)
 COPY --chown=coder:coder .build-context/settings.json /home/coder/.claude/settings.json
+
+# cc-setup MCP cache (if settings.cc_setup_mcp is set)
+COPY --chown=coder:coder .build-context/cc-setup-mcp.json /home/coder/.config/cc-setup/mcp.json
 ```
 
 **Merge strategy for settings.json**: Read the existing `/home/coder/.claude/settings.json` (created by cc-deck plugin install with hooks), merge in user preferences from the specified file, write the merged result to `.build-context/settings.json`. Never overwrite cc-deck hooks.

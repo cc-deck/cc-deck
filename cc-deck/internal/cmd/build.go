@@ -37,11 +37,10 @@ func newImageInitCmd(_ *GlobalFlags) *cobra.Command {
 Claude Code commands for AI-driven image configuration, and helper scripts.
 
 After initialization, open the directory in Claude Code and use:
-  /cc-deck.extract     - Analyze repos for tool dependencies
-  /cc-deck.plugin      - Add Claude Code plugins
-  /cc-deck.mcp         - Add MCP server sidecars
-  /cc-deck.build       - Generate Containerfile and build the image
-  /cc-deck.push        - Push the image to a registry`,
+  /cc-deck.extract       - Analyze repos for tool dependencies
+  /deck-kit.settings     - Select local settings, plugins, MCP to include
+  /cc-deck.build         - Generate Containerfile and build the image
+  /cc-deck.push          - Push the image to a registry`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dir := args[0]
@@ -57,6 +56,7 @@ After initialization, open the directory in Claude Code and use:
 			fmt.Printf("  cd %s\n", dir)
 			fmt.Println("  claude                        # Open in Claude Code")
 			fmt.Println("  /cc-deck.extract              # Analyze repositories")
+			fmt.Println("  /deck-kit.settings            # Select settings, plugins, MCP")
 			fmt.Println("  /cc-deck.build                # Generate Containerfile & build")
 			fmt.Println("  /cc-deck.push                 # Push to registry")
 			return nil

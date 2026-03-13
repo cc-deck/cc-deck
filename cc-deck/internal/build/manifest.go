@@ -65,10 +65,13 @@ type GithubTool struct {
 
 // SettingsConfig describes user configuration to bake into the image.
 type SettingsConfig struct {
+	Zshrc          string `yaml:"zshrc,omitempty"`
+	ZellijConfig   string `yaml:"zellij_config,omitempty"`
 	ClaudeMD       string `yaml:"claude_md,omitempty"`
 	ClaudeSettings string `yaml:"claude_settings,omitempty"`
 	Hooks          string `yaml:"hooks,omitempty"`
-	ZellijConfig   string `yaml:"zellij_config,omitempty"`
+	MCPSettings    string `yaml:"mcp_settings,omitempty"`
+	CCSetupMCP     string `yaml:"cc_setup_mcp,omitempty"`
 }
 
 // LoadManifest reads and parses a cc-deck-build.yaml file.
