@@ -1,0 +1,84 @@
+= Settings Selection
+
+The `/cc-deck.settings` command is an interactive wizard that discovers your local settings and lets you choose what to bake into the container image.
+
+== Usage
+
+Inside Claude Code in your build directory:
+
+[source,text]
+----
+/cc-deck.settings
+----
+
+The command walks through five sections, presenting what it finds and letting you select what to include.
+
+== Section A: Zsh Configuration
+
+The command reads your `~/.zshrc` and generates a curated version for the container.
+
+What gets extracted::
+Custom aliases, functions, environment variables, keybindings, and portable plugin configurations.
+
+What gets stripped::
+macOS-specific items (Homebrew paths, `pbcopy`, `pbpaste`, `open`), absolute paths like `/Users/...`, iTerm2 or VS Code shell integrations, and anything already provided by the base image (starship, fzf, bat/lsd aliases).
+
+The curated `.zshrc` is shown for review before you accept it.
+It gets appended to the base image's `.zshrc`, preserving the existing starship prompt and tool aliases.
+
+== Section B: Zellij Configuration
+
+Copies your `~/.config/zellij/config.kdl` (keybindings, options, theme settings) into the image.
+
+Excluded (managed by cc-deck)::
+* Plugin files (`cc_deck.wasm`)
+* Layout files (`cc-deck*.kdl`)
+
+Only your personal configuration travels with the image.
+Custom themes from `themes/` can also be included.
+
+== Section C: Claude Configuration
+
+Discovers and offers to include:
+
+`~/.claude/CLAUDE.md`::
+Your global Claude Code instructions.
+Copied directly to the image.
+
+`~/.claude/settings.json`::
+User preferences (model, theme, permissions).
+Merged with cc-deck's hook registrations, never overwriting them.
+
+== Section D: Plugins
+
+Discovers installed Claude Code plugins and presents them as a checklist:
+
+[source,text]
+----
+Claude Code Plugins:
+  [x] sdd (marketplace)
+  [x] cc-rosa (marketplace)
+  [ ] prose (marketplace)
+  [x] copyedit (git:https://github.com/org/copyedit.git)
+
+Toggle with numbers, 'a' for all, 'n' for none:
+----
+
+Selected plugins are added to the manifest's `plugins` section.
+
+== Section E: MCP Servers
+
+Discovers MCP server configurations from multiple sources:
+
+* `~/.config/cc-setup/mcp.json` (cc-setup cached configs)
+* `~/.claude/settings.json` (Claude Code MCP settings)
+
+Container-based MCP servers (with image references) are added to the manifest's `mcp` section.
+npx-based MCP servers are saved as a settings file that gets merged into the container's Claude configuration.
+
+NOTE: Only environment variable names for authentication are stored in the manifest, never actual credentials.
+
+== After Selection
+
+The command updates `cc-deck-build.yaml` with your selections and copies the relevant files to the build directory.
+Run `/cc-deck.build` next to generate the Containerfile and build the image.

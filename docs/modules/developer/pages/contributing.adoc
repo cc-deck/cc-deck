@@ -1,0 +1,83 @@
+= Contributing
+
+Contributions to cc-deck are welcome.
+This page covers the development workflow, code style, and how to submit changes.
+
+== Getting Started
+
+1. Fork the repository
+2. Clone your fork
+3. Create a feature branch
+4. Build from source: `make build`
+5. Install for testing: `make install`
+
+== Code Style
+
+Rust::
+Follow standard Rust conventions.
+Code must pass `cargo clippy` with no warnings on the `wasm32-wasip1` target.
+
+Go::
+Follow standard Go conventions.
+Code must pass `go vet`.
+
+== Pull Request Guidelines
+
+* Keep PRs focused on a single change
+* Include a clear description of what and why
+* Ensure `make test` and `make lint` pass
+* Add or update documentation for user-facing changes
+
+== Feature Specifications
+
+cc-deck uses spec-driven development.
+Each feature has a specification in `specs/` with:
+
+* `spec.md`: What the feature does and why (user stories, requirements)
+* `plan.md`: How to implement it (tech stack, file structure)
+* `tasks.md`: Step-by-step implementation tasks
+
+If you are proposing a significant new feature, consider writing a spec first.
+
+== Commit Messages
+
+Use the standard format:
+
+[source,text]
+----
+Short summary of the change (under 72 characters)
+
+Longer description if needed, explaining the motivation and
+approach. Reference relevant specs or issues.
+
+Assisted-By: 🤖 Claude Code
+----
+
+== Testing Changes
+
+After modifying the WASM plugin:
+
+[source,bash]
+----
+make install
+zellij kill-all-sessions -y
+zellij --layout cc-deck
+----
+
+After modifying the Go CLI:
+
+[source,bash]
+----
+make build-cli
+cc-deck plugin status  # verify your changes
+----
+
+== Reporting Issues
+
+File issues at https://github.com/cc-deck/cc-deck/issues with:
+
+* What you expected to happen
+* What actually happened
+* Steps to reproduce
+* Zellij version (`zellij --version`)
+* cc-deck version (`cc-deck version`)

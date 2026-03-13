@@ -1,1 +1,7 @@
-* xref:index.adoc[images]
+.Images
+* xref:overview.adoc[Overview]
+* xref:init.adoc[Initialization]
+* xref:extract.adoc[Extract Dependencies]
+* xref:settings.adoc[Settings Selection]
+* xref:build.adoc[Build]
+* xref:manifest.adoc[Manifest Reference]
