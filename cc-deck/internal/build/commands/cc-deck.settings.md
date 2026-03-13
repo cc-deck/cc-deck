@@ -16,29 +16,47 @@ Scan the local system and present findings organized by section. For each sectio
 
 ---
 
-### Section A: Zsh Configuration
+### Section A: Shell Configuration
 
-**Scan**: Read `~/.zshrc` (or user-provided path) and analyze its contents.
+**Step A.1: Ask which shell to use**
 
-**Curate a container-ready .zshrc**: Generate a new `.zshrc` for the container by analyzing the local one. The base image already provides starship, zoxide, fzf, bat, lsd, git-delta, so don't duplicate those.
+```
+Which shell should the container use?
+  1. zsh (default, includes starship prompt, fzf, zoxide)
+  2. bash
+  3. Keep base image default (zsh)
+```
 
-**Extract** (include in curated .zshrc):
+Record the choice. This determines:
+- Which startup file to analyze (`.zshrc` or `.bashrc`)
+- The `default_shell` setting in Zellij's `config.kdl`
+- Whether to set `chsh` in the Containerfile
+
+**Step A.2: Analyze the shell config file**
+
+Based on the chosen shell, read the corresponding config file:
+- **zsh**: `~/.zshrc`
+- **bash**: `~/.bashrc`
+
+**Curate a container-ready config**: Generate a new startup file for the container by analyzing the local one. The base image already provides starship, zoxide, fzf, bat, lsd, git-delta (for zsh), so do not duplicate those.
+
+**Extract** (include in curated config):
 - Custom aliases (but skip macOS-specific ones like `pbcopy`, `open`, `brew`)
 - Custom functions
 - Environment variables (PATH additions, EDITOR, GOPATH, etc.)
 - Git configuration aliases
-- Custom keybindings (`bindkey`)
-- Plugin manager config (oh-my-zsh plugins list, zinit/zplug declarations) if portable
+- Custom keybindings (`bindkey` for zsh, `bind` for bash)
+- Plugin manager config (oh-my-zsh, zinit for zsh; bash-it for bash) if portable
 - Custom prompt settings (but note starship is available in the base image)
 - Tool initializations that work on Linux (pyenv, rbenv, nvm, sdkman, etc.)
 
-**Strip out** (exclude from curated .zshrc):
+**Strip out** (exclude from curated config):
 - macOS-specific: `pbcopy`, `pbpaste`, `open`, `osascript`, Homebrew paths (`/opt/homebrew/`, `/usr/local/Cellar/`)
 - macOS conditionals: `[[ "$OSTYPE" == "darwin"* ]]` blocks
 - Hardware-specific: display/audio settings, Bluetooth, macOS defaults
 - Local tool paths: `/Users/<username>/`, `/Applications/`
 - Desktop app integrations: iTerm2 shell integration, VS Code shell integration
-- Duplicate of base image defaults: starship init, zoxide init, fzf source, bat/lsd aliases (already in base image .zshrc)
+- Duplicate of base image defaults (for zsh): starship init, zoxide init, fzf source, bat/lsd aliases
 
 **Present**:
 ```
@@ -79,17 +97,34 @@ Zsh Configuration:
 
 Let the user review and edit before accepting. If they choose "edit", show the content and let them modify it.
 
-**Action**: Write the curated `.zshrc` to the build directory as `zshrc` and update manifest:
+**Action**: Write the curated config to the build directory and update manifest:
+
+For **zsh**:
 ```yaml
 settings:
-  zshrc: ./zshrc
+  shell: zsh
+  shell_rc: ./zshrc
 ```
-
-The Containerfile appends the curated content to the base image's `.zshrc` (don't replace it):
+The Containerfile appends the curated content to the base image's `.zshrc` (do not replace it):
 ```dockerfile
 COPY --chown=coder:coder zshrc /home/coder/.zshrc.custom
 RUN cat /home/coder/.zshrc.custom >> /home/coder/.zshrc && rm /home/coder/.zshrc.custom
 ```
+
+For **bash**:
+```yaml
+settings:
+  shell: bash
+  shell_rc: ./bashrc
+```
+The Containerfile sets bash as the default shell and appends the curated config:
+```dockerfile
+RUN chsh -s /bin/bash coder 2>/dev/null || usermod -s /bin/bash coder
+COPY --chown=coder:coder bashrc /home/coder/.bashrc.custom
+RUN cat /home/coder/.bashrc.custom >> /home/coder/.bashrc && rm /home/coder/.bashrc.custom
+```
+
+The Zellij `config.kdl` `default_shell` is set to match the chosen shell.
 
 ---
 
