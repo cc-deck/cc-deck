@@ -36,9 +36,11 @@ RUN chmod +x /usr/local/bin/cc-deck && \
     HOME=/home/coder \
     ZELLIJ_CONFIG_DIR=/home/coder/.config/zellij \
     cc-deck plugin install --install-zellij --force --skip-backup && \
-    printf 'default_shell "zsh"\n' > /home/coder/.config/zellij/config.kdl && \
+    mkdir -p /home/coder/.config/zellij/themes && \
+    printf 'default_shell "zsh"\ntheme "claude-dark"\n' > /home/coder/.config/zellij/config.kdl && \
     chown -R coder:coder /home/coder/.config/zellij /home/coder/.cache/zellij /home/coder/.claude && \
     rm -rf /root/.claude /root/.cache/zellij
+COPY --chown=coder:coder themes/claude-dark.kdl /home/coder/.config/zellij/themes/claude-dark.kdl
 
 # Claude Code (self-contained with private Node.js 20)
 RUN ARCH=$(uname -m) && \
