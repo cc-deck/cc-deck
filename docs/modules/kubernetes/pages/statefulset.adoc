@@ -1,19 +1,9 @@
 = StatefulSet Patterns
 
-For multi-user setups, cc-deck uses StatefulSets because each user needs their own persistent storage.
-For a single user, a Deployment with a named PVC works equally well.
+A Deployment with a PersistentVolumeClaim is the recommended pattern for running cc-deck on Kubernetes.
+The PVC preserves your home directory (Zellij sessions, Claude Code history, snapshots) across Pod restarts.
 
-== Why StatefulSet (Multi-User)
-
-When scaling to multiple users, StatefulSets provide:
-
-* **Per-user PVCs** via `volumeClaimTemplates`: each Pod gets its own home directory (`home-cc-deck-0`, `home-cc-deck-1`)
-* **Stable Pod names**: users always connect to the same Pod (`cc-deck-0`, `cc-deck-2`)
-* **Predictable scaling**: adding a replica creates a new user slot with fresh storage
-
-== Single User Alternative
-
-For a single user, a Deployment with a regular PVC is simpler:
+== Deployment with PVC
 
 [source,yaml]
 ----
