@@ -74,12 +74,12 @@ RUN ARCH=$(uname -m) && \
 # Claude hooks (~/.claude/settings.json) go to the coder user's home.
 COPY .build-context/cc-deck-linux-${TARGETARCH} /usr/local/bin/cc-deck
 RUN chmod +x /usr/local/bin/cc-deck && \
-    mkdir -p /home/coder/.claude && \
+    mkdir -p /home/coder/.claude /home/coder/.cache/zellij && \
     HOME=/home/coder \
     ZELLIJ_CONFIG_DIR=/home/coder/.config/zellij \
     cc-deck plugin install --install-zellij --force --skip-backup && \
-    chown -R coder:coder /home/coder/.config/zellij /home/coder/.claude && \
-    rm -rf /root/.claude
+    chown -R coder:coder /home/coder/.config/zellij /home/coder/.cache/zellij /home/coder/.claude && \
+    rm -rf /root/.claude /root/.cache/zellij
 
 # MANDATORY Layer: Claude Code (self-contained with private Node.js 20)
 # Claude Code requires Node.js 20 (segfaults on Node 22+). Install to /opt/claude-code
