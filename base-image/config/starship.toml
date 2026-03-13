@@ -52,7 +52,7 @@ format = "[$time]($style)"
 disabled = false
 symbol = "📦 "
 format = '[$symbol$name]($style) '
-style = "dimmed red"
+style = "dimmed yellow"
 
 [hostname]
 ssh_only = false
