@@ -56,12 +56,16 @@ RUN <curl downloads for each github_tool>
 # MANDATORY: cc-deck + Zellij + Claude Code (DO NOT OMIT)
 # ============================================================
 
-# MANDATORY Layer: cc-deck self-install (downloads Zellij + installs plugin + layouts)
+# MANDATORY Layer: cc-deck self-install (Zellij + plugin + layouts + hooks)
+# Single install pass with HOME=/home/coder so both Zellij config and
+# Claude hooks (~/.claude/settings.json) go to the coder user's home.
 COPY .build-context/cc-deck-linux-${TARGETARCH} /usr/local/bin/cc-deck
 RUN chmod +x /usr/local/bin/cc-deck && \
+    mkdir -p /home/coder/.claude && \
+    HOME=/home/coder \
     ZELLIJ_CONFIG_DIR=/home/coder/.config/zellij \
-    cc-deck plugin install --install-zellij --force && \
-    chown -R coder:coder /home/coder/.config/zellij
+    cc-deck plugin install --install-zellij --force --skip-backup && \
+    chown -R coder:coder /home/coder/.config/zellij /home/coder/.claude
 
 # MANDATORY Layer: Claude Code (self-contained with private Node.js 20)
 # Claude Code requires Node.js 20 (segfaults on Node 22+). Install to /opt/claude-code
@@ -81,12 +85,6 @@ RUN ARCH=$(uname -m) && \
     printf '#!/bin/sh\nexec /opt/claude-code/bin/node /opt/claude-code/lib/node_modules/@anthropic-ai/claude-code/cli.js "$@"\n' \
       > /usr/local/bin/claude && \
     chmod +x /usr/local/bin/claude
-
-# MANDATORY Layer: Claude Code hooks for cc-deck
-RUN CLAUDE_SETTINGS=/home/coder/.claude/settings.json && \
-    mkdir -p /home/coder/.claude && \
-    cc-deck plugin install --force --skip-backup 2>/dev/null; \
-    chown -R coder:coder /home/coder/.claude
 
 # ============================================================
 
