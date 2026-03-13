@@ -20,9 +20,10 @@ RUN /tmp/install-tools.sh && rm /tmp/install-tools.sh
 COPY scripts/setup-user.sh /tmp/setup-user.sh
 RUN /tmp/setup-user.sh && rm /tmp/setup-user.sh
 
-# Shell configuration (as coder user's dotfiles)
+# Shell and Zellij configuration (as coder user's dotfiles)
 COPY --chown=1000:1000 config/starship.toml /home/coder/.config/starship.toml
 COPY --chown=1000:1000 config/zshrc /home/coder/.zshrc
+COPY --chown=1000:1000 config/config.kdl /home/coder/.config/zellij/config.kdl
 
 USER coder
 WORKDIR /home/coder
