@@ -120,7 +120,9 @@ Zellij Configuration:
   Include themes? [y/n]
 ```
 
-**Action**: Copy selected files to the build directory and update manifest:
+**Action**: Copy selected files to the build directory. If the user's `config.kdl` does not contain `default_shell`, append `default_shell "zsh"` to ensure Zellij panes start with zsh (required for starship prompt and shell integrations).
+
+Update manifest:
 ```yaml
 settings:
   zellij_config: current
