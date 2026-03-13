@@ -1,17 +1,16 @@
-// cc-deck Claude Dark theme
-// Deep blue background with Claude orange accents
+// Claude-inspired dark theme for Zellij
 themes {
     claude-dark {
-        fg "#c8d0dc"
-        bg "#0f172a"
-        black "#1e293b"
-        red "#ef4444"
-        green "#60a5fa"
-        yellow "#e87b35"
-        blue "#3b82f6"
-        magenta "#a78bfa"
-        cyan "#38bdf8"
-        white "#e2e8f0"
-        orange "#e87b35"
+        fg "#E5E5E5"
+        bg "#264F78"
+        black "#2D2D2D"
+        red "#FF6B6B"
+        green "#7EC699"
+        yellow "#E5C07B"
+        blue "#61AFEF"
+        magenta "#C678DD"
+        cyan "#56B6C2"
+        white "#E5E5E5"
+        orange "#D19A66"
     }
 }
