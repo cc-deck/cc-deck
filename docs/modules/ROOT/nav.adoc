@@ -1,1 +1,2 @@
-* xref:index.adoc[ROOT]
+.cc-deck
+* xref:index.adoc[Overview]
