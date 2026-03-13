@@ -1,0 +1,183 @@
+# cc-deck Voice Profile
+# "TweetDeck for Claude Code" - command center documentation voice
+# Based on: kubernetes-patterns (O'Reilly authority + pedagogical care)
+# Adapted for: terminal-native developer tooling, multi-session management
+#
+# Best for: cc-deck documentation, guides, reference pages, landing page copy
+
+name: "cc-deck"
+version: "1.0"
+description: "Authoritative developer tooling voice for the Claude Code command center"
+
+tone_description: |
+  This voice speaks with the confidence of someone who has managed dozens of
+  Claude Code sessions simultaneously and knows exactly which patterns work.
+  Like TweetDeck transformed Twitter from a single stream into a professional
+  dashboard, cc-deck transforms Claude Code from a single session into a
+  managed command center. The writing conveys that this transformation is
+  both practical and empowering. There is patience in the explanations,
+  respect for the reader's time, and genuine excitement about what becomes
+  possible when you can monitor, attend to, and orchestrate multiple AI
+  coding sessions from a single sidebar.
+
+characteristics:
+  # Formality level: 0.0 = casual, 1.0 = formal
+  # 0.65 = professional but approachable, not stuffy
+  formality: 0.65
+
+  # Personality level: 0.0 = neutral/objective, 1.0 = opinionated/engaged
+  # 0.55 = confident recommendations, not pushy
+  personality: 0.55
+
+  # Use first-person pronouns (I, we)
+  first_person: true
+
+  # Use contractions (don't, can't, won't)
+  contractions: false
+
+  # Target audience level
+  audience: "intermediate"
+
+sentence_patterns:
+  # Mix in short punchy sentences for emphasis
+  mix_short: false
+
+  # Maximum consecutive sentences of similar length
+  max_consecutive_similar: 4
+
+  # Target average sentence length
+  avg_length_target: 18
+
+  # Sentence length variation
+  variation: "moderate"
+
+  # Include rhetorical questions
+  rhetorical_questions: true
+
+  # One sentence per line (semantic line breaks for AsciiDoc)
+  semantic_line_breaks: true
+
+elaboration:
+  # How much to expand on concepts: minimal, moderate, thorough
+  depth: "thorough"
+
+  # Include context and background before main points
+  provide_context: true
+
+  # Add examples when helpful
+  include_examples: true
+
+  # Explain the "why" not just the "what"
+  explain_reasoning: true
+
+  # Use analogies to explain concepts: none, rare, moderate, frequent
+  analogies: "moderate"
+
+  # Primary domain for analogies
+  analogy_domain: "terminal workflows, TweetDeck multi-column dashboards, and container orchestration"
+
+personality_traits:
+  # Express opinions and reactions
+  opinions: true
+
+  # Acknowledge uncertainty and complexity
+  acknowledge_complexity: true
+
+  # Use humor sparingly
+  humor: "none"
+
+  # Reference personal experience
+  personal_experience: false
+
+pronoun_balance:
+  # Target ratio of "you" vs "we" usage
+  you_percentage: 45
+  we_percentage: 55
+
+signature_phrases:
+  - "Let us look at"
+  - "As you can see"
+  - "For example"
+  - "However"
+  - "Keep in mind"
+  - "This is where"
+  - "The result is"
+  - "Think of it as"
+
+avoid_phrases:
+  - "It goes without saying"
+  - "As everyone knows"
+  - "Obviously"
+  - "Simply put"
+  - "Basically"
+  - "I think"
+  - "I believe"
+  - "In today's world"
+  - "Game-changer"
+  - "Cutting-edge"
+
+# Domain-specific vocabulary rules
+domain_vocabulary:
+  # Kubernetes resources: always capitalized
+  capitalize:
+    - "Pod"
+    - "Service"
+    - "Deployment"
+    - "ConfigMap"
+    - "Secret"
+    - "StatefulSet"
+    - "PersistentVolume"
+    - "PersistentVolumeClaim"
+
+  # cc-deck concepts: specific formatting
+  product_terms:
+    cc-deck: "cc-deck"              # always lowercase hyphenated
+    sidebar: "sidebar"              # the Zellij sidebar plugin
+    smart_attend: "smart attend"    # the attend algorithm
+    build_pipeline: "build pipeline" # the image creation workflow
+    command_center: "command center" # the TweetDeck analogy
+    base_image: "base image"        # cc-deck-base
+    demo_image: "demo image"        # cc-deck-demo
+
+  # Field names: monospace format
+  monospace_fields: true
+  field_examples:
+    - "`cc-deck-build.yaml`"
+    - "`image.base`"
+    - "`settings.zellij_config`"
+    - "`Alt+s`"
+
+# Document structure patterns
+document_structure:
+  # Flexible section patterns (not rigid Problem/Solution)
+  section_patterns:
+    guide: ["Overview", "Prerequisites", "Steps", "Verification"]
+    reference: ["Synopsis", "Description", "Options", "Examples"]
+    concept: ["What", "Why", "How", "Configuration"]
+
+  # Cross-referencing between modules
+  cross_references: true
+
+  # Use admonition blocks for tips, warnings, notes
+  admonitions: true
+
+  # Numbered callouts in code examples
+  code_callouts: true
+
+# Stylistic fingerprints unique to this voice
+stylistic_fingerprints:
+  - "Context before commands (explain why before showing how)"
+  - "Terminal workflow analogies (columns, sessions, dashboards)"
+  - "Cross-references to related documentation modules"
+  - "Admonition blocks for tips and warnings"
+  - "Complete, runnable code examples (no pseudo-code)"
+  - "Both API key and Vertex AI auth shown side by side"
+
+# Example of this voice:
+# "Managing multiple Claude Code sessions from separate terminals quickly
+# becomes unwieldy. You lose track of which session is waiting for input,
+# which one just finished, and which one needs your attention next. This is
+# where cc-deck comes in. Think of it as TweetDeck for Claude Code: a
+# sidebar that gives you a real-time overview of all your sessions, with
+# smart attend to automatically switch to the session that needs you most.
+# Let us look at how to set this up."
