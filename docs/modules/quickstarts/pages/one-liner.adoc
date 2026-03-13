@@ -2,29 +2,50 @@
 
 Get cc-deck running in under two minutes.
 
-== With API Key
+== Interactive (try it now)
+
+Start cc-deck directly and land in a Zellij session with the sidebar:
+
+=== With API Key
 
 [source,bash]
 ----
-podman run -d --name cc-demo \
+podman run -it --rm \
   -e ANTHROPIC_API_KEY=sk-ant-... \
-  quay.io/cc-deck/cc-deck-demo:latest
-
-podman exec -it cc-demo zellij --layout cc-deck
+  quay.io/rhuss/cc-deck-demo:latest
 ----
 
-== With Vertex AI
+=== With Vertex AI
 
 [source,bash]
 ----
-podman run -d --name cc-demo \
+podman run -it --rm \
   -e CLAUDE_CODE_USE_VERTEX=1 \
   -e CLOUD_ML_REGION=us-east5 \
   -e ANTHROPIC_VERTEX_PROJECT_ID=your-project-id \
   -v ~/.config/gcloud:/home/coder/.config/gcloud:ro \
-  quay.io/cc-deck/cc-deck-demo:latest
+  quay.io/rhuss/cc-deck-demo:latest
+----
 
-podman exec -it cc-demo zellij --layout cc-deck
+== Persistent (background container)
+
+For a container you can connect to and disconnect from repeatedly:
+
+[source,bash]
+----
+podman run -d --name mydev \
+  -e ANTHROPIC_API_KEY=sk-ant-... \
+  quay.io/rhuss/cc-deck-demo:latest \
+  sleep infinity
+
+podman exec -it mydev zellij --layout cc-deck
+----
+
+Reconnect anytime:
+
+[source,bash]
+----
+podman exec -it mydev zellij attach
 ----
 
 == What You Get
@@ -35,16 +56,6 @@ A terminal environment with:
 * Smart attend to cycle through sessions that need attention
 * Keyboard navigation for fast session switching
 * Claude Code pre-installed and ready to use
-
-== Reconnecting
-
-The container stays running in the background.
-Reconnect anytime:
-
-[source,bash]
-----
-podman exec -it cc-demo zellij attach
-----
 
 == Next Steps
 
