@@ -17,9 +17,10 @@ Claude Code will ask for the path to your repository (or repositories) and analy
 
 The command examines:
 
-* **Build files**: `go.mod`, `Cargo.toml`, `package.json`, `pyproject.toml`, `pom.xml`, `build.gradle`
+* **Build files**: `go.mod`, `Cargo.toml`, `package.json`, `pyproject.toml`, `pom.xml`, `build.gradle`, `build.gradle.kts`, `settings.gradle`
 * **CI configurations**: `.github/workflows/*.yml`, `.gitlab-ci.yml`, `Jenkinsfile`
-* **Tool version files**: `.tool-versions`, `.node-version`, `.python-version`, `.go-version`
+* **Tool version files**: `.tool-versions`, `.node-version`, `.python-version`, `.go-version`, `.java-version`, `.sdkmanrc`
+* **Java-specific**: `mvnw` / `gradlew` wrapper scripts, `jvm.config`, `.mvn/` directory
 * **Container files**: `Containerfile`, `Dockerfile`
 
 == How It Works
