@@ -36,6 +36,7 @@ RUN chmod +x /usr/local/bin/cc-deck && \
     HOME=/home/coder \
     ZELLIJ_CONFIG_DIR=/home/coder/.config/zellij \
     cc-deck plugin install --install-zellij --force --skip-backup && \
+    printf 'default_shell "zsh"\n' > /home/coder/.config/zellij/config.kdl && \
     chown -R coder:coder /home/coder/.config/zellij /home/coder/.cache/zellij /home/coder/.claude && \
     rm -rf /root/.claude /root/.cache/zellij
 
