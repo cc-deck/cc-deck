@@ -1,1 +1,6 @@
-* xref:index.adoc[kubernetes]
+.Kubernetes
+* xref:quickstart.adoc[Quickstart]
+* xref:statefulset.adoc[StatefulSet Patterns]
+* xref:credentials.adoc[Credentials]
+* xref:rbac.adoc[RBAC]
+* xref:scaling.adoc[Scaling]

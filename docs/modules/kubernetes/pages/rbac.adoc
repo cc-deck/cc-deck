@@ -1,0 +1,113 @@
+= RBAC Configuration
+
+Control who can access cc-deck Pods and what they can do inside the cluster.
+
+== Service Account
+
+Create a dedicated service account for cc-deck Pods:
+
+[source,yaml]
+----
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cc-deck
+  namespace: cc-deck
+----
+
+Reference it in the StatefulSet:
+
+[source,yaml]
+----
+spec:
+  template:
+    spec:
+      serviceAccountName: cc-deck
+----
+
+== Pod Access Control
+
+Restrict who can exec into cc-deck Pods using RBAC:
+
+[source,yaml]
+----
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cc-deck-user
+  namespace: cc-deck
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["pods/portforward"]
+    verbs: ["create"]
+----
+
+Bind this role to specific users:
+
+[source,yaml]
+----
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: developer-cc-deck
+  namespace: cc-deck
+subjects:
+  - kind: User
+    name: developer@example.com
+roleRef:
+  kind: Role
+  name: cc-deck-user
+  apiGroup: rbac.authorization.k8s.io
+----
+
+== In-Cluster Access for Claude Code
+
+If Claude Code needs to interact with cluster resources (e.g., via kubectl inside the container), grant the service account appropriate permissions:
+
+[source,yaml]
+----
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cc-deck-cluster-access
+  namespace: target-namespace
+subjects:
+  - kind: ServiceAccount
+    name: cc-deck
+    namespace: cc-deck
+roleRef:
+  kind: ClusterRole
+  name: edit
+  apiGroup: rbac.authorization.k8s.io
+----
+
+TIP: Follow the principle of least privilege.
+Grant access only to namespaces that the developer needs to work in.
+
+== OpenShift
+
+On OpenShift, use SecurityContextConstraints to allow the container to run as UID 1000:
+
+[source,yaml]
+----
+apiVersion: security.openshift.io/v1
+kind: SecurityContextConstraints
+metadata:
+  name: cc-deck-scc
+runAsUser:
+  type: MustRunAs
+  uid: 1000
+fsGroup:
+  type: MustRunAs
+  ranges:
+    - min: 1000
+      max: 1000
+users:
+  - system:serviceaccount:cc-deck:cc-deck
+----

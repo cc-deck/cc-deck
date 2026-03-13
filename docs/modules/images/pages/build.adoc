@@ -1,0 +1,88 @@
+= Build
+
+The `/cc-deck.build` command generates a Containerfile from your manifest and builds the container image.
+If the build fails, it analyzes the error, fixes the Containerfile, and retries automatically.
+
+== Usage
+
+Inside Claude Code in your build directory:
+
+[source,text]
+----
+/cc-deck.build
+----
+
+== Prerequisites
+
+Before running the build command:
+
+1. Cross-compile the cc-deck binary for the target platforms:
++
+[source,bash]
+----
+# From the cc-deck source repo
+make cross-cli
+----
+
+2. Copy the binaries to your build directory:
++
+[source,bash]
+----
+cp cc-deck/cc-deck-linux-* /path/to/my-image/.build-context/
+----
+
+Or use the one-step `make test-image` which does both.
+
+== What Happens
+
+1. **Manifest validation**: Checks that `cc-deck-build.yaml` has the required fields
+2. **Containerfile generation**: Resolves free-form tool descriptions to concrete install commands
+3. **Existing file check**: If a Containerfile exists, shows a diff and asks whether to use the new or existing version
+4. **Build**: Runs the container build with a 10-minute timeout
+5. **Self-correction**: If the build fails, analyzes the error, fixes the Containerfile, and retries (up to 3 times)
+6. **build.sh generation**: Creates a shell script for rebuilding without Claude Code
+
+== Multi-Architecture
+
+By default, images are built for both `linux/arm64` and `linux/amd64`.
+You can override this in your input:
+
+[source,text]
+----
+/cc-deck.build for linux/arm64 only
+----
+
+The Containerfile uses `${TARGETARCH}` for architecture-dependent downloads, and the cc-deck binary is copied per-architecture from `.build-context/cc-deck-linux-${TARGETARCH}`.
+
+== Self-Correction
+
+When a build step fails, Claude Code:
+
+1. Reads the error output
+2. Identifies the failing step
+3. Diagnoses the root cause (wrong package name, download URL, permissions, etc.)
+4. Fixes the Containerfile
+5. Retries the build (cached layers are reused)
+
+Common fixes include:
+* Fedora 41+ uses DNF 5, so `dnf module` commands are replaced with `dnf install`
+* Wrong package names are corrected via `dnf search`
+* Download URLs are fixed for the correct architecture
+
+After 3 failed attempts, Claude Code stops and presents the error for manual review.
+
+== The build.sh Script
+
+After a successful build, a `build.sh` script is generated in the build directory.
+This lets you rebuild the image from the command line without Claude Code:
+
+[source,bash]
+----
+./build.sh
+# or with a specific platform:
+PLATFORMS=linux/arm64 ./build.sh
+----
+
+== Container Runtime
+
+The build command auto-detects the available container runtime, preferring `podman` over `docker`.

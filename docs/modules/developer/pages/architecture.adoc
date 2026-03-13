@@ -1,0 +1,74 @@
+= Architecture
+
+cc-deck consists of two components that work together: a Rust WASM plugin for the sidebar and a Go CLI for installation, hooks, and session management.
+
+== Two-Component Design
+
+Rust WASM Plugin (`cc-zellij-plugin/`)::
+The sidebar that runs inside Zellij.
+Compiled to WebAssembly (wasm32-wasip1) and loaded by Zellij as a plugin.
+Handles rendering, navigation, smart attend, and session tracking.
+Communicates with other instances via the Zellij pipe system.
+
+Go CLI (`cc-deck/`)::
+The command-line tool that users interact with directly.
+Handles plugin installation, hook registration, snapshots, and the container image build pipeline.
+Embeds the WASM binary so a single `cc-deck` binary installs everything.
+
+== Sync Protocol
+
+The WASM plugin runs as a separate instance on every tab (via the layout template).
+These instances synchronize session state through Zellij's pipe messaging system:
+
+`cc-deck:sync`::
+Broadcast session state to all instances.
+Used when a session's activity changes.
+
+`cc-deck:request`::
+Request the latest state from other instances.
+
+`cc-deck:hook`::
+Incoming hook events from Claude Code (via the Go CLI).
+
+`cc-deck:navigate`::
+Navigation commands (switch tab, attend).
+
+`cc-deck:attend`::
+Smart attend requests.
+
+== Hook Integration
+
+Claude Code hooks (configured in `~/.claude/settings.json`) call the Go CLI on session events.
+The CLI forwards these to the WASM plugin via Zellij's pipe system.
+
+The flow:
+
+1. Claude Code fires a hook event (e.g., session starts, permission request)
+2. `cc-deck hook --pane-id "$ZELLIJ_PANE_ID"` runs
+3. The CLI maps the pane ID to a plugin instance
+4. The plugin updates the session's state in the sidebar
+
+== Directory Structure
+
+[source,text]
+----
+cc-deck/
+├── cc-zellij-plugin/       # Rust WASM plugin
+│   ├── src/
+│   │   ├── main.rs         # Plugin entry, events, keybindings
+│   │   ├── sidebar.rs      # Rendering (cursor, pause, help)
+│   │   ├── attend.rs       # Smart attend algorithm
+│   │   └── session.rs      # Session model, Activity enum
+│   └── Cargo.toml
+├── cc-deck/                # Go CLI
+│   ├── cmd/cc-deck/        # Main entry point
+│   ├── internal/
+│   │   ├── cmd/            # Cobra commands
+│   │   ├── plugin/         # Install, hooks, layout, embed
+│   │   ├── build/          # Image pipeline
+│   │   └── session/        # Snapshot management
+│   └── go.mod
+├── base-image/             # Base container image
+├── docs/                   # Antora documentation (this site)
+└── specs/                  # Feature specifications
+----

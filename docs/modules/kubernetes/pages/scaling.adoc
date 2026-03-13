@@ -1,0 +1,108 @@
+= Scaling
+
+Scale cc-deck for multi-user teams by increasing StatefulSet replicas.
+
+== One Pod Per User
+
+The simplest scaling model: each developer gets their own Pod with persistent storage.
+
+[source,bash]
+----
+kubectl -n cc-deck scale statefulset cc-deck --replicas=5
+----
+
+This creates Pods `cc-deck-0` through `cc-deck-4`, each with their own PersistentVolumeClaim.
+
+Users connect to their assigned Pod:
+
+[source,bash]
+----
+kubectl -n cc-deck exec -it cc-deck-2 -- zellij --layout cc-deck
+----
+
+== Resource Planning
+
+Each cc-deck Pod requires:
+
+[cols="1,1,2"]
+|===
+| Resource | Minimum | Recommended
+
+| Memory
+| 4 Gi
+| 8 Gi
+
+| CPU
+| 1 core
+| 2-4 cores
+
+| Storage (home)
+| 5 Gi
+| 10 Gi
+
+| Storage (projects)
+| 10 Gi
+| 50 Gi
+|===
+
+For a team of 10 developers, plan for approximately 40 Gi of memory and 20-40 CPU cores.
+
+== Shared Project Storage
+
+For teams working on the same codebase, use a ReadWriteMany volume:
+
+[source,yaml]
+----
+volumeClaimTemplates:
+  - metadata:
+      name: home
+    spec:
+      accessModes: ["ReadWriteOnce"]  # Per-user home
+      resources:
+        requests:
+          storage: 10Gi
+
+# Add shared volume in Pod spec
+volumes:
+  - name: shared-projects
+    persistentVolumeClaim:
+      claimName: team-projects  # ReadWriteMany PVC
+----
+
+Each user has their own home directory (Zellij config, Claude Code history) but shares project files.
+
+== Pod Assignment
+
+For predictable Pod assignment, label Pods with user information:
+
+[source,yaml]
+----
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: cc-deck
+spec:
+  replicas: 5
+  template:
+    metadata:
+      labels:
+        app: cc-deck
+----
+
+Then create a mapping of users to Pod indices.
+Users always connect to the same Pod, preserving their session state.
+
+== Cleanup
+
+Remove a user's Pod and their storage:
+
+[source,bash]
+----
+# Scale down
+kubectl -n cc-deck scale statefulset cc-deck --replicas=4
+
+# Delete the PVC for the removed Pod (if desired)
+kubectl -n cc-deck delete pvc home-cc-deck-4 projects-cc-deck-4
+----
+
+WARNING: Deleting a PVC permanently removes the user's home directory and project data.

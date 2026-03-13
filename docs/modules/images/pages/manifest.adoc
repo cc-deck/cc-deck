@@ -1,0 +1,186 @@
+= Manifest Reference
+
+The `cc-deck-build.yaml` manifest is the source of truth for your container image.
+It describes what tools, plugins, settings, and MCP servers to include.
+The Containerfile is generated from it.
+
+== Top-Level Structure
+
+[source,yaml]
+----
+version: 1
+
+image:
+  name: my-image
+  base: quay.io/rhuss/cc-deck-base:latest
+  tag: latest
+
+tools: [...]
+sources: [...]
+plugins: [...]
+mcp: [...]
+github_tools: [...]
+settings: {...}
+----
+
+== Sections
+
+=== image
+
+Required.
+Defines the image name, base image, and tag.
+
+[cols="1,1,3"]
+|===
+| Field | Required | Description
+
+| `name`
+| Yes
+| Image name (e.g., `my-team-image`)
+
+| `base`
+| No
+| Base image. Defaults to `quay.io/rhuss/cc-deck-base:latest`
+
+| `tag`
+| No
+| Image tag. Defaults to `latest`
+|===
+
+=== tools
+
+Optional.
+A list of free-form text descriptions of required tools.
+These are resolved to concrete install commands during Containerfile generation.
+
+[source,yaml]
+----
+tools:
+  - "Go compiler >= 1.25"
+  - "Python 3.12 with uv package manager"
+  - "Node.js 22 LTS"
+  - "Rust stable toolchain"
+  - "kubectl and kustomize"
+----
+
+You do not need to specify exact package names or install commands.
+Claude Code resolves these during `/cc-deck.build`.
+
+=== sources
+
+Optional.
+Provenance tracking for analyzed repositories.
+Populated automatically by `/cc-deck.extract`.
+
+[source,yaml]
+----
+sources:
+  - url: https://github.com/org/repo
+    ref: main
+    path: /local/checkout/path
+    detected_tools: ["Go 1.25", "protoc >= 25.0"]
+    detected_from: [go.mod, buf.yaml, .github/workflows/ci.yml]
+----
+
+=== plugins
+
+Optional.
+Claude Code plugins to install in the image.
+
+[source,yaml]
+----
+plugins:
+  - name: sdd
+    source: marketplace
+  - name: custom-plugin
+    source: "git:https://github.com/org/plugin.git"
+----
+
+=== mcp
+
+Optional.
+MCP server sidecars for compose or Kubernetes deployment.
+
+[source,yaml]
+----
+mcp:
+  - name: github
+    image: ghcr.io/modelcontextprotocol/github-mcp:latest
+    transport: sse
+    port: 8000
+    auth:
+      type: token
+      env_vars: [GITHUB_TOKEN]
+    description: GitHub API access
+----
+
+NOTE: Only environment variable names are stored, never credentials.
+
+=== github_tools
+
+Optional.
+Additional tools downloaded from GitHub releases.
+
+[source,yaml]
+----
+github_tools:
+  - repo: rhuss/cc-setup
+    binary: cc-setup
+  - repo: rhuss/cc-session
+    binary: cc-session
+----
+
+=== settings
+
+Optional.
+User configuration to bake into the image.
+Populated by `/cc-deck.settings`.
+
+[source,yaml]
+----
+settings:
+  zshrc: ./zshrc
+  zellij_config: current
+  claude_md: ./CLAUDE.md
+  claude_settings: ./claude-settings.json
+  mcp_settings: ./mcp-settings.json
+  cc_setup_mcp: ./cc-setup-mcp.json
+----
+
+[cols="1,3"]
+|===
+| Field | Description
+
+| `zshrc`
+| Custom zsh config to append to the base image .zshrc
+
+| `zellij_config`
+| `current` (copy local config.kdl), `vanilla` (defaults), or a file path
+
+| `claude_md`
+| Global Claude instructions file
+
+| `claude_settings`
+| Claude preferences to merge with cc-deck hooks
+
+| `mcp_settings`
+| npx-based MCP server configs to merge
+
+| `cc_setup_mcp`
+| cc-setup MCP server cache file
+|===
+
+== Validation
+
+The manifest is validated before every build.
+Required fields are `version` (must be `1`) and `image.name`.
+All other sections are optional.
+
+You can validate manually:
+
+[source,bash]
+----
+cc-deck image diff <build-dir>
+----
+
+This compares the manifest against the current Containerfile and reports any differences.

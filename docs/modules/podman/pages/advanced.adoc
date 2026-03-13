@@ -1,0 +1,133 @@
+= Advanced Podman Usage
+
+This page covers GPU passthrough, MCP server port forwarding, networking, and resource management.
+
+== Port Forwarding for MCP Servers
+
+If your container runs MCP servers that other tools need to reach:
+
+[source,bash]
+----
+podman run -d --name mydev \
+  -e ANTHROPIC_API_KEY=sk-ant-... \
+  -p 8000:8000 \
+  -p 9000:9000 \
+  quay.io/cc-deck/cc-deck-demo:latest
+----
+
+MCP servers inside the container are now reachable at `localhost:8000` and `localhost:9000` from the host.
+
+== GPU Passthrough
+
+For local model inference or GPU-accelerated tools:
+
+[source,bash]
+----
+podman run -d --name mydev \
+  --device nvidia.com/gpu=all \
+  -e ANTHROPIC_API_KEY=sk-ant-... \
+  quay.io/cc-deck/cc-deck-demo:latest
+----
+
+NOTE: GPU passthrough requires the NVIDIA Container Toolkit to be installed on the host.
+
+== Resource Limits
+
+Set memory and CPU limits to prevent runaway processes:
+
+[source,bash]
+----
+podman run -d --name mydev \
+  --memory 8g \
+  --cpus 4 \
+  -e ANTHROPIC_API_KEY=sk-ant-... \
+  quay.io/cc-deck/cc-deck-demo:latest
+----
+
+Claude Code requires at least 4 GB of RAM for the Node.js runtime.
+
+== Networking
+
+=== Accessing Host Services
+
+To reach services running on the host (databases, APIs) from inside the container:
+
+[source,bash]
+----
+podman run -d --name mydev \
+  --network=host \
+  -e ANTHROPIC_API_KEY=sk-ant-... \
+  quay.io/cc-deck/cc-deck-demo:latest
+----
+
+Or use `host.containers.internal` as the hostname (Podman 4.7+):
+
+[source,bash]
+----
+# Inside the container:
+curl http://host.containers.internal:5432
+----
+
+=== Container-to-Container
+
+For multiple containers that need to communicate (e.g., cc-deck + database):
+
+[source,bash]
+----
+podman network create devnet
+
+podman run -d --name postgres --network devnet \
+  -e POSTGRES_PASSWORD=dev \
+  postgres:16
+
+podman run -d --name mydev --network devnet \
+  -e ANTHROPIC_API_KEY=sk-ant-... \
+  quay.io/cc-deck/cc-deck-demo:latest
+
+# Inside mydev: postgres is reachable at postgres:5432
+----
+
+== SSH Agent Forwarding
+
+To use your host SSH keys for git operations inside the container:
+
+[source,bash]
+----
+podman run -d --name mydev \
+  -e ANTHROPIC_API_KEY=sk-ant-... \
+  -v $SSH_AUTH_SOCK:/ssh-agent:ro \
+  -e SSH_AUTH_SOCK=/ssh-agent \
+  quay.io/cc-deck/cc-deck-demo:latest
+----
+
+== Podman Compose
+
+For a full development environment with multiple services, use a `compose.yaml`:
+
+[source,yaml]
+----
+services:
+  cc-deck:
+    image: quay.io/cc-deck/cc-deck-demo:latest
+    environment:
+      - ANTHROPIC_API_KEY
+    volumes:
+      - ~/projects:/home/coder/projects
+      - cc-state:/home/coder
+    ports:
+      - "8000:8000"
+
+  postgres:
+    image: postgres:16
+    environment:
+      - POSTGRES_PASSWORD=dev
+
+volumes:
+  cc-state:
+----
+
+[source,bash]
+----
+podman compose up -d
+podman exec -it cc-deck zellij --layout cc-deck
+----

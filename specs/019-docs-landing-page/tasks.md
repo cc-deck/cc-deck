@@ -111,13 +111,13 @@
 
 ### Implementation for User Story 4
 
-- [ ] T032 [P] [US4] Write `docs/modules/images/pages/overview.adoc` explaining the CLI-AI-CLI build pipeline concept
-- [ ] T033 [P] [US4] Write `docs/modules/images/pages/init.adoc` documenting `cc-deck image init`
-- [ ] T034 [P] [US4] Write `docs/modules/images/pages/extract.adoc` documenting `/cc-deck.extract` command
-- [ ] T035 [P] [US4] Write `docs/modules/images/pages/settings.adoc` documenting `/cc-deck.settings` command (all 5 sections)
-- [ ] T036 [P] [US4] Write `docs/modules/images/pages/build.adoc` documenting `/cc-deck.build` command (self-correction, multi-arch, Node.js 20)
-- [ ] T037 [P] [US4] Write `docs/modules/images/pages/manifest.adoc` with full `cc-deck-build.yaml` schema reference
-- [ ] T038 [US4] Create `docs/modules/images/nav.adoc` with page ordering
+- [x] T032 [P] [US4] Write `docs/modules/images/pages/overview.adoc` explaining the CLI-AI-CLI build pipeline concept
+- [x] T033 [P] [US4] Write `docs/modules/images/pages/init.adoc` documenting `cc-deck image init`
+- [x] T034 [P] [US4] Write `docs/modules/images/pages/extract.adoc` documenting `/cc-deck.extract` command
+- [x] T035 [P] [US4] Write `docs/modules/images/pages/settings.adoc` documenting `/cc-deck.settings` command (all 5 sections)
+- [x] T036 [P] [US4] Write `docs/modules/images/pages/build.adoc` documenting `/cc-deck.build` command (self-correction, multi-arch, Node.js 20)
+- [x] T037 [P] [US4] Write `docs/modules/images/pages/manifest.adoc` with full `cc-deck-build.yaml` schema reference
+- [x] T038 [US4] Create `docs/modules/images/nav.adoc` with page ordering
 
 **Checkpoint**: Image pipeline fully documented with manifest schema reference.
 
@@ -131,11 +131,11 @@
 
 ### Implementation for User Story 5
 
-- [ ] T039 [P] [US5] Write `docs/modules/podman/pages/quickstart.adoc` with minimal local setup
-- [ ] T040 [P] [US5] Write `docs/modules/podman/pages/volumes.adoc` covering source code mounts, persistent state, bidirectional editing
-- [ ] T041 [P] [US5] Write `docs/modules/podman/pages/credentials.adoc` covering API key and Vertex AI (gcloud mount) setup
-- [ ] T042 [P] [US5] Write `docs/modules/podman/pages/advanced.adoc` covering GPU passthrough, MCP port forwarding, networking, resource limits
-- [ ] T043 [US5] Create `docs/modules/podman/nav.adoc` with page ordering
+- [x] T039 [P] [US5] Write `docs/modules/podman/pages/quickstart.adoc` with minimal local setup
+- [x] T040 [P] [US5] Write `docs/modules/podman/pages/volumes.adoc` covering source code mounts, persistent state, bidirectional editing
+- [x] T041 [P] [US5] Write `docs/modules/podman/pages/credentials.adoc` covering API key and Vertex AI (gcloud mount) setup
+- [x] T042 [P] [US5] Write `docs/modules/podman/pages/advanced.adoc` covering GPU passthrough, MCP port forwarding, networking, resource limits
+- [x] T043 [US5] Create `docs/modules/podman/nav.adoc` with page ordering
 
 **Checkpoint**: Podman reference covers all deployment scenarios.
 
@@ -149,12 +149,12 @@
 
 ### Implementation for User Story 6
 
-- [ ] T044 [P] [US6] Write `docs/modules/kubernetes/pages/quickstart.adoc` with minimal K8s deployment
-- [ ] T045 [P] [US6] Write `docs/modules/kubernetes/pages/statefulset.adoc` covering StatefulSet pattern with PVCs
-- [ ] T046 [P] [US6] Write `docs/modules/kubernetes/pages/credentials.adoc` covering Secrets, service accounts, Vertex AI
-- [ ] T047 [P] [US6] Write `docs/modules/kubernetes/pages/rbac.adoc` covering RBAC configuration
-- [ ] T048 [P] [US6] Write `docs/modules/kubernetes/pages/scaling.adoc` covering multi-session scaling, resource management
-- [ ] T049 [US6] Create `docs/modules/kubernetes/nav.adoc` with page ordering
+- [x] T044 [P] [US6] Write `docs/modules/kubernetes/pages/quickstart.adoc` with minimal K8s deployment
+- [x] T045 [P] [US6] Write `docs/modules/kubernetes/pages/statefulset.adoc` covering StatefulSet pattern with PVCs
+- [x] T046 [P] [US6] Write `docs/modules/kubernetes/pages/credentials.adoc` covering Secrets, service accounts, Vertex AI
+- [x] T047 [P] [US6] Write `docs/modules/kubernetes/pages/rbac.adoc` covering RBAC configuration
+- [x] T048 [P] [US6] Write `docs/modules/kubernetes/pages/scaling.adoc` covering multi-session scaling, resource management
+- [x] T049 [US6] Create `docs/modules/kubernetes/nav.adoc` with page ordering
 
 **Checkpoint**: Kubernetes reference covers deployment, persistence, credentials, RBAC, scaling.
 
@@ -168,10 +168,10 @@
 
 ### Implementation for User Story 7
 
-- [ ] T050 [P] [US7] Write `docs/modules/developer/pages/architecture.adoc` covering two-component design (Rust WASM + Go CLI), sync protocol, hook integration
-- [ ] T051 [P] [US7] Write `docs/modules/developer/pages/building.adoc` covering build from source (make build, prerequisites, cross-compile)
-- [ ] T052 [P] [US7] Write `docs/modules/developer/pages/contributing.adoc` covering PR guidelines, testing, code style
-- [ ] T053 [US7] Create `docs/modules/developer/nav.adoc` with page ordering
+- [x] T050 [P] [US7] Write `docs/modules/developer/pages/architecture.adoc` covering two-component design (Rust WASM + Go CLI), sync protocol, hook integration
+- [x] T051 [P] [US7] Write `docs/modules/developer/pages/building.adoc` covering build from source (make build, prerequisites, cross-compile)
+- [x] T052 [P] [US7] Write `docs/modules/developer/pages/contributing.adoc` covering PR guidelines, testing, code style
+- [x] T053 [US7] Create `docs/modules/developer/nav.adoc` with page ordering
 
 **Checkpoint**: Developer documentation enables contributors to build and submit changes.
 

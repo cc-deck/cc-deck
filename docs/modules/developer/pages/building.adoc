@@ -1,0 +1,108 @@
+= Building from Source
+
+== Prerequisites
+
+* **Rust** (stable, with `wasm32-wasip1` target): `rustup target add wasm32-wasip1`
+* **Go** 1.22 or later
+* **Zellij** 0.40 or later (for testing)
+* **make**
+
+== Quick Build
+
+[source,bash]
+----
+# Build everything (WASM plugin + Go CLI)
+make build
+
+# Install the plugin into Zellij
+make install
+----
+
+== Build Targets
+
+[cols="1,3"]
+|===
+| Target | Description
+
+| `make build`
+| Build release WASM + Go CLI
+
+| `make build-wasm`
+| Build WASM plugin only (release mode)
+
+| `make build-wasm-debug`
+| Build WASM plugin in debug mode (faster)
+
+| `make build-cli`
+| Build Go CLI only (requires WASM binary)
+
+| `make cross-cli`
+| Cross-compile CLI for linux/amd64 and linux/arm64
+
+| `make install`
+| Build and install plugin into Zellij
+
+| `make test`
+| Run all tests (Go + Rust)
+
+| `make lint`
+| Run all linters (go vet + clippy)
+
+| `make clean`
+| Remove all build artifacts
+|===
+
+== Development Workflow
+
+For rapid iteration on the plugin:
+
+[source,bash]
+----
+# Build debug WASM and install to Zellij plugins dir
+make dev
+
+# After changing Rust code, hot-reload without restarting Zellij
+make reload
+----
+
+NOTE: Always kill existing Zellij sessions after installing a new WASM binary.
+Running sessions keep the old plugin in memory.
+
+[source,bash]
+----
+zellij kill-all-sessions -y
+zellij --layout cc-deck
+----
+
+== Testing
+
+[source,bash]
+----
+# Run all tests
+make test
+
+# Go tests only
+make test-go
+
+# Rust tests only (native, not WASM)
+make test-rust
+
+# Linting
+make lint
+----
+
+The Rust tests run natively (not on wasm32-wasip1) since the Zellij plugin SDK is not available in the test environment.
+
+== Container Image Targets
+
+[source,bash]
+----
+# Build the base image
+make base-image
+
+# Build for testing (build + cross-compile + init test dir)
+make test-image
+
+# Override the registry
+make build-cli REGISTRY=quay.io/myorg
+----
