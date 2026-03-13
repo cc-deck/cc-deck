@@ -1,0 +1,61 @@
+= cc-deck: Your Claude Code Command Center
+
+cc-deck is the TweetDeck for Claude Code.
+It provides a Zellij sidebar plugin that monitors, attends to, and orchestrates multiple Claude Code sessions from a single view.
+
+== What cc-deck Does
+
+Managing multiple Claude Code sessions from separate terminals quickly becomes unwieldy.
+You lose track of which session is waiting for input, which one just finished, and which one needs your attention next.
+cc-deck solves this with a real-time sidebar that shows all your sessions and intelligently directs your attention.
+
+=== Sidebar Plugin
+
+The Zellij sidebar plugin tracks every Claude Code session across tabs.
+It shows activity status, handles permission requests, and provides keyboard-driven navigation.
+Smart attend automatically cycles through sessions that need your attention, prioritizing permission requests over completed tasks over idle sessions.
+
+=== Custom Container Images
+
+An AI-driven build pipeline analyzes your repositories for tool dependencies, lets you configure settings, and generates optimized container images.
+Four Claude Code commands handle the workflow: extract, settings, build, push.
+
+=== Multi-Platform
+
+Run cc-deck locally with Zellij, in Podman containers with mounted source code, or deploy as StatefulSets on Kubernetes and OpenShift.
+The sidebar experience is the same everywhere.
+
+== Getting Started
+
+* xref:quickstarts:one-liner.adoc[One-Liner Quickstart] -- Running cc-deck in under 2 minutes
+* xref:quickstarts:install.adoc[Native Installation] -- Install on your local machine
+* xref:plugin:overview.adoc[Plugin Guide] -- Learn the sidebar features
+* xref:images:overview.adoc[Build Pipeline] -- Create custom container images
+
+== Documentation
+
+[cols="1,2"]
+|===
+| Module | Description
+
+| xref:quickstarts:one-liner.adoc[Quickstarts]
+| Get running in minutes with the demo image or native install.
+
+| xref:plugin:overview.adoc[Plugin]
+| Zellij sidebar plugin features, keyboard shortcuts, smart attend.
+
+| xref:images:overview.adoc[Images]
+| AI-driven container image build pipeline.
+
+| xref:podman:quickstart.adoc[Podman]
+| Local deployment with volume mounts and credentials.
+
+| xref:kubernetes:quickstart.adoc[Kubernetes]
+| StatefulSet deployment, PVCs, RBAC, scaling.
+
+| xref:reference:cli.adoc[Reference]
+| CLI commands, manifest schema, configuration.
+
+| xref:developer:architecture.adoc[Developer]
+| Architecture, building from source, contributing.
+|===
