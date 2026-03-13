@@ -1,0 +1,117 @@
+= StatefulSet Patterns
+
+cc-deck uses StatefulSets rather than Deployments because each session needs stable identity and persistent storage.
+
+== Why StatefulSet
+
+Each cc-deck Pod maintains:
+
+* Persistent home directory (Zellij sessions, Claude Code history, snapshots)
+* Stable network identity (`cc-deck-0`, `cc-deck-1`, etc.)
+* Ordered startup and shutdown
+
+A Deployment would lose all state on restart.
+A StatefulSet preserves it via PersistentVolumeClaims.
+
+== Production StatefulSet
+
+[source,yaml]
+----
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: cc-deck
+  namespace: cc-deck
+spec:
+  serviceName: cc-deck
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cc-deck
+  template:
+    metadata:
+      labels:
+        app: cc-deck
+    spec:
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: cc-deck
+          image: quay.io/cc-deck/cc-deck-demo:latest
+          envFrom:
+            - secretRef:
+                name: claude-credentials
+          resources:
+            requests:
+              memory: "4Gi"
+              cpu: "2"
+            limits:
+              memory: "8Gi"
+              cpu: "4"
+          volumeMounts:
+            - name: home
+              mountPath: /home/coder
+            - name: projects
+              mountPath: /home/coder/projects
+  volumeClaimTemplates:
+    - metadata:
+        name: home
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
+    - metadata:
+        name: projects
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 50Gi
+----
+
+== PersistentVolume for Source Code
+
+For shared source code across team members, use a ReadWriteMany PV backed by NFS or a CSI driver:
+
+[source,yaml]
+----
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: team-projects
+spec:
+  capacity:
+    storage: 100Gi
+  accessModes:
+    - ReadWriteMany
+  nfs:
+    server: nfs.internal
+    path: /exports/projects
+----
+
+Each Pod mounts this shared volume at `/home/coder/projects`.
+
+== Headless Service
+
+The StatefulSet requires a headless Service for DNS resolution:
+
+[source,yaml]
+----
+apiVersion: v1
+kind: Service
+metadata:
+  name: cc-deck
+  namespace: cc-deck
+spec:
+  clusterIP: None
+  selector:
+    app: cc-deck
+  ports:
+    - port: 8080
+      name: http
+----
+
+This enables DNS like `cc-deck-0.cc-deck.cc-deck.svc.cluster.local`.

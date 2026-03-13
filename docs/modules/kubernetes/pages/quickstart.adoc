@@ -1,0 +1,83 @@
+= Kubernetes Quickstart
+
+Deploy cc-deck on Kubernetes for team-wide Claude Code access with persistent state.
+
+== Prerequisites
+
+* `kubectl` configured with cluster access
+* A container registry accessible from the cluster
+* An Anthropic API key or Vertex AI service account
+
+== Minimal Deployment
+
+Create a namespace and deploy cc-deck as a StatefulSet with a single replica:
+
+[source,bash]
+----
+kubectl create namespace cc-deck
+----
+
+Create a Secret for authentication:
+
+[source,bash]
+----
+kubectl -n cc-deck create secret generic claude-credentials \
+  --from-literal=ANTHROPIC_API_KEY=sk-ant-...
+----
+
+Apply the StatefulSet:
+
+[source,yaml]
+----
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: cc-deck
+  namespace: cc-deck
+spec:
+  serviceName: cc-deck
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cc-deck
+  template:
+    metadata:
+      labels:
+        app: cc-deck
+    spec:
+      containers:
+        - name: cc-deck
+          image: quay.io/cc-deck/cc-deck-demo:latest
+          envFrom:
+            - secretRef:
+                name: claude-credentials
+          volumeMounts:
+            - name: home
+              mountPath: /home/coder
+  volumeClaimTemplates:
+    - metadata:
+        name: home
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
+----
+
+== Connecting
+
+[source,bash]
+----
+# Direct exec
+kubectl -n cc-deck exec -it cc-deck-0 -- zellij --layout cc-deck
+
+# Or port-forward for web terminal access
+kubectl -n cc-deck port-forward cc-deck-0 8080:8080
+----
+
+== Next Steps
+
+* xref:statefulset.adoc[StatefulSet Patterns] for production deployment
+* xref:credentials.adoc[Credentials] for Vertex AI and service accounts
+* xref:rbac.adoc[RBAC] for access control
+* xref:scaling.adoc[Scaling] for multi-user setups

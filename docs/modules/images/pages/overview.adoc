@@ -1,0 +1,62 @@
+= Image Pipeline Overview
+
+cc-deck provides an AI-driven pipeline for building custom container images tailored to your development environment.
+Instead of writing Containerfiles by hand, you describe what tools you need and let Claude Code figure out the installation details.
+
+== The Pipeline
+
+The image pipeline has four stages, each driven by a Claude Code command:
+
+[cols="1,3"]
+|===
+| Command | Purpose
+
+| `/cc-deck.extract`
+| Analyze your repositories and discover tool dependencies automatically
+
+| `/cc-deck.settings`
+| Select which local settings (zsh, plugins, MCP servers) to bake into the image
+
+| `/cc-deck.build`
+| Generate a Containerfile from the manifest and build the image (with self-correction)
+
+| `/cc-deck.push`
+| Push the built image to a container registry
+|===
+
+== How It Works
+
+The pipeline starts with `cc-deck image init`, which scaffolds a build directory:
+
+[source,bash]
+----
+cc-deck image init my-team-image
+cd my-team-image
+claude
+----
+
+This creates a `cc-deck-build.yaml` manifest and the Claude Code commands.
+You then work inside Claude Code, using the slash commands to populate the manifest and build the image.
+
+The manifest is the single source of truth.
+It describes your desired image contents in human-readable YAML.
+The Containerfile is generated from it and can be regenerated at any time.
+
+== What Gets Installed
+
+Every cc-deck image includes these mandatory components:
+
+* **cc-deck** with the sidebar plugin and layouts
+* **Zellij** terminal multiplexer (matching the plugin SDK version)
+* **Claude Code** with a private Node.js 20 runtime
+* **cc-session** and **cc-setup** companion tools
+
+On top of this base, you add your project-specific tools, plugins, and settings.
+
+== Next Steps
+
+* xref:init.adoc[Initialization] to scaffold a build directory
+* xref:extract.adoc[Extract] to discover tool dependencies
+* xref:settings.adoc[Settings] to select local configuration
+* xref:build.adoc[Build] to generate the Containerfile and build
+* xref:manifest.adoc[Manifest Reference] for the full schema
