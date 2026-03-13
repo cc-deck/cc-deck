@@ -55,8 +55,9 @@ image:
 #   - repo: rhuss/cc-session
 #     binary: cc-session
 
-# Claude Code configuration to bake into the image.
+# User configuration to bake into the image.
 # settings:
-#   claude_md: ./CLAUDE.md
-#   hooks: ./hooks.json
-#   zellij_config: current  # "current" (copy local), "vanilla" (defaults), or a path
+#   claude_md: ./CLAUDE.md           # Global Claude instructions (-> ~/.claude/CLAUDE.md)
+#   claude_settings: ./settings.json # Claude preferences to merge (model, theme, etc.)
+#   hooks: ./hooks.json              # Extra hooks to merge with cc-deck hooks
+#   zellij_config: current           # "current" (copy local config.kdl), "vanilla", or a path
