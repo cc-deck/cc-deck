@@ -1,0 +1,61 @@
+# cc-deck demo image
+# Pre-built environment with cc-deck, Zellij, and Claude Code.
+# Usage:
+#   podman run -d --name mydev -e ANTHROPIC_API_KEY=sk-ant-... quay.io/cc-deck/cc-deck-demo:latest
+#   podman exec -it mydev zellij --layout cc-deck
+
+ARG BASE_IMAGE=quay.io/rhuss/cc-deck-base:latest
+FROM ${BASE_IMAGE}
+
+ARG TARGETARCH
+
+# User setup (ensure zsh shell, writable dirs)
+USER root
+RUN id coder >/dev/null 2>&1 || useradd -m -s /bin/zsh coder
+RUN chsh -s /bin/zsh coder 2>/dev/null || usermod -s /bin/zsh coder
+RUN touch /home/coder/.zshrc && chown coder:coder /home/coder/.zshrc
+
+# cc-session (Rust release: arch-unknown-linux-gnu.tar.xz with nested dir)
+RUN ARCH=$(uname -m) && \
+    curl -fsSL "https://github.com/rhuss/cc-session/releases/latest/download/cc-session-${ARCH}-unknown-linux-gnu.tar.xz" \
+      | tar -xJf - --strip-components=1 -C /usr/local/bin "cc-session-${ARCH}-unknown-linux-gnu/cc-session" && \
+    chmod +x /usr/local/bin/cc-session
+
+# cc-setup (Go release: version-linux-arch.tar.gz, flat)
+ARG CC_SETUP_VERSION=0.3.0
+RUN ARCH=$(uname -m) && \
+    case "$ARCH" in x86_64) GOARCH=amd64;; aarch64) GOARCH=arm64;; esac && \
+    curl -fsSL "https://github.com/rhuss/cc-setup/releases/download/v${CC_SETUP_VERSION}/cc-setup-${CC_SETUP_VERSION}-linux-${GOARCH}.tar.gz" \
+      | tar -xzf - -C /usr/local/bin cc-setup && \
+    chmod +x /usr/local/bin/cc-setup
+
+# cc-deck self-install (Zellij + plugin + layouts + hooks)
+COPY .build-context/cc-deck-linux-${TARGETARCH} /usr/local/bin/cc-deck
+RUN chmod +x /usr/local/bin/cc-deck && \
+    mkdir -p /home/coder/.claude /home/coder/.cache/zellij && \
+    HOME=/home/coder \
+    ZELLIJ_CONFIG_DIR=/home/coder/.config/zellij \
+    cc-deck plugin install --install-zellij --force --skip-backup && \
+    chown -R coder:coder /home/coder/.config/zellij /home/coder/.cache/zellij /home/coder/.claude && \
+    rm -rf /root/.claude /root/.cache/zellij
+
+# Claude Code (self-contained with private Node.js 20)
+RUN ARCH=$(uname -m) && \
+    case "$ARCH" in \
+      x86_64)  NODE_ARCH=x64 ;; \
+      aarch64) NODE_ARCH=arm64 ;; \
+      *) echo "Unsupported: $ARCH" && exit 1 ;; \
+    esac && \
+    NODE_VERSION=20.19.0 && \
+    mkdir -p /opt/claude-code && \
+    curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz" \
+      | tar -xJ -C /opt/claude-code --strip-components=1 && \
+    /opt/claude-code/bin/npm install -g @anthropic-ai/claude-code \
+      --prefix /opt/claude-code && \
+    printf '#!/bin/sh\nexec /opt/claude-code/bin/node /opt/claude-code/lib/node_modules/@anthropic-ai/claude-code/cli.js "$@"\n' \
+      > /usr/local/bin/claude && \
+    chmod +x /usr/local/bin/claude
+
+USER coder
+WORKDIR /home/coder
+CMD ["sleep", "infinity"]

@@ -59,13 +59,9 @@ RUN <curl downloads for each github_tool>
 
 # MANDATORY Layer: cc-session and cc-setup (companion tools from GitHub)
 RUN ARCH=$(uname -m) && \
-    case "$ARCH" in \
-      x86_64)  GHARCH=amd64 ;; \
-      aarch64) GHARCH=arm64 ;; \
-    esac && \
     for TOOL in cc-session cc-setup; do \
-      curl -fsSL "https://github.com/rhuss/${TOOL}/releases/latest/download/${TOOL}-linux-${GHARCH}.tar.gz" \
-        | tar -xzf - -C /usr/local/bin ${TOOL} && \
+      curl -fsSL "https://github.com/rhuss/${TOOL}/releases/latest/download/${TOOL}-${ARCH}-unknown-linux-gnu.tar.xz" \
+        | tar -xJf - -C /usr/local/bin ${TOOL} && \
       chmod +x /usr/local/bin/${TOOL}; \
     done
 
