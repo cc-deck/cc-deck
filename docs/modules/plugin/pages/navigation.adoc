@@ -1,0 +1,107 @@
+= Keyboard Navigation
+
+cc-deck is designed for keyboard-first interaction.
+Every action has a shortcut, and your hands never need to leave the keyboard.
+
+== Global Shortcuts
+
+These shortcuts work from any pane, at any time:
+
+[cols="1,3"]
+|===
+| Key | Action
+
+| `Alt+s`
+| Toggle navigation mode. If already in navigation mode, moves the cursor down to the next session.
+
+| `Alt+a`
+| Smart attend: switch to the next session that needs your attention. See xref:attend.adoc[Smart Attend] for the priority algorithm.
+|===
+
+Both keys are configurable.
+See xref:configuration.adoc[Configuration] for how to change them.
+
+== Navigation Mode
+
+Press `Alt+s` to enter navigation mode.
+The sidebar highlights the current session with an amber cursor.
+While in navigation mode, the following keys are available:
+
+=== Movement
+
+[cols="1,3"]
+|===
+| Key | Action
+
+| `j` or `↓`
+| Move cursor down
+
+| `k` or `↑`
+| Move cursor up
+
+| `g`
+| Jump to the first session
+
+| `G`
+| Jump to the last session
+|===
+
+=== Actions
+
+[cols="1,3"]
+|===
+| Key | Action
+
+| `Enter`
+| Switch to the selected session's tab
+
+| `Esc`
+| Exit navigation mode and return to the previously active tab
+
+| `n`
+| Open a new tab
+
+| `r`
+| Rename the selected session
+
+| `d`
+| Delete the selected session (closes the tab)
+
+| `p`
+| Toggle pause on the selected session (see xref:sessions.adoc#pause[Pause])
+
+| `/`
+| Enter search mode (filter sessions by name)
+
+| `?`
+| Show the help overlay with all shortcuts
+|===
+
+== Search Mode
+
+Press `/` while in navigation mode to filter sessions.
+Type a search term and the sidebar shows only sessions whose name matches (case-insensitive substring match).
+Press `Esc` to clear the search and return to the full list.
+
+This is useful when you have many sessions open and need to find a specific one quickly.
+
+== Exiting Navigation Mode
+
+Navigation mode exits automatically in several situations:
+
+* You press `Enter` to switch to a session
+* You press `Esc` to cancel
+* You click on a terminal pane (detected via PaneUpdate)
+* A tab switch occurs (detected via TabUpdate)
+* You click the sidebar header
+
+This means navigation mode never gets "stuck".
+Any interaction with the terminal returns you to normal mode.
+
+== Mouse Support
+
+While cc-deck is keyboard-first, it also responds to mouse clicks:
+
+* **Click a session**: Switch to that session's tab
+* **Click the sidebar header**: Toggle navigation mode
+* **Right-click a session**: Start renaming that session

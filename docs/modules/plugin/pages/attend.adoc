@@ -1,0 +1,76 @@
+= Smart Attend
+
+Smart attend is the core feature that makes multi-session Claude Code practical.
+Instead of manually checking each tab, you press a single key and cc-deck takes you to the session that needs your attention most.
+
+== How It Works
+
+Press `Alt+a` (configurable) to trigger smart attend.
+cc-deck evaluates all active sessions, picks the highest-priority one you have not recently attended, and switches to its tab.
+Press `Alt+a` again to cycle to the next candidate.
+
+The algorithm uses round-robin within a priority-ordered candidate list, so every session that needs attention gets visited in turn.
+
+== Priority Tiers
+
+Smart attend evaluates sessions in this order.
+Higher-priority sessions are always attended before lower-priority ones:
+
+[cols="1,1,3"]
+|===
+| Priority | State | Why
+
+| 1 (highest)
+| Permission waiting
+| Claude Code is blocked and cannot continue until you grant permission. Oldest request first.
+
+| 2
+| Notification waiting
+| An informational notification that may need review. Oldest first.
+
+| 3
+| Done / Agent done
+| The session just finished its task. You likely want to review the result. Tab order.
+
+| 4 (lowest)
+| Idle / Init
+| The session is waiting for input or has not started yet. Tab order.
+|===
+
+=== Sessions That Are Skipped
+
+Two types of sessions are never included in the attend rotation:
+
+Working sessions::
+Sessions where Claude Code is actively running (generating output, calling tools).
+There is nothing for you to do until the work completes.
+
+Paused sessions::
+Sessions you have explicitly paused.
+See xref:sessions.adoc#pause[Pause] for how to toggle this.
+
+== Round-Robin Behavior
+
+Smart attend does not always jump to the same highest-priority session.
+It tracks which session you last attended and continues from there.
+
+For example, if you have three sessions waiting for permission (A, B, C):
+
+1. First `Alt+a`: attends A
+2. Second `Alt+a`: attends B
+3. Third `Alt+a`: attends C
+4. Fourth `Alt+a`: back to A (if still waiting)
+
+This ensures every session gets your attention, not just the first one in the list.
+
+The round-robin state is persisted to disk, so it survives Zellij restarts and is shared across sidebar instances on different tabs.
+
+== Visual Indicators
+
+The sidebar uses visual cues to show session state:
+
+* **Bold text**: Session is waiting for permission (highest priority)
+* **Teal background**: The session you are currently viewing
+* **Amber cursor**: The session selected in navigation mode
+* **⏸ icon**: Session is paused (excluded from attend)
+* **Dimmed text**: Paused session name
