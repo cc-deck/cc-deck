@@ -1,0 +1,144 @@
+= Configuration
+
+cc-deck installs with sensible defaults that work out of the box.
+This page covers how to customize keybindings, choose layout variants, and integrate with your terminal emulator.
+
+== Layout Variants
+
+cc-deck ships with three layout variants that control what appears alongside the sidebar:
+
+[cols="1,3"]
+|===
+| Variant | Description
+
+| `standard`
+| Sidebar + tab-bar at top + status-bar at bottom. The most informative layout, recommended for users new to Zellij. This is the default.
+
+| `minimal`
+| Sidebar + compact-bar at bottom. Less visual clutter while still showing tab names.
+
+| `clean`
+| Sidebar only, no bars at all. Maximum terminal space. For experienced users who navigate entirely by keyboard.
+|===
+
+All three variants are installed as separate layout files.
+The `--layout` flag during install sets which one becomes the default `cc-deck.kdl`:
+
+[source,bash]
+----
+cc-deck plugin install --layout minimal
+----
+
+You can always try a different variant without changing the default:
+
+[source,bash]
+----
+zellij --layout cc-deck-standard
+zellij --layout cc-deck-minimal
+zellij --layout cc-deck-clean
+----
+
+== Custom Keybindings
+
+The two global shortcuts (`Alt+s` for navigation, `Alt+a` for attend) can be changed.
+
+=== Using the Personal Layout
+
+The recommended approach is to create a personal layout file that is never overwritten by `cc-deck plugin install`:
+
+1. Copy the default layout:
++
+[source,bash]
+----
+cp ~/.config/zellij/layouts/cc-deck.kdl ~/.config/zellij/layouts/cc-deck-personal.kdl
+----
+
+2. Edit the plugin configuration block to change the key bindings:
++
+[source,kdl]
+----
+plugin location="file:~/.config/zellij/plugins/cc_deck.wasm" {
+    navigate_key "Super s"
+    attend_key "Super n"
+}
+----
+
+3. Set the personal layout as your default in `~/.config/zellij/config.kdl`:
++
+[source,kdl]
+----
+default_layout "cc-deck-personal"
+----
+
+The personal layout is never modified by `cc-deck plugin install`, so your custom keybindings are preserved across updates.
+
+== Ghostty Integration
+
+If you use Ghostty as your terminal emulator, you can pass `Cmd` (Super) keys through to Zellij for a macOS-native feel.
+
+In your Ghostty config, unbind the keys you want to pass through:
+
+[source,conf]
+----
+keybind = cmd+t=unbind
+keybind = cmd+s=unbind
+keybind = cmd+n=unbind
+----
+
+Then bind them in your Zellij config:
+
+[source,kdl]
+----
+keybinds {
+    shared {
+        bind "Super t" { NewTab; }
+    }
+}
+----
+
+And configure cc-deck to use Super keys in your personal layout:
+
+[source,kdl]
+----
+plugin location="file:~/.config/zellij/plugins/cc_deck.wasm" {
+    navigate_key "Super s"
+    attend_key "Super n"
+}
+----
+
+This gives you `Cmd+S` for navigation and `Cmd+N` for smart attend, matching the macOS convention of using `Cmd` for app-level shortcuts.
+
+== Setting cc-deck as Default
+
+To start Zellij with cc-deck automatically, add to `~/.config/zellij/config.kdl`:
+
+[source,kdl]
+----
+default_layout "cc-deck"
+----
+
+Then simply running `zellij` will start with the cc-deck sidebar.
+
+== Plugin Installation
+
+The plugin is installed via the cc-deck CLI:
+
+[source,bash]
+----
+# Install with defaults (standard layout)
+cc-deck plugin install
+
+# Install with minimal layout as default
+cc-deck plugin install --layout minimal
+
+# Force overwrite without prompts
+cc-deck plugin install --force
+
+# Check installation status
+cc-deck plugin status
+
+# Remove the plugin, layouts, and hooks
+cc-deck plugin remove
+----
+
+When layout files have local changes, the installer shows a colored diff and offers three options: overwrite, skip, or backup and overwrite.

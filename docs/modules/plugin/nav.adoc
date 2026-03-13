@@ -1,1 +1,6 @@
-* xref:index.adoc[plugin]
+.Plugin
+* xref:overview.adoc[Overview]
+* xref:navigation.adoc[Keyboard Navigation]
+* xref:attend.adoc[Smart Attend]
+* xref:sessions.adoc[Session Management]
+* xref:configuration.adoc[Configuration]

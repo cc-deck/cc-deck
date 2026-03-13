@@ -17,9 +17,9 @@
 
 **Purpose**: Create both repositories and shared infrastructure.
 
-- [ ] T001 Create `cc-deck.github.io` repository on GitHub with GitHub Pages enabled
-- [ ] T002 Clone antwort.github.io as template for `cc-deck.github.io/`, strip antwort-specific content
-- [ ] T003 [P] Create Antora docs skeleton in `docs/antora.yml` and `docs/modules/` with all 8 module directories (ROOT, quickstarts, plugin, images, podman, kubernetes, reference, developer)
+- [x] T001 Create `cc-deck.github.io` repository on GitHub with GitHub Pages enabled
+- [x] T002 Clone antwort.github.io as template for `cc-deck.github.io/`, strip antwort-specific content
+- [x] T003 [P] Create Antora docs skeleton in `docs/antora.yml` and `docs/modules/` with all 8 module directories (ROOT, quickstarts, plugin, images, podman, kubernetes, reference, developer)
 - [ ] T004 [P] Create `demo-image/Containerfile` for the pre-built demo image
 
 **Checkpoint**: Both repos exist. Antora skeleton has all 8 module directories.
@@ -32,10 +32,10 @@
 
 **Note**: The landing page and Antora pipeline must work before any content can be published.
 
-- [ ] T005 Configure `cc-deck.github.io/astro.config.ts` with site URL, output dir, and Antora docs integration
-- [ ] T006 Create `cc-deck.github.io/src/components/CustomStyles.astro` with deep blue color scheme (primary #1e40af, dark/light mode variables)
-- [ ] T007 [P] Create `cc-deck.github.io/antora-playbook.yml` pulling from `rhuss/cc-deck.git` main branch, `docs/` start path
-- [ ] T008 [P] Copy logo assets to `cc-deck.github.io/public/` (favicon from `assets/logo/cc-deck-icon.png`, wordmark for header)
+- [x] T005 Configure `cc-deck.github.io/astro.config.ts` with site URL, output dir, and Antora docs integration
+- [x] T006 Create `cc-deck.github.io/src/components/CustomStyles.astro` with deep blue color scheme (primary #1e40af, dark/light mode variables)
+- [x] T007 [P] Create `cc-deck.github.io/antora-playbook.yml` pulling from `rhuss/cc-deck.git` main branch, `docs/` start path
+- [x] T008 [P] Copy logo assets to `cc-deck.github.io/public/` (favicon from `assets/logo/cc-deck-icon.png`, wordmark for header)
 - [ ] T009 [P] Create `cc-deck.github.io/supplemental-ui/` with logo header partial and CSS color overrides for Antora
 - [ ] T010 Create GitHub Actions workflow in `cc-deck.github.io/.github/workflows/deploy.yml` to build Astro + Antora and deploy to Pages
 - [ ] T011 Verify: landing page builds locally (`npm run dev`), Antora builds (`npm run build`), both deploy to GitHub Pages
@@ -52,11 +52,11 @@
 
 ### Implementation for User Story 1
 
-- [ ] T012 [US1] Create `cc-deck.github.io/src/pages/index.astro` with Hero section (logo, tagline "Your Claude Code command center", subtitle, Get Started + GitHub buttons)
-- [ ] T013 [US1] Add Features widget to `index.astro` with 4 USP cards: Zellij sidebar plugin, custom container images, multi-platform support, session management
-- [ ] T014 [US1] Add Steps widget to `index.astro` showing getting started flow (Install, Launch, Build Image, Deploy)
-- [ ] T015 [US1] Add CallToAction widget at bottom of `index.astro` with links to quickstart docs and GitHub
-- [ ] T016 [US1] Implement dark/light theme toggle in `cc-deck.github.io/src/components/` (matching antwort pattern)
+- [x] T012 [US1] Create `cc-deck.github.io/src/pages/index.astro` with Hero section (logo, tagline "Your Claude Code command center", subtitle, Get Started + GitHub buttons)
+- [x] T013 [US1] Add Features widget to `index.astro` with 4 USP cards: Zellij sidebar plugin, custom container images, multi-platform support, session management
+- [x] T014 [US1] Add Steps widget to `index.astro` showing getting started flow (Install, Launch, Build Image, Deploy)
+- [x] T015 [US1] Add CallToAction widget at bottom of `index.astro` with links to quickstart docs and GitHub
+- [x] T016 [US1] Implement dark/light theme toggle in `cc-deck.github.io/src/components/` (matching antwort pattern)
 - [ ] T017 [US1] Verify: Lighthouse score 90+ for performance and accessibility, responsive on mobile/tablet/desktop
 
 **Checkpoint**: Landing page complete with all sections, themes, and responsive design.
@@ -91,12 +91,12 @@
 
 ### Implementation for User Story 3
 
-- [ ] T025 [P] [US3] Write `docs/modules/plugin/pages/overview.adoc` introducing the sidebar plugin concept
-- [ ] T026 [P] [US3] Write `docs/modules/plugin/pages/navigation.adoc` with all keybindings (Alt+s, j/k, Enter, Esc, g/G, r, d, p, n, /, ?)
-- [ ] T027 [P] [US3] Write `docs/modules/plugin/pages/attend.adoc` documenting smart attend algorithm and priority tiers
-- [ ] T028 [P] [US3] Write `docs/modules/plugin/pages/sessions.adoc` covering pause, rename, search, delete, new tab
-- [ ] T029 [P] [US3] Write `docs/modules/plugin/pages/configuration.adoc` covering layout variants, personal layout, key config, Ghostty integration
-- [ ] T030 [US3] Create `docs/modules/plugin/nav.adoc` with page ordering
+- [x] T025 [P] [US3] Write `docs/modules/plugin/pages/overview.adoc` introducing the sidebar plugin concept
+- [x] T026 [P] [US3] Write `docs/modules/plugin/pages/navigation.adoc` with all keybindings (Alt+s, j/k, Enter, Esc, g/G, r, d, p, n, /, ?)
+- [x] T027 [P] [US3] Write `docs/modules/plugin/pages/attend.adoc` documenting smart attend algorithm and priority tiers
+- [x] T028 [P] [US3] Write `docs/modules/plugin/pages/sessions.adoc` covering pause, rename, search, delete, new tab
+- [x] T029 [P] [US3] Write `docs/modules/plugin/pages/configuration.adoc` covering layout variants, personal layout, key config, Ghostty integration
+- [x] T030 [US3] Create `docs/modules/plugin/nav.adoc` with page ordering
 - [ ] T031 [US3] Add screenshots or diagrams of the sidebar in action to `docs/modules/plugin/images/`
 
 **Checkpoint**: Plugin documentation covers all features with keybindings and visuals.
@@ -181,7 +181,7 @@
 
 **Purpose**: ROOT module, reference docs, and final validation.
 
-- [ ] T054 [P] Write `docs/modules/ROOT/pages/index.adoc` with project overview, feature highlights, and links to all modules
+- [x] T054 [P] Write `docs/modules/ROOT/pages/index.adoc` with project overview, feature highlights, and links to all modules
 - [ ] T055 [P] Write `docs/modules/reference/pages/cli.adoc` with all CLI commands, flags, and examples
 - [ ] T056 [P] Write `docs/modules/reference/pages/manifest-schema.adoc` with full cc-deck-build.yaml schema
 - [ ] T057 [P] Write `docs/modules/reference/pages/configuration.adoc` covering config file, env vars, XDG paths
