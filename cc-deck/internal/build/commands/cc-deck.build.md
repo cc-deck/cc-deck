@@ -91,19 +91,41 @@ RUN ARCH=$(uname -m) && \
 # Layer: Plugins (from manifest)
 RUN <plugin install commands>
 
-# Layer: Configuration (changes often)
-# <settings-based COPY commands>
+# Layer: User configuration (changes often, keep last for cache efficiency)
+# <settings-based COPY commands, see Settings handling below>
 
 USER coder
 WORKDIR /home/coder
 CMD ["/bin/zsh"]
 ```
 
-**Settings handling**:
-- `zellij_config: current`: note that the build step will copy local Zellij config to build context
-- `zellij_config: vanilla`: skip the Zellij config layer
-- `claude_md`: add COPY for the CLAUDE.md file
-- `hooks`: add COPY for the hooks JSON
+**Settings handling** (read the `settings` section from the manifest):
+
+For each setting, copy the source file to `.build-context/` during Step 4, then add the matching COPY instruction to the Containerfile:
+
+| Manifest field | Source | Container destination | Notes |
+|---|---|---|---|
+| `settings.zellij_config: current` | `~/.config/zellij/config.kdl` | `/home/coder/.config/zellij/config.kdl` | Only the config file, not layouts/plugins (those are managed by cc-deck) |
+| `settings.zellij_config: <path>` | The specified path | `/home/coder/.config/zellij/config.kdl` | Custom config file |
+| `settings.zellij_config: vanilla` | (skip) | (nothing) | Use cc-deck defaults only |
+| `settings.claude_md` | The specified path | `/home/coder/.claude/CLAUDE.md` | Global user instructions for Claude |
+| `settings.hooks` | The specified path | Merge into `/home/coder/.claude/settings.json` | Merge with existing cc-deck hooks, do not overwrite |
+| `settings.claude_settings` | The specified path | Merge into `/home/coder/.claude/settings.json` | Merge user preferences (model, theme, etc.) with existing settings |
+
+**Containerfile COPY examples** (add these to the "User configuration" layer):
+
+```dockerfile
+# Zellij user config (if settings.zellij_config is set)
+COPY --chown=coder:coder .build-context/zellij-config.kdl /home/coder/.config/zellij/config.kdl
+
+# Claude global instructions (if settings.claude_md is set)
+COPY --chown=coder:coder .build-context/CLAUDE.md /home/coder/.claude/CLAUDE.md
+
+# Claude settings merge (if settings.hooks or settings.claude_settings is set)
+COPY --chown=coder:coder .build-context/settings.json /home/coder/.claude/settings.json
+```
+
+**Merge strategy for settings.json**: Read the existing `/home/coder/.claude/settings.json` (created by cc-deck plugin install with hooks), merge in user preferences from the specified file, write the merged result to `.build-context/settings.json`. Never overwrite cc-deck hooks.
 
 ### Step 3: Check for existing Containerfile
 

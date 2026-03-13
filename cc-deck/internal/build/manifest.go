@@ -63,11 +63,12 @@ type GithubTool struct {
 	Binary string `yaml:"binary"`
 }
 
-// SettingsConfig describes Claude Code configuration to bake into the image.
+// SettingsConfig describes user configuration to bake into the image.
 type SettingsConfig struct {
-	ClaudeMD     string `yaml:"claude_md,omitempty"`
-	Hooks        string `yaml:"hooks,omitempty"`
-	ZellijConfig string `yaml:"zellij_config,omitempty"`
+	ClaudeMD       string `yaml:"claude_md,omitempty"`
+	ClaudeSettings string `yaml:"claude_settings,omitempty"`
+	Hooks          string `yaml:"hooks,omitempty"`
+	ZellijConfig   string `yaml:"zellij_config,omitempty"`
 }
 
 // LoadManifest reads and parses a cc-deck-build.yaml file.
