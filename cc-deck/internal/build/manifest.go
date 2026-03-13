@@ -65,7 +65,8 @@ type GithubTool struct {
 
 // SettingsConfig describes user configuration to bake into the image.
 type SettingsConfig struct {
-	Zshrc          string `yaml:"zshrc,omitempty"`
+	Shell          string `yaml:"shell,omitempty"`
+	ShellRC        string `yaml:"shell_rc,omitempty"`
 	ZellijConfig   string `yaml:"zellij_config,omitempty"`
 	ClaudeMD       string `yaml:"claude_md,omitempty"`
 	ClaudeSettings string `yaml:"claude_settings,omitempty"`

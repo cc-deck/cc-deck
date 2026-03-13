@@ -115,7 +115,8 @@ For each setting, copy the source file to `.build-context/` during Step 4, then 
 
 | Manifest field | Source | Container destination | Notes |
 |---|---|---|---|
-| `settings.zshrc` | The specified path | Appended to `/home/coder/.zshrc` | Curated additions (base image .zshrc preserved) |
+| `settings.shell` | `zsh` or `bash` | Sets `default_shell` in config.kdl and `chsh` | Default: `zsh` |
+| `settings.shell_rc` | The specified path | Appended to shell rc file (`.zshrc` or `.bashrc`) | Curated additions (base image rc preserved) |
 | `settings.zellij_config: current` | `~/.config/zellij/config.kdl` | `/home/coder/.config/zellij/config.kdl` | Only config, not layouts/plugins (managed by cc-deck) |
 | `settings.zellij_config: <path>` | The specified path | `/home/coder/.config/zellij/config.kdl` | Custom config file |
 | `settings.zellij_config: vanilla` | (skip) | (nothing) | Use cc-deck defaults only |
@@ -130,15 +131,16 @@ Use `/cc-deck.settings` to interactively select what to include before building.
 **Containerfile COPY examples** (add these to the "User configuration" layer):
 
 ```dockerfile
-# Zsh custom config (if settings.zshrc is set, append to base image .zshrc)
-COPY --chown=coder:coder zshrc /home/coder/.zshrc.custom
-RUN cat /home/coder/.zshrc.custom >> /home/coder/.zshrc && rm /home/coder/.zshrc.custom
+# Shell config (if settings.shell_rc is set, append to base image rc file)
+# For zsh: appends to .zshrc. For bash: appends to .bashrc and sets chsh.
+COPY --chown=coder:coder <shell_rc_file> /home/coder/.<shell>rc.custom
+RUN cat /home/coder/.<shell>rc.custom >> /home/coder/.<shell>rc && rm /home/coder/.<shell>rc.custom
 
 # Zellij user config (if settings.zellij_config is set)
-# IMPORTANT: ensure default_shell "zsh" is present in the config
+# IMPORTANT: ensure default_shell matches the chosen shell (from settings.shell, default "zsh")
 COPY --chown=coder:coder .build-context/zellij-config.kdl /home/coder/.config/zellij/config.kdl
 RUN grep -q 'default_shell' /home/coder/.config/zellij/config.kdl || \
-    echo 'default_shell "zsh"' >> /home/coder/.config/zellij/config.kdl
+    echo 'default_shell "<chosen-shell>"' >> /home/coder/.config/zellij/config.kdl
 
 # Claude global instructions (if settings.claude_md is set)
 COPY --chown=coder:coder .build-context/CLAUDE.md /home/coder/.claude/CLAUDE.md
