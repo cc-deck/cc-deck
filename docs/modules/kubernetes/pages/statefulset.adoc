@@ -1,17 +1,59 @@
 = StatefulSet Patterns
 
-cc-deck uses StatefulSets rather than Deployments because each session needs stable identity and persistent storage.
+For multi-user setups, cc-deck uses StatefulSets because each user needs their own persistent storage.
+For a single user, a Deployment with a named PVC works equally well.
 
-== Why StatefulSet
+== Why StatefulSet (Multi-User)
 
-Each cc-deck Pod maintains:
+When scaling to multiple users, StatefulSets provide:
 
-* Persistent home directory (Zellij sessions, Claude Code history, snapshots)
-* Stable network identity (`cc-deck-0`, `cc-deck-1`, etc.)
-* Ordered startup and shutdown
+* **Per-user PVCs** via `volumeClaimTemplates`: each Pod gets its own home directory (`home-cc-deck-0`, `home-cc-deck-1`)
+* **Stable Pod names**: users always connect to the same Pod (`cc-deck-0`, `cc-deck-2`)
+* **Predictable scaling**: adding a replica creates a new user slot with fresh storage
 
-A Deployment would lose all state on restart.
-A StatefulSet preserves it via PersistentVolumeClaims.
+== Single User Alternative
+
+For a single user, a Deployment with a regular PVC is simpler:
+
+[source,yaml]
+----
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cc-deck
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cc-deck
+  template:
+    metadata:
+      labels:
+        app: cc-deck
+    spec:
+      containers:
+        - name: cc-deck
+          image: quay.io/cc-deck/cc-deck-demo:latest
+          volumeMounts:
+            - name: home
+              mountPath: /home/coder
+      volumes:
+        - name: home
+          persistentVolumeClaim:
+            claimName: cc-deck-home
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: cc-deck-home
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 10Gi
+----
+
+The PVC persists across Pod restarts, preserving your Zellij sessions, Claude Code history, and snapshots.
 
 == Production StatefulSet
 
