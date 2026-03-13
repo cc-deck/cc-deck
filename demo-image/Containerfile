@@ -32,13 +32,13 @@ RUN ARCH=$(uname -m) && \
 # cc-deck self-install (Zellij + plugin + layouts + hooks)
 COPY .build-context/cc-deck-linux-${TARGETARCH} /usr/local/bin/cc-deck
 RUN chmod +x /usr/local/bin/cc-deck && \
-    mkdir -p /home/dev/.claude /home/dev/.cache/zellij && \
+    mkdir -p /home/dev/.claude /home/dev/.cache/zellij /home/dev/.cache/claude /home/dev/.local/bin /home/dev/.local/share && \
     HOME=/home/dev \
     ZELLIJ_CONFIG_DIR=/home/dev/.config/zellij \
     cc-deck plugin install --install-zellij --force --skip-backup && \
     mkdir -p /home/dev/.config/zellij/themes && \
     printf 'default_shell "zsh"\ntheme "claude-dark"\n\nthemes {\n    claude-dark {\n        fg "#E5E5E5"\n        bg "#264F78"\n        black "#2D2D2D"\n        red "#FF6B6B"\n        green "#7EC699"\n        yellow "#E5C07B"\n        blue "#61AFEF"\n        magenta "#C678DD"\n        cyan "#56B6C2"\n        white "#E5E5E5"\n        orange "#D19A66"\n    }\n}\n' > /home/dev/.config/zellij/config.kdl && \
-    chown -R dev:dev /home/dev/.config/zellij /home/dev/.cache/zellij /home/dev/.claude && \
+    chown -R dev:dev /home/dev/.config /home/dev/.cache /home/dev/.claude /home/dev/.local && \
     rm -rf /root/.claude /root/.cache/zellij
 COPY --chown=dev:dev themes/claude-dark.kdl /home/dev/.config/zellij/themes/claude-dark.kdl
 
