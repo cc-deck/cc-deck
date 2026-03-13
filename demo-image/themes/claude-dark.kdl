@@ -1,0 +1,17 @@
+// cc-deck Claude Dark theme
+// Deep blue background with Claude orange accents
+themes {
+    claude-dark {
+        fg "#c8d0dc"
+        bg "#0f172a"
+        black "#1e293b"
+        red "#ef4444"
+        green "#22c55e"
+        yellow "#e87b35"
+        blue "#60a5fa"
+        magenta "#a78bfa"
+        cyan "#38bdf8"
+        white "#e2e8f0"
+        orange "#e87b35"
+    }
+}
