@@ -26,7 +26,7 @@ spec:
           image: quay.io/cc-deck/cc-deck-demo:latest
           volumeMounts:
             - name: home
-              mountPath: /home/coder
+              mountPath: /home/dev
       volumes:
         - name: home
           persistentVolumeClaim:
@@ -84,9 +84,9 @@ spec:
               cpu: "4"
           volumeMounts:
             - name: home
-              mountPath: /home/coder
+              mountPath: /home/dev
             - name: projects
-              mountPath: /home/coder/projects
+              mountPath: /home/dev/projects
   volumeClaimTemplates:
     - metadata:
         name: home
@@ -124,7 +124,7 @@ spec:
     path: /exports/projects
 ----
 
-Each Pod mounts this shared volume at `/home/coder/projects`.
+Each Pod mounts this shared volume at `/home/dev/projects`.
 
 == Headless Service
 

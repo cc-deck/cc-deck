@@ -46,10 +46,10 @@ done
 # --- User setup ---
 echo ""
 echo "User:"
-run_check "user = coder"       '[ "$(whoami)" = "coder" ]'
+run_check "user = dev"       '[ "$(whoami)" = "dev" ]'
 run_check "uid = 1000"         '[ "$(id -u)" = "1000" ]'
 run_check "shell = zsh"        '[ "$SHELL" = "/bin/zsh" ]'
-run_check "home = /home/coder" '[ "$HOME" = "/home/coder" ]'
+run_check "home = /home/dev" '[ "$HOME" = "/home/dev" ]'
 run_check "sudo (no password)" 'sudo -n true'
 
 # --- XDG directories ---
@@ -64,7 +64,7 @@ run_check "~/.local/share exists" '[ -d ~/.local/share ]'
 echo ""
 echo "npm configuration:"
 run_check "npm prefix = ~/.local/lib/npm" \
-  '[ "$(npm config get prefix)" = "/home/coder/.local/lib/npm" ]'
+  '[ "$(npm config get prefix)" = "/home/dev/.local/lib/npm" ]'
 run_check "npm global install works" \
   'export PATH="$HOME/.local/lib/npm/bin:$PATH" && npm install -g cowsay >/dev/null 2>&1 && cowsay test >/dev/null 2>&1'
 
