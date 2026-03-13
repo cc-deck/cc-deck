@@ -56,8 +56,12 @@ image:
 #     binary: cc-session
 
 # User configuration to bake into the image.
+# Run /deck-kit.settings to interactively select what to include.
 # settings:
+#   zshrc: ./zshrc                   # Custom .zshrc (-> ~/.zshrc)
+#   zellij_config: current           # "current" (copy local config.kdl), "vanilla", or a path
 #   claude_md: ./CLAUDE.md           # Global Claude instructions (-> ~/.claude/CLAUDE.md)
 #   claude_settings: ./settings.json # Claude preferences to merge (model, theme, etc.)
 #   hooks: ./hooks.json              # Extra hooks to merge with cc-deck hooks
-#   zellij_config: current           # "current" (copy local config.kdl), "vanilla", or a path
+#   mcp_settings: ./mcp-settings.json     # npx-based MCP server configs to merge
+#   cc_setup_mcp: ./cc-setup-mcp.json     # cc-setup MCP cache (-> ~/.config/cc-setup/mcp.json)
