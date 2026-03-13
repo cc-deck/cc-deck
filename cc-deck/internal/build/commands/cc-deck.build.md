@@ -135,7 +135,10 @@ COPY --chown=coder:coder zshrc /home/coder/.zshrc.custom
 RUN cat /home/coder/.zshrc.custom >> /home/coder/.zshrc && rm /home/coder/.zshrc.custom
 
 # Zellij user config (if settings.zellij_config is set)
+# IMPORTANT: ensure default_shell "zsh" is present in the config
 COPY --chown=coder:coder .build-context/zellij-config.kdl /home/coder/.config/zellij/config.kdl
+RUN grep -q 'default_shell' /home/coder/.config/zellij/config.kdl || \
+    echo 'default_shell "zsh"' >> /home/coder/.config/zellij/config.kdl
 
 # Claude global instructions (if settings.claude_md is set)
 COPY --chown=coder:coder .build-context/CLAUDE.md /home/coder/.claude/CLAUDE.md
