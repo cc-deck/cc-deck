@@ -1,57 +1,67 @@
-= Image Pipeline Overview
+= Custom Images
 
-cc-deck provides an AI-driven pipeline for building custom container images tailored to your development environment.
-Instead of writing Containerfiles by hand, you describe what tools you need and let Claude Code figure out the installation details.
+cc-deck does not ship a one-size-fits-all container image.
+Instead, it provides an AI-driven pipeline that builds bespoke images tailored to your development environment.
+Your shell aliases, your editor config, your Claude Code plugins, your MCP servers, your project's build tools: all baked into an image that feels like home.
+
+== The Idea
+
+Every developer's setup is different.
+Rather than maintaining a generic image that satisfies nobody perfectly, cc-deck extracts what makes your local environment productive and transports it into a container.
+
+The pipeline analyzes your checked-out repositories to discover tool dependencies, walks through your local configuration to select what to include, and generates an optimized Containerfile.
+If the build fails, Claude Code reads the error, fixes the Containerfile, and retries.
 
 == The Pipeline
 
-The image pipeline has four stages, each driven by a Claude Code command:
+Four Claude Code commands drive the process:
 
 [cols="1,3"]
 |===
 | Command | Purpose
 
 | `/cc-deck.extract`
-| Analyze your repositories and discover tool dependencies automatically
+| Analyze your repositories and discover tool dependencies automatically.
 
 | `/cc-deck.settings`
-| Select which local settings (zsh, plugins, MCP servers) to bake into the image
+| Select which local settings (zsh config, Zellij theme, Claude Code plugins, MCP servers) to bake in.
 
 | `/cc-deck.build`
-| Generate a Containerfile from the manifest and build the image (with self-correction)
+| Generate a Containerfile from the manifest and build the image, with self-correction on failure.
 
 | `/cc-deck.push`
-| Push the built image to a container registry
+| Push the built image to a container registry.
 |===
 
-== How It Works
+== Getting Started
 
-The pipeline starts with `cc-deck image init`, which scaffolds a build directory:
+Scaffold a build directory and open it in Claude Code:
 
 [source,bash]
 ----
-cc-deck image init my-team-image
-cd my-team-image
+cc-deck image init my-image
+cd my-image
 claude
 ----
 
 This creates a `cc-deck-build.yaml` manifest and the Claude Code commands.
-You then work inside Claude Code, using the slash commands to populate the manifest and build the image.
+Use the slash commands to populate the manifest and build the image.
 
 The manifest is the single source of truth.
 It describes your desired image contents in human-readable YAML.
 The Containerfile is generated from it and can be regenerated at any time.
 
-== What Gets Installed
+== What Every Image Includes
 
-Every cc-deck image includes these mandatory components:
+Every cc-deck image starts from a base that provides:
 
 * **cc-deck** with the sidebar plugin and layouts
 * **Zellij** terminal multiplexer (matching the plugin SDK version)
-* **Claude Code** with a private Node.js 20 runtime
+* **Claude Code** with its bundled Node.js runtime
 * **cc-session** and **cc-setup** companion tools
+* A full terminal environment (zsh, starship, ripgrep, fd, fzf, bat, git-delta, and more)
 
-On top of this base, you add your project-specific tools, plugins, and settings.
+On top of this base, your bespoke additions are layered.
 
 == Next Steps
 

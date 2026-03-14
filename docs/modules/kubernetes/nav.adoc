@@ -1,6 +1,0 @@
-.Kubernetes
-* xref:quickstart.adoc[Quickstart]
-* xref:statefulset.adoc[Persistent Storage]
-* xref:credentials.adoc[Credentials]
-* xref:rbac.adoc[RBAC]
-* xref:scaling.adoc[Multi-User Deployment]

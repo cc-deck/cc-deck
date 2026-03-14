@@ -4,10 +4,8 @@ version: '0.1'
 start_page: ROOT:index.adoc
 nav:
   - modules/ROOT/nav.adoc
-  - modules/quickstarts/nav.adoc
-  - modules/plugin/nav.adoc
+  - modules/using/nav.adoc
+  - modules/running/nav.adoc
   - modules/images/nav.adoc
-  - modules/podman/nav.adoc
-  - modules/kubernetes/nav.adoc
   - modules/reference/nav.adoc
   - modules/developer/nav.adoc

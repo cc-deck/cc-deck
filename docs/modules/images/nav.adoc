@@ -1,4 +1,4 @@
-.Images
+.Custom Images
 * xref:overview.adoc[Overview]
 * xref:init.adoc[Initialization]
 * xref:extract.adoc[Extract Dependencies]
