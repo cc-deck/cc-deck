@@ -20,7 +20,7 @@
 - [x] T001 Create `cc-deck.github.io` repository on GitHub with GitHub Pages enabled
 - [x] T002 Clone antwort.github.io as template for `cc-deck.github.io/`, strip antwort-specific content
 - [x] T003 [P] Create Antora docs skeleton in `docs/antora.yml` and `docs/modules/` with all 8 module directories (ROOT, quickstarts, plugin, images, podman, kubernetes, reference, developer)
-- [ ] T004 [P] Create `demo-image/Containerfile` for the pre-built demo image
+- [x] T004 [P] Create `demo-image/Containerfile` for the pre-built demo image
 
 **Checkpoint**: Both repos exist. Antora skeleton has all 8 module directories.
 
@@ -71,12 +71,12 @@
 
 ### Implementation for User Story 2
 
-- [ ] T018 [US2] Build `demo-image/Containerfile` using cc-deck-base + cc-deck + Zellij + Claude Code (private Node.js 20 pattern)
-- [ ] T019 [US2] Add `make demo-image` target in `Makefile` (depends on cross-cli, single platform for testing)
-- [ ] T020 [US2] Write `docs/modules/quickstarts/pages/one-liner.adoc` with API key and Vertex AI quickstart commands
-- [ ] T021 [US2] Write `docs/modules/quickstarts/pages/install.adoc` covering native installation (make build, make install)
-- [ ] T022 [P] [US2] Write `docs/modules/quickstarts/pages/first-session.adoc` covering first Zellij + Claude Code session
-- [ ] T023 [US2] Create `docs/modules/quickstarts/nav.adoc` with page ordering
+- [x] T018 [US2] Build `demo-image/Containerfile` using cc-deck-base + cc-deck + Zellij + Claude Code (private Node.js 20 pattern)
+- [x] T019 [US2] Add `make demo-image` target in `Makefile` (depends on cross-cli, single platform for testing)
+- [x] T020 [US2] Write `docs/modules/quickstarts/pages/one-liner.adoc` with API key and Vertex AI quickstart commands
+- [x] T021 [US2] Write `docs/modules/quickstarts/pages/install.adoc` covering native installation (make build, make install)
+- [x] T022 [P] [US2] Write `docs/modules/quickstarts/pages/first-session.adoc` covering first Zellij + Claude Code session
+- [x] T023 [US2] Create `docs/modules/quickstarts/nav.adoc` with page ordering
 - [ ] T024 [US2] Verify: run the one-liner quickstart, confirm working Zellij session with cc-deck sidebar
 
 **Checkpoint**: Demo image builds. Quickstart docs guide users to a working session in under 5 minutes.
