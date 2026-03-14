@@ -1,0 +1,321 @@
+= Kubernetes
+
+Deploy cc-deck on Kubernetes or OpenShift for team-wide Claude Code access with persistent state.
+
+== Prerequisites
+
+* `kubectl` configured with cluster access
+* A container registry accessible from the cluster
+* An Anthropic API key or Vertex AI service account
+
+== Minimal Deployment
+
+Create a namespace and a Secret for authentication:
+
+[source,bash]
+----
+kubectl create namespace cc-deck
+kubectl -n cc-deck create secret generic claude-credentials \
+  --from-literal=ANTHROPIC_API_KEY=sk-ant-...
+----
+
+Deploy cc-deck with a PersistentVolumeClaim for state persistence:
+
+[source,yaml]
+----
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cc-deck
+  namespace: cc-deck
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cc-deck
+  template:
+    metadata:
+      labels:
+        app: cc-deck
+    spec:
+      containers:
+        - name: cc-deck
+          image: quay.io/rhuss/cc-deck-demo:latest
+          envFrom:
+            - secretRef:
+                name: claude-credentials
+          volumeMounts:
+            - name: home
+              mountPath: /home/dev
+      volumes:
+        - name: home
+          persistentVolumeClaim:
+            claimName: cc-deck-home
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: cc-deck-home
+  namespace: cc-deck
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 10Gi
+----
+
+The PVC preserves Zellij sessions, Claude Code history, and snapshots across Pod restarts.
+
+== Connecting
+
+[source,bash]
+----
+kubectl -n cc-deck exec -it deploy/cc-deck -- zellij --layout cc-deck
+----
+
+Reconnect to an existing session:
+
+[source,bash]
+----
+kubectl -n cc-deck exec -it deploy/cc-deck -- zellij attach
+----
+
+== Production StatefulSet
+
+For production use, a StatefulSet with resource limits and separate project storage:
+
+[source,yaml]
+----
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: cc-deck
+  namespace: cc-deck
+spec:
+  serviceName: cc-deck
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cc-deck
+  template:
+    metadata:
+      labels:
+        app: cc-deck
+    spec:
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: cc-deck
+          image: quay.io/rhuss/cc-deck-demo:latest
+          envFrom:
+            - secretRef:
+                name: claude-credentials
+          resources:
+            requests:
+              memory: "4Gi"
+              cpu: "2"
+            limits:
+              memory: "8Gi"
+              cpu: "4"
+          volumeMounts:
+            - name: home
+              mountPath: /home/dev
+            - name: projects
+              mountPath: /home/dev/projects
+  volumeClaimTemplates:
+    - metadata:
+        name: home
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
+    - metadata:
+        name: projects
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 50Gi
+----
+
+A headless Service is required for StatefulSet DNS resolution:
+
+[source,yaml]
+----
+apiVersion: v1
+kind: Service
+metadata:
+  name: cc-deck
+  namespace: cc-deck
+spec:
+  clusterIP: None
+  selector:
+    app: cc-deck
+  ports:
+    - port: 8080
+      name: http
+----
+
+== Multi-User Deployment
+
+Each developer gets their own Deployment with individual credentials and persistent storage.
+The recommended pattern is one Deployment per user:
+
+[source,yaml]
+----
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cc-deck-alice
+  namespace: cc-deck
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cc-deck
+      user: alice
+  template:
+    metadata:
+      labels:
+        app: cc-deck
+        user: alice
+    spec:
+      containers:
+        - name: cc-deck
+          image: quay.io/rhuss/cc-deck-demo:latest
+          envFrom:
+            - secretRef:
+                name: alice-credentials
+          volumeMounts:
+            - name: home
+              mountPath: /home/dev
+      volumes:
+        - name: home
+          persistentVolumeClaim:
+            claimName: cc-deck-alice-home
+----
+
+For teams, use Kustomize to generate per-user resources from a base template.
+
+=== Resource Planning
+
+[cols="1,1,2"]
+|===
+| Resource | Minimum | Recommended
+
+| Memory
+| 4 Gi
+| 8 Gi
+
+| CPU
+| 1 core
+| 2-4 cores
+
+| Storage (home)
+| 5 Gi
+| 10 Gi
+
+| Storage (projects)
+| 10 Gi
+| 50 Gi
+|===
+
+For a team of 10 developers, plan for approximately 40 Gi of memory and 20-40 CPU cores.
+
+=== Shared Project Storage
+
+For teams working on the same codebase, mount a ReadWriteMany volume alongside the per-user home:
+
+[source,yaml]
+----
+volumes:
+  - name: home
+    persistentVolumeClaim:
+      claimName: cc-deck-alice-home     # Per-user
+  - name: shared-projects
+    persistentVolumeClaim:
+      claimName: team-projects          # ReadWriteMany, shared
+----
+
+== RBAC
+
+Create a dedicated ServiceAccount and restrict Pod access:
+
+[source,yaml]
+----
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cc-deck
+  namespace: cc-deck
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cc-deck-user
+  namespace: cc-deck
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["pods/portforward"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: developer-cc-deck
+  namespace: cc-deck
+subjects:
+  - kind: User
+    name: developer@example.com
+roleRef:
+  kind: Role
+  name: cc-deck-user
+  apiGroup: rbac.authorization.k8s.io
+----
+
+If Claude Code needs cluster access (e.g., kubectl inside the container), bind the ServiceAccount to an appropriate ClusterRole in the target namespaces.
+
+TIP: Follow the principle of least privilege.
+Grant access only to namespaces the developer needs.
+
+== OpenShift
+
+On OpenShift, use SecurityContextConstraints to allow the container to run as UID 1000:
+
+[source,yaml]
+----
+apiVersion: security.openshift.io/v1
+kind: SecurityContextConstraints
+metadata:
+  name: cc-deck-scc
+runAsUser:
+  type: MustRunAs
+  uid: 1000
+fsGroup:
+  type: MustRunAs
+  ranges:
+    - min: 1000
+      max: 1000
+users:
+  - system:serviceaccount:cc-deck:cc-deck
+----
+
+== Cleanup
+
+[source,bash]
+----
+kubectl -n cc-deck delete deployment cc-deck-alice
+kubectl -n cc-deck delete pvc cc-deck-alice-home
+kubectl -n cc-deck delete secret alice-credentials
+----
+
+WARNING: Deleting a PVC permanently removes the user's home directory and session data.

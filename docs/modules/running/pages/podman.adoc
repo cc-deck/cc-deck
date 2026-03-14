@@ -1,0 +1,193 @@
+= Podman Containers
+
+Run cc-deck in a local Podman container with your source code mounted from the host.
+Changes are bidirectional: edits inside the container appear on your host, and vice versa.
+
+== Quick Start
+
+[source,bash]
+----
+podman run -d --name mydev \
+  -e ANTHROPIC_API_KEY=sk-ant-... \
+  quay.io/rhuss/cc-deck-demo:latest
+
+podman exec -it mydev zellij --layout cc-deck
+----
+
+For Vertex AI authentication, see xref:credentials.adoc[Credentials].
+
+== Mounting Source Code
+
+Mount your project directories so Claude Code works directly on your files:
+
+[source,bash]
+----
+podman run -d --name mydev \
+  -e ANTHROPIC_API_KEY=sk-ant-... \
+  -v ~/projects/my-app:/home/dev/my-app \
+  quay.io/rhuss/cc-deck-demo:latest
+----
+
+Multiple projects can be mounted simultaneously:
+
+[source,bash]
+----
+podman run -d --name mydev \
+  -e ANTHROPIC_API_KEY=sk-ant-... \
+  -v ~/projects/frontend:/home/dev/frontend \
+  -v ~/projects/backend:/home/dev/backend \
+  quay.io/rhuss/cc-deck-demo:latest
+----
+
+Each project gets its own Claude Code session and the sidebar tracks them all.
+
+== Persistent State
+
+To preserve Zellij sessions, Claude Code history, and snapshots across container restarts, mount a named volume for the home directory:
+
+[source,bash]
+----
+podman run -d --name mydev \
+  -e ANTHROPIC_API_KEY=sk-ant-... \
+  -v mydev-home:/home/dev \
+  -v ~/projects/my-app:/home/dev/my-app \
+  quay.io/rhuss/cc-deck-demo:latest
+----
+
+The named volume `mydev-home` persists even when the container is removed.
+
+WARNING: When mounting a volume on `/home/dev`, the container's default configuration files (`.zshrc`, `.config/zellij/`) are replaced by the volume contents.
+On the first run, these files are populated from the image.
+On subsequent runs, the volume contents take precedence.
+
+== Reconnecting
+
+The container runs in the background.
+Reconnect anytime:
+
+[source,bash]
+----
+podman exec -it mydev zellij attach
+----
+
+Or start a fresh Zellij session:
+
+[source,bash]
+----
+podman exec -it mydev zellij --layout cc-deck
+----
+
+== File Permissions
+
+The container runs as `dev` (UID 1000).
+If your host files are owned by a different UID, you may see permission issues.
+
+On Linux, use `--userns=keep-id`:
+
+[source,bash]
+----
+podman run -d --name mydev \
+  --userns=keep-id \
+  -v ~/projects/my-app:/home/dev/my-app \
+  quay.io/rhuss/cc-deck-demo:latest
+----
+
+On macOS, file permissions are handled automatically by the Podman VM.
+
+== Port Forwarding
+
+If your container runs MCP servers or services that need to be reachable from the host:
+
+[source,bash]
+----
+podman run -d --name mydev \
+  -e ANTHROPIC_API_KEY=sk-ant-... \
+  -p 8000:8000 -p 9000:9000 \
+  quay.io/rhuss/cc-deck-demo:latest
+----
+
+== Networking
+
+To reach services running on the host from inside the container, use `host.containers.internal` (Podman 4.7+) or `--network=host`.
+
+For container-to-container communication, create a Podman network:
+
+[source,bash]
+----
+podman network create devnet
+
+podman run -d --name postgres --network devnet \
+  -e POSTGRES_PASSWORD=dev postgres:16
+
+podman run -d --name mydev --network devnet \
+  -e ANTHROPIC_API_KEY=sk-ant-... \
+  quay.io/rhuss/cc-deck-demo:latest
+----
+
+Inside `mydev`, PostgreSQL is reachable at `postgres:5432`.
+
+== SSH Agent Forwarding
+
+To use your host SSH keys for git operations inside the container:
+
+[source,bash]
+----
+podman run -d --name mydev \
+  -v $SSH_AUTH_SOCK:/ssh-agent:ro \
+  -e SSH_AUTH_SOCK=/ssh-agent \
+  quay.io/rhuss/cc-deck-demo:latest
+----
+
+== Resource Limits
+
+Set memory and CPU limits to prevent runaway processes:
+
+[source,bash]
+----
+podman run -d --name mydev \
+  --memory 8g --cpus 4 \
+  quay.io/rhuss/cc-deck-demo:latest
+----
+
+Claude Code requires at least 4 GB of RAM.
+
+== Podman Compose
+
+For a full development environment with multiple services:
+
+[source,yaml]
+----
+services:
+  cc-deck:
+    image: quay.io/rhuss/cc-deck-demo:latest
+    environment:
+      - ANTHROPIC_API_KEY
+    volumes:
+      - ~/projects:/home/dev/projects
+      - cc-state:/home/dev
+    ports:
+      - "8000:8000"
+
+  postgres:
+    image: postgres:16
+    environment:
+      - POSTGRES_PASSWORD=dev
+
+volumes:
+  cc-state:
+----
+
+[source,bash]
+----
+podman compose up -d
+podman exec -it cc-deck zellij --layout cc-deck
+----
+
+== Lifecycle
+
+[source,bash]
+----
+podman stop mydev      # Stop the container
+podman start mydev     # Restart later
+podman rm mydev        # Remove permanently
+----

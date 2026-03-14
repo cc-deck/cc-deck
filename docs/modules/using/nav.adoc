@@ -1,5 +1,5 @@
-.Zellij Plugin
-* xref:overview.adoc[Overview]
+.Using cc-deck
+* xref:sidebar.adoc[The Sidebar]
 * xref:navigation.adoc[Keyboard Navigation]
 * xref:attend.adoc[Smart Attend]
 * xref:sessions.adoc[Session Management]

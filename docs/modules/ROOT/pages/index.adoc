@@ -17,41 +17,34 @@ Smart attend automatically cycles through sessions that need your attention, pri
 
 === Custom Container Images
 
-An AI-driven build pipeline analyzes your repositories for tool dependencies, lets you configure settings, and generates optimized container images.
+An AI-driven build pipeline analyzes your local environment for tool dependencies, lets you configure settings, and generates bespoke container images tailored to your setup.
 Four Claude Code commands handle the workflow: extract, settings, build, push.
 
-=== Multi-Platform
+=== Run Anywhere
 
-Run cc-deck locally with Zellij, in Podman containers with mounted source code, or deploy as StatefulSets on Kubernetes and OpenShift.
+Run cc-deck locally with Zellij, in Podman containers with mounted source code, or deploy as Deployments on Kubernetes and OpenShift.
 The sidebar experience is the same everywhere.
 
 == Getting Started
 
-* xref:quickstarts:one-liner.adoc[One-Liner Quickstart] -- Running cc-deck in under 2 minutes
-* xref:quickstarts:install.adoc[Native Installation] -- Install on your local machine
-* xref:plugin:overview.adoc[Plugin Guide] -- Learn the sidebar features
-* xref:images:overview.adoc[Build Pipeline] -- Create custom container images
+* xref:one-liner.adoc[One-Liner Demo] -- Try cc-deck in under 2 minutes
+* xref:install.adoc[Native Installation] -- Install on your local machine
+* xref:first-session.adoc[First Session] -- Launch and explore the sidebar
 
 == Documentation
 
 [cols="1,2"]
 |===
-| Module | Description
+| Section | Description
 
-| xref:quickstarts:one-liner.adoc[Quickstarts]
-| Get running in minutes with the demo image or native install.
+| xref:using:sidebar.adoc[Using cc-deck]
+| The sidebar UI, keyboard navigation, smart attend, session management.
 
-| xref:plugin:overview.adoc[Plugin]
-| Zellij sidebar plugin features, keyboard shortcuts, smart attend.
+| xref:running:local.adoc[Running cc-deck]
+| Local installation, Podman containers, Kubernetes deployment, credentials.
 
-| xref:images:overview.adoc[Images]
-| AI-driven container image build pipeline.
-
-| xref:podman:quickstart.adoc[Podman]
-| Local deployment with volume mounts and credentials.
-
-| xref:kubernetes:quickstart.adoc[Kubernetes]
-| StatefulSet deployment, PVCs, RBAC, scaling.
+| xref:images:overview.adoc[Custom Images]
+| AI-driven pipeline for building bespoke container images from your environment.
 
 | xref:reference:cli.adoc[Reference]
 | CLI commands, manifest schema, configuration.

@@ -59,6 +59,6 @@ A terminal environment with:
 
 == Next Steps
 
-* xref:podman:quickstart.adoc[Podman Guide] for volume mounts and advanced setup
-* xref:plugin:overview.adoc[Plugin Guide] to learn the sidebar features
-* xref:images:overview.adoc[Build Pipeline] to create custom images
+* xref:running:podman.adoc[Podman Guide] for volume mounts and advanced setup
+* xref:using:sidebar.adoc[User Guide] to learn the sidebar features
+* xref:images:overview.adoc[Custom Images] to create bespoke container images

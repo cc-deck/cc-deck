@@ -1,6 +1,7 @@
-= Native Installation
+= Local Installation
 
-Install cc-deck on your local machine for use with an existing Zellij setup.
+Run cc-deck directly on your machine with Zellij.
+This is the simplest setup and requires no containers.
 
 == Prerequisites
 
@@ -8,13 +9,13 @@ Install cc-deck on your local machine for use with an existing Zellij setup.
 * https://go.dev/[Go] 1.22 or later (for building from source)
 * https://www.rust-lang.org/[Rust] stable with the `wasm32-wasip1` target (for building the plugin)
 
-== Quick Install
+== Install
 
 Clone the repository and build everything:
 
 [source,bash]
 ----
-git clone https://github.com/rhuss/cc-deck.git
+git clone https://github.com/cc-deck/cc-deck.git
 cd cc-deck
 make install
 ----
@@ -33,7 +34,7 @@ The installer places files in your Zellij configuration directory:
 | The sidebar plugin binary.
 
 | `~/.config/zellij/layouts/cc-deck.kdl`
-| Default layout (links to the selected variant).
+| Default layout (set to the selected variant).
 
 | `~/.config/zellij/layouts/cc-deck-standard.kdl`
 | Standard layout with sidebar, tab bar, and status bar.
@@ -47,6 +48,22 @@ The installer places files in your Zellij configuration directory:
 | `~/.claude/settings.json`
 | Claude Code hooks for session tracking (merged, not overwritten).
 |===
+
+== Start
+
+[source,bash]
+----
+zellij --layout cc-deck
+----
+
+Or set cc-deck as your default layout in `~/.config/zellij/config.kdl`:
+
+[source,kdl]
+----
+default_layout "cc-deck"
+----
+
+Then simply running `zellij` starts with the cc-deck sidebar.
 
 == Install Options
 
@@ -65,39 +82,7 @@ Options: `standard` (default), `minimal`, `clean`.
 `--install-zellij`::
 Download and install a matching Zellij binary.
 
-== Layout Variants
-
-Choose a layout variant during installation or switch later:
-
-`standard`::
-Sidebar plugin, tab bar, and status bar.
-Best for users who want full visibility.
-
-`minimal`::
-Sidebar plugin and compact bar.
-Saves vertical space while keeping tab information.
-
-`clean`::
-Sidebar plugin only.
-Maximum terminal space, navigate with keyboard shortcuts.
-
-To change your default layout after installation:
-
-[source,bash]
-----
-cc-deck plugin install --layout minimal --force
-----
-
-== Set as Default Layout
-
-Add this line to `~/.config/zellij/config.kdl` so every new Zellij session uses cc-deck:
-
-[source,kdl]
-----
-default_layout "cc-deck"
-----
-
-== Verify Installation
+== Verify
 
 [source,bash]
 ----
@@ -106,8 +91,17 @@ cc-deck plugin status
 
 This shows the installed plugin version and layout configuration.
 
+== Uninstall
+
+[source,bash]
+----
+cc-deck plugin remove
+----
+
+This removes the plugin, layouts, and hooks.
+
 == Next Steps
 
-* xref:first-session.adoc[First Session] to launch cc-deck and explore the sidebar
-* xref:plugin:overview.adoc[Plugin Guide] for all sidebar features and keybindings
-* xref:plugin:configuration.adoc[Configuration] for personal layouts and Ghostty integration
+* xref:using:sidebar.adoc[The Sidebar] to understand the UI
+* xref:using:navigation.adoc[Keyboard Navigation] for all shortcuts
+* xref:using:configuration.adoc[Configuration] for layout variants and custom keybindings

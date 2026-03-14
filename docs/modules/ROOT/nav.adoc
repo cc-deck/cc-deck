@@ -1,2 +1,5 @@
 .cc-deck
 * xref:index.adoc[Overview]
+* xref:one-liner.adoc[One-Liner Demo]
+* xref:install.adoc[Native Installation]
+* xref:first-session.adoc[First Session]
