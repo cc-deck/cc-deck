@@ -508,6 +508,98 @@ impl ZellijPlugin for PluginState {
                 true
             }
 
+            PipeAction::NavToggle => {
+                if !self.is_on_active_tab() {
+                    if is_user_action {
+                        broadcast_action("cc-deck:nav-toggle");
+                    }
+                    return false;
+                }
+                if self.navigation_mode {
+                    exit_navigation_mode(self);
+                } else {
+                    enter_navigation_mode(self);
+                }
+                true
+            }
+
+            PipeAction::NavUp => {
+                if !self.is_on_active_tab() || !self.navigation_mode {
+                    return false;
+                }
+                let count = self.filtered_sessions_by_tab_order().len();
+                if count > 0 {
+                    self.cursor_index = if self.cursor_index == 0 {
+                        count - 1
+                    } else {
+                        self.cursor_index - 1
+                    };
+                }
+                true
+            }
+
+            PipeAction::NavDown => {
+                if !self.is_on_active_tab() || !self.navigation_mode {
+                    return false;
+                }
+                let count = self.filtered_sessions_by_tab_order().len();
+                if count > 0 {
+                    self.cursor_index = (self.cursor_index + 1) % count;
+                }
+                true
+            }
+
+            PipeAction::NavSelect => {
+                if !self.is_on_active_tab() || !self.navigation_mode {
+                    return false;
+                }
+                let sessions = self.filtered_sessions_by_tab_order();
+                if let Some(session) = sessions.get(self.cursor_index) {
+                    let pane_id = session.pane_id;
+                    let tab_idx = session.tab_index;
+                    self.navigation_mode = false;
+                    self.nav_enter_guard = false;
+                    self.nav_restore = None;
+                    self.filter_state = None;
+                    self.delete_confirm = None;
+                    set_selectable_wasm(false);
+                    #[cfg(target_family = "wasm")]
+                    if let Some(idx) = tab_idx {
+                        zellij_tile::prelude::switch_tab_to(idx as u32 + 1);
+                        zellij_tile::prelude::focus_terminal_pane(pane_id, false);
+                    }
+                    debug_log(&format!("NAV-SELECT: switched to pane={pane_id} tab={tab_idx:?}"));
+                }
+                true
+            }
+
+            PipeAction::Pause => {
+                if !self.is_on_active_tab() || !self.navigation_mode {
+                    return false;
+                }
+                let sessions = self.filtered_sessions_by_tab_order();
+                if let Some(session) = sessions.get(self.cursor_index) {
+                    let pane_id = session.pane_id;
+                    if let Some(s) = self.sessions.get_mut(&pane_id) {
+                        s.paused = !s.paused;
+                        let now = session::unix_now();
+                        s.last_event_ts = now;
+                        s.meta_ts = now;
+                    }
+                    sync::broadcast_state(self);
+                    sync::write_session_meta(&self.sessions);
+                }
+                true
+            }
+
+            PipeAction::Help => {
+                if !self.is_on_active_tab() {
+                    return false;
+                }
+                self.show_help = !self.show_help;
+                true
+            }
+
             PipeAction::DumpState => {
                 // Only respond from the active-tab instance to avoid duplicate output
                 if !self.is_on_active_tab() {

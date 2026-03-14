@@ -33,6 +33,18 @@ pub enum PipeAction {
     DumpState,
     /// Restore metadata overrides from snapshot (cc-deck:restore-meta).
     RestoreMeta(String),
+    /// Toggle navigation mode (cc-deck:nav-toggle).
+    NavToggle,
+    /// Move cursor up in navigation mode (cc-deck:nav-up).
+    NavUp,
+    /// Move cursor down in navigation mode (cc-deck:nav-down).
+    NavDown,
+    /// Select session at cursor in navigation mode (cc-deck:nav-select).
+    NavSelect,
+    /// Toggle pause on cursor session (cc-deck:pause).
+    Pause,
+    /// Toggle help overlay (cc-deck:help).
+    Help,
     /// Unknown message.
     Unknown,
 }
@@ -62,6 +74,12 @@ pub fn parse_pipe_message(name: &str, payload: Option<&str>) -> PipeAction {
         "cc-deck:restore-meta" => {
             PipeAction::RestoreMeta(payload.unwrap_or("").to_string())
         }
+        "cc-deck:nav-toggle" => PipeAction::NavToggle,
+        "cc-deck:nav-up" => PipeAction::NavUp,
+        "cc-deck:nav-down" => PipeAction::NavDown,
+        "cc-deck:nav-select" => PipeAction::NavSelect,
+        "cc-deck:pause" => PipeAction::Pause,
+        "cc-deck:help" => PipeAction::Help,
         _ => PipeAction::Unknown,
     }
 }
@@ -144,6 +162,16 @@ mod tests {
         assert!(matches!(parse_pipe_message("cc-deck:new", None), PipeAction::NewSession));
         assert!(matches!(parse_pipe_message("cc-deck:dump-state", None), PipeAction::DumpState));
         assert!(matches!(parse_pipe_message("unknown", None), PipeAction::Unknown));
+    }
+
+    #[test]
+    fn test_parse_nav_and_control_commands() {
+        assert!(matches!(parse_pipe_message("cc-deck:nav-toggle", None), PipeAction::NavToggle));
+        assert!(matches!(parse_pipe_message("cc-deck:nav-up", None), PipeAction::NavUp));
+        assert!(matches!(parse_pipe_message("cc-deck:nav-down", None), PipeAction::NavDown));
+        assert!(matches!(parse_pipe_message("cc-deck:nav-select", None), PipeAction::NavSelect));
+        assert!(matches!(parse_pipe_message("cc-deck:pause", None), PipeAction::Pause));
+        assert!(matches!(parse_pipe_message("cc-deck:help", None), PipeAction::Help));
     }
 
     #[test]
