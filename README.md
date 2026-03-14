@@ -1,14 +1,63 @@
 # cc-deck
 
-A Zellij sidebar plugin for managing multiple Claude Code sessions. Track activity, switch between sessions, and navigate with keyboard shortcuts.
+[![CI](https://github.com/cc-deck/cc-deck/actions/workflows/ci.yaml/badge.svg)](https://github.com/cc-deck/cc-deck/actions/workflows/ci.yaml)
+[![codecov](https://codecov.io/gh/cc-deck/cc-deck/graph/badge.svg)](https://codecov.io/gh/cc-deck/cc-deck)
+[![Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go)](https://go.dev)
+[![Rust](https://img.shields.io/badge/Rust-stable-orange?logo=rust)](https://www.rust-lang.org)
+[![Zellij](https://img.shields.io/badge/Zellij-0.43+-green)](https://zellij.dev)
+[![License](https://img.shields.io/github/license/cc-deck/cc-deck)](LICENSE)
+
+**The TweetDeck for Claude Code.** A Zellij sidebar plugin that monitors, attends to, and orchestrates multiple Claude Code sessions from a single terminal view.
+
+**[Website](https://cc-deck.github.io)** · **[Documentation](https://cc-deck.github.io/docs/)** · **[Quickstart](#install)** · **[Contributing](CONTRIBUTING.md)**
+
+---
+
+## What is cc-deck?
+
+Managing multiple Claude Code sessions from separate terminals quickly becomes unwieldy. You lose track of which session is waiting for input, which one just finished, and which one needs your attention next.
+
+cc-deck solves this with a real-time sidebar that shows all your sessions and intelligently directs your attention where it matters most.
+
+### Sidebar Plugin
+
+The Zellij sidebar plugin tracks every Claude Code session across tabs. It shows activity status, handles permission requests, and provides keyboard-driven navigation. Smart attend automatically cycles through sessions that need your attention, prioritizing permission requests over completed tasks over idle sessions.
+
+### Custom Container Images
+
+An AI-driven build pipeline analyzes your local environment for tool dependencies, lets you configure shell, Zellij, and Claude Code settings, and generates optimized container images. Four Claude Code commands handle the workflow: extract, settings, build, push.
+
+### Multi-Platform
+
+Run cc-deck locally with Zellij, in Podman containers with mounted source code, or deploy as Deployments on Kubernetes and OpenShift. The sidebar experience is the same everywhere.
 
 ## Install
 
+### Quick Start (Demo Image)
+
+Try cc-deck without installing anything locally:
+
 ```bash
+podman run -it --rm \
+  -e ANTHROPIC_API_KEY=sk-ant-... \
+  quay.io/rhuss/cc-deck-demo:latest
+```
+
+### Native Installation
+
+```bash
+git clone https://github.com/cc-deck/cc-deck.git
+cd cc-deck
 make install
 ```
 
-This installs the WASM plugin, layout files, and Claude Code hooks.
+This builds the WASM plugin, compiles the Go CLI, and installs everything into your Zellij configuration.
+
+#### Prerequisites
+
+- [Zellij](https://zellij.dev) 0.43 or later
+- [Go](https://go.dev) 1.22+
+- [Rust](https://www.rust-lang.org) stable with `wasm32-wasip1` target (`rustup target add wasm32-wasip1`)
 
 ## Usage
 
@@ -35,7 +84,7 @@ Three layout styles are installed:
 To change the default variant:
 
 ```bash
-cc-deck plugin install --layout standard
+cc-deck plugin install --layout minimal --force
 ```
 
 ## Keyboard Shortcuts
@@ -95,7 +144,6 @@ After editing, restart Zellij to apply.
 Create a personal layout that won't be overwritten by `make install`:
 
 ```bash
-# Copy the base layout
 cp ~/.config/zellij/layouts/cc-deck.kdl ~/.config/zellij/layouts/cc-deck-personal.kdl
 ```
 
@@ -128,30 +176,6 @@ keybind = cmd+s=unbind
 keybind = cmd+n=unbind
 ```
 
-### Other Useful Cmd Key Bindings
-
-For a native macOS feel inside Zellij, add to `~/.config/zellij/config.kdl`:
-
-```kdl
-keybinds {
-    shared_except "locked" {
-        bind "Super t" { NewTab; }
-        bind "Super w" { CloseTab; }
-        bind "Super Alt Left" { GoToPreviousTab; }
-        bind "Super Alt Right" { GoToNextTab; }
-    }
-}
-```
-
-And unbind in Ghostty:
-
-```
-keybind = cmd+t=unbind
-keybind = cmd+w=unbind
-keybind = cmd+opt+left=unbind
-keybind = cmd+opt+right=unbind
-```
-
 ## Session States
 
 | Icon | State | Description |
@@ -179,7 +203,7 @@ Subsequent presses cycle round-robin through the list.
 ```bash
 # Prerequisites
 rustup target add wasm32-wasip1
-go install (Go 1.22+)
+# Go 1.22+ required
 
 # Build and install
 make install
@@ -190,3 +214,34 @@ make install
 ```bash
 cc-deck plugin remove
 ```
+
+## Project Structure
+
+```
+cc-zellij-plugin/   Zellij sidebar plugin (Rust, WASM)
+cc-deck/            CLI tool (Go)
+docs/               Antora documentation source
+demo-image/         Demo container image build
+base-image/         Base container image build
+specs/              Feature specifications (SDD)
+```
+
+## Contributing
+
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the development process, including how we use Spec-Driven Development for larger changes.
+
+## Feature Specifications
+
+cc-deck follows [Spec-Driven Development](CONTRIBUTING.md#spec-driven-development). Each feature starts with a specification before implementation. Current specs:
+
+| ID | Feature | Status |
+|----|---------|--------|
+| [002](specs/002-cc-deck-k8s/) | Kubernetes CLI | Planned |
+| [012](specs/012-sidebar-plugin/) | Sidebar Plugin | Implemented |
+| [013](specs/013-keyboard-navigation/) | Keyboard Navigation & Global Shortcuts | Implemented |
+| [014](specs/014-pause-and-help/) | Session Pause Mode & Keyboard Help | Implemented |
+| [015](specs/015-session-save-restore/) | Session Save and Restore | Planned |
+| [016](specs/016-k8s-integration-tests/) | K8s Integration Tests | Planned |
+| [017](specs/017-base-image/) | Base Container Image | Implemented |
+| [018](specs/018-build-manifest/) | Build Pipeline | In Progress |
+| [019](specs/019-docs-landing-page/) | Documentation & Landing Page | In Progress |

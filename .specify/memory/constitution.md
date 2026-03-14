@@ -56,6 +56,16 @@ cd cc-deck && go build -o /tmp/cc-deck-test ./cmd/cc-deck
 
 Follow YAGNI. Don't add features, abstractions, or error handling beyond what's needed. Three similar lines of code is better than a premature abstraction.
 
+### VIII. Documentation Freshness
+
+After completing a feature, ALWAYS update the repository's `README.md` to reflect new capabilities, commands, or changed behavior.
+
+For larger features (new modules, new CLI commands, new deployment patterns), also evaluate whether the landing page at `cc-deck.github.io` needs updates to its feature grid, steps widget, or quickstart links. Open a follow-up task if landing page changes are warranted.
+
+### IX. Spec Tracking in README
+
+When a new feature specification is created and merged, add it to the "Feature Specifications" table in `README.md` with its ID, title, and status. Update the status column when implementation progresses or completes. The README spec table is the public-facing summary of all design work.
+
 ## Development Workflow
 
 - `make install` for building and installing (NON-NEGOTIABLE, see Principle VI)
@@ -74,4 +84,4 @@ Follow YAGNI. Don't add features, abstractions, or error handling beyond what's 
 
 This constitution supersedes ad-hoc practices. Amendments require updating this file and the project memory.
 
-**Version**: 1.2.0 | **Ratified**: 2026-03-09 | **Last Amended**: 2026-03-12
+**Version**: 1.4.0 | **Ratified**: 2026-03-09 | **Last Amended**: 2026-03-14
