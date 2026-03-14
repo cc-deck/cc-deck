@@ -1,0 +1,127 @@
+/* Portfolio Styles */
+
+:root {
+    --color-bg: #ffffff;
+    --color-text: #1a1a2e;
+    --color-accent: #4361ee;
+    --color-muted: #6b7280;
+    --color-card-bg: #f8f9fa;
+    --color-border: #e5e7eb;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--color-bg);
+    color: var(--color-text);
+    line-height: 1.6;
+}
+
+/* Navigation */
+nav {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.5rem 3rem;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.logo {
+    font-weight: 700;
+    font-size: 1.25rem;
+}
+
+nav ul {
+    display: flex;
+    list-style: none;
+    gap: 2rem;
+}
+
+nav a {
+    color: var(--color-text);
+    text-decoration: none;
+}
+
+nav a:hover {
+    color: var(--color-accent);
+}
+
+/* Sections */
+section {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 4rem 2rem;
+}
+
+#hero {
+    text-align: center;
+    padding: 6rem 2rem;
+}
+
+#hero h1 {
+    font-size: 2.5rem;
+    margin-bottom: 1rem;
+}
+
+#hero p {
+    font-size: 1.25rem;
+    color: var(--color-muted);
+}
+
+h2 {
+    font-size: 1.75rem;
+    margin-bottom: 1.5rem;
+}
+
+/* Project Grid */
+.project-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1.5rem;
+    margin-top: 1rem;
+}
+
+.project-card {
+    background: var(--color-card-bg);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    padding: 1.5rem;
+}
+
+.project-card h3 {
+    margin-bottom: 0.5rem;
+}
+
+.project-card p {
+    color: var(--color-muted);
+    font-size: 0.9rem;
+    margin-bottom: 1rem;
+}
+
+.tag {
+    display: inline-block;
+    background: var(--color-accent);
+    color: white;
+    padding: 0.2rem 0.6rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    margin-right: 0.4rem;
+}
+
+/* Contact */
+#contact a {
+    color: var(--color-accent);
+}
+
+/* Footer */
+footer {
+    text-align: center;
+    padding: 2rem;
+    color: var(--color-muted);
+    border-top: 1px solid var(--color-border);
+}
