@@ -1,0 +1,14 @@
+## scene:Initialize image build
+cc-deck does not ship a one-size-fits-all image. Instead, you build a bespoke image tailored to your environment. We start by initializing a build directory. This creates a manifest file and the Claude Code commands that drive the build pipeline.
+
+## scene:Review the manifest
+The manifest is the source of truth for your image. It starts with just a name and base image. You fill it in using Claude Code commands that analyze your local setup.
+
+## scene:Use demo manifest with tools
+Here is a manifest populated with tools for our three demo projects: Python, Go, and Node.js. The tools section uses plain English descriptions. Claude Code resolves these to concrete install commands during the build.
+
+## scene:AI-driven build commands
+The build pipeline is driven by four Claude Code commands. Extract analyzes your repositories and discovers dependencies. Settings selects your local configuration to bake in. Build generates the Containerfile and builds the image, with automatic self-correction if a step fails. Push sends the image to your registry.
+
+## scene:Demo complete
+That is the cc-deck image builder. Your shell aliases, your editor config, your plugins, your project tools, all baked into an image that feels like home. No more maintaining generic Dockerfiles by hand.

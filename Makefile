@@ -27,6 +27,7 @@ CLI_LDFLAGS = -X github.com/rhuss/cc-mux/cc-deck/internal/cmd.Version=$(VERSION)
         test test-go test-rust lint lint-go lint-rust \
         install uninstall status \
         test-image demo-image demo-image-push base-image base-image-push \
+        demo-setup demo-record demo-gif demo-mp4 demo-clean \
         dev reload clean help
 
 ## -- Build -------------------------------------------------
@@ -122,6 +123,39 @@ base-image:  ## Build the cc-deck base container image
 
 base-image-push: base-image  ## Build and push the base image
 	podman push $(BASE_IMAGE):latest
+
+## -- Demo Recording ----------------------------------------
+
+DEMO ?= plugin
+
+demo-setup:  ## Set up demo projects in /tmp/cc-deck-demo
+	demos/projects/setup.sh
+
+demo-record: demo-setup  ## Record a demo (DEMO=plugin|deploy|image)
+	RECORD=1 demos/scripts/$(DEMO)-demo.sh
+
+demo-gif:  ## Convert recording to GIF (DEMO=plugin|deploy|image)
+	@test -f demos/recordings/$(DEMO)-demo.cast || (echo "No recording found. Run: make demo-record DEMO=$(DEMO)" && exit 1)
+	agg --cols 200 --rows 50 --idle-time-limit 3 --last-frame-duration 5 \
+		demos/recordings/$(DEMO)-demo.cast demos/recordings/$(DEMO)-demo.gif
+	@echo "GIF saved: demos/recordings/$(DEMO)-demo.gif"
+
+demo-mp4:  ## Convert recording to MP4 with voiceover (DEMO=plugin|deploy|image)
+	@test -f demos/recordings/$(DEMO)-demo.cast || (echo "No recording found. Run: make demo-record DEMO=$(DEMO)" && exit 1)
+	@if [ -f demos/recordings/$(DEMO)-demo-voiceover.mp3 ]; then \
+		ffmpeg -y -i demos/recordings/$(DEMO)-demo.gif -i demos/recordings/$(DEMO)-demo-voiceover.mp3 \
+			-c:v libx264 -c:a aac -shortest demos/recordings/$(DEMO)-demo.mp4; \
+	else \
+		ffmpeg -y -i demos/recordings/$(DEMO)-demo.gif -c:v libx264 demos/recordings/$(DEMO)-demo.mp4; \
+	fi
+	@echo "MP4 saved: demos/recordings/$(DEMO)-demo.mp4"
+
+demo-voiceover:  ## Generate voiceover audio (DEMO=plugin|deploy|image, requires OPENAI_API_KEY)
+	demos/voiceover.sh demos/narration/$(DEMO)-demo.txt
+
+demo-clean:  ## Remove demo projects and recordings
+	demos/projects/cleanup.sh
+	rm -f demos/recordings/*.cast demos/recordings/*.gif demos/recordings/*.mp4
 
 ## -- Development ------------------------------------------
 

@@ -221,6 +221,7 @@ cc-deck plugin remove
 cc-zellij-plugin/   Zellij sidebar plugin (Rust, WASM)
 cc-deck/            CLI tool (Go)
 docs/               Antora documentation source
+demos/              Demo recording system
 demo-image/         Demo container image build
 base-image/         Base container image build
 specs/              Feature specifications (SDD)
@@ -245,3 +246,4 @@ cc-deck follows [Spec-Driven Development](CONTRIBUTING.md#spec-driven-developmen
 | [017](specs/017-base-image/) | Base Container Image | Implemented |
 | [018](specs/018-build-manifest/) | Build Pipeline | In Progress |
 | [019](specs/019-docs-landing-page/) | Documentation & Landing Page | In Progress |
+| [020](specs/020-demo-recordings/) | Demo Recording System | In Progress |

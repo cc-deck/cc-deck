@@ -1,0 +1,17 @@
+## scene:One-liner interactive launch
+cc-deck runs anywhere. The fastest way to try it is a single podman command. This launches a pre-built container with Zellij, the cc-deck sidebar, and Claude Code already installed. Just add your API key and you are ready to go.
+
+## scene:Launch persistent container
+For ongoing work, launch a persistent container in the background. This keeps your Zellij sessions and Claude Code history across reconnections. You connect and disconnect as needed without losing state.
+
+## scene:Connect to container
+Connecting to the container drops you into a Zellij session with the cc-deck sidebar. It looks and feels identical to a local installation. The same keyboard shortcuts, the same smart attend, the same sidebar.
+
+## scene:Start Claude Code sessions
+Start Claude Code sessions just like you would locally. The sidebar tracks them all. You can mount your source code from the host for bidirectional editing, or clone repositories inside the container.
+
+## scene:Disconnect and reconnect
+When you disconnect, the container keeps running in the background. Your Zellij sessions, Claude Code history, and work in progress are all preserved. Reconnect anytime and pick up right where you left off.
+
+## scene:Demo complete
+cc-deck containers give you a portable, reproducible development environment. Build a bespoke image with your tools, deploy it locally or on Kubernetes, and have the same experience everywhere.
