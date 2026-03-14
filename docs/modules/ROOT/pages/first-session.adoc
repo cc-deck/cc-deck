@@ -116,7 +116,7 @@ The sidebar shows icons next to each session:
 
 == Next Steps
 
-* xref:plugin:navigation.adoc[Keyboard Navigation] for the complete keybinding reference
-* xref:plugin:attend.adoc[Smart Attend] for the full priority algorithm
-* xref:plugin:sessions.adoc[Session Management] for pause, rename, search, and delete
-* xref:plugin:configuration.adoc[Configuration] for custom keybindings and layouts
+* xref:using:navigation.adoc[Keyboard Navigation] for the complete keybinding reference
+* xref:using:attend.adoc[Smart Attend] for the full priority algorithm
+* xref:using:sessions.adoc[Session Management] for pause, rename, search, and delete
+* xref:using:configuration.adoc[Configuration] for custom keybindings and layouts

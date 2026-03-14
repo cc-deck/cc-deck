@@ -1,5 +1,0 @@
-.Podman
-* xref:quickstart.adoc[Quickstart]
-* xref:volumes.adoc[Volume Mounts]
-* xref:credentials.adoc[Credentials]
-* xref:advanced.adoc[Advanced Usage]

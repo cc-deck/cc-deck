@@ -1,0 +1,5 @@
+.Running cc-deck
+* xref:local.adoc[Local Installation]
+* xref:podman.adoc[Podman Containers]
+* xref:kubernetes.adoc[Kubernetes]
+* xref:credentials.adoc[Credentials]

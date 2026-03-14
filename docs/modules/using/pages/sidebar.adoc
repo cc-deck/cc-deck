@@ -1,0 +1,90 @@
+= The Sidebar
+
+The cc-deck sidebar is a narrow panel on the left side of your terminal that tracks all Claude Code sessions in real time.
+It shows what each session is doing, highlights sessions that need your attention, and provides keyboard-driven navigation to switch between them.
+
+== What You See
+
+The sidebar displays a list of all active Claude Code sessions across all Zellij tabs.
+Each entry shows:
+
+* The session name (derived from the working directory or git repository name)
+* A status indicator showing current activity
+* Visual highlighting for sessions that need attention
+
+The currently viewed session is highlighted with a teal background.
+When you enter navigation mode, the selected session shows an amber cursor.
+
+== Session States
+
+Each session displays one of these states:
+
+[cols="1,1,3"]
+|===
+| Icon | State | Meaning
+
+| ◆
+| Init
+| Session detected but Claude Code has not started producing output yet.
+
+| ●
+| Working
+| Claude Code is actively generating output or calling tools.
+Animated to show activity.
+
+| ⚙
+| Tool Use
+| Claude Code is executing a specific tool.
+The tool name appears next to the icon.
+
+| ⚠
+| Permission
+| Claude Code needs your permission to proceed.
+This is the highest-priority state for smart attend.
+Text appears bold and highlighted.
+
+| ○
+| Idle
+| Claude Code is running but waiting for user input.
+
+| ✓
+| Done
+| Claude Code finished its task.
+
+| ⏸
+| Paused
+| You have paused this session.
+The name appears dimmed and the session is excluded from smart attend.
+|===
+
+State changes are detected automatically via Claude Code hooks.
+You do not need to do anything to keep the sidebar updated.
+
+== The Header
+
+The sidebar header shows the cc-deck logo and a session count.
+Clicking the header toggles navigation mode.
+
+== The Footer
+
+A `[+]` button at the bottom of the session list creates a new tab when clicked.
+
+== How Sessions Are Tracked
+
+When you start Claude Code in any Zellij tab, the sidebar picks it up automatically within a few seconds.
+The sidebar hooks into Claude Code's event system and receives updates for:
+
+* Session start and stop
+* Status changes (idle, working, permission needed, done)
+* Tool use events
+* Permission requests
+
+Session tracking works across all tabs in the Zellij session.
+Opening a new tab and starting Claude Code there immediately appears in the sidebar.
+
+== Next Steps
+
+* xref:navigation.adoc[Keyboard Navigation] for all shortcuts
+* xref:attend.adoc[Smart Attend] for the attention-routing algorithm
+* xref:sessions.adoc[Session Management] for pause, rename, search, and delete
+* xref:configuration.adoc[Configuration] for layout variants and custom keybindings
