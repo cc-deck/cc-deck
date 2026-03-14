@@ -57,7 +57,6 @@ Rust (stable, latest edition 2021+): Follow standard conventions
 ## Recent Changes
 - 020-demo-recordings: Added Rust stable (wasm32-wasip1) for plugin pipe handlers, Bash for demo scripts, Python/Go/HTML for demo projects + zellij-tile 0.43.1 (plugin SDK), asciinema 3.2.0 (recording), agg 1.7.0 (GIF), ffmpeg 8.0.1 (video/audio)
 - 019-docs-landing-page: Added TypeScript (Astro 5.x), AsciiDoc (Antora 3.x), Containerfile (demo image) + Astro, Tailwind CSS, Antora, AsciiDoc
-- 018-build-manifest: Added Go 1.22+ (existing cc-deck CLI), Markdown (Claude Code commands) + cobra (CLI), gopkg.in/yaml.v3 (manifest parsing), go:embed (asset embedding)
 
 
 <!-- MANUAL ADDITIONS START -->

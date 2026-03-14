@@ -19,9 +19,9 @@
 
 **Purpose**: Create directory structure and shared infrastructure
 
-- [ ] T001 Create `demos/` directory structure: `demos/scripts/`, `demos/projects/`, `demos/narration/`, `demos/recordings/`
-- [ ] T002 [P] Add `demos/recordings/.gitkeep` and add `demos/recordings/*.cast`, `demos/recordings/*.gif`, `demos/recordings/*.mp4` to `.gitignore`
-- [ ] T003 [P] Create demo runner framework in `demos/runner.sh` with helper functions: `scene()`, `pause()`, `wait_for()`, `cc_pipe()`, `type_command()`
+- [x] T001 Create `demos/` directory structure: `demos/scripts/`, `demos/projects/`, `demos/narration/`, `demos/recordings/`
+- [x] T002 [P] Add `demos/recordings/.gitkeep` and add `demos/recordings/*.cast`, `demos/recordings/*.gif`, `demos/recordings/*.mp4` to `.gitignore`
+- [x] T003 [P] Create demo runner framework in `demos/runner.sh` with helper functions: `scene()`, `pause()`, `wait_for()`, `cc_pipe()`, `type_command()`
 
 ---
 
@@ -31,10 +31,10 @@
 
 **CRITICAL**: No demo script can use plugin control until this phase is complete.
 
-- [ ] T004 Add new PipeAction variants (NavToggle, NavUp, NavDown, NavSelect, Pause, Help) to enum in `cc-zellij-plugin/src/pipe_handler.rs`
-- [ ] T005 Add pipe name parsing for `cc-deck:nav-toggle`, `cc-deck:nav-up`, `cc-deck:nav-down`, `cc-deck:nav-select`, `cc-deck:pause`, `cc-deck:help` in `cc-zellij-plugin/src/pipe_handler.rs`
-- [ ] T006 Add match arms for new PipeAction variants in `pipe()` method in `cc-zellij-plugin/src/main.rs`, calling existing action methods
-- [ ] T007 Verify pipe handlers work: `make install`, launch Zellij, test `zellij pipe --name "cc-deck:nav-toggle"` and other commands manually
+- [x] T004 Add new PipeAction variants (NavToggle, NavUp, NavDown, NavSelect, Pause, Help) to enum in `cc-zellij-plugin/src/pipe_handler.rs`
+- [x] T005 Add pipe name parsing for `cc-deck:nav-toggle`, `cc-deck:nav-up`, `cc-deck:nav-down`, `cc-deck:nav-select`, `cc-deck:pause`, `cc-deck:help` in `cc-zellij-plugin/src/pipe_handler.rs`
+- [x] T006 Add match arms for new PipeAction variants in `pipe()` method in `cc-zellij-plugin/src/main.rs`, calling existing action methods
+- [x] T007 Verify pipe handlers work: `make install`, launch Zellij, test `zellij pipe --name "cc-deck:nav-toggle"` and other commands manually
 
 **Checkpoint**: Plugin responds to all pipe commands. Demo scripts can now control the plugin programmatically.
 
@@ -50,11 +50,11 @@
 
 ### Implementation
 
-- [ ] T008 [P] [US2] Create Python demo project template in `demos/projects/todo-api/`: FastAPI TODO app (~50 lines), README.md, CLAUDE.md with task "Add a /search endpoint", requirements.txt
-- [ ] T009 [P] [US2] Create Go demo project template in `demos/projects/weather-cli/`: simple CLI that prints weather (~40 lines), README.md, CLAUDE.md with task "Add --format json flag", go.mod
-- [ ] T010 [P] [US2] Create HTML/CSS demo project template in `demos/projects/portfolio/`: static portfolio page (~60 lines HTML + CSS), README.md, CLAUDE.md with task "Add dark mode toggle"
-- [ ] T011 [US2] Create setup script `demos/projects/setup.sh` that copies templates to `/tmp/cc-deck-demo/`, initializes git repos with 2 commits each
-- [ ] T012 [US2] Create cleanup script `demos/projects/cleanup.sh` that removes `/tmp/cc-deck-demo/`
+- [x] T008 [P] [US2] Create Python demo project template in `demos/projects/todo-api/`: FastAPI TODO app (~50 lines), README.md, CLAUDE.md with task "Add a /search endpoint", requirements.txt
+- [x] T009 [P] [US2] Create Go demo project template in `demos/projects/weather-cli/`: simple CLI that prints weather (~40 lines), README.md, CLAUDE.md with task "Add --format json flag", go.mod
+- [x] T010 [P] [US2] Create HTML/CSS demo project template in `demos/projects/portfolio/`: static portfolio page (~60 lines HTML + CSS), README.md, CLAUDE.md with task "Add dark mode toggle"
+- [x] T011 [US2] Create setup script `demos/projects/setup.sh` that copies templates to `/tmp/cc-deck-demo/`, initializes git repos with 2 commits each
+- [x] T012 [US2] Create cleanup script `demos/projects/cleanup.sh` that removes `/tmp/cc-deck-demo/`
 
 **Checkpoint**: Demo projects can be set up and torn down in under 30 seconds.
 
@@ -68,10 +68,10 @@
 
 ### Implementation
 
-- [ ] T013 [US1] Write plugin demo screenplay in `demos/scripts/plugin-demo.sh` using runner.sh helpers: scenes for install, launch, create sessions, navigate, smart attend
-- [ ] T014 [US1] Add asciinema integration to `demos/runner.sh`: `start_recording()` and `stop_recording()` functions wrapping `asciinema rec`
-- [ ] T015 [US1] Add checkpoint-based wait function to `demos/runner.sh`: `wait_for_output()` that polls `zellij action query-tab-names` or checks terminal output patterns
-- [ ] T016 [US1] Add Makefile targets in `Makefile`: `demo-setup`, `demo-record`, `demo-gif`, `demo-clean` in a new "Demo" section
+- [x] T013 [US1] Write plugin demo screenplay in `demos/scripts/plugin-demo.sh` using runner.sh helpers: scenes for install, launch, create sessions, navigate, smart attend
+- [x] T014 [US1] Add asciinema integration to `demos/runner.sh`: `start_recording()` and `stop_recording()` functions wrapping `asciinema rec`
+- [x] T015 [US1] Add checkpoint-based wait function to `demos/runner.sh`: `wait_for_output()` that polls `zellij action query-tab-names` or checks terminal output patterns
+- [x] T016 [US1] Add Makefile targets in `Makefile`: `demo-setup`, `demo-record`, `demo-gif`, `demo-clean` in a new "Demo" section
 - [ ] T017 [US1] Test end-to-end: run `demos/projects/setup.sh`, then `demos/scripts/plugin-demo.sh`, verify recording captures sidebar interactions
 
 **Checkpoint**: A maintainer can produce a complete plugin demo recording by running a single command.
@@ -86,9 +86,9 @@
 
 ### Implementation
 
-- [ ] T018 [P] [US3] Write deployment demo screenplay in `demos/scripts/deploy-demo.sh`: scenes for container launch, session creation, reconnection
-- [ ] T019 [P] [US3] Write image builder demo screenplay in `demos/scripts/image-demo.sh`: scenes for manifest review, build, container launch
-- [ ] T020 [US3] Create pre-built image builder manifest in `demos/projects/cc-deck-build.yaml` for the three demo projects
+- [x] T018 [P] [US3] Write deployment demo screenplay in `demos/scripts/deploy-demo.sh`: scenes for container launch, session creation, reconnection
+- [x] T019 [P] [US3] Write image builder demo screenplay in `demos/scripts/image-demo.sh`: scenes for manifest review, build, container launch
+- [x] T020 [US3] Create pre-built image builder manifest in `demos/projects/cc-deck-build.yaml` for the three demo projects
 
 **Checkpoint**: All three demo scripts produce complete recordings.
 
@@ -102,10 +102,10 @@
 
 ### Implementation
 
-- [ ] T021 [P] [US4] Write narration script for plugin demo in `demos/narration/plugin-demo.txt` with `## scene:` chapter markers
-- [ ] T022 [P] [US4] Write narration scripts for deploy and image demos in `demos/narration/deploy-demo.txt` and `demos/narration/image-demo.txt`
-- [ ] T023 [US4] Create voiceover generation script `demos/voiceover.sh` that reads narration files, calls OpenAI TTS API (`tts-1-hd`), outputs audio files to `demos/recordings/`
-- [ ] T024 [US4] Add `demo-voiceover` Makefile target
+- [x] T021 [P] [US4] Write narration script for plugin demo in `demos/narration/plugin-demo.txt` with `## scene:` chapter markers
+- [x] T022 [P] [US4] Write narration scripts for deploy and image demos in `demos/narration/deploy-demo.txt` and `demos/narration/image-demo.txt`
+- [x] T023 [US4] Create voiceover generation script `demos/voiceover.sh` that reads narration files, calls OpenAI TTS API (`tts-1-hd`), outputs audio files to `demos/recordings/`
+- [x] T024 [US4] Add `demo-voiceover` Makefile target
 
 **Checkpoint**: Narration scripts produce aligned audio files.
 
@@ -119,10 +119,10 @@
 
 ### Implementation
 
-- [ ] T025 [US5] Add GIF conversion to `demos/runner.sh`: `convert_to_gif()` function using agg with landing-page-optimized settings (idle-time-limit, fps-cap, last-frame-duration)
-- [ ] T026 [US5] Add MP4 conversion to `demos/runner.sh`: `convert_to_mp4()` function using ffmpeg to combine GIF/cast with voiceover audio
-- [ ] T027 [US5] Add `demo-mp4` Makefile target that runs voiceover generation + video conversion
-- [ ] T028 [US5] Document embedding options for Antora docs in `demos/README.md`
+- [x] T025 [US5] Add GIF conversion to Makefile `demo-gif` target using agg with landing-page-optimized settings (idle-time-limit, fps-cap, last-frame-duration)
+- [x] T026 [US5] Add MP4 conversion to Makefile `demo-mp4` target using ffmpeg to combine GIF with voiceover audio
+- [x] T027 [US5] Add `demo-mp4` Makefile target that runs voiceover generation + video conversion
+- [x] T028 [US5] Document embedding options for Antora docs in `demos/README.md`
 
 **Checkpoint**: All three output formats produced from a single recording.
 
@@ -132,8 +132,8 @@
 
 **Purpose**: Documentation and integration
 
-- [ ] T029 Update README.md with demo recording instructions and spec table entry for 020-demo-recordings
-- [ ] T030 [P] Add `demos/README.md` with usage instructions, prerequisites, and troubleshooting
+- [x] T029 Update README.md with demo recording instructions and spec table entry for 020-demo-recordings
+- [x] T030 [P] Add `demos/README.md` with usage instructions, prerequisites, and troubleshooting
 - [ ] T031 Run quickstart.md validation: execute the quickstart steps end-to-end
 
 ---
