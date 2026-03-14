@@ -1,0 +1,23 @@
+## scene:Launch Zellij with cc-deck
+Welcome to cc-deck, the TweetDeck for Claude Code. Let me show you how it works. We start by launching Zellij with the cc-deck layout. Notice the sidebar on the left. It is empty because no Claude Code sessions are running yet.
+
+## scene:Start first session (todo-api)
+Now we start our first Claude Code session. We are in a Python project, a simple TODO API. We ask Claude to add a search endpoint. Watch the sidebar. It picks up the new session within seconds and shows its activity status.
+
+## scene:Open second session (weather-cli)
+Let us open a second session in a different tab. This time it is a Go CLI project. We ask Claude to add a JSON output flag. The sidebar now shows both sessions. Each has its own status indicator so you always know what is happening.
+
+## scene:Open third session (portfolio)
+One more session. This is an HTML portfolio page. We ask Claude to add a dark mode toggle. Three sessions running simultaneously, all visible in the sidebar.
+
+## scene:Navigate between sessions
+Now watch the navigation. We press Alt S to enter navigation mode. An amber cursor appears in the sidebar. We move up through the list and press Enter to jump to the first session. Instant context switching.
+
+## scene:Smart attend in action
+Smart attend is the killer feature. Press Alt A and cc-deck automatically switches to the session that needs your attention most. Permission requests come first, then completed tasks, then idle sessions. Press Alt A again to cycle to the next one. No more checking tabs manually.
+
+## scene:Session management
+You can also manage sessions from the sidebar. Pause a session to exclude it from attend cycling. Show the help overlay for a quick reference of all keyboard shortcuts. Everything is keyboard-driven. No mouse required.
+
+## scene:Demo complete
+That is cc-deck. A real-time dashboard for all your Claude Code sessions, with smart attention routing and keyboard-driven navigation. Install it today and take control of your AI coding workflow.

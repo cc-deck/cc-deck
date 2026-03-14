@@ -1,0 +1,32 @@
+version: 1
+
+image:
+  name: my-dev-image
+  base: quay.io/rhuss/cc-deck-base:latest
+  tag: latest
+
+tools:
+  - "Python 3.12 with pip"
+  - "Go compiler >= 1.22"
+  - "Node.js 22 LTS"
+
+plugins:
+  - name: sdd
+    source: marketplace
+
+sources:
+  - url: https://github.com/demo/todo-api
+    ref: main
+    path: /tmp/cc-deck-demo/todo-api
+    detected_tools: ["Python 3.12"]
+    detected_from: [requirements.txt]
+  - url: https://github.com/demo/weather-cli
+    ref: main
+    path: /tmp/cc-deck-demo/weather-cli
+    detected_tools: ["Go 1.22"]
+    detected_from: [go.mod]
+  - url: https://github.com/demo/portfolio
+    ref: main
+    path: /tmp/cc-deck-demo/portfolio
+    detected_tools: ["Node.js 22"]
+    detected_from: [package.json]
