@@ -24,3 +24,8 @@ cc-deck/internal/plugin/cc_deck.wasm
 # Built CLI binaries
 cc-deck/cc-deck
 cc-deck/cc-deck-linux-*
+
+# Demo recordings (binary output)
+demos/recordings/*.cast
+demos/recordings/*.gif
+demos/recordings/*.mp4
