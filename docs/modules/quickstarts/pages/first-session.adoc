@@ -1,0 +1,122 @@
+= First Session
+
+Launch cc-deck and explore the sidebar with your first Claude Code sessions.
+
+== Start Zellij with cc-deck
+
+[source,bash]
+----
+zellij --layout cc-deck
+----
+
+You should see a terminal pane on the right and the cc-deck sidebar on the left.
+The sidebar starts empty since no Claude Code sessions are running yet.
+
+== Start a Claude Code Session
+
+In the terminal pane, start Claude Code:
+
+[source,bash]
+----
+claude
+----
+
+The sidebar picks up the new session within a few seconds.
+It shows the session name, working directory, and activity status.
+
+== Open More Sessions
+
+Press `n` in navigation mode (or use your Zellij tab shortcut) to create a new tab.
+Start another Claude Code session there.
+
+The sidebar now shows both sessions across tabs, each with its own status indicator.
+
+== Navigate Between Sessions
+
+Press kbd:[Alt+s] to enter navigation mode.
+The sidebar highlights the current session with an amber cursor.
+
+Use these keys to navigate:
+
+[cols="1,3"]
+|===
+| Key | Action
+
+| kbd:[j] / kbd:[k]
+| Move cursor down / up.
+
+| kbd:[Enter]
+| Switch to the selected session's tab.
+
+| kbd:[Esc]
+| Cancel and return to the original tab.
+
+| kbd:[g] / kbd:[G]
+| Jump to first / last session.
+
+| kbd:[/]
+| Search sessions by name.
+|===
+
+Press kbd:[Alt+s] again to cycle the cursor down without entering navigation mode first.
+
+== Smart Attend
+
+Press kbd:[Alt+a] to jump to the session that most needs your attention.
+
+The attend algorithm prioritizes:
+
+1. Sessions waiting for permission approval
+2. Sessions that just finished
+3. Idle sessions
+
+Pressing kbd:[Alt+a] repeatedly cycles through all sessions that need attention, skipping sessions that are actively working.
+
+== Session Actions
+
+While in navigation mode, you can act on the selected session:
+
+[cols="1,3"]
+|===
+| Key | Action
+
+| kbd:[r]
+| Rename the session.
+
+| kbd:[p]
+| Pause the session (excluded from attend cycling).
+
+| kbd:[d]
+| Delete the session.
+
+| kbd:[?]
+| Show all keyboard shortcuts.
+|===
+
+== What the Status Icons Mean
+
+The sidebar shows icons next to each session:
+
+[cols="1,3"]
+|===
+| Indicator | Meaning
+
+| Spinning animation
+| Claude Code is actively working.
+
+| Attention marker
+| Session needs your input (permission request).
+
+| Checkmark
+| Session finished its task.
+
+| Pause icon
+| Session is paused (you toggled it with `p`).
+|===
+
+== Next Steps
+
+* xref:plugin:navigation.adoc[Keyboard Navigation] for the complete keybinding reference
+* xref:plugin:attend.adoc[Smart Attend] for the full priority algorithm
+* xref:plugin:sessions.adoc[Session Management] for pause, rename, search, and delete
+* xref:plugin:configuration.adoc[Configuration] for custom keybindings and layouts

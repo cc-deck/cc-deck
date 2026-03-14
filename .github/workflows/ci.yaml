@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: ["*"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  go-test:
+    name: Go Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: cc-deck/go.mod
+
+      - name: Run tests with coverage
+        working-directory: cc-deck
+        run: go test -coverprofile=coverage.out -covermode=atomic ./...
+
+      - name: Generate coverage report
+        working-directory: cc-deck
+        run: go tool cover -func=coverage.out | tail -1
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: cc-deck/coverage.out
+          flags: go
+          fail_ci_if_error: false
+
+  rust-test:
+    name: Rust Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Run tests
+        working-directory: cc-zellij-plugin
+        run: cargo test
+
+  rust-lint:
+    name: Rust Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+          components: clippy
+
+      - name: Run clippy
+        working-directory: cc-zellij-plugin
+        run: cargo clippy --target wasm32-wasip1 -- -D warnings
+
+  go-lint:
+    name: Go Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: cc-deck/go.mod
+
+      # go vet needs the embedded WASM binary
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+
+      - name: Build WASM plugin
+        working-directory: cc-zellij-plugin
+        run: cargo build --target wasm32-wasip1 --release
+
+      - name: Copy WASM to embed location
+        run: |
+          mkdir -p cc-deck/internal/plugin
+          cp cc-zellij-plugin/target/wasm32-wasip1/release/cc_deck.wasm cc-deck/internal/plugin/
+
+      - name: Run go vet
+        working-directory: cc-deck
+        run: go vet ./...
