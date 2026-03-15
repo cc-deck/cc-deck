@@ -1,4 +1,4 @@
-module github.com/rhuss/cc-mux/cc-deck
+module github.com/cc-deck/cc-deck
 
 go 1.25.0
 

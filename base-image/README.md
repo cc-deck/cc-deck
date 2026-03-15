@@ -25,8 +25,8 @@ during user image build (`cc-deck build`) to ensure version consistency.
 ### Pull and run
 
 ```bash
-podman pull ghcr.io/rhuss/cc-deck-base:latest
-podman run -it --rm ghcr.io/rhuss/cc-deck-base:latest
+podman pull quay.io/cc-deck/cc-deck-base:latest
+podman run -it --rm quay.io/cc-deck/cc-deck-base:latest
 ```
 
 ### Build locally
@@ -46,7 +46,7 @@ podman manifest create cc-deck-base:latest cc-deck-base:amd64 cc-deck-base:arm64
 ### Use as base for project images
 
 ```dockerfile
-FROM ghcr.io/rhuss/cc-deck-base:latest
+FROM quay.io/cc-deck/cc-deck-base:latest
 
 # Add project tools
 RUN dnf install -y golang && dnf clean all

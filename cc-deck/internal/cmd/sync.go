@@ -8,8 +8,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/rhuss/cc-mux/cc-deck/internal/k8s"
-	filesync "github.com/rhuss/cc-mux/cc-deck/internal/sync"
+	"github.com/cc-deck/cc-deck/internal/k8s"
+	filesync "github.com/cc-deck/cc-deck/internal/sync"
 )
 
 // SyncFlags holds the flags for the sync command.

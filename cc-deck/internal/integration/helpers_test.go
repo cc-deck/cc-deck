@@ -18,9 +18,9 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
-	"github.com/rhuss/cc-mux/cc-deck/internal/config"
-	"github.com/rhuss/cc-mux/cc-deck/internal/k8s"
-	"github.com/rhuss/cc-mux/cc-deck/internal/session"
+	"github.com/cc-deck/cc-deck/internal/config"
+	"github.com/cc-deck/cc-deck/internal/k8s"
+	"github.com/cc-deck/cc-deck/internal/session"
 )
 
 // testEnv holds shared state for the integration test suite.

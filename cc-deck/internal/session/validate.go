@@ -8,7 +8,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
-	"github.com/rhuss/cc-mux/cc-deck/internal/config"
+	"github.com/cc-deck/cc-deck/internal/config"
 )
 
 // ValidateProfileSecrets checks that all K8s Secrets referenced by the profile

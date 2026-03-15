@@ -20,8 +20,8 @@ CLI_BIN     = cc-deck/cc-deck
 
 BASE_IMAGE  = $(REGISTRY)/cc-deck-base
 
-CLI_LDFLAGS = -X github.com/rhuss/cc-mux/cc-deck/internal/cmd.Version=$(VERSION) \
-              -X github.com/rhuss/cc-mux/cc-deck/internal/cmd.ImageRegistry=$(REGISTRY)
+CLI_LDFLAGS = -X github.com/cc-deck/cc-deck/internal/cmd.Version=$(VERSION) \
+              -X github.com/cc-deck/cc-deck/internal/cmd.ImageRegistry=$(REGISTRY)
 
 .PHONY: build build-wasm build-wasm-debug copy-wasm build-cli cross-cli \
         test test-go test-rust lint lint-go lint-rust \

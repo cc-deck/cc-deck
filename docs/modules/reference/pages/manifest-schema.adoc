@@ -150,7 +150,7 @@ Optional.
 
 | `repo`
 | string
-| GitHub repository (e.g., `rhuss/cc-setup`)
+| GitHub repository (e.g., `cc-deck/cc-setup`)
 
 | `binary`
 | string

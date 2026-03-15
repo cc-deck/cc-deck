@@ -4,7 +4,7 @@ import (
 	"net"
 	"testing"
 
-	"github.com/rhuss/cc-mux/cc-deck/internal/config"
+	"github.com/cc-deck/cc-deck/internal/config"
 )
 
 func TestBuildNetworkPolicy_HasDefaultDenyEgress(t *testing.T) {
