@@ -2,7 +2,7 @@
 
 Contributions are welcome. Whether you are fixing a bug, improving documentation, or proposing a new feature, this guide explains how the process works.
 
-cc-deck uses [Spec-Driven Development (SDD)](https://specify.ing) for feature planning and implementation. SDD is a methodology where features are fully specified before code is written, producing reviewable design artifacts that serve as the contract between what was planned and what gets built. The tooling is provided by the [SDD plugin](https://specify.ing/plugins/claude-code/) for Claude Code, which automates spec generation, planning, task breakdown, and implementation tracking.
+cc-deck uses [Spec-Driven Development (SDD)](https://specify.ing) for feature planning and implementation. SDD is a methodology where features are fully specified before code is written, producing reviewable design artifacts that serve as the contract between what was planned and what gets built. The tooling is provided by the [SDD plugin](https://specify.ing/plugins/claude-code/) for Claude Code, which automates spec generation, planning, task breakdown, and implementation tracking. The underlying scaffolding and template engine is [spec-kit](https://github.com/specify-dev/spec-kit), which manages the spec directory structure, templates, and constitution files.
 
 ## Quick Start
 
