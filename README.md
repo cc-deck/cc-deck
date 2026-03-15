@@ -33,9 +33,37 @@ Run cc-deck locally with Zellij, in Podman containers with mounted source code, 
 
 ## Install
 
-### Quick Start (Demo Image)
+### Homebrew (macOS)
 
-Try cc-deck without installing anything locally:
+```bash
+brew install cc-deck/tap/cc-deck
+cc-deck plugin install
+```
+
+### Binary Download
+
+Download the latest release from [GitHub Releases](https://github.com/cc-deck/cc-deck/releases):
+
+```bash
+# macOS (Apple Silicon)
+curl -fsSL https://github.com/cc-deck/cc-deck/releases/latest/download/cc-deck_$(curl -s https://api.github.com/repos/cc-deck/cc-deck/releases/latest | jq -r .tag_name | sed 's/^v//')_darwin_arm64.tar.gz | tar -xz
+sudo mv cc-deck /usr/local/bin/
+cc-deck plugin install
+```
+
+### Linux Packages
+
+```bash
+# Fedora / RHEL
+sudo dnf install ./cc-deck_*.rpm
+
+# Debian / Ubuntu
+sudo apt install ./cc-deck_*.deb
+```
+
+Download RPM and DEB packages from [GitHub Releases](https://github.com/cc-deck/cc-deck/releases). After installing, run `cc-deck plugin install` to set up the Zellij plugin and hooks.
+
+### Demo Image (Try Without Installing)
 
 ```bash
 podman run -it --rm \
@@ -43,7 +71,7 @@ podman run -it --rm \
   quay.io/cc-deck/cc-deck-demo:latest
 ```
 
-### Native Installation
+### Build from Source
 
 ```bash
 git clone https://github.com/cc-deck/cc-deck.git
@@ -51,13 +79,7 @@ cd cc-deck
 make install
 ```
 
-This builds the WASM plugin, compiles the Go CLI, and installs everything into your Zellij configuration.
-
-#### Prerequisites
-
-- [Zellij](https://zellij.dev) 0.43 or later
-- [Go](https://go.dev) 1.22+
-- [Rust](https://www.rust-lang.org) stable with `wasm32-wasip1` target (`rustup target add wasm32-wasip1`)
+Requires [Zellij](https://zellij.dev) 0.43+, [Go](https://go.dev) 1.22+, and [Rust](https://www.rust-lang.org) stable with `wasm32-wasip1` target.
 
 ## Usage
 
