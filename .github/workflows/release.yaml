@@ -41,6 +41,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up QEMU for multi-arch builds
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -qy qemu-user-static
+
       - name: Extract version from tag
         id: version
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
