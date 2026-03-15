@@ -35,61 +35,45 @@ jobs:
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
 
   container-images:
-    name: Container Images
+    name: Container Images (amd64)
     runs-on: ubuntu-latest
     needs: release
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up QEMU for multi-arch builds
-        run: |
-          sudo apt-get update -q
-          sudo apt-get install -qy qemu-user-static
-
       - name: Extract version from tag
         id: version
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
-      - name: Download release binaries
+      - name: Download release binary
         run: |
           mkdir -p demo-image/.build-context
           VERSION=${{ steps.version.outputs.version }}
-          for arch in amd64 arm64; do
-            curl -fsSL "https://github.com/cc-deck/cc-deck/releases/download/${GITHUB_REF_NAME}/cc-deck_${VERSION}_linux_${arch}.tar.gz" \
-              | tar -xzf - -C /tmp cc-deck
-            mv /tmp/cc-deck demo-image/.build-context/cc-deck-linux-${arch}
-            chmod +x demo-image/.build-context/cc-deck-linux-${arch}
-          done
+          curl -fsSL "https://github.com/cc-deck/cc-deck/releases/download/${GITHUB_REF_NAME}/cc-deck_${VERSION}_linux_amd64.tar.gz" \
+            | tar -xzf - -C /tmp cc-deck
+          mv /tmp/cc-deck demo-image/.build-context/cc-deck-linux-amd64
+          chmod +x demo-image/.build-context/cc-deck-linux-amd64
 
       - name: Log in to quay.io
         run: podman login -u "${{ secrets.QUAY_USERNAME }}" -p "${{ secrets.QUAY_PASSWORD }}" quay.io
 
-      - name: Build and push base image
+      - name: Build and push base image (amd64)
         run: |
           VERSION=${{ steps.version.outputs.version }}
-          podman manifest create quay.io/cc-deck/cc-deck-base:${VERSION}
-          for arch in arm64 amd64; do
-            podman build --platform linux/${arch} \
-              -t quay.io/cc-deck/cc-deck-base:${VERSION}-${arch} base-image/
-            podman manifest add quay.io/cc-deck/cc-deck-base:${VERSION} \
-              quay.io/cc-deck/cc-deck-base:${VERSION}-${arch}
-          done
-          podman manifest push --all quay.io/cc-deck/cc-deck-base:${VERSION} \
-            docker://quay.io/cc-deck/cc-deck-base:${VERSION}
-          podman manifest push --all quay.io/cc-deck/cc-deck-base:${VERSION} \
-            docker://quay.io/cc-deck/cc-deck-base:latest
+          podman build --platform linux/amd64 \
+            -t quay.io/cc-deck/cc-deck-base:${VERSION} base-image/
+          podman push quay.io/cc-deck/cc-deck-base:${VERSION}
+          podman tag quay.io/cc-deck/cc-deck-base:${VERSION} quay.io/cc-deck/cc-deck-base:latest
+          podman push quay.io/cc-deck/cc-deck-base:latest
 
-      - name: Build and push demo image
+      - name: Build and push demo image (amd64)
         run: |
           VERSION=${{ steps.version.outputs.version }}
-          podman manifest create quay.io/cc-deck/cc-deck-demo:${VERSION}
-          for arch in arm64 amd64; do
-            podman build --platform linux/${arch} \
-              -t quay.io/cc-deck/cc-deck-demo:${VERSION}-${arch} demo-image/
-            podman manifest add quay.io/cc-deck/cc-deck-demo:${VERSION} \
-              quay.io/cc-deck/cc-deck-demo:${VERSION}-${arch}
-          done
-          podman manifest push --all quay.io/cc-deck/cc-deck-demo:${VERSION} \
-            docker://quay.io/cc-deck/cc-deck-demo:${VERSION}
-          podman manifest push --all quay.io/cc-deck/cc-deck-demo:${VERSION} \
-            docker://quay.io/cc-deck/cc-deck-demo:latest
+          podman build --platform linux/amd64 \
+            -t quay.io/cc-deck/cc-deck-demo:${VERSION} demo-image/
+          podman push quay.io/cc-deck/cc-deck-demo:${VERSION}
+          podman tag quay.io/cc-deck/cc-deck-demo:${VERSION} quay.io/cc-deck/cc-deck-demo:latest
+          podman push quay.io/cc-deck/cc-deck-demo:latest
+      # NOTE: Multi-arch (arm64) images are built and pushed locally via:
+      #   make base-image-push
+      #   make demo-image-push
