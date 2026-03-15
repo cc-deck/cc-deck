@@ -29,7 +29,7 @@ Currently only version `1` is supported.
 | `base`
 | string
 | No
-| Base image reference. Default: `quay.io/rhuss/cc-deck-base:latest`
+| Base image reference. Default: `quay.io/cc-deck/cc-deck-base:latest`
 
 | `tag`
 | string

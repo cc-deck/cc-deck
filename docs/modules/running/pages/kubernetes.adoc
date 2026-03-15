@@ -40,7 +40,7 @@ spec:
     spec:
       containers:
         - name: cc-deck
-          image: quay.io/rhuss/cc-deck-demo:latest
+          image: quay.io/cc-deck/cc-deck-demo:latest
           envFrom:
             - secretRef:
                 name: claude-credentials
@@ -108,7 +108,7 @@ spec:
         fsGroup: 1000
       containers:
         - name: cc-deck
-          image: quay.io/rhuss/cc-deck-demo:latest
+          image: quay.io/cc-deck/cc-deck-demo:latest
           envFrom:
             - secretRef:
                 name: claude-credentials
@@ -185,7 +185,7 @@ spec:
     spec:
       containers:
         - name: cc-deck
-          image: quay.io/rhuss/cc-deck-demo:latest
+          image: quay.io/cc-deck/cc-deck-demo:latest
           envFrom:
             - secretRef:
                 name: alice-credentials

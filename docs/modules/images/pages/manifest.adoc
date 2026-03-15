@@ -12,7 +12,7 @@ version: 1
 
 image:
   name: my-image
-  base: quay.io/rhuss/cc-deck-base:latest
+  base: quay.io/cc-deck/cc-deck-base:latest
   tag: latest
 
 tools: [...]
@@ -40,7 +40,7 @@ Defines the image name, base image, and tag.
 
 | `base`
 | No
-| Base image. Defaults to `quay.io/rhuss/cc-deck-base:latest`
+| Base image. Defaults to `quay.io/cc-deck/cc-deck-base:latest`
 
 | `tag`
 | No

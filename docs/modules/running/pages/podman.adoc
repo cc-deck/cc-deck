@@ -9,7 +9,7 @@ Changes are bidirectional: edits inside the container appear on your host, and v
 ----
 podman run -d --name mydev \
   -e ANTHROPIC_API_KEY=sk-ant-... \
-  quay.io/rhuss/cc-deck-demo:latest
+  quay.io/cc-deck/cc-deck-demo:latest
 
 podman exec -it mydev zellij --layout cc-deck
 ----
@@ -25,7 +25,7 @@ Mount your project directories so Claude Code works directly on your files:
 podman run -d --name mydev \
   -e ANTHROPIC_API_KEY=sk-ant-... \
   -v ~/projects/my-app:/home/dev/my-app \
-  quay.io/rhuss/cc-deck-demo:latest
+  quay.io/cc-deck/cc-deck-demo:latest
 ----
 
 Multiple projects can be mounted simultaneously:
@@ -36,7 +36,7 @@ podman run -d --name mydev \
   -e ANTHROPIC_API_KEY=sk-ant-... \
   -v ~/projects/frontend:/home/dev/frontend \
   -v ~/projects/backend:/home/dev/backend \
-  quay.io/rhuss/cc-deck-demo:latest
+  quay.io/cc-deck/cc-deck-demo:latest
 ----
 
 Each project gets its own Claude Code session and the sidebar tracks them all.
@@ -51,7 +51,7 @@ podman run -d --name mydev \
   -e ANTHROPIC_API_KEY=sk-ant-... \
   -v mydev-home:/home/dev \
   -v ~/projects/my-app:/home/dev/my-app \
-  quay.io/rhuss/cc-deck-demo:latest
+  quay.io/cc-deck/cc-deck-demo:latest
 ----
 
 The named volume `mydev-home` persists even when the container is removed.
@@ -89,7 +89,7 @@ On Linux, use `--userns=keep-id`:
 podman run -d --name mydev \
   --userns=keep-id \
   -v ~/projects/my-app:/home/dev/my-app \
-  quay.io/rhuss/cc-deck-demo:latest
+  quay.io/cc-deck/cc-deck-demo:latest
 ----
 
 On macOS, file permissions are handled automatically by the Podman VM.
@@ -103,7 +103,7 @@ If your container runs MCP servers or services that need to be reachable from th
 podman run -d --name mydev \
   -e ANTHROPIC_API_KEY=sk-ant-... \
   -p 8000:8000 -p 9000:9000 \
-  quay.io/rhuss/cc-deck-demo:latest
+  quay.io/cc-deck/cc-deck-demo:latest
 ----
 
 == Networking
@@ -121,7 +121,7 @@ podman run -d --name postgres --network devnet \
 
 podman run -d --name mydev --network devnet \
   -e ANTHROPIC_API_KEY=sk-ant-... \
-  quay.io/rhuss/cc-deck-demo:latest
+  quay.io/cc-deck/cc-deck-demo:latest
 ----
 
 Inside `mydev`, PostgreSQL is reachable at `postgres:5432`.
@@ -135,7 +135,7 @@ To use your host SSH keys for git operations inside the container:
 podman run -d --name mydev \
   -v $SSH_AUTH_SOCK:/ssh-agent:ro \
   -e SSH_AUTH_SOCK=/ssh-agent \
-  quay.io/rhuss/cc-deck-demo:latest
+  quay.io/cc-deck/cc-deck-demo:latest
 ----
 
 == Resource Limits
@@ -146,7 +146,7 @@ Set memory and CPU limits to prevent runaway processes:
 ----
 podman run -d --name mydev \
   --memory 8g --cpus 4 \
-  quay.io/rhuss/cc-deck-demo:latest
+  quay.io/cc-deck/cc-deck-demo:latest
 ----
 
 Claude Code requires at least 4 GB of RAM.
@@ -159,7 +159,7 @@ For a full development environment with multiple services:
 ----
 services:
   cc-deck:
-    image: quay.io/rhuss/cc-deck-demo:latest
+    image: quay.io/cc-deck/cc-deck-demo:latest
     environment:
       - ANTHROPIC_API_KEY
     volumes:

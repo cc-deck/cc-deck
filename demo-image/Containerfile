@@ -4,7 +4,7 @@
 #   podman run -d --name mydev -e ANTHROPIC_API_KEY=sk-ant-... quay.io/cc-deck/cc-deck-demo:latest
 #   podman exec -it mydev zellij --layout cc-deck
 
-ARG BASE_IMAGE=quay.io/rhuss/cc-deck-base:latest
+ARG BASE_IMAGE=quay.io/cc-deck/cc-deck-base:latest
 FROM ${BASE_IMAGE}
 
 ARG TARGETARCH

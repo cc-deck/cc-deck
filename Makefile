@@ -11,7 +11,7 @@
 #   make dev            Start Zellij with cc-deck layout for development
 
 VERSION    ?= 0.2.0
-REGISTRY   ?= quay.io/rhuss
+REGISTRY   ?= quay.io/cc-deck
 WASM_TARGET = wasm32-wasip1
 WASM_SRC    = cc-zellij-plugin/target/$(WASM_TARGET)/release/cc_deck.wasm
 WASM_DBG    = cc-zellij-plugin/target/$(WASM_TARGET)/debug/cc_deck.wasm
