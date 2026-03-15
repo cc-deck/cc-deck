@@ -18,9 +18,12 @@
 #
 # Screenshots saved to: docs/modules/using/images/
 
-set -euo pipefail
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Portable script directory detection (bash and zsh)
+if [[ -n "${ZSH_VERSION:-}" ]]; then
+    SCRIPT_DIR="${0:A:h}"
+else
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi
 source "${SCRIPT_DIR}/../runner.sh"
 
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
