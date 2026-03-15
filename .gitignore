@@ -29,3 +29,7 @@ cc-deck/cc-deck-linux-*
 demos/recordings/*.cast
 demos/recordings/*.gif
 demos/recordings/*.mp4
+demos/recordings/*.mp3
+demos/recordings/*.txt
+demos/recordings/*-scenes/
+demos/recordings/.assemble-work/

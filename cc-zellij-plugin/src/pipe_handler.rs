@@ -45,6 +45,8 @@ pub enum PipeAction {
     Pause,
     /// Toggle help overlay (cc-deck:help).
     Help,
+    /// Activate search/filter mode with optional initial text (cc-deck:search).
+    Search(Option<String>),
     /// Unknown message.
     Unknown,
 }
@@ -80,6 +82,7 @@ pub fn parse_pipe_message(name: &str, payload: Option<&str>) -> PipeAction {
         "cc-deck:nav-select" => PipeAction::NavSelect,
         "cc-deck:pause" => PipeAction::Pause,
         "cc-deck:help" => PipeAction::Help,
+        "cc-deck:search" => PipeAction::Search(payload.map(|s| s.to_string())),
         _ => PipeAction::Unknown,
     }
 }
@@ -172,6 +175,8 @@ mod tests {
         assert!(matches!(parse_pipe_message("cc-deck:nav-select", None), PipeAction::NavSelect));
         assert!(matches!(parse_pipe_message("cc-deck:pause", None), PipeAction::Pause));
         assert!(matches!(parse_pipe_message("cc-deck:help", None), PipeAction::Help));
+        assert!(matches!(parse_pipe_message("cc-deck:search", None), PipeAction::Search(None)));
+        assert!(matches!(parse_pipe_message("cc-deck:search", Some("todo")), PipeAction::Search(Some(_))));
     }
 
     #[test]

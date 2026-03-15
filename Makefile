@@ -27,7 +27,7 @@ CLI_LDFLAGS = -X github.com/rhuss/cc-mux/cc-deck/internal/cmd.Version=$(VERSION)
         test test-go test-rust lint lint-go lint-rust \
         install uninstall status \
         test-image demo-image demo-image-push base-image base-image-push \
-        demo-setup demo-record demo-gif demo-mp4 demo-clean \
+        demo-setup demo-record demo-gif demo-mp4 demo-voiceover-scenes demo-assemble demo-screenshots demo-clean \
         dev reload clean help
 
 ## -- Build -------------------------------------------------
@@ -152,6 +152,16 @@ demo-mp4:  ## Convert recording to MP4 with voiceover (DEMO=plugin|deploy|image)
 
 demo-voiceover:  ## Generate voiceover audio (DEMO=plugin|deploy|image, requires OPENAI_API_KEY)
 	demos/voiceover.sh demos/narration/$(DEMO)-demo.txt
+
+demo-voiceover-scenes:  ## Generate per-scene voiceover audio (DEMO=plugin|deploy|image)
+	demos/voiceover.sh demos/narration/$(DEMO)-demo.txt --per-scene
+
+demo-assemble:  ## Assemble scene clips + audio into final video (DEMO=plugin|deploy|image)
+	demos/assemble.sh $(DEMO)-demo
+
+demo-screenshots:  ## Interactive screenshot capture for docs (run inside Zellij)
+	@echo "Source the script inside your Zellij session:"
+	@echo "  source demos/scripts/screenshot-setup.sh"
 
 demo-clean:  ## Remove demo projects and recordings
 	demos/projects/cleanup.sh
