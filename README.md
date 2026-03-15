@@ -209,7 +209,7 @@ keybind = cmd+n=unbind
 | ○ | Idle | Running but waiting for user input |
 | ✓ | Done | Task completed |
 | ✓ | Agent Done | Sub-agent completed |
-| ⏸ | Paused | Excluded from attend cycling, name dimmed |
+| ⏸︎ | Paused | Excluded from attend cycling, name dimmed |
 
 ## Smart Attend (Alt+a)
 
