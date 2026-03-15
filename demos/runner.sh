@@ -87,10 +87,16 @@ wait_for() {
 
 # Send a pipe message to the cc-deck plugin.
 # Usage: cc_pipe "navigate:toggle"
+# Usage: cc_pipe "search" "todo"    (with payload)
 cc_pipe() {
     local action="$1"
-    log_debug "Pipe: cc-deck:$action"
-    zellij pipe --name "cc-deck:${action}"
+    local payload="${2:-}"
+    log_debug "Pipe: cc-deck:$action${payload:+ payload=$payload}"
+    if [[ -n "$payload" ]]; then
+        zellij pipe --name "cc-deck:${action}" -- "$payload"
+    else
+        zellij pipe --name "cc-deck:${action}"
+    fi
 }
 
 # Type text into the focused pane as if entered from the keyboard.

@@ -600,6 +600,24 @@ impl ZellijPlugin for PluginState {
                 true
             }
 
+            PipeAction::Search(text) => {
+                if !self.is_on_active_tab() {
+                    return false;
+                }
+                // Enter navigation mode if not already
+                if !self.navigation_mode {
+                    enter_navigation_mode(self);
+                }
+                // Activate filter with optional initial text
+                let mut fs = crate::state::FilterState::default();
+                if let Some(ref t) = text {
+                    fs.input_buffer = t.clone();
+                    fs.cursor_pos = t.len();
+                }
+                self.filter_state = Some(fs);
+                true
+            }
+
             PipeAction::DumpState => {
                 // Only respond from the active-tab instance to avoid duplicate output
                 if !self.is_on_active_tab() {
