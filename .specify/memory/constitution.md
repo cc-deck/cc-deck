@@ -66,6 +66,32 @@ For larger features (new modules, new CLI commands, new deployment patterns), al
 
 When a new feature specification is created and merged, add it to the "Feature Specifications" table in `README.md` with its ID, title, and status. Update the status column when implementation progresses or completes. The README spec table is the public-facing summary of all design work.
 
+### X. Release Process
+
+Releases are triggered by pushing a version tag (`v*`). The CI pipeline handles binaries, packages, and Homebrew automatically. However, the following manual steps are required for each release:
+
+1. **Multi-arch container images**: CI builds amd64 only. Run locally from project root:
+   ```bash
+   make base-image-push
+   make demo-image-push
+   ```
+   This builds and pushes arm64 + amd64 manifests to quay.io/cc-deck.
+
+2. **Post-release version bump**: After the tag is pushed, update version for next development cycle:
+   ```bash
+   # Update Makefile VERSION and cc-zellij-plugin/Cargo.toml version
+   # Commit: "Bump version to X.Y.Z-dev"
+   ```
+
+3. **Verify Homebrew formula**: After the release workflow completes, verify:
+   ```bash
+   brew update
+   brew install cc-deck/tap/cc-deck
+   cc-deck --version
+   ```
+
+When Claude Code triggers a release, execute these steps automatically after confirming the tag push succeeded.
+
 ## Development Workflow
 
 - `make install` for building and installing (NON-NEGOTIABLE, see Principle VI)
@@ -84,4 +110,4 @@ When a new feature specification is created and merged, add it to the "Feature S
 
 This constitution supersedes ad-hoc practices. Amendments require updating this file and the project memory.
 
-**Version**: 1.4.0 | **Ratified**: 2026-03-09 | **Last Amended**: 2026-03-14
+**Version**: 1.5.0 | **Ratified**: 2026-03-09 | **Last Amended**: 2026-03-15
