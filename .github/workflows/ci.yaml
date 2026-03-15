@@ -40,11 +40,15 @@ jobs:
         run: go tool cover -func=coverage.out | tail -1
 
       - name: Upload coverage to Codecov
+        if: env.CODECOV_TOKEN != ''
         uses: codecov/codecov-action@v5
         with:
+          token: ${{ secrets.CODECOV_TOKEN }}
           files: cc-deck/coverage.out
           flags: go
           fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   rust-test:
     name: Rust Tests
