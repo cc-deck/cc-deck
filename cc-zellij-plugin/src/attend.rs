@@ -50,15 +50,18 @@ pub fn perform_attend(state: &mut PluginState) -> AttendResult {
         b_perm.cmp(&a_perm).then(a.last_event_ts.cmp(&b.last_event_ts))
     });
 
-    // Tier 2: Done/AgentDone (most recently finished first)
+    // Tier 2: Done/AgentDone that have NOT been attended yet (most recent first)
     let mut done: Vec<_> = sessions.iter()
-        .filter(|s| !s.paused && matches!(s.activity, Activity::Done | Activity::AgentDone))
+        .filter(|s| !s.paused && !s.done_attended && matches!(s.activity, Activity::Done | Activity::AgentDone))
         .copied().collect();
     done.sort_by(|a, b| b.last_event_ts.cmp(&a.last_event_ts));
 
-    // Tier 3: Idle/Init (tab order)
+    // Tier 3: Idle/Init + already-attended Done sessions (tab order)
     let mut idle: Vec<_> = sessions.iter()
-        .filter(|s| !s.paused && matches!(s.activity, Activity::Idle | Activity::Init))
+        .filter(|s| !s.paused && (
+            matches!(s.activity, Activity::Idle | Activity::Init) ||
+            (s.done_attended && matches!(s.activity, Activity::Done | Activity::AgentDone))
+        ))
         .copied().collect();
     idle.sort_by_key(|s| s.tab_index.unwrap_or(usize::MAX));
 
@@ -91,6 +94,14 @@ pub fn perform_attend(state: &mut PluginState) -> AttendResult {
 
     state.last_attended_pane_id = Some(pane_id);
     write_last_attended(pane_id);
+
+    // Mark Done/AgentDone sessions as attended so they drop to idle tier
+    if let Some(session) = state.sessions.get_mut(&pane_id) {
+        if matches!(session.activity, Activity::Done | Activity::AgentDone) {
+            session.done_attended = true;
+        }
+    }
+
     switch_and_focus(tab_index, pane_id);
 
     AttendResult::Switched {
@@ -381,6 +392,40 @@ mod tests {
         match perform_attend(&mut state) {
             AttendResult::Switched { display_name, .. } => assert_eq!(display_name, "new-done"),
             _ => panic!("expected newest done first"),
+        }
+    }
+
+    #[test]
+    fn test_attend_done_then_falls_to_idle_tier() {
+        // After attending a Done session, it drops to idle tier
+        let mut s1 = Session::new(1, "a".into());
+        s1.activity = Activity::Done;
+        s1.tab_index = Some(0);
+        s1.last_event_ts = 200;
+        s1.display_name = "done".into();
+
+        let mut s2 = Session::new(2, "b".into());
+        s2.activity = Activity::Idle;
+        s2.tab_index = Some(1);
+        s2.display_name = "idle".into();
+
+        let mut state = make_state(vec![s1, s2]);
+
+        // First press: Done tier picks "done" (only unattended Done)
+        match perform_attend(&mut state) {
+            AttendResult::Switched { display_name, .. } => assert_eq!(display_name, "done"),
+            _ => panic!("expected done first"),
+        }
+
+        // Second press: Done is now attended, falls to idle tier
+        // Idle tier has both "idle" and "done" (attended), sorted by tab order
+        match perform_attend(&mut state) {
+            AttendResult::Switched { display_name, .. } => {
+                // Should pick from idle tier now (tab order: done=0, idle=1)
+                // Round-robin: last attended was "done" (pane 1), so next is "idle" (pane 2)
+                assert_eq!(display_name, "idle");
+            }
+            _ => panic!("expected idle after done was attended"),
         }
     }
 

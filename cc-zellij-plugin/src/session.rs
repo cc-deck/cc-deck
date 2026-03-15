@@ -80,6 +80,11 @@ pub struct Session {
     /// Separate from last_event_ts which tracks hook events.
     #[serde(default)]
     pub meta_ts: u64,
+    /// Whether this Done/AgentDone session has been attended already.
+    /// Once attended, it drops to the Idle tier for subsequent attend presses.
+    /// Reset when activity transitions away from Done/AgentDone.
+    #[serde(default)]
+    pub done_attended: bool,
 }
 
 impl Session {
@@ -97,6 +102,7 @@ impl Session {
             manually_renamed: false,
             paused: false,
             meta_ts: 0,
+            done_attended: false,
         }
     }
 
@@ -114,6 +120,12 @@ impl Session {
         }
 
         if self.activity != new_activity {
+            // Reset done_attended when leaving Done/AgentDone
+            if matches!(self.activity, Activity::Done | Activity::AgentDone)
+                && !matches!(new_activity, Activity::Done | Activity::AgentDone)
+            {
+                self.done_attended = false;
+            }
             self.activity = new_activity;
             self.last_event_ts = unix_now();
             true
