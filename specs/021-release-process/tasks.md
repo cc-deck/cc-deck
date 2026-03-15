@@ -52,8 +52,8 @@
 
 ### Implementation
 
-- [ ] T014 [US5] Create `.github/workflows/release.yaml` with tag trigger (`v*`), Rust toolchain setup, GoReleaser action, and GitHub token permissions
-- [ ] T015 [US5] Add `HOMEBREW_TAP_GITHUB_TOKEN` as a required secret in the release workflow (for Homebrew tap push)
+- [x] T014 [US5] Create `.github/workflows/release.yaml` with tag trigger (`v*`), Rust toolchain setup, GoReleaser action, and GitHub token permissions
+- [x] T015 [US5] Add `HOMEBREW_TAP_GITHUB_TOKEN` as a required secret in the release workflow (for Homebrew tap push)
 - [ ] T016 [US5] Verify: push a test tag `v0.2.1-rc.1` and confirm the release workflow runs and creates a draft GitHub Release
 
 **Checkpoint**: Tag push triggers automated release with all binary artifacts.
@@ -68,8 +68,8 @@
 
 ### Implementation
 
-- [ ] T017 [US1] Create `cc-deck/homebrew-tap` repository on GitHub with initial README
-- [ ] T018 [US1] Add brews section to `.goreleaser.yaml` with tap repository, formula name, homepage, description, dependencies (zellij as recommended), and post-install caveats
+- [x] T017 [US1] Create `cc-deck/homebrew-tap` repository on GitHub with initial README
+- [x] T018 [US1] Add brews section to `.goreleaser.yaml` with tap repository, formula name, homepage, description, dependencies (zellij as recommended), and post-install caveats
 - [ ] T019 [US1] Verify: after a release, the Homebrew tap repository contains a valid formula and `brew install cc-deck/tap/cc-deck` works
 
 **Checkpoint**: Homebrew installation works end-to-end.
