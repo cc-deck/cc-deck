@@ -1,23 +1,26 @@
-## scene:Launch Zellij with cc-deck
-Welcome to cc-deck, the TweetDeck for Claude Code. Let me show you how it works. We start by launching Zellij with the cc-deck layout. Notice the sidebar on the left. It is empty because no Claude Code sessions are running yet.
+## scene:The problem with multiple sessions
+You are working on a feature that touches three different services. You fire up Claude Code in each project directory, and within minutes you have three terminal tabs open. One is waiting for your permission to write a file. Another has finished its task. The third is still working. But which is which? You start tabbing through them, checking each one, losing your place, losing your flow. This is the core problem: Claude Code is fantastic in a single session, but as soon as you run multiple sessions in parallel, you lose visibility. There is no dashboard, no overview, no way to know which session needs you right now.
 
-## scene:Start first session (todo-api)
-Now we start our first Claude Code session. We are in a Python project, a simple TODO API. We ask Claude to add a search endpoint. Watch the sidebar. It picks up the new session within seconds and shows its activity status.
+## scene:What cc-deck solves
+cc-deck is a Zellij sidebar plugin that gives you a real-time command center for all your Claude Code sessions. Think of it as TweetDeck for Claude Code. Every session appears in the sidebar with a live status indicator. You can see at a glance who is working, who is waiting for permission, who is done, and who is paused. One keypress switches you to the session that needs your attention most. Let us see it in action.
 
-## scene:Open second session (weather-cli)
-Let us open a second session in a different tab. This time it is a Go CLI project. We ask Claude to add a JSON output flag. The sidebar now shows both sessions. Each has its own status indicator so you always know what is happening.
+## scene:Launch and start sessions
+We launch Zellij with the cc-deck layout. Notice the sidebar on the left. It is empty because no sessions are running yet. Now we start our first Claude Code session in a Python project. Watch the sidebar, it picks up the session within seconds. We open a second tab for a Go project, and a third for a web portfolio. Three sessions running simultaneously, all visible in the sidebar with live status indicators.
 
-## scene:Open third session (portfolio)
-One more session. This is an HTML portfolio page. We ask Claude to add a dark mode toggle. Three sessions running simultaneously, all visible in the sidebar.
+## scene:Switching tabs and smart attend
+As you switch between tabs manually, notice how the sidebar highlights the current session with a teal background. You always know where you are. But the real power is smart attend. Press Alt+a and cc-deck automatically jumps to the session that needs your attention most. Permission requests come first, then completed tasks, then idle sessions. Press Alt+a again to cycle to the next one. No more hunting through tabs.
 
-## scene:Navigate between sessions
-Now watch the navigation. We press Alt S to enter navigation mode. An amber cursor appears in the sidebar. We move up through the list and press Enter to jump to the first session. Instant context switching.
+## scene:Navigation mode
+For more control, press Alt+s to enter navigation mode. An amber cursor appears in the sidebar. Use j and k to move through the list, then press Enter to jump to that session. You can also press g to go to the first session and G to go to the last. Press Escape to leave navigation mode. This is keyboard-driven session switching without taking your hands off the home row.
 
-## scene:Smart attend in action
-Smart attend is the killer feature. Press Alt A and cc-deck automatically switches to the session that needs your attention most. Permission requests come first, then completed tasks, then idle sessions. Press Alt A again to cycle to the next one. No more checking tabs manually.
+## scene:Rename and pause
+Sessions can be renamed for clarity. In navigation mode, press r and type a new name. You can also right-click a session in the sidebar to rename it. Renamed sessions keep their name across Zellij restarts, so your labels persist. To pause a session, press p in navigation mode. A paused session shows a pause icon and dimmed text. Paused sessions are skipped by smart attend, which is useful when you want to focus on active work and come back to the paused session later.
 
-## scene:Session management
-You can also manage sessions from the sidebar. Pause a session to exclude it from attend cycling. Show the help overlay for a quick reference of all keyboard shortcuts. Everything is keyboard-driven. No mouse required.
+## scene:Help and new tabs
+Press question mark in navigation mode to see all available keyboard shortcuts at a glance. This overlay covers the sidebar until you press question mark again. To start a new session, press n in navigation mode. This creates a fresh Zellij tab where you can launch Claude Code in a new project. The sidebar picks it up automatically.
 
-## scene:Demo complete
-That is cc-deck. A real-time dashboard for all your Claude Code sessions, with smart attention routing and keyboard-driven navigation. Install it today and take control of your AI coding workflow.
+## scene:Session snapshots
+cc-deck can save and restore your session layout. Run cc-deck snapshot save to capture the current set of sessions, their names, working directories, and pause states. Later, run cc-deck snapshot restore to recreate the same layout. This is useful when you want to resume a multi-project workflow after a break or share a session layout with your team.
+
+## scene:What comes next
+In the next demo, we take cc-deck into containers. We will show you how to run your entire development environment inside Podman, with cc-deck managing sessions in an isolated, reproducible setup. The interesting part is how cc-deck intelligently transforms your local development setup into a container image. It analyzes your tools, your shell configuration, your editor plugins, and builds a bespoke image that feels just like your local machine. Stay tuned.
