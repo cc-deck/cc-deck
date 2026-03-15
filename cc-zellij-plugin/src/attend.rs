@@ -19,59 +19,62 @@ pub enum AttendResult {
     AllBusy,
 }
 
-/// Find the next session needing attention using tiered priority:
-/// 1. Permission waiting (oldest first) - critical, blocks progress
-/// 2. Notification waiting (oldest first) - soft, informational
-/// 3. Done/AgentDone (tab order) - just finished, need review
-/// 4. Idle/Init (tab order) - already seen, nothing new
-/// 5. Skip Working - actively running
+/// Find the next session needing attention using exclusive tiers:
 ///
-/// Round-robin: subsequent presses cycle through the priority-ordered list,
-/// starting after the last attended session.
+/// **Exclusive tier selection**: Only the highest non-empty tier is used.
+/// When ⚠ sessions exist, Alt+a cycles ONLY among ⚠ sessions.
+/// When no ⚠ but ✓ exists, Alt+a cycles among ✓ sessions first.
+/// When only idle sessions exist, Alt+a cycles among those.
+///
+/// Tier priorities:
+/// 1. Waiting (Permission first, then Notification) - sorted oldest first
+/// 2. Done/AgentDone (most recent first, so newly finished jump to front)
+/// 3. Idle/Init (tab order)
+/// 4. Skip: Working, Paused
+///
+/// Round-robin within the selected tier only.
 pub fn perform_attend(state: &mut PluginState) -> AttendResult {
     let sessions = state.sessions_by_tab_order();
     if sessions.is_empty() {
         return AttendResult::NoneWaiting;
     }
 
-    // Build priority-ordered candidate list
-    let mut candidates: Vec<&crate::session::Session> = Vec::new();
-
-    // Tier 1: Permission waiting (oldest first), skip paused
-    let mut t1: Vec<_> = sessions.iter()
-        .filter(|s| !s.paused && matches!(s.activity, Activity::Waiting(WaitReason::Permission)))
+    // Tier 1: All waiting sessions (Permission + Notification, oldest first)
+    let mut waiting: Vec<_> = sessions.iter()
+        .filter(|s| !s.paused && matches!(s.activity, Activity::Waiting(_)))
         .copied().collect();
-    t1.sort_by_key(|s| s.last_event_ts);
-    candidates.extend(t1);
+    // Sort: Permission before Notification, then oldest first within each
+    waiting.sort_by(|a, b| {
+        let a_perm = matches!(a.activity, Activity::Waiting(WaitReason::Permission));
+        let b_perm = matches!(b.activity, Activity::Waiting(WaitReason::Permission));
+        b_perm.cmp(&a_perm).then(a.last_event_ts.cmp(&b.last_event_ts))
+    });
 
-    // Tier 2: Notification waiting (oldest first), skip paused
-    let mut t2: Vec<_> = sessions.iter()
-        .filter(|s| !s.paused && matches!(s.activity, Activity::Waiting(WaitReason::Notification)))
-        .copied().collect();
-    t2.sort_by_key(|s| s.last_event_ts);
-    candidates.extend(t2);
-
-    // Tier 3: Done/AgentDone (tab order) - just finished, likely need review
-    let mut t3: Vec<_> = sessions.iter()
+    // Tier 2: Done/AgentDone (most recently finished first)
+    let mut done: Vec<_> = sessions.iter()
         .filter(|s| !s.paused && matches!(s.activity, Activity::Done | Activity::AgentDone))
         .copied().collect();
-    t3.sort_by_key(|s| s.tab_index.unwrap_or(usize::MAX));
-    candidates.extend(t3);
+    done.sort_by(|a, b| b.last_event_ts.cmp(&a.last_event_ts));
 
-    // Tier 4: Idle/Init (tab order) - already seen, nothing new
-    let mut t4: Vec<_> = sessions.iter()
+    // Tier 3: Idle/Init (tab order)
+    let mut idle: Vec<_> = sessions.iter()
         .filter(|s| !s.paused && matches!(s.activity, Activity::Idle | Activity::Init))
         .copied().collect();
-    t4.sort_by_key(|s| s.tab_index.unwrap_or(usize::MAX));
-    candidates.extend(t4);
+    idle.sort_by_key(|s| s.tab_index.unwrap_or(usize::MAX));
 
-    if candidates.is_empty() {
+    // Pick the highest non-empty tier exclusively
+    let candidates = if !waiting.is_empty() {
+        waiting
+    } else if !done.is_empty() {
+        done
+    } else if !idle.is_empty() {
+        idle
+    } else {
         return AttendResult::AllBusy;
-    }
+    };
 
-    // Round-robin: read last attended from shared file (survives instance switches).
-    // When the active-tab instance changes (after attend switches tabs and keybinds
-    // re-register), the new instance picks up where the previous one left off.
+    // Round-robin within the selected tier.
+    // Read last attended from shared file (survives instance switches).
     let last_attended = read_last_attended().or(state.last_attended_pane_id);
     let start_idx = if let Some(last_id) = last_attended {
         candidates.iter()
@@ -82,7 +85,6 @@ pub fn perform_attend(state: &mut PluginState) -> AttendResult {
         0
     };
 
-    // Extract data before dropping the borrow on state
     let pane_id = candidates[start_idx].pane_id;
     let tab_index = candidates[start_idx].tab_index.unwrap_or(0);
     let display_name = candidates[start_idx].display_name.clone();
@@ -324,6 +326,62 @@ mod tests {
 
         let mut state = make_state(vec![s1]);
         assert!(matches!(perform_attend(&mut state), AttendResult::AllBusy));
+    }
+
+    #[test]
+    fn test_attend_waiting_excludes_done_and_idle() {
+        // When ⚠ sessions exist, only cycle among ⚠ sessions
+        let mut s1 = Session::new(1, "a".into());
+        s1.activity = Activity::Waiting(WaitReason::Permission);
+        s1.tab_index = Some(0);
+        s1.display_name = "waiting".into();
+        s1.last_event_ts = 100;
+
+        let mut s2 = Session::new(2, "b".into());
+        s2.activity = Activity::Done;
+        s2.tab_index = Some(1);
+        s2.display_name = "done".into();
+
+        let mut s3 = Session::new(3, "c".into());
+        s3.activity = Activity::Idle;
+        s3.tab_index = Some(2);
+        s3.display_name = "idle".into();
+
+        let mut state = make_state(vec![s1, s2, s3]);
+
+        // First press: goes to waiting
+        match perform_attend(&mut state) {
+            AttendResult::Switched { display_name, .. } => assert_eq!(display_name, "waiting"),
+            _ => panic!("expected waiting"),
+        }
+
+        // Second press: still waiting (only candidate in tier)
+        match perform_attend(&mut state) {
+            AttendResult::Switched { display_name, .. } => assert_eq!(display_name, "waiting"),
+            _ => panic!("expected waiting again"),
+        }
+    }
+
+    #[test]
+    fn test_attend_done_most_recent_first() {
+        // Done sessions sorted most recently finished first
+        let mut s1 = Session::new(1, "a".into());
+        s1.activity = Activity::Done;
+        s1.tab_index = Some(0);
+        s1.last_event_ts = 100;
+        s1.display_name = "old-done".into();
+
+        let mut s2 = Session::new(2, "b".into());
+        s2.activity = Activity::Done;
+        s2.tab_index = Some(1);
+        s2.last_event_ts = 300;
+        s2.display_name = "new-done".into();
+
+        let mut state = make_state(vec![s1, s2]);
+        match perform_attend(&mut state) {
+            AttendResult::Switched { display_name, .. } => assert_eq!(display_name, "new-done"),
+            _ => panic!("expected newest done first"),
+        }
     }
 
     #[test]

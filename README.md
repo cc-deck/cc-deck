@@ -213,13 +213,14 @@ keybind = cmd+n=unbind
 
 ## Smart Attend (Alt+a)
 
-Cycles through sessions in priority order:
+Uses exclusive tiers. Only the highest non-empty tier is cycled:
 
-1. **Permission requests** (oldest first, most urgent)
-2. **Idle/done/init sessions** (newest first)
-3. **Skips** working sessions and paused sessions
+1. **⚠ Waiting** (permission first, then notification, oldest first). When waiting sessions exist, Alt+a cycles ONLY among those.
+2. **✓ Done** (most recently finished first). Only used when no waiting sessions exist.
+3. **○ Idle/Init** (tab order). Only used when nothing else needs attention.
+4. **Skips**: Working and Paused sessions are never attended.
 
-Subsequent presses cycle round-robin through the list.
+Subsequent presses round-robin within the selected tier.
 
 ## Build from Source
 
