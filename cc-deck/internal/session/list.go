@@ -13,8 +13,8 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"gopkg.in/yaml.v3"
 
-	"github.com/rhuss/cc-mux/cc-deck/internal/config"
-	"github.com/rhuss/cc-mux/cc-deck/internal/k8s"
+	"github.com/cc-deck/cc-deck/internal/config"
+	"github.com/cc-deck/cc-deck/internal/k8s"
 )
 
 // PodStatus represents the live status of a session's Pod.

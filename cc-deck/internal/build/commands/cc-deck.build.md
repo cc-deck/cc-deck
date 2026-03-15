@@ -60,7 +60,7 @@ RUN <curl downloads for each github_tool>
 # MANDATORY Layer: cc-session and cc-setup (companion tools from GitHub)
 RUN ARCH=$(uname -m) && \
     for TOOL in cc-session cc-setup; do \
-      curl -fsSL "https://github.com/rhuss/${TOOL}/releases/latest/download/${TOOL}-${ARCH}-unknown-linux-gnu.tar.xz" \
+      curl -fsSL "https://github.com/cc-deck//releases/latest/download/${TOOL}-${ARCH}-unknown-linux-gnu.tar.xz" \
         | tar -xJf - -C /usr/local/bin ${TOOL} && \
       chmod +x /usr/local/bin/${TOOL}; \
     done

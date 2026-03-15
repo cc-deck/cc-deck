@@ -14,9 +14,9 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
-	"github.com/rhuss/cc-mux/cc-deck/internal/config"
-	"github.com/rhuss/cc-mux/cc-deck/internal/k8s"
-	filesync "github.com/rhuss/cc-mux/cc-deck/internal/sync"
+	"github.com/cc-deck/cc-deck/internal/config"
+	"github.com/cc-deck/cc-deck/internal/k8s"
+	filesync "github.com/cc-deck/cc-deck/internal/sync"
 )
 
 // ExitCodeResourceConflict is the exit code for duplicate session name.

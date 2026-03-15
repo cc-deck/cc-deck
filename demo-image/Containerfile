@@ -17,7 +17,7 @@ RUN touch /home/dev/.zshrc && chown dev:dev /home/dev/.zshrc
 
 # cc-session (Rust release: arch-unknown-linux-gnu.tar.xz with nested dir)
 RUN ARCH=$(uname -m) && \
-    curl -fsSL "https://github.com/rhuss/cc-session/releases/latest/download/cc-session-${ARCH}-unknown-linux-gnu.tar.xz" \
+    curl -fsSL "https://github.com/cc-deck/cc-session/releases/latest/download/cc-session-${ARCH}-unknown-linux-gnu.tar.xz" \
       | tar -xJf - --strip-components=1 -C /usr/local/bin "cc-session-${ARCH}-unknown-linux-gnu/cc-session" && \
     chmod +x /usr/local/bin/cc-session
 
@@ -25,7 +25,7 @@ RUN ARCH=$(uname -m) && \
 ARG CC_SETUP_VERSION=0.3.0
 RUN ARCH=$(uname -m) && \
     case "$ARCH" in x86_64) GOARCH=amd64;; aarch64) GOARCH=arm64;; esac && \
-    curl -fsSL "https://github.com/rhuss/cc-setup/releases/download/v${CC_SETUP_VERSION}/cc-setup-${CC_SETUP_VERSION}-linux-${GOARCH}.tar.gz" \
+    curl -fsSL "https://github.com/cc-deck/cc-setup/releases/download/v${CC_SETUP_VERSION}/cc-setup-${CC_SETUP_VERSION}-linux-${GOARCH}.tar.gz" \
       | tar -xzf - -C /usr/local/bin cc-setup && \
     chmod +x /usr/local/bin/cc-setup
 

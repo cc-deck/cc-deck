@@ -22,8 +22,8 @@ import (
 	"k8s.io/client-go/tools/remotecommand"
 	"k8s.io/client-go/transport/spdy"
 
-	"github.com/rhuss/cc-mux/cc-deck/internal/config"
-	"github.com/rhuss/cc-mux/cc-deck/internal/k8s"
+	"github.com/cc-deck/cc-deck/internal/config"
+	"github.com/cc-deck/cc-deck/internal/k8s"
 )
 
 const (

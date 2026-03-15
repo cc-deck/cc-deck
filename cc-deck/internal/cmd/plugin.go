@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/rhuss/cc-mux/cc-deck/internal/plugin"
+	"github.com/cc-deck/cc-deck/internal/plugin"
 )
 
 // NewPluginCmd creates the plugin cobra command with subcommands.

@@ -9,7 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/rhuss/cc-mux/cc-deck/internal/build"
+	"github.com/cc-deck/cc-deck/internal/build"
 )
 
 // NewImageCmd creates the image parent command with subcommands.

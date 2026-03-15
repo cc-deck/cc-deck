@@ -17,10 +17,10 @@ builds:
     binary: cc-deck
     ldflags:
       - -s -w
-      - -X github.com/rhuss/cc-mux/cc-deck/internal/cmd.Version={{.Version}}
-      - -X github.com/rhuss/cc-mux/cc-deck/internal/cmd.Commit={{.Commit}}
-      - -X github.com/rhuss/cc-mux/cc-deck/internal/cmd.Date={{.Date}}
-      - -X github.com/rhuss/cc-mux/cc-deck/internal/cmd.ImageRegistry=quay.io/cc-deck
+      - -X github.com/cc-deck/cc-deck/internal/cmd.Version={{.Version}}
+      - -X github.com/cc-deck/cc-deck/internal/cmd.Commit={{.Commit}}
+      - -X github.com/cc-deck/cc-deck/internal/cmd.Date={{.Date}}
+      - -X github.com/cc-deck/cc-deck/internal/cmd.ImageRegistry=quay.io/cc-deck
     goos:
       - linux
       - darwin

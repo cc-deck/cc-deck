@@ -124,9 +124,9 @@ Additional tools downloaded from GitHub releases.
 [source,yaml]
 ----
 github_tools:
-  - repo: rhuss/cc-setup
+  - repo: cc-deck/cc-setup
     binary: cc-setup
-  - repo: rhuss/cc-session
+  - repo: cc-deck/cc-session
     binary: cc-session
 ----
 

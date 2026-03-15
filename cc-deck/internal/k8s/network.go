@@ -10,7 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
-	"github.com/rhuss/cc-mux/cc-deck/internal/config"
+	"github.com/cc-deck/cc-deck/internal/config"
 )
 
 // NetworkPolicyParams holds parameters for building network policies.
