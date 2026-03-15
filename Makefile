@@ -102,8 +102,9 @@ test-image: build cross-cli  ## Build cc-deck, cross-compile, init test dir, and
 	@echo "Next: cd $(TEST_IMAGE_DIR) && claude"
 	@echo "Then: /cc-deck.build"
 
-## -- Demo Image -------------------------------------------
+## -- Container Images --------------------------------------
 
+PLATFORMS  ?= linux/arm64,linux/amd64
 DEMO_IMAGE = $(REGISTRY)/cc-deck-demo
 
 demo-image: cross-cli  ## Build the cc-deck demo container image
@@ -111,18 +112,14 @@ demo-image: cross-cli  ## Build the cc-deck demo container image
 	cp cc-deck/cc-deck-linux-* demo-image/.build-context/
 	podman build --platform $(PLATFORMS) -t $(DEMO_IMAGE):latest demo-image/
 
-demo-image-push: demo-image  ## Build and push the demo image
-	podman push $(DEMO_IMAGE):latest
-
-## -- Base Image -------------------------------------------
-
-PLATFORMS  ?= linux/arm64,linux/amd64
+demo-image-push: demo-image  ## Build and push the demo image (multi-arch)
+	podman manifest push --all $(DEMO_IMAGE):latest docker://$(DEMO_IMAGE):latest
 
 base-image:  ## Build the cc-deck base container image
 	podman build --platform $(PLATFORMS) -t $(BASE_IMAGE):latest base-image/
 
-base-image-push: base-image  ## Build and push the base image
-	podman push $(BASE_IMAGE):latest
+base-image-push: base-image  ## Build and push the base image (multi-arch)
+	podman manifest push --all $(BASE_IMAGE):latest docker://$(BASE_IMAGE):latest
 
 ## -- Demo Recording ----------------------------------------
 
