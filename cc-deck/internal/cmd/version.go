@@ -15,7 +15,7 @@ var (
 	Version       = "dev"
 	Commit        = "unknown"
 	Date          = "unknown"
-	ImageRegistry = "quay.io/rhuss"
+	ImageRegistry = "quay.io/cc-deck"
 )
 
 type versionInfo struct {

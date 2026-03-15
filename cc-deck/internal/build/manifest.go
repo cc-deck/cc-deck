@@ -110,7 +110,7 @@ func (m *Manifest) ImageRef() string {
 
 // DefaultBaseImage is the fallback base image reference.
 // The registry prefix is set at build time via ldflags.
-var DefaultBaseImage = "quay.io/rhuss/cc-deck-base:latest"
+var DefaultBaseImage = "quay.io/cc-deck/cc-deck-base:latest"
 
 // BaseImage returns the base image reference, with default.
 func (m *Manifest) BaseImage() string {
