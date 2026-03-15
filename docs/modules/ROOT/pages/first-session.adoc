@@ -99,18 +99,21 @@ The sidebar shows icons next to each session:
 
 [cols="1,3"]
 |===
-| Indicator | Meaning
+| Icon | Meaning
 
-| Spinning animation
+| ●
 | Claude Code is actively working.
 
-| Attention marker
-| Session needs your input (permission request).
+| ⚠
+| Session needs your input (permission request or notification).
 
-| Checkmark
+| ○
+| Session is idle or just started.
+
+| ✓
 | Session finished its task.
 
-| Pause icon
+| ⏸
 | Session is paused (you toggled it with `p`).
 |===
 

@@ -57,7 +57,7 @@
 - [x] T014 [US1] Add Steps widget to `index.astro` showing getting started flow (Install, Launch, Build Image, Deploy)
 - [x] T015 [US1] Add CallToAction widget at bottom of `index.astro` with links to quickstart docs and GitHub
 - [x] T016 [US1] Implement dark/light theme toggle in `cc-deck.github.io/src/components/` (matching antwort pattern)
-- [ ] T017 [US1] Verify: Lighthouse score 90+ for performance and accessibility, responsive on mobile/tablet/desktop
+- [x] T017 [US1] Verify: Lighthouse score 90+ for performance and accessibility, responsive on mobile/tablet/desktop
 
 **Checkpoint**: Landing page complete with all sections, themes, and responsive design.
 
@@ -77,7 +77,7 @@
 - [x] T021 [US2] Write `docs/modules/quickstarts/pages/install.adoc` covering native installation (make build, make install)
 - [x] T022 [P] [US2] Write `docs/modules/quickstarts/pages/first-session.adoc` covering first Zellij + Claude Code session
 - [x] T023 [US2] Create `docs/modules/quickstarts/nav.adoc` with page ordering
-- [ ] T024 [US2] Verify: run the one-liner quickstart, confirm working Zellij session with cc-deck sidebar
+- [x] T024 [US2] Verify: run the one-liner quickstart, confirm working Zellij session with cc-deck sidebar
 
 **Checkpoint**: Demo image builds. Quickstart docs guide users to a working session in under 5 minutes.
 
