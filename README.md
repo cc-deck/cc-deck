@@ -13,6 +13,8 @@
 
 **[Website](https://cc-deck.github.io)** · **[Documentation](https://cc-deck.github.io/docs/)** · **[Quickstart](#install)** · **[Contributing](CONTRIBUTING.md)**
 
+<br clear="right"/>
+
 ---
 
 ## What is cc-deck?
