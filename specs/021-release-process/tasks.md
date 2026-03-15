@@ -101,7 +101,7 @@
 ### Implementation
 
 - [ ] T023 [US6] Add container image build and push job to `.github/workflows/release.yaml`: login to quay.io, build base + demo images for arm64/amd64, push multi-arch manifests with version tag and latest
-- [ ] T024 [P] [US6] Add `QUAY_USERNAME` and `QUAY_PASSWORD` as GitHub Actions secrets
+- [x] T024 [P] [US6] Add `QUAY_USERNAME` and `QUAY_PASSWORD` as GitHub Actions secrets
 - [ ] T025 [US6] Verify: after release, `podman pull quay.io/cc-deck/cc-deck-demo:0.3.0` and `podman pull quay.io/cc-deck/cc-deck-demo:latest` both work
 
 **Checkpoint**: Container images available on new registry with version tags.
