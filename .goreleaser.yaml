@@ -72,6 +72,7 @@ brews:
       owner: cc-deck
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Formula
     homepage: https://cc-deck.github.io
     description: "The TweetDeck for Claude Code. A Zellij sidebar plugin for managing multiple Claude Code sessions."
     license: Apache-2.0
