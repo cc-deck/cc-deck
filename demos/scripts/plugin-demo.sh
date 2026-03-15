@@ -2,13 +2,18 @@
 # Plugin Demo - Manual Mode
 #
 # Run this INSIDE a Zellij session with cc-deck layout.
-# Start your screen recording (e.g., macOS screen capture) BEFORE sourcing this.
+#
+# Two recording modes:
+#   Default:          Single continuous recording. Start your screen recorder
+#                     before sourcing this script.
+#   --scene-by-scene: Pause between scenes for start/stop of individual clips.
+#                     Save each clip as scene-01.mov, scene-02.mov, etc. in
+#                     demos/recordings/plugin-demo-scenes/
 #
 # Usage:
 #   1. Start Zellij:  zellij --layout cc-deck
-#   2. Start screen recording
-#   3. Source this:    source demos/scripts/plugin-demo.sh
-#   4. Stop screen recording when done
+#   2. Source this:    source demos/scripts/plugin-demo.sh [--scene-by-scene]
+#   3. Follow the prompts
 #
 # Each scene pauses and waits for you to press Enter before continuing.
 # This gives you control over pacing.
@@ -19,14 +24,40 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../runner.sh"
 
 DEMO_DIR="/tmp/cc-deck-demo"
+SCENE_BY_SCENE=false
+SCENE_COUNTER=0
+SCENES_DIR="${SCRIPT_DIR}/../recordings/plugin-demo-scenes"
+
+# Parse arguments (when sourced, use $@ from the sourcing command)
+for arg in "$@"; do
+    case "$arg" in
+        --scene-by-scene) SCENE_BY_SCENE=true ;;
+    esac
+done
+
+if $SCENE_BY_SCENE; then
+    mkdir -p "$SCENES_DIR"
+fi
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 # Wait for the user to press Enter before continuing
 proceed() {
-    echo ""
-    echo ">>> Press Enter to continue to next scene..."
-    read -r
+    if $SCENE_BY_SCENE; then
+        echo ""
+        echo ">>> STOP recording for scene $(printf '%02d' "$SCENE_COUNTER")."
+        echo "    Save clip as: $(basename "$SCENES_DIR")/scene-$(printf '%02d' "$SCENE_COUNTER").mov"
+        echo ""
+        echo ">>> Press Enter when ready to START recording the next scene..."
+        read -r
+        SCENE_COUNTER=$((SCENE_COUNTER + 1))
+        echo ">>> Recording scene $(printf '%02d' "$SCENE_COUNTER"). Go!"
+        pause 1
+    else
+        echo ""
+        echo ">>> Press Enter to continue to next scene..."
+        read -r
+    fi
 }
 
 # ─── Preflight ────────────────────────────────────────────────────────────────
@@ -38,10 +69,20 @@ fi
 
 echo ""
 echo "=== cc-deck Plugin Demo ==="
-echo "Make sure screen recording is running."
-echo ""
-
-proceed
+if $SCENE_BY_SCENE; then
+    echo "Mode: scene-by-scene recording"
+    echo "Save clips to: $(basename "$SCENES_DIR")/"
+    echo ""
+    echo ">>> Start recording scene 01, then press Enter..."
+    SCENE_COUNTER=1
+    read -r
+    echo ">>> Recording scene 01. Go!"
+    pause 1
+else
+    echo "Make sure screen recording is running."
+    echo ""
+    proceed
+fi
 
 # ─── Scene 1: Start First Session ─────────────────────────────────────────────
 
@@ -148,5 +189,14 @@ proceed
 
 echo ""
 echo "=== Plugin demo finished ==="
-echo "Stop your screen recording now."
+if $SCENE_BY_SCENE; then
+    echo ">>> STOP recording for scene $(printf '%02d' "$SCENE_COUNTER")."
+    echo ""
+    echo "All clips should be in: $SCENES_DIR/"
+    echo "Next steps:"
+    echo "  1. Generate voiceover:  ./demos/voiceover.sh demos/narration/plugin-demo.txt --per-scene"
+    echo "  2. Assemble:            ./demos/assemble.sh plugin-demo"
+else
+    echo "Stop your screen recording now."
+fi
 echo ""
