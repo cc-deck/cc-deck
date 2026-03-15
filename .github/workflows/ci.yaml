@@ -17,6 +17,20 @@ jobs:
         with:
           go-version-file: cc-deck/go.mod
 
+      # Go embed requires the WASM binary to exist
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+
+      - name: Build WASM plugin
+        working-directory: cc-zellij-plugin
+        run: cargo build --target wasm32-wasip1 --release
+
+      - name: Copy WASM to embed location
+        run: |
+          mkdir -p cc-deck/internal/plugin
+          cp cc-zellij-plugin/target/wasm32-wasip1/release/cc_deck.wasm cc-deck/internal/plugin/
+
       - name: Run tests with coverage
         working-directory: cc-deck
         run: go test -coverprofile=coverage.out -covermode=atomic ./...
