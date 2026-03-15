@@ -84,7 +84,16 @@ else
     proceed
 fi
 
-# ─── Scene 1: Start First Session ─────────────────────────────────────────────
+# ─── Scene 1: Launch Zellij ─────────────────────────────────────────────────
+
+scene "Launch Zellij with cc-deck"
+echo "Zellij is running with the cc-deck sidebar."
+echo "The sidebar is empty because no Claude Code sessions are running yet."
+pause 3
+
+proceed
+
+# ─── Scene 2: Start First Session ─────────────────────────────────────────────
 
 scene "Start first session (todo-api)"
 echo "Opening todo-api project and starting Claude Code..."
@@ -184,6 +193,12 @@ cc_pipe "nav-toggle"
 pause 1
 
 proceed
+
+# ─── Scene 8: Demo Complete ──────────────────────────────────────────────────
+
+scene "Demo complete"
+echo "All sessions visible in the sidebar. cc-deck in action."
+pause 3
 
 # ─── Done ─────────────────────────────────────────────────────────────────────
 
