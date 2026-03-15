@@ -1,21 +1,16 @@
 #!/usr/bin/env bash
-# Plugin Demo - Hybrid Recording Script
+# Plugin Demo - Teleprompter + Session Setup
 #
-# Three-part demo:
-#   Part 1 (scenes 1-2): Motivation and problem statement
-#   Part 2 (scenes 3-8): Live feature walkthrough in Zellij
-#   Part 3 (scene 9):    Outlook and teaser for container demo
-#
-# Drives the Zellij session from a SEPARATE terminal while iShowU (or similar)
-# records only the Zellij window. Automated parts inject commands via
-# `zellij action` and `zellij pipe`. Interactive parts prompt you to perform
-# manual keypresses in the Zellij window.
+# Run from a SEPARATE terminal while recording the Zellij window.
+# Automates session creation (scenes 1-3) and shows prompts for
+# manual actions during the rest of the demo.
 #
 # Usage (from a terminal OUTSIDE Zellij):
 #   1. Start Zellij:    zellij --layout cc-deck
-#   2. From another terminal:
-#      source demos/scripts/plugin-demo.sh [--scene-by-scene]
-#   3. Follow prompts in this terminal; actions happen in Zellij
+#   2. Start screen recording on the Zellij window
+#   3. From another terminal:
+#      source demos/scripts/plugin-demo.sh
+#   4. Follow prompts, press Enter to advance
 #
 # Designed to be sourced from both bash and zsh.
 
@@ -28,38 +23,12 @@ fi
 source "${SCRIPT_DIR}/../runner.sh"
 
 DEMO_DIR="/tmp/cc-deck-demo"
-SCENE_BY_SCENE=false
-SCENE_COUNTER=0
-SCENES_DIR="${SCRIPT_DIR}/../recordings/plugin-demo-scenes"
-
-for arg in "$@"; do
-    case "$arg" in
-        --scene-by-scene) SCENE_BY_SCENE=true ;;
-    esac
-done
-
-if $SCENE_BY_SCENE; then
-    mkdir -p "$SCENES_DIR"
-fi
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
-proceed() {
-    if $SCENE_BY_SCENE; then
-        echo ""
-        echo ">>> STOP recording for scene $(printf '%02d' "$SCENE_COUNTER")."
-        echo "    Save clip as: plugin-demo-scenes/scene-$(printf '%02d' "$SCENE_COUNTER").mov"
-        echo ""
-        echo ">>> Press Enter when ready to START recording the next scene..."
-        read -r
-        SCENE_COUNTER=$((SCENE_COUNTER + 1))
-        echo ">>> Recording scene $(printf '%02d' "$SCENE_COUNTER"). Go!"
-        pause 1
-    else
-        echo ""
-        echo ">>> Press Enter to continue..."
-        read -r
-    fi
+# Quick-continue prompt (just press Enter)
+next() {
+    read -r
 }
 
 manual() {
@@ -74,229 +43,84 @@ if [[ ! -d "$DEMO_DIR/todo-api" ]]; then
 fi
 
 echo ""
-echo "=== cc-deck Plugin Demo (Hybrid Mode) ==="
+echo "=== cc-deck Plugin Demo ==="
+echo "Press Enter to advance. Actions happen in the Zellij window."
 echo ""
-echo "Three parts: (1) Motivation, (2) Features, (3) Outlook"
-echo "This terminal drives the demo. Actions happen in your Zellij window."
-echo ""
-if $SCENE_BY_SCENE; then
-    echo "Mode: scene-by-scene"
-    echo "Clips go to: plugin-demo-scenes/"
-    echo ""
-    echo ">>> Start recording scene 01 in iShowU, then press Enter..."
-    SCENE_COUNTER=1
-    read -r
-    echo ">>> Scene 01 recording. Go!"
-    pause 1
-else
-    echo "Start your screen recorder on the Zellij window, then press Enter."
-    read -r
-fi
+next
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  PART 1: MOTIVATION
+#  PART 1: MOTIVATION (scenes 1-2)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# ─── Scene 1: The problem ────────────────────────────────────────────────────
-# Show: Could be a title card, or the Zellij window with multiple messy
-# terminals to illustrate tab chaos. Keep it simple.
+echo "--- Scene 1: The problem with multiple sessions ---"
+echo "Show tab chaos / empty Zellij sidebar"
+next
 
-scene "The problem with multiple sessions"
-echo "PART 1: Motivation"
-echo ""
-echo "Show the problem: multiple terminals, tab confusion."
-echo "This scene sets up context for the voiceover."
-echo "You can show a messy multi-tab terminal, or just the empty Zellij window."
-pause 5
-
-proceed
-
-# ─── Scene 2: What cc-deck solves ────────────────────────────────────────────
-# Show: The empty cc-deck sidebar, clean and ready.
-
-scene "What cc-deck solves"
-echo "Show the cc-deck sidebar (empty). The voiceover explains the solution."
-echo "Let it sit for a few seconds."
-pause 5
-
-proceed
+echo "--- Scene 2: What cc-deck solves ---"
+echo "Show the cc-deck sidebar, explain the concept"
+next
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  PART 2: FEATURE WALKTHROUGH
+#  PART 2: FEATURES (scenes 3-9)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# ─── Scene 3: Launch and start sessions ──────────────────────────────────────
-# Automated: create tabs and start Claude Code in each
-
-scene "Launch and start sessions"
-echo "PART 2: Feature walkthrough"
-echo ""
-echo "Creating three sessions automatically..."
-
-# First session in the existing tab
+echo "--- Scene 3: Launch and start sessions ---"
+echo "Starting session 1 (todo-api)..."
 run_command "cd ${DEMO_DIR}/todo-api && claude 'Look at the project and add a search endpoint to the TODO API'"
-echo "  Session 1 (todo-api) started. Wait for sidebar to show it."
-echo ""
-echo ">>> Press Enter when sidebar shows the first session..."
-read -r
+next
 
-# Second session
+echo "Starting session 2 (weather-cli)..."
 new_tab "weather-cli"
 pause 1
 focus_pane "right"
 pause 0.5
 run_command "cd ${DEMO_DIR}/weather-cli && claude 'Add a --format json flag to the weather CLI'"
-echo "  Session 2 (weather-cli) started."
-echo ""
-echo ">>> Press Enter when sidebar shows two sessions..."
-read -r
+next
 
-# Third session
+echo "Starting session 3 (portfolio)..."
 new_tab "portfolio"
 pause 1
 focus_pane "right"
 pause 0.5
 run_command "cd ${DEMO_DIR}/portfolio && claude 'Add a dark mode toggle to the portfolio page'"
-echo "  Session 3 (portfolio) started."
-echo ""
-echo ">>> Press Enter when sidebar shows three sessions..."
-read -r
+echo "3 sessions running. Switch tabs to show teal highlight."
+next
 
-echo "All three sessions running. Switch between tabs manually to show"
-echo "the teal highlight moving in the sidebar."
-manual "Click or switch to different tabs a few times"
-manual "Let the viewer see the sidebar highlight follow you"
-echo ""
-echo ">>> Press Enter when done showing tab switching..."
-read -r
+echo "--- Scene 4: Smart attend ---"
+manual "Alt+a (attend) x3, show priority cycling"
+next
 
-proceed
+echo "--- Scene 5: Navigation mode ---"
+manual "Alt+s, j/k movement, g/G, Enter to select, Esc"
+next
 
-# ─── Scene 4: Smart attend ──────────────────────────────────────────────────
+echo "--- Scene 6: Rename and pause ---"
+manual "Alt+s, move to session, r to rename, type name, Enter"
+manual "Move to another session, p to pause"
+manual "Esc to exit"
+next
 
-scene "Switching tabs and smart attend"
-echo "Perform these actions in the Zellij window:"
-echo ""
-manual "Press Alt+a to smart-attend (jumps to neediest session)"
-manual "Wait 2-3 seconds"
-manual "Press Alt+a again (cycles to next)"
-manual "Wait 2-3 seconds"
-manual "Press Alt+a one more time"
-manual "Let the viewer see how it prioritizes sessions"
-echo ""
-echo ">>> Press Enter when done..."
-read -r
+echo "--- Scene 7: Help and new tabs ---"
+manual "Alt+s, ? for help overlay, wait, ? to close"
+manual "n for new tab, Esc"
+next
 
-proceed
+echo "--- Scene 8: Session snapshots ---"
+manual "cc-deck snapshot list"
+manual "cc-deck snapshot save"
+next
 
-# ─── Scene 5: Navigation mode ───────────────────────────────────────────────
-
-scene "Navigation mode"
-echo "Perform these actions in the Zellij window:"
-echo ""
-manual "Press Alt+s to enter navigation mode (amber cursor appears)"
-manual "Press j/k or arrow keys to move through the list"
-manual "Press g to jump to first, G to jump to last"
-manual "Press Enter to switch to the highlighted session"
-manual "Press Esc to exit navigation mode"
-echo ""
-echo ">>> Press Enter when done..."
-read -r
-
-proceed
-
-# ─── Scene 6: Rename and pause ──────────────────────────────────────────────
-
-scene "Rename and pause"
-echo "Perform these actions in the Zellij window:"
-echo ""
-echo "  Rename:"
-manual "Press Alt+s to enter navigation mode"
-manual "Move cursor to a session"
-manual "Press r to start renaming"
-manual "Type a descriptive name (e.g., 'API search feature')"
-manual "Press Enter to confirm"
-echo ""
-echo "  Pause:"
-manual "Move cursor to another session"
-manual "Press p to pause it (pause icon appears, text dims)"
-manual "Press Esc to exit navigation mode"
-echo ""
-echo "Note for voiceover: mention that renamed sessions persist across"
-echo "Zellij restarts, and paused sessions are skipped by smart attend."
-echo ""
-echo ">>> Press Enter when done..."
-read -r
-
-proceed
-
-# ─── Scene 7: Help and new tabs ─────────────────────────────────────────────
-
-scene "Help and new tabs"
-echo "Perform these actions in the Zellij window:"
-echo ""
-echo "  Help overlay:"
-manual "Press Alt+s to enter navigation mode"
-manual "Press ? to show help overlay"
-manual "Wait 3-4 seconds for viewers to read"
-manual "Press ? again to close help"
-echo ""
-echo "  New tab:"
-manual "Press n to create a new tab"
-manual "Show that the sidebar picks it up"
-manual "Press Esc to exit navigation mode"
-echo ""
-echo ">>> Press Enter when done..."
-read -r
-
-proceed
-
-# ─── Scene 8: Session snapshots ─────────────────────────────────────────────
-
-scene "Session snapshots"
-echo "Perform these actions in a Zellij pane (shown in recording):"
-echo ""
-manual "Type: cc-deck snapshot save"
-manual "Show the output confirming sessions were saved"
-manual "Optionally show: cc-deck snapshot list"
-echo ""
-echo "The voiceover explains save/restore workflow."
-echo ""
-echo ">>> Press Enter when done..."
-read -r
-
-proceed
+echo "--- Scene 9: Restore sessions ---"
+manual "Exit Zellij, restart, cc-deck snapshot restore"
+next
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  PART 3: OUTLOOK
+#  PART 3: OUTLOOK (scene 10)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# ─── Scene 9: What comes next ───────────────────────────────────────────────
-
-scene "What comes next"
-echo "PART 3: Outlook"
-echo ""
-echo "This is a closing scene. You can show:"
-manual "The final sidebar state with all sessions"
-manual "Or a quick flash of a container terminal (optional)"
-echo ""
-echo "The voiceover teases the container/Podman demo."
-echo "Let it sit for a few seconds as an outro."
-pause 5
-
-# ─── Done ─────────────────────────────────────────────────────────────────────
+echo "--- Scene 10: What comes next ---"
+echo "Closing shot. Tease Podman/container demo."
+next
 
 echo ""
-echo "=== Plugin demo finished ==="
-if $SCENE_BY_SCENE; then
-    echo ">>> STOP recording for scene $(printf '%02d' "$SCENE_COUNTER")."
-    echo ""
-    echo "All clips should be in: $SCENES_DIR/"
-    echo ""
-    echo "Next steps:"
-    echo "  1. Generate voiceover:  ./demos/voiceover.sh demos/narration/plugin-demo.txt --per-scene"
-    echo "  2. Assemble:            ./demos/assemble.sh plugin-demo"
-else
-    echo "Stop your screen recorder now."
-fi
-echo ""
+echo "=== Demo finished ==="

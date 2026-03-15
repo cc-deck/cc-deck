@@ -1,144 +1,230 @@
 #!/usr/bin/env bash
-# quick-demo.sh - 20-second cc-deck sidebar demo driver
+# Quick Demo Recording - ~20 second sidebar demo for README/landing page
 #
-# Drives a tight automated demo using pipe commands + injected fake session
-# states. No real Claude Code sessions required.
+# Creates a scripted asciinema recording showing cc-deck sidebar features:
+# sessions appearing, status changes, smart attend, navigation, pause, help.
 #
-# SETUP:
-#   1. Open a recording terminal and start Zellij inside asciinema:
+# Usage (two terminals):
+#   Terminal 1:
+#     asciinema rec --cols 120 --rows 30 \
+#       --command "zellij --session ccdemo --layout cc-deck" \
+#       demos/recordings/quick-demo.cast
 #
-#        asciinema rec --cols 160 --rows 40 --idle-time-limit 0.5 \
-#          demos/recordings/quick-demo.cast \
-#          -- zellij --session cc-quick --layout cc-deck
+#   Terminal 2 (after Zellij is visible):
+#     bash demos/scripts/quick-demo.sh
 #
-#   2. From a SECOND terminal, run this script:
+# After recording:
+#   agg --theme monokai demos/recordings/quick-demo.cast quick-demo.gif
 #
-#        bash demos/scripts/quick-demo.sh
+# The script has two phases:
+#   1. Setup: creates tabs, discovers pane IDs, clears screens
+#   2. Demo: timed sequence of hook events and sidebar commands
 #
-#   3. Convert to GIF when done (exit Zellij to stop recording first):
-#
-#        agg --cols 160 --rows 40 \
-#          demos/recordings/quick-demo.cast \
-#          docs/modules/ROOT/images/quick-demo.gif
-#
-# The script injects 3 fake sessions into the sidebar (no Claude needed),
-# then drives: attend cycling, navigation mode, pause, and the help overlay.
-#
-# Total runtime: ~22 seconds. Exit Zellij manually after the script completes.
-#
-# Zellij session name can be overridden: ZELLIJ_SESSION=myname bash quick-demo.sh
+# Trim the setup from the .cast file by noting the timestamp when
+# ">>> Starting demo" appears, then: agg --start <seconds> ...
 
-ZELLIJ_SESSION="${ZELLIJ_SESSION:-cc-quick}"
+set -euo pipefail
 
-pipe() {
-    local action="$1"
-    local payload="${2:-}"
-    if [[ -n "$payload" ]]; then
-        zellij --session "$ZELLIJ_SESSION" pipe --name "cc-deck:${action}" -- "$payload"
+SESSION="${CCDEMO_SESSION:-ccdemo}"
+TMPDIR_DEMO="/tmp/ccdemo-setup"
+
+# ─── Helpers ──────────────────────────────────────────────────────────────────
+
+# Zellij action shorthand
+za() { zellij -s "$SESSION" action "$@"; }
+
+# Pipe command to cc-deck plugin
+zp() {
+    local name="$1"; shift
+    if [[ $# -gt 0 ]]; then
+        zellij -s "$SESSION" pipe --name "$name" -- "$@"
     else
-        zellij --session "$ZELLIJ_SESSION" pipe --name "cc-deck:${action}"
+        zellij -s "$SESSION" pipe --name "$name"
     fi
 }
 
-# ─── Session state JSON ────────────────────────────────────────────────────────
-# Three fake sessions in different states, ordered by tab_index.
-# Activity variants (serde): "Init" | "Working" | "Idle" | "Done" | "AgentDone"
-#                             {"Waiting": "Permission"} | {"Waiting": "Notification"}
-
-SESSIONS=$(cat <<'JSON'
-{
-  "101": {
-    "pane_id": 101,
-    "session_id": "demo-1",
-    "display_name": "todo-api",
-    "activity": {"Waiting": "Permission"},
-    "tab_index": 0,
-    "tab_name": "todo-api",
-    "working_dir": "/tmp/cc-deck-demo/todo-api",
-    "git_branch": "feat/search-endpoint",
-    "last_event_ts": 3000,
-    "manually_renamed": false,
-    "paused": false,
-    "meta_ts": 0,
-    "done_attended": false
-  },
-  "102": {
-    "pane_id": 102,
-    "session_id": "demo-2",
-    "display_name": "weather-cli",
-    "activity": "Working",
-    "tab_index": 1,
-    "tab_name": "weather-cli",
-    "working_dir": "/tmp/cc-deck-demo/weather-cli",
-    "git_branch": "feat/json-flag",
-    "last_event_ts": 2000,
-    "manually_renamed": false,
-    "paused": false,
-    "meta_ts": 0,
-    "done_attended": false
-  },
-  "103": {
-    "pane_id": 103,
-    "session_id": "demo-3",
-    "display_name": "portfolio",
-    "activity": "Done",
-    "tab_index": 2,
-    "tab_name": "portfolio",
-    "working_dir": "/tmp/cc-deck-demo/portfolio",
-    "git_branch": "feat/dark-mode",
-    "last_event_ts": 1000,
-    "manually_renamed": false,
-    "paused": false,
-    "meta_ts": 0,
-    "done_attended": false
-  }
+# Inject a hook event for a specific pane
+hook() {
+    local pane_id="$1"
+    local event="$2"
+    local cwd="${3:-/tmp}"
+    zp "cc-deck:hook" "{\"pane_id\":${pane_id},\"hook_event_name\":\"${event}\",\"cwd\":\"${cwd}\"}"
 }
-JSON
-)
 
-# ─── Demo sequence (~22s) ──────────────────────────────────────────────────────
+# Type a command in the focused pane and press Enter
+type_and_run() {
+    za write-chars "$1"
+    sleep 0.1
+    za write 10
+}
 
-echo "Waiting 3s for Zellij to be ready..."
+# Discover pane ID: type command to write $ZELLIJ_PANE_ID to a temp file
+discover_pane() {
+    local n="$1"
+    type_and_run "echo \$ZELLIJ_PANE_ID > ${TMPDIR_DEMO}/pane-${n}"
+    sleep 0.3
+}
+
+# Read a discovered pane ID
+read_pane() {
+    local n="$1"
+    cat "${TMPDIR_DEMO}/pane-${n}" 2>/dev/null | tr -d '[:space:]'
+}
+
+# ─── Wait for Zellij ──────────────────────────────────────────────────────────
+
+echo ""
+echo "=== cc-deck Quick Demo ==="
+echo "Waiting for Zellij session '${SESSION}'..."
+
+while ! zellij list-sessions 2>/dev/null | grep -q "$SESSION"; do
+    sleep 0.5
+done
+echo "Session found. Waiting for layout to render..."
+sleep 2
+
+# ─── Setup Phase ──────────────────────────────────────────────────────────────
+
+echo "Setting up tabs and discovering pane IDs..."
+rm -rf "$TMPDIR_DEMO"
+mkdir -p "$TMPDIR_DEMO"
+
+# Tab 1 (already exists from layout, named "main")
+# Focus the terminal pane (right of sidebar)
+za move-focus right
+sleep 0.3
+discover_pane 1
+
+# Tab 2: weather-cli
+za new-tab --name "weather-cli"
+sleep 0.5
+# In new tab from template, sidebar is on left, terminal on right
+za move-focus right 2>/dev/null || true
+sleep 0.2
+discover_pane 2
+
+# Tab 3: portfolio
+za new-tab --name "portfolio"
+sleep 0.5
+za move-focus right 2>/dev/null || true
+sleep 0.2
+discover_pane 3
+
+# Read pane IDs
+PANE1=$(read_pane 1)
+PANE2=$(read_pane 2)
+PANE3=$(read_pane 3)
+
+echo "Pane IDs: tab1=${PANE1}, tab2=${PANE2}, tab3=${PANE3}"
+
+if [[ -z "$PANE1" || -z "$PANE2" || -z "$PANE3" ]]; then
+    echo "ERROR: Could not discover all pane IDs."
+    echo "ZELLIJ_PANE_ID might not be set. Try Zellij 0.41+."
+    echo ""
+    echo "Fallback: set pane IDs manually:"
+    echo "  PANE1=<id> PANE2=<id> PANE3=<id> bash $0"
+    exit 1
+fi
+
+# Rename tab 1 to "todo-api"
+za go-to-tab 1
+sleep 0.3
+za rename-tab "todo-api"
+sleep 0.3
+
+# Clear all terminal screens (hide setup commands)
+for tab in 3 2 1; do
+    za go-to-tab "$tab"
+    sleep 0.2
+    za move-focus right 2>/dev/null || true
+    sleep 0.1
+    type_and_run "clear"
+    sleep 0.2
+done
+
+# Back to tab 1
+za go-to-tab 1
+sleep 0.3
+
+echo ""
+echo "=== Setup complete ==="
+echo ""
+echo "The Zellij window should show 3 clean tabs with an empty sidebar."
+echo "Note the timestamp in Terminal 1's asciinema output."
+echo ""
+echo ">>> Press Enter to start the demo sequence..."
+read -r
+
+# ─── Demo Phase (timed sequence) ──────────────────────────────────────────────
+
+echo ">>> Starting demo..."
+
+# ── Sessions appear one by one (Working) ──
+# Session 1: todo-api starts working
+hook "$PANE1" "SessionStart" "/projects/todo-api"
+sleep 0.3
+hook "$PANE1" "PreToolUse" "/projects/todo-api"
+sleep 1.2
+
+# Session 2: weather-cli starts working
+hook "$PANE2" "SessionStart" "/projects/weather-cli"
+sleep 0.3
+hook "$PANE2" "PreToolUse" "/projects/weather-cli"
+sleep 1.2
+
+# Session 3: portfolio starts working
+hook "$PANE3" "SessionStart" "/projects/portfolio"
+sleep 0.3
+hook "$PANE3" "PreToolUse" "/projects/portfolio"
+sleep 1.5
+
+# ── Status changes ──
+# portfolio finishes (Done ✓)
+hook "$PANE3" "Stop" "/projects/portfolio"
+sleep 1.2
+
+# todo-api needs permission (red ⚠)
+hook "$PANE1" "PermissionRequest" "/projects/todo-api"
+sleep 1.5
+
+# ── Smart attend: jumps to permission session ──
+zp "cc-deck:attend"
+sleep 2
+
+# ── Navigation mode ──
+zp "cc-deck:nav-toggle"
+sleep 1
+
+# Move cursor down through sessions
+zp "cc-deck:nav-down"
+sleep 0.7
+zp "cc-deck:nav-down"
+sleep 1
+
+# ── Pause the session at cursor ──
+zp "cc-deck:pause"
+sleep 1.5
+
+# ── Help overlay ──
+zp "cc-deck:help"
 sleep 3
 
-# Inject all three fake sessions into the sidebar
-echo "[1/6] Seeding sidebar with 3 sessions..."
-pipe "sync" "$SESSIONS"
-sleep 2.5   # viewer sees: mixed states overview (permission, working, done)
-
-# Smart attend: jumps to highest priority (todo-api: permission-waiting)
-echo "[2/6] Alt+a -> permission session..."
-pipe "attend"
-sleep 2.5   # viewer sees: focus switches to todo-api
-
-# Smart attend again: cycles to next (portfolio: done)
-echo "[3/6] Alt+a -> done session..."
-pipe "attend"
-sleep 2     # viewer sees: focus switches to portfolio
-
-# Enter navigation mode (amber cursor appears in sidebar)
-echo "[4/6] Navigation mode..."
-pipe "nav-toggle"
-sleep 0.8
-pipe "nav-down"
+# ── Close help and exit nav mode ──
+zp "cc-deck:help"
 sleep 0.5
-pipe "nav-down"    # cursor on portfolio
-sleep 0.8
+zp "cc-deck:nav-toggle"
+sleep 1.5
 
-# Pause the session at cursor
-echo "[5/6] Pause session..."
-pipe "pause"
-sleep 1.5   # viewer sees: portfolio dimmed with pause icon
-
-# Exit navigation mode
-pipe "nav-toggle"
-sleep 0.8
-
-# Show help overlay, then close
-echo "[6/6] Help overlay..."
-pipe "help"
-sleep 2.5   # viewer sees: keyboard shortcut overlay
-pipe "help"
-sleep 0.8
-
-echo "Done! Exit Zellij now to finish the asciinema recording."
+echo ""
+echo "=== Demo complete (about 20 seconds) ==="
+echo ""
+echo "Stop the recording in Terminal 1 (Ctrl+C or exit Zellij)."
+echo ""
+echo "Post-processing:"
+echo "  # Find the setup/demo boundary timestamp in the .cast file"
+echo "  # Convert to GIF (trim first N seconds to skip setup):"
+echo "  agg --theme monokai demos/recordings/quick-demo.cast quick-demo.gif"
+echo ""
+echo "Cleanup:"
+echo "  zellij kill-session $SESSION"
+echo "  rm -rf $TMPDIR_DEMO"

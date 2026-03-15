@@ -23,7 +23,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RECORDING_DIR="${SCRIPT_DIR}/recordings"
 
-VOICE="${VOICE:-nova}"
+VOICE="${VOICE:-echo}"
 MODEL="${MODEL:-tts-1-hd}"
 SPEED="${SPEED:-1.0}"
 PER_SCENE=false
