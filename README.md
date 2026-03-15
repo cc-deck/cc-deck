@@ -180,13 +180,14 @@ keybind = cmd+n=unbind
 
 | Icon | State | Description |
 |------|-------|-------------|
-| ◆ | Init | Session just started |
-| ● | Working | Actively processing |
-| ⚙ | ToolUse | Using a tool (shows tool name) |
-| ⚠ | Waiting | Needs user input (permission request) |
-| ○ | Idle | No recent activity |
+| ○ | Init | Session detected, Claude Code not yet producing output |
+| ● | Working | Actively generating output or calling tools |
+| ⚠ | Waiting (Permission) | Needs user permission to proceed (highest attend priority) |
+| ⚠ | Waiting (Notification) | Paused with informational notification |
+| ○ | Idle | Running but waiting for user input |
 | ✓ | Done | Task completed |
-| ⏸ | Paused | Excluded from attend cycling |
+| ✓ | Agent Done | Sub-agent completed |
+| ⏸ | Paused | Excluded from attend cycling, name dimmed |
 
 ## Smart Attend (Alt+a)
 

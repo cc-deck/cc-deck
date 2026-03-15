@@ -23,25 +23,25 @@ Each session displays one of these states:
 |===
 | Icon | State | Meaning
 
-| ◆
+| ○
 | Init
 | Session detected but Claude Code has not started producing output yet.
+Same indicator as Idle.
 
 | ●
 | Working
 | Claude Code is actively generating output or calling tools.
-Animated to show activity.
-
-| ⚙
-| Tool Use
-| Claude Code is executing a specific tool.
-The tool name appears next to the icon.
 
 | ⚠
-| Permission
+| Waiting (Permission)
 | Claude Code needs your permission to proceed.
 This is the highest-priority state for smart attend.
 Text appears bold and highlighted.
+
+| ⚠
+| Waiting (Notification)
+| Claude Code paused with an informational notification.
+Lower priority than permission requests in smart attend.
 
 | ○
 | Idle
@@ -50,6 +50,11 @@ Text appears bold and highlighted.
 | ✓
 | Done
 | Claude Code finished its task.
+
+| ✓
+| Agent Done
+| A sub-agent completed its task.
+Same indicator as Done.
 
 | ⏸
 | Paused
