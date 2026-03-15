@@ -1,20 +1,21 @@
 #!/usr/bin/env bash
 # Plugin Demo - Hybrid Recording Script
 #
+# Three-part demo:
+#   Part 1 (scenes 1-2): Motivation and problem statement
+#   Part 2 (scenes 3-8): Live feature walkthrough in Zellij
+#   Part 3 (scene 9):    Outlook and teaser for container demo
+#
 # Drives the Zellij session from a SEPARATE terminal while iShowU (or similar)
 # records only the Zellij window. Automated parts inject commands via
 # `zellij action` and `zellij pipe`. Interactive parts prompt you to perform
 # manual keypresses in the Zellij window.
 #
-# Scene-by-scene mode: pause between scenes so you can start/stop
-# your screen recorder for each clip individually.
-#
 # Usage (from a terminal OUTSIDE Zellij):
 #   1. Start Zellij:    zellij --layout cc-deck
-#   2. Start iShowU recording the Zellij window
-#   3. From another terminal:
+#   2. From another terminal:
 #      source demos/scripts/plugin-demo.sh [--scene-by-scene]
-#   4. Follow prompts in this terminal; actions happen in Zellij
+#   3. Follow prompts in this terminal; actions happen in Zellij
 #
 # Designed to be sourced from both bash and zsh.
 
@@ -31,7 +32,6 @@ SCENE_BY_SCENE=false
 SCENE_COUNTER=0
 SCENES_DIR="${SCRIPT_DIR}/../recordings/plugin-demo-scenes"
 
-# Parse arguments
 for arg in "$@"; do
     case "$arg" in
         --scene-by-scene) SCENE_BY_SCENE=true ;;
@@ -62,10 +62,8 @@ proceed() {
     fi
 }
 
-# Prompt for a manual action in the Zellij window
 manual() {
-    echo ""
-    echo "    ACTION: $1"
+    echo "    -> $1"
 }
 
 # ─── Preflight ────────────────────────────────────────────────────────────────
@@ -78,8 +76,8 @@ fi
 echo ""
 echo "=== cc-deck Plugin Demo (Hybrid Mode) ==="
 echo ""
+echo "Three parts: (1) Motivation, (2) Features, (3) Outlook"
 echo "This terminal drives the demo. Actions happen in your Zellij window."
-echo "Keep this terminal visible to you but NOT in the recording area."
 echo ""
 if $SCENE_BY_SCENE; then
     echo "Mode: scene-by-scene"
@@ -96,133 +94,195 @@ else
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Scene 1: Launch Zellij (intro shot)
+#  PART 1: MOTIVATION
 # ═══════════════════════════════════════════════════════════════════════════════
 
-scene "Launch Zellij with cc-deck"
-echo "Show the empty Zellij window with the cc-deck sidebar."
-echo "Let it sit for a few seconds so viewers see the starting state."
-pause 4
+# ─── Scene 1: The problem ────────────────────────────────────────────────────
+# Show: Could be a title card, or the Zellij window with multiple messy
+# terminals to illustrate tab chaos. Keep it simple.
+
+scene "The problem with multiple sessions"
+echo "PART 1: Motivation"
+echo ""
+echo "Show the problem: multiple terminals, tab confusion."
+echo "This scene sets up context for the voiceover."
+echo "You can show a messy multi-tab terminal, or just the empty Zellij window."
+pause 5
+
+proceed
+
+# ─── Scene 2: What cc-deck solves ────────────────────────────────────────────
+# Show: The empty cc-deck sidebar, clean and ready.
+
+scene "What cc-deck solves"
+echo "Show the cc-deck sidebar (empty). The voiceover explains the solution."
+echo "Let it sit for a few seconds."
+pause 5
 
 proceed
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Scene 2: Start first session
-# Automated: types cd + claude command into the focused pane
+#  PART 2: FEATURE WALKTHROUGH
 # ═══════════════════════════════════════════════════════════════════════════════
 
-scene "Start first session (todo-api)"
-echo "Injecting command into Zellij pane..."
+# ─── Scene 3: Launch and start sessions ──────────────────────────────────────
+# Automated: create tabs and start Claude Code in each
 
+scene "Launch and start sessions"
+echo "PART 2: Feature walkthrough"
+echo ""
+echo "Creating three sessions automatically..."
+
+# First session in the existing tab
 run_command "cd ${DEMO_DIR}/todo-api && claude 'Look at the project and add a search endpoint to the TODO API'"
+echo "  Session 1 (todo-api) started. Wait for sidebar to show it."
+echo ""
+echo ">>> Press Enter when sidebar shows the first session..."
+read -r
 
-echo "Wait until the sidebar shows the session, then proceed."
-
-proceed
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Scene 3: Open second session
-# Automated: creates new tab, types cd + claude
-# ═══════════════════════════════════════════════════════════════════════════════
-
-scene "Open second session (weather-cli)"
-echo "Creating new tab and starting second session..."
-
+# Second session
 new_tab "weather-cli"
 pause 1
 focus_pane "right"
 pause 0.5
-
 run_command "cd ${DEMO_DIR}/weather-cli && claude 'Add a --format json flag to the weather CLI'"
+echo "  Session 2 (weather-cli) started."
+echo ""
+echo ">>> Press Enter when sidebar shows two sessions..."
+read -r
 
-echo "Wait until the sidebar shows two sessions, then proceed."
-
-proceed
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Scene 4: Open third session
-# Automated: creates new tab, types cd + claude
-# ═══════════════════════════════════════════════════════════════════════════════
-
-scene "Open third session (portfolio)"
-echo "Creating new tab and starting third session..."
-
+# Third session
 new_tab "portfolio"
 pause 1
 focus_pane "right"
 pause 0.5
-
 run_command "cd ${DEMO_DIR}/portfolio && claude 'Add a dark mode toggle to the portfolio page'"
-
-echo "Wait until the sidebar shows three sessions, then proceed."
-
-proceed
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Scene 5: Navigate between sessions (MANUAL)
-# You perform these actions in the Zellij window
-# ═══════════════════════════════════════════════════════════════════════════════
-
-scene "Navigate between sessions"
+echo "  Session 3 (portfolio) started."
 echo ""
-echo "Perform these actions in the Zellij window:"
-manual "Press Alt+s to enter navigation mode (amber cursor appears)"
-manual "Press k or Up to move cursor up through the list"
-manual "Press k again to reach the first session"
-manual "Press Enter to jump to that session"
-manual "Wait a beat, then press Esc to exit navigation mode"
+echo ">>> Press Enter when sidebar shows three sessions..."
+read -r
+
+echo "All three sessions running. Switch between tabs manually to show"
+echo "the teal highlight moving in the sidebar."
+manual "Click or switch to different tabs a few times"
+manual "Let the viewer see the sidebar highlight follow you"
 echo ""
-echo ">>> Press Enter here when done..."
+echo ">>> Press Enter when done showing tab switching..."
 read -r
 
 proceed
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Scene 6: Smart attend (MANUAL)
-# ═══════════════════════════════════════════════════════════════════════════════
+# ─── Scene 4: Smart attend ──────────────────────────────────────────────────
 
-scene "Smart attend in action"
-echo ""
+scene "Switching tabs and smart attend"
 echo "Perform these actions in the Zellij window:"
+echo ""
 manual "Press Alt+a to smart-attend (jumps to neediest session)"
 manual "Wait 2-3 seconds"
-manual "Press Alt+a again (cycles to next session)"
+manual "Press Alt+a again (cycles to next)"
 manual "Wait 2-3 seconds"
 manual "Press Alt+a one more time"
+manual "Let the viewer see how it prioritizes sessions"
 echo ""
-echo ">>> Press Enter here when done..."
+echo ">>> Press Enter when done..."
 read -r
 
 proceed
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Scene 7: Session management (MANUAL)
-# Pause, rename, help overlay
-# ═══════════════════════════════════════════════════════════════════════════════
+# ─── Scene 5: Navigation mode ───────────────────────────────────────────────
 
-scene "Session management"
-echo ""
+scene "Navigation mode"
 echo "Perform these actions in the Zellij window:"
-manual "Press Alt+s to enter navigation mode"
-manual "Move cursor to a session with j/k"
-manual "Press p to pause that session (pause icon appears, text dims)"
-manual "Press ? to show the help overlay"
-manual "Wait 3-4 seconds for viewers to read the shortcuts"
-manual "Press ? again to close help"
+echo ""
+manual "Press Alt+s to enter navigation mode (amber cursor appears)"
+manual "Press j/k or arrow keys to move through the list"
+manual "Press g to jump to first, G to jump to last"
+manual "Press Enter to switch to the highlighted session"
 manual "Press Esc to exit navigation mode"
 echo ""
-echo ">>> Press Enter here when done..."
+echo ">>> Press Enter when done..."
+read -r
+
+proceed
+
+# ─── Scene 6: Rename and pause ──────────────────────────────────────────────
+
+scene "Rename and pause"
+echo "Perform these actions in the Zellij window:"
+echo ""
+echo "  Rename:"
+manual "Press Alt+s to enter navigation mode"
+manual "Move cursor to a session"
+manual "Press r to start renaming"
+manual "Type a descriptive name (e.g., 'API search feature')"
+manual "Press Enter to confirm"
+echo ""
+echo "  Pause:"
+manual "Move cursor to another session"
+manual "Press p to pause it (pause icon appears, text dims)"
+manual "Press Esc to exit navigation mode"
+echo ""
+echo "Note for voiceover: mention that renamed sessions persist across"
+echo "Zellij restarts, and paused sessions are skipped by smart attend."
+echo ""
+echo ">>> Press Enter when done..."
+read -r
+
+proceed
+
+# ─── Scene 7: Help and new tabs ─────────────────────────────────────────────
+
+scene "Help and new tabs"
+echo "Perform these actions in the Zellij window:"
+echo ""
+echo "  Help overlay:"
+manual "Press Alt+s to enter navigation mode"
+manual "Press ? to show help overlay"
+manual "Wait 3-4 seconds for viewers to read"
+manual "Press ? again to close help"
+echo ""
+echo "  New tab:"
+manual "Press n to create a new tab"
+manual "Show that the sidebar picks it up"
+manual "Press Esc to exit navigation mode"
+echo ""
+echo ">>> Press Enter when done..."
+read -r
+
+proceed
+
+# ─── Scene 8: Session snapshots ─────────────────────────────────────────────
+
+scene "Session snapshots"
+echo "Perform these actions in a Zellij pane (shown in recording):"
+echo ""
+manual "Type: cc-deck snapshot save"
+manual "Show the output confirming sessions were saved"
+manual "Optionally show: cc-deck snapshot list"
+echo ""
+echo "The voiceover explains save/restore workflow."
+echo ""
+echo ">>> Press Enter when done..."
 read -r
 
 proceed
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Scene 8: Demo complete (outro shot)
+#  PART 3: OUTLOOK
 # ═══════════════════════════════════════════════════════════════════════════════
 
-scene "Demo complete"
-echo "Let the final state sit for a few seconds as an outro."
-pause 4
+# ─── Scene 9: What comes next ───────────────────────────────────────────────
+
+scene "What comes next"
+echo "PART 3: Outlook"
+echo ""
+echo "This is a closing scene. You can show:"
+manual "The final sidebar state with all sessions"
+manual "Or a quick flash of a container terminal (optional)"
+echo ""
+echo "The voiceover teases the container/Podman demo."
+echo "Let it sit for a few seconds as an outro."
+pause 5
 
 # ─── Done ─────────────────────────────────────────────────────────────────────
 
