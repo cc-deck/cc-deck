@@ -2,7 +2,7 @@ version: 1
 
 image:
   name: my-dev-image
-  base: quay.io/rhuss/cc-deck-base:latest
+  base: quay.io/cc-deck/cc-deck-base:latest
   tag: latest
 
 tools:

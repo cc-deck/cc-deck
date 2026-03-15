@@ -12,7 +12,7 @@ Start cc-deck directly and land in a Zellij session with the sidebar:
 ----
 podman run -it --rm \
   -e ANTHROPIC_API_KEY=sk-ant-... \
-  quay.io/rhuss/cc-deck-demo:latest
+  quay.io/cc-deck/cc-deck-demo:latest
 ----
 
 === With Vertex AI
@@ -24,7 +24,7 @@ podman run -it --rm \
   -e CLOUD_ML_REGION=us-east5 \
   -e ANTHROPIC_VERTEX_PROJECT_ID=your-project-id \
   -v ~/.config/gcloud:/home/dev/.config/gcloud:ro \
-  quay.io/rhuss/cc-deck-demo:latest
+  quay.io/cc-deck/cc-deck-demo:latest
 ----
 
 == Persistent (background container)
@@ -35,7 +35,7 @@ For a container you can connect to and disconnect from repeatedly:
 ----
 podman run -d --name mydev \
   -e ANTHROPIC_API_KEY=sk-ant-... \
-  quay.io/rhuss/cc-deck-demo:latest \
+  quay.io/cc-deck/cc-deck-demo:latest \
   sleep infinity
 
 podman exec -it mydev zellij --layout cc-deck

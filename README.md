@@ -40,7 +40,7 @@ Try cc-deck without installing anything locally:
 ```bash
 podman run -it --rm \
   -e ANTHROPIC_API_KEY=sk-ant-... \
-  quay.io/rhuss/cc-deck-demo:latest
+  quay.io/cc-deck/cc-deck-demo:latest
 ```
 
 ### Native Installation

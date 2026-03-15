@@ -18,7 +18,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../runner.sh"
 
 CONTAINER_NAME="cc-deck-demo-$$"
-DEMO_IMAGE="${DEMO_IMAGE:-quay.io/rhuss/cc-deck-demo:latest}"
+DEMO_IMAGE="${DEMO_IMAGE:-quay.io/cc-deck/cc-deck-demo:latest}"
 
 # ─── Preflight ────────────────────────────────────────────────────────────────
 

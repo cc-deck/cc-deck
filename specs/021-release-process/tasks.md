@@ -17,14 +17,14 @@
 
 **Purpose**: Registry migration and version infrastructure
 
-- [ ] T001 Update `Makefile` default REGISTRY from `quay.io/rhuss` to `quay.io/cc-deck`
-- [ ] T002 [P] Update `cc-deck/internal/cmd/version.go` default ImageRegistry from `quay.io/rhuss` to `quay.io/cc-deck`
-- [ ] T003 [P] Update `demo-image/Containerfile` BASE_IMAGE arg from `quay.io/rhuss/cc-deck-base:latest` to `quay.io/cc-deck/cc-deck-base:latest`
-- [ ] T004 Update all `quay.io/rhuss` references in `README.md` to `quay.io/cc-deck`
-- [ ] T005 [P] Update all `quay.io/rhuss` references in `docs/` (one-liner.adoc, podman.adoc, kubernetes.adoc, credentials.adoc, first-session.adoc)
-- [ ] T006 [P] Update all `quay.io/rhuss` references in `demos/` (scripts, README, narration)
-- [ ] T007 [P] Update all `quay.io/rhuss` references in `CONTRIBUTING.md`
-- [ ] T008 Verify: `rg 'quay.io/rhuss'` returns zero results across the entire codebase
+- [x] T001 Update `Makefile` default REGISTRY from `quay.io/rhuss` to `quay.io/cc-deck`
+- [x] T002 [P] Update `cc-deck/internal/cmd/version.go` default ImageRegistry from `quay.io/rhuss` to `quay.io/cc-deck`
+- [x] T003 [P] Update `demo-image/Containerfile` BASE_IMAGE arg from `quay.io/rhuss/cc-deck-base:latest` to `quay.io/cc-deck/cc-deck-base:latest`
+- [x] T004 Update all `quay.io/rhuss` references in `README.md` to `quay.io/cc-deck`
+- [x] T005 [P] Update all `quay.io/rhuss` references in `docs/` (one-liner.adoc, podman.adoc, kubernetes.adoc, credentials.adoc, first-session.adoc)
+- [x] T006 [P] Update all `quay.io/rhuss` references in `demos/` (scripts, README, narration)
+- [x] T007 [P] Update all `quay.io/rhuss` references in Go source and build files
+- [x] T008 Verify: `rg 'quay.io/rhuss'` returns zero results across the entire codebase
 
 **Checkpoint**: All registry references point to quay.io/cc-deck. No quay.io/rhuss remains.
 
