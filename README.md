@@ -1,6 +1,4 @@
-<img src="assets/logo/cc-deck-icon.png" alt="cc-deck" width="80" align="right" />
-
-# cc-deck
+# <img src="assets/logo/cc-deck-icon.png" alt="cc-deck" width="60" valign="middle" /> cc-deck
 
 [![CI](https://github.com/cc-deck/cc-deck/actions/workflows/ci.yaml/badge.svg)](https://github.com/cc-deck/cc-deck/actions/workflows/ci.yaml)
 [![codecov](https://codecov.io/gh/cc-deck/cc-deck/graph/badge.svg)](https://codecov.io/gh/cc-deck/cc-deck)
@@ -12,8 +10,6 @@
 **The TweetDeck for Claude Code.** A [Zellij](https://zellij.dev) sidebar plugin that monitors, attends to, and orchestrates multiple Claude Code sessions from a single terminal view. Zellij is a modern terminal multiplexer (like tmux, but with a plugin system and built-in layout management).
 
 **[Website](https://cc-deck.github.io)** · **[Documentation](https://cc-deck.github.io/docs/)** · **[Quickstart](#install)** · **[Contributing](CONTRIBUTING.md)**
-
-<br clear="right"/>
 
 ---
 
