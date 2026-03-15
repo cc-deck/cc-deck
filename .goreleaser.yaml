@@ -1,0 +1,100 @@
+# GoReleaser configuration for cc-deck
+# Docs: https://goreleaser.com
+
+version: 2
+
+before:
+  hooks:
+    # Build the WASM plugin (platform-independent) before Go cross-compilation
+    - cargo build --target wasm32-wasip1 --release --manifest-path cc-zellij-plugin/Cargo.toml
+    - mkdir -p cc-deck/internal/plugin
+    - cp cc-zellij-plugin/target/wasm32-wasip1/release/cc_deck.wasm cc-deck/internal/plugin/
+
+builds:
+  - id: cc-deck
+    dir: cc-deck
+    main: ./cmd/cc-deck
+    binary: cc-deck
+    ldflags:
+      - -s -w
+      - -X github.com/rhuss/cc-mux/cc-deck/internal/cmd.Version={{.Version}}
+      - -X github.com/rhuss/cc-mux/cc-deck/internal/cmd.Commit={{.Commit}}
+      - -X github.com/rhuss/cc-mux/cc-deck/internal/cmd.Date={{.Date}}
+      - -X github.com/rhuss/cc-mux/cc-deck/internal/cmd.ImageRegistry=quay.io/cc-deck
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    env:
+      - CGO_ENABLED=0
+
+archives:
+  - id: cc-deck
+    name_template: "cc-deck_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+      - LICENSE
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "Merge pull request"
+      - "Merge branch"
+
+nfpms:
+  - id: cc-deck
+    package_name: cc-deck
+    vendor: cc-deck
+    homepage: https://cc-deck.github.io
+    maintainer: Roland Huß <roland@jolokia.org>
+    description: "The TweetDeck for Claude Code. A Zellij sidebar plugin for managing multiple Claude Code sessions."
+    license: Apache-2.0
+    formats:
+      - rpm
+      - deb
+    recommends:
+      - zellij
+    bindir: /usr/local/bin
+
+brews:
+  - name: cc-deck
+    repository:
+      owner: cc-deck
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: https://cc-deck.github.io
+    description: "The TweetDeck for Claude Code. A Zellij sidebar plugin for managing multiple Claude Code sessions."
+    license: Apache-2.0
+    install: |
+      bin.install "cc-deck"
+    caveats: |
+      After installation, set up the Zellij plugin and hooks:
+
+        cc-deck plugin install
+
+      Then start Zellij with the cc-deck layout:
+
+        zellij --layout cc-deck
+
+      Zellij is recommended but not required (cc-deck also works inside containers).
+    dependencies:
+      - name: zellij
+        type: recommended
+
+release:
+  github:
+    owner: cc-deck
+    name: cc-deck
+  draft: false
+  prerelease: auto
+  name_template: "v{{.Version}}"

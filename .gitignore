@@ -29,3 +29,4 @@ cc-deck/cc-deck-linux-*
 demos/recordings/*.cast
 demos/recordings/*.gif
 demos/recordings/*.mp4
+dist/

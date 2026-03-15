@@ -34,11 +34,11 @@
 
 **Purpose**: Core release automation configuration. BLOCKS all release user stories.
 
-- [ ] T009 Create `.goreleaser.yaml` at project root with before hooks (WASM build + copy), builds section (dir: cc-deck, main: ./cmd/cc-deck, goos/goarch matrix, ldflags for Version/Commit/Date/ImageRegistry), archives section (tar.gz with README + LICENSE)
-- [ ] T010 Add checksum configuration to `.goreleaser.yaml` (SHA-256 checksums file)
-- [ ] T011 [P] Add nFPM configuration to `.goreleaser.yaml` for RPM and DEB packages (package name, description, license, homepage, maintainer, recommends: zellij)
-- [ ] T012 Add changelog configuration to `.goreleaser.yaml` (from git commits, group by type)
-- [ ] T013 Verify: `goreleaser release --snapshot --clean` produces archives for darwin/amd64, darwin/arm64, linux/amd64, linux/arm64 plus RPM and DEB packages in `dist/`
+- [x] T009 Create `.goreleaser.yaml` at project root with before hooks (WASM build + copy), builds section (dir: cc-deck, main: ./cmd/cc-deck, goos/goarch matrix, ldflags for Version/Commit/Date/ImageRegistry), archives section (tar.gz with README + LICENSE)
+- [x] T010 Add checksum configuration to `.goreleaser.yaml` (SHA-256 checksums file)
+- [x] T011 [P] Add nFPM configuration to `.goreleaser.yaml` for RPM and DEB packages (package name, description, license, homepage, maintainer, recommends: zellij)
+- [x] T012 Add changelog configuration to `.goreleaser.yaml` (from git commits, group by type)
+- [x] T013 Verify: `goreleaser release --snapshot --clean` produces archives for darwin/amd64, darwin/arm64, linux/amd64, linux/arm64 plus RPM and DEB packages in `dist/`
 
 **Checkpoint**: GoReleaser produces all binary artifacts locally. Ready for CI integration.
 
