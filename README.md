@@ -1,4 +1,4 @@
-<img src="assets/logo/cc-deck-icon.png" alt="cc-deck" width="120" align="right" />
+<img src="assets/logo/cc-deck-icon.png" alt="cc-deck" width="80" align="right" />
 
 # cc-deck
 
