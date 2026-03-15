@@ -10,7 +10,7 @@
 #   make test           Run all tests
 #   make dev            Start Zellij with cc-deck layout for development
 
-VERSION    ?= 0.2.0
+VERSION    ?= 0.4.0
 REGISTRY   ?= quay.io/cc-deck
 WASM_TARGET = wasm32-wasip1
 WASM_SRC    = cc-zellij-plugin/target/$(WASM_TARGET)/release/cc_deck.wasm
@@ -107,16 +107,26 @@ test-image: build cross-cli  ## Build cc-deck, cross-compile, init test dir, and
 PLATFORMS  ?= linux/arm64,linux/amd64
 DEMO_IMAGE = $(REGISTRY)/cc-deck-demo
 
-demo-image: cross-cli  ## Build the cc-deck demo container image
+demo-image: cross-cli  ## Build the cc-deck demo container image (multi-arch manifest)
 	mkdir -p demo-image/.build-context
 	cp cc-deck/cc-deck-linux-* demo-image/.build-context/
-	podman build --platform $(PLATFORMS) -t $(DEMO_IMAGE):latest demo-image/
+	@podman manifest rm $(DEMO_IMAGE):latest 2>/dev/null || true
+	podman manifest create $(DEMO_IMAGE):latest
+	@for arch in arm64 amd64; do \
+		podman build --platform linux/$${arch} -t $(DEMO_IMAGE):latest-$${arch} demo-image/; \
+		podman manifest add $(DEMO_IMAGE):latest $(DEMO_IMAGE):latest-$${arch}; \
+	done
 
 demo-image-push: demo-image  ## Build and push the demo image (multi-arch)
 	podman manifest push --all $(DEMO_IMAGE):latest docker://$(DEMO_IMAGE):latest
 
-base-image:  ## Build the cc-deck base container image
-	podman build --platform $(PLATFORMS) -t $(BASE_IMAGE):latest base-image/
+base-image:  ## Build the cc-deck base container image (multi-arch manifest)
+	@podman manifest rm $(BASE_IMAGE):latest 2>/dev/null || true
+	podman manifest create $(BASE_IMAGE):latest
+	@for arch in arm64 amd64; do \
+		podman build --platform linux/$${arch} -t $(BASE_IMAGE):latest-$${arch} base-image/; \
+		podman manifest add $(BASE_IMAGE):latest $(BASE_IMAGE):latest-$${arch}; \
+	done
 
 base-image-push: base-image  ## Build and push the base image (multi-arch)
 	podman manifest push --all $(BASE_IMAGE):latest docker://$(BASE_IMAGE):latest
