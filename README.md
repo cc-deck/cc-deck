@@ -9,7 +9,7 @@
 [![Zellij](https://img.shields.io/badge/Zellij-0.43+-green)](https://zellij.dev)
 [![License](https://img.shields.io/github/license/cc-deck/cc-deck)](LICENSE)
 
-**The TweetDeck for Claude Code.** A Zellij sidebar plugin that monitors, attends to, and orchestrates multiple Claude Code sessions from a single terminal view.
+**The TweetDeck for Claude Code.** A [Zellij](https://zellij.dev) sidebar plugin that monitors, attends to, and orchestrates multiple Claude Code sessions from a single terminal view. Zellij is a modern terminal multiplexer (like tmux, but with a plugin system and built-in layout management).
 
 **[Website](https://cc-deck.github.io)** · **[Documentation](https://cc-deck.github.io/docs/)** · **[Quickstart](#install)** · **[Contributing](CONTRIBUTING.md)**
 
@@ -23,9 +23,9 @@ Managing multiple Claude Code sessions from separate terminals quickly becomes u
 
 cc-deck solves this with a real-time sidebar that shows all your sessions and intelligently directs your attention where it matters most.
 
-### Sidebar Plugin
+### Zellij Sidebar Plugin
 
-The Zellij sidebar plugin tracks every Claude Code session across tabs. It shows activity status, handles permission requests, and provides keyboard-driven navigation. Smart attend automatically cycles through sessions that need your attention, prioritizing permission requests over completed tasks over idle sessions.
+The sidebar plugin tracks every Claude Code session across tabs. It shows activity status, handles permission requests, and provides keyboard-driven navigation. Smart attend automatically cycles through sessions that need your attention, prioritizing permission requests over completed tasks over idle sessions.
 
 ### Custom Container Images
 
