@@ -1,29 +1,80 @@
-= Native Installation
+= Installation
 
-Install cc-deck on your local machine for use with an existing Zellij setup.
+Install cc-deck on your local machine.
+After installing the CLI binary, run `cc-deck plugin install` to set up the Zellij sidebar plugin and Claude Code hooks.
 
-== Prerequisites
+== Homebrew (macOS)
 
-* https://zellij.dev/[Zellij] 0.43 or later
-* https://go.dev/[Go] 1.22 or later (for building from source)
-* https://www.rust-lang.org/[Rust] stable with the `wasm32-wasip1` target (for building the plugin)
+The fastest way to install on macOS:
 
-== Quick Install
+[source,bash]
+----
+brew install cc-deck/tap/cc-deck
+cc-deck plugin install
+----
+
+Zellij is recommended but not required.
+If you do not have Zellij installed, the formula will suggest it.
+
+== Binary Download
+
+Download the latest release from https://github.com/cc-deck/cc-deck/releases[GitHub Releases].
+Archives are available for macOS and Linux, both arm64 and amd64.
+
+[source,bash]
+----
+# Example: macOS Apple Silicon
+curl -fsSL https://github.com/cc-deck/cc-deck/releases/latest/download/cc-deck_VERSION_darwin_arm64.tar.gz | tar -xz
+sudo mv cc-deck /usr/local/bin/
+cc-deck plugin install
+----
+
+Replace `VERSION` with the release version (e.g., `0.3.0`).
+
+== Linux Packages
+
+RPM and DEB packages are attached to each https://github.com/cc-deck/cc-deck/releases[GitHub Release].
+
+=== Fedora / RHEL
+
+[source,bash]
+----
+sudo dnf install ./cc-deck_VERSION_linux_amd64.rpm
+cc-deck plugin install
+----
+
+=== Debian / Ubuntu
+
+[source,bash]
+----
+sudo apt install ./cc-deck_VERSION_linux_amd64.deb
+cc-deck plugin install
+----
+
+Both package formats are available for amd64 and arm64.
+
+== Build from Source
 
 Clone the repository and build everything:
 
 [source,bash]
 ----
-git clone https://github.com/rhuss/cc-deck.git
+git clone https://github.com/cc-deck/cc-deck.git
 cd cc-deck
 make install
 ----
 
 `make install` builds the WASM plugin, compiles the Go CLI, and runs `cc-deck plugin install` to set up Zellij layouts and Claude Code hooks.
 
+=== Prerequisites
+
+* https://zellij.dev/[Zellij] 0.43 or later
+* https://go.dev/[Go] 1.22 or later
+* https://www.rust-lang.org/[Rust] stable with the `wasm32-wasip1` target
+
 == What Gets Installed
 
-The installer places files in your Zellij configuration directory:
+The `cc-deck plugin install` command places files in your Zellij configuration directory:
 
 [cols="1,2"]
 |===
@@ -33,7 +84,7 @@ The installer places files in your Zellij configuration directory:
 | The sidebar plugin binary.
 
 | `~/.config/zellij/layouts/cc-deck.kdl`
-| Default layout (links to the selected variant).
+| Default layout (set to the selected variant).
 
 | `~/.config/zellij/layouts/cc-deck-standard.kdl`
 | Standard layout with sidebar, tab bar, and status bar.
@@ -50,8 +101,6 @@ The installer places files in your Zellij configuration directory:
 
 == Install Options
 
-The `cc-deck plugin install` command accepts several flags:
-
 `--force` / `-f`::
 Overwrite existing files without prompting.
 
@@ -64,29 +113,6 @@ Options: `standard` (default), `minimal`, `clean`.
 
 `--install-zellij`::
 Download and install a matching Zellij binary.
-
-== Layout Variants
-
-Choose a layout variant during installation or switch later:
-
-`standard`::
-Sidebar plugin, tab bar, and status bar.
-Best for users who want full visibility.
-
-`minimal`::
-Sidebar plugin and compact bar.
-Saves vertical space while keeping tab information.
-
-`clean`::
-Sidebar plugin only.
-Maximum terminal space, navigate with keyboard shortcuts.
-
-To change your default layout after installation:
-
-[source,bash]
-----
-cc-deck plugin install --layout minimal --force
-----
 
 == Set as Default Layout
 
