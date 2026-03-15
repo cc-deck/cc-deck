@@ -2,6 +2,8 @@
 
 Contributions are welcome. Whether you are fixing a bug, improving documentation, or proposing a new feature, this guide explains how the process works.
 
+cc-deck uses [Spec-Driven Development (SDD)](https://specify.ing) for feature planning and implementation. SDD is a methodology where features are fully specified before code is written, producing reviewable design artifacts that serve as the contract between what was planned and what gets built. The tooling is provided by the [SDD plugin](https://specify.ing/plugins/claude-code/) for Claude Code, which automates spec generation, planning, task breakdown, and implementation tracking.
+
 ## Quick Start
 
 ```bash
@@ -26,7 +28,11 @@ After your change lands, run `/sdd:evolve` in Claude Code to update any affected
 
 ## Spec-Driven Development
 
-For larger features (new modules, new CLI commands, new deployment patterns, significant behavior changes), cc-deck follows a Spec-Driven Development (SDD) process. Features are specified before they are implemented. This keeps the design deliberate, reviewable, and traceable.
+For larger features (new modules, new CLI commands, new deployment patterns, significant behavior changes), cc-deck follows [Spec-Driven Development (SDD)](https://specify.ing). The core idea is simple: write a specification first, get it reviewed, then implement against it. This keeps the design deliberate, reviewable, and traceable.
+
+SDD produces three artifacts per feature: a specification (`spec.md`) that defines the what and why, a plan (`plan.md`) that defines the how, and a task breakdown (`tasks.md`) that defines the execution order. All three live in `specs/<feature>/` and are version-controlled alongside the code they describe.
+
+The [SDD plugin for Claude Code](https://specify.ing/plugins/claude-code/) automates most of this workflow. It generates specs from natural language descriptions, creates implementation plans with architecture decisions, breaks plans into dependency-ordered tasks, and tracks progress as you implement.
 
 ### How SDD Works
 
@@ -90,11 +96,11 @@ Use the SDD plugin to drive implementation:
 
 ### Installing the SDD Plugin
 
-The SDD plugin for Claude Code provides the spec commands (`/sdd:*` and `/speckit.*`). To install it:
+The [SDD plugin](https://specify.ing/plugins/claude-code/) for Claude Code provides the spec commands (`/sdd:*` and `/speckit.*`). Install it from within Claude Code:
 
-1. Open Claude Code settings (`/settings`)
-2. Navigate to plugins
-3. Install the `sdd` plugin from the marketplace
+```
+/plugins install sdd
+```
 
 Or add it to your `~/.claude/settings.json`:
 
@@ -103,6 +109,8 @@ Or add it to your `~/.claude/settings.json`:
   "plugins": ["sdd"]
 }
 ```
+
+See the [SDD documentation](https://specify.ing) for the full methodology and plugin reference.
 
 ### SDD Commands Reference
 
