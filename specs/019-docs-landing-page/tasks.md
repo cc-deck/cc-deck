@@ -36,9 +36,9 @@
 - [x] T006 Create `cc-deck.github.io/src/components/CustomStyles.astro` with deep blue color scheme (primary #1e40af, dark/light mode variables)
 - [x] T007 [P] Create `cc-deck.github.io/antora-playbook.yml` pulling from `rhuss/cc-deck.git` main branch, `docs/` start path
 - [x] T008 [P] Copy logo assets to `cc-deck.github.io/public/` (favicon from `assets/logo/cc-deck-icon.png`, wordmark for header)
-- [ ] T009 [P] Create `cc-deck.github.io/supplemental-ui/` with logo header partial and CSS color overrides for Antora
-- [ ] T010 Create GitHub Actions workflow in `cc-deck.github.io/.github/workflows/deploy.yml` to build Astro + Antora and deploy to Pages
-- [ ] T011 Verify: landing page builds locally (`npm run dev`), Antora builds (`npm run build`), both deploy to GitHub Pages
+- [x] T009 [P] Create `cc-deck.github.io/supplemental-ui/` with logo header partial and CSS color overrides for Antora
+- [x] T010 Create GitHub Actions workflow in `cc-deck.github.io/.github/workflows/deploy.yml` to build Astro + Antora and deploy to Pages
+- [x] T011 Verify: landing page builds locally (`npm run dev`), Antora builds (`npm run build`), both deploy to GitHub Pages
 
 **Checkpoint**: Landing page renders at cc-deck.github.io. Antora docs build at /docs/.
 
@@ -187,9 +187,9 @@
 - [x] T057 [P] Write `docs/modules/reference/pages/configuration.adoc` covering config file, env vars, XDG paths
 - [x] T058 [P] Write `docs/modules/reference/pages/mcp-labels.adoc` covering MCP label schema for container images
 - [x] T059 Create `docs/modules/ROOT/nav.adoc` and `docs/modules/reference/nav.adoc`
-- [ ] T060 Verify: Antora build completes without warnings or broken cross-references
-- [ ] T061 Verify: all 8 modules have substantive content, navigation works end-to-end
-- [ ] T062 Push demo image to `quay.io/rhuss/cc-deck-demo:latest`
+- [x] T060 Verify: Antora build completes without warnings or broken cross-references
+- [x] T061 Verify: all 8 modules have substantive content, navigation works end-to-end
+- [x] T062 Push demo image to `quay.io/rhuss/cc-deck-demo:latest`
 
 ---
 
