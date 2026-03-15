@@ -2,12 +2,19 @@
 # Demo Runner Framework for cc-deck
 # Provides helper functions for scripted terminal demos with
 # scene management, checkpoint-based waits, and recording integration.
+#
+# Designed to be sourced from both bash and zsh.
 
-set -euo pipefail
+# Portable script directory detection (bash and zsh)
+if [[ -n "${ZSH_VERSION:-}" ]]; then
+    _demo_runner_dir="${0:A:h}"
+else
+    _demo_runner_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi
 
 # ─── Configuration ─────────────────────────────────────────────────────────────
 DEMO_RUNNER_VERSION="0.1.0"
-RECORDING_DIR="${RECORDING_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/recordings}"
+RECORDING_DIR="${RECORDING_DIR:-${_demo_runner_dir}/recordings}"
 RECORDING_PID=""
 RECORDING_FILE=""
 SCENE_COUNT=0
