@@ -20,6 +20,7 @@ A macOS user discovers cc-deck and wants to install it without cloning the repos
 1. **Given** Homebrew is installed on macOS, **When** the user runs `brew install cc-deck/tap/cc-deck`, **Then** the cc-deck CLI binary is installed and available in PATH.
 2. **Given** cc-deck was installed via Homebrew, **When** the user runs `cc-deck plugin install`, **Then** the WASM plugin, layouts, and hooks are installed into Zellij's configuration directory.
 3. **Given** a new version is released, **When** the user runs `brew upgrade cc-deck`, **Then** the latest version is installed.
+4. **Given** the Homebrew formula is installed, **When** Zellij is not installed, **Then** the formula recommends Zellij but does not require it (Zellij is an optional dependency).
 
 ---
 
@@ -126,7 +127,7 @@ A user pulls the cc-deck demo image from the new `quay.io/cc-deck` organization.
 - **FR-010**: All references to `quay.io/rhuss` in documentation, Makefile, and configuration files MUST be updated to `quay.io/cc-deck`.
 - **FR-011**: The release pipeline MUST generate a changelog from commit history for the GitHub Release.
 - **FR-012**: A Flatpak manifest MUST be created for submission to Flathub.
-- **FR-013**: Version numbers MUST be derived from the git tag, with the Makefile and Cargo.toml kept in sync.
+- **FR-013**: Version numbers MUST be derived from the git tag at release time. The Makefile `VERSION` and Cargo.toml `version` are updated post-release for development builds.
 
 ### Key Entities
 
@@ -144,6 +145,13 @@ A user pulls the cc-deck demo image from the new `quay.io/cc-deck` organization.
 - **SC-004**: Container images are available at `quay.io/cc-deck` with both arm64 and amd64 support.
 - **SC-005**: Zero references to `quay.io/rhuss` remain in the codebase after migration.
 - **SC-006**: The release can be tested locally (dry run) before pushing the tag, producing the same artifacts without publishing.
+
+## Clarifications
+
+### Session 2026-03-15
+
+- Q: Should the Homebrew formula declare Zellij as a dependency? → A: Zellij should be an optional (recommended) dependency, not a hard requirement. cc-deck can run without Zellij when operating inside a container.
+- Q: How are version numbers managed across git tag, Makefile, and Cargo.toml? → A: Git tag is the source of truth. GoReleaser reads the version from the tag at release time. Makefile and Cargo.toml versions are for development builds and get updated post-release.
 
 ## Assumptions
 
