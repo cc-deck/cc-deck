@@ -1,3 +1,5 @@
+<img src="assets/logo/cc-deck-icon.png" alt="cc-deck" width="120" align="right" />
+
 # cc-deck
 
 [![CI](https://github.com/cc-deck/cc-deck/actions/workflows/ci.yaml/badge.svg)](https://github.com/cc-deck/cc-deck/actions/workflows/ci.yaml)
