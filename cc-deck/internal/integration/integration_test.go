@@ -19,8 +19,8 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 
-	"github.com/rhuss/cc-mux/cc-deck/internal/k8s"
-	"github.com/rhuss/cc-mux/cc-deck/internal/session"
+	"github.com/cc-deck/cc-deck/internal/k8s"
+	"github.com/cc-deck/cc-deck/internal/session"
 )
 
 const (

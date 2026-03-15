@@ -8,7 +8,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
 
-	"github.com/rhuss/cc-mux/cc-deck/internal/k8s"
+	"github.com/cc-deck/cc-deck/internal/k8s"
 )
 
 // LogsOptions configures the logs operation.

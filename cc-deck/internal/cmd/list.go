@@ -6,8 +6,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/rhuss/cc-mux/cc-deck/internal/k8s"
-	"github.com/rhuss/cc-mux/cc-deck/internal/session"
+	"github.com/cc-deck/cc-deck/internal/k8s"
+	"github.com/cc-deck/cc-deck/internal/session"
 )
 
 // NewListCmd creates the list cobra command.

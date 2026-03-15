@@ -5,7 +5,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
-	"github.com/rhuss/cc-mux/cc-deck/internal/config"
+	"github.com/cc-deck/cc-deck/internal/config"
 )
 
 func TestApplyGitCredentialConfig_SSH(t *testing.T) {

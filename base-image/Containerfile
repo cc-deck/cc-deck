@@ -10,7 +10,7 @@ FROM registry.fedoraproject.org/fedora:${FEDORA_VERSION}
 
 LABEL org.opencontainers.image.title="cc-deck-base" \
       org.opencontainers.image.description="Developer toolbox for Claude Code environments" \
-      org.opencontainers.image.source="https://github.com/rhuss/cc-deck"
+      org.opencontainers.image.source="https://github.com/cc-deck/cc-deck"
 
 # Install all developer tools + starship
 COPY scripts/install-tools.sh /tmp/install-tools.sh

@@ -10,9 +10,9 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
-	"github.com/rhuss/cc-mux/cc-deck/internal/config"
-	"github.com/rhuss/cc-mux/cc-deck/internal/k8s"
-	"github.com/rhuss/cc-mux/cc-deck/internal/session"
+	"github.com/cc-deck/cc-deck/internal/config"
+	"github.com/cc-deck/cc-deck/internal/k8s"
+	"github.com/cc-deck/cc-deck/internal/session"
 )
 
 // NewProfileCmd creates the profile cobra command with subcommands.

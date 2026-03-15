@@ -9,8 +9,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"github.com/rhuss/cc-mux/cc-deck/internal/build"
-	"github.com/rhuss/cc-mux/cc-deck/internal/cmd"
+	"github.com/cc-deck/cc-deck/internal/build"
+	"github.com/cc-deck/cc-deck/internal/cmd"
 )
 
 const (
