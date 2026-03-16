@@ -59,9 +59,45 @@ protoc               | >= 25.0    | repo1/.github/workflows/ci.yml
 
 Ask: "Which tools should I add to the manifest? You can accept all, reject specific ones, or modify versions."
 
-### Step 5: Update the manifest
+### Step 5: Detect network domain groups
+
+Based on the ecosystem files found in Step 2, determine which network domain groups to add to the manifest's `network.allowed_domains` section:
+
+| Ecosystem file | Domain group |
+|----------------|-------------|
+| `go.mod` | `golang` |
+| `pyproject.toml`, `requirements.txt`, `.python-version` | `python` |
+| `package.json`, `.nvmrc` | `nodejs` |
+| `Cargo.toml`, `rust-toolchain.toml` | `rust` |
+
+Always include `github` if a `.git` directory or `.github/` directory is found.
+
+Present the detected domain groups to the user alongside the tool findings:
+
+```
+Network domain groups detected:
+  golang   (from go.mod)
+  python   (from pyproject.toml)
+  github   (from .github/)
+```
+
+Ask: "Should I add these domain groups to the manifest's network.allowed_domains?"
+
+### Step 6: Update the manifest
 
 Read the current `cc-deck-build.yaml`. Update the `tools` section with accepted entries (as free-form text). Update the `sources` section with repository provenance (URL, ref, path, detected_tools, detected_from).
+
+If the user accepted domain groups from Step 5, add or update the `network` section:
+
+```yaml
+network:
+  allowed_domains:
+    - golang
+    - python
+    - github
+```
+
+If a `network.allowed_domains` section already exists, merge newly detected groups with existing entries (do not remove existing groups).
 
 Write the updated manifest. Use `yq` if available for safe YAML updates, otherwise write the full file.
 

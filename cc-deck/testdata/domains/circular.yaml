@@ -1,0 +1,12 @@
+# Circular include: group-a includes group-b which includes group-a
+group-a:
+  includes:
+    - group-b
+  domains:
+    - a.example.com
+
+group-b:
+  includes:
+    - group-a
+  domains:
+    - b.example.com
