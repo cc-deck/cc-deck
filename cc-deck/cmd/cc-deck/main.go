@@ -24,11 +24,11 @@ func newRootCmd() *cobra.Command {
 
 	rootCmd := &cobra.Command{
 		Use:   appName,
-		Short: "Deploy and manage Claude Code sessions on Kubernetes/OpenShift",
-		Long: `cc-deck deploys and manages Claude Code + Zellij sessions as StatefulSets
-on Kubernetes and OpenShift clusters. It supports multiple credential profiles
-(Anthropic API, Vertex AI) and provides commands for deploying, connecting,
-and managing remote Claude Code sessions.`,
+		Short: "Manage Claude Code sessions with the Zellij sidebar plugin",
+		Long: `cc-deck manages Claude Code + Zellij sessions through a sidebar plugin
+that tracks session status, enables keyboard navigation, and provides
+session snapshots. It also supports building custom container images
+for containerized Claude Code environments.`,
 		SilenceUsage: true,
 	}
 

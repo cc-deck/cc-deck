@@ -18,8 +18,9 @@ import (
 // NewProfileCmd creates the profile cobra command with subcommands.
 func NewProfileCmd(globalFlags *GlobalFlags) *cobra.Command {
 	profileCmd := &cobra.Command{
-		Use:   "profile",
-		Short: "Manage credential profiles",
+		Use:    "profile",
+		Short:  "Manage credential profiles",
+		Hidden: true,
 		Long:  "Create, list, switch, and inspect credential profiles for AI backends.",
 	}
 

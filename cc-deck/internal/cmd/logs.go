@@ -23,8 +23,9 @@ func NewLogsCmd(globalFlags *GlobalFlags) *cobra.Command {
 	flags := &LogsFlags{}
 
 	cmd := &cobra.Command{
-		Use:   "logs <name>",
-		Short: "Stream logs from a Claude Code session",
+		Use:    "logs <name>",
+		Short:  "Stream logs from a Claude Code session",
+		Hidden: true,
 		Long: `Stream Pod logs from a running Claude Code session.
 
 By default shows all existing logs. Use --follow (-f) to stream

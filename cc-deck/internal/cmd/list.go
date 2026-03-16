@@ -16,6 +16,7 @@ func NewListCmd(globalFlags *GlobalFlags) *cobra.Command {
 		Use:     "list",
 		Aliases: []string{"ls"},
 		Short:   "List Claude Code sessions",
+		Hidden:  true,
 		Long: `List all Claude Code sessions tracked in the local config.
 
 Shows live status by checking Pod state on the cluster. Sessions whose
