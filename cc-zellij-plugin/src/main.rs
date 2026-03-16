@@ -245,6 +245,11 @@ impl ZellijPlugin for PluginState {
                 debug_log("PERMISSION granted, calling set_selectable(false)");
                 set_selectable(false);
                 register_keybindings(&self.config);
+                // Restore persisted sessions (reattach recovery)
+                let restored = sync::restore_sessions();
+                if !restored.is_empty() {
+                    self.merge_sessions(restored);
+                }
                 sync::request_state();
                 sync::apply_session_meta(&mut self.sessions);
                 let pending = std::mem::take(&mut self.pending_events);
@@ -290,6 +295,7 @@ impl ZellijPlugin for PluginState {
                     let removed = self.sessions.remove(&hook.pane_id).is_some();
                     if removed {
                         sync::broadcast_state(self);
+                        sync::save_sessions(&self.sessions);
                     }
                     return removed;
                 }
@@ -415,6 +421,7 @@ impl ZellijPlugin for PluginState {
 
                 if changed {
                     sync::broadcast_state(self);
+                    sync::save_sessions(&self.sessions);
                 }
                 true
             }
@@ -587,6 +594,7 @@ impl ZellijPlugin for PluginState {
                         s.meta_ts = now;
                     }
                     sync::broadcast_state(self);
+                    sync::save_sessions(&self.sessions);
                     sync::write_session_meta(&self.sessions);
                 }
                 true
@@ -732,6 +740,9 @@ impl PluginState {
             }
             Event::Timer(_) => {
                 let stale = self.cleanup_stale_sessions(self.config.done_timeout);
+                if stale {
+                    sync::save_sessions(&self.sessions);
+                }
                 let meta_changed = sync::apply_session_meta(&mut self.sessions);
                 // Re-detect git branches for all sessions (picks up branch
                 // switches that happen without a CWD change).
@@ -855,6 +866,7 @@ impl PluginState {
                         git::detect_git_branch(terminal_pane_id, &cwd);
                     }
                     sync::broadcast_state(self);
+                    sync::save_sessions(&self.sessions);
                     true
                 } else {
                     false
@@ -868,6 +880,7 @@ impl PluginState {
                 let removed = self.sessions.remove(&id).is_some();
                 if removed {
                     sync::broadcast_state(self);
+                    sync::save_sessions(&self.sessions);
                 }
                 removed
             }
@@ -976,6 +989,7 @@ impl PluginState {
                 close_session_pane(pane_id, tab_idx, is_only);
             }
             sync::broadcast_state(self);
+            sync::save_sessions(&self.sessions);
             self.preserve_cursor();
         }
         // Any other key: just cancel (delete_confirm already taken)
@@ -1120,6 +1134,7 @@ impl PluginState {
                         s.meta_ts = now;
                     }
                     sync::broadcast_state(self);
+                    sync::save_sessions(&self.sessions);
                     sync::write_session_meta(&self.sessions);
                 }
                 true
@@ -1179,6 +1194,7 @@ impl PluginState {
                     }
 
                     sync::broadcast_state(self);
+                    sync::save_sessions(&self.sessions);
                     true
                 } else {
                     false
