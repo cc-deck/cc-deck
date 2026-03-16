@@ -1,5 +1,10 @@
 = cc-deck: Your Claude Code Command Center
 
+CAUTION: **Beta Software.** cc-deck is under active development and not yet suitable for production use.
+APIs, configuration formats, and behavior may change between releases without notice.
+That said, the author uses it daily for real work, and it generally does what it promises.
+Bug reports and feedback are very welcome.
+
 cc-deck is the TweetDeck for Claude Code.
 It provides a Zellij sidebar plugin that monitors, attends to, and orchestrates multiple Claude Code sessions from a single view.
 
