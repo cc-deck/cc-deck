@@ -43,8 +43,28 @@ pub fn handle_sync(state: &mut PluginState, payload: &str) -> bool {
         return false;
     }
     state.merge_sessions(incoming);
+    save_sessions(&state.sessions);
     // Always re-render after sync (state may have updated even if count unchanged)
     true
+}
+
+// --- Full session state persistence via WASI /cache/ ---
+
+const SESSIONS_PATH: &str = "/cache/sessions.json";
+
+/// Persist full session state to disk for reattach recovery.
+pub fn save_sessions(sessions: &BTreeMap<u32, Session>) {
+    if let Ok(json) = serde_json::to_string(sessions) {
+        let _ = std::fs::write(SESSIONS_PATH, json);
+    }
+}
+
+/// Restore sessions from disk (called on load/reattach).
+pub fn restore_sessions() -> BTreeMap<u32, Session> {
+    match std::fs::read_to_string(SESSIONS_PATH) {
+        Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
+        Err(_) => BTreeMap::new(),
+    }
 }
 
 // --- File-based metadata sync via WASI /cache/ ---
@@ -255,5 +275,55 @@ mod tests {
         }
 
         assert_eq!(sessions[&1].display_name, "current-name");
+    }
+
+    #[test]
+    fn test_sessions_serialize_roundtrip() {
+        use crate::session::Activity;
+
+        let mut sessions = BTreeMap::new();
+        let mut s1 = make_session(1, "api-server", 100);
+        s1.activity = Activity::Working;
+        s1.working_dir = Some("/home/user/api".to_string());
+        s1.git_branch = Some("main".to_string());
+        s1.tab_index = Some(0);
+        s1.manually_renamed = true;
+        s1.paused = false;
+        s1.meta_ts = 50;
+        sessions.insert(1, s1);
+
+        let mut s2 = make_session(2, "frontend", 200);
+        s2.activity = Activity::Idle;
+        s2.paused = true;
+        s2.meta_ts = 150;
+        s2.done_attended = true;
+        sessions.insert(2, s2);
+
+        let json = serde_json::to_string(&sessions).unwrap();
+        let restored: BTreeMap<u32, Session> = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(restored.len(), 2);
+        let r1 = &restored[&1];
+        assert_eq!(r1.display_name, "api-server");
+        assert_eq!(r1.activity, Activity::Working);
+        assert_eq!(r1.working_dir.as_deref(), Some("/home/user/api"));
+        assert_eq!(r1.git_branch.as_deref(), Some("main"));
+        assert_eq!(r1.tab_index, Some(0));
+        assert!(r1.manually_renamed);
+        assert!(!r1.paused);
+        assert_eq!(r1.meta_ts, 50);
+
+        let r2 = &restored[&2];
+        assert_eq!(r2.display_name, "frontend");
+        assert_eq!(r2.activity, Activity::Idle);
+        assert!(r2.paused);
+        assert!(r2.done_attended);
+    }
+
+    #[test]
+    fn test_restore_invalid_json() {
+        let result: BTreeMap<u32, Session> =
+            serde_json::from_str("not valid json").unwrap_or_default();
+        assert!(result.is_empty());
     }
 }
