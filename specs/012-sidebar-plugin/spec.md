@@ -151,6 +151,7 @@ A developer wants to remove cc-deck. They run `cc-deck uninstall`, which safely 
 - What happens when the hook command is called outside of Zellij? The hook exits silently (code 0).
 - What happens when `cc-deck uninstall` is run while settings.json contains hooks from other tools? Only cc-deck entries are removed; other tools' hooks are preserved.
 - What happens when the sidebar has no Claude sessions but the user has regular terminal tabs? The sidebar shows only Claude sessions, so it displays the empty state. Regular tabs are visible in the Zellij tab bar, not in the sidebar.
+- What happens when the user detaches from Zellij and reattaches? The plugin restores the full session list from `/cache/sessions.json`, which is persisted on every state mutation. Stale sessions (referencing panes that no longer exist) are pruned by `remove_dead_sessions` on the first PaneUpdate after reattach.
 
 ## Requirements *(mandatory)*
 
@@ -271,3 +272,14 @@ TabUpdate (shifted positions) and PaneUpdate (stale manifest).
 ### Git Branch Re-detection
 Git branches are re-detected on every timer tick (10s) for all sessions, not just on
 initial CWD discovery. This picks up branch switches that happen without a CWD change.
+
+### Session State Persistence for Reattach
+Sessions are persisted to `/cache/sessions.json` on every state mutation (hook events,
+rename, pause, delete, sync merges, stale cleanup). On plugin load (including reattach),
+the full session map is restored from this file before requesting state from other
+instances. This fixes the issue where detaching and reattaching caused an empty session
+list, because all sidebar instances restart simultaneously with empty in-memory state and
+the pipe-based `request_state` broadcast found nothing to recover. The metadata file
+(`session-meta.json`) continues to handle user overrides (renames, pauses) separately.
+Stale sessions referencing closed panes are pruned by `remove_dead_sessions` on the first
+`PaneUpdate` after reattach.
