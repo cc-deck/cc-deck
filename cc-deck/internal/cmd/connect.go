@@ -24,8 +24,9 @@ func NewConnectCmd(globalFlags *GlobalFlags) *cobra.Command {
 	flags := &ConnectFlags{}
 
 	cmd := &cobra.Command{
-		Use:   "connect <name>",
-		Short: "Connect to a running Claude Code session",
+		Use:    "connect <name>",
+		Short:  "Connect to a running Claude Code session",
+		Hidden: true,
 		Long: `Connect to a running Claude Code session on Kubernetes.
 
 Connection methods:

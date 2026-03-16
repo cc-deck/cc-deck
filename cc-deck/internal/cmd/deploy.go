@@ -28,8 +28,9 @@ func NewDeployCmd(globalFlags *GlobalFlags) *cobra.Command {
 	flags := &DeployFlags{}
 
 	cmd := &cobra.Command{
-		Use:   "deploy <name>",
-		Short: "Deploy a new Claude Code session to Kubernetes",
+		Use:    "deploy <name>",
+		Short:  "Deploy a new Claude Code session to Kubernetes",
+		Hidden: true,
 		Long: `Deploy a new Claude Code session as a StatefulSet on Kubernetes.
 
 This creates a StatefulSet (replicas=1), headless Service, ConfigMap for
