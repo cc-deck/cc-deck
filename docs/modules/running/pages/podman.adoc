@@ -5,14 +5,36 @@ Changes are bidirectional: edits inside the container appear on your host, and v
 
 == Quick Start
 
+=== Interactive (Foreground)
+
+Start a Zellij session directly:
+
+[source,bash]
+----
+podman run -it --rm --name mydev \
+  -e ANTHROPIC_API_KEY=sk-ant-... \
+  quay.io/cc-deck/cc-deck-demo:latest
+----
+
+The container's default command starts Zellij with the cc-deck layout.
+When you exit Zellij, the container is removed automatically (`--rm`).
+
+=== Background
+
+Start the container in the background, then attach when ready:
+
 [source,bash]
 ----
 podman run -d --name mydev \
   -e ANTHROPIC_API_KEY=sk-ant-... \
-  quay.io/cc-deck/cc-deck-demo:latest
+  quay.io/cc-deck/cc-deck-demo:latest \
+  sleep infinity
 
 podman exec -it mydev zellij --layout cc-deck
 ----
+
+Override the default command with `sleep infinity` so the container stays running when you detach from Zellij.
+See <<Reconnecting>> for how to reattach later.
 
 For Vertex AI authentication, see xref:credentials.adoc[Credentials].
 
@@ -92,7 +114,9 @@ podman run -d --name mydev \
   quay.io/cc-deck/cc-deck-demo:latest
 ----
 
-On macOS, file permissions are handled automatically by the Podman VM.
+On macOS, the Podman VM handles most file permissions automatically.
+For gcloud credentials, use Podman secrets instead of volume mounts to avoid UID mapping issues.
+See xref:credentials.adoc#_podman_with_gcloud_credentials[Podman with gcloud Credentials] for details.
 
 == Port Forwarding
 
