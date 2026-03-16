@@ -31,6 +31,10 @@ The sidebar plugin tracks every Claude Code session across tabs. It shows activi
 
 An AI-driven build pipeline analyzes your local environment for tool dependencies, lets you configure shell, Zellij, and Claude Code settings, and generates optimized container images. Four Claude Code commands handle the workflow: extract, settings, build, push.
 
+### Network Filtering
+
+When deploying containerized sessions, cc-deck can restrict outbound network access to only the domains your project needs. Domain groups (python, nodejs, rust, golang, github, and more) let you describe allowed domains by ecosystem instead of listing individual hosts. A tinyproxy sidecar enforces the allowlist in Podman deployments, while NetworkPolicy and EgressFirewall resources handle Kubernetes and OpenShift.
+
 ### Multi-Platform
 
 Run cc-deck locally with Zellij, in Podman containers with mounted source code, or deploy as Deployments on Kubernetes and OpenShift. The sidebar experience is the same everywhere.
@@ -226,6 +230,93 @@ Uses exclusive tiers. Only the highest non-empty tier is cycled:
 
 Subsequent presses round-robin within the selected tier.
 
+## Network Filtering
+
+Containerized sessions can be restricted to only the network domains your project needs, preventing code or secret exfiltration from YOLO-mode agents.
+
+### Quick Setup
+
+Add a `network` section to your `cc-deck-build.yaml`:
+
+```yaml
+network:
+  allowed_domains:
+    - github
+    - python
+    - golang
+```
+
+Then generate compose files with a proxy sidecar:
+
+```bash
+cc-deck deploy --compose my-build-dir/ my-session
+```
+
+The session container is placed on an internal network with all traffic routed through a tinyproxy sidecar that only allows the specified domains.
+
+### Domain Groups
+
+Built-in groups cover common ecosystems. Run `cc-deck domains list` to see all available groups:
+
+| Group | Covers |
+|-------|--------|
+| `python` | pypi.org, files.pythonhosted.org |
+| `nodejs` | registry.npmjs.org, yarnpkg.com |
+| `rust` | crates.io, static.crates.io |
+| `golang` | proxy.golang.org, sum.golang.org |
+| `github` | github.com, ghcr.io, githubusercontent.com |
+| `gitlab` | gitlab.com, registry.gitlab.com |
+| `docker` | registry-1.docker.io, auth.docker.io |
+| `quay` | quay.io, cdn.quay.io |
+
+Backend domains (Anthropic or Vertex AI) are included automatically.
+
+### Customizing Domain Groups
+
+Create `~/.config/cc-deck/domains.yaml` to extend or override built-in groups:
+
+```bash
+cc-deck domains init    # Seed config with commented built-in definitions
+```
+
+```yaml
+# Extend built-in python group with internal registry
+python:
+  extends: builtin
+  domains:
+    - pypi.internal.corp
+
+# Create a custom group
+company:
+  domains:
+    - artifacts.internal.corp
+    - git.internal.corp
+```
+
+### Deploy-Time Overrides
+
+```bash
+# Add a group to manifest defaults
+cc-deck deploy --compose dir/ --allowed-domains +rust my-session
+
+# Remove a group
+cc-deck deploy --compose dir/ --allowed-domains -nodejs my-session
+
+# Replace entirely
+cc-deck deploy --compose dir/ --allowed-domains vertexai,rust my-session
+
+# Disable filtering (security warning printed)
+cc-deck deploy --compose dir/ --allowed-domains all my-session
+```
+
+### Debugging Blocked Domains
+
+```bash
+cc-deck domains blocked my-session        # Show denied requests
+cc-deck domains add my-session pypi.org   # Add domain at runtime
+cc-deck domains show python               # Inspect a group's domains
+```
+
 ## Build from Source
 
 ```bash
@@ -275,3 +366,5 @@ cc-deck follows [Spec-Driven Development](CONTRIBUTING.md#spec-driven-developmen
 | [018](specs/018-build-manifest/) | Build Pipeline | In Progress |
 | [019](specs/019-docs-landing-page/) | Documentation & Landing Page | In Progress |
 | [020](specs/020-demo-recordings/) | Demo Recording System | In Progress |
+| [021](specs/021-release-process/) | Release Process | Implemented |
+| [022](specs/022-network-filtering/) | Network Security & Domain Filtering | In Progress |
