@@ -735,9 +735,13 @@ impl PluginState {
                 let meta_changed = sync::apply_session_meta(&mut self.sessions);
                 // Re-detect git branches for all sessions (picks up branch
                 // switches that happen without a CWD change).
-                for session in self.sessions.values() {
-                    if let Some(ref cwd) = session.working_dir {
-                        git::detect_git_branch(session.pane_id, cwd);
+                // Only the active-tab instance runs detection to avoid
+                // T×S process spawns (one sidebar per tab, all hold all sessions).
+                if self.is_on_active_tab() {
+                    for session in self.sessions.values() {
+                        if let Some(ref cwd) = session.working_dir {
+                            git::detect_git_branch(session.pane_id, cwd);
+                        }
                     }
                 }
                 set_timeout(self.config.timer_interval);
