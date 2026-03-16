@@ -73,7 +73,7 @@ Download RPM and DEB packages from [GitHub Releases](https://github.com/cc-deck/
 
 ### Demo Image (Try Without Installing)
 
-# Anthropic Key
+Anthropic Key
 
 ```bash
 podman run -it --rm \
@@ -81,7 +81,7 @@ podman run -it --rm \
   quay.io/cc-deck/cc-deck-demo:latest
 ```
 
-# Vertex
+Vertex AI env passthrough
 
 ```bash
 podman run -it --rm \
