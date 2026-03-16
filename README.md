@@ -73,9 +73,21 @@ Download RPM and DEB packages from [GitHub Releases](https://github.com/cc-deck/
 
 ### Demo Image (Try Without Installing)
 
+# Anthropic Key
+
 ```bash
 podman run -it --rm \
   -e ANTHROPIC_API_KEY=sk-ant-... \
+  quay.io/cc-deck/cc-deck-demo:latest
+```
+
+# Vertex
+
+```bash
+podman run -it --rm \
+  -e CLAUDE_CODE_USE_VERTEX \          
+  -e CLOUD_ML_REGION \
+  -e ANTHROPIC_VERTEX_PROJECT_ID \
   quay.io/cc-deck/cc-deck-demo:latest
 ```
 
