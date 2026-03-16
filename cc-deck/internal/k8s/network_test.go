@@ -228,16 +228,23 @@ func TestBuildEgressFirewall_WithUserEgress(t *testing.T) {
 	spec := ef.Object["spec"].(map[string]interface{})
 	egress := spec["egress"].([]interface{})
 
-	// Should have: backend + 2 user hosts + deny-all
+	// Should have: backend rules + 2 user hosts + deny-all
 	if len(egress) < 4 {
 		t.Fatalf("expected at least 4 egress rules, got %d", len(egress))
 	}
 
-	// Check the CIDR-based user rule
-	cidrRule := egress[2].(map[string]interface{})
-	to := cidrRule["to"].(map[string]interface{})
-	if to["cidrSelector"] != "10.0.0.0/8" {
-		t.Errorf("expected cidrSelector 10.0.0.0/8, got %v", to["cidrSelector"])
+	// Find the CIDR-based user rule (position-independent)
+	found := false
+	for _, rule := range egress {
+		r := rule.(map[string]interface{})
+		to := r["to"].(map[string]interface{})
+		if to["cidrSelector"] == "10.0.0.0/8" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected a rule with cidrSelector 10.0.0.0/8")
 	}
 }
 
@@ -253,18 +260,36 @@ func TestBuildEgressFirewall_UserIP(t *testing.T) {
 	spec := ef.Object["spec"].(map[string]interface{})
 	egress := spec["egress"].([]interface{})
 
-	// IP should be converted to /32 CIDR
-	ipRule := egress[1].(map[string]interface{})
-	to := ipRule["to"].(map[string]interface{})
-	if to["cidrSelector"] != "192.168.1.1/32" {
-		t.Errorf("expected cidrSelector 192.168.1.1/32, got %v", to["cidrSelector"])
+	// Find the IP rule converted to /32 CIDR (position-independent)
+	found := false
+	for _, rule := range egress {
+		r := rule.(map[string]interface{})
+		to := r["to"].(map[string]interface{})
+		if to["cidrSelector"] == "192.168.1.1/32" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected a rule with cidrSelector 192.168.1.1/32")
 	}
 }
 
 func TestBackendDNSNames(t *testing.T) {
 	anthropic := backendDNSNames(config.BackendAnthropic)
-	if len(anthropic) != 1 || anthropic[0] != "api.anthropic.com" {
-		t.Errorf("unexpected Anthropic DNS names: %v", anthropic)
+	if len(anthropic) == 0 {
+		t.Errorf("expected at least one Anthropic DNS name, got none")
+	}
+	// Must include api.anthropic.com
+	found := false
+	for _, d := range anthropic {
+		if d == "api.anthropic.com" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected api.anthropic.com in Anthropic DNS names: %v", anthropic)
 	}
 
 	vertex := backendDNSNames(config.BackendVertex)
