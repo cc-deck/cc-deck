@@ -17,6 +17,12 @@ type Manifest struct {
 	MCP         []MCPEntry       `yaml:"mcp,omitempty"`
 	GithubTools []GithubTool     `yaml:"github_tools,omitempty"`
 	Settings    *SettingsConfig  `yaml:"settings,omitempty"`
+	Network     *NetworkConfig   `yaml:"network,omitempty"`
+}
+
+// NetworkConfig describes network filtering for containerized sessions.
+type NetworkConfig struct {
+	AllowedDomains []string `yaml:"allowed_domains,omitempty"`
 }
 
 // ImageConfig describes the container image to build.
