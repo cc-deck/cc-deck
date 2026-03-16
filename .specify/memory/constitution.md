@@ -56,11 +56,16 @@ cd cc-deck && go build -o /tmp/cc-deck-test ./cmd/cc-deck
 
 Follow YAGNI. Don't add features, abstractions, or error handling beyond what's needed. Three similar lines of code is better than a premature abstraction.
 
-### VIII. Documentation Freshness
+### VIII. Documentation Freshness (NON-NEGOTIABLE)
 
-After completing a feature, ALWAYS update the repository's `README.md` to reflect new capabilities, commands, or changed behavior.
+A feature is NOT complete until its documentation is updated. ALWAYS update these as part of every feature implementation:
 
-For larger features (new modules, new CLI commands, new deployment patterns), also evaluate whether the landing page at `cc-deck.github.io` needs updates to its feature grid, steps widget, or quickstart links. Open a follow-up task if landing page changes are warranted.
+1. **README.md**: Update with user-facing feature descriptions, usage examples, and CLI reference changes. This is mandatory for every feature, no exceptions.
+2. **Feature specs table**: Add or update the feature entry in the README's "Feature Specifications" table (see Principle IX).
+3. **Landing page**: For substantial features (new CLI commands, new deployment modes, new user-visible capabilities), update the landing page. The landing page repo is **`cc-deck/cc-deck.github.io`** (Astro site at https://cc-deck.github.io). If the repo location is unclear or the worktree is not available, ask the user before proceeding.
+4. **Antora docs**: If the `docs/` directory exists in the working tree, update relevant Antora modules (quickstarts, reference, etc.).
+
+Do NOT mark a feature as complete or propose a commit without verifying documentation is current.
 
 ### IX. Spec Tracking in README
 
@@ -110,4 +115,4 @@ When Claude Code triggers a release, execute these steps automatically after con
 
 This constitution supersedes ad-hoc practices. Amendments require updating this file and the project memory.
 
-**Version**: 1.5.0 | **Ratified**: 2026-03-09 | **Last Amended**: 2026-03-15
+**Version**: 1.6.0 | **Ratified**: 2026-03-09 | **Last Amended**: 2026-03-16
