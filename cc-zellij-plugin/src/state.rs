@@ -89,6 +89,8 @@ pub struct PluginState {
     /// Entering nav mode triggers a PaneUpdate with stale focus before
     /// focus_plugin_pane takes effect, which would immediately exit nav mode.
     pub nav_enter_guard: bool,
+    /// Last left-click timestamp (ms) and pane_id for double-click detection.
+    pub last_click: Option<(u64, u32)>,
     /// Pending metadata overrides from snapshot restore, keyed by working directory.
     /// Applied when a hook event arrives with a matching CWD, then removed.
     pub pending_overrides: HashMap<String, PendingOverride>,

@@ -784,11 +784,33 @@ impl PluginState {
                             2,
                         ));
                     } else {
-                        // Switch tab if on a different tab, then focus the pane
-                        if self.active_tab_index != Some(tab_idx) {
-                            switch_tab_to(tab_idx as u32 + 1);
+                        // Double-click on same session triggers rename
+                        let now_ms = crate::session::unix_now_ms();
+                        let is_double_click = self.last_click
+                            .map(|(ts, pid)| pid == pane_id && now_ms.saturating_sub(ts) < 400)
+                            .unwrap_or(false);
+                        self.last_click = Some((now_ms, pane_id));
+
+                        if is_double_click {
+                            self.last_click = None;
+                            if let Some(session) = self.sessions.get(&pane_id) {
+                                let name = session.display_name.clone();
+                                let len = name.len();
+                                self.rename_state = Some(crate::state::RenameState {
+                                    pane_id,
+                                    input_buffer: name,
+                                    cursor_pos: len,
+                                });
+                                set_selectable_wasm(true);
+                                return true;
+                            }
+                        } else {
+                            // Single click: switch tab and focus pane
+                            if self.active_tab_index != Some(tab_idx) {
+                                switch_tab_to(tab_idx as u32 + 1);
+                            }
+                            focus_terminal_pane(pane_id, false);
                         }
-                        focus_terminal_pane(pane_id, false);
                     }
                 }
                 false
