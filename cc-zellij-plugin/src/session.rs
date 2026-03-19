@@ -10,6 +10,13 @@ pub fn unix_now() -> u64 {
         .unwrap_or(0)
 }
 
+pub fn unix_now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
 /// Why a session is in a waiting state.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum WaitReason {
