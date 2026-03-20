@@ -2,7 +2,11 @@
   "version": 1,
   "traits": {
     "superpowers": true,
-    "teams": true
+    "teams": true,
+    "worktrees": true
   },
-  "applied_at": "2026-03-13T19:58:57Z"
+  "worktrees_config": {
+    "base_path": ".."
+  },
+  "applied_at": "2026-03-20T11:14:40Z"
 }
