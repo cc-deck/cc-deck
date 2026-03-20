@@ -1,14 +1,15 @@
 <!--
 Sync Impact Report
-- Version change: 1.6.0 -> 1.7.0 (MINOR: new principle added)
-- Modified principles: None
-- Added sections: Principle XI (Integration & E2E Testing)
-- Removed sections: None
+- Version change: 1.7.0 → 1.8.0
+- Modified principles: none
+- Added sections: Principle XI (Prose Plugin for Documentation)
+- Removed sections: none
 - Templates requiring updates:
-  - .specify/templates/tasks-template.md: UPDATED (tests mandatory, not optional)
-  - .specify/templates/plan-template.md: OK (no changes needed)
-  - .specify/templates/spec-template.md: OK (no changes needed)
-- Follow-up TODOs: None
+  - .specify/templates/spec-template.md ✅ no update needed (specs are technical, not prose)
+  - .specify/templates/plan-template.md ✅ no update needed (plans are technical)
+  - .specify/templates/tasks-template.md ✅ no update needed (tasks are technical)
+  - CLAUDE.md ✅ already references prose plugin and voice profile
+- Follow-up TODOs: none
 -->
 
 # cc-deck Constitution
@@ -119,16 +120,20 @@ Releases are triggered by pushing a version tag (`v*`). The CI pipeline handles 
 
 When Claude Code triggers a release, execute these steps automatically after confirming the tag push succeeded.
 
-### XI. Integration & E2E Testing (NON-NEGOTIABLE)
+### XI. Prose Plugin for Documentation (NON-NEGOTIABLE)
 
-Every feature MUST include integration tests and, where applicable, end-to-end tests. Unit tests alone are insufficient. Integration tests verify that components work together correctly through real interfaces (CLI commands, APIs, file I/O). E2E tests verify complete user workflows.
+All documentation text content creation and editing MUST use the **prose plugin** (`/prose:write` for new content, `/prose:rewrite` for editing existing content, `/prose:check` before committing). The voice profile to use is **`cc-deck`** (defined in `.style/voice.yaml`).
 
-**Rules**:
+This applies to:
+- Antora documentation pages (AsciiDoc)
+- README sections and feature descriptions
+- Landing page copy
+- Brainstorming documents and feature specs (prose sections, not code/tables)
+- Commit message descriptions and PR bodies for documentation changes
 
-1. **Integration tests are mandatory**: Every feature MUST have tests that exercise the code through its public interfaces (e.g., cobra commands, HTTP endpoints, library APIs) with real dependencies (filesystem, temp dirs) rather than mocks alone.
-2. **E2E tests are mandatory when feasible**: Features with user-facing workflows (CLI commands, UI interactions) MUST include E2E tests that run the full create-use-cleanup cycle. If external dependencies make E2E infeasible (e.g., requires a live K8s cluster or running Zellij), use a build tag (e.g., `//go:build integration`) so they can run in appropriate environments.
-3. **Skipping requires explicit user confirmation**: If integration or E2E tests cannot be written for a specific feature, the implementer MUST state the reason and get explicit confirmation from the user before marking the feature complete. "Not enough time" is not an acceptable reason.
-4. **Test the real thing**: Prefer testing through the actual CLI/API entry points over testing internal functions directly. A test that runs `cc-deck env create` through cobra is more valuable than one that calls `LocalEnvironment.Create()` directly.
+The prose plugin enforces the cc-deck voice: professional, thorough, no contractions, terminal-native analogies, context before commands, and reasoning-first explanations. It also catches AI writing patterns before they reach the repository.
+
+Do NOT write documentation text directly without running it through the prose plugin. The voice profile ensures consistency across all cc-deck documentation.
 
 ## Development Workflow
 
@@ -141,13 +146,11 @@ Every feature MUST include integration tests and, where applicable, end-to-end t
 ## Testing
 
 - `cargo test` runs on native target with WASM host function stubs
-- `go test ./...` runs unit and integration tests (use `-tags integration` for tests requiring external dependencies)
 - Live testing requires Zellij with the cc-deck layout
 - Debug logging via `/cache/debug.log` in the WASI filesystem (check `~/Library/Caches/org.Zellij-Contributors.Zellij/`)
-- See Principle XI for mandatory test coverage requirements
 
 ## Governance
 
 This constitution supersedes ad-hoc practices. Amendments require updating this file and the project memory.
 
-**Version**: 1.7.0 | **Ratified**: 2026-03-09 | **Last Amended**: 2026-03-20
+**Version**: 1.8.0 | **Ratified**: 2026-03-09 | **Last Amended**: 2026-03-20
