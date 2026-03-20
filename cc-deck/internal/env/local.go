@@ -64,10 +64,9 @@ func (e *LocalEnvironment) Create(_ context.Context, _ CreateOpts) error {
 	return e.store.Add(record)
 }
 
-// Attach replaces the current process with a Zellij command. If the session
-// already exists, it attaches to it. Otherwise, it creates a new session
-// with the cc-deck layout. The --layout flag is not supported on
-// "zellij attach --create", so we branch explicitly.
+// Attach connects to the environment's Zellij session. If called from
+// inside Zellij (ZELLIJ env var set), it prints the command to run after
+// detaching. Otherwise, it replaces the current process with zellij.
 func (e *LocalEnvironment) Attach(_ context.Context) error {
 	zellijPath, err := exec.LookPath("zellij")
 	if err != nil {
@@ -75,13 +74,7 @@ func (e *LocalEnvironment) Attach(_ context.Context) error {
 	}
 
 	sessionName := e.zellijSessionName()
-
-	var args []string
-	if zellijSessionExists(sessionName) {
-		args = []string{"zellij", "attach", sessionName}
-	} else {
-		args = []string{"zellij", "--session", sessionName, "--layout", "cc-deck"}
-	}
+	exists := zellijSessionExists(sessionName)
 
 	// Update last_attached timestamp.
 	if record, findErr := e.store.FindByName(e.name); findErr == nil {
@@ -90,7 +83,26 @@ func (e *LocalEnvironment) Attach(_ context.Context) error {
 		_ = e.store.Update(record)
 	}
 
-	// Replace the current process with zellij.
+	// Inside Zellij: cannot start/attach a session from within another.
+	if os.Getenv("ZELLIJ") != "" {
+		if exists {
+			fmt.Fprintf(os.Stderr, "Already inside Zellij. Detach first (Ctrl+o d), then run:\n")
+			fmt.Fprintf(os.Stderr, "  zellij attach %s\n", sessionName)
+		} else {
+			fmt.Fprintf(os.Stderr, "Already inside Zellij. Detach first (Ctrl+o d), then run:\n")
+			fmt.Fprintf(os.Stderr, "  zellij --session %s --layout cc-deck\n", sessionName)
+		}
+		return nil
+	}
+
+	// Outside Zellij: replace current process.
+	var args []string
+	if exists {
+		args = []string{"zellij", "attach", sessionName}
+	} else {
+		args = []string{"zellij", "--session", sessionName, "--layout", "cc-deck"}
+	}
+
 	return syscall.Exec(zellijPath, args, os.Environ())
 }
 
