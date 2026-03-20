@@ -19,7 +19,7 @@
 
 **Purpose**: Create the new `internal/env/` package structure
 
-- [ ] T001 Create package directory `cc-deck/internal/env/` and verify `make test` still passes
+- [x] T001 Create package directory `cc-deck/internal/env/` and verify `make test` still passes
 
 ---
 
@@ -27,13 +27,13 @@
 
 **Purpose**: Core types, interfaces, state management, and validation that ALL user stories depend on
 
-- [ ] T002 [P] Define type enums and interface in `cc-deck/internal/env/types.go`: EnvironmentType (Local, Podman, K8sDeploy, K8sSandbox), EnvironmentState (Running, Stopped, Creating, Error, Unknown), StorageType (HostPath, NamedVolume, EmptyDir, PVC), SyncStrategy (Copy, GitHarvest, RemoteGit), plus StorageConfig, SyncConfig, K8sFields, PodmanFields, SandboxFields structs per data-model.md
-- [ ] T003 [P] Define Environment interface and option structs in `cc-deck/internal/env/interface.go`: Environment interface with all methods (Type, Name, Create, Start, Stop, Delete, Status, Attach, Exec, Push, Pull, Harvest), CreateOpts, SyncOpts, HarvestOpts, EnvironmentStatus, SessionInfo per contracts/environment-interface.md
-- [ ] T004 [P] Define sentinel errors in `cc-deck/internal/env/errors.go`: ErrNotSupported, ErrNotImplemented, ErrNameConflict, ErrNotFound, ErrInvalidName, ErrZellijNotFound, ErrRunning per contracts/environment-interface.md
-- [ ] T005 [P] Implement name validation in `cc-deck/internal/env/validate.go` and `cc-deck/internal/env/validate_test.go`: ValidateEnvName function with regex `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`, max 40 chars, table-driven tests for valid names, invalid names (uppercase, special chars, too long, leading/trailing hyphens), and single-char names
-- [ ] T006 Implement StateStore in `cc-deck/internal/env/state.go` and `cc-deck/internal/env/state_test.go`: StateFile struct with version field, EnvironmentRecord struct, FileStateStore implementing Load/Save/FindByName/Add/Update/Remove/List with atomic writes (write-temp-rename), ListFilter by type, auto-create directory on save, handle missing/corrupted state file gracefully, use `xdg.StateHome` for default path. Tests: CRUD operations, atomic write, missing file, version field, type filtering
-- [ ] T007 Implement config migration in `cc-deck/internal/env/migrate.go` and `cc-deck/internal/env/migrate_test.go`: MigrateFromConfig function that reads config.yaml sessions, converts to K8s-type EnvironmentRecords per data-model.md migration table, writes to state.yaml, removes sessions from config.yaml. Called from StateStore.Load when state file does not exist. Tests: migration with sessions, migration with empty sessions, idempotency
-- [ ] T008 Implement factory in `cc-deck/internal/env/factory.go`: NewEnvironment function that creates LocalEnvironment for type Local, returns ErrNotImplemented for Podman/K8sDeploy/K8sSandbox
+- [x] T002 [P] Define type enums and interface in `cc-deck/internal/env/types.go`: EnvironmentType (Local, Podman, K8sDeploy, K8sSandbox), EnvironmentState (Running, Stopped, Creating, Error, Unknown), StorageType (HostPath, NamedVolume, EmptyDir, PVC), SyncStrategy (Copy, GitHarvest, RemoteGit), plus StorageConfig, SyncConfig, K8sFields, PodmanFields, SandboxFields structs per data-model.md
+- [x] T003 [P] Define Environment interface and option structs in `cc-deck/internal/env/interface.go`: Environment interface with all methods (Type, Name, Create, Start, Stop, Delete, Status, Attach, Exec, Push, Pull, Harvest), CreateOpts, SyncOpts, HarvestOpts, EnvironmentStatus, SessionInfo per contracts/environment-interface.md
+- [x] T004 [P] Define sentinel errors in `cc-deck/internal/env/errors.go`: ErrNotSupported, ErrNotImplemented, ErrNameConflict, ErrNotFound, ErrInvalidName, ErrZellijNotFound, ErrRunning per contracts/environment-interface.md
+- [x] T005 [P] Implement name validation in `cc-deck/internal/env/validate.go` and `cc-deck/internal/env/validate_test.go`: ValidateEnvName function with regex `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`, max 40 chars, table-driven tests for valid names, invalid names (uppercase, special chars, too long, leading/trailing hyphens), and single-char names
+- [x] T006 Implement StateStore in `cc-deck/internal/env/state.go` and `cc-deck/internal/env/state_test.go`: StateFile struct with version field, EnvironmentRecord struct, FileStateStore implementing Load/Save/FindByName/Add/Update/Remove/List with atomic writes (write-temp-rename), ListFilter by type, auto-create directory on save, handle missing/corrupted state file gracefully, use `xdg.StateHome` for default path. Tests: CRUD operations, atomic write, missing file, version field, type filtering
+- [x] T007 Implement config migration in `cc-deck/internal/env/migrate.go` and `cc-deck/internal/env/migrate_test.go`: MigrateFromConfig function that reads config.yaml sessions, converts to K8s-type EnvironmentRecords per data-model.md migration table, writes to state.yaml, removes sessions from config.yaml. Called from StateStore.Load when state file does not exist. Tests: migration with sessions, migration with empty sessions, idempotency
+- [x] T008 Implement factory in `cc-deck/internal/env/factory.go`: NewEnvironment function that creates LocalEnvironment for type Local, returns ErrNotImplemented for Podman/K8sDeploy/K8sSandbox
 
 **Checkpoint**: Foundation ready. All types, interfaces, state management, and validation are in place.
 
@@ -47,10 +47,10 @@
 
 ### Implementation for User Story 2
 
-- [ ] T009 [US2] Implement LocalEnvironment in `cc-deck/internal/env/local.go`: struct with name and store fields, Create validates name + checks Zellij binary (reuse plugin/zellij.go FindZellij) + adds record to store with state=running, Attach runs `zellij attach cc-deck-<name> --create --layout cc-deck`, Delete removes record (optionally kills Zellij session via `zellij kill-session cc-deck-<name>`), Start/Stop return ErrNotSupported, Exec/Push/Pull/Harvest return ErrNotSupported, Status checks `zellij list-sessions` for session `cc-deck-<name>` and returns Running/Unknown
-- [ ] T010 [US2] Write tests in `cc-deck/internal/env/local_test.go`: test Create adds record to store, test Create rejects duplicate name, test Create rejects invalid name, test Start/Stop return ErrNotSupported, test Delete removes record from store
-- [ ] T011 [US2] Implement `cc-deck env` parent command and `create`, `attach`, `delete` subcommands in `cc-deck/internal/cmd/env.go`: NewEnvCmd parent (no RunE), newEnvCreateCmd with required `--type` flag and name arg (validates name, creates StateStore, calls factory + env.Create), newEnvAttachCmd with name arg (loads store, finds record, calls factory + env.Attach), newEnvDeleteCmd with name arg and `--force` flag (loads store, checks state, calls factory + env.Delete)
-- [ ] T012 [US2] Register env command in `cc-deck/cmd/cc-deck/main.go`: add `rootCmd.AddCommand(cmd.NewEnvCmd(gf))` alongside existing commands
+- [x] T009 [US2] Implement LocalEnvironment in `cc-deck/internal/env/local.go`: struct with name and store fields, Create validates name + checks Zellij binary (reuse plugin/zellij.go FindZellij) + adds record to store with state=running, Attach runs `zellij attach cc-deck-<name> --create --layout cc-deck`, Delete removes record (optionally kills Zellij session via `zellij kill-session cc-deck-<name>`), Start/Stop return ErrNotSupported, Exec/Push/Pull/Harvest return ErrNotSupported, Status checks `zellij list-sessions` for session `cc-deck-<name>` and returns Running/Unknown
+- [x] T010 [US2] Write tests in `cc-deck/internal/env/local_test.go`: test Create adds record to store, test Create rejects duplicate name, test Create rejects invalid name, test Start/Stop return ErrNotSupported, test Delete removes record from store
+- [x] T011 [US2] Implement `cc-deck env` parent command and `create`, `attach`, `delete` subcommands in `cc-deck/internal/cmd/env.go`: NewEnvCmd parent (no RunE), newEnvCreateCmd with required `--type` flag and name arg (validates name, creates StateStore, calls factory + env.Create), newEnvAttachCmd with name arg (loads store, finds record, calls factory + env.Attach), newEnvDeleteCmd with name arg and `--force` flag (loads store, checks state, calls factory + env.Delete)
+- [x] T012 [US2] Register env command in `cc-deck/cmd/cc-deck/main.go`: add `rootCmd.AddCommand(cmd.NewEnvCmd(gf))` alongside existing commands
 
 **Checkpoint**: `cc-deck env create mydev --type local`, `cc-deck env attach mydev`, and `cc-deck env delete mydev` all work. State persisted to `~/.local/state/cc-deck/state.yaml`.
 
@@ -64,8 +64,8 @@
 
 ### Implementation for User Story 1
 
-- [ ] T013 [US1] Implement `list` subcommand in `cc-deck/internal/cmd/env.go`: newEnvListCmd with `--type` filter flag, loads StateStore, calls List with optional type filter, reconciles local environments by checking `zellij list-sessions`, formats output as table (default) or json/yaml using global `-o` flag. Table columns: NAME, TYPE, STATUS, STORAGE, LAST ATTACHED, AGE. Empty state shows headers + hint about `cc-deck env create`. Follow output pattern from existing `session/list.go`
-- [ ] T014 [US1] Add reconciliation helper in `cc-deck/internal/env/local.go`: ReconcileLocalEnvs function that runs `zellij list-sessions`, parses output, updates state of local environment records (running if session found, unknown if not). Called from list command before displaying results
+- [x] T013 [US1] Implement `list` subcommand in `cc-deck/internal/cmd/env.go`: newEnvListCmd with `--type` filter flag, loads StateStore, calls List with optional type filter, reconciles local environments by checking `zellij list-sessions`, formats output as table (default) or json/yaml using global `-o` flag. Table columns: NAME, TYPE, STATUS, STORAGE, LAST ATTACHED, AGE. Empty state shows headers + hint about `cc-deck env create`. Follow output pattern from existing `session/list.go`
+- [x] T014 [US1] Add reconciliation helper in `cc-deck/internal/env/local.go`: ReconcileLocalEnvs function that runs `zellij list-sessions`, parses output, updates state of local environment records (running if session found, unknown if not). Called from list command before displaying results
 
 **Checkpoint**: `cc-deck env list`, `cc-deck env list --type local`, and `cc-deck env list -o json` all work correctly.
 
@@ -79,8 +79,8 @@
 
 ### Implementation for User Story 3
 
-- [ ] T015 [US3] Implement local Status method enhancement in `cc-deck/internal/env/local.go`: Status reads `/tmp/cc-deck-pane-map.json` to populate SessionInfo slice (name, activity, branch, last_event) for running local environments. Return EnvironmentStatus with state, since (created_at), and sessions
-- [ ] T016 [US3] Implement `status` subcommand in `cc-deck/internal/cmd/env.go`: newEnvStatusCmd with name arg, loads store, finds record, calls factory + env.Status, formats detailed output as key-value block (Environment, Type, Status, Storage, Uptime, Attached) plus agent sessions table. Supports `-o json/yaml` via global flag. For stopped environments, skip session reading
+- [x] T015 [US3] Implement local Status method enhancement in `cc-deck/internal/env/local.go`: Status reads `/tmp/cc-deck-pane-map.json` to populate SessionInfo slice (name, activity, branch, last_event) for running local environments. Return EnvironmentStatus with state, since (created_at), and sessions
+- [x] T016 [US3] Implement `status` subcommand in `cc-deck/internal/cmd/env.go`: newEnvStatusCmd with name arg, loads store, finds record, calls factory + env.Status, formats detailed output as key-value block (Environment, Type, Status, Storage, Uptime, Attached) plus agent sessions table. Supports `-o json/yaml` via global flag. For stopped environments, skip session reading
 
 **Checkpoint**: `cc-deck env status mydev` shows detailed info. JSON output works via `-o json`.
 
@@ -94,7 +94,7 @@
 
 ### Implementation for User Story 4
 
-- [ ] T017 [US4] Implement `start` and `stop` subcommands in `cc-deck/internal/cmd/env.go`: newEnvStartCmd and newEnvStopCmd with name arg, load store, find record, validate state transition (stop: must be running, start: must be stopped), call factory + env.Start/Stop, update record state in store. For local environments, the interface methods return ErrNotSupported which the CLI formats as an informational message
+- [x] T017 [US4] Implement `start` and `stop` subcommands in `cc-deck/internal/cmd/env.go`: newEnvStartCmd and newEnvStopCmd with name arg, load store, find record, validate state transition (stop: must be running, start: must be stopped), call factory + env.Start/Stop, update record state in store. For local environments, the interface methods return ErrNotSupported which the CLI formats as an informational message
 
 **Checkpoint**: `cc-deck env stop mydev` shows "stop is not supported for local environments". State transition validation works.
 
@@ -108,11 +108,11 @@
 
 ### Implementation for User Story 5
 
-- [ ] T018 [P] [US5] Convert `cc-deck/internal/cmd/deploy.go` to alias: keep existing RunE but mark Hidden, add deprecation note in Long text pointing to `cc-deck env create --type k8s`
-- [ ] T019 [P] [US5] Convert `cc-deck/internal/cmd/connect.go` to alias: keep existing RunE but mark Hidden, add deprecation note pointing to `cc-deck env attach`
-- [ ] T020 [P] [US5] Convert `cc-deck/internal/cmd/delete.go` to alias: keep existing RunE but mark Hidden, add deprecation note pointing to `cc-deck env delete`
-- [ ] T021 [P] [US5] Convert `cc-deck/internal/cmd/list.go` to alias: keep existing RunE but mark Hidden, add deprecation note pointing to `cc-deck env list`
-- [ ] T022 [P] [US5] Convert `cc-deck/internal/cmd/logs.go` to alias: keep existing RunE but mark Hidden, add deprecation note pointing to `cc-deck env logs`
+- [x] T018 [P] [US5] Convert `cc-deck/internal/cmd/deploy.go` to alias: keep existing RunE but mark Hidden, add deprecation note in Long text pointing to `cc-deck env create --type k8s`
+- [x] T019 [P] [US5] Convert `cc-deck/internal/cmd/connect.go` to alias: keep existing RunE but mark Hidden, add deprecation note pointing to `cc-deck env attach`
+- [x] T020 [P] [US5] Convert `cc-deck/internal/cmd/delete.go` to alias: keep existing RunE but mark Hidden, add deprecation note pointing to `cc-deck env delete`
+- [x] T021 [P] [US5] Convert `cc-deck/internal/cmd/list.go` to alias: keep existing RunE but mark Hidden, add deprecation note pointing to `cc-deck env list`
+- [x] T022 [P] [US5] Convert `cc-deck/internal/cmd/logs.go` to alias: keep existing RunE but mark Hidden, add deprecation note pointing to `cc-deck env logs`
 
 **Checkpoint**: All existing commands still work. `--help` shows deprecation notes. New `cc-deck env` commands are the primary interface.
 
@@ -122,9 +122,9 @@
 
 **Purpose**: Stub commands, documentation, final validation
 
-- [ ] T023 [P] Add stub subcommands in `cc-deck/internal/cmd/env.go`: newEnvExecCmd, newEnvPushCmd, newEnvPullCmd, newEnvHarvestCmd, newEnvLogsCmd, each returning "not yet implemented" error with hint about which spec will implement them
-- [ ] T024 [P] Update `README.md`: add spec 023 to Feature Specifications table with status, add `cc-deck env` command group to CLI reference section with subcommand descriptions
-- [ ] T025 Run `quickstart.md` validation: execute all verification commands from quickstart.md against a clean build (`make install`), verify create/list/attach/status/delete cycle works end-to-end
+- [x] T023 [P] Add stub subcommands in `cc-deck/internal/cmd/env.go`: newEnvExecCmd, newEnvPushCmd, newEnvPullCmd, newEnvHarvestCmd, newEnvLogsCmd, each returning "not yet implemented" error with hint about which spec will implement them
+- [x] T024 [P] Update `README.md`: add spec 023 to Feature Specifications table with status, add `cc-deck env` command group to CLI reference section with subcommand descriptions
+- [x] T025 Run `quickstart.md` validation: execute all verification commands from quickstart.md against a clean build (`make install`), verify create/list/attach/status/delete cycle works end-to-end
 
 ---
 
