@@ -720,15 +720,24 @@ impl PluginState {
                 // (user clicked away from the sidebar).
                 // Skip the first PaneUpdate after entering nav mode: it arrives
                 // with stale focus before focus_plugin_pane takes effect.
-                if self.navigation_mode && self.focused_pane_id.is_some() {
-                    if self.nav_enter_guard {
-                        self.nav_enter_guard = false;
-                    } else {
-                        self.navigation_mode = false;
-                        self.nav_restore = None;
-                        self.filter_state = None;
-                        self.delete_confirm = None;
-                        set_selectable_wasm(false);
+                if self.focused_pane_id.is_some() {
+                    // Cancel rename if focus left the plugin
+                    if self.rename_state.is_some() {
+                        self.rename_state = None;
+                        if !self.navigation_mode {
+                            set_selectable_wasm(false);
+                        }
+                    }
+                    if self.navigation_mode {
+                        if self.nav_enter_guard {
+                            self.nav_enter_guard = false;
+                        } else {
+                            self.navigation_mode = false;
+                            self.nav_restore = None;
+                            self.filter_state = None;
+                            self.delete_confirm = None;
+                            set_selectable_wasm(false);
+                        }
                     }
                 }
 
