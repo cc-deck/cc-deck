@@ -285,7 +285,7 @@ func TestE2EListFilterByType(t *testing.T) {
 	stdout, _ := te.mustRun("env", "list", "--type", "local")
 	assert.Contains(t, stdout, "filterenv")
 
-	stdout, _ = te.mustRun("env", "list", "--type", "podman")
+	stdout, _ = te.mustRun("env", "list", "--type", "container")
 	assert.NotContains(t, stdout, "filterenv")
 }
 
