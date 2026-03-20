@@ -12,7 +12,6 @@ const DefaultProxyPort = 8888
 type ProxyConfig struct {
 	Port    int
 	Domains []string
-	LogPath string
 }
 
 // GenerateTinyproxyConf generates the tinyproxy.conf content for allowlist-mode filtering.
@@ -22,23 +21,16 @@ func GenerateTinyproxyConf(cfg ProxyConfig) string {
 		port = DefaultProxyPort
 	}
 
-	logPath := cfg.LogPath
-	if logPath == "" {
-		logPath = "/var/log/tinyproxy/tinyproxy.log"
-	}
-
 	return fmt.Sprintf(`Port %d
 Timeout 600
 MaxClients 100
+FilterExtended On
 FilterDefaultDeny Yes
-FilterType fnmatch
-Filter /etc/tinyproxy/whitelist
-FilterURLs On
+Filter "/etc/tinyproxy/whitelist"
 ConnectPort 443
 ConnectPort 563
 LogLevel Info
-LogFile %s
-`, port, logPath)
+`, port)
 }
 
 // GenerateWhitelist generates the tinyproxy whitelist file from domain patterns.
@@ -50,17 +42,16 @@ func GenerateWhitelist(domains []string) string {
 
 	var lines []string
 	for _, d := range domains {
-		lines = append(lines, toFnmatchPattern(d))
+		lines = append(lines, ToRegexPattern(d))
 	}
 	return strings.Join(lines, "\n") + "\n"
 }
 
-// toFnmatchPattern converts a domain pattern to tinyproxy fnmatch format.
-// ".example.com" becomes "*.example.com" (wildcard subdomain match).
-// "example.com" stays as "example.com" (exact match).
-func toFnmatchPattern(domain string) string {
-	if strings.HasPrefix(domain, ".") {
-		return "*" + domain
-	}
-	return domain
+// toRegexPattern converts a domain pattern to a POSIX extended regex for tinyproxy.
+// ".example.com" becomes "(^|\.)example\.com$" (matches subdomains).
+// "example.com" becomes "(^|\.)example\.com$" (matches exact and subdomains).
+func ToRegexPattern(domain string) string {
+	d := strings.TrimPrefix(domain, ".")
+	escaped := strings.ReplaceAll(d, ".", `\.`)
+	return `(^|\.)` + escaped + `$`
 }

@@ -2,4 +2,5 @@
 * xref:local.adoc[Local Installation]
 * xref:podman.adoc[Podman Containers]
 * xref:kubernetes.adoc[Kubernetes]
+* xref:network-filtering.adoc[Network Filtering]
 * xref:credentials.adoc[Credentials]

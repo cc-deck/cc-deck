@@ -45,8 +45,8 @@ func TestGenerate_WithProxy(t *testing.T) {
 	assert.NotEmpty(t, out.TinyproxyConf)
 	assert.Contains(t, out.TinyproxyConf, "FilterDefaultDeny Yes")
 	assert.NotEmpty(t, out.Whitelist)
-	assert.Contains(t, out.Whitelist, "pypi.org")
-	assert.Contains(t, out.Whitelist, "*.github.com")
+	assert.Contains(t, out.Whitelist, `pypi\.org$`)
+	assert.Contains(t, out.Whitelist, `github\.com$`)
 
 	// Env example
 	assert.NotEmpty(t, out.EnvExample)

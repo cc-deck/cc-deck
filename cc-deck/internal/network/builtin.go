@@ -9,8 +9,13 @@ var builtinGroups = map[string]DomainGroup{
 		Source: SourceBuiltin,
 		Domains: []string{
 			"api.anthropic.com",
-			"claude.ai",
 			".anthropic.com",
+			"claude.ai",
+			".claude.ai",
+			"platform.claude.com",
+			".claude.com",
+			".statsigapi.net",
+			".sentry.io",
 		},
 	},
 	"vertexai": {

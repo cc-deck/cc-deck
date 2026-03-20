@@ -65,6 +65,15 @@ A feature is NOT complete until its documentation is updated. ALWAYS update thes
 3. **Landing page**: For substantial features (new CLI commands, new deployment modes, new user-visible capabilities), update the landing page. The landing page repo is **`cc-deck/cc-deck.github.io`** (Astro site at https://cc-deck.github.io). If the repo location is unclear or the worktree is not available, ask the user before proceeding.
 4. **Antora docs**: If the `docs/` directory exists in the working tree, update relevant Antora modules (quickstarts, reference, etc.).
 
+For larger features (new CLI command groups, new deployment modes, new configuration systems), the documentation MUST include all of the following:
+
+- **User guide page**: A dedicated Antora page in the appropriate module (`running/`, `using/`, `images/`) covering overview, quick start, how it works, and usage examples. Add the page to the module's `nav.adoc`.
+- **CLI reference**: Add all new commands, subcommands, and flags to `docs/modules/reference/pages/cli.adoc` with usage examples and flag tables.
+- **Configuration reference**: Document new config files, environment variables, or schema fields in the appropriate reference pages (`configuration.adoc`, `manifest-schema.adoc`).
+- **Landing page feature card**: Add a feature card to the features section of the Astro landing page at `cc-deck.github.io`.
+
+Use parallel agents to create documentation concurrently when updating multiple files.
+
 Do NOT mark a feature as complete or propose a commit without verifying documentation is current.
 
 ### IX. Spec Tracking in README
@@ -115,4 +124,4 @@ When Claude Code triggers a release, execute these steps automatically after con
 
 This constitution supersedes ad-hoc practices. Amendments require updating this file and the project memory.
 
-**Version**: 1.6.0 | **Ratified**: 2026-03-09 | **Last Amended**: 2026-03-16
+**Version**: 1.7.0 | **Ratified**: 2026-03-09 | **Last Amended**: 2026-03-20
