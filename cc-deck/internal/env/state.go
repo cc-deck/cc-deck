@@ -16,7 +16,11 @@ const (
 )
 
 // DefaultStatePath returns the XDG-compliant state file path.
+// If CC_DECK_STATE_FILE is set, it takes precedence (used by tests).
 func DefaultStatePath() string {
+	if p := os.Getenv("CC_DECK_STATE_FILE"); p != "" {
+		return p
+	}
 	return filepath.Join(xdg.StateHome, stateDirName, stateFileName)
 }
 
