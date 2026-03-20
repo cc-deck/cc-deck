@@ -24,6 +24,7 @@ func ccDeckHookCommand() string {
 var hookEvents = []string{
 	"SessionStart",
 	"PreToolUse",
+	"PostToolUse",
 	"UserPromptSubmit",
 	"PermissionRequest",
 	"Notification",
