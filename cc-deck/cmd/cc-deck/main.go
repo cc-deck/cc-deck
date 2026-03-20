@@ -4,28 +4,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 
-	"github.com/adrg/xdg"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
 	"github.com/cc-deck/cc-deck/internal/build"
 	"github.com/cc-deck/cc-deck/internal/cmd"
+	"github.com/cc-deck/cc-deck/internal/xdg"
 )
-
-// Override adrg/xdg macOS defaults to use ~/.config instead of
-// ~/Library/Application Support. CLI tools conventionally use ~/.config
-// on all Unix platforms, including macOS.
-func init() {
-	if runtime.GOOS == "darwin" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return
-		}
-		xdg.ConfigHome = filepath.Join(home, ".config")
-	}
-}
 
 const (
 	appName       = "cc-deck"

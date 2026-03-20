@@ -1,15 +1,18 @@
 <!--
 Sync Impact Report
-- Version change: 1.7.0 → 1.8.0
+- Version change: 1.8.0 → 1.9.0
 - Modified principles: none
-- Added sections: Principle XI (Prose Plugin for Documentation)
+- Added sections: Principle XII (XDG Paths on All Platforms)
 - Removed sections: none
 - Templates requiring updates:
-  - .specify/templates/spec-template.md ✅ no update needed (specs are technical, not prose)
-  - .specify/templates/plan-template.md ✅ no update needed (plans are technical)
-  - .specify/templates/tasks-template.md ✅ no update needed (tasks are technical)
-  - CLAUDE.md ✅ already references prose plugin and voice profile
-- Follow-up TODOs: none
+  - .specify/templates/spec-template.md ✅ no update needed (specs don't reference XDG paths)
+  - .specify/templates/plan-template.md ✅ no update needed (plans don't reference XDG implementation)
+  - .specify/templates/tasks-template.md ✅ no update needed (tasks template is generic)
+  - CLAUDE.md ✅ no update needed (doesn't reference xdg library)
+- Follow-up TODOs:
+  - Replace `adrg/xdg` with `internal/xdg` package or direct path computation
+  - Remove the ConfigHome override hack in cmd/cc-deck/main.go
+  - Update all 6 files that import adrg/xdg
 -->
 
 # cc-deck Constitution
@@ -135,6 +138,32 @@ The prose plugin enforces the cc-deck voice: professional, thorough, no contract
 
 Do NOT write documentation text directly without running it through the prose plugin. The voice profile ensures consistency across all cc-deck documentation.
 
+### XII. XDG Paths on All Platforms (NON-NEGOTIABLE)
+
+cc-deck MUST use standard XDG Base Directory paths on **all platforms**, including macOS:
+
+- Config: `~/.config/cc-deck/` (`$XDG_CONFIG_HOME/cc-deck/`)
+- State: `~/.local/state/cc-deck/` (`$XDG_STATE_HOME/cc-deck/`)
+- Data: `~/.local/share/cc-deck/` (`$XDG_DATA_HOME/cc-deck/`)
+- Cache: `~/.cache/cc-deck/` (`$XDG_CACHE_HOME/cc-deck/`)
+
+Do NOT use `adrg/xdg`, which maps to platform-native directories on macOS (`~/Library/Application Support/`). This causes user confusion and breaks documentation that references `~/.config` paths.
+
+Instead, use a minimal internal `xdg` helper or compute paths directly:
+```go
+func configHome() string {
+    if v := os.Getenv("XDG_CONFIG_HOME"); v != "" {
+        return v
+    }
+    home, _ := os.UserHomeDir()
+    return filepath.Join(home, ".config")
+}
+```
+
+Environment variable overrides (`$XDG_CONFIG_HOME`, `$XDG_STATE_HOME`) MUST be respected when set. The `~/.config` and `~/.local` defaults apply only when the environment variables are not set.
+
+Files affected by this policy: `config.go`, `state.go`, `definition.go`, `snapshot.go`, `network/config.go`, `main.go`.
+
 ## Development Workflow
 
 - `make install` for building and installing (NON-NEGOTIABLE, see Principle VI)
@@ -153,4 +182,4 @@ Do NOT write documentation text directly without running it through the prose pl
 
 This constitution supersedes ad-hoc practices. Amendments require updating this file and the project memory.
 
-**Version**: 1.8.0 | **Ratified**: 2026-03-09 | **Last Amended**: 2026-03-20
+**Version**: 1.9.0 | **Ratified**: 2026-03-09 | **Last Amended**: 2026-03-20

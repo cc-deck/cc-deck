@@ -76,14 +76,11 @@ podman volume ls --format '{{.Name}}' | grep cc-deck-test
 ### 1g. Verify definition and state files
 
 ```bash
-# Paths are platform-dependent (macOS uses ~/Library/Application Support/,
-# Linux uses ~/.config/ and ~/.local/state/). Use env list for quick check:
-ccd env list -o yaml
+cat ~/.config/cc-deck/environments.yaml
+# Expected: entries for test-basic, test-fedora, test-bind, etc.
 
-# To find actual file locations, check:
-#   Definitions: $(python3 -c "import os; print(os.environ.get('XDG_CONFIG_HOME', os.path.expanduser('~/.config')))")/cc-deck/environments.yaml
-#   State: look in ~/Library/Application Support/cc-deck/state.yaml (macOS)
-#          or ~/.local/state/cc-deck/state.yaml (Linux)
+cat ~/.local/state/cc-deck/state.yaml
+# Expected: version 2, instances with container fields
 ```
 
 ### 1h. Duplicate name rejected
@@ -245,13 +242,11 @@ ccd env start test-fedora
 ## 7. Hand-Edit Definitions (US7)
 
 ```bash
-# Check current definition (use env list to see all definitions)
-ccd env list -o yaml
+# Check current definition
+cat ~/.config/cc-deck/environments.yaml
 
-# Find and edit the definitions file:
-# macOS: ~/Library/Application Support/cc-deck/environments.yaml (or ~/.config/cc-deck/environments.yaml if XDG_CONFIG_HOME is set)
-# Linux: ~/.config/cc-deck/environments.yaml
 # Edit the image field for test-fedora to ubuntu:latest
+# (use your editor of choice)
 
 # Delete and recreate to pick up new definition
 ccd env delete test-fedora --force
@@ -300,9 +295,8 @@ podman volume rm cc-deck-test-fedora-data
 
 ```bash
 # Set a default image in config
-# Find config dir (same dir as environments.yaml)
-# Add container defaults to config.yaml:
-cat >> "$(dirname "$(find ~/Library ~/.config -path '*/cc-deck/environments.yaml' 2>/dev/null | head -1)")/config.yaml" << 'YAML'
+mkdir -p ~/.config/cc-deck
+cat >> ~/.config/cc-deck/config.yaml << 'YAML'
 defaults:
   container:
     image: fedora:latest
