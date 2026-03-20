@@ -1,0 +1,281 @@
+package env
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"os/exec"
+	"strings"
+	"syscall"
+	"time"
+)
+
+const (
+	// zellijSessionPrefix is prepended to environment names to form Zellij session names.
+	zellijSessionPrefix = "cc-deck-"
+
+	// paneMapPath is the location of the pane map file written by the hook.
+	paneMapPath = "/tmp/cc-deck-pane-map.json"
+)
+
+// LocalEnvironment manages a local Zellij-based environment that runs
+// directly on the host machine.
+type LocalEnvironment struct {
+	name  string
+	store *FileStateStore
+}
+
+// Type returns EnvironmentTypeLocal.
+func (e *LocalEnvironment) Type() EnvironmentType {
+	return EnvironmentTypeLocal
+}
+
+// Name returns the environment name.
+func (e *LocalEnvironment) Name() string {
+	return e.name
+}
+
+// zellijSessionName returns the Zellij session name for this environment.
+func (e *LocalEnvironment) zellijSessionName() string {
+	return zellijSessionPrefix + e.name
+}
+
+// Create provisions a new local environment by validating the name,
+// checking for the Zellij binary, and adding a record to the state store.
+func (e *LocalEnvironment) Create(_ context.Context, _ CreateOpts) error {
+	if err := ValidateEnvName(e.name); err != nil {
+		return err
+	}
+
+	// Check that zellij is available.
+	if _, err := exec.LookPath("zellij"); err != nil {
+		return ErrZellijNotFound
+	}
+
+	record := &EnvironmentRecord{
+		Name:      e.name,
+		Type:      EnvironmentTypeLocal,
+		State:     EnvironmentStateRunning,
+		CreatedAt: time.Now().UTC(),
+	}
+
+	return e.store.Add(record)
+}
+
+// Attach replaces the current process with a Zellij attach command that
+// creates the session if it does not already exist, using the cc-deck layout.
+func (e *LocalEnvironment) Attach(_ context.Context) error {
+	zellijPath, err := exec.LookPath("zellij")
+	if err != nil {
+		return ErrZellijNotFound
+	}
+
+	sessionName := e.zellijSessionName()
+	args := []string{"zellij", "attach", sessionName, "--create", "--layout", "cc-deck"}
+
+	// Update last_attached timestamp.
+	if record, findErr := e.store.FindByName(e.name); findErr == nil {
+		now := time.Now().UTC()
+		record.LastAttached = &now
+		_ = e.store.Update(record)
+	}
+
+	// Replace the current process with zellij.
+	return syscall.Exec(zellijPath, args, os.Environ())
+}
+
+// Delete removes the environment from the state store and kills the Zellij
+// session if it exists. Without force, a running session causes an error.
+func (e *LocalEnvironment) Delete(_ context.Context, force bool) error {
+	sessionName := e.zellijSessionName()
+
+	if !force {
+		// Check if the Zellij session is still running.
+		if zellijSessionExists(sessionName) {
+			return ErrRunning
+		}
+	}
+
+	// Remove from state store.
+	if err := e.store.Remove(e.name); err != nil {
+		return err
+	}
+
+	// Best effort: kill the Zellij session.
+	_ = exec.Command("zellij", "kill-session", sessionName).Run()
+
+	return nil
+}
+
+// Status returns the current state of the local environment by checking
+// for a running Zellij session and reading the pane map for session details.
+func (e *LocalEnvironment) Status(_ context.Context) (*EnvironmentStatus, error) {
+	record, err := e.store.FindByName(e.name)
+	if err != nil {
+		return nil, err
+	}
+
+	sessionName := e.zellijSessionName()
+	state := EnvironmentStateUnknown
+	if zellijSessionExists(sessionName) {
+		state = EnvironmentStateRunning
+	}
+
+	status := &EnvironmentStatus{
+		State: state,
+		Since: record.CreatedAt,
+	}
+
+	// Best effort: read pane map for session info.
+	if state == EnvironmentStateRunning {
+		if sessions, readErr := readPaneMapSessions(); readErr == nil {
+			status.Sessions = sessions
+		}
+	}
+
+	return status, nil
+}
+
+// Start is not supported for local environments since they are managed
+// through Zellij attach.
+func (e *LocalEnvironment) Start(_ context.Context) error {
+	return fmt.Errorf("local environments: %w", ErrNotSupported)
+}
+
+// Stop is not supported for local environments since they are managed
+// through Zellij directly.
+func (e *LocalEnvironment) Stop(_ context.Context) error {
+	return fmt.Errorf("local environments: %w", ErrNotSupported)
+}
+
+// Exec is not supported for local environments.
+func (e *LocalEnvironment) Exec(_ context.Context, _ []string) error {
+	return fmt.Errorf("local environments: %w", ErrNotSupported)
+}
+
+// Push is not supported for local environments.
+func (e *LocalEnvironment) Push(_ context.Context, _ SyncOpts) error {
+	return fmt.Errorf("local environments: %w", ErrNotSupported)
+}
+
+// Pull is not supported for local environments.
+func (e *LocalEnvironment) Pull(_ context.Context, _ SyncOpts) error {
+	return fmt.Errorf("local environments: %w", ErrNotSupported)
+}
+
+// Harvest is not supported for local environments.
+func (e *LocalEnvironment) Harvest(_ context.Context, _ HarvestOpts) error {
+	return fmt.Errorf("local environments: %w", ErrNotSupported)
+}
+
+// zellijSessionExists checks whether a Zellij session with the given name
+// is present in the output of "zellij list-sessions".
+func zellijSessionExists(sessionName string) bool {
+	sessions := listZellijSessions()
+	for _, s := range sessions {
+		if s == sessionName {
+			return true
+		}
+	}
+	return false
+}
+
+// listZellijSessions runs "zellij list-sessions" and returns session names.
+// Each line of output contains a session name (before any whitespace).
+// Returns nil if zellij is not available or the command fails.
+func listZellijSessions() []string {
+	out, err := exec.Command("zellij", "list-sessions").Output()
+	if err != nil {
+		return nil
+	}
+
+	var sessions []string
+	scanner := bufio.NewScanner(strings.NewReader(string(out)))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		// Session name is the first field before whitespace.
+		fields := strings.Fields(line)
+		if len(fields) > 0 {
+			sessions = append(sessions, fields[0])
+		}
+	}
+	return sessions
+}
+
+// paneMapEntry represents a single entry in the pane map JSON file.
+type paneMapEntry struct {
+	PaneID        int    `json:"pane_id"`
+	HookEventName string `json:"hook_event_name"`
+	CWD           string `json:"cwd"`
+	ToolName      string `json:"tool_name"`
+}
+
+// readPaneMapSessions reads the pane map JSON file and converts it to
+// SessionInfo entries. Returns an error if the file is missing or cannot
+// be parsed.
+func readPaneMapSessions() ([]SessionInfo, error) {
+	data, err := os.ReadFile(paneMapPath)
+	if err != nil {
+		return nil, err
+	}
+
+	var paneMap map[string]paneMapEntry
+	if err := json.Unmarshal(data, &paneMap); err != nil {
+		return nil, err
+	}
+
+	var sessions []SessionInfo
+	for id, entry := range paneMap {
+		sessions = append(sessions, SessionInfo{
+			Name:     id,
+			Activity: entry.HookEventName,
+			Branch:   "", // Not available from pane map.
+		})
+	}
+
+	return sessions, nil
+}
+
+// ReconcileLocalEnvs updates the state of all local environments by checking
+// which Zellij sessions are actually running. Sessions found in the Zellij
+// session list are marked as Running; those not found are marked as Unknown.
+func ReconcileLocalEnvs(store *FileStateStore) error {
+	localType := EnvironmentTypeLocal
+	envs, err := store.List(&ListFilter{Type: &localType})
+	if err != nil {
+		return err
+	}
+
+	if len(envs) == 0 {
+		return nil
+	}
+
+	// Get all running Zellij sessions once.
+	sessions := listZellijSessions()
+	sessionSet := make(map[string]bool, len(sessions))
+	for _, s := range sessions {
+		sessionSet[s] = true
+	}
+
+	for _, env := range envs {
+		sessionName := zellijSessionPrefix + env.Name
+		newState := EnvironmentStateUnknown
+		if sessionSet[sessionName] {
+			newState = EnvironmentStateRunning
+		}
+
+		if env.State != newState {
+			env.State = newState
+			if err := store.Update(env); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
