@@ -7,10 +7,14 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"syscall"
 	"time"
 )
+
+// ansiRe matches ANSI escape sequences for stripping from terminal output.
+var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
 const (
 	// zellijSessionPrefix is prepended to environment names to form Zellij session names.
@@ -246,8 +250,9 @@ func listZellijSessions() []string {
 		if line == "" {
 			continue
 		}
-		// Session name is the first field before whitespace.
-		fields := strings.Fields(line)
+		// Strip ANSI color codes, then take the first field.
+		clean := ansiRe.ReplaceAllString(line, "")
+		fields := strings.Fields(clean)
 		if len(fields) > 0 {
 			sessions = append(sessions, fields[0])
 		}
