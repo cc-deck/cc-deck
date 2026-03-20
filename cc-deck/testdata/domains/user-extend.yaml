@@ -1,0 +1,14 @@
+# User extension: extends the built-in python group with extra domains
+python:
+  extends: builtin
+  domains:
+    - pypi.internal.corp
+
+# Custom company group with includes
+company:
+  includes:
+    - python
+    - golang
+  domains:
+    - artifacts.internal.corp
+    - git.internal.corp

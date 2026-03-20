@@ -157,6 +157,43 @@ Optional.
 | Binary name to extract from the release
 |===
 
+== network
+
+Type: object.
+Optional.
+
+Controls network filtering for containerized sessions deployed with `cc-deck deploy --compose`.
+When this section is present, a tinyproxy sidecar is generated alongside the session container, restricting outbound traffic to the listed domains.
+
+[cols="1,1,1,3"]
+|===
+| Field | Type | Required | Description
+
+| `allowed_domains`
+| list of strings
+| No
+| Domain group names or literal domain patterns to allow
+|===
+
+Each entry in `allowed_domains` is resolved as follows:
+
+* Names without dots (e.g., `python`, `github`) are treated as domain group names and expanded to their full domain list.
+* Names containing dots (e.g., `pypi.internal.corp`) are treated as literal domain patterns and passed through directly.
+
+Built-in group names include: `anthropic`, `docker`, `github`, `gitlab`, `golang`, `nodejs`, `python`, `quay`, `rust`, `vertexai`.
+If neither `anthropic` nor `vertexai` appears in the list, the `anthropic` group is injected automatically to ensure Claude Code connectivity.
+
+[source,yaml]
+----
+network:
+  allowed_domains:
+    - anthropic
+    - github
+    - python
+    - golang
+    - artifacts.internal.corp
+----
+
 == settings
 
 Type: object.
