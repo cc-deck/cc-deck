@@ -73,7 +73,7 @@ A developer wants to see detailed information about a specific environment, incl
 
 A developer wants to stop an environment to free resources and restart it later with preserved state.
 
-**Why this priority**: Stop/start enables resource management for container and K8s environments. For local, stop is a no-op (documented as such).
+**Why this priority**: Stop/start enables resource management for container and K8s environments. For local, stop reports "not supported" (documented as such).
 
 **Independent Test**: Run `cc-deck env stop myenv` and verify the environment transitions to stopped. Run `cc-deck env start myenv` and verify it resumes.
 
@@ -103,10 +103,12 @@ A developer who uses the existing `cc-deck deploy`/`connect`/`delete` commands w
 ### Edge Cases
 
 - What happens when the user creates an environment with a name that already exists? The system rejects with a clear error message.
+- What happens when Zellij is not installed or not found in PATH? Commands that require Zellij (`env create --type local`, `env attach` for local environments) fail fast with a clear error message including install instructions.
 - What happens when `state.yaml` is corrupted or missing? The system initializes a fresh state file and warns the user.
 - What happens when `cc-deck env status` runs against an environment whose container/pod was deleted externally? The system detects the missing resource, updates state to "error" or removes the record, and reports the discrepancy.
 - What happens when `cc-deck env attach` targets a stopped environment? The system offers to start it first or reports an error.
-- What happens when two `cc-deck` processes modify `state.yaml` concurrently? The system uses atomic writes (write-temp-rename) to prevent corruption.
+- What happens when `cc-deck env delete` targets a running environment? The system requires `--force` to delete a running environment, otherwise reports an error asking the user to stop it first.
+- What happens when two `cc-deck` processes modify `state.yaml` concurrently? The system uses atomic writes (write-temp-rename) to prevent corruption. Lost updates (two processes read-modify-write simultaneously) are acceptable for this single-user tool.
 
 ## Requirements
 
@@ -114,25 +116,26 @@ A developer who uses the existing `cc-deck deploy`/`connect`/`delete` commands w
 
 - **FR-001**: System MUST define an Environment interface with lifecycle methods (Create, Start, Stop, Delete, Status), interaction methods (Attach, Exec), and data transfer methods (Push, Pull, Harvest).
 - **FR-002**: System MUST define environment types: Local, Podman, K8sDeploy, K8sSandbox.
-- **FR-003**: System MUST persist environment records in a state file at `$XDG_CONFIG_HOME/cc-deck/state.yaml`, separate from user configuration.
-- **FR-004**: System MUST provide a `cc-deck env` command group with subcommands: `create`, `attach`, `start`, `stop`, `delete`, `list`, `status`, `exec`, `push`, `pull`, `harvest`. Subcommands that only apply to remote environments (`exec`, `push`, `pull`, `harvest`) MUST be registered in the CLI but return "not supported for local environments" until concrete environment implementations land.
-- **FR-005**: System MUST implement a Local environment type as a thin wrapper: Create registers the record, Attach starts or attaches to Zellij with the cc-deck layout, Stop/Start are no-ops with clear messaging, Delete removes the record.
-- **FR-006**: System MUST reconcile local state with actual runtime status when listing or inspecting environments. For Local environments, reconciliation means checking whether a Zellij session with the expected name exists. Remote environment reconciliation (container/pod existence) is delegated to each environment implementation in its own spec.
+- **FR-003**: System MUST persist environment records in a state file at `$XDG_STATE_HOME/cc-deck/state.yaml` (defaulting to `~/.local/state/cc-deck/state.yaml`), separate from user configuration. State changes frequently (timestamps, container IDs) and belongs in XDG_STATE_HOME, not XDG_CONFIG_HOME.
+- **FR-004**: System MUST provide a `cc-deck env` command group with subcommands: `create`, `attach`, `start`, `stop`, `delete`, `list`, `status`, `exec`, `push`, `pull`, `harvest`, `logs`. Subcommands that only apply to remote environments (`exec`, `push`, `pull`, `harvest`, `logs`) MUST be registered in the CLI but return "not supported for local environments" or "not yet implemented" until concrete environment implementations land.
+- **FR-005**: System MUST implement a Local environment type as a thin wrapper: Create registers the record, Attach starts or attaches to a Zellij session named `cc-deck-<env-name>` with the cc-deck layout, Stop/Start MUST return an informational error stating these operations are not supported for local environments, Delete removes the record (and optionally kills the Zellij session if running).
+- **FR-006**: System MUST reconcile local state with actual runtime status when listing or inspecting environments. For Local environments, reconciliation means checking whether a Zellij session named `cc-deck-<env-name>` exists (via `zellij list-sessions`). Remote environment reconciliation (container/pod existence) is delegated to each environment implementation in its own spec.
 - **FR-007**: System MUST support filtering `cc-deck env list` by environment type via `--type` flag.
 - **FR-008**: System MUST provide backward-compatible aliases for existing commands (`deploy` -> `env create --type k8s`, `connect` -> `env attach`, `delete` -> `env delete`, `list` -> `env list`, `logs` -> `env logs`). Aliases delegate to the `env` command group. If the target environment type is not yet implemented, the alias reports the same error as the underlying `env` subcommand.
 - **FR-009**: System MUST reject environment creation when a name conflicts with an existing environment.
 - **FR-010**: System MUST require `--type` flag for `cc-deck env create` (no auto-inference).
+- **FR-014**: System MUST validate environment names against the pattern `[a-z0-9][a-z0-9-]*[a-z0-9]` with a maximum length of 40 characters. Names must start and end with an alphanumeric character, and may contain hyphens. Single-character names matching `[a-z0-9]` are also valid. This ensures compatibility with Zellij session names, container names, and K8s resource naming rules (which prepend `cc-deck-` to the name).
 - **FR-011**: System MUST define storage and sync interfaces as part of the Environment contract, with type enums (HostPath, NamedVolume, EmptyDir, PVC for storage; Copy, GitHarvest, RemoteGit for sync).
-- **FR-012**: System MUST display environment status using a structured format showing name, type, state, storage, last-attached time, and age in list view.
-- **FR-013**: System MUST support detailed status via `cc-deck env status <name>` that reads agent session states from inside running environments via exec.
+- **FR-012**: System MUST display environment status using a structured format showing name, type, state, storage, last-attached time, and age in list view. Both `env list` and `env status` MUST support `--output json` (or `-o json`) for machine-readable output; default remains human-readable table.
+- **FR-013**: System MUST support detailed status via `cc-deck env status <name>` that reads agent session states from running environments. For Local environments, session states are read directly from the Zellij plugin's pane-map cache (`/tmp/cc-deck-pane-map.json`). For remote environments, session states are read via exec into the container/pod.
 
 ### Key Entities
 
 - **Environment**: A tracked execution context where a Zellij instance runs with cc-deck sidebar and agent sessions. Has a name, type, lifecycle state, storage configuration, and sync configuration.
-- **EnvironmentState**: The lifecycle state of an environment (Running, Stopped, Creating, Error, Unknown).
+- **EnvironmentState**: The lifecycle state of an environment (Running, Stopped, Creating, Error, Unknown). Transition model is permissive with guardrails: reconciliation may set any state to Error or Unknown based on observed reality; user-initiated actions (start, stop, delete) validate the from-state and return clear errors for invalid transitions (e.g., cannot start a Creating environment). Valid user-initiated transitions: Creating→Running (automatic on success), Running→Stopped (stop), Stopped→Running (start), any→deleted (delete, with `--force` if Running).
 - **StorageConfig**: Storage backend configuration (type, size, storage class, host path).
 - **SyncConfig**: Data transfer strategy configuration (strategy, workspace path, excludes, git settings).
-- **StateFile**: Persistent YAML file tracking all environment records with their metadata, storage, sync, and runtime-specific fields.
+- **StateFile**: Persistent YAML file tracking all environment records with their metadata, storage, sync, and runtime-specific fields. Includes a top-level `version: 1` field; the version is bumped on breaking schema changes and migration logic runs on load when version mismatches.
 
 ## Success Criteria
 
@@ -140,18 +143,28 @@ A developer who uses the existing `cc-deck deploy`/`connect`/`delete` commands w
 
 - **SC-001**: Users can list all tracked environments in under 1 second (no exec calls).
 - **SC-002**: Users can create and attach to a local environment in under 3 seconds.
-- **SC-003**: Adding a new environment type requires implementing only the Environment interface, with no changes to CLI commands or state management.
+- **SC-003**: Adding a new environment type requires implementing the Environment interface and registering type-specific CLI flags for `env create` (e.g., `--image` for Podman, `--profile` for K8s). Core CLI commands (`list`, `attach`, `status`, `start`, `stop`, `delete`) and state management require no changes.
 - **SC-004**: All existing `cc-deck deploy`/`connect`/`delete` commands continue to work identically through aliases.
 - **SC-005**: Environment state file survives concurrent access without corruption.
 - **SC-006**: Detailed status for a running environment (including agent sessions) completes in under 5 seconds.
 
 ## Assumptions
 
-- The `state.yaml` file is separate from `config.yaml` because environment state changes frequently (timestamps, container IDs) while config is user-edited.
+- The `state.yaml` file lives in `$XDG_STATE_HOME/cc-deck/` (not `$XDG_CONFIG_HOME`) because environment state changes frequently (timestamps, container IDs) while config is user-edited.
 - The `--type` flag is always required for `create` to keep the interface explicit. Per-project defaults via a config file are deferred.
 - Port forwarding (`cc-deck env port-forward`) is deferred to a future spec.
 - TUI environment manager is deferred (separate brainstorm at `brainstorm/024-tui-environment-manager.md`).
 - Multi-user attach (pair-SDD) works via Zellij's native multiplayer support and requires no special handling in cc-deck.
+- The existing `config.yaml` sessions list (used by the current `deploy`/`connect` commands) will be migrated automatically on first run: existing session records are copied to `state.yaml` as K8s-type environments, then removed from `config.yaml`.
+
+## Clarifications
+
+### Session 2026-03-20
+
+- Q: What are the valid state transitions for EnvironmentState? → A: Permissive with guardrails: reconciliation may set Error/Unknown freely; user actions validate from-state and reject invalid transitions with clear errors.
+- Q: Should state.yaml include a schema version field? → A: Yes, top-level `version: 1` with migration-on-load when version mismatches.
+- Q: What happens when Zellij is not installed? → A: Fail fast with clear error and install instructions on `env create --type local` and `env attach`.
+- Q: Should list/status support machine-readable output? → A: Yes, `--output json` (`-o json`) on `env list` and `env status`; default remains table.
 
 ## Scope Boundaries
 
@@ -162,6 +175,7 @@ A developer who uses the existing `cc-deck deploy`/`connect`/`delete` commands w
 - Local environment implementation
 - Backward-compatible aliases
 - Storage and sync interface definitions (types/enums only, not implementations)
+- CLI stubs for remote-only subcommands (`exec`, `push`, `pull`, `harvest`, `logs`) that return "not yet implemented"
 
 **Out of scope (separate specs):**
 - Podman environment implementation (spec 025)
