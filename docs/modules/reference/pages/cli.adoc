@@ -319,6 +319,178 @@ cc-deck domains remove my-session pypi.org
 cc-deck domains remove my-session docker
 ----
 
+=== env
+
+Manage environments across all supported backends (local, container, Kubernetes).
+
+==== env create
+
+Create a new environment.
+
+[source,bash]
+----
+cc-deck env create mydev
+cc-deck env create mydev --type container --image quay.io/cc-deck/cc-deck-demo:latest
+cc-deck env create mydev --type container --port 8080:80 --credential ANTHROPIC_API_KEY=sk-ant-...
+cc-deck env create mydev --type container --storage host-path --path ~/projects/myapp
+----
+
+[cols="1,1,3"]
+|===
+| Flag | Short | Description
+
+| `--type`
+| `-t`
+| Environment type: `local` (default), `container`, `k8s-deploy`, `k8s-sandbox`
+
+| `--image`
+|
+| Container image to use
+
+| `--port`
+| `-p`
+| Port mapping (host:container), repeatable
+
+| `--all-ports`
+|
+| Expose all container ports
+
+| `--storage`
+|
+| Storage type: `named-volume` (default), `host-path`, `empty-dir`
+
+| `--path`
+|
+| Host path for `host-path` storage
+
+| `--credential`
+|
+| Credential as `KEY=VALUE`, repeatable
+|===
+
+==== env attach
+
+Attach to a running environment.
+For container environments, this opens a Zellij session inside the container.
+Stopped containers are auto-started before attaching.
+
+[source,bash]
+----
+cc-deck env attach mydev
+----
+
+==== env delete
+
+Delete an environment and its resources.
+
+[source,bash]
+----
+cc-deck env delete mydev
+cc-deck env delete mydev --force
+cc-deck env delete mydev --force --keep-volumes
+----
+
+[cols="1,1,3"]
+|===
+| Flag | Short | Description
+
+| `--force`
+| `-f`
+| Force delete a running environment
+
+| `--keep-volumes`
+|
+| Preserve data volumes when deleting container environments
+|===
+
+==== env list
+
+List all environments with their current status.
+
+[source,bash]
+----
+cc-deck env list
+cc-deck env list --type container
+cc-deck env list -o json
+----
+
+[cols="1,1,3"]
+|===
+| Flag | Short | Description
+
+| `--type`
+| `-t`
+| Filter by environment type
+|===
+
+==== env status
+
+Display detailed status information for an environment.
+
+[source,bash]
+----
+cc-deck env status mydev
+cc-deck env status mydev -o json
+----
+
+==== env start
+
+Start a stopped environment.
+
+[source,bash]
+----
+cc-deck env start mydev
+----
+
+==== env stop
+
+Gracefully stop a running environment.
+
+[source,bash]
+----
+cc-deck env stop mydev
+----
+
+==== env exec
+
+Run a command inside a container environment.
+
+[source,bash]
+----
+cc-deck env exec mydev -- ls /workspace
+cc-deck env exec mydev -- npm install
+----
+
+==== env push
+
+Copy local files into a container environment.
+
+[source,bash]
+----
+cc-deck env push mydev ./src /workspace/src
+cc-deck env push mydev ./config.yaml
+----
+
+==== env pull
+
+Copy files from a container environment to the local machine.
+
+[source,bash]
+----
+cc-deck env pull mydev /workspace/output ./output
+cc-deck env pull mydev /workspace/results
+----
+
+==== env harvest
+
+Extract work products from an environment.
+Not supported for container environments (use push/pull instead).
+
+[source,bash]
+----
+cc-deck env harvest mydev
+----
+
 === hook
 
 Internal command used by Claude Code hooks.
