@@ -162,16 +162,40 @@ func (e *LocalEnvironment) Status(_ context.Context) (*EnvironmentStatus, error)
 	return status, nil
 }
 
-// Start is not supported for local environments since they are managed
-// through Zellij attach.
+// Start creates the Zellij session in the background with the cc-deck
+// layout. The session can then be attached to with Attach.
 func (e *LocalEnvironment) Start(_ context.Context) error {
-	return fmt.Errorf("local environments: %w", ErrNotSupported)
+	zellijPath, err := exec.LookPath("zellij")
+	if err != nil {
+		return ErrZellijNotFound
+	}
+
+	sessionName := e.zellijSessionName()
+	if zellijSessionExists(sessionName) {
+		return fmt.Errorf("session %q is already running", sessionName)
+	}
+
+	cmd := exec.Command(zellijPath, "attach", sessionName, "--create-background")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("starting session: %s\n%s", err, string(out))
+	}
+
+	return nil
 }
 
-// Stop is not supported for local environments since they are managed
-// through Zellij directly.
+// Stop kills the Zellij session for this environment.
 func (e *LocalEnvironment) Stop(_ context.Context) error {
-	return fmt.Errorf("local environments: %w", ErrNotSupported)
+	sessionName := e.zellijSessionName()
+	if !zellijSessionExists(sessionName) {
+		return fmt.Errorf("session %q is not running", sessionName)
+	}
+
+	cmd := exec.Command("zellij", "kill-session", sessionName)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("stopping session: %s\n%s", err, string(out))
+	}
+
+	return nil
 }
 
 // Exec is not supported for local environments.

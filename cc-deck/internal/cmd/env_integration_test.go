@@ -242,31 +242,31 @@ func TestEnvDeleteNotFound(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestEnvStopLocalNotSupported(t *testing.T) {
+func TestEnvStopLocal(t *testing.T) {
 	setupTestEnv(t)
 	gf := &cmd.GlobalFlags{Output: "text"}
 
 	_, _, err := run(t, gf, "env", "create", "stoptest", "--type", "local")
 	require.NoError(t, err)
 
-	// Stop should print a note (not error) since local returns ErrNotSupported.
-	_, stderr, err := run(t, gf, "env", "stop", "stoptest")
-	require.NoError(t, err)
-	assert.Contains(t, stderr, "not supported")
+	// Stop calls zellij kill-session; the stub zellij exits 0 but the
+	// session doesn't actually exist, so Stop reports "not running".
+	_, _, err = run(t, gf, "env", "stop", "stoptest")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not running")
 }
 
-func TestEnvStartLocalNotSupported(t *testing.T) {
+func TestEnvStartLocal(t *testing.T) {
 	setupTestEnv(t)
 	gf := &cmd.GlobalFlags{Output: "text"}
 
-	// Start requires state=stopped, but create sets state=running.
-	// So start should fail with "not stopped".
 	_, _, err := run(t, gf, "env", "create", "starttest", "--type", "local")
 	require.NoError(t, err)
 
-	_, _, err = run(t, gf, "env", "start", "starttest")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not stopped")
+	// Start should succeed (zellij stub creates session, exits 0).
+	stdout, _, err := run(t, gf, "env", "start", "starttest")
+	require.NoError(t, err)
+	assert.Contains(t, stdout, "started")
 }
 
 func TestEnvStubCommandsReturnNotImplemented(t *testing.T) {
