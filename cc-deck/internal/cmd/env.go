@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"text/tabwriter"
@@ -407,20 +406,12 @@ func runEnvStart(name string) error {
 		return err
 	}
 
-	if record.State != env.EnvironmentStateStopped {
-		return fmt.Errorf("environment %q is not stopped (current state: %s)", name, record.State)
-	}
-
 	e, err := env.NewEnvironment(record.Type, name, store)
 	if err != nil {
 		return err
 	}
 
 	if err := e.Start(cmd_context()); err != nil {
-		if errors.Is(err, env.ErrNotSupported) {
-			fmt.Fprintf(os.Stderr, "Note: %v\n", err)
-			return nil
-		}
 		return err
 	}
 
@@ -456,20 +447,12 @@ func runEnvStop(name string) error {
 		return err
 	}
 
-	if record.State != env.EnvironmentStateRunning {
-		return fmt.Errorf("environment %q is not running (current state: %s)", name, record.State)
-	}
-
 	e, err := env.NewEnvironment(record.Type, name, store)
 	if err != nil {
 		return err
 	}
 
 	if err := e.Stop(cmd_context()); err != nil {
-		if errors.Is(err, env.ErrNotSupported) {
-			fmt.Fprintf(os.Stderr, "Note: %v\n", err)
-			return nil
-		}
 		return err
 	}
 
