@@ -24,7 +24,7 @@ CLI_LDFLAGS = -X github.com/cc-deck/cc-deck/internal/cmd.Version=$(VERSION) \
               -X github.com/cc-deck/cc-deck/internal/cmd.ImageRegistry=$(REGISTRY)
 
 .PHONY: build build-wasm build-wasm-debug copy-wasm build-cli cross-cli \
-        test test-go test-rust lint lint-go lint-rust \
+        test test-go test-rust test-e2e smoke lint lint-go lint-rust \
         install uninstall status \
         test-image demo-image demo-image-push base-image base-image-push \
         demo-setup demo-record demo-gif demo-mp4 demo-clean \
@@ -65,6 +65,12 @@ test-go: $(WASM_DST)  ## Run Go tests
 
 test-rust:  ## Run Rust tests (native, not WASM)
 	cd cc-zellij-plugin && cargo test
+
+test-e2e: build  ## Run E2E tests (builds binary, runs as subprocess)
+	cd cc-deck && go test -tags e2e -v -count=1 ./internal/e2e/
+
+smoke: build  ## Run smoke test script against compiled binary
+	./scripts/smoke-test-env.sh
 
 ## -- Lint --------------------------------------------------
 
