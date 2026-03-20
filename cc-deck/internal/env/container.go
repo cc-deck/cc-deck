@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"time"
 
@@ -92,6 +93,35 @@ func (e *ContainerEnvironment) Create(ctx context.Context, opts CreateOpts) erro
 		ports = def.Ports
 	}
 
+	// Resolve credentials: explicit > definition keys > auto-detect.
+	creds := e.Credentials
+	if creds == nil {
+		creds = make(map[string]string)
+	}
+	if def != nil {
+		for _, key := range def.Credentials {
+			if _, exists := creds[key]; !exists {
+				if val := os.Getenv(key); val != "" {
+					creds[key] = val
+				}
+			}
+		}
+	}
+	for _, key := range []string{"ANTHROPIC_API_KEY"} {
+		if _, exists := creds[key]; !exists {
+			if val := os.Getenv(key); val != "" {
+				creds[key] = val
+			}
+		}
+	}
+	if _, exists := creds["GOOGLE_APPLICATION_CREDENTIALS"]; !exists {
+		if gacPath := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS"); gacPath != "" {
+			if data, err := os.ReadFile(gacPath); err == nil {
+				creds["GOOGLE_APPLICATION_CREDENTIALS"] = string(data)
+			}
+		}
+	}
+
 	cName := containerName(e.name)
 
 	// Create volume if using named-volume storage.
@@ -113,11 +143,27 @@ func (e *ContainerEnvironment) Create(ctx context.Context, opts CreateOpts) erro
 		}
 	}
 
+	// Create podman secrets for credentials.
+	var secrets []podman.SecretMount
+	var credentialKeys []string
+	for key, val := range creds {
+		sName := secretName(e.name, key)
+		if err := podman.SecretCreate(ctx, sName, []byte(val)); err != nil {
+			return fmt.Errorf("creating secret %q: %w", key, err)
+		}
+		secrets = append(secrets, podman.SecretMount{
+			Name:   sName,
+			Target: key,
+		})
+		credentialKeys = append(credentialKeys, key)
+	}
+
 	// Build run options.
 	runOpts := podman.RunOpts{
 		Name:     cName,
 		Image:    image,
 		Volumes:  volumes,
+		Secrets:  secrets,
 		Ports:    ports,
 		AllPorts: e.AllPorts,
 		Cmd:      []string{"sleep", "infinity"},
@@ -131,10 +177,11 @@ func (e *ContainerEnvironment) Create(ctx context.Context, opts CreateOpts) erro
 	// Write environment definition.
 	if e.defs != nil {
 		envDef := &EnvironmentDefinition{
-			Name:  e.name,
-			Type:  EnvironmentTypeContainer,
-			Image: image,
-			Ports: ports,
+			Name:        e.name,
+			Type:        EnvironmentTypeContainer,
+			Image:       image,
+			Ports:       ports,
+			Credentials: credentialKeys,
 		}
 		if storageType != "" {
 			envDef.Storage = &StorageConfig{
