@@ -7,14 +7,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"regexp"
 	"strings"
 	"syscall"
 	"time"
 )
-
-// ansiRe matches ANSI escape sequences for stripping from terminal output.
-var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
 const (
 	// zellijSessionPrefix is prepended to environment names to form Zellij session names.
@@ -234,11 +230,11 @@ func zellijSessionExists(sessionName string) bool {
 	return false
 }
 
-// listZellijSessions runs "zellij list-sessions" and returns session names.
-// Each line of output contains a session name (before any whitespace).
-// Returns nil if zellij is not available or the command fails.
+// listZellijSessions runs "zellij list-sessions -ns" (no formatting, short)
+// and returns one session name per line. Returns nil if zellij is not
+// available or the command fails.
 func listZellijSessions() []string {
-	out, err := exec.Command("zellij", "list-sessions").Output()
+	out, err := exec.Command("zellij", "list-sessions", "-ns").Output()
 	if err != nil {
 		return nil
 	}
@@ -246,15 +242,9 @@ func listZellijSessions() []string {
 	var sessions []string
 	scanner := bufio.NewScanner(strings.NewReader(string(out)))
 	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-		// Strip ANSI color codes, then take the first field.
-		clean := ansiRe.ReplaceAllString(line, "")
-		fields := strings.Fields(clean)
-		if len(fields) > 0 {
-			sessions = append(sessions, fields[0])
+		name := strings.TrimSpace(scanner.Text())
+		if name != "" {
+			sessions = append(sessions, name)
 		}
 	}
 	return sessions
