@@ -1,0 +1,5 @@
+# User override: replaces the built-in nodejs group entirely
+nodejs:
+  domains:
+    - registry.internal.corp
+    - npm.internal.corp

@@ -1,0 +1,407 @@
+= Network Filtering
+
+When Claude Code runs inside a container, it can reach any endpoint on the internet.
+That means a compromised dependency, a hallucinated `curl` command, or a malicious MCP tool can quietly exfiltrate your source code to an external server.
+Network filtering closes this gap by restricting outbound traffic to an explicit allowlist of domains.
+Only the domains your project actually needs (package registries, API endpoints, source control hosts) are permitted.
+Everything else is blocked.
+
+This page covers how to configure, deploy, and manage domain-based network filtering for Podman Compose sessions.
+For Kubernetes deployments, domain groups also feed into NetworkPolicy and EgressFirewall resources.
+See <<Kubernetes and OpenShift>> for details.
+
+== Quick Start
+
+Add a `network` section to your `cc-deck-build.yaml` manifest, generate compose files, and deploy.
+
+. Define allowed domain groups in the manifest:
++
+[source,yaml]
+----
+# cc-deck-build.yaml
+version: 1
+image:
+  name: quay.io/myorg/claude-dev
+  base: quay.io/cc-deck/cc-deck-base:latest
+network:
+  allowed_domains:
+    - python
+    - github
+    - nodejs
+----
+
+. Generate compose files from the build directory:
++
+[source,bash]
+----
+cc-deck deploy my-session --compose ./build-dir
+----
+
+. Copy the `.env.example` to `.env` and fill in your credentials:
++
+[source,bash]
+----
+cp build-dir/.env.example build-dir/.env
+# Edit build-dir/.env with your ANTHROPIC_API_KEY or Vertex AI credentials
+----
+
+. Start the session:
++
+[source,bash]
+----
+cd build-dir
+podman compose up -d
+podman exec -it my-session zellij --layout cc-deck
+----
+
+The `anthropic` domain group is injected automatically if neither `anthropic` nor `vertexai` is listed.
+You do not need to add it explicitly.
+
+== How It Works
+
+Network filtering uses a sidecar proxy architecture.
+When domain groups are specified in the manifest, `cc-deck deploy --compose` generates a two-container setup:
+
+* A **session container** that runs your cc-deck image on an internal-only network.
+  The `HTTP_PROXY` and `HTTPS_PROXY` environment variables point to the proxy sidecar.
+  This container has no direct internet access.
+
+* A **proxy container** (Tinyproxy) that sits on both the internal network and the default (external) network.
+  It accepts CONNECT requests only for domains listed in the whitelist file.
+  All other requests are denied with a log entry.
+
+[source,text]
+----
+                        ┌─────────────────────────────────────┐
+                        │          internal network           │
+                        │  (no external connectivity)         │
+                        │                                     │
+                        │  ┌─────────────┐   HTTP_PROXY       │
+                        │  │   session    │ ──────────────┐    │
+                        │  │  container   │               │    │
+                        │  └─────────────┘               │    │
+                        │                                 │    │
+                        │                          ┌──────▼──┐ │
+                        │                          │  proxy   │ │
+                        │                          │(tinyproxy│─┼──── default network ──── internet
+                        │                          │ sidecar) │ │    (allowlist only)
+                        │                          └─────────┘ │
+                        └─────────────────────────────────────┘
+----
+
+The proxy runs in allowlist mode (`FilterDefaultDeny Yes`).
+Only domains that match a whitelist entry are forwarded.
+Blocked requests are logged and can be inspected with `cc-deck domains blocked`.
+
+TIP: The session container sets both uppercase (`HTTP_PROXY`, `HTTPS_PROXY`) and lowercase (`http_proxy`, `https_proxy`) variants so that tools written in different languages all respect the proxy.
+
+== Domain Groups
+
+Domain groups are named collections of domain patterns.
+Instead of listing individual domains, you reference a group name and cc-deck expands it to the full set of required hosts.
+
+The following built-in groups ship with cc-deck:
+
+[cols="1,3,2", options="header"]
+|===
+| Group | Description | Key Domains
+
+| `anthropic`
+| Claude API and related services
+| `api.anthropic.com`, `claude.ai`, `.statsigapi.net`
+
+| `vertexai`
+| Google Vertex AI endpoints
+| `oauth2.googleapis.com`, `aiplatform.googleapis.com`
+
+| `python`
+| Python package index
+| `pypi.org`, `files.pythonhosted.org`
+
+| `nodejs`
+| npm and Yarn registries
+| `registry.npmjs.org`, `.yarnpkg.com`
+
+| `rust`
+| Rust crate registry
+| `crates.io`, `static.crates.io`
+
+| `golang`
+| Go module proxy and checksum DB
+| `proxy.golang.org`, `sum.golang.org`
+
+| `github`
+| GitHub and GitHub Container Registry
+| `github.com`, `.githubusercontent.com`, `ghcr.io`
+
+| `gitlab`
+| GitLab and its container registry
+| `gitlab.com`, `registry.gitlab.com`
+
+| `docker`
+| Docker Hub registry
+| `registry-1.docker.io`, `auth.docker.io`
+
+| `quay`
+| Quay.io container registry
+| `quay.io`, `cdn.quay.io`
+|===
+
+Wildcard patterns (prefixed with `.`) match the domain itself and all subdomains.
+For example, `.github.com` matches both `github.com` and `api.github.com`.
+
+=== Automatic Backend Injection (FR-002)
+
+When network filtering is active, cc-deck ensures that a backend domain group is always present.
+If the `allowed_domains` list contains neither `anthropic` nor `vertexai`, the `anthropic` group is added automatically.
+This prevents accidentally locking Claude Code out of its own API.
+
+If you use Vertex AI, include the `vertexai` group explicitly and the `anthropic` group will not be injected.
+
+== Customizing Domains
+
+User-defined domain groups live in `~/.config/cc-deck/domains.yaml`.
+This file lets you extend built-in groups, override them entirely, or define custom groups that combine multiple sources.
+
+=== Extending a Built-in Group
+
+To add internal mirrors to an existing group without replacing the default domains, use `extends: builtin`:
+
+[source,yaml]
+----
+# ~/.config/cc-deck/domains.yaml
+python:
+  extends: builtin
+  domains:
+    - pypi.internal.corp
+    - artifacts.internal.corp
+----
+
+The resolved `python` group now contains all built-in PyPI domains plus your internal hosts.
+
+=== Overriding a Built-in Group
+
+To replace a built-in group entirely, omit the `extends` field:
+
+[source,yaml]
+----
+# ~/.config/cc-deck/domains.yaml
+python:
+  domains:
+    - pypi.internal.corp
+----
+
+This replaces the built-in `python` group.
+Only `pypi.internal.corp` will be allowed when `python` is referenced.
+
+=== Creating a Custom Group with Includes
+
+Custom groups can compose multiple existing groups and add extra domains:
+
+[source,yaml]
+----
+# ~/.config/cc-deck/domains.yaml
+dev-stack:
+  includes:
+    - python
+    - golang
+    - github
+  domains:
+    - artifacts.internal.corp
+    - sentry.internal.corp
+----
+
+Reference `dev-stack` in your manifest and it expands to all domains from the three included groups plus the two custom entries.
+
+== Exploring Domain Groups
+
+Use the `cc-deck domains` subcommands to inspect what groups are available and what domains they resolve to.
+
+=== Listing All Groups
+
+[source,bash]
+----
+cc-deck domains list
+----
+
+.Example output
+[source,text]
+----
+GROUP            SOURCE     DOMAINS
+anthropic        builtin    8
+docker           builtin    4
+github           builtin    5
+gitlab           builtin    3
+golang           builtin    3
+nodejs           builtin    4
+python           builtin    3
+quay             builtin    3
+rust             builtin    4
+vertexai         builtin    6
+dev-stack        user       16
+----
+
+The `SOURCE` column shows whether a group is `builtin`, `user` (defined in `domains.yaml`), or `extended` (user config that extends a built-in).
+
+=== Showing Group Details
+
+[source,bash]
+----
+cc-deck domains show python
+----
+
+.Example output
+[source,text]
+----
+Group: python (builtin)
+
+  pypi.org
+  files.pythonhosted.org
+  pypi.python.org
+----
+
+=== Seeding a Configuration File
+
+To create a starter `domains.yaml` with all built-in groups as commented examples:
+
+[source,bash]
+----
+cc-deck domains init
+----
+
+This writes `~/.config/cc-deck/domains.yaml` with commented definitions you can uncomment and customize.
+Use `--force` to overwrite an existing file.
+
+For full command syntax, see xref:reference:cli.adoc[CLI Reference].
+
+== Deploy-Time Overrides
+
+The `--allowed-domains` flag on `cc-deck deploy --compose` lets you adjust the domain list at deploy time without editing the manifest.
+This is useful for temporary access, debugging, or environment-specific overrides.
+
+=== Adding Groups
+
+Prefix with `+` to add groups to the manifest defaults:
+
+[source,bash]
+----
+cc-deck deploy my-session --compose ./build-dir \
+  --allowed-domains "+docker,+quay"
+----
+
+=== Removing Groups
+
+Prefix with `-` to remove groups from the manifest defaults:
+
+[source,bash]
+----
+cc-deck deploy my-session --compose ./build-dir \
+  --allowed-domains "-nodejs"
+----
+
+=== Replacing Groups Entirely
+
+List group names without a prefix to replace the manifest list:
+
+[source,bash]
+----
+cc-deck deploy my-session --compose ./build-dir \
+  --allowed-domains "python,github"
+----
+
+=== Disabling Filtering
+
+Use `all` to disable network filtering entirely:
+
+[source,bash]
+----
+cc-deck deploy my-session --compose ./build-dir \
+  --allowed-domains "all"
+----
+
+WARNING: Using `--allowed-domains=all` removes all outbound restrictions.
+The proxy sidecar is not generated and the session container has unrestricted internet access.
+Use this only for debugging.
+
+=== Mixing Add and Remove
+
+You can combine `+` and `-` entries in a single flag value:
+
+[source,bash]
+----
+cc-deck deploy my-session --compose ./build-dir \
+  --allowed-domains "+docker,-nodejs"
+----
+
+NOTE: You cannot mix bare entries (no prefix) with `+` or `-` entries.
+Bare entries trigger full replacement mode.
+
+== Monitoring Blocked Requests
+
+After deploying a session with network filtering, you can inspect which outbound requests the proxy denied:
+
+[source,bash]
+----
+cc-deck domains blocked my-session
+----
+
+.Example output
+[source,text]
+----
+TIMESTAMP                    DOMAIN
+Mar 19 18:31:08.838          evil-server.com
+Mar 19 18:31:09.124          telemetry.example.io
+----
+
+By default, this shows blocks from the last hour.
+Use `--since` to adjust the time window:
+
+[source,bash]
+----
+cc-deck domains blocked my-session --since 4h
+----
+
+The command reads the proxy sidecar logs from the `my-session-proxy` container and filters for denied connection entries.
+
+TIP: If a legitimate domain is being blocked, add it with `cc-deck domains add` (see below) or include it in your `domains.yaml` configuration.
+
+== Live Modifications
+
+You can add or remove individual domains from a running session without restarting the session container.
+These changes take effect immediately after the proxy restarts.
+
+=== Adding a Domain
+
+[source,bash]
+----
+cc-deck domains add my-session registry.example.com
+----
+
+This appends the domain to the proxy whitelist and restarts the Tinyproxy sidecar.
+
+=== Removing a Domain
+
+[source,bash]
+----
+cc-deck domains remove my-session registry.example.com
+----
+
+This removes the domain from the whitelist and restarts the proxy.
+
+NOTE: Live modifications update the running proxy container directly.
+They do not persist across `podman compose down` and `up` cycles.
+For permanent changes, update the manifest or `domains.yaml` and regenerate the compose files.
+
+== Kubernetes and OpenShift
+
+When deploying to Kubernetes with `cc-deck deploy` (without `--compose`), domain groups serve a different but complementary role.
+Instead of generating a proxy sidecar, cc-deck translates the allowed domain groups into native cluster resources:
+
+* **NetworkPolicy**: Restricts Pod egress to specific CIDR blocks and ports derived from the allowed domains.
+* **EgressFirewall** (OpenShift only): Provides domain-level egress filtering using the OVN-Kubernetes network plugin.
+
+The domain group names and resolution logic are identical.
+You can use the same `domains.yaml` customizations, the same `--allowed-domains` overrides, and the same `cc-deck domains` commands to inspect your configuration.
+
+For Kubernetes deployment details, see xref:running:kubernetes.adoc[Kubernetes].
+For the full manifest schema including the `network` section, see xref:reference:manifest-schema.adoc[Manifest Schema].
