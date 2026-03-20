@@ -113,8 +113,7 @@ func generateComposeYAML(opts GenerateOptions, proxyImage string, proxyPort int,
 		ContainerName: opts.SessionName,
 		EnvFile:       []string{".env"},
 		Environment:   sessionEnv,
-		Stdin:         true,
-		TTY:           true,
+		Command:       "sleep infinity",
 	}
 
 	if hasProxy {
@@ -131,9 +130,8 @@ func generateComposeYAML(opts GenerateOptions, proxyImage string, proxyPort int,
 			ContainerName: opts.SessionName + "-proxy",
 			Networks:      []string{"internal", "default"},
 			Volumes: []string{
-				filepath.Join("proxy", "tinyproxy.conf") + ":/etc/tinyproxy/tinyproxy.conf:ro",
-				filepath.Join("proxy", "whitelist") + ":/etc/tinyproxy/whitelist:ro",
-				"proxy-logs:/var/log/tinyproxy",
+				"./" + filepath.Join("proxy", "tinyproxy.conf") + ":/etc/tinyproxy/tinyproxy.conf:ro",
+				"./" + filepath.Join("proxy", "whitelist") + ":/etc/tinyproxy/whitelist",
 			},
 		}
 
@@ -143,6 +141,7 @@ func generateComposeYAML(opts GenerateOptions, proxyImage string, proxyPort int,
 				Driver:   "bridge",
 				Internal: true,
 			},
+			"default": {},
 		}
 	}
 
