@@ -64,9 +64,10 @@ func (e *LocalEnvironment) Create(_ context.Context, _ CreateOpts) error {
 	return e.store.Add(record)
 }
 
-// Attach connects to the environment's Zellij session. If called from
-// inside Zellij (ZELLIJ env var set), it prints the command to run after
-// detaching. Otherwise, it replaces the current process with zellij.
+// Attach connects to the environment's Zellij session. If the session
+// does not exist, it is created in the background first (with the cc-deck
+// layout), then attached. This avoids issues with "zellij --session"
+// not creating new sessions when a Zellij server is already running.
 func (e *LocalEnvironment) Attach(_ context.Context) error {
 	zellijPath, err := exec.LookPath("zellij")
 	if err != nil {
@@ -74,7 +75,6 @@ func (e *LocalEnvironment) Attach(_ context.Context) error {
 	}
 
 	sessionName := e.zellijSessionName()
-	exists := zellijSessionExists(sessionName)
 
 	// Update last_attached timestamp.
 	if record, findErr := e.store.FindByName(e.name); findErr == nil {
@@ -83,27 +83,31 @@ func (e *LocalEnvironment) Attach(_ context.Context) error {
 		_ = e.store.Update(record)
 	}
 
-	// Inside Zellij: cannot start/attach a session from within another.
+	// Inside Zellij: cannot attach from within another session.
 	if os.Getenv("ZELLIJ") != "" {
-		if exists {
-			fmt.Fprintf(os.Stderr, "Already inside Zellij. Detach first (Ctrl+o d), then run:\n")
-			fmt.Fprintf(os.Stderr, "  zellij attach %s\n", sessionName)
-		} else {
-			fmt.Fprintf(os.Stderr, "Already inside Zellij. Detach first (Ctrl+o d), then run:\n")
-			fmt.Fprintf(os.Stderr, "  zellij --session %s --layout cc-deck\n", sessionName)
-		}
+		fmt.Fprintf(os.Stderr, "Already inside Zellij. Detach first (Ctrl+o d), then run:\n")
+		fmt.Fprintf(os.Stderr, "  cc-deck env attach %s\n", e.name)
 		return nil
 	}
 
-	// Outside Zellij: replace current process.
-	var args []string
-	if exists {
-		args = []string{"zellij", "attach", sessionName}
-	} else {
-		args = []string{"zellij", "--session", sessionName, "--layout", "cc-deck"}
+	// If the session doesn't exist, create it in the background with the
+	// cc-deck layout. "attach --create-background" alone would use the
+	// default layout, so we explicitly create with --layout first.
+	if !zellijSessionExists(sessionName) {
+		create := exec.Command(zellijPath, "attach", "--create-background", sessionName, "--layout", "cc-deck")
+		if out, err := create.CombinedOutput(); err != nil {
+			// Fallback: create without layout (--layout might not be
+			// supported on attach in all Zellij versions).
+			fallback := exec.Command(zellijPath, "attach", "--create-background", sessionName)
+			if fout, ferr := fallback.CombinedOutput(); ferr != nil {
+				return fmt.Errorf("creating session: %s\n%s", ferr, string(fout))
+			}
+			_ = out // suppress unused warning
+		}
 	}
 
-	return syscall.Exec(zellijPath, args, os.Environ())
+	// Attach to the (now-existing) session.
+	return syscall.Exec(zellijPath, []string{"zellij", "attach", sessionName}, os.Environ())
 }
 
 // Delete removes the environment from the state store and kills the Zellij
