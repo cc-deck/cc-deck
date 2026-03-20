@@ -299,14 +299,88 @@ func runEnvList(gf *GlobalFlags, filterType string) error {
 	}
 
 	switch gf.Output {
+	case "json", "yaml":
+		return writeEnvStructured(gf.Output, records, instances, allDefs, instanceNames, filterType)
+	default:
+		return writeEnvTable(records, instances, allDefs, instanceNames, filterType)
+	}
+}
+
+// envListEntry is a unified representation for JSON/YAML output.
+type envListEntry struct {
+	Name         string `json:"name" yaml:"name"`
+	Type         string `json:"type" yaml:"type"`
+	State        string `json:"state" yaml:"state"`
+	Storage      string `json:"storage,omitempty" yaml:"storage,omitempty"`
+	Image        string `json:"image,omitempty" yaml:"image,omitempty"`
+	LastAttached string `json:"last_attached,omitempty" yaml:"last_attached,omitempty"`
+	Age          string `json:"age,omitempty" yaml:"age,omitempty"`
+}
+
+func writeEnvStructured(format string, records []*env.EnvironmentRecord, instances []*env.EnvironmentInstance, allDefs []*env.EnvironmentDefinition, instanceNames map[string]bool, filterType string) error {
+	var entries []envListEntry
+
+	for _, r := range records {
+		entries = append(entries, envListEntry{
+			Name:         r.Name,
+			Type:         string(r.Type),
+			State:        string(r.State),
+			Storage:      storageDisplay(r),
+			LastAttached: formatRelativeTime(r.LastAttached),
+			Age:          formatDuration(time.Since(r.CreatedAt)),
+		})
+	}
+
+	for _, inst := range instances {
+		image := ""
+		if inst.Container != nil {
+			image = inst.Container.Image
+		}
+		entries = append(entries, envListEntry{
+			Name:         inst.Name,
+			Type:         "container",
+			State:        string(inst.State),
+			Storage:      "named-volume",
+			Image:        image,
+			LastAttached: formatRelativeTime(inst.LastAttached),
+			Age:          formatDuration(time.Since(inst.CreatedAt)),
+		})
+	}
+
+	// Add definitions without instances as "not created".
+	for _, def := range allDefs {
+		if instanceNames[def.Name] {
+			continue
+		}
+		// Skip if already in v1 records.
+		found := false
+		for _, r := range records {
+			if r.Name == def.Name {
+				found = true
+				break
+			}
+		}
+		if found {
+			continue
+		}
+		if filterType != "" && string(def.Type) != filterType {
+			continue
+		}
+		entries = append(entries, envListEntry{
+			Name:    def.Name,
+			Type:    string(def.Type),
+			State:   "not created",
+			Storage: "-",
+		})
+	}
+
+	switch format {
 	case "json":
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
-		return enc.Encode(records)
-	case "yaml":
-		return yaml.NewEncoder(os.Stdout).Encode(records)
+		return enc.Encode(entries)
 	default:
-		return writeEnvTable(records, instances, allDefs, instanceNames, filterType)
+		return yaml.NewEncoder(os.Stdout).Encode(entries)
 	}
 }
 
