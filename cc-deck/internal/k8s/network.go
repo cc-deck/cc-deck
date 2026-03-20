@@ -11,6 +11,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 
 	"github.com/cc-deck/cc-deck/internal/config"
+	"github.com/cc-deck/cc-deck/internal/network"
 )
 
 // NetworkPolicyParams holds parameters for building network policies.
@@ -97,16 +98,12 @@ func BuildNetworkPolicy(p NetworkPolicyParams) (*networkingv1.NetworkPolicy, err
 
 // backendEgressRules returns CIDR-based egress rules for the given backend.
 // Standard K8s NetworkPolicy only supports IP/CIDR, not FQDN.
+// Uses the domain group system to resolve backend domains.
 func backendEgressRules(backend config.BackendType) ([]networkingv1.NetworkPolicyEgressRule, error) {
 	httpsPort := intstr.FromInt32(443)
 
-	var hosts []string
-	switch backend {
-	case config.BackendAnthropic:
-		hosts = []string{"api.anthropic.com"}
-	case config.BackendVertex:
-		hosts = []string{"googleapis.com"}
-	default:
+	hosts := backendDNSNames(backend)
+	if len(hosts) == 0 {
 		return nil, fmt.Errorf("unknown backend: %q", backend)
 	}
 
@@ -305,21 +302,33 @@ func BuildEgressFirewall(p EgressFirewallParams) *unstructured.Unstructured {
 }
 
 // backendDNSNames returns the FQDN hostnames for a given backend type.
+// Uses the domain group system (built-in "anthropic" and "vertexai" groups)
+// to resolve backend domains.
 func backendDNSNames(backend config.BackendType) []string {
+	var groupName string
 	switch backend {
 	case config.BackendAnthropic:
-		return []string{"api.anthropic.com"}
+		groupName = "anthropic"
 	case config.BackendVertex:
-		return []string{
-			"oauth2.googleapis.com",
-			"aiplatform.googleapis.com",
-			"us-central1-aiplatform.googleapis.com",
-			"europe-west1-aiplatform.googleapis.com",
-			"asia-east1-aiplatform.googleapis.com",
-		}
+		groupName = "vertexai"
 	default:
 		return nil
 	}
+
+	resolver := network.NewResolver(nil)
+	domains, err := resolver.ExpandGroup(groupName)
+	if err != nil {
+		return nil
+	}
+
+	// Filter out wildcard patterns (not valid FQDNs for DNS resolution)
+	var fqdns []string
+	for _, d := range domains {
+		if len(d) > 0 && d[0] != '.' {
+			fqdns = append(fqdns, d)
+		}
+	}
+	return fqdns
 }
 
 // toStringInterfaceMap converts map[string]string to map[string]interface{}.

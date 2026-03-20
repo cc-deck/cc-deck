@@ -185,6 +185,140 @@ cc-deck image diff my-team-image
 
 Reports tools, plugins, MCP servers, and GitHub tools that are in the manifest but not reflected in the Containerfile.
 
+=== deploy (compose mode)
+
+When the `--compose` flag is provided, the `deploy` command generates Podman compose files instead of deploying to Kubernetes.
+This mode reads the manifest from the specified build directory and produces a `compose.yaml`, `.env.example`, and optional proxy sidecar configuration.
+
+[source,bash]
+----
+cc-deck deploy my-session --compose ./my-team-image
+cc-deck deploy my-session --compose ./my-team-image --output-dir ./output
+cc-deck deploy my-session --compose ./my-team-image --allowed-domains "+rust,-docker"
+cc-deck deploy my-session --compose ./my-team-image --allowed-domains "all"
+----
+
+[cols="1,3"]
+|===
+| Flag | Description
+
+| `--compose <build-dir>`
+| Generate Podman compose files from a build directory (reads `cc-deck-build.yaml` manifest)
+
+| `--output-dir <dir>`
+| Output directory for generated compose files (default: same as build directory)
+
+| `--allowed-domains <spec>`
+| Domain override for network filtering (see below)
+|===
+
+The `--allowed-domains` flag accepts several formats:
+
+[cols="1,3"]
+|===
+| Format | Behavior
+
+| `+group`
+| Add a group to the manifest defaults (e.g., `+rust`)
+
+| `-group`
+| Remove a group from the manifest defaults (e.g., `-docker`)
+
+| `group,group`
+| Replace manifest defaults entirely with the listed groups
+
+| `all`
+| Disable network filtering completely (all outbound traffic is allowed)
+|===
+
+Multiple additions and removals can be combined with commas (e.g., `+rust,-docker,+gitlab`).
+If neither `anthropic` nor `vertexai` is present in the final domain list, the `anthropic` group is injected automatically.
+
+=== domains
+
+Manage domain groups for network filtering in containerized sessions.
+Domain groups are named collections of domain patterns (e.g., `python` includes `pypi.org` and related hosts).
+Groups can be built-in, user-defined, or extended from built-in definitions.
+
+==== domains init
+
+Seed `~/.config/cc-deck/domains.yaml` with commented built-in group definitions as a starting point for customization.
+
+[source,bash]
+----
+cc-deck domains init
+cc-deck domains init --force
+----
+
+[cols="1,3"]
+|===
+| Flag | Description
+
+| `--force`
+| Overwrite existing `domains.yaml` file
+|===
+
+==== domains list
+
+List all available domain groups with their source and domain count.
+Sources include `builtin` (shipped with cc-deck), `user` (defined in `domains.yaml`), and `extended` (user config that extends a built-in group).
+
+[source,bash]
+----
+cc-deck domains list
+----
+
+==== domains show
+
+Display the expanded domain patterns for a specific group.
+
+[source,bash]
+----
+cc-deck domains show python
+cc-deck domains show github
+----
+
+==== domains blocked
+
+Show blocked requests from the tinyproxy logs of a running Podman session.
+This command requires Podman and a session deployed with network filtering enabled.
+
+[source,bash]
+----
+cc-deck domains blocked my-session
+cc-deck domains blocked my-session --since 30m
+----
+
+[cols="1,3"]
+|===
+| Flag | Description
+
+| `--since`
+| Show blocks from the last duration (default: `1h`)
+|===
+
+==== domains add
+
+Add a domain or domain group to a running Podman session.
+The proxy container is restarted to apply the change.
+
+[source,bash]
+----
+cc-deck domains add my-session pypi.org
+cc-deck domains add my-session rust
+----
+
+==== domains remove
+
+Remove a domain or domain group from a running Podman session.
+The proxy container is restarted to apply the change.
+
+[source,bash]
+----
+cc-deck domains remove my-session pypi.org
+cc-deck domains remove my-session docker
+----
+
 === hook
 
 Internal command used by Claude Code hooks.
