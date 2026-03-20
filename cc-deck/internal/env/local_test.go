@@ -1,0 +1,120 @@
+package env
+
+import (
+	"context"
+	"errors"
+	"os/exec"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// newTestStore is defined in state_test.go and shared across test files.
+
+func TestLocalEnvironment_Type(t *testing.T) {
+	store := newTestStore(t)
+	env := &LocalEnvironment{name: "test", store: store}
+	assert.Equal(t, EnvironmentTypeLocal, env.Type())
+}
+
+func TestLocalEnvironment_Name(t *testing.T) {
+	store := newTestStore(t)
+	env := &LocalEnvironment{name: "my-project", store: store}
+	assert.Equal(t, "my-project", env.Name())
+}
+
+func TestLocalEnvironment_CreateAddsRecord(t *testing.T) {
+	if _, err := exec.LookPath("zellij"); err != nil {
+		t.Skip("zellij not found in PATH, skipping")
+	}
+
+	store := newTestStore(t)
+	env := &LocalEnvironment{name: "test-env", store: store}
+
+	err := env.Create(context.Background(), CreateOpts{})
+	require.NoError(t, err)
+
+	record, err := store.FindByName("test-env")
+	require.NoError(t, err)
+	assert.Equal(t, EnvironmentTypeLocal, record.Type)
+	assert.Equal(t, EnvironmentStateRunning, record.State)
+}
+
+func TestLocalEnvironment_CreateRejectsDuplicate(t *testing.T) {
+	if _, err := exec.LookPath("zellij"); err != nil {
+		t.Skip("zellij not found in PATH, skipping")
+	}
+
+	store := newTestStore(t)
+	env := &LocalEnvironment{name: "dup-env", store: store}
+
+	err := env.Create(context.Background(), CreateOpts{})
+	require.NoError(t, err)
+
+	err = env.Create(context.Background(), CreateOpts{})
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ErrNameConflict))
+}
+
+func TestLocalEnvironment_CreateRejectsInvalidName(t *testing.T) {
+	store := newTestStore(t)
+	env := &LocalEnvironment{name: "INVALID", store: store}
+
+	err := env.Create(context.Background(), CreateOpts{})
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ErrInvalidName))
+}
+
+func TestLocalEnvironment_StartReturnsNotSupported(t *testing.T) {
+	store := newTestStore(t)
+	env := &LocalEnvironment{name: "test", store: store}
+
+	err := env.Start(context.Background())
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ErrNotSupported))
+}
+
+func TestLocalEnvironment_StopReturnsNotSupported(t *testing.T) {
+	store := newTestStore(t)
+	env := &LocalEnvironment{name: "test", store: store}
+
+	err := env.Stop(context.Background())
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ErrNotSupported))
+}
+
+func TestLocalEnvironment_DeleteRemovesRecord(t *testing.T) {
+	store := newTestStore(t)
+
+	// Manually add a record (bypassing Create to avoid zellij dependency).
+	record := &EnvironmentRecord{
+		Name:  "del-env",
+		Type:  EnvironmentTypeLocal,
+		State: EnvironmentStateUnknown,
+	}
+	require.NoError(t, store.Add(record))
+
+	env := &LocalEnvironment{name: "del-env", store: store}
+	err := env.Delete(context.Background(), true)
+	require.NoError(t, err)
+
+	_, err = store.FindByName("del-env")
+	assert.True(t, errors.Is(err, ErrNotFound))
+}
+
+func TestNewEnvironment_Local(t *testing.T) {
+	store := newTestStore(t)
+	env, err := NewEnvironment(EnvironmentTypeLocal, "test", store)
+	require.NoError(t, err)
+
+	assert.Equal(t, EnvironmentTypeLocal, env.Type())
+	assert.Equal(t, "test", env.Name())
+}
+
+func TestNewEnvironment_UnimplementedType(t *testing.T) {
+	store := newTestStore(t)
+	_, err := NewEnvironment(EnvironmentTypePodman, "test", store)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ErrNotImplemented))
+}

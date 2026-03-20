@@ -54,6 +54,7 @@ for containerized Claude Code environments.`,
 	rootCmd.AddCommand(cmd.NewSnapshotCmd(gf))
 	rootCmd.AddCommand(cmd.NewHookCmd())
 	rootCmd.AddCommand(cmd.NewImageCmd(gf))
+	rootCmd.AddCommand(cmd.NewEnvCmd(gf))
 	rootCmd.AddCommand(newCompletionCmd())
 
 	return rootCmd
