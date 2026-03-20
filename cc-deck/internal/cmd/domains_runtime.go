@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/cc-deck/cc-deck/internal/compose"
 	"github.com/spf13/cobra"
 )
 
@@ -29,24 +30,28 @@ func runDomainsBlocked(sessionName, since string) error {
 	// Locate the proxy container via compose project name convention
 	proxyContainer := sessionName + "-proxy"
 
-	// Fetch proxy logs using podman
+	// Fetch proxy logs via podman logs (tinyproxy logs to stdout in foreground mode)
 	out, err := exec.Command("podman", "logs", "--since", since, proxyContainer).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("fetching proxy logs for %q: %w\n%s", proxyContainer, err, string(out))
 	}
 
-	// Parse tinyproxy logs for denied entries
+	// Parse tinyproxy logs for refused entries
+	// Format: NOTICE    Mar 19 18:31:08.838 [1]: Proxying refused on filtered domain "evil-server.com"
 	scanner := bufio.NewScanner(strings.NewReader(string(out)))
-	fmt.Printf("%-24s %-30s %s\n", "TIMESTAMP", "DOMAIN", "METHOD")
+	fmt.Printf("%-28s %s\n", "TIMESTAMP", "DOMAIN")
 
 	found := false
 	for scanner.Scan() {
 		line := scanner.Text()
-		// tinyproxy logs denied requests with "Denied" in the line
-		if strings.Contains(line, "Denied") || strings.Contains(line, "DENIED") {
-			found = true
-			fmt.Println(line)
+		if !strings.Contains(line, "Proxying refused on filtered domain") {
+			continue
 		}
+		// Extract timestamp and domain
+		timestamp := extractTimestamp(line)
+		domain := extractQuoted(line)
+		found = true
+		fmt.Printf("%-28s %s\n", timestamp, domain)
 	}
 
 	if !found {
@@ -89,19 +94,22 @@ func runDomainsModify(sessionName, domainOrGroup string, add bool) error {
 
 	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
 
+	// Convert domain to the regex pattern used in the whitelist
+	pattern := compose.ToRegexPattern(domainOrGroup)
+
 	if add {
 		// Check if already present
 		for _, l := range lines {
-			if strings.TrimSpace(l) == domainOrGroup {
+			if strings.TrimSpace(l) == pattern {
 				return fmt.Errorf("domain %q is already in the whitelist", domainOrGroup)
 			}
 		}
-		lines = append(lines, domainOrGroup)
+		lines = append(lines, pattern)
 	} else {
 		var newLines []string
 		found := false
 		for _, l := range lines {
-			if strings.TrimSpace(l) == domainOrGroup {
+			if strings.TrimSpace(l) == pattern {
 				found = true
 				continue
 			}
@@ -133,4 +141,34 @@ func runDomainsModify(sessionName, domainOrGroup string, add bool) error {
 	}
 	fmt.Printf("%s %q. Proxy restarted.\n", action, domainOrGroup)
 	return nil
+}
+
+// extractTimestamp extracts the timestamp from a tinyproxy log line.
+// Example: "NOTICE    Mar 19 18:31:08.838 [1]: ..." -> "Mar 19 18:31:08.838"
+func extractTimestamp(line string) string {
+	// Skip the log level prefix (e.g., "NOTICE    ")
+	idx := strings.Index(line, "[")
+	if idx < 0 {
+		return ""
+	}
+	// Timestamp is between the level whitespace and the "[" bracket
+	part := strings.TrimSpace(line[:idx])
+	// Remove the log level word
+	if space := strings.IndexByte(part, ' '); space >= 0 {
+		return strings.TrimSpace(part[space:])
+	}
+	return part
+}
+
+// extractQuoted extracts the first double-quoted string from a line.
+func extractQuoted(line string) string {
+	start := strings.IndexByte(line, '"')
+	if start < 0 {
+		return ""
+	}
+	end := strings.IndexByte(line[start+1:], '"')
+	if end < 0 {
+		return ""
+	}
+	return line[start+1 : start+1+end]
 }
