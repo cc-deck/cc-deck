@@ -64,8 +64,10 @@ func (e *LocalEnvironment) Create(_ context.Context, _ CreateOpts) error {
 	return e.store.Add(record)
 }
 
-// Attach replaces the current process with a Zellij attach command that
-// creates the session if it does not already exist, using the cc-deck layout.
+// Attach replaces the current process with a Zellij command. If the session
+// already exists, it attaches to it. Otherwise, it creates a new session
+// with the cc-deck layout. The --layout flag is not supported on
+// "zellij attach --create", so we branch explicitly.
 func (e *LocalEnvironment) Attach(_ context.Context) error {
 	zellijPath, err := exec.LookPath("zellij")
 	if err != nil {
@@ -73,7 +75,13 @@ func (e *LocalEnvironment) Attach(_ context.Context) error {
 	}
 
 	sessionName := e.zellijSessionName()
-	args := []string{"zellij", "attach", sessionName, "--create", "--layout", "cc-deck"}
+
+	var args []string
+	if zellijSessionExists(sessionName) {
+		args = []string{"zellij", "attach", sessionName}
+	} else {
+		args = []string{"zellij", "--session", sessionName, "--layout", "cc-deck"}
+	}
 
 	// Update last_attached timestamp.
 	if record, findErr := e.store.FindByName(e.name); findErr == nil {
