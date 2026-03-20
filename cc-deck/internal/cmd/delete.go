@@ -18,7 +18,9 @@ func NewDeleteCmd(globalFlags *GlobalFlags) *cobra.Command {
 		Aliases: []string{"rm"},
 		Short:   "Delete a Claude Code session and its resources",
 		Hidden:  true,
-		Long: `Delete a Claude Code session, removing all associated Kubernetes resources:
+		Long: `DEPRECATED: Use 'cc-deck env delete' instead. This command will be removed in a future release.
+
+Delete a Claude Code session, removing all associated Kubernetes resources:
 
   - StatefulSet
   - Service (headless)
