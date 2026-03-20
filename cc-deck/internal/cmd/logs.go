@@ -26,7 +26,9 @@ func NewLogsCmd(globalFlags *GlobalFlags) *cobra.Command {
 		Use:    "logs <name>",
 		Short:  "Stream logs from a Claude Code session",
 		Hidden: true,
-		Long: `Stream Pod logs from a running Claude Code session.
+		Long: `DEPRECATED: Use 'cc-deck env logs' instead. This command will be removed in a future release.
+
+Stream Pod logs from a running Claude Code session.
 
 By default shows all existing logs. Use --follow (-f) to stream
 new log output in real-time.`,

@@ -31,7 +31,9 @@ func NewDeployCmd(globalFlags *GlobalFlags) *cobra.Command {
 		Use:    "deploy <name>",
 		Short:  "Deploy a new Claude Code session to Kubernetes",
 		Hidden: true,
-		Long: `Deploy a new Claude Code session as a StatefulSet on Kubernetes.
+		Long: `DEPRECATED: Use 'cc-deck env create --type k8s' instead. This command will be removed in a future release.
+
+Deploy a new Claude Code session as a StatefulSet on Kubernetes.
 
 This creates a StatefulSet (replicas=1), headless Service, ConfigMap for
 Zellij configuration, PVC for persistent storage, and a NetworkPolicy

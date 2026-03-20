@@ -317,6 +317,20 @@ cc-deck domains add my-session pypi.org   # Add domain at runtime
 cc-deck domains show python               # Inspect a group's domains
 ```
 
+## Environment Management
+
+The `cc-deck env` command group provides a unified interface for managing Claude Code sessions across all supported backends (local, Podman, Kubernetes).
+
+| Subcommand | Description |
+|------------|-------------|
+| `cc-deck env create` | Create a new environment (use `--type` to select backend) |
+| `cc-deck env attach` | Attach to a running environment |
+| `cc-deck env start` | Start a stopped environment |
+| `cc-deck env stop` | Stop a running environment |
+| `cc-deck env delete` | Delete an environment and its resources |
+| `cc-deck env list` | List all environments |
+| `cc-deck env status` | Show detailed status of an environment |
+
 ## Build from Source
 
 ```bash
@@ -368,3 +382,4 @@ cc-deck follows [Spec-Driven Development](CONTRIBUTING.md#spec-driven-developmen
 | [020](specs/020-demo-recordings/) | Demo Recording System | In Progress |
 | [021](specs/021-release-process/) | Release Process | Implemented |
 | [022](specs/022-network-filtering/) | Network Security & Domain Filtering | In Progress |
+| [023](specs/023-env-interface/) | Environment Interface and CLI | Planned |
