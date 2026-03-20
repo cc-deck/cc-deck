@@ -269,9 +269,9 @@ fn render_session_entry(
 
     // Line 1: indicator + name (or rename input buffer)
     let line1 = if let Some(rs) = rename_state {
-        // Render rename input with amber bg when in navigation mode
-        let rename_bg = if has_cursor { CURSOR_BG } else { "" };
-        let rename_fg = if has_cursor { CURSOR_FG } else { "" };
+        // Render rename input always with amber/cursor styling
+        let rename_bg = CURSOR_BG;
+        let rename_fg = CURSOR_FG;
         let prefix = format!("{rename_bg} \x1b[38;2;{r};{g};{b}m{indicator}{rename_fg} ");
         let max_input = cols.saturating_sub(3); // space + indicator + space
         let buf = &rs.input_buffer;
@@ -323,8 +323,8 @@ fn render_session_entry(
         format!(" \x1b[38;2;{r};{g};{b}m{indicator}\x1b[0m {name_part}")
     };
 
-    // Determine background style: cursor > active > normal
-    let (bg, fg, use_bg) = if has_cursor {
+    // Determine background style: rename/cursor > active > normal
+    let (bg, fg, use_bg) = if rename_state.is_some() || has_cursor {
         (CURSOR_BG, CURSOR_FG, true)
     } else if is_active {
         (ACTIVE_BG, ACTIVE_FG, true)
