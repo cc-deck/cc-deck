@@ -31,6 +31,8 @@
 
 ## Notes
 
-- All items pass. Spec is ready for `/speckit.clarify` or `/speckit.plan`.
+- All items pass after review fixes applied (2026-03-20).
+- Review resolved: S1 (stop behavior contradiction), S2 (missing `logs` subcommand), S3 (XDG_STATE_HOME), C1 (naming constraints FR-014), C2 (Zellij session name mapping), C3 (config migration assumption), C4 (local status mechanism), C5 (delete confirmation), I1 (SC-003 clarification), I2 (concurrency model).
 - The Context section mentions Go and StatefulSet as existing architecture context, not as implementation prescriptions for this feature.
 - FR-011 references type enums (HostPath, NamedVolume, etc.) which are domain concepts, not implementation details.
+- Spec is ready for `/speckit.plan`.
