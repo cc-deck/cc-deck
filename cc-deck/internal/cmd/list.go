@@ -17,7 +17,9 @@ func NewListCmd(globalFlags *GlobalFlags) *cobra.Command {
 		Aliases: []string{"ls"},
 		Short:   "List Claude Code sessions",
 		Hidden:  true,
-		Long: `List all Claude Code sessions tracked in the local config.
+		Long: `DEPRECATED: Use 'cc-deck env list' instead. This command will be removed in a future release.
+
+List all Claude Code sessions tracked in the local config.
 
 Shows live status by checking Pod state on the cluster. Sessions whose
 StatefulSet no longer exists are automatically marked as deleted.
