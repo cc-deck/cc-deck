@@ -337,9 +337,9 @@ impl ZellijPlugin for PluginState {
                     let cwd_changed = self.sessions.get(&hook.pane_id)
                         .map(|s| s.working_dir.as_deref() != Some(cwd))
                         .unwrap_or(false);
+                    let pane = hook.pane_id;
                     if !is_worktree_cwd && cwd_changed {
                         self.sessions.get_mut(&hook.pane_id).unwrap().working_dir = Some(cwd.clone());
-                        let pane = hook.pane_id;
                         let cwd_clone = cwd.clone();
 
                         // Check for pending overrides from snapshot restore.
@@ -407,9 +407,13 @@ impl ZellijPlugin for PluginState {
                             }
                             if not_renamed {
                                 git::detect_git_repo(pane, &cwd_clone);
-                                git::detect_git_branch(pane, &cwd_clone);
                             }
                         }
+                    }
+                    // Always re-detect git branch on every hook event,
+                    // even if cwd hasn't changed (catches git checkout).
+                    if !is_worktree_cwd {
+                        git::detect_git_branch(pane, cwd);
                     }
                 }
 
@@ -793,11 +797,14 @@ impl PluginState {
                             2,
                         ));
                     } else {
-                        // Double-click on same session triggers rename
+                        // Double-click on same session triggers rename.
+                        // Use a generous threshold (800ms) because Zellij may
+                        // introduce latency re-rendering between clicks.
                         let now_ms = crate::session::unix_now_ms();
                         let is_double_click = self.last_click
-                            .map(|(ts, pid)| pid == pane_id && now_ms.saturating_sub(ts) < 400)
+                            .map(|(ts, pid)| pid == pane_id && now_ms.saturating_sub(ts) < 800)
                             .unwrap_or(false);
+                        debug_log(&format!("CLICK pane={pane_id} now={now_ms} last={:?} double={is_double_click}", self.last_click));
                         self.last_click = Some((now_ms, pane_id));
 
                         if is_double_click {
@@ -814,11 +821,13 @@ impl PluginState {
                                 return true;
                             }
                         } else {
-                            // Single click: switch tab and focus pane
+                            // Single click: switch tab and focus pane.
+                            // Only focus if clicking a session on a different tab,
+                            // otherwise skip to keep sidebar focused for double-click.
                             if self.active_tab_index != Some(tab_idx) {
                                 switch_tab_to(tab_idx as u32 + 1);
+                                focus_terminal_pane(pane_id, false);
                             }
-                            focus_terminal_pane(pane_id, false);
                         }
                     }
                 }
