@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -215,8 +216,17 @@ func (e *ContainerEnvironment) Create(ctx context.Context, opts CreateOpts) erro
 	return e.store.AddInstance(inst)
 }
 
-// Attach opens an interactive session into the container.
+// Attach opens an interactive Zellij session inside the container.
+// Mirrors the local environment pattern: check for nested Zellij,
+// create session with cc-deck layout if needed, then attach.
 func (e *ContainerEnvironment) Attach(ctx context.Context) error {
+	// Inside Zellij on the host: cannot nest sessions.
+	if os.Getenv("ZELLIJ") != "" {
+		fmt.Fprintf(os.Stderr, "Already inside Zellij. Detach first (Ctrl+o d), then run:\n")
+		fmt.Fprintf(os.Stderr, "  cc-deck env attach %s\n", e.name)
+		return nil
+	}
+
 	inst, err := e.store.FindInstanceByName(e.name)
 	if err != nil {
 		return err
@@ -235,7 +245,36 @@ func (e *ContainerEnvironment) Attach(ctx context.Context) error {
 	inst.LastAttached = &now
 	_ = e.store.UpdateInstance(inst)
 
-	return podman.Exec(ctx, containerName(e.name), []string{"zellij", "attach", "cc-deck", "--create"}, true)
+	cName := containerName(e.name)
+	sessionName := "cc-deck"
+
+	// Check if a Zellij session already exists inside the container.
+	if !containerZellijSessionExists(ctx, cName, sessionName) {
+		// Create session in background with the cc-deck layout (includes sidebar plugin).
+		_ = podman.Exec(ctx, cName, []string{
+			"zellij", "attach", "--create-background", sessionName, "--layout", "cc-deck",
+		}, false)
+	}
+
+	// Attach interactively to the (now-existing) session.
+	return podman.Exec(ctx, cName, []string{"zellij", "attach", sessionName}, true)
+}
+
+// containerZellijSessionExists checks whether a Zellij session with the given
+// name is running inside the container.
+func containerZellijSessionExists(ctx context.Context, containerName, sessionName string) bool {
+	cmd := exec.CommandContext(ctx, "podman", "exec", containerName, "zellij", "list-sessions", "-n")
+	out, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.Fields(strings.TrimSpace(line))
+		if len(fields) > 0 && fields[0] == sessionName && !strings.Contains(line, "(EXITED") {
+			return true
+		}
+	}
+	return false
 }
 
 // Delete removes the container and its resources.
