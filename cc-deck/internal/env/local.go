@@ -230,11 +230,11 @@ func zellijSessionExists(sessionName string) bool {
 	return false
 }
 
-// listZellijSessions runs "zellij list-sessions -ns" (no formatting, short)
-// and returns one session name per line. Returns nil if zellij is not
-// available or the command fails.
+// listZellijSessions runs "zellij list-sessions -n" (no formatting) and
+// returns names of active (non-EXITED) sessions. Returns nil if zellij
+// is not available or the command fails.
 func listZellijSessions() []string {
-	out, err := exec.Command("zellij", "list-sessions", "-ns").Output()
+	out, err := exec.Command("zellij", "list-sessions", "-n").Output()
 	if err != nil {
 		return nil
 	}
@@ -242,9 +242,14 @@ func listZellijSessions() []string {
 	var sessions []string
 	scanner := bufio.NewScanner(strings.NewReader(string(out)))
 	for scanner.Scan() {
-		name := strings.TrimSpace(scanner.Text())
-		if name != "" {
-			sessions = append(sessions, name)
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.Contains(line, "(EXITED") {
+			continue
+		}
+		// Session name is the first field.
+		fields := strings.Fields(line)
+		if len(fields) > 0 {
+			sessions = append(sessions, fields[0])
 		}
 	}
 	return sessions
