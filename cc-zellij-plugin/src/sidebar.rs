@@ -267,12 +267,19 @@ fn render_session_entry(
         (session.activity.indicator(), r, g, b)
     };
 
+    // Determine background style: cursor > active > normal
+    // When renaming, force use_bg so the background fills fully
+    let (bg, fg, use_bg) = if has_cursor {
+        (CURSOR_BG, CURSOR_FG, true)
+    } else if is_active || rename_state.is_some() {
+        (ACTIVE_BG, ACTIVE_FG, true)
+    } else {
+        ("", "", false)
+    };
+
     // Line 1: indicator + name (or rename input buffer)
     let line1 = if let Some(rs) = rename_state {
-        // Render rename input always with amber/cursor styling
-        let rename_bg = CURSOR_BG;
-        let rename_fg = CURSOR_FG;
-        let prefix = format!("{rename_bg} \x1b[38;2;{r};{g};{b}m{indicator}{rename_fg} ");
+        let prefix = format!("{bg} \x1b[38;2;{r};{g};{b}m{indicator}{fg} ");
         let max_input = cols.saturating_sub(3); // space + indicator + space
         let buf = &rs.input_buffer;
         let cursor_pos = rs.cursor_pos.min(buf.len());
@@ -296,12 +303,12 @@ fn render_session_entry(
             let last_char_start = visible.len().saturating_sub(1);
             let before_last = &visible[..last_char_start];
             let last_ch = &visible[last_char_start..];
-            format!("{before_last}\x1b[7m{last_ch}\x1b[0m{rename_bg}{rename_fg}")
+            format!("{before_last}\x1b[7m{last_ch}\x1b[0m{bg}{fg}")
         } else {
             let before = &visible[..vis_cursor];
             let cursor_char = visible.get(vis_cursor..vis_cursor + 1).unwrap_or(" ");
             let after = if vis_cursor < visible.len() { &visible[vis_cursor + 1..] } else { "" };
-            format!("{before}\x1b[7m{cursor_char}\x1b[0m{rename_bg}{rename_fg}{after}")
+            format!("{before}\x1b[7m{cursor_char}\x1b[0m{bg}{fg}{after}")
         };
 
         format!("{prefix}{input_display}{RESET}")
@@ -321,15 +328,6 @@ fn render_session_entry(
         };
 
         format!(" \x1b[38;2;{r};{g};{b}m{indicator}\x1b[0m {name_part}")
-    };
-
-    // Determine background style: rename/cursor > active > normal
-    let (bg, fg, use_bg) = if rename_state.is_some() || has_cursor {
-        (CURSOR_BG, CURSOR_FG, true)
-    } else if is_active {
-        (ACTIVE_BG, ACTIVE_FG, true)
-    } else {
-        ("", "", false)
     };
 
     if use_bg {
