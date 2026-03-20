@@ -125,6 +125,7 @@
 - [x] T023 [P] Add stub subcommands in `cc-deck/internal/cmd/env.go`: newEnvExecCmd, newEnvPushCmd, newEnvPullCmd, newEnvHarvestCmd, newEnvLogsCmd, each returning "not yet implemented" error with hint about which spec will implement them
 - [x] T024 [P] Update `README.md`: add spec 023 to Feature Specifications table with status, add `cc-deck env` command group to CLI reference section with subcommand descriptions
 - [x] T025 Run `quickstart.md` validation: execute all verification commands from quickstart.md against a clean build (`make install`), verify create/list/attach/status/delete cycle works end-to-end
+- [x] T026 Add CLI integration tests in `cc-deck/internal/cmd/env_integration_test.go`: 19 tests exercising all env subcommands through the full cobra command tree (create, list, status, delete, start, stop, stubs). Tests use isolated state files via `CC_DECK_STATE_FILE` env var and a zellij stub script. Covers: full lifecycle (create-list-status-delete), JSON output, type filtering, error cases (invalid name, duplicate, not found, unsupported type), state persistence, multiple environment management. Added `CC_DECK_STATE_FILE` override in `cc-deck/internal/env/state.go` DefaultStatePath() for test isolation.
 
 ---
 
