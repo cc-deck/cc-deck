@@ -1,3 +1,16 @@
+<!--
+Sync Impact Report
+- Version change: 1.6.0 -> 1.7.0 (MINOR: new principle added)
+- Modified principles: None
+- Added sections: Principle XI (Integration & E2E Testing)
+- Removed sections: None
+- Templates requiring updates:
+  - .specify/templates/tasks-template.md: UPDATED (tests mandatory, not optional)
+  - .specify/templates/plan-template.md: OK (no changes needed)
+  - .specify/templates/spec-template.md: OK (no changes needed)
+- Follow-up TODOs: None
+-->
+
 # cc-deck Constitution
 
 ## Core Principles
@@ -97,6 +110,17 @@ Releases are triggered by pushing a version tag (`v*`). The CI pipeline handles 
 
 When Claude Code triggers a release, execute these steps automatically after confirming the tag push succeeded.
 
+### XI. Integration & E2E Testing (NON-NEGOTIABLE)
+
+Every feature MUST include integration tests and, where applicable, end-to-end tests. Unit tests alone are insufficient. Integration tests verify that components work together correctly through real interfaces (CLI commands, APIs, file I/O). E2E tests verify complete user workflows.
+
+**Rules**:
+
+1. **Integration tests are mandatory**: Every feature MUST have tests that exercise the code through its public interfaces (e.g., cobra commands, HTTP endpoints, library APIs) with real dependencies (filesystem, temp dirs) rather than mocks alone.
+2. **E2E tests are mandatory when feasible**: Features with user-facing workflows (CLI commands, UI interactions) MUST include E2E tests that run the full create-use-cleanup cycle. If external dependencies make E2E infeasible (e.g., requires a live K8s cluster or running Zellij), use a build tag (e.g., `//go:build integration`) so they can run in appropriate environments.
+3. **Skipping requires explicit user confirmation**: If integration or E2E tests cannot be written for a specific feature, the implementer MUST state the reason and get explicit confirmation from the user before marking the feature complete. "Not enough time" is not an acceptable reason.
+4. **Test the real thing**: Prefer testing through the actual CLI/API entry points over testing internal functions directly. A test that runs `cc-deck env create` through cobra is more valuable than one that calls `LocalEnvironment.Create()` directly.
+
 ## Development Workflow
 
 - `make install` for building and installing (NON-NEGOTIABLE, see Principle VI)
@@ -108,11 +132,13 @@ When Claude Code triggers a release, execute these steps automatically after con
 ## Testing
 
 - `cargo test` runs on native target with WASM host function stubs
+- `go test ./...` runs unit and integration tests (use `-tags integration` for tests requiring external dependencies)
 - Live testing requires Zellij with the cc-deck layout
 - Debug logging via `/cache/debug.log` in the WASI filesystem (check `~/Library/Caches/org.Zellij-Contributors.Zellij/`)
+- See Principle XI for mandatory test coverage requirements
 
 ## Governance
 
 This constitution supersedes ad-hoc practices. Amendments require updating this file and the project memory.
 
-**Version**: 1.6.0 | **Ratified**: 2026-03-09 | **Last Amended**: 2026-03-16
+**Version**: 1.7.0 | **Ratified**: 2026-03-09 | **Last Amended**: 2026-03-20
