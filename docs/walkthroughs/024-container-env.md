@@ -39,20 +39,20 @@ podman inspect cc-deck-test-fedora --format '{{.State.Status}}'
 ### 1c. Create with host bind mount
 
 ```bash
-mkdir -p /tmp/cc-deck-test-workspace
-ccd env create test-bind --type container --image fedora:latest --storage host-path --path /tmp/cc-deck-test-workspace
+mkdir -p ~/cc-deck-test-workspace
+ccd env create test-bind --type container --image fedora:latest --storage host-path --path ~/cc-deck-test-workspace
 # Verify mount:
 podman inspect cc-deck-test-bind --format '{{range .Mounts}}{{.Source}}:{{.Destination}}{{end}}'
-# Expected: /tmp/cc-deck-test-workspace:/workspace
+# Expected: ~/cc-deck-test-workspace:/workspace
 ```
 
 ### 1d. Create with host-path, no --path (should use cwd)
 
 ```bash
-cd /tmp/cc-deck-test-workspace
+cd ~/cc-deck-test-workspace
 ccd env create test-cwd --type container --image fedora:latest --storage host-path
 podman inspect cc-deck-test-cwd --format '{{range .Mounts}}{{.Source}}{{end}}'
-# Expected: /tmp/cc-deck-test-workspace
+# Expected: ~/cc-deck-test-workspace
 cd -
 ```
 
@@ -76,11 +76,14 @@ podman volume ls --format '{{.Name}}' | grep cc-deck-test
 ### 1g. Verify definition and state files
 
 ```bash
-cat ~/.config/cc-deck/environments.yaml
-# Expected: entries for test-basic, test-fedora, test-bind, etc.
+# Paths are platform-dependent (macOS uses ~/Library/Application Support/,
+# Linux uses ~/.config/ and ~/.local/state/). Use env list for quick check:
+ccd env list -o yaml
 
-cat ~/.local/state/cc-deck/state.yaml
-# Expected: version 2, instances with container fields
+# To find actual file locations, check:
+#   Definitions: $(python3 -c "import os; print(os.environ.get('XDG_CONFIG_HOME', os.path.expanduser('~/.config')))")/cc-deck/environments.yaml
+#   State: look in ~/Library/Application Support/cc-deck/state.yaml (macOS)
+#          or ~/.local/state/cc-deck/state.yaml (Linux)
 ```
 
 ### 1h. Duplicate name rejected
@@ -165,11 +168,11 @@ ccd env delete test-orphan --force
 
 ```bash
 # Create test files
-mkdir -p /tmp/cc-deck-push-test
-echo "hello from host" > /tmp/cc-deck-push-test/greeting.txt
+mkdir -p ~/cc-deck-push-test
+echo "hello from host" > ~/cc-deck-push-test/greeting.txt
 
 # Push files into container
-ccd env push test-fedora /tmp/cc-deck-push-test
+ccd env push test-fedora ~/cc-deck-push-test
 # Verify inside container
 podman exec cc-deck-test-fedora cat /workspace/cc-deck-push-test/greeting.txt
 # Expected: hello from host
@@ -178,8 +181,8 @@ podman exec cc-deck-test-fedora cat /workspace/cc-deck-push-test/greeting.txt
 podman exec cc-deck-test-fedora bash -c 'echo "hello from container" > /workspace/response.txt'
 
 # Pull files from container
-ccd env pull test-fedora /workspace/response.txt /tmp/cc-deck-pull-test
-cat /tmp/cc-deck-pull-test
+ccd env pull test-fedora /workspace/response.txt ~/cc-deck-pull-test
+cat ~/cc-deck-pull-test
 # Expected: hello from container
 ```
 
@@ -187,7 +190,7 @@ cat /tmp/cc-deck-pull-test
 
 ```bash
 ccd env stop test-fedora
-ccd env push test-fedora /tmp/cc-deck-push-test
+ccd env push test-fedora ~/cc-deck-push-test
 # Expected: error "container is not running"
 ccd env start test-fedora
 ```
@@ -242,11 +245,13 @@ ccd env start test-fedora
 ## 7. Hand-Edit Definitions (US7)
 
 ```bash
-# Check current definition
-grep test-fedora ~/.config/cc-deck/environments.yaml
+# Check current definition (use env list to see all definitions)
+ccd env list -o yaml
 
-# Edit the image in the definition file
-# (manually change image to ubuntu:latest for test-fedora)
+# Find and edit the definitions file:
+# macOS: ~/Library/Application Support/cc-deck/environments.yaml (or ~/.config/cc-deck/environments.yaml if XDG_CONFIG_HOME is set)
+# Linux: ~/.config/cc-deck/environments.yaml
+# Edit the image field for test-fedora to ubuntu:latest
 
 # Delete and recreate to pick up new definition
 ccd env delete test-fedora --force
@@ -295,8 +300,9 @@ podman volume rm cc-deck-test-fedora-data
 
 ```bash
 # Set a default image in config
-mkdir -p ~/.config/cc-deck
-cat >> ~/.config/cc-deck/config.yaml << 'YAML'
+# Find config dir (same dir as environments.yaml)
+# Add container defaults to config.yaml:
+cat >> "$(dirname "$(find ~/Library ~/.config -path '*/cc-deck/environments.yaml' 2>/dev/null | head -1)")/config.yaml" << 'YAML'
 defaults:
   container:
     image: fedora:latest
@@ -344,7 +350,7 @@ for name in test-bind test-cwd test-ports test-creds test-autodetect; do
 done
 
 # Remove test files
-rm -rf /tmp/cc-deck-test-workspace /tmp/cc-deck-push-test /tmp/cc-deck-pull-test
+rm -rf ~/cc-deck-test-workspace ~/cc-deck-push-test ~/cc-deck-pull-test
 
 # Remove test config additions (edit manually if needed)
 # Remove podman volumes

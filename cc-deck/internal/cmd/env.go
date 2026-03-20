@@ -83,7 +83,7 @@ Container-specific flags:
 
 	cmd.Flags().StringVarP(&cf.envType, "type", "t", "local", "Environment type (local, container, k8s-deploy, k8s-sandbox)")
 	cmd.Flags().StringVar(&cf.image, "image", "", "Container image to use")
-	cmd.Flags().StringSliceVarP(&cf.ports, "port", "p", nil, "Port mapping (host:container), repeatable")
+	cmd.Flags().StringSliceVar(&cf.ports, "port", nil, "Port mapping (host:container), repeatable")
 	cmd.Flags().BoolVar(&cf.allPorts, "all-ports", false, "Expose all container ports")
 	cmd.Flags().StringVar(&cf.storage, "storage", "", "Storage type: named-volume, host-path, empty-dir")
 	cmd.Flags().StringVar(&cf.path, "path", "", "Host path for host-path storage")
