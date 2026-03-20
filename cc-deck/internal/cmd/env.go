@@ -53,7 +53,7 @@ letters, digits, and hyphens (max 40 characters).
 
 Environment types:
   local       Zellij session on the host machine (default)
-  podman      Container via Podman (not yet implemented)
+  container   Container environment (not yet implemented)
   k8s-deploy  Kubernetes StatefulSet (not yet implemented)
   k8s-sandbox Ephemeral Kubernetes Pod (not yet implemented)`,
 		Args: cobra.ExactArgs(1),
@@ -62,7 +62,7 @@ Environment types:
 		},
 	}
 
-	cmd.Flags().StringVarP(&envType, "type", "t", "local", "Environment type (local, podman, k8s-deploy, k8s-sandbox)")
+	cmd.Flags().StringVarP(&envType, "type", "t", "local", "Environment type (local, container, k8s-deploy, k8s-sandbox)")
 
 	return cmd
 }

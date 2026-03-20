@@ -114,7 +114,7 @@ func TestNewEnvironment_Local(t *testing.T) {
 
 func TestNewEnvironment_UnimplementedType(t *testing.T) {
 	store := newTestStore(t)
-	_, err := NewEnvironment(EnvironmentTypePodman, "test", store)
+	_, err := NewEnvironment(EnvironmentTypeContainer, "test", store)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, ErrNotImplemented))
 }
