@@ -156,12 +156,12 @@ A developer wants to change the image or storage configuration of an environment
 - **FR-004**: System MUST support two storage backends for container environments: named volume (default, created as `cc-deck-<name>-data`) and host bind mount (via `--storage host-path --path <dir>`).
 - **FR-005**: System MUST run containers with `sleep infinity` as the entrypoint command, keeping them alive independently of interactive sessions.
 - **FR-006**: System MUST attach to container environments via `podman exec -it cc-deck-<name> zellij attach cc-deck --create`, where the Zellij session inside the container is always named `cc-deck`.
-- **FR-007**: System MUST inject credentials using podman secrets (not environment variables), so that sensitive values are not visible in `podman inspect` output.
+- **FR-007**: System MUST inject credentials using podman secrets (not environment variables), so that sensitive values are not visible in `podman inspect` output. Credential definitions in `environments.yaml` store only key names (e.g., `credentials: [ANTHROPIC_API_KEY]`), never secret values. Values are resolved at runtime from the host environment or `--credential KEY=VALUE` flags.
 - **FR-008**: System MUST auto-detect host environment variables (`ANTHROPIC_API_KEY`, `GOOGLE_APPLICATION_CREDENTIALS`) when no explicit `--credential` flags are provided.
 - **FR-009**: System MUST support file transfer via `podman cp` for push (host to container) and pull (container to host) operations.
 - **FR-010**: System MUST reconcile container environments against actual podman state when listing or inspecting, using `podman inspect` to determine whether containers are running, stopped, or missing.
 - **FR-011**: System MUST auto-detect rootless podman mode and adapt socket paths and behavior accordingly.
-- **FR-012**: System MUST expose ports only when explicitly requested via `--port host:container` (repeatable) or `--all-ports` flags. No ports are exposed by default.
+- **FR-012**: System MUST expose ports only when explicitly requested via `--port host:container` (repeatable) or `--all-ports` flags. No ports are exposed by default. The `--all-ports` flag maps to `podman run -P`, publishing all ports declared via EXPOSE directives in the container image.
 - **FR-013**: System MUST delete named volumes by default when deleting an environment. The `--keep-volumes` flag preserves volumes.
 - **FR-014**: System MUST clean up all associated resources (container, volume, secrets) when deleting an environment. Partial cleanup failures are reported as warnings, not errors.
 - **FR-015**: System MUST fall back to `quay.io/cc-deck/cc-deck-demo:latest` as the default image when no `--image` flag and no config default is provided, showing a warning to the user.
@@ -223,3 +223,10 @@ A developer wants to change the image or storage configuration of an environment
 - Environment templates
 - Resource limits (CPU/memory)
 - Port forwarding for web UI
+
+## Clarifications
+
+### Session 2026-03-20
+
+- Q: What does `--all-ports` expose? → A: Image EXPOSE directives via `podman run -P` (standard OCI convention)
+- Q: How are credentials represented in `environments.yaml`? → A: Key names only (resolved at runtime from host env or `--credential` flags), never secret values
