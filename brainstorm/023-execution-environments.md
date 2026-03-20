@@ -32,19 +32,39 @@ The cc-deck CLI manages the lifecycle of these environments from the host: creat
 
 ## Proposed Spec Split
 
-This brainstorm covers a large surface area. It should be split into focused specs:
+This brainstorm covers a large surface area. It should be split into 4 focused specs:
 
 | Spec | Scope | Priority |
 |---|---|---|
-| **023a: Environment Interface + CLI** | Go interface, unified CLI commands (`cc-deck env`), local state tracking, status display, TUI foundation | High (foundation) |
-| **023b: Storage Abstraction** | Storage backends (local mount, emptyDir, PVC), per-environment defaults, storage lifecycle | High (needed by all envs) |
-| **023c: Sync Strategies** | Data transfer methods (tar/cp, git harvesting, remote git), per-environment sync configuration | High (needed by Podman + K8s) |
-| **023d: Podman Environment** | PodmanEnvironment implementation, credential injection, integration with image pipeline | Medium |
-| **023e: K8s Refactor** | Refactor existing deploy/connect/delete behind environment interface, add start/stop, switch to Deployment+PVC | Medium (reorganization) |
-| **023f: K8s Sandbox** | Ephemeral pods, strict network, auto-delete, result extraction | Lower |
-| **022: Multi-Agent Support** | Agent interface, hook adapters, multi-agent images, credential transport per agent | Parallel track |
+| **023: Environment Interface + CLI** | Go interface definitions, unified `cc-deck env` commands, `state.yaml` persistence, status display, local environment (thin wrapper) | High (foundation) |
+| **024: K8s Environment Refactor** | Refactor existing deploy/connect/delete behind Environment interface, add start/stop, add git harvesting sync, backward-compatible aliases | Medium (reorganization) |
+| **025: Podman Environment** | New PodmanEnvironment implementation, named volumes + bind mounts, git harvesting via `ext::podman exec`, credential injection, image pipeline integration | High (locally testable) |
+| **026: K8s Sandbox** | Ephemeral Pods with emptyDir, strict NetworkPolicy, auto-delete, copy-only sync, result extraction | Lower |
 
-023a is the foundation that all others build on. 023b and 023c can be developed in parallel with 023a. The environment-specific specs (d, e, f) implement the interface for each target.
+Storage and sync are embedded in each environment spec rather than standalone. The interfaces are defined in 023, implementations live where they are used.
+
+**TUI for environment management** is deferred to a separate brainstorm (see `brainstorm/024-tui-environment-manager.md`).
+
+**Port forwarding** (`cc-deck env port-forward`) is deferred to a future spec.
+
+### Dependency Graph
+
+```
+023 (Interface + CLI)
+ ├── 025 (Podman, highest priority, testable locally)
+ ├── 024 (K8s Refactor, reorganize existing code)
+ │    └── 026 (K8s Sandbox, reuses K8s primitives)
+ └── (future) TUI Environment Manager
+
+022 (Multi-Agent) ── parallel track, ties into all via Agent interface
+```
+
+### Implementation Order
+
+1. **023: Interface + CLI + State** (foundation, all others depend on this)
+2. **025: Podman Environment** (highest priority, enables local testing without a cluster)
+3. **024: K8s Refactor** (reorganize existing working code behind the interface)
+4. **026: K8s Sandbox** (new capability, builds on K8s primitives from 024)
 
 ## Problem Statement
 
@@ -73,24 +93,61 @@ There is no Podman container mode (despite a full image build pipeline), no unif
 - Multi-arch build via Podman/Makefile
 - Image is a complete, self-contained Zellij environment
 
-## StatefulSet vs Deployment
+## K8s Workload Type: Keep StatefulSet
 
-The current K8s implementation uses a StatefulSet, primarily for its `volumeClaimTemplates` which auto-create PVCs. However, for cc-deck's use case (single replica, no ordered deployment needed), a **Deployment with a separately managed PVC** is more appropriate:
+The current K8s implementation uses a StatefulSet. After code analysis, the recommendation is to **keep StatefulSet** for K8s deploy environments rather than switching to Deployment + PVC.
 
-| Aspect | StatefulSet | Deployment + PVC |
+### Why StatefulSet Stays
+
+The existing code relies heavily on StatefulSet's predictable naming:
+- `connect.go:63`: constructs pod name directly as `cc-deck-<sessionName>-0`
+- `delete.go:44`: constructs PVC name as `data-cc-deck-<sessionName>-0`
+
+| Aspect | StatefulSet (current, keep) | Deployment + PVC (rejected) |
 |---|---|---|
-| PVC lifecycle | Auto-created via volumeClaimTemplates, deleted with StatefulSet | Managed separately, can outlive the workload |
-| Pod naming | Predictable (`name-0`) | Random suffix (`name-abc123`) |
-| Scaling | Ordered (irrelevant for replicas=1) | Parallel (irrelevant for replicas=1) |
-| Storage flexibility | Tied to volumeClaimTemplate | PVC created independently, can use different strategies |
-| emptyDir support | Awkward (volumeClaimTemplates is the point) | Natural (just add emptyDir volume) |
-| Storage reuse | PVC bound to StatefulSet lifecycle | PVC can be reused across recreations |
+| Pod naming | Predictable: `cc-deck-myenv-0` | Random: `cc-deck-myenv-7f8d9-abc12` |
+| PVC creation | Automatic via `volumeClaimTemplates` | Separate API call needed |
+| Connect code | Direct name construction (simple) | Label-selector pod discovery (more complex) |
+| PVC naming | Automatic: `data-cc-deck-myenv-0` | Manual naming required |
+| emptyDir support | Not needed (K8s deploy always uses PVC) | More natural |
 
-**Recommendation:** Switch to Deployment + separately managed PVC. This enables:
-- Choosing between PVC and emptyDir per environment
-- Recreating the Deployment without losing data (PVC survives)
-- Simpler storage strategy switching
-- Stop/start via replicas=0/1 still works on Deployments
+Switching to Deployment would require refactoring the connect code to use label selectors for pod discovery, adding separate PVC creation/deletion logic, with no meaningful gain for a single-replica workload.
+
+The emptyDir use case is handled by K8s Sandbox (bare Pod), which is a separate environment type. K8s deploy environments always use PVC for persistent storage, making StatefulSet's `volumeClaimTemplates` a perfect fit.
+
+## Multi-User Attach (Pair-SDD)
+
+Zellij has built-in multiplayer support since v0.23.0. Multiple users can attach to the same Zellij session simultaneously, each with their own colored cursor (Google Docs-style collaborative editing in the terminal). This enables **pair-SDD**: two or more developers collaborating inside the same cc-deck environment.
+
+### How It Works Per Environment
+
+| Environment | Multi-user attach mechanism |
+|---|---|
+| Local | Second terminal runs `zellij attach <session-name>` |
+| Podman | Second terminal runs `podman exec -it <name> zellij attach <session-name>` |
+| K8s Deploy | Second terminal runs `kubectl exec` into same pod, then `zellij attach` |
+| K8s Deploy (web) | Second browser tab opens the same Zellij web client URL |
+
+`cc-deck env attach <name>` naturally supports concurrent users. Each call opens a new terminal connection to the same Zellij session inside the environment. No special handling needed in cc-deck, this is a Zellij-native capability.
+
+### Pair-SDD Workflow
+
+```bash
+# Developer A creates and attaches
+cc-deck env create my-project --type podman \
+  --image quay.io/cc-deck/cc-deck-demo:latest
+cc-deck env attach my-project
+
+# Developer B attaches to the same environment (separate terminal)
+cc-deck env attach my-project
+# Both see the same sidebar, same tabs, each has their own cursor color
+```
+
+For remote collaboration, Developer B would SSH into the same machine and run `cc-deck env attach`, or use the Zellij web client if the environment exposes port 8082.
+
+### Security Note
+
+All users attached to the same environment share the same Unix user context inside the container/pod. There is no per-user permission isolation within a Zellij session. For cross-user sharing on the same host, Zellij supports a `ZELLIJ_SOCKET_GROUP` environment variable (PR [#3406](https://github.com/zellij-org/zellij/pull/3406)) to allow users in the same Unix group to share sessions.
 
 ## Storage Abstraction
 
@@ -101,9 +158,9 @@ Not every storage backend makes sense for every environment. The table below sho
 | Backend | Local | Podman | K8s Deploy | K8s Sandbox |
 |---|---|---|---|---|
 | **Host filesystem** | Default (native) | Via bind mount (`-v`) | N/A | N/A |
-| **Named volume** | N/A | `podman volume` | N/A | N/A |
-| **emptyDir** | N/A | N/A | Yes (ephemeral) | Default |
-| **PVC** | N/A | N/A | Default (persistent) | Optional |
+| **Named volume** | N/A | `podman volume` (default) | N/A | N/A |
+| **emptyDir** | N/A | N/A | N/A | Default |
+| **PVC** | N/A | N/A | Default (via StatefulSet) | Optional |
 
 ### Storage Interface
 
@@ -131,7 +188,7 @@ type StorageOpts struct {
 defaults:
   storage:
     podman: named-volume    # or: host-path
-    k8s: pvc                # or: empty-dir
+    k8s: pvc                # always PVC (via StatefulSet volumeClaimTemplates)
     sandbox: empty-dir      # ephemeral by default
     podman-size: 20Gi
     k8s-size: 10Gi
@@ -139,14 +196,12 @@ defaults:
 
 ### Storage Lifecycle
 
-| Operation | Host Path | Named Volume | emptyDir | PVC |
+| Operation | Host Path | Named Volume | emptyDir | PVC (StatefulSet) |
 |---|---|---|---|---|
-| Create | Mkdir | `podman volume create` | Auto (Pod spec) | `kubectl create -f pvc.yaml` |
+| Create | Mkdir | `podman volume create` | Auto (Pod spec) | Auto (volumeClaimTemplates) |
 | Stop env | Persists | Persists | **Lost** (Pod deleted) | Persists |
 | Delete env | Persists (user's fs) | Optional cleanup | Lost | Optional cleanup |
 | Resize | N/A | N/A | N/A | PVC expansion (if StorageClass supports) |
-
-**Important:** With emptyDir on K8s, stopping the environment (scaling replicas to 0) loses all data. This is acceptable only when sync strategies handle data persistence externally (git harvesting, push/pull before stop).
 
 ## Sync Strategies
 
@@ -158,11 +213,11 @@ The current mechanism. Direct file transfer via exec pipe.
 
 ```
 Host                          Environment
-  │                               │
-  ├── tar cf - <dir> ──pipe──>   tar xf - -C /workspace
-  │                               │
-  │   tar xf - -C <dir>  <──pipe── tar cf - -C /workspace
-  │                               │
+  |                               |
+  |-- tar cf - <dir> --pipe-->   tar xf - -C /workspace
+  |                               |
+  |   tar xf - -C <dir>  <--pipe-- tar cf - -C /workspace
+  |                               |
 ```
 
 | Aspect | Details |
@@ -178,19 +233,19 @@ Uses git's `ext::` protocol to tunnel git operations over exec, treating the con
 
 ```
 Host                                    Environment
-  │                                         │
-  │  git remote add env                     │
-  │    "ext::podman exec -i <name> %S       │
-  │     /workspace"                         │
-  │                                         │
-  ├── git push env <branch> ────exec──>    (receives push, updates worktree)
-  │                                         │
-  │                                         │  Agent works, makes commits
-  │                                         │
-  │   git fetch env           <──exec──    (sends commits back)
-  ├── git checkout -B harvest               │
-  │     env/<branch>                        │
-  │                                         │
+  |                                         |
+  |  git remote add env                     |
+  |    "ext::podman exec -i <name> %S       |
+  |     /workspace"                         |
+  |                                         |
+  |-- git push env <branch> ----exec-->    (receives push, updates worktree)
+  |                                         |
+  |                                         |  Agent works, makes commits
+  |                                         |
+  |   git fetch env           <--exec--    (sends commits back)
+  |-- git checkout -B harvest               |
+  |     env/<branch>                        |
+  |                                         |
 ```
 
 | Aspect | Details |
@@ -214,15 +269,15 @@ Both host and environment interact with a shared remote git repository (GitHub, 
 
 ```
 Host                     Remote Repo              Environment
-  │                          │                        │
-  ├── git push ────────>    │                        │
-  │                          │    <──── git pull ─────┤
-  │                          │                        │
-  │                          │                        │  Agent works, commits
-  │                          │                        │
-  │                          │    <──── git push ─────┤
-  │   git pull  <────────   │                        │
-  │                          │                        │
+  |                          |                        |
+  |-- git push -------->    |                        |
+  |                          |    <---- git pull -----|
+  |                          |                        |
+  |                          |                        |  Agent works, commits
+  |                          |                        |
+  |                          |    <---- git push -----|
+  |   git pull  <--------   |                        |
+  |                          |                        |
 ```
 
 | Aspect | Details |
@@ -325,7 +380,7 @@ environments:
     last_attached: 2026-03-19T16:00:00Z
     storage:
       type: pvc
-      pvc_name: cc-deck-backend-work
+      pvc_name: data-cc-deck-backend-work-0
       size: 10Gi
       storage_class: gp3
     sync:
@@ -334,7 +389,7 @@ environments:
       base_ref: refs/cc-deck/base
     k8s:
       namespace: cc-deck
-      deployment: backend-work
+      statefulset: cc-deck-backend-work
       profile: anthropic-prod
       kubeconfig: ~/.kube/config
 
@@ -354,9 +409,9 @@ environments:
       expires_at: 2026-03-19T17:00:00Z
 ```
 
-### Status Summary: The Hard Problem
+### Status Summary
 
-Getting a summary of "is the environment still active" is straightforward (check if container/pod exists and is running). The harder question is: "what are the agent sessions doing inside the environment?"
+Getting "is the environment still active" is straightforward (check container/pod status). The harder question is: "what are the agent sessions doing inside?"
 
 **What we can know without attaching:**
 
@@ -367,14 +422,14 @@ Getting a summary of "is the environment still active" is straightforward (check
 | Resource usage | N/A | `podman stats` | K8s metrics API |
 | Agent process running? | `pgrep claude` | `podman exec pgrep claude` | `kubectl exec pgrep claude` |
 
-**What we cannot know without attaching:**
+**What we cannot know without exec:**
 - Individual agent session states (Working, Permission, Done, etc.)
 - Which sessions need attention
 - Session names, git branches
 
-The session states live inside the Zellij plugin's WASI cache (`/cache/sessions.json`). To read them from outside, we would need to exec into the environment and read that file.
+The session states live inside the Zellij plugin's WASI cache (`/cache/sessions.json`). To read them from outside requires exec into the environment.
 
-**Proposed approach for `cc-deck env list`:**
+**`cc-deck env list` (fast, no exec):**
 
 ```
 NAME            TYPE      STATUS    AGENTS    STORAGE     LAST ATTACHED    AGE
@@ -385,9 +440,7 @@ eval-run-42     sandbox   running   claude    emptyDir    never            2h
 old-project     podman    stopped   claude    volume      3d ago           7d
 ```
 
-**Proposed approach for `cc-deck env status <name>` (detailed):**
-
-For container/K8s environments, exec into the environment and read `/cache/sessions.json` to show agent session details:
+**`cc-deck env status <name>` (detailed, uses exec):**
 
 ```
 Environment: backend-work
@@ -407,20 +460,13 @@ Agent Sessions (from container):
   bugfix-123        ✓ Done        fix/null-ptr    15m ago
 ```
 
-This requires an exec call to read the session state, which adds latency but gives accurate information. Could be cached with a TTL.
+### Status Reconciliation
 
-### TUI Foundation
-
-The state file and status commands provide the data model for a future TUI. The TUI would:
-
-1. Show all environments in a list (like `cc-deck env list`)
-2. Allow selecting an environment to see session details (like `cc-deck env status`)
-3. Attach to an environment with Enter
-4. Show real-time status updates (periodic exec to read session state)
-
-The state file (`state.yaml`) is the source of truth for which environments exist. The TUI polls actual status from the runtime (podman/kubectl) and optionally reads session state from inside environments.
-
-**TUI framework:** Consider [bubbletea](https://github.com/charmbracelet/bubbletea) (Go, fits the existing CLI stack).
+`cc-deck env list` reconciles local records with actual state:
+- Podman: `podman inspect` to check container exists and is running
+- K8s: check Pod status via K8s API
+- Remove stale records (container/pod deleted externally)
+- Update status (running, stopped, error)
 
 ## Design: The Environment Interface
 
@@ -524,7 +570,7 @@ type SessionInfo struct {
 
 ### 1. Local
 
-The user's host machine. Zellij is already running.
+The user's host machine. Zellij is already running. Implemented as a thin wrapper in spec 023 (no separate spec needed).
 
 | Method | Implementation |
 |---|---|
@@ -551,20 +597,20 @@ A local container with its own Zellij instance.
 | Storage | Named volume (default) or host bind mount |
 | Credentials | Podman secrets or env vars |
 
-### 3. K8s Deployment
+### 3. K8s Deploy
 
-Persistent workload. Uses **Deployment + PVC** (not StatefulSet).
+Persistent workload using **StatefulSet** (replicas=1) with PVC via `volumeClaimTemplates`.
 
 | Method | Implementation |
 |---|---|
-| Create | Deployment (replicas=1) + Service + PVC + ConfigMap + NetworkPolicy |
-| Start | Scale Deployment replicas to 1 |
-| Stop | Scale Deployment replicas to 0 (PVC persists) |
-| Delete | Delete Deployment + Service + ConfigMap + NetworkPolicy. PVC optionally preserved. |
+| Create | StatefulSet + headless Service + ConfigMap + NetworkPolicy (existing code) |
+| Start | Scale StatefulSet replicas to 1 |
+| Stop | Scale StatefulSet replicas to 0 (PVC persists) |
+| Delete | Delete StatefulSet + Service + ConfigMap + NetworkPolicy. PVC optionally preserved. |
 | Attach | Auto-detect: exec (default), web (OpenShift Route), port-forward |
-| Exec | `kubectl exec -it <pod> -- <cmd>` |
+| Exec | `kubectl exec -it <pod> -- <cmd>` (predictable pod name: `cc-deck-<name>-0`) |
 | Push/Pull | Copy: `kubectl exec + tar`. Git: `ext::kubectl exec -i <pod> -c <container> -- %S /workspace` |
-| Storage | PVC (default) or emptyDir |
+| Storage | PVC (always, via StatefulSet volumeClaimTemplates) |
 | Credentials | K8s Secrets via profile system |
 
 ### 4. K8s Sandbox
@@ -573,7 +619,7 @@ Ephemeral, restricted.
 
 | Method | Implementation |
 |---|---|
-| Create | Pod (not Deployment), emptyDir, strict NetworkPolicy |
+| Create | Pod (not StatefulSet), emptyDir, strict NetworkPolicy |
 | Start/Stop | Not supported (ephemeral) |
 | Delete | Delete Pod + NetworkPolicy |
 | Attach | `kubectl exec` only |
@@ -583,7 +629,7 @@ Ephemeral, restricted.
 
 ## Credential Transport
 
-Unchanged from previous version. See 022-multi-agent-support for per-agent credential requirements.
+See 022-multi-agent-support for per-agent credential requirements.
 
 ### Per-Environment Injection
 
@@ -604,6 +650,8 @@ Unchanged from previous version. See 022-multi-agent-support for per-agent crede
 ## Unified CLI Surface
 
 ### Commands
+
+`--type` is always required for `create`. No auto-inference for now. A future project layout config file (`cc-deck.yaml` or similar) could provide per-project defaults for environment type, image, agents, sync strategy, and initial directories to transfer. This intersects with the existing `cc-deck-build.yaml` manifest and needs its own design pass.
 
 ```bash
 # Environment lifecycle
@@ -658,14 +706,24 @@ cc-deck env harvest my-project -b feature/agent-work --pr
 # Fetches commits, creates local branch, opens PR
 ```
 
+**Pair-SDD on Podman:**
+```bash
+# Developer A
+cc-deck env attach my-project
+
+# Developer B (separate terminal, same machine)
+cc-deck env attach my-project
+# Both see the same Zellij session with independent cursors
+```
+
 **K8s deployment with PVC:**
 ```bash
 cc-deck env create backend --type k8s \
-  --profile anthropic-prod --storage pvc --storage-size 20Gi \
+  --profile anthropic-prod --storage-size 20Gi \
   --sync git-harvest --sync-dir ./backend-service
 
 cc-deck env attach backend
-# kubectl exec into Zellij
+# kubectl exec into Zellij (pod name: cc-deck-backend-0)
 
 cc-deck env stop backend    # scale to 0, PVC preserved
 cc-deck env start backend   # scale to 1, data still there
@@ -674,7 +732,7 @@ cc-deck env start backend   # scale to 1, data still there
 **K8s sandbox for evaluation:**
 ```bash
 cc-deck env create eval-42 --type sandbox \
-  --profile anthropic-eval --storage empty-dir \
+  --profile anthropic-eval \
   --sync copy --sync-dir ./benchmark-suite
 
 cc-deck env attach eval-42
@@ -703,57 +761,20 @@ Terminal escape sequences (OSC 9/99/777) were investigated as an alternative to 
 
 The hook-based approach is always local to the Zellij instance, so it works identically in all environments.
 
-## Implementation Phases
-
-### Phase 1: Interface + CLI + State Tracking (spec 023a)
-- Define `Environment` interface, `StorageBackend`, `SyncStrategy` interfaces
-- Implement `state.yaml` persistence and reconciliation
-- Implement `cc-deck env list` and `cc-deck env status` commands
-- Stub implementations for each environment type (returns "not implemented")
-- Foundation for TUI (bubbletea data model)
-
-### Phase 2: K8s Refactor (spec 023e)
-- Switch from StatefulSet to Deployment + PVC
-- Implement `K8sDeployEnvironment` behind the interface
-- Add start/stop (scale replicas 0/1)
-- Add git harvesting sync (`ext::kubectl exec`)
-- Backward-compatible aliases for existing commands
-
-### Phase 3: Storage + Sync (specs 023b, 023c)
-- Implement storage backends (PVC, emptyDir, named volume, host path)
-- Implement sync strategies (copy, git harvest, remote git)
-- Per-environment defaults and config
-
-### Phase 4: Podman Environment (spec 023d)
-- Implement `PodmanEnvironment`
-- Integration with image pipeline
-- Named volume and bind mount storage
-- Git harvesting via `ext::podman exec`
-
-### Phase 5: K8s Sandbox (spec 023f)
-- Implement `K8sSandboxEnvironment`
-- Ephemeral pods, strict NetworkPolicy, auto-delete
-- Copy-only sync, result extraction
-
-### Phase 6: Multi-Agent (spec 022)
-- Agent interface, hook adapters
-- Per-agent credential resolution
-- Multi-agent image build
-
 ## Open Questions
 
 1. **`state.yaml` vs `config.yaml`:** Should environment tracking be in a separate state file or in the existing config? Recommendation: separate `state.yaml` because environment state changes frequently (last_attached, container_id) while config is user-edited.
 
 2. **Git harvesting in sandboxes:** Should sandboxes support git harvesting at all? It adds complexity for environments designed to be ephemeral. Counter-argument: some sandbox tasks produce meaningful code that should be reviewed via PR.
 
-3. **Storage migration:** Can a running environment switch storage backends (e.g., emptyDir to PVC)? Probably not without recreating the environment. Is that acceptable?
+3. **Storage migration:** Can a running environment switch storage backends? Probably not without recreating the environment. Acceptable for now.
 
-4. **Exec latency for status:** Reading session state via exec adds 1-2 seconds per environment. For `cc-deck env list` with many environments, this is too slow. Recommendation: `list` shows only environment-level status (fast), `status <name>` reads session details (exec, slower).
+4. **Exec latency for status:** Reading session state via exec adds 1-2 seconds per environment. Recommendation: `list` shows only environment-level status (fast), `status <name>` reads session details (exec, slower).
 
-5. **Concurrent git harvesting:** If two users harvest from the same K8s environment, they get the same commits. Is this a problem? Probably fine since each creates their own local branch.
+5. **Clone-from-origin optimization:** When the container can reach the git remote (allowed in egress), should `cc-deck env push --git` clone from origin inside the container and only push local-only commits? Saves significant time for large repos.
 
-6. **Clone-from-origin optimization:** When the container can reach the git remote (allowed in egress), should `cc-deck env push --git` clone from origin inside the container and only push local-only commits? This is paude's optimization and saves significant time for large repos.
+6. **Podman rootless auto-detection:** Rootless Podman uses different socket paths. Recommendation: auto-detect via `podman info --format '{{.Host.RemoteSocket.Path}}'`.
 
-7. **TUI scope:** Should the TUI be a separate binary (`cc-deck-tui`) or a subcommand (`cc-deck tui`)? Recommendation: subcommand, keeps the distribution simple.
+7. **Project layout config:** Should there be a `cc-deck.yaml` per-project file that defines default environment type, image, agents, sync strategy, and initial projects to transfer? This would reduce CLI flag verbosity and enable repeatable setups. Intersects with `cc-deck-build.yaml` manifest. Deferred to future design.
 
-8. **Podman rootless auto-detection:** Rootless Podman uses different socket paths. Should cc-deck auto-detect? Recommendation: yes, use `podman info --format '{{.Host.RemoteSocket.Path}}'`.
+8. **Multi-user security model:** When multiple users attach to the same environment, they share the same Unix user context. Is this acceptable for all use cases? Should we document security recommendations for pair-SDD?
