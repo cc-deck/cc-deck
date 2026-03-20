@@ -27,7 +27,9 @@ func NewConnectCmd(globalFlags *GlobalFlags) *cobra.Command {
 		Use:    "connect <name>",
 		Short:  "Connect to a running Claude Code session",
 		Hidden: true,
-		Long: `Connect to a running Claude Code session on Kubernetes.
+		Long: `DEPRECATED: Use 'cc-deck env attach' instead. This command will be removed in a future release.
+
+Connect to a running Claude Code session on Kubernetes.
 
 Connection methods:
   exec          Interactive terminal via kubectl exec (default)
