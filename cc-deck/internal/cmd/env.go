@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
+	"github.com/cc-deck/cc-deck/internal/config"
 	"github.com/cc-deck/cc-deck/internal/env"
 )
 
@@ -122,11 +123,23 @@ func runEnvCreate(_ *GlobalFlags, name string, cf *createFlags) error {
 		}
 	}
 
+	// Resolve image: CLI flag → config default (container.go handles definition → hardcoded fallback).
+	image := cf.image
+	if image == "" {
+		if cfg, loadErr := config.Load(""); loadErr == nil && cfg.Defaults.Container.Image != "" {
+			image = cfg.Defaults.Container.Image
+		}
+	}
+
 	opts := env.CreateOpts{
-		Image: cf.image,
+		Image: image,
 	}
 	if cf.storage != "" {
 		opts.Storage.Type = env.StorageType(cf.storage)
+	} else {
+		if cfg, loadErr := config.Load(""); loadErr == nil && cfg.Defaults.Container.Storage != "" {
+			opts.Storage.Type = env.StorageType(cfg.Defaults.Container.Storage)
+		}
 	}
 	if cf.path != "" {
 		opts.Storage.HostPath = cf.path

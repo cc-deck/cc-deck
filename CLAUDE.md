@@ -1,6 +1,6 @@
 # cc-mux Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2026-03-13
+Auto-generated from all feature plans. Last updated: 2026-03-20
 
 ## Content Creation (MANDATORY)
 
@@ -40,6 +40,8 @@ When creating or editing ANY documentation content (AsciiDoc, Markdown, landing 
 - `~/.config/cc-deck/domains.yaml` (user domain groups), `cc-deck-build.yaml` (manifest) (022-network-filtering)
 - Go 1.25 (from go.mod) + cobra v1.10.2 (CLI), adrg/xdg v0.5.3 (XDG paths), gopkg.in/yaml.v3 (YAML), client-go v0.35.2 (K8s, existing) (023-env-interface)
 - YAML file at `$XDG_STATE_HOME/cc-deck/state.yaml` (new), `$XDG_CONFIG_HOME/cc-deck/config.yaml` (existing, migration source) (023-env-interface)
+- Go 1.25 (from go.mod) + cobra v1.10.2 (CLI), adrg/xdg v0.5.3 (XDG paths), gopkg.in/yaml.v3 (YAML parsing), client-go v0.35.2 (K8s, existing) (024-container-env)
+- YAML files: `$XDG_CONFIG_HOME/cc-deck/environments.yaml` (definitions), `$XDG_STATE_HOME/cc-deck/state.yaml` (runtime state) (024-container-env)
 
 - Rust (stable, latest edition 2021+) + `zellij-tile` (plugin SDK), `serde`/`serde_json` (serialization) (001-cc-deck)
 
@@ -61,10 +63,9 @@ cargo test [ONLY COMMANDS FOR ACTIVE TECHNOLOGIES][ONLY COMMANDS FOR ACTIVE TECH
 Rust (stable, latest edition 2021+): Follow standard conventions
 
 ## Recent Changes
+- 024-container-env: Added Go 1.25 (from go.mod) + cobra v1.10.2 (CLI), adrg/xdg v0.5.3 (XDG paths), gopkg.in/yaml.v3 (YAML parsing), client-go v0.35.2 (K8s, existing)
 - 023-env-interface: Added Go 1.25 (from go.mod) + cobra v1.10.2 (CLI), adrg/xdg v0.5.3 (XDG paths), gopkg.in/yaml.v3 (YAML), client-go v0.35.2 (K8s, existing)
 - 022-network-filtering: Added Go 1.25 (existing project) + cobra (CLI), adrg/xdg (config paths), gopkg.in/yaml.v3 (YAML), client-go (K8s API)
-- 021-release-process: Added Go 1.25 (CLI), Rust stable wasm32-wasip1 (WASM plugin), YAML (GoReleaser config), Bash (CI scripts) + GoReleaser (release automation), nFPM (RPM/DEB packaging, built into GoReleaser), Podman (container images)
-- 020-demo-recordings: Added Rust stable (wasm32-wasip1) for plugin pipe handlers, Bash for demo scripts, Python/Go/HTML for demo projects + zellij-tile 0.43.1 (plugin SDK), asciinema 3.2.0 (recording), agg 1.7.0 (GIF), ffmpeg 8.0.1 (video/audio)
 
 
 <!-- MANUAL ADDITIONS START -->

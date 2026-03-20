@@ -138,6 +138,9 @@ func (e *ContainerEnvironment) Create(ctx context.Context, opts CreateOpts) erro
 		if hostPath == "" && def != nil && def.Storage != nil {
 			hostPath = def.Storage.HostPath
 		}
+		if hostPath == "" {
+			hostPath, _ = os.Getwd()
+		}
 		if hostPath != "" {
 			volumes = append(volumes, hostPath+":/workspace")
 		}
@@ -335,7 +338,7 @@ func (e *ContainerEnvironment) Status(ctx context.Context) (*EnvironmentStatus, 
 			state = EnvironmentStateStopped
 		}
 	} else if inspectErr == nil && info == nil {
-		state = EnvironmentStateUnknown
+		state = EnvironmentStateError
 	}
 
 	status := &EnvironmentStatus{
@@ -407,7 +410,7 @@ func (e *ContainerEnvironment) Pull(ctx context.Context, opts SyncOpts) error {
 
 // Harvest is not supported for container environments. Use push/pull instead.
 func (e *ContainerEnvironment) Harvest(_ context.Context, _ HarvestOpts) error {
-	return fmt.Errorf("container environments do not support harvest; use push/pull for file transfer: %w", ErrNotSupported)
+	return fmt.Errorf("container environments do not support harvest; use push/pull for file transfer, or use --type compose for multi-container setups: %w", ErrNotSupported)
 }
 
 // baseNameFromPath returns the last element of a path, handling both
@@ -446,7 +449,7 @@ func ReconcileContainerEnvs(store *FileStateStore, defs *DefinitionStore) error 
 
 		var newState EnvironmentState
 		if info == nil {
-			newState = EnvironmentStateUnknown
+			newState = EnvironmentStateError
 		} else if info.Running {
 			newState = EnvironmentStateRunning
 		} else {
