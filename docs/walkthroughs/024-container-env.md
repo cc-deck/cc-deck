@@ -268,8 +268,8 @@ layout (sidebar plugin) on first attach.
 ccd env attach test-basic
 # Expected:
 #   1. Checks for existing Zellij session inside container
-#   2. Creates session with --layout cc-deck (sidebar plugin loads)
-#   3. Attaches interactively to the session
+#   2. If none: runs 'zellij -n cc-deck' (creates session with cc-deck layout)
+#   3. If exists: runs 'zellij attach' (reconnects)
 #   4. You see the cc-deck sidebar on the left
 # Detach with: Ctrl+o d
 
@@ -376,11 +376,32 @@ unset ANTHROPIC_API_KEY
 export CLAUDE_CODE_USE_VERTEX=1
 export ANTHROPIC_VERTEX_PROJECT_ID=my-test-project
 export CLOUD_ML_REGION=us-east5
+# Note: GOOGLE_APPLICATION_CREDENTIALS is auto-detected from
+# ~/.config/gcloud/application_default_credentials.json if not set
 ccd env create test-auth-vertex --type container --image fedora:latest
-podman exec cc-deck-test-auth-vertex env | grep -E "VERTEX|CLOUD_ML"
-# Expected: CLAUDE_CODE_USE_VERTEX=1, ANTHROPIC_VERTEX_PROJECT_ID=my-test-project, CLOUD_ML_REGION=us-east5
+podman exec cc-deck-test-auth-vertex env | grep -E "VERTEX|CLOUD_ML|GOOGLE_APP"
+# Expected: CLAUDE_CODE_USE_VERTEX=1, ANTHROPIC_VERTEX_PROJECT_ID, CLOUD_ML_REGION,
+#           GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/... (if ADC file exists)
 ccd env delete test-auth-vertex --force
 unset CLAUDE_CODE_USE_VERTEX ANTHROPIC_VERTEX_PROJECT_ID CLOUD_ML_REGION
+```
+
+### 11d. Vertex AI full setup (zero flags)
+
+```bash
+# With Vertex env vars set on the host (e.g., in .zshrc):
+# CLAUDE_CODE_USE_VERTEX=1
+# ANTHROPIC_VERTEX_PROJECT_ID=my-project
+# CLOUD_ML_REGION=europe-west1
+# And 'gcloud auth application-default login' done
+
+ccd env create test-vertex --type container
+# Expected: auto-detects Vertex mode, injects all env vars,
+#           auto-detects ADC file from ~/.config/gcloud/ and mounts as secret
+ccd env attach test-vertex
+# Expected: Claude Code shows "Vertex AI" (not "API Usage Billing")
+# Detach with: Ctrl+o d
+ccd env delete test-vertex --force
 ```
 
 ### 11c. Explicit auth mode override
