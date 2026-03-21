@@ -26,6 +26,7 @@ type ContainerEnvironment struct {
 	Ports       []string
 	AllPorts    bool
 	Credentials map[string]string
+	Mounts      []string // Additional bind mounts as "src:dst[:ro]"
 	KeepVolumes bool
 }
 
@@ -108,6 +109,7 @@ func (e *ContainerEnvironment) Create(ctx context.Context, opts CreateOpts) erro
 			}
 		}
 	}
+	// Auto-detect common API keys from host environment.
 	for _, key := range []string{"ANTHROPIC_API_KEY"} {
 		if _, exists := creds[key]; !exists {
 			if val := os.Getenv(key); val != "" {
@@ -115,11 +117,10 @@ func (e *ContainerEnvironment) Create(ctx context.Context, opts CreateOpts) erro
 			}
 		}
 	}
+	// Auto-detect GOOGLE_APPLICATION_CREDENTIALS (file path, not value).
 	if _, exists := creds["GOOGLE_APPLICATION_CREDENTIALS"]; !exists {
 		if gacPath := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS"); gacPath != "" {
-			if data, err := os.ReadFile(gacPath); err == nil {
-				creds["GOOGLE_APPLICATION_CREDENTIALS"] = string(data)
-			}
+			creds["GOOGLE_APPLICATION_CREDENTIALS"] = gacPath
 		}
 	}
 
@@ -149,17 +150,44 @@ func (e *ContainerEnvironment) Create(ctx context.Context, opts CreateOpts) erro
 
 	// Create podman secrets for credentials.
 	var secrets []podman.SecretMount
+	var envs []string
 	var credentialKeys []string
 	for key, val := range creds {
 		sName := secretName(e.name, key)
-		if err := podman.SecretCreate(ctx, sName, []byte(val)); err != nil {
-			return fmt.Errorf("creating secret %q: %w", key, err)
+
+		// Detect file-based credentials: if the value is a path to an
+		// existing file, read the file content into the secret and mount
+		// it as a file at /run/secrets/<name>. Set the env var to point
+		// to the mounted file path.
+		if info, statErr := os.Stat(val); statErr == nil && !info.IsDir() {
+			data, readErr := os.ReadFile(val)
+			if readErr != nil {
+				return fmt.Errorf("reading credential file %q: %w", val, readErr)
+			}
+			if err := podman.SecretCreate(ctx, sName, data); err != nil {
+				return fmt.Errorf("creating secret %q: %w", key, err)
+			}
+			secrets = append(secrets, podman.SecretMount{
+				Name:   sName,
+				AsFile: true,
+			})
+			envs = append(envs, fmt.Sprintf("%s=/run/secrets/%s", key, sName))
+		} else {
+			// Plain value: inject as env var via podman secret.
+			if err := podman.SecretCreate(ctx, sName, []byte(val)); err != nil {
+				return fmt.Errorf("creating secret %q: %w", key, err)
+			}
+			secrets = append(secrets, podman.SecretMount{
+				Name:   sName,
+				Target: key,
+			})
 		}
-		secrets = append(secrets, podman.SecretMount{
-			Name:   sName,
-			Target: key,
-		})
 		credentialKeys = append(credentialKeys, key)
+	}
+
+	// Add user-specified mounts.
+	for _, m := range e.Mounts {
+		volumes = append(volumes, m)
 	}
 
 	// Build run options.
@@ -170,6 +198,7 @@ func (e *ContainerEnvironment) Create(ctx context.Context, opts CreateOpts) erro
 		Secrets:  secrets,
 		Ports:    ports,
 		AllPorts: e.AllPorts,
+		Envs:     envs,
 		Cmd:      []string{"sleep", "infinity"},
 	}
 

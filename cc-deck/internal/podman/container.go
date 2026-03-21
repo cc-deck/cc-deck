@@ -19,7 +19,17 @@ func Run(ctx context.Context, opts RunOpts) (string, error) {
 	}
 
 	for _, s := range opts.Secrets {
-		args = append(args, "--secret", fmt.Sprintf("%s,type=env,target=%s", s.Name, s.Target))
+		if s.AsFile {
+			// Mount as file at /run/secrets/<Name> (podman default behavior).
+			args = append(args, "--secret", s.Name)
+		} else {
+			// Inject as environment variable.
+			args = append(args, "--secret", fmt.Sprintf("%s,type=env,target=%s", s.Name, s.Target))
+		}
+	}
+
+	for _, e := range opts.Envs {
+		args = append(args, "-e", e)
 	}
 
 	if opts.AllPorts {
