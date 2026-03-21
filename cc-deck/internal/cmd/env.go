@@ -52,6 +52,7 @@ type createFlags struct {
 	path       string
 	credential []string
 	mount      []string
+	auth       string
 }
 
 func newEnvCreateCmd(gf *GlobalFlags) *cobra.Command {
@@ -76,7 +77,8 @@ Container-specific flags:
   --storage     Storage type: named-volume (default), host-path, empty-dir
   --path        Host path for host-path storage
   --credential  Credential as KEY=VALUE, repeatable
-  --mount       Bind mount as src:dst[:ro], repeatable`,
+  --mount       Bind mount as src:dst[:ro], repeatable
+  --auth        Auth mode: auto (default), none, api, vertex, bedrock`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runEnvCreate(gf, args[0], &cf)
@@ -91,6 +93,7 @@ Container-specific flags:
 	cmd.Flags().StringVar(&cf.path, "path", "", "Host path for host-path storage")
 	cmd.Flags().StringSliceVar(&cf.credential, "credential", nil, "Credential as KEY=VALUE, repeatable")
 	cmd.Flags().StringSliceVar(&cf.mount, "mount", nil, "Bind mount as src:dst[:ro], repeatable")
+	cmd.Flags().StringVar(&cf.auth, "auth", "auto", "Auth mode: auto, none, api, vertex, bedrock")
 
 	return cmd
 }
@@ -111,6 +114,7 @@ func runEnvCreate(_ *GlobalFlags, name string, cf *createFlags) error {
 
 	// Set container-specific options.
 	if ce, ok := e.(*env.ContainerEnvironment); ok {
+		ce.Auth = env.AuthMode(cf.auth)
 		ce.Ports = cf.ports
 		ce.AllPorts = cf.allPorts
 		ce.Mounts = cf.mount

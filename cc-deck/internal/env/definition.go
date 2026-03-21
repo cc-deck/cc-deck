@@ -19,6 +19,7 @@ type EnvironmentDefinition struct {
 	Name        string          `yaml:"name"`
 	Type        EnvironmentType `yaml:"type"`
 	Image       string          `yaml:"image,omitempty"`
+	Auth        string          `yaml:"auth,omitempty"` // Auth mode: auto (default), none, api, vertex, bedrock
 	Storage     *StorageConfig  `yaml:"storage,omitempty"`
 	Ports       []string        `yaml:"ports,omitempty"`
 	Credentials []string        `yaml:"credentials,omitempty"`

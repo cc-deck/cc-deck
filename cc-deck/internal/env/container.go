@@ -17,12 +17,24 @@ const (
 	defaultImage        = "quay.io/cc-deck/cc-deck-demo:latest"
 )
 
+// AuthMode controls how Claude Code authentication is detected and injected.
+type AuthMode string
+
+const (
+	AuthModeAuto    AuthMode = "auto"    // Detect from host environment (default)
+	AuthModeNone    AuthMode = "none"    // No auth passthrough
+	AuthModeAPI     AuthMode = "api"     // Direct Anthropic API key
+	AuthModeVertex  AuthMode = "vertex"  // Google Vertex AI
+	AuthModeBedrock AuthMode = "bedrock" // Amazon Bedrock
+)
+
 // ContainerEnvironment manages a container-based environment using podman.
 type ContainerEnvironment struct {
 	name  string
 	store *FileStateStore
 	defs  *DefinitionStore
 
+	Auth        AuthMode
 	Ports       []string
 	AllPorts    bool
 	Credentials map[string]string
@@ -95,11 +107,13 @@ func (e *ContainerEnvironment) Create(ctx context.Context, opts CreateOpts) erro
 		ports = def.Ports
 	}
 
-	// Resolve credentials: explicit > definition keys > auto-detect.
+	// Resolve credentials: explicit --credential flags first.
 	creds := e.Credentials
 	if creds == nil {
 		creds = make(map[string]string)
 	}
+
+	// Resolve credentials from definition keys (fill from host env).
 	if def != nil {
 		for _, key := range def.Credentials {
 			if _, exists := creds[key]; !exists {
@@ -109,19 +123,17 @@ func (e *ContainerEnvironment) Create(ctx context.Context, opts CreateOpts) erro
 			}
 		}
 	}
-	// Auto-detect common API keys from host environment.
-	for _, key := range []string{"ANTHROPIC_API_KEY"} {
-		if _, exists := creds[key]; !exists {
-			if val := os.Getenv(key); val != "" {
-				creds[key] = val
-			}
-		}
+
+	// Auth mode: CLI flag > definition > auto-detect from host env.
+	authMode := e.Auth
+	if authMode == "" && def != nil && def.Auth != "" {
+		authMode = AuthMode(def.Auth)
 	}
-	// Auto-detect GOOGLE_APPLICATION_CREDENTIALS (file path, not value).
-	if _, exists := creds["GOOGLE_APPLICATION_CREDENTIALS"]; !exists {
-		if gacPath := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS"); gacPath != "" {
-			creds["GOOGLE_APPLICATION_CREDENTIALS"] = gacPath
-		}
+	if authMode == "" || authMode == AuthModeAuto {
+		authMode = detectAuthMode()
+	}
+	if authMode != AuthModeNone {
+		detectAuthCredentials(authMode, creds)
 	}
 
 	cName := containerName(e.name)
@@ -537,4 +549,58 @@ func ReconcileContainerEnvs(store *FileStateStore, defs *DefinitionStore) error 
 	}
 
 	return nil
+}
+
+// detectAuthMode determines which Claude Code authentication mode the host
+// is using by checking environment variables.
+func detectAuthMode() AuthMode {
+	if os.Getenv("CLAUDE_CODE_USE_VERTEX") == "1" {
+		return AuthModeVertex
+	}
+	if os.Getenv("CLAUDE_CODE_USE_BEDROCK") == "1" {
+		return AuthModeBedrock
+	}
+	if os.Getenv("ANTHROPIC_API_KEY") != "" {
+		return AuthModeAPI
+	}
+	return AuthModeNone
+}
+
+// detectAuthCredentials populates the credentials map with the environment
+// variables required for the given auth mode. Existing entries (from
+// explicit --credential flags) are not overwritten.
+func detectAuthCredentials(mode AuthMode, creds map[string]string) {
+	inject := func(key string) {
+		if _, exists := creds[key]; !exists {
+			if val := os.Getenv(key); val != "" {
+				creds[key] = val
+			}
+		}
+	}
+
+	switch mode {
+	case AuthModeAPI:
+		inject("ANTHROPIC_API_KEY")
+
+	case AuthModeVertex:
+		creds["CLAUDE_CODE_USE_VERTEX"] = "1"
+		inject("ANTHROPIC_VERTEX_PROJECT_ID")
+		inject("CLOUD_ML_REGION")
+		inject("GOOGLE_APPLICATION_CREDENTIALS")
+		inject("ANTHROPIC_MODEL")
+
+	case AuthModeBedrock:
+		creds["CLAUDE_CODE_USE_BEDROCK"] = "1"
+		inject("AWS_REGION")
+		inject("AWS_ACCESS_KEY_ID")
+		inject("AWS_SECRET_ACCESS_KEY")
+		inject("AWS_SESSION_TOKEN")
+		inject("AWS_PROFILE")
+		inject("ANTHROPIC_MODEL")
+	}
+
+	// Common optional variables for all modes.
+	inject("ANTHROPIC_DEFAULT_SONNET_MODEL")
+	inject("ANTHROPIC_DEFAULT_OPUS_MODEL")
+	inject("ANTHROPIC_DEFAULT_HAIKU_MODEL")
 }
