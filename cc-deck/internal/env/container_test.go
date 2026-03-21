@@ -143,28 +143,28 @@ func TestDetectAuthMode_Vertex(t *testing.T) {
 	t.Setenv("CLAUDE_CODE_USE_VERTEX", "1")
 	t.Setenv("CLAUDE_CODE_USE_BEDROCK", "")
 	t.Setenv("ANTHROPIC_API_KEY", "")
-	assert.Equal(t, AuthModeVertex, detectAuthMode())
+	assert.Equal(t, AuthModeVertex, DetectAuthMode())
 }
 
 func TestDetectAuthMode_Bedrock(t *testing.T) {
 	t.Setenv("CLAUDE_CODE_USE_VERTEX", "")
 	t.Setenv("CLAUDE_CODE_USE_BEDROCK", "1")
 	t.Setenv("ANTHROPIC_API_KEY", "")
-	assert.Equal(t, AuthModeBedrock, detectAuthMode())
+	assert.Equal(t, AuthModeBedrock, DetectAuthMode())
 }
 
 func TestDetectAuthMode_API(t *testing.T) {
 	t.Setenv("CLAUDE_CODE_USE_VERTEX", "")
 	t.Setenv("CLAUDE_CODE_USE_BEDROCK", "")
 	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-test")
-	assert.Equal(t, AuthModeAPI, detectAuthMode())
+	assert.Equal(t, AuthModeAPI, DetectAuthMode())
 }
 
 func TestDetectAuthMode_None(t *testing.T) {
 	t.Setenv("CLAUDE_CODE_USE_VERTEX", "")
 	t.Setenv("CLAUDE_CODE_USE_BEDROCK", "")
 	t.Setenv("ANTHROPIC_API_KEY", "")
-	assert.Equal(t, AuthModeNone, detectAuthMode())
+	assert.Equal(t, AuthModeNone, DetectAuthMode())
 }
 
 func TestDetectAuthMode_VertexPrecedence(t *testing.T) {
@@ -172,13 +172,13 @@ func TestDetectAuthMode_VertexPrecedence(t *testing.T) {
 	t.Setenv("CLAUDE_CODE_USE_VERTEX", "1")
 	t.Setenv("CLAUDE_CODE_USE_BEDROCK", "1")
 	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-test")
-	assert.Equal(t, AuthModeVertex, detectAuthMode())
+	assert.Equal(t, AuthModeVertex, DetectAuthMode())
 }
 
 func TestDetectAuthCredentials_API(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-test-key")
 	creds := make(map[string]string)
-	detectAuthCredentials(AuthModeAPI, creds)
+	DetectAuthCredentials(AuthModeAPI, creds)
 	assert.Equal(t, "sk-ant-test-key", creds["ANTHROPIC_API_KEY"])
 }
 
@@ -187,7 +187,7 @@ func TestDetectAuthCredentials_Vertex(t *testing.T) {
 	t.Setenv("CLOUD_ML_REGION", "us-east5")
 	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", "/path/to/adc.json")
 	creds := make(map[string]string)
-	detectAuthCredentials(AuthModeVertex, creds)
+	DetectAuthCredentials(AuthModeVertex, creds)
 
 	assert.Equal(t, "1", creds["CLAUDE_CODE_USE_VERTEX"])
 	assert.Equal(t, "my-project", creds["ANTHROPIC_VERTEX_PROJECT_ID"])
@@ -213,7 +213,7 @@ func TestDetectAuthCredentials_Vertex_DefaultADC(t *testing.T) {
 	t.Setenv("HOME", tmpDir)
 
 	creds := make(map[string]string)
-	detectAuthCredentials(AuthModeVertex, creds)
+	DetectAuthCredentials(AuthModeVertex, creds)
 
 	assert.Equal(t, "1", creds["CLAUDE_CODE_USE_VERTEX"])
 	assert.Equal(t, adcPath, creds["GOOGLE_APPLICATION_CREDENTIALS"],
@@ -227,7 +227,7 @@ func TestDetectAuthCredentials_Vertex_NoADC(t *testing.T) {
 	t.Setenv("HOME", t.TempDir()) // empty home, no gcloud dir
 
 	creds := make(map[string]string)
-	detectAuthCredentials(AuthModeVertex, creds)
+	DetectAuthCredentials(AuthModeVertex, creds)
 
 	assert.Equal(t, "1", creds["CLAUDE_CODE_USE_VERTEX"])
 	_, hasGAC := creds["GOOGLE_APPLICATION_CREDENTIALS"]
@@ -240,7 +240,7 @@ func TestDetectAuthCredentials_Bedrock(t *testing.T) {
 	t.Setenv("AWS_SECRET_ACCESS_KEY", "secret-test")
 	t.Setenv("AWS_SESSION_TOKEN", "token-test")
 	creds := make(map[string]string)
-	detectAuthCredentials(AuthModeBedrock, creds)
+	DetectAuthCredentials(AuthModeBedrock, creds)
 
 	assert.Equal(t, "1", creds["CLAUDE_CODE_USE_BEDROCK"])
 	assert.Equal(t, "us-east-1", creds["AWS_REGION"])
@@ -254,7 +254,7 @@ func TestDetectAuthCredentials_ExplicitOverridesAuto(t *testing.T) {
 	creds := map[string]string{
 		"ANTHROPIC_API_KEY": "explicit-key",
 	}
-	detectAuthCredentials(AuthModeAPI, creds)
+	DetectAuthCredentials(AuthModeAPI, creds)
 	// Explicit value should NOT be overwritten
 	assert.Equal(t, "explicit-key", creds["ANTHROPIC_API_KEY"])
 }
@@ -264,7 +264,7 @@ func TestDetectAuthCredentials_ModelPinning(t *testing.T) {
 	t.Setenv("ANTHROPIC_DEFAULT_SONNET_MODEL", "claude-sonnet-4-20250514")
 	t.Setenv("ANTHROPIC_DEFAULT_OPUS_MODEL", "")
 	creds := make(map[string]string)
-	detectAuthCredentials(AuthModeAPI, creds)
+	DetectAuthCredentials(AuthModeAPI, creds)
 
 	assert.Equal(t, "claude-sonnet-4-20250514", creds["ANTHROPIC_DEFAULT_SONNET_MODEL"])
 	_, hasOpus := creds["ANTHROPIC_DEFAULT_OPUS_MODEL"]

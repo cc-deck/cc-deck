@@ -331,6 +331,26 @@ The `cc-deck env` command group provides a unified interface for managing Claude
 | `cc-deck env list` | List all environments |
 | `cc-deck env status` | Show detailed status of an environment |
 
+### Compose Environments
+
+Compose environments use `podman-compose` for multi-container orchestration. They are project-local, generating files in a `.cc-deck/` subdirectory within the project directory.
+
+```bash
+# Create a compose environment in the current project directory
+cc-deck env create mydev --type compose
+
+# Create with network filtering (proxy sidecar)
+cc-deck env create mydev --type compose --allowed-domains anthropic,github
+
+# Auto-add .cc-deck/ to .gitignore
+cc-deck env create mydev --type compose --gitignore
+
+# Attach to the environment
+cc-deck env attach mydev
+```
+
+Compose environments support the same lifecycle commands as all environment types. The project directory is bind-mounted at `/workspace` by default, providing immediate bidirectional file sync.
+
 ## Build from Source
 
 ```bash
@@ -384,3 +404,4 @@ cc-deck follows [Spec-Driven Development](CONTRIBUTING.md#spec-driven-developmen
 | [022](specs/022-network-filtering/) | Network Security & Domain Filtering | In Progress |
 | [023](specs/023-env-interface/) | Environment Interface and CLI | Planned |
 | [024](specs/024-container-env/) | Container Environment | `podman run` lifecycle, definition/state separation, podman package | Implemented |
+| [025](specs/025-compose-env/) | Compose Environment | Multi-container orchestration via `podman-compose`, optional network filtering | In Progress |

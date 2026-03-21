@@ -22,6 +22,12 @@ type GenerateOptions struct {
 	ProxyPort int
 	// EnvVars is a map of additional environment variables for the session container.
 	EnvVars map[string]string
+	// Volumes is a list of additional volume mounts for the session container (e.g., "./..:/workspace").
+	Volumes []string
+	// SecretsDir is an optional directory to mount for file-based credentials (e.g., "./secrets:/run/secrets:ro").
+	SecretsDir string
+	// Ports is a list of port mappings for the session container (e.g., "8080:8080").
+	Ports []string
 }
 
 const defaultProxyImage = "docker.io/vimagick/tinyproxy:latest"
@@ -81,16 +87,17 @@ type composeFile struct {
 }
 
 type composeService struct {
-	Image       string            `yaml:"image"`
-	ContainerName string          `yaml:"container_name,omitempty"`
-	Networks    []string          `yaml:"networks,omitempty"`
-	Environment map[string]string `yaml:"environment,omitempty"`
-	EnvFile     []string          `yaml:"env_file,omitempty"`
-	Volumes     []string          `yaml:"volumes,omitempty"`
-	DependsOn   []string          `yaml:"depends_on,omitempty"`
-	Command     string            `yaml:"command,omitempty"`
-	Stdin       bool              `yaml:"stdin_open,omitempty"`
-	TTY         bool              `yaml:"tty,omitempty"`
+	Image         string            `yaml:"image"`
+	ContainerName string            `yaml:"container_name,omitempty"`
+	Networks      []string          `yaml:"networks,omitempty"`
+	Environment   map[string]string `yaml:"environment,omitempty"`
+	EnvFile       []string          `yaml:"env_file,omitempty"`
+	Volumes       []string          `yaml:"volumes,omitempty"`
+	Ports         []string          `yaml:"ports,omitempty"`
+	DependsOn     []string          `yaml:"depends_on,omitempty"`
+	Command       string            `yaml:"command,omitempty"`
+	Stdin         bool              `yaml:"stdin_open,omitempty"`
+	TTY           bool              `yaml:"tty,omitempty"`
 }
 
 type composeNetwork struct {
@@ -113,7 +120,18 @@ func generateComposeYAML(opts GenerateOptions, proxyImage string, proxyPort int,
 		ContainerName: opts.SessionName,
 		EnvFile:       []string{".env"},
 		Environment:   sessionEnv,
+		Volumes:       opts.Volumes,
 		Command:       "sleep infinity",
+		Stdin:         true,
+		TTY:           true,
+	}
+
+	if opts.SecretsDir != "" {
+		sessionSvc.Volumes = append(sessionSvc.Volumes, opts.SecretsDir+":/run/secrets:ro")
+	}
+
+	if len(opts.Ports) > 0 {
+		sessionSvc.Ports = opts.Ports
 	}
 
 	if hasProxy {

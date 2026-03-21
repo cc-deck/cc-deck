@@ -44,15 +44,17 @@ func NewEnvCmd(gf *GlobalFlags) *cobra.Command {
 // --- create ---
 
 type createFlags struct {
-	envType    string
-	image      string
-	ports      []string
-	allPorts   bool
-	storage    string
-	path       string
-	credential []string
-	mount      []string
-	auth       string
+	envType        string
+	image          string
+	ports          []string
+	allPorts       bool
+	storage        string
+	path           string
+	credential     []string
+	mount          []string
+	auth           string
+	allowedDomains []string
+	gitignore      bool
 }
 
 func newEnvCreateCmd(gf *GlobalFlags) *cobra.Command {
@@ -67,33 +69,40 @@ letters, digits, and hyphens (max 40 characters).
 Environment types:
   local       Zellij session on the host machine (default)
   container   Container environment managed by podman
+  compose     Multi-container environment via podman-compose
   k8s-deploy  Kubernetes StatefulSet (not yet implemented)
   k8s-sandbox Ephemeral Kubernetes Pod (not yet implemented)
 
-Container-specific flags:
-  --image       Container image to use
-  --port        Port mapping (host:container), repeatable
-  --all-ports   Expose all container ports
-  --storage     Storage type: named-volume (default), host-path, empty-dir
-  --path        Host path for host-path storage
-  --credential  Credential as KEY=VALUE, repeatable
-  --mount       Bind mount as src:dst[:ro], repeatable
-  --auth        Auth mode: auto (default), none, api, vertex, bedrock`,
+Container/Compose flags:
+  --image            Container image to use
+  --port             Port mapping (host:container), repeatable
+  --all-ports        Expose all container ports
+  --storage          Storage type: named-volume (container default), host-path (compose default)
+  --path             Project directory (compose: defaults to cwd)
+  --credential       Credential as KEY=VALUE, repeatable
+  --mount            Bind mount as src:dst[:ro], repeatable
+  --auth             Auth mode: auto (default), none, api, vertex, bedrock
+
+Compose-specific flags:
+  --allowed-domains  Domain groups for network filtering (repeatable)
+  --gitignore        Auto-add .cc-deck/ to .gitignore`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runEnvCreate(gf, args[0], &cf)
 		},
 	}
 
-	cmd.Flags().StringVarP(&cf.envType, "type", "t", "local", "Environment type (local, container, k8s-deploy, k8s-sandbox)")
+	cmd.Flags().StringVarP(&cf.envType, "type", "t", "local", "Environment type (local, container, compose, k8s-deploy, k8s-sandbox)")
 	cmd.Flags().StringVar(&cf.image, "image", "", "Container image to use")
 	cmd.Flags().StringSliceVar(&cf.ports, "port", nil, "Port mapping (host:container), repeatable")
 	cmd.Flags().BoolVar(&cf.allPorts, "all-ports", false, "Expose all container ports")
 	cmd.Flags().StringVar(&cf.storage, "storage", "", "Storage type: named-volume, host-path, empty-dir")
-	cmd.Flags().StringVar(&cf.path, "path", "", "Host path for host-path storage")
+	cmd.Flags().StringVar(&cf.path, "path", "", "Project directory (compose: defaults to cwd)")
 	cmd.Flags().StringSliceVar(&cf.credential, "credential", nil, "Credential as KEY=VALUE, repeatable")
 	cmd.Flags().StringSliceVar(&cf.mount, "mount", nil, "Bind mount as src:dst[:ro], repeatable")
 	cmd.Flags().StringVar(&cf.auth, "auth", "auto", "Auth mode: auto, none, api, vertex, bedrock")
+	cmd.Flags().StringSliceVar(&cf.allowedDomains, "allowed-domains", nil, "Domain groups for network filtering (compose only), repeatable")
+	cmd.Flags().BoolVar(&cf.gitignore, "gitignore", false, "Auto-add .cc-deck/ to .gitignore (compose only)")
 
 	return cmd
 }
@@ -131,9 +140,32 @@ func runEnvCreate(_ *GlobalFlags, name string, cf *createFlags) error {
 		}
 	}
 
-	// Resolve image: CLI flag → config default (container.go handles definition → hardcoded fallback).
+	// Set compose-specific options.
+	if ce, ok := e.(*env.ComposeEnvironment); ok {
+		ce.Auth = env.AuthMode(cf.auth)
+		ce.Ports = cf.ports
+		ce.AllPorts = cf.allPorts
+		ce.Mounts = cf.mount
+		ce.AllowedDomains = cf.allowedDomains
+		ce.ProjectDir = cf.path
+		ce.Gitignore = cf.gitignore
+
+		if len(cf.credential) > 0 {
+			ce.Credentials = make(map[string]string)
+			for _, c := range cf.credential {
+				parts := splitCredential(c)
+				if parts == nil {
+					return fmt.Errorf("invalid credential format %q, expected KEY=VALUE", c)
+				}
+				ce.Credentials[parts[0]] = parts[1]
+			}
+		}
+	}
+
+	// Resolve image: CLI flag → config default (only for container type).
+	// Compose environments fall through to their own default in compose.go.
 	image := cf.image
-	if image == "" {
+	if image == "" && envType == env.EnvironmentTypeContainer {
 		if cfg, loadErr := config.Load(""); loadErr == nil && cfg.Defaults.Container.Image != "" {
 			image = cfg.Defaults.Container.Image
 		}
@@ -144,6 +176,8 @@ func runEnvCreate(_ *GlobalFlags, name string, cf *createFlags) error {
 	}
 	if cf.storage != "" {
 		opts.Storage.Type = env.StorageType(cf.storage)
+	} else if envType == env.EnvironmentTypeCompose {
+		opts.Storage.Type = env.StorageTypeHostPath
 	} else {
 		if cfg, loadErr := config.Load(""); loadErr == nil && cfg.Defaults.Container.Storage != "" {
 			opts.Storage.Type = env.StorageType(cfg.Defaults.Container.Storage)
@@ -286,6 +320,7 @@ func runEnvList(gf *GlobalFlags, filterType string) error {
 	// Reconcile environments with actual state.
 	_ = env.ReconcileLocalEnvs(store)
 	_ = env.ReconcileContainerEnvs(store, defs)
+	_ = env.ReconcileComposeEnvs(store)
 
 	var filter *env.ListFilter
 	if filterType != "" {
@@ -352,14 +387,22 @@ func writeEnvStructured(format string, records []*env.EnvironmentRecord, instanc
 
 	for _, inst := range instances {
 		image := ""
+		instType := string(inst.Type)
+		if instType == "" {
+			instType = "container"
+		}
+		storage := "named-volume"
 		if inst.Container != nil {
 			image = inst.Container.Image
 		}
+		if inst.Compose != nil {
+			storage = "host-path"
+		}
 		entries = append(entries, envListEntry{
 			Name:         inst.Name,
-			Type:         "container",
+			Type:         instType,
 			State:        string(inst.State),
-			Storage:      "named-volume",
+			Storage:      storage,
 			Image:        image,
 			LastAttached: formatRelativeTime(inst.LastAttached),
 			Age:          formatDuration(time.Since(inst.CreatedAt)),
@@ -426,21 +469,23 @@ func writeEnvTable(records []*env.EnvironmentRecord, instances []*env.Environmen
 	}
 
 	for _, inst := range instances {
-		if filterType != "" && filterType != string(env.EnvironmentTypeContainer) {
+		instType := inst.Type
+		if instType == "" {
+			instType = env.EnvironmentTypeContainer
+		}
+		if filterType != "" && filterType != string(instType) {
 			continue
 		}
 		storage := "named-volume"
+		if inst.Compose != nil {
+			storage = "host-path"
+		}
 		lastAttached := formatRelativeTime(inst.LastAttached)
 		age := formatDuration(time.Since(inst.CreatedAt))
-		image := ""
-		if inst.Container != nil {
-			image = inst.Container.Image
-			_ = image // used below in status text
-		}
 
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n",
 			inst.Name,
-			env.EnvironmentTypeContainer,
+			instType,
 			inst.State,
 			storage,
 			lastAttached,
@@ -567,13 +612,16 @@ func runEnvStatus(gf *GlobalFlags, name string) error {
 			storage = storageDisplay(record)
 			lastAttached = formatRelativeTime(record.LastAttached)
 		}
-	} else if envType == env.EnvironmentTypeContainer {
-		storage = "named-volume"
+	} else if envType == env.EnvironmentTypeContainer || envType == env.EnvironmentTypeCompose {
 		inst, findErr := store.FindInstanceByName(name)
 		if findErr == nil {
 			lastAttached = formatRelativeTime(inst.LastAttached)
 			if inst.Container != nil {
+				storage = "named-volume"
 				image = inst.Container.Image
+			}
+			if inst.Compose != nil {
+				storage = "host-path"
 			}
 		}
 	}
@@ -889,9 +937,15 @@ func resolveEnvironment(name string, store *env.FileStateStore, defs *env.Defini
 		return env.NewEnvironment(record.Type, name, store, defs)
 	}
 
-	// Try v2 instance (container environments).
-	if _, err := store.FindInstanceByName(name); err == nil {
-		return env.NewEnvironment(env.EnvironmentTypeContainer, name, store, defs)
+	// Try v2 instance (container/compose environments).
+	if inst, err := store.FindInstanceByName(name); err == nil {
+		instType := env.EnvironmentTypeContainer
+		if inst.Type != "" {
+			instType = inst.Type
+		} else if inst.Compose != nil {
+			instType = env.EnvironmentTypeCompose
+		}
+		return env.NewEnvironment(instType, name, store, defs)
 	}
 
 	return nil, fmt.Errorf("environment %q not found", name)
