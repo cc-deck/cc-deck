@@ -257,7 +257,33 @@ podman inspect cc-deck-test-fedora --format '{{.Config.Image}}'
 # Expected: ubuntu:latest (or whatever you changed it to)
 ```
 
-## 8. Attach with Auto-Start (US1 + FR-018)
+## 8. Attach to Zellij Session (US1 + FR-006 + FR-018)
+
+Attach requires an image with Zellij and the cc-deck plugin installed
+(e.g., the demo image). It creates a Zellij session with the cc-deck
+layout (sidebar plugin) on first attach.
+
+```bash
+# test-basic uses the demo image, so attach works
+ccd env attach test-basic
+# Expected:
+#   1. Checks for existing Zellij session inside container
+#   2. Creates session with --layout cc-deck (sidebar plugin loads)
+#   3. Attaches interactively to the session
+#   4. You see the cc-deck sidebar on the left
+# Detach with: Ctrl+o d
+
+# Verify session persists after detach
+podman exec cc-deck-test-basic zellij list-sessions -n
+# Expected: cc-deck (session still running inside container)
+
+# Re-attach (session already exists, skips creation)
+ccd env attach test-basic
+# Expected: attaches directly to existing session (no layout recreation)
+# Detach with: Ctrl+o d
+```
+
+### 8a. Auto-start on attach (FR-018)
 
 ```bash
 ccd env stop test-basic
@@ -265,8 +291,26 @@ ccd env list
 # Expected: test-basic shows "stopped"
 
 ccd env attach test-basic
-# Expected: container auto-starts, then attaches to Zellij session
-# (requires demo image with Zellij installed; Ctrl+o d to detach)
+# Expected: container auto-starts first, then attaches to Zellij
+# Detach with: Ctrl+o d
+```
+
+### 8b. Nested Zellij check
+
+```bash
+# If you are already inside a Zellij session on the host:
+ccd env attach test-basic
+# Expected: "Already inside Zellij. Detach first (Ctrl+o d), then run:
+#            cc-deck env attach test-basic"
+```
+
+### 8c. Attach to non-Zellij image (expected failure)
+
+```bash
+# test-fedora uses fedora:latest (no Zellij installed)
+ccd env attach test-fedora
+# Expected: error from podman exec (zellij: command not found)
+# This is expected: only images with Zellij support attach
 ```
 
 ## 9. Delete with Cleanup (US1)
