@@ -145,8 +145,8 @@ func TestEnvListFilterByType(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, stdout, "localenv")
 
-	// Filter for podman should not find it.
-	stdout, _, err = run(t, gf, "env", "list", "--type", "podman")
+	// Filter for container should not find it.
+	stdout, _, err = run(t, gf, "env", "list", "--type", "container")
 	require.NoError(t, err)
 	assert.NotContains(t, stdout, "localenv")
 }
@@ -174,7 +174,7 @@ func TestEnvCreateUnsupportedType(t *testing.T) {
 	setupTestEnv(t)
 	gf := &cmd.GlobalFlags{Output: "text"}
 
-	_, _, err := run(t, gf, "env", "create", "podtest", "--type", "podman")
+	_, _, err := run(t, gf, "env", "create", "containertest", "--type", "container")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not yet implemented")
 }

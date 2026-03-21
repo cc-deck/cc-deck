@@ -1,15 +1,17 @@
 <!--
 Sync Impact Report
-- Version change: 1.7.0 → 1.8.0
-- Modified principles: none
-- Added sections: Principle XI (Prose Plugin for Documentation)
+- Version change: 1.9.0 → 1.10.0
+- Modified principles: Renumbered VIII-XII → VIII-XIII (inserted VII)
+- Added sections: Principle VII (Interface Behavioral Contracts), Principle XIII (XDG Paths)
 - Removed sections: none
 - Templates requiring updates:
-  - .specify/templates/spec-template.md ✅ no update needed (specs are technical, not prose)
-  - .specify/templates/plan-template.md ✅ no update needed (plans are technical)
-  - .specify/templates/tasks-template.md ✅ no update needed (tasks are technical)
-  - CLAUDE.md ✅ already references prose plugin and voice profile
-- Follow-up TODOs: none
+  - .specify/templates/spec-template.md ✅ no update needed
+  - .specify/templates/plan-template.md ✅ no update needed
+  - .specify/templates/tasks-template.md ✅ no update needed
+  - specs/023-env-interface/contracts/environment-interface.md ✅ updated with behavioral requirements
+- Follow-up TODOs:
+  - Update references to old principle numbers in CLAUDE.md if any
+  - The spec review checklist should include "cross-reference existing implementations"
 -->
 
 # cc-deck Constitution
@@ -66,16 +68,28 @@ If you must build the Go binary in isolation (e.g., for testing a new command), 
 cd cc-deck && go build -o /tmp/cc-deck-test ./cmd/cc-deck
 ```
 
-### VII. Simplicity
+### VII. Interface Behavioral Contracts (NON-NEGOTIABLE)
+
+When implementing a new backend for an existing interface (e.g., a new `Environment` type), the implementation MUST satisfy the behavioral requirements documented in the interface contract, not just the method signatures. Before writing a new implementation:
+
+1. Read the existing implementation(s) to understand the full behavior (not just the interface signature).
+2. Cross-reference the interface contract for documented behavioral requirements.
+3. If the contract lacks behavioral requirements, add them before implementing.
+
+Behavioral requirements include error handling patterns, state management (timestamps, status updates), user experience checks (nested session detection), and resource lifecycle (cleanup on failure, layout initialization).
+
+A spec for a new implementation MUST explicitly reference the interface behavioral contract and note any deviations.
+
+### VIII. Simplicity
 
 Follow YAGNI. Don't add features, abstractions, or error handling beyond what's needed. Three similar lines of code is better than a premature abstraction.
 
-### VIII. Documentation Freshness (NON-NEGOTIABLE)
+### IX. Documentation Freshness (NON-NEGOTIABLE)
 
 A feature is NOT complete until its documentation is updated. ALWAYS update these as part of every feature implementation:
 
 1. **README.md**: Update with user-facing feature descriptions, usage examples, and CLI reference changes. This is mandatory for every feature, no exceptions.
-2. **Feature specs table**: Add or update the feature entry in the README's "Feature Specifications" table (see Principle IX).
+2. **Feature specs table**: Add or update the feature entry in the README's "Feature Specifications" table (see Principle X).
 3. **Landing page**: For substantial features (new CLI commands, new deployment modes, new user-visible capabilities), update the landing page. The landing page repo is **`cc-deck/cc-deck.github.io`** (Astro site at https://cc-deck.github.io). If the repo location is unclear or the worktree is not available, ask the user before proceeding.
 4. **Antora docs**: If the `docs/` directory exists in the working tree, update relevant Antora modules (quickstarts, reference, etc.).
 
@@ -90,11 +104,11 @@ Use parallel agents to create documentation concurrently when updating multiple 
 
 Do NOT mark a feature as complete or propose a commit without verifying documentation is current.
 
-### IX. Spec Tracking in README
+### X. Spec Tracking in README
 
 When a new feature specification is created and merged, add it to the "Feature Specifications" table in `README.md` with its ID, title, and status. Update the status column when implementation progresses or completes. The README spec table is the public-facing summary of all design work.
 
-### X. Release Process
+### XI. Release Process
 
 Releases are triggered by pushing a version tag (`v*`). The CI pipeline handles binaries, packages, and Homebrew automatically. However, the following manual steps are required for each release:
 
@@ -120,7 +134,7 @@ Releases are triggered by pushing a version tag (`v*`). The CI pipeline handles 
 
 When Claude Code triggers a release, execute these steps automatically after confirming the tag push succeeded.
 
-### XI. Prose Plugin for Documentation (NON-NEGOTIABLE)
+### XII. Prose Plugin for Documentation (NON-NEGOTIABLE)
 
 All documentation text content creation and editing MUST use the **prose plugin** (`/prose:write` for new content, `/prose:rewrite` for editing existing content, `/prose:check` before committing). The voice profile to use is **`cc-deck`** (defined in `.style/voice.yaml`).
 
@@ -134,6 +148,32 @@ This applies to:
 The prose plugin enforces the cc-deck voice: professional, thorough, no contractions, terminal-native analogies, context before commands, and reasoning-first explanations. It also catches AI writing patterns before they reach the repository.
 
 Do NOT write documentation text directly without running it through the prose plugin. The voice profile ensures consistency across all cc-deck documentation.
+
+### XIII. XDG Paths on All Platforms (NON-NEGOTIABLE)
+
+cc-deck MUST use standard XDG Base Directory paths on **all platforms**, including macOS:
+
+- Config: `~/.config/cc-deck/` (`$XDG_CONFIG_HOME/cc-deck/`)
+- State: `~/.local/state/cc-deck/` (`$XDG_STATE_HOME/cc-deck/`)
+- Data: `~/.local/share/cc-deck/` (`$XDG_DATA_HOME/cc-deck/`)
+- Cache: `~/.cache/cc-deck/` (`$XDG_CACHE_HOME/cc-deck/`)
+
+Do NOT use `adrg/xdg`, which maps to platform-native directories on macOS (`~/Library/Application Support/`). This causes user confusion and breaks documentation that references `~/.config` paths.
+
+Instead, use a minimal internal `xdg` helper or compute paths directly:
+```go
+func configHome() string {
+    if v := os.Getenv("XDG_CONFIG_HOME"); v != "" {
+        return v
+    }
+    home, _ := os.UserHomeDir()
+    return filepath.Join(home, ".config")
+}
+```
+
+Environment variable overrides (`$XDG_CONFIG_HOME`, `$XDG_STATE_HOME`) MUST be respected when set. The `~/.config` and `~/.local` defaults apply only when the environment variables are not set.
+
+Files affected by this policy: `config.go`, `state.go`, `definition.go`, `snapshot.go`, `network/config.go`, `main.go`.
 
 ## Development Workflow
 
@@ -153,4 +193,4 @@ Do NOT write documentation text directly without running it through the prose pl
 
 This constitution supersedes ad-hoc practices. Amendments require updating this file and the project memory.
 
-**Version**: 1.8.0 | **Ratified**: 2026-03-09 | **Last Amended**: 2026-03-20
+**Version**: 1.10.0 | **Ratified**: 2026-03-09 | **Last Amended**: 2026-03-21

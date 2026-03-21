@@ -7,7 +7,7 @@ type EnvironmentType string
 
 const (
 	EnvironmentTypeLocal     EnvironmentType = "local"
-	EnvironmentTypePodman    EnvironmentType = "podman"
+	EnvironmentTypeContainer EnvironmentType = "container"
 	EnvironmentTypeK8sDeploy EnvironmentType = "k8s-deploy"
 	EnvironmentTypeK8sSandbox EnvironmentType = "k8s-sandbox"
 )
@@ -67,8 +67,8 @@ type K8sFields struct {
 	Kubeconfig  string `yaml:"kubeconfig,omitempty"`
 }
 
-// PodmanFields holds container-specific fields for a Podman environment.
-type PodmanFields struct {
+// ContainerFields holds container-specific fields for a container environment.
+type ContainerFields struct {
 	ContainerID   string   `yaml:"container_id,omitempty"`
 	ContainerName string   `yaml:"container_name,omitempty"`
 	Image         string   `yaml:"image,omitempty"`
@@ -94,13 +94,29 @@ type EnvironmentRecord struct {
 	LastAttached *time.Time        `yaml:"last_attached,omitempty"`
 	Storage      *StorageConfig    `yaml:"storage,omitempty"`
 	Sync         *SyncConfig       `yaml:"sync,omitempty"`
-	Podman       *PodmanFields     `yaml:"podman,omitempty"`
+	Container    *ContainerFields   `yaml:"container,omitempty"`
+	K8s          *K8sFields        `yaml:"k8s,omitempty"`
+	Sandbox      *SandboxFields    `yaml:"sandbox,omitempty"`
+}
+
+// EnvironmentInstance is the slim runtime state for a v2 state file.
+// It holds only runtime-relevant fields; definition details live in the
+// DefinitionStore.
+type EnvironmentInstance struct {
+	Name         string            `yaml:"name"`
+	State        EnvironmentState  `yaml:"state"`
+	CreatedAt    time.Time         `yaml:"created_at"`
+	LastAttached *time.Time        `yaml:"last_attached,omitempty"`
+	Container    *ContainerFields  `yaml:"container,omitempty"`
 	K8s          *K8sFields        `yaml:"k8s,omitempty"`
 	Sandbox      *SandboxFields    `yaml:"sandbox,omitempty"`
 }
 
 // StateFile is the top-level structure of the environment state file.
+// Version 1 files use Environments ([]EnvironmentRecord).
+// Version 2 files use Instances ([]EnvironmentInstance).
 type StateFile struct {
-	Version      int                 `yaml:"version"`
-	Environments []EnvironmentRecord `yaml:"environments"`
+	Version      int                   `yaml:"version"`
+	Environments []EnvironmentRecord   `yaml:"environments,omitempty"`
+	Instances    []EnvironmentInstance  `yaml:"instances,omitempty"`
 }

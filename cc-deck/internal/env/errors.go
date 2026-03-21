@@ -30,4 +30,8 @@ var (
 	// ErrRunning indicates that the environment is currently running and
 	// cannot be deleted without the force flag.
 	ErrRunning = errors.New("environment is running; use --force to delete")
+
+	// ErrPodmanNotFound indicates that the podman binary could not be
+	// located in PATH.
+	ErrPodmanNotFound = errors.New("podman binary not found in PATH")
 )
