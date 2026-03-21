@@ -614,8 +614,17 @@ func detectAuthCredentials(mode AuthMode, creds map[string]string) {
 		creds["CLAUDE_CODE_USE_VERTEX"] = "1"
 		inject("ANTHROPIC_VERTEX_PROJECT_ID")
 		inject("CLOUD_ML_REGION")
-		inject("GOOGLE_APPLICATION_CREDENTIALS")
 		inject("ANTHROPIC_MODEL")
+		// For GOOGLE_APPLICATION_CREDENTIALS: inject if set, otherwise
+		// check for the default ADC file from 'gcloud auth application-default login'.
+		inject("GOOGLE_APPLICATION_CREDENTIALS")
+		if _, exists := creds["GOOGLE_APPLICATION_CREDENTIALS"]; !exists {
+			home, _ := os.UserHomeDir()
+			defaultADC := home + "/.config/gcloud/application_default_credentials.json"
+			if _, err := os.Stat(defaultADC); err == nil {
+				creds["GOOGLE_APPLICATION_CREDENTIALS"] = defaultADC
+			}
+		}
 
 	case AuthModeBedrock:
 		creds["CLAUDE_CODE_USE_BEDROCK"] = "1"
