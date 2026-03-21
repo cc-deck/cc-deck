@@ -66,20 +66,11 @@ func TestLocalEnvironment_CreateRejectsInvalidName(t *testing.T) {
 	assert.True(t, errors.Is(err, ErrInvalidName))
 }
 
-func TestLocalEnvironment_StartReturnsNotSupported(t *testing.T) {
+func TestLocalEnvironment_ExecReturnsNotSupported(t *testing.T) {
 	store := newTestStore(t)
 	env := &LocalEnvironment{name: "test", store: store}
 
-	err := env.Start(context.Background())
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, ErrNotSupported))
-}
-
-func TestLocalEnvironment_StopReturnsNotSupported(t *testing.T) {
-	store := newTestStore(t)
-	env := &LocalEnvironment{name: "test", store: store}
-
-	err := env.Stop(context.Background())
+	err := env.Exec(context.Background(), []string{"ls"})
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, ErrNotSupported))
 }
@@ -105,16 +96,25 @@ func TestLocalEnvironment_DeleteRemovesRecord(t *testing.T) {
 
 func TestNewEnvironment_Local(t *testing.T) {
 	store := newTestStore(t)
-	env, err := NewEnvironment(EnvironmentTypeLocal, "test", store)
+	env, err := NewEnvironment(EnvironmentTypeLocal, "test", store, nil)
 	require.NoError(t, err)
 
 	assert.Equal(t, EnvironmentTypeLocal, env.Type())
 	assert.Equal(t, "test", env.Name())
 }
 
+func TestNewEnvironment_Container(t *testing.T) {
+	store := newTestStore(t)
+	env, err := NewEnvironment(EnvironmentTypeContainer, "test", store, nil)
+	require.NoError(t, err)
+
+	assert.Equal(t, EnvironmentTypeContainer, env.Type())
+	assert.Equal(t, "test", env.Name())
+}
+
 func TestNewEnvironment_UnimplementedType(t *testing.T) {
 	store := newTestStore(t)
-	_, err := NewEnvironment(EnvironmentTypePodman, "test", store)
+	_, err := NewEnvironment("k8s-deploy", "test", store, nil)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, ErrNotImplemented))
 }

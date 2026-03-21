@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/adrg/xdg"
+	"github.com/cc-deck/cc-deck/internal/xdg"
 	"gopkg.in/yaml.v3"
 )
 
@@ -23,12 +23,19 @@ type Config struct {
 	Sessions       []Session         `yaml:"sessions,omitempty"`
 }
 
+// ContainerDefaults holds default values for container environments.
+type ContainerDefaults struct {
+	Image   string `yaml:"image,omitempty"`
+	Storage string `yaml:"storage,omitempty"`
+}
+
 // Defaults holds default values for sessions.
 type Defaults struct {
-	Namespace   string `yaml:"namespace,omitempty"`
-	StorageSize string `yaml:"storage_size,omitempty"`
-	Image       string `yaml:"image,omitempty"`
-	ImageTag    string `yaml:"image_tag,omitempty"`
+	Namespace   string            `yaml:"namespace,omitempty"`
+	StorageSize string            `yaml:"storage_size,omitempty"`
+	Image       string            `yaml:"image,omitempty"`
+	ImageTag    string            `yaml:"image_tag,omitempty"`
+	Container   ContainerDefaults `yaml:"container,omitempty"`
 }
 
 // Session represents a running or previously deployed Claude Code session.

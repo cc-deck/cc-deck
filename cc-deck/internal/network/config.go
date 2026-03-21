@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/adrg/xdg"
+	"github.com/cc-deck/cc-deck/internal/xdg"
 	"gopkg.in/yaml.v3"
 )
 

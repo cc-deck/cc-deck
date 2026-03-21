@@ -1,6 +1,7 @@
 .Running cc-deck
 * xref:local.adoc[Local Installation]
 * xref:podman.adoc[Podman Containers]
+* xref:container-env.adoc[Container Environments]
 * xref:kubernetes.adoc[Kubernetes]
 * xref:network-filtering.adoc[Network Filtering]
 * xref:credentials.adoc[Credentials]

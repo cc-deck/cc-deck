@@ -1,0 +1,117 @@
+= Container Environments
+
+The `cc-deck env` commands provide a managed lifecycle for Podman-based container environments.
+Instead of manually running `podman run`, `podman stop`, and `podman rm`, the `env` command group tracks state, manages volumes and secrets, and provides a consistent interface across all backends.
+
+== Creating a Container Environment
+
+[source,bash]
+----
+cc-deck env create mydev --type container --image quay.io/cc-deck/cc-deck-demo:latest
+----
+
+This command performs several steps automatically:
+
+1. Creates a named volume (`cc-deck-mydev-data`) for persistent workspace storage.
+2. Injects credentials as Podman secrets (auto-detects `ANTHROPIC_API_KEY` and `GOOGLE_APPLICATION_CREDENTIALS`).
+3. Starts the container in detached mode.
+4. Records the environment instance in the state store.
+
+If a matching environment definition exists, the command uses its image, ports, storage, and credential settings as defaults.
+
+=== Storage Options
+
+[cols="1,3"]
+|===
+| Type | Behavior
+
+| `named-volume` (default)
+| Creates a Podman named volume mounted at `/workspace`
+
+| `host-path`
+| Mounts a host directory at `/workspace` (requires `--path`)
+
+| `empty-dir`
+| No persistent storage
+|===
+
+[source,bash]
+----
+cc-deck env create mydev --type container --storage host-path --path ~/projects/myapp
+----
+
+=== Port Forwarding
+
+Expose container ports to the host with repeatable `--port` flags:
+
+[source,bash]
+----
+cc-deck env create mydev --type container --port 8080:80 --port 9090:9090
+----
+
+Use `--all-ports` to expose all container ports automatically.
+
+=== Credentials
+
+Credentials are passed as Podman secrets, not environment variables, for better security:
+
+[source,bash]
+----
+cc-deck env create mydev --type container --credential ANTHROPIC_API_KEY=sk-ant-...
+----
+
+If no credentials are specified explicitly, the command auto-detects `ANTHROPIC_API_KEY` from the current shell environment and reads `GOOGLE_APPLICATION_CREDENTIALS` from the file path in that variable.
+
+== Attaching to an Environment
+
+[source,bash]
+----
+cc-deck env attach mydev
+----
+
+This opens a Zellij session inside the container using `podman exec`.
+If the container is stopped, it is automatically started before attaching.
+
+== Lifecycle Management
+
+[source,bash]
+----
+cc-deck env stop mydev       # Stop the container
+cc-deck env start mydev      # Restart a stopped container
+cc-deck env delete mydev     # Remove container, volumes, and secrets
+----
+
+Deleting a running environment requires the `--force` flag.
+To preserve data volumes during deletion, use `--keep-volumes`.
+
+== File Transfer
+
+Container environments support push and pull for copying files between the host and the container:
+
+[source,bash]
+----
+cc-deck env push mydev ./src /workspace/src
+cc-deck env pull mydev /workspace/output ./output
+----
+
+If no remote path is specified for push, the file is placed under `/workspace/` using the local filename.
+
+== Listing and Status
+
+[source,bash]
+----
+cc-deck env list                    # All environments
+cc-deck env list --type container   # Container environments only
+cc-deck env status mydev            # Detailed status
+cc-deck env status mydev -o json    # Machine-readable output
+----
+
+The list command reconciles stored state with actual container state, so the reported status always reflects reality.
+
+== Environment Definitions
+
+Environment definitions are stored in `$XDG_CONFIG_HOME/cc-deck/definitions.yaml`.
+They act as templates: when creating an environment whose name matches an existing definition, the definition provides defaults for image, ports, storage, and credentials.
+
+Definitions are updated automatically when you create an environment.
+They persist even after the environment instance is deleted, making it easy to recreate an environment with the same configuration.
