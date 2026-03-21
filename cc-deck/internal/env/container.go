@@ -6,7 +6,6 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -135,11 +134,6 @@ func (e *ContainerEnvironment) Create(ctx context.Context, opts CreateOpts) erro
 	}
 	if authMode != AuthModeNone {
 		detectAuthCredentials(authMode, creds)
-		// Auto-mount credential directories for the detected auth mode
-		// (only if user didn't specify --mount explicitly).
-		if len(e.Mounts) == 0 {
-			e.Mounts = detectAuthMounts(authMode)
-		}
 	}
 
 	cName := containerName(e.name)
@@ -639,26 +633,3 @@ func detectAuthCredentials(mode AuthMode, creds map[string]string) {
 	inject("ANTHROPIC_DEFAULT_HAIKU_MODEL")
 }
 
-// detectAuthMounts returns bind mounts needed for the given auth mode.
-// Only adds mounts for credential directories that exist on the host.
-func detectAuthMounts(mode AuthMode) []string {
-	var mounts []string
-	home, _ := os.UserHomeDir()
-
-	mountIfExists := func(hostPath, containerPath string) {
-		if info, err := os.Stat(hostPath); err == nil && info.IsDir() {
-			mounts = append(mounts, hostPath+":"+containerPath+":ro")
-		}
-	}
-
-	switch mode {
-	case AuthModeVertex:
-		mountIfExists(filepath.Join(home, ".config", "gcloud"),
-			"/home/dev/.config/gcloud")
-	case AuthModeBedrock:
-		mountIfExists(filepath.Join(home, ".aws"),
-			"/home/dev/.aws")
-	}
-
-	return mounts
-}
