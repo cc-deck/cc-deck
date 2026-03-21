@@ -3,6 +3,7 @@ package env
 import (
 	"context"
 	"errors"
+	"os"
 	"testing"
 
 	"github.com/cc-deck/cc-deck/internal/podman"
@@ -192,6 +193,45 @@ func TestDetectAuthCredentials_Vertex(t *testing.T) {
 	assert.Equal(t, "my-project", creds["ANTHROPIC_VERTEX_PROJECT_ID"])
 	assert.Equal(t, "us-east5", creds["CLOUD_ML_REGION"])
 	assert.Equal(t, "/path/to/adc.json", creds["GOOGLE_APPLICATION_CREDENTIALS"])
+}
+
+func TestDetectAuthCredentials_Vertex_DefaultADC(t *testing.T) {
+	// When GOOGLE_APPLICATION_CREDENTIALS is not set, should check for
+	// the default ADC file at ~/.config/gcloud/application_default_credentials.json
+	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", "")
+	t.Setenv("ANTHROPIC_VERTEX_PROJECT_ID", "my-project")
+	t.Setenv("CLOUD_ML_REGION", "us-east5")
+
+	// Create a fake ADC file in a temp dir
+	tmpDir := t.TempDir()
+	gcloudDir := tmpDir + "/.config/gcloud"
+	require.NoError(t, os.MkdirAll(gcloudDir, 0o755))
+	adcPath := gcloudDir + "/application_default_credentials.json"
+	require.NoError(t, os.WriteFile(adcPath, []byte(`{"type":"authorized_user"}`), 0o644))
+
+	// Override HOME to use the temp dir
+	t.Setenv("HOME", tmpDir)
+
+	creds := make(map[string]string)
+	detectAuthCredentials(AuthModeVertex, creds)
+
+	assert.Equal(t, "1", creds["CLAUDE_CODE_USE_VERTEX"])
+	assert.Equal(t, adcPath, creds["GOOGLE_APPLICATION_CREDENTIALS"],
+		"should auto-detect default ADC file when GOOGLE_APPLICATION_CREDENTIALS is unset")
+}
+
+func TestDetectAuthCredentials_Vertex_NoADC(t *testing.T) {
+	// When neither GOOGLE_APPLICATION_CREDENTIALS nor default ADC exists
+	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", "")
+	t.Setenv("ANTHROPIC_VERTEX_PROJECT_ID", "my-project")
+	t.Setenv("HOME", t.TempDir()) // empty home, no gcloud dir
+
+	creds := make(map[string]string)
+	detectAuthCredentials(AuthModeVertex, creds)
+
+	assert.Equal(t, "1", creds["CLAUDE_CODE_USE_VERTEX"])
+	_, hasGAC := creds["GOOGLE_APPLICATION_CREDENTIALS"]
+	assert.False(t, hasGAC, "should not set GOOGLE_APPLICATION_CREDENTIALS when no ADC file exists")
 }
 
 func TestDetectAuthCredentials_Bedrock(t *testing.T) {
