@@ -301,10 +301,17 @@ func (e *ContainerEnvironment) Attach(ctx context.Context) error {
 
 	// Check if a Zellij session already exists inside the container.
 	if !containerZellijSessionExists(ctx, cName, sessionName) {
-		// Create session in background with the cc-deck layout (includes sidebar plugin).
-		_ = podman.Exec(ctx, cName, []string{
-			"zellij", "attach", "--create-background", sessionName, "--layout", "cc-deck",
-		}, false)
+		// Create session in background with the cc-deck layout (sidebar plugin).
+		// Try with --layout first; fall back without it if not supported.
+		createCmd := exec.CommandContext(ctx, "podman", "exec", cName,
+			"zellij", "attach", "--create-background", sessionName, "--layout", "cc-deck")
+		if _, err := createCmd.CombinedOutput(); err != nil {
+			// Fallback: create without layout (--layout might not be
+			// supported on attach in all Zellij versions).
+			fallback := exec.CommandContext(ctx, "podman", "exec", cName,
+				"zellij", "attach", "--create-background", sessionName)
+			_, _ = fallback.CombinedOutput()
+		}
 	}
 
 	// Attach interactively to the (now-existing) session.
