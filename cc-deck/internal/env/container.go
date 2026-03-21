@@ -299,38 +299,14 @@ func (e *ContainerEnvironment) Attach(ctx context.Context) error {
 	cName := containerName(e.name)
 	sessionName := "cc-deck"
 
-	// Check if a Zellij session already exists inside the container.
-	if !containerZellijSessionExists(ctx, cName, sessionName) {
-		// Ensure config.kdl has default_layout set to cc-deck so that
-		// background-created sessions load the sidebar plugin.
-		ensureDefaultLayout(ctx, cName)
-
-		// Create session in background. The layout is picked up from
-		// config.kdl's default_layout setting.
-		createCmd := exec.CommandContext(ctx, "podman", "exec", cName,
-			"zellij", "attach", "--create-background", sessionName)
-		_, _ = createCmd.CombinedOutput()
+	// If session already exists, just attach.
+	// If not, start Zellij with the cc-deck layout (creates session + attaches).
+	if containerZellijSessionExists(ctx, cName, sessionName) {
+		return podman.Exec(ctx, cName, []string{"zellij", "attach", sessionName}, true)
 	}
-
-	// Attach interactively to the (now-existing) session.
-	return podman.Exec(ctx, cName, []string{"zellij", "attach", sessionName}, true)
-}
-
-// ensureDefaultLayout checks if the container's Zellij config.kdl has
-// default_layout set. If not, appends it so background-created sessions
-// use the cc-deck layout (with sidebar plugin).
-func ensureDefaultLayout(ctx context.Context, containerName string) {
-	// Check if default_layout is already set.
-	checkCmd := exec.CommandContext(ctx, "podman", "exec", containerName,
-		"grep", "-q", "default_layout", "/home/dev/.config/zellij/config.kdl")
-	if checkCmd.Run() == nil {
-		return // Already configured
-	}
-
-	// Append default_layout to config.kdl.
-	appendCmd := exec.CommandContext(ctx, "podman", "exec", containerName,
-		"sh", "-c", `echo 'default_layout "cc-deck"' >> /home/dev/.config/zellij/config.kdl`)
-	_ = appendCmd.Run()
+	return podman.Exec(ctx, cName, []string{
+		"zellij", "--session", sessionName, "--layout", "cc-deck",
+	}, true)
 }
 
 // containerZellijSessionExists checks whether a Zellij session with the given
