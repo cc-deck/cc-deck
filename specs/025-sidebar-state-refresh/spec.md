@@ -9,7 +9,9 @@
 
 The plugin already persists sessions to `/cache/sessions.json` and restores them on load. It also broadcasts state via the `cc-deck:request` / `cc-deck:sync` protocol and removes dead sessions based on `PaneUpdate` manifests. Despite this, the sidebar shows "No Claude sessions" after reattach.
 
-The root cause is a **startup race condition**: after the plugin restores cached sessions, a `PaneUpdate` event arrives with a manifest that may not yet contain all terminal panes. The `remove_dead_sessions` function removes any cached session whose pane ID is not in the manifest, wiping the restored state before panes finish initializing.
+The root cause is a **startup race condition**: after the plugin restores cached sessions (at permission grant, `main.rs:248`), a `PaneUpdate` event arrives with a manifest that may not yet contain all terminal panes. The `remove_dead_sessions` function (`state.rs:146`) removes any cached session whose pane ID is not in the manifest, wiping the restored state before panes finish initializing.
+
+Note: `remove_dead_sessions` already guards against *completely empty* manifests (skips removal when zero terminal panes are present, `state.rs:167-171`). However, this guard is insufficient because partially populated manifests (some panes present, others not yet reported) still cause valid sessions to be removed.
 
 This feature addresses the race condition and adds reconciliation so that cached state accurately reflects live pane state after reattach.
 
@@ -86,8 +88,8 @@ After reattach, the sidebar shows cached activity states (e.g., "Working") that 
 
 ### Functional Requirements
 
-- **FR-001**: The plugin MUST NOT remove cached sessions based on pane manifest data during a startup grace period after plugin load, to avoid the race condition where the manifest is still incomplete.
-- **FR-002**: After the grace period, the plugin MUST reconcile cached sessions against the pane manifest, removing entries whose pane IDs are no longer present.
+- **FR-001**: The plugin MUST NOT remove cached sessions based on pane manifest data during a startup grace period after permission grant (when cached sessions are restored), to avoid the race condition where the manifest is still incomplete.
+- **FR-002**: After the grace period expires, the plugin MUST reconcile cached sessions against the pane manifest on the next `PaneUpdate`, removing entries whose pane IDs are no longer present. "Manifest stabilization" throughout this spec means the expiry of this grace period.
 - **FR-003**: The existing session persistence (save on every state change, restore on load) MUST continue to function correctly.
 - **FR-004**: The existing dead session cleanup via `PaneUpdate` manifests MUST continue to function correctly outside the grace period.
 - **FR-005**: The existing multi-instance sync protocol (`cc-deck:request` / `cc-deck:sync`) MUST continue to function correctly.
@@ -96,7 +98,7 @@ After reattach, the sidebar shows cached activity states (e.g., "Working") that 
 ### Key Entities
 
 - **Session Cache**: The existing persistent representation of the session map at `/cache/sessions.json`. Contains session entries keyed by pane ID with their last known state. Already implemented.
-- **Startup Grace Period**: A brief window after plugin load during which dead session cleanup is deferred, allowing the pane manifest to stabilize before reconciliation occurs.
+- **Startup Grace Period**: A brief window after permission grant during which dead session cleanup is deferred, allowing the pane manifest to stabilize before reconciliation occurs.
 
 ## Success Criteria *(mandatory)*
 
