@@ -1,6 +1,6 @@
 # cc-mux Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2026-03-20
+Auto-generated from all feature plans. Last updated: 2026-03-21
 
 ## Content Creation (MANDATORY)
 
@@ -42,6 +42,7 @@ When creating or editing ANY documentation content (AsciiDoc, Markdown, landing 
 - YAML file at `$XDG_STATE_HOME/cc-deck/state.yaml` (new), `$XDG_CONFIG_HOME/cc-deck/config.yaml` (existing, migration source) (023-env-interface)
 - Go 1.25 (from go.mod) + cobra v1.10.2 (CLI), adrg/xdg v0.5.3 (XDG paths), gopkg.in/yaml.v3 (YAML parsing), client-go v0.35.2 (K8s, existing) (024-container-env)
 - YAML files: `$XDG_CONFIG_HOME/cc-deck/environments.yaml` (definitions), `$XDG_STATE_HOME/cc-deck/state.yaml` (runtime state) (024-container-env)
+- WASI `/cache/sessions.json` (existing, unchanged) (025-sidebar-state-refresh)
 
 - Rust (stable, latest edition 2021+) + `zellij-tile` (plugin SDK), `serde`/`serde_json` (serialization) (001-cc-deck)
 
@@ -63,9 +64,9 @@ cargo test [ONLY COMMANDS FOR ACTIVE TECHNOLOGIES][ONLY COMMANDS FOR ACTIVE TECH
 Rust (stable, latest edition 2021+): Follow standard conventions
 
 ## Recent Changes
+- 025-sidebar-state-refresh: Added Rust stable (edition 2021, wasm32-wasip1 target) + zellij-tile 0.43.1, serde/serde_json 1.x
 - 024-container-env: Added Go 1.25 (from go.mod) + cobra v1.10.2 (CLI), adrg/xdg v0.5.3 (XDG paths), gopkg.in/yaml.v3 (YAML parsing), client-go v0.35.2 (K8s, existing)
 - 023-env-interface: Added Go 1.25 (from go.mod) + cobra v1.10.2 (CLI), adrg/xdg v0.5.3 (XDG paths), gopkg.in/yaml.v3 (YAML), client-go v0.35.2 (K8s, existing)
-- 022-network-filtering: Added Go 1.25 (existing project) + cobra (CLI), adrg/xdg (config paths), gopkg.in/yaml.v3 (YAML), client-go (K8s API)
 
 
 <!-- MANUAL ADDITIONS START -->

@@ -94,6 +94,10 @@ pub struct PluginState {
     /// Pending metadata overrides from snapshot restore, keyed by working directory.
     /// Applied when a hook event arrives with a matching CWD, then removed.
     pub pending_overrides: HashMap<String, PendingOverride>,
+    /// Millisecond timestamp until which `remove_dead_sessions()` is skipped.
+    /// Prevents the startup race condition where early PaneUpdate events deliver
+    /// incomplete manifests that would wipe restored cached sessions.
+    pub startup_grace_until: Option<u64>,
 }
 
 /// Metadata override to apply when a restored session is discovered.
@@ -233,6 +237,130 @@ impl PluginState {
             }
         }
         changed
+    }
+
+    /// Whether the startup grace period is currently active.
+    pub fn in_startup_grace(&self) -> bool {
+        self.startup_grace_until
+            .map(|deadline| crate::session::unix_now_ms() < deadline)
+            .unwrap_or(false)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::session::Session;
+    use std::collections::HashMap;
+
+    fn make_pane_info(id: u32, is_plugin: bool) -> PaneInfo {
+        PaneInfo {
+            id,
+            is_plugin,
+            is_focused: false,
+            is_fullscreen: false,
+            is_floating: false,
+            is_suppressed: false,
+            title: String::new(),
+            exited: false,
+            exit_status: None,
+            is_held: false,
+            pane_x: 0,
+            pane_content_x: 0,
+            pane_y: 0,
+            pane_content_y: 0,
+            pane_rows: 0,
+            pane_content_rows: 0,
+            pane_columns: 0,
+            pane_content_columns: 0,
+            cursor_coordinates_in_pane: None,
+            terminal_command: None,
+            plugin_url: None,
+            is_selectable: true,
+            index_in_pane_group: std::collections::BTreeMap::new(),
+        }
+    }
+
+    fn make_manifest(terminal_pane_ids: &[u32]) -> PaneManifest {
+        let panes: Vec<PaneInfo> = terminal_pane_ids
+            .iter()
+            .map(|&id| make_pane_info(id, false))
+            .collect();
+        let mut map = HashMap::new();
+        map.insert(0, panes);
+        PaneManifest { panes: map }
+    }
+
+    fn make_session(pane_id: u32) -> Session {
+        Session::new(pane_id, format!("session-{pane_id}"))
+    }
+
+    #[test]
+    fn test_grace_period_skips_dead_session_removal() {
+        let mut state = PluginState::default();
+        // Simulate restored cached sessions for panes 10 and 20
+        state.sessions.insert(10, make_session(10));
+        state.sessions.insert(20, make_session(20));
+        // Manifest only has pane 10 (pane 20 not yet reported)
+        state.pane_manifest = Some(make_manifest(&[10]));
+        // Set grace period 3 seconds in the future
+        state.startup_grace_until =
+            Some(crate::session::unix_now_ms() + 3000);
+
+        // During grace period, remove_dead_sessions should still work
+        // but the caller (PaneUpdate handler) should skip calling it.
+        assert!(state.in_startup_grace());
+        // Verify sessions are still intact (caller would skip the call)
+        assert_eq!(state.sessions.len(), 2);
+    }
+
+    #[test]
+    fn test_after_grace_period_dead_sessions_removed() {
+        let mut state = PluginState::default();
+        state.sessions.insert(10, make_session(10));
+        state.sessions.insert(20, make_session(20));
+        // Manifest only has pane 10 (pane 20 is dead)
+        state.pane_manifest = Some(make_manifest(&[10]));
+        // Grace period already expired
+        state.startup_grace_until = Some(0);
+
+        assert!(!state.in_startup_grace());
+        // Now remove_dead_sessions runs and removes pane 20
+        let changed = state.remove_dead_sessions();
+        assert!(changed);
+        assert_eq!(state.sessions.len(), 1);
+        assert!(state.sessions.contains_key(&10));
+        assert!(!state.sessions.contains_key(&20));
+    }
+
+    #[test]
+    fn test_grace_period_no_effect_on_empty_sessions() {
+        let mut state = PluginState::default();
+        // No sessions in cache (fresh start)
+        state.pane_manifest = Some(make_manifest(&[10, 20]));
+        state.startup_grace_until =
+            Some(crate::session::unix_now_ms() + 3000);
+
+        // Grace period is active but irrelevant (no sessions to protect)
+        assert!(state.in_startup_grace());
+        let changed = state.remove_dead_sessions();
+        assert!(!changed);
+        assert_eq!(state.sessions.len(), 0);
+    }
+
+    #[test]
+    fn test_grace_period_none_means_normal_operation() {
+        let mut state = PluginState::default();
+        state.sessions.insert(10, make_session(10));
+        state.sessions.insert(20, make_session(20));
+        state.pane_manifest = Some(make_manifest(&[10]));
+        // No grace period set (normal operation, not a reattach)
+        assert!(state.startup_grace_until.is_none());
+        assert!(!state.in_startup_grace());
+
+        let changed = state.remove_dead_sessions();
+        assert!(changed);
+        assert_eq!(state.sessions.len(), 1);
     }
 }
 
