@@ -22,6 +22,7 @@ type EnvironmentDefinition struct {
 	Storage     *StorageConfig  `yaml:"storage,omitempty"`
 	Ports       []string        `yaml:"ports,omitempty"`
 	Credentials []string        `yaml:"credentials,omitempty"`
+	Mounts      []string        `yaml:"mounts,omitempty"` // Bind mounts as "src:dst[:ro]" (container/compose only)
 }
 
 // DefinitionFile is the top-level structure of the environment definitions file.

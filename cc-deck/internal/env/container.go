@@ -185,7 +185,10 @@ func (e *ContainerEnvironment) Create(ctx context.Context, opts CreateOpts) erro
 		credentialKeys = append(credentialKeys, key)
 	}
 
-	// Add user-specified mounts.
+	// Add mounts from definition (if not overridden by CLI).
+	if len(e.Mounts) == 0 && def != nil {
+		e.Mounts = def.Mounts
+	}
 	for _, m := range e.Mounts {
 		volumes = append(volumes, m)
 	}
@@ -215,6 +218,7 @@ func (e *ContainerEnvironment) Create(ctx context.Context, opts CreateOpts) erro
 			Image:       image,
 			Ports:       ports,
 			Credentials: credentialKeys,
+			Mounts:      e.Mounts,
 		}
 		if storageType != "" {
 			envDef.Storage = &StorageConfig{
