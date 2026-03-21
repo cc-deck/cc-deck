@@ -135,3 +135,108 @@ func TestContainerEnvironment_DeleteBestEffort(t *testing.T) {
 	err := env.Delete(context.Background(), true)
 	assert.NoError(t, err)
 }
+
+// --- Auth mode detection tests ---
+
+func TestDetectAuthMode_Vertex(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_USE_VERTEX", "1")
+	t.Setenv("CLAUDE_CODE_USE_BEDROCK", "")
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	assert.Equal(t, AuthModeVertex, detectAuthMode())
+}
+
+func TestDetectAuthMode_Bedrock(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_USE_VERTEX", "")
+	t.Setenv("CLAUDE_CODE_USE_BEDROCK", "1")
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	assert.Equal(t, AuthModeBedrock, detectAuthMode())
+}
+
+func TestDetectAuthMode_API(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_USE_VERTEX", "")
+	t.Setenv("CLAUDE_CODE_USE_BEDROCK", "")
+	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+	assert.Equal(t, AuthModeAPI, detectAuthMode())
+}
+
+func TestDetectAuthMode_None(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_USE_VERTEX", "")
+	t.Setenv("CLAUDE_CODE_USE_BEDROCK", "")
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	assert.Equal(t, AuthModeNone, detectAuthMode())
+}
+
+func TestDetectAuthMode_VertexPrecedence(t *testing.T) {
+	// Vertex takes precedence over Bedrock and API key
+	t.Setenv("CLAUDE_CODE_USE_VERTEX", "1")
+	t.Setenv("CLAUDE_CODE_USE_BEDROCK", "1")
+	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+	assert.Equal(t, AuthModeVertex, detectAuthMode())
+}
+
+func TestDetectAuthCredentials_API(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-test-key")
+	creds := make(map[string]string)
+	detectAuthCredentials(AuthModeAPI, creds)
+	assert.Equal(t, "sk-ant-test-key", creds["ANTHROPIC_API_KEY"])
+}
+
+func TestDetectAuthCredentials_Vertex(t *testing.T) {
+	t.Setenv("ANTHROPIC_VERTEX_PROJECT_ID", "my-project")
+	t.Setenv("CLOUD_ML_REGION", "us-east5")
+	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", "/path/to/adc.json")
+	creds := make(map[string]string)
+	detectAuthCredentials(AuthModeVertex, creds)
+
+	assert.Equal(t, "1", creds["CLAUDE_CODE_USE_VERTEX"])
+	assert.Equal(t, "my-project", creds["ANTHROPIC_VERTEX_PROJECT_ID"])
+	assert.Equal(t, "us-east5", creds["CLOUD_ML_REGION"])
+	assert.Equal(t, "/path/to/adc.json", creds["GOOGLE_APPLICATION_CREDENTIALS"])
+}
+
+func TestDetectAuthCredentials_Bedrock(t *testing.T) {
+	t.Setenv("AWS_REGION", "us-east-1")
+	t.Setenv("AWS_ACCESS_KEY_ID", "AKIA-test")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "secret-test")
+	t.Setenv("AWS_SESSION_TOKEN", "token-test")
+	creds := make(map[string]string)
+	detectAuthCredentials(AuthModeBedrock, creds)
+
+	assert.Equal(t, "1", creds["CLAUDE_CODE_USE_BEDROCK"])
+	assert.Equal(t, "us-east-1", creds["AWS_REGION"])
+	assert.Equal(t, "AKIA-test", creds["AWS_ACCESS_KEY_ID"])
+	assert.Equal(t, "secret-test", creds["AWS_SECRET_ACCESS_KEY"])
+	assert.Equal(t, "token-test", creds["AWS_SESSION_TOKEN"])
+}
+
+func TestDetectAuthCredentials_ExplicitOverridesAuto(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "auto-detected-key")
+	creds := map[string]string{
+		"ANTHROPIC_API_KEY": "explicit-key",
+	}
+	detectAuthCredentials(AuthModeAPI, creds)
+	// Explicit value should NOT be overwritten
+	assert.Equal(t, "explicit-key", creds["ANTHROPIC_API_KEY"])
+}
+
+func TestDetectAuthCredentials_ModelPinning(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "sk-test")
+	t.Setenv("ANTHROPIC_DEFAULT_SONNET_MODEL", "claude-sonnet-4-20250514")
+	t.Setenv("ANTHROPIC_DEFAULT_OPUS_MODEL", "")
+	creds := make(map[string]string)
+	detectAuthCredentials(AuthModeAPI, creds)
+
+	assert.Equal(t, "claude-sonnet-4-20250514", creds["ANTHROPIC_DEFAULT_SONNET_MODEL"])
+	_, hasOpus := creds["ANTHROPIC_DEFAULT_OPUS_MODEL"]
+	assert.False(t, hasOpus, "empty env vars should not be injected")
+}
+
+// --- Auth mode constants ---
+
+func TestAuthModeConstants(t *testing.T) {
+	assert.Equal(t, AuthMode("auto"), AuthModeAuto)
+	assert.Equal(t, AuthMode("none"), AuthModeNone)
+	assert.Equal(t, AuthMode("api"), AuthModeAPI)
+	assert.Equal(t, AuthMode("vertex"), AuthModeVertex)
+	assert.Equal(t, AuthMode("bedrock"), AuthModeBedrock)
+}

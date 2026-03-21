@@ -356,7 +356,59 @@ podman inspect cc-deck-test-config --format '{{.Config.Image}}'
 ccd env delete test-config --force
 ```
 
-## 11. Error Cases
+## 11. Auth Auto-Detection
+
+### 11a. API key mode (default for most users)
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-test-walkthrough
+ccd env create test-auth-api --type container --image fedora:latest
+# Expected: auto-detects API mode, injects ANTHROPIC_API_KEY
+podman exec cc-deck-test-auth-api env | grep ANTHROPIC_API_KEY
+# Expected: ANTHROPIC_API_KEY=sk-ant-test-walkthrough
+ccd env delete test-auth-api --force
+unset ANTHROPIC_API_KEY
+```
+
+### 11b. Vertex AI mode
+
+```bash
+export CLAUDE_CODE_USE_VERTEX=1
+export ANTHROPIC_VERTEX_PROJECT_ID=my-test-project
+export CLOUD_ML_REGION=us-east5
+ccd env create test-auth-vertex --type container --image fedora:latest
+podman exec cc-deck-test-auth-vertex env | grep -E "VERTEX|CLOUD_ML"
+# Expected: CLAUDE_CODE_USE_VERTEX=1, ANTHROPIC_VERTEX_PROJECT_ID=my-test-project, CLOUD_ML_REGION=us-east5
+ccd env delete test-auth-vertex --force
+unset CLAUDE_CODE_USE_VERTEX ANTHROPIC_VERTEX_PROJECT_ID CLOUD_ML_REGION
+```
+
+### 11c. Explicit auth mode override
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-test
+ccd env create test-auth-none --type container --image fedora:latest --auth none
+podman exec cc-deck-test-auth-none env | grep ANTHROPIC_API_KEY
+# Expected: empty (no auth passthrough with --auth none)
+ccd env delete test-auth-none --force
+unset ANTHROPIC_API_KEY
+```
+
+## 12. Bind Mounts
+
+```bash
+# Mount a host directory into the container
+mkdir -p ~/cc-deck-mount-test
+echo "mounted" > ~/cc-deck-mount-test/marker.txt
+ccd env create test-mount --type container --image fedora:latest \
+  --mount ~/cc-deck-mount-test:/mnt/test:ro
+podman exec cc-deck-test-mount cat /mnt/test/marker.txt
+# Expected: mounted
+ccd env delete test-mount --force
+rm -rf ~/cc-deck-mount-test
+```
+
+## 13. Error Cases
 
 ### Podman not available
 
@@ -383,7 +435,7 @@ ccd env harvest test-bind
 
 ```bash
 # Remove all test environments
-for name in test-bind test-cwd test-ports test-creds test-autodetect; do
+for name in test-bind test-cwd test-ports test-creds test-autodetect test-auth-api test-auth-vertex test-auth-none test-mount; do
   ccd env delete "$name" --force 2>/dev/null
 done
 
@@ -434,3 +486,7 @@ unalias ccd
 | Podman not available | - | FR-001 | |
 | Invalid name | - | FR-001 | |
 | Harvest not supported | - | FR-016 | |
+| Auth auto-detect API | - | - | |
+| Auth auto-detect Vertex | - | - | |
+| Auth none (opt-out) | - | - | |
+| Bind mount (--mount) | - | - | |
