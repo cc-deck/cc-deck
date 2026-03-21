@@ -301,21 +301,36 @@ func (e *ContainerEnvironment) Attach(ctx context.Context) error {
 
 	// Check if a Zellij session already exists inside the container.
 	if !containerZellijSessionExists(ctx, cName, sessionName) {
-		// Create session in background with the cc-deck layout (sidebar plugin).
-		// Try with --layout first; fall back without it if not supported.
+		// Ensure config.kdl has default_layout set to cc-deck so that
+		// background-created sessions load the sidebar plugin.
+		ensureDefaultLayout(ctx, cName)
+
+		// Create session in background. The layout is picked up from
+		// config.kdl's default_layout setting.
 		createCmd := exec.CommandContext(ctx, "podman", "exec", cName,
-			"zellij", "attach", "--create-background", sessionName, "--layout", "cc-deck")
-		if _, err := createCmd.CombinedOutput(); err != nil {
-			// Fallback: create without layout (--layout might not be
-			// supported on attach in all Zellij versions).
-			fallback := exec.CommandContext(ctx, "podman", "exec", cName,
-				"zellij", "attach", "--create-background", sessionName)
-			_, _ = fallback.CombinedOutput()
-		}
+			"zellij", "attach", "--create-background", sessionName)
+		_, _ = createCmd.CombinedOutput()
 	}
 
 	// Attach interactively to the (now-existing) session.
 	return podman.Exec(ctx, cName, []string{"zellij", "attach", sessionName}, true)
+}
+
+// ensureDefaultLayout checks if the container's Zellij config.kdl has
+// default_layout set. If not, appends it so background-created sessions
+// use the cc-deck layout (with sidebar plugin).
+func ensureDefaultLayout(ctx context.Context, containerName string) {
+	// Check if default_layout is already set.
+	checkCmd := exec.CommandContext(ctx, "podman", "exec", containerName,
+		"grep", "-q", "default_layout", "/home/dev/.config/zellij/config.kdl")
+	if checkCmd.Run() == nil {
+		return // Already configured
+	}
+
+	// Append default_layout to config.kdl.
+	appendCmd := exec.CommandContext(ctx, "podman", "exec", containerName,
+		"sh", "-c", `echo 'default_layout "cc-deck"' >> /home/dev/.config/zellij/config.kdl`)
+	_ = appendCmd.Run()
 }
 
 // containerZellijSessionExists checks whether a Zellij session with the given
