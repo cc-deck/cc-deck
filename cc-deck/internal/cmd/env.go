@@ -232,6 +232,17 @@ func runEnvDelete(name string, force bool, keepVolumes bool) error {
 
 	e, err := resolveEnvironment(name, store, defs)
 	if err != nil {
+		// No state record found. Try to clean up orphaned podman resources
+		// (container/volume) that match the naming convention. This handles
+		// the case where state was lost (e.g., XDG path migration) but
+		// podman resources still exist.
+		cleaned := env.CleanupOrphanedContainer(cmd_context(), name, keepVolumes)
+		if cleaned {
+			// Also remove definition if it exists.
+			_ = defs.Remove(name)
+			fmt.Fprintf(os.Stdout, "Environment %q cleaned up (orphaned resources removed)\n", name)
+			return nil
+		}
 		return err
 	}
 

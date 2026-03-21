@@ -551,6 +551,30 @@ func ReconcileContainerEnvs(store *FileStateStore, defs *DefinitionStore) error 
 	return nil
 }
 
+// CleanupOrphanedContainer removes podman resources that match the cc-deck
+// naming convention for the given environment name. Used when state records
+// are missing but podman resources still exist. Returns true if any
+// resources were found and cleaned up.
+func CleanupOrphanedContainer(ctx context.Context, envName string, keepVolumes bool) bool {
+	cName := containerName(envName)
+	vName := volumeName(envName)
+	cleaned := false
+
+	// Check if container exists.
+	if info, _ := podman.Inspect(ctx, cName); info != nil {
+		_ = podman.Remove(ctx, cName, true)
+		cleaned = true
+	}
+
+	// Check if volume exists.
+	if !keepVolumes && podman.VolumeExists(ctx, vName) {
+		_ = podman.VolumeRemove(ctx, vName)
+		cleaned = true
+	}
+
+	return cleaned
+}
+
 // detectAuthMode determines which Claude Code authentication mode the host
 // is using by checking environment variables.
 func detectAuthMode() AuthMode {
