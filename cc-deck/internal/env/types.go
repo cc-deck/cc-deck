@@ -8,7 +8,8 @@ type EnvironmentType string
 const (
 	EnvironmentTypeLocal     EnvironmentType = "local"
 	EnvironmentTypeContainer EnvironmentType = "container"
-	EnvironmentTypeK8sDeploy EnvironmentType = "k8s-deploy"
+	EnvironmentTypeCompose    EnvironmentType = "compose"
+	EnvironmentTypeK8sDeploy  EnvironmentType = "k8s-deploy"
 	EnvironmentTypeK8sSandbox EnvironmentType = "k8s-sandbox"
 )
 
@@ -75,6 +76,13 @@ type ContainerFields struct {
 	Ports         []string `yaml:"ports,omitempty"`
 }
 
+// ComposeFields holds compose-specific fields for a compose environment.
+type ComposeFields struct {
+	ProjectDir    string `yaml:"project_dir"`
+	ContainerName string `yaml:"container_name"`
+	ProxyName     string `yaml:"proxy_name,omitempty"`
+}
+
 // SandboxFields holds fields for a K8sSandbox environment.
 type SandboxFields struct {
 	Namespace  string     `yaml:"namespace,omitempty"`
@@ -104,10 +112,12 @@ type EnvironmentRecord struct {
 // DefinitionStore.
 type EnvironmentInstance struct {
 	Name         string            `yaml:"name"`
+	Type         EnvironmentType   `yaml:"type"`
 	State        EnvironmentState  `yaml:"state"`
 	CreatedAt    time.Time         `yaml:"created_at"`
 	LastAttached *time.Time        `yaml:"last_attached,omitempty"`
 	Container    *ContainerFields  `yaml:"container,omitempty"`
+	Compose      *ComposeFields    `yaml:"compose,omitempty"`
 	K8s          *K8sFields        `yaml:"k8s,omitempty"`
 	Sandbox      *SandboxFields    `yaml:"sandbox,omitempty"`
 }

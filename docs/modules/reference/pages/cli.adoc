@@ -332,7 +332,8 @@ Create a new environment.
 cc-deck env create mydev
 cc-deck env create mydev --type container --image quay.io/cc-deck/cc-deck-demo:latest
 cc-deck env create mydev --type container --port 8080:80 --credential ANTHROPIC_API_KEY=sk-ant-...
-cc-deck env create mydev --type container --storage host-path --path ~/projects/myapp
+cc-deck env create mydev --type compose --allowed-domains anthropic,github --gitignore
+cc-deck env create mydev --type compose --path ~/projects/myapp
 ----
 
 [cols="1,1,3"]
@@ -341,31 +342,47 @@ cc-deck env create mydev --type container --storage host-path --path ~/projects/
 
 | `--type`
 | `-t`
-| Environment type: `local` (default), `container`, `k8s-deploy`, `k8s-sandbox`
+| Environment type: `local` (default), `container`, `compose`, `k8s-deploy`, `k8s-sandbox`
 
 | `--image`
 |
-| Container image to use
+| Container image to use (container, compose)
 
 | `--port`
 | `-p`
-| Port mapping (host:container), repeatable
+| Port mapping (host:container), repeatable (container, compose)
 
 | `--all-ports`
 |
-| Expose all container ports
+| Expose all container ports (container)
 
 | `--storage`
 |
-| Storage type: `named-volume` (default), `host-path`, `empty-dir`
+| Storage type: `named-volume` (container default), `host-path` (compose default)
 
 | `--path`
 |
-| Host path for `host-path` storage
+| Project directory (compose: defaults to cwd)
 
 | `--credential`
 |
-| Credential as `KEY=VALUE`, repeatable
+| Credential as `KEY=VALUE`, repeatable (container, compose)
+
+| `--mount`
+|
+| Bind mount as `src:dst[:ro]`, repeatable (container, compose)
+
+| `--auth`
+|
+| Auth mode: `auto` (default), `none`, `api`, `vertex`, `bedrock` (container, compose)
+
+| `--allowed-domains`
+|
+| Domain groups for network filtering, repeatable (compose only)
+
+| `--gitignore`
+|
+| Auto-add `.cc-deck/` to `.gitignore` (compose only)
 |===
 
 ==== env attach
