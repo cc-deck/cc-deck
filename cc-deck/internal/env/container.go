@@ -138,6 +138,12 @@ func (e *ContainerEnvironment) Create(ctx context.Context, opts CreateOpts) erro
 
 	cName := containerName(e.name)
 
+	// Remove any existing container with the same name (orphaned from a
+	// previous run or failed cleanup).
+	if info, _ := podman.Inspect(ctx, cName); info != nil {
+		_ = podman.Remove(ctx, cName, true)
+	}
+
 	// Create volume if using named-volume storage.
 	var volumes []string
 	switch storageType {
