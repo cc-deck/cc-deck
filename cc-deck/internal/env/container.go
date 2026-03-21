@@ -297,29 +297,29 @@ func (e *ContainerEnvironment) Attach(ctx context.Context) error {
 	_ = e.store.UpdateInstance(inst)
 
 	cName := containerName(e.name)
-	sessionName := "cc-deck"
 
-	// If session already exists, just attach.
-	// If not, start Zellij with the cc-deck layout (creates session + attaches).
-	if containerZellijSessionExists(ctx, cName, sessionName) {
-		return podman.Exec(ctx, cName, []string{"zellij", "attach", sessionName}, true)
+	// If any Zellij session exists inside the container, attach to it.
+	// Otherwise, create a new session using the cc-deck layout (sidebar plugin).
+	// Uses -n (--new-session-with-layout) which reliably starts with the layout.
+	if containerHasZellijSession(ctx, cName) {
+		return podman.Exec(ctx, cName, []string{"zellij", "attach"}, true)
 	}
 	return podman.Exec(ctx, cName, []string{
-		"zellij", "--session", sessionName, "--layout", "cc-deck",
+		"zellij", "-n", "cc-deck",
 	}, true)
 }
 
-// containerZellijSessionExists checks whether a Zellij session with the given
-// name is running inside the container.
-func containerZellijSessionExists(ctx context.Context, containerName, sessionName string) bool {
+// containerHasZellijSession checks whether any active (non-exited) Zellij
+// session is running inside the container.
+func containerHasZellijSession(ctx context.Context, containerName string) bool {
 	cmd := exec.CommandContext(ctx, "podman", "exec", containerName, "zellij", "list-sessions", "-n")
 	out, err := cmd.Output()
 	if err != nil {
 		return false
 	}
 	for _, line := range strings.Split(string(out), "\n") {
-		fields := strings.Fields(strings.TrimSpace(line))
-		if len(fields) > 0 && fields[0] == sessionName && !strings.Contains(line, "(EXITED") {
+		line = strings.TrimSpace(line)
+		if line != "" && !strings.Contains(line, "(EXITED") {
 			return true
 		}
 	}
