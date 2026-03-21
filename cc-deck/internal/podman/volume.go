@@ -5,9 +5,13 @@ import (
 	"strings"
 )
 
-// VolumeCreate creates a named volume.
+// VolumeCreate creates a named volume. If the volume already exists, it is
+// not an error (idempotent).
 func VolumeCreate(ctx context.Context, name string) error {
 	_, err := run(ctx, "volume", "create", name)
+	if err != nil && strings.Contains(err.Error(), "already exists") {
+		return nil
+	}
 	return err
 }
 
