@@ -249,6 +249,10 @@ impl ZellijPlugin for PluginState {
                 let restored = sync::restore_sessions();
                 if !restored.is_empty() {
                     self.merge_sessions(restored);
+                    // Defer dead session cleanup for 3 seconds to let the
+                    // pane manifest stabilize before reconciliation.
+                    self.startup_grace_until =
+                        Some(session::unix_now_ms() + 3000);
                 }
                 sync::request_state();
                 sync::apply_session_meta(&mut self.sessions);
@@ -717,7 +721,12 @@ impl PluginState {
             Event::PaneUpdate(manifest) => {
                 self.pane_manifest = Some(manifest);
                 self.rebuild_pane_map();
-                self.remove_dead_sessions();
+                // Skip dead session cleanup during startup grace period
+                // to avoid wiping restored cached sessions before the
+                // pane manifest is fully populated.
+                if !self.in_startup_grace() {
+                    self.remove_dead_sessions();
+                }
                 self.preserve_cursor();
 
                 // Exit navigation mode if a terminal pane gained focus
