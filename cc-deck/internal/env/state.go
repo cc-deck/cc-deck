@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/adrg/xdg"
+	"github.com/cc-deck/cc-deck/internal/xdg"
 	"gopkg.in/yaml.v3"
 )
 
@@ -44,13 +44,13 @@ func (s *FileStateStore) Path() string {
 }
 
 // Load reads and parses the state file. If the file does not exist, an
-// empty StateFile with Version=1 is returned. If the file is corrupted,
+// empty StateFile with Version=2 is returned. If the file is corrupted,
 // a warning is logged and an empty state is returned.
 func (s *FileStateStore) Load() (*StateFile, error) {
 	data, err := os.ReadFile(s.path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return &StateFile{Version: 1}, nil
+			return &StateFile{Version: 2}, nil
 		}
 		return nil, fmt.Errorf("reading state file: %w", err)
 	}
@@ -58,11 +58,11 @@ func (s *FileStateStore) Load() (*StateFile, error) {
 	var state StateFile
 	if err := yaml.Unmarshal(data, &state); err != nil {
 		log.Printf("WARNING: corrupted state file %s: %v; returning empty state", s.path, err)
-		return &StateFile{Version: 1}, nil
+		return &StateFile{Version: 2}, nil
 	}
 
 	if state.Version == 0 {
-		state.Version = 1
+		state.Version = 2
 	}
 
 	return &state, nil
@@ -180,6 +180,92 @@ func (s *FileStateStore) List(filter *ListFilter) ([]*EnvironmentRecord, error) 
 			continue
 		}
 		result = append(result, &state.Environments[i])
+	}
+
+	return result, nil
+}
+
+// FindInstanceByName loads the state and returns the instance with the given
+// name, or ErrNotFound if no such instance exists.
+func (s *FileStateStore) FindInstanceByName(name string) (*EnvironmentInstance, error) {
+	state, err := s.Load()
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range state.Instances {
+		if state.Instances[i].Name == name {
+			return &state.Instances[i], nil
+		}
+	}
+
+	return nil, fmt.Errorf("instance %q: %w", name, ErrNotFound)
+}
+
+// AddInstance appends a new environment instance to the state file. Returns
+// ErrNameConflict if an instance with the same name already exists.
+func (s *FileStateStore) AddInstance(inst *EnvironmentInstance) error {
+	state, err := s.Load()
+	if err != nil {
+		return err
+	}
+
+	for _, existing := range state.Instances {
+		if existing.Name == inst.Name {
+			return fmt.Errorf("instance %q: %w", inst.Name, ErrNameConflict)
+		}
+	}
+
+	state.Instances = append(state.Instances, *inst)
+	return s.Save(state)
+}
+
+// UpdateInstance replaces an existing environment instance matched by name.
+// Returns ErrNotFound if no instance with the given name exists.
+func (s *FileStateStore) UpdateInstance(inst *EnvironmentInstance) error {
+	state, err := s.Load()
+	if err != nil {
+		return err
+	}
+
+	for i := range state.Instances {
+		if state.Instances[i].Name == inst.Name {
+			state.Instances[i] = *inst
+			return s.Save(state)
+		}
+	}
+
+	return fmt.Errorf("instance %q: %w", inst.Name, ErrNotFound)
+}
+
+// RemoveInstance deletes an environment instance by name. Returns ErrNotFound
+// if no instance with the given name exists.
+func (s *FileStateStore) RemoveInstance(name string) error {
+	state, err := s.Load()
+	if err != nil {
+		return err
+	}
+
+	for i := range state.Instances {
+		if state.Instances[i].Name == name {
+			state.Instances = append(state.Instances[:i], state.Instances[i+1:]...)
+			return s.Save(state)
+		}
+	}
+
+	return fmt.Errorf("instance %q: %w", name, ErrNotFound)
+}
+
+// ListInstances returns all environment instances from the state file.
+func (s *FileStateStore) ListInstances() ([]*EnvironmentInstance, error) {
+	state, err := s.Load()
+	if err != nil {
+		return nil, err
+	}
+
+	var result []*EnvironmentInstance
+	for i := range state.Instances {
+		result = append(result, &state.Instances[i])
 	}
 
 	return result, nil

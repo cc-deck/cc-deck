@@ -383,3 +383,4 @@ cc-deck follows [Spec-Driven Development](CONTRIBUTING.md#spec-driven-developmen
 | [021](specs/021-release-process/) | Release Process | Implemented |
 | [022](specs/022-network-filtering/) | Network Security & Domain Filtering | In Progress |
 | [023](specs/023-env-interface/) | Environment Interface and CLI | Planned |
+| [024](specs/024-container-env/) | Container Environment | `podman run` lifecycle, definition/state separation, podman package | Implemented |

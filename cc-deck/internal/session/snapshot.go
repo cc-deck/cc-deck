@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/adrg/xdg"
+	"github.com/cc-deck/cc-deck/internal/xdg"
 )
 
 const sessionsDirName = "cc-deck/sessions"

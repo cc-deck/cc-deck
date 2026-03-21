@@ -1,6 +1,7 @@
 # Contract: Environment Interface
 
 **Feature**: 023-env-interface | **Date**: 2026-03-20
+**Updated**: 2026-03-21 (added behavioral requirements)
 
 ## Go Interface
 
@@ -31,6 +32,37 @@ type Environment interface {
     Harvest(ctx context.Context, opts HarvestOpts) error
 }
 ```
+
+## Behavioral Requirements
+
+All implementations MUST satisfy these behaviors regardless of environment type.
+These are cross-cutting concerns that ensure a consistent user experience.
+
+### Attach
+
+1. **Nested Zellij check**: MUST detect if the host terminal is already inside Zellij (`$ZELLIJ` env var). If so, print a warning and return without attaching.
+2. **Session creation with layout**: MUST create the Zellij session with `--layout cc-deck` if the session does not already exist. This ensures the cc-deck sidebar plugin is loaded. Use `--create-background` for initial creation, then attach separately.
+3. **Auto-start**: If the environment is stopped, MUST start it before attaching (FR-018).
+4. **Timestamp update**: MUST update `LastAttached` in the state store.
+5. **Session naming**: The Zellij session name MUST follow the environment's naming convention (local: `cc-deck-<name>`, container: always `cc-deck` per container isolation).
+
+### Create
+
+1. **Name validation**: MUST call `ValidateEnvName()`.
+2. **Tool availability**: MUST check that the required tool is available (Zellij for local, podman for container) and return the appropriate error.
+3. **State recording**: MUST write to the state store on success.
+4. **Cleanup on failure**: MUST clean up partially created resources if creation fails partway through.
+
+### Delete
+
+1. **Running check**: MUST refuse to delete a running environment unless `force` is true.
+2. **Best-effort cleanup**: MUST attempt to clean up all associated resources. Partial cleanup failures MUST be reported as warnings (log), not errors (return).
+3. **State removal**: MUST remove the record from the state store.
+
+### Status
+
+1. **Reconciliation**: MUST reconcile stored state against actual runtime state (Zellij sessions for local, podman inspect for container).
+2. **Session info**: SHOULD populate session information for running environments when available.
 
 ## CreateOpts
 
