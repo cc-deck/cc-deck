@@ -69,4 +69,32 @@ Rust (stable, latest edition 2021+): Follow standard conventions
 
 
 <!-- MANUAL ADDITIONS START -->
+
+## Constitution Principles (ALWAYS ENFORCED)
+
+These rules apply to ALL code changes, whether from a spec workflow or ad-hoc.
+Full constitution at `.specify/memory/constitution.md`.
+
+### Every feature MUST include tests and documentation
+
+A feature is NOT complete until:
+1. **Tests** exist for the new code (unit tests at minimum, integration tests when touching external tools)
+2. **README.md** is updated with user-facing changes
+3. **CLI reference** (`docs/modules/reference/pages/cli.adoc`) covers new commands/flags
+4. **Antora docs** have a guide page for substantial features
+5. All documentation uses the **prose plugin** with the `cc-deck` voice profile
+
+### Interface implementations MUST satisfy behavioral contracts
+
+When implementing a new backend for an existing interface (e.g., new Environment type):
+1. Read the existing implementation(s) to understand full behavior
+2. Cross-reference `specs/023-env-interface/contracts/environment-interface.md` for behavioral requirements
+3. If the contract lacks requirements for a behavior you see in existing code, add them before implementing
+
+### Build and tool rules
+
+- **NEVER** run `go build` or `cargo build` directly. Use `make install`, `make test`, `make lint`
+- XDG paths: Use `internal/xdg` package (NOT `adrg/xdg`). Paths are `~/.config/cc-deck/` and `~/.local/state/cc-deck/` on all platforms
+- Container runtime: Use `podman` exclusively (never Docker)
+
 <!-- MANUAL ADDITIONS END -->
