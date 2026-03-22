@@ -375,6 +375,10 @@ impl ZellijPlugin for PluginState {
                                         self.updating_tabs = true;
                                     }
                                 }
+                            } else {
+                                if let Some(s) = self.sessions.get_mut(&pane) {
+                                    s.pending_tab_rename = true;
+                                }
                             }
                             sync::write_session_meta(&self.sessions);
                         } else {
@@ -406,6 +410,12 @@ impl ZellijPlugin for PluginState {
                                             auto_rename_tab(tab_idx, &s.display_name);
                                             self.updating_tabs = true;
                                         }
+                                    }
+                                } else {
+                                    // tab_index not yet available; defer rename
+                                    // until rebuild_pane_map populates it.
+                                    if let Some(s) = self.sessions.get_mut(&pane) {
+                                        s.pending_tab_rename = true;
                                     }
                                 }
                             }

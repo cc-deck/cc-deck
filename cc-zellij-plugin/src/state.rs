@@ -134,11 +134,30 @@ impl PluginState {
                 }
             }
         }
-        // Refresh tab info on all sessions
+        // Refresh tab info on all sessions and process deferred tab renames.
+        let mut pending_renames: Vec<(usize, String)> = Vec::new();
         for session in self.sessions.values_mut() {
             if let Some((idx, name)) = self.pane_to_tab.get(&session.pane_id) {
                 session.tab_index = Some(*idx);
                 session.tab_name = Some(name.clone());
+                if session.pending_tab_rename {
+                    session.pending_tab_rename = false;
+                    pending_renames.push((*idx, session.display_name.clone()));
+                }
+            }
+        }
+        // Issue deferred tab renames now that tab_index is available.
+        // Only rename if the session is the sole one on its tab.
+        for (tab_idx, _display_name) in &pending_renames {
+            let sessions_on_tab = self.sessions.values()
+                .filter(|s| s.tab_index == Some(*tab_idx))
+                .count();
+            if sessions_on_tab == 1 {
+                #[cfg(target_family = "wasm")]
+                {
+                    zellij_tile::prelude::rename_tab(*tab_idx as u32 + 1, _display_name);
+                }
+                self.updating_tabs = true;
             }
         }
     }
