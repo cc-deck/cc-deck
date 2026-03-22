@@ -112,8 +112,8 @@ func TestGenerate_WithCredentialVolumeMounts(t *testing.T) {
 		SessionName: "test-session",
 		ImageRef:    "quay.io/cc-deck/demo:latest",
 		Volumes: []string{
-			"./..:/workspace:U",
-			"/home/user/.config/gcloud/adc.json:/run/secrets/google-application-credentials:ro,U",
+			"./..:/workspace",
+			"/home/user/.config/gcloud/adc.json:/run/secrets/google-application-credentials:ro",
 		},
 	})
 	require.NoError(t, err)
@@ -123,7 +123,8 @@ func TestGenerate_WithCredentialVolumeMounts(t *testing.T) {
 
 	session := cf.Services["session"]
 	assert.Contains(t, session.Volumes,
-		"/home/user/.config/gcloud/adc.json:/run/secrets/google-application-credentials:ro,U")
+		"/home/user/.config/gcloud/adc.json:/run/secrets/google-application-credentials:ro")
+	assert.Equal(t, "keep-id", session.UserNSMode)
 }
 
 func TestGenerate_WithPorts(t *testing.T) {
