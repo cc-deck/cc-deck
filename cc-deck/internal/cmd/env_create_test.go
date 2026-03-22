@@ -9,8 +9,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
-
 	"github.com/cc-deck/cc-deck/internal/env"
 )
 
@@ -75,7 +73,7 @@ func TestRunEnvCreate_ResolvesNameFromDefinition(t *testing.T) {
 	assert.Equal(t, "cc-deck-my-test-api", status.ContainerName)
 }
 
-func TestRunEnvCreate_AutoScaffoldWhenNoDefinition(t *testing.T) {
+func TestRunEnvCreate_ScaffoldsDefinitionWhenMissing(t *testing.T) {
 	tmpDir := t.TempDir()
 	require.NoError(t, exec.Command("git", "init", tmpDir).Run())
 
@@ -91,19 +89,15 @@ func TestRunEnvCreate_AutoScaffoldWhenNoDefinition(t *testing.T) {
 	cmd, cf := newTestCreateCmd()
 	require.NoError(t, cmd.Flags().Set("type", "local"))
 
-	// No name, no definition. Should auto-scaffold.
+	// No name, no definition. Should scaffold + create.
 	err := runEnvCreate(nil, "", cf, cmd)
 	require.NoError(t, err)
 
-	// Verify environment.yaml was scaffolded.
-	defPath := filepath.Join(tmpDir, ".cc-deck", "environment.yaml")
-	data, err := os.ReadFile(defPath)
-	require.NoError(t, err)
-
-	var savedDef env.EnvironmentDefinition
-	require.NoError(t, yaml.Unmarshal(data, &savedDef))
-	assert.Equal(t, filepath.Base(tmpDir), savedDef.Name)
-	assert.Equal(t, env.EnvironmentTypeLocal, savedDef.Type)
+	// Verify definition was scaffolded.
+	def, loadErr := env.LoadProjectDefinition(tmpDir)
+	require.NoError(t, loadErr)
+	assert.Equal(t, filepath.Base(tmpDir), def.Name)
+	assert.Equal(t, env.EnvironmentTypeLocal, def.Type)
 }
 
 func TestRunEnvCreate_CLIOverrideStoredInStatusYaml(t *testing.T) {
