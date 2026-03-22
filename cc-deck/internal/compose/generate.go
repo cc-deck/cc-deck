@@ -93,6 +93,7 @@ type composeVolumeDecl struct {
 type composeService struct {
 	Image         string            `yaml:"image"`
 	ContainerName string            `yaml:"container_name,omitempty"`
+	UserNSMode    string            `yaml:"userns_mode,omitempty"`
 	Networks      []string          `yaml:"networks,omitempty"`
 	Environment   map[string]string `yaml:"environment,omitempty"`
 	EnvFile       []string          `yaml:"env_file,omitempty"`
@@ -122,6 +123,7 @@ func generateComposeYAML(opts GenerateOptions, proxyImage string, proxyPort int,
 	sessionSvc := composeService{
 		Image:         opts.ImageRef,
 		ContainerName: opts.SessionName,
+		UserNSMode:    "keep-id",
 		EnvFile:       []string{"env"},
 		Environment:   sessionEnv,
 		Volumes:       opts.Volumes,

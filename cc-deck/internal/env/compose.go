@@ -192,9 +192,10 @@ func (e *ComposeEnvironment) Create(ctx context.Context, opts CreateOpts) error 
 	var volumes []string
 	switch storageType {
 	case StorageTypeHostPath:
-		// Bind mount project dir at /workspace with :U to auto-map ownership
-		// to the container user (podman-specific, fixes macOS UID mismatch).
-		volumes = append(volumes, "./../..:/workspace:U")
+		// Bind mount project dir at /workspace. UID mapping is handled by
+		// userns_mode: keep-id in the compose service, so no :U flag needed
+		// (which would fail on read-only files like .git/objects/pack/).
+		volumes = append(volumes, "./../..:/workspace")
 	case StorageTypeNamedVolume:
 		vName := volumeName(e.name)
 		if err := podman.VolumeCreate(ctx, vName); err != nil {
@@ -224,7 +225,7 @@ func (e *ComposeEnvironment) Create(ctx context.Context, opts CreateOpts) error 
 		if info, statErr := os.Stat(val); statErr == nil && !info.IsDir() {
 			secretName := strings.ToLower(strings.ReplaceAll(key, "_", "-"))
 			containerPath := "/run/secrets/" + secretName
-			volumes = append(volumes, val+":"+containerPath+":ro,U")
+			volumes = append(volumes, val+":"+containerPath+":ro")
 			envLines = append(envLines, fmt.Sprintf("%s=%s", key, containerPath))
 		} else {
 			envLines = append(envLines, fmt.Sprintf("%s=%s", key, val))
@@ -624,11 +625,22 @@ func ReconcileComposeEnvs(store *FileStateStore) error {
 }
 
 // composeUp runs podman-compose up -d in the .cc-deck/ directory.
+// It first tears down any stale resources from a previous run to avoid
+// conflicts with orphaned containers, pods, or networks.
 func (e *ComposeEnvironment) composeUp(ctx context.Context, runtime string) error {
 	cmdParts := compose.RuntimeCmd(runtime)
-	args := append(cmdParts[1:], "-f", e.composeFilePath(), "up", "-d")
+	composePath := e.composeFilePath()
+	dir := e.composeProjectDir()
+
+	// Tear down stale resources (best-effort).
+	downArgs := append(cmdParts[1:], "-f", composePath, "down", "--remove-orphans")
+	downCmd := exec.CommandContext(ctx, cmdParts[0], downArgs...)
+	downCmd.Dir = dir
+	_ = downCmd.Run()
+
+	args := append(cmdParts[1:], "-f", composePath, "up", "-d", "--force-recreate", "--remove-orphans")
 	cmd := exec.CommandContext(ctx, cmdParts[0], args...)
-	cmd.Dir = e.composeProjectDir()
+	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%s: %s", err, string(out))
