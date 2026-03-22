@@ -157,6 +157,68 @@ func TestGenerate_StdinAndTTY(t *testing.T) {
 	assert.True(t, session.TTY, "tty should always be true")
 }
 
+func TestGenerate_UserNSModeAlwaysSet(t *testing.T) {
+	tests := []struct {
+		name string
+		opts GenerateOptions
+	}{
+		{
+			name: "minimal",
+			opts: GenerateOptions{SessionName: "s1", ImageRef: "img:latest"},
+		},
+		{
+			name: "with volumes",
+			opts: GenerateOptions{
+				SessionName: "s1",
+				ImageRef:    "img:latest",
+				Volumes:     []string{"./..:/workspace"},
+			},
+		},
+		{
+			name: "with proxy",
+			opts: GenerateOptions{
+				SessionName: "s1",
+				ImageRef:    "img:latest",
+				Domains:     []string{"example.com"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out, err := Generate(tt.opts)
+			require.NoError(t, err)
+
+			var cf composeFile
+			require.NoError(t, yaml.Unmarshal([]byte(out.ComposeYAML), &cf))
+
+			session := cf.Services["session"]
+			assert.Equal(t, "keep-id", session.UserNSMode,
+				"userns_mode: keep-id must always be set on session service")
+		})
+	}
+}
+
+func TestGenerate_NoUFlagInVolumes(t *testing.T) {
+	out, err := Generate(GenerateOptions{
+		SessionName: "s1",
+		ImageRef:    "img:latest",
+		Volumes: []string{
+			"./..:/workspace",
+			"/tmp/creds.json:/run/secrets/creds:ro",
+		},
+	})
+	require.NoError(t, err)
+
+	var cf composeFile
+	require.NoError(t, yaml.Unmarshal([]byte(out.ComposeYAML), &cf))
+
+	for _, vol := range cf.Services["session"].Volumes {
+		assert.NotContains(t, vol, ":U",
+			"volume %q must not use :U flag (causes lchown failures on read-only files)", vol)
+	}
+}
+
 func TestGenerate_ProxyEnvVars(t *testing.T) {
 	out, err := Generate(GenerateOptions{
 		SessionName: "s1",

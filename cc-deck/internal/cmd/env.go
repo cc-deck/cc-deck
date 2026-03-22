@@ -484,11 +484,18 @@ func runEnvDelete(name string, force bool, keepVolumes bool) error {
 		// podman resources still exist.
 		cleaned := env.CleanupOrphanedContainer(cmd_context(), name, keepVolumes)
 		if cleaned {
-			// Also remove definition if it exists.
 			_ = defs.Remove(name)
 			fmt.Fprintf(os.Stdout, "Environment %q cleaned up (orphaned resources removed)\n", name)
 			return nil
 		}
+
+		// No container resources either. If a definition exists, remove it
+		// (stale "not created" entry visible in env list).
+		if defErr := defs.Remove(name); defErr == nil {
+			fmt.Fprintf(os.Stdout, "Environment %q definition removed\n", name)
+			return nil
+		}
+
 		return err
 	}
 

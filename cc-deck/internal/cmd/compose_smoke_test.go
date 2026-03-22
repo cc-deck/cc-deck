@@ -392,6 +392,47 @@ func TestComposeSmokeNamedVolume(t *testing.T) {
 		"data should persist across stop/start")
 }
 
+func TestComposeSmokeRecreateAfterDelete(t *testing.T) {
+	skipIfNoCompose(t)
+	bin := buildTestBinary(t)
+	envVars, projectDir := setupComposeSmokeEnv(t)
+
+	defer func() {
+		ccd(t, bin, envVars, "env", "delete", "smoke-recreate", "--force")
+	}()
+
+	// First create.
+	_, err := ccd(t, bin, envVars, "env", "create", "smoke-recreate",
+		"--type", "compose",
+		"--image", "fedora:latest",
+		"--path", projectDir)
+	require.NoError(t, err)
+
+	// Verify running.
+	podOut, err := exec.Command("podman", "inspect", "cc-deck-smoke-recreate",
+		"--format", "{{.State.Status}}").Output()
+	require.NoError(t, err)
+	assert.Equal(t, "running", strings.TrimSpace(string(podOut)))
+
+	// Delete.
+	_, err = ccd(t, bin, envVars, "env", "delete", "smoke-recreate", "--force")
+	require.NoError(t, err)
+
+	// Second create should succeed (no stale resource conflicts).
+	out, err := ccd(t, bin, envVars, "env", "create", "smoke-recreate",
+		"--type", "compose",
+		"--image", "fedora:latest",
+		"--path", projectDir)
+	require.NoError(t, err, "re-create after delete should succeed: %s", out)
+	assert.Contains(t, out, "created")
+
+	// Verify running again.
+	podOut, err = exec.Command("podman", "inspect", "cc-deck-smoke-recreate",
+		"--format", "{{.State.Status}}").Output()
+	require.NoError(t, err)
+	assert.Equal(t, "running", strings.TrimSpace(string(podOut)))
+}
+
 func TestComposeSmokeDuplicateNameFailsFast(t *testing.T) {
 	skipIfNoCompose(t)
 	bin := buildTestBinary(t)
