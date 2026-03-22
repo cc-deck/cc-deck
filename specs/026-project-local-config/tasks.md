@@ -30,9 +30,9 @@ cc-deck/internal/
 
 **Purpose**: Create the new `project` package with git root detection and project discovery functions.
 
-- [ ] T001 Create `cc-deck/internal/project/project.go` with FindGitRoot, FindProjectConfig, CanonicalPath, ProjectName per contracts/project-discovery.md
-- [ ] T002 [P] Create `cc-deck/internal/project/worktree.go` with WorktreeInfo struct and ListWorktrees function per contracts/project-discovery.md
-- [ ] T003 Create `cc-deck/internal/project/project_test.go` with unit tests for FindGitRoot (regular repo, worktree, non-git dir), FindProjectConfig (found, not found), CanonicalPath (symlink, no symlink), ProjectName, and ListWorktrees
+- [x] T001 Create `cc-deck/internal/project/project.go` with FindGitRoot, FindProjectConfig, CanonicalPath, ProjectName per contracts/project-discovery.md
+- [x] T002 [P] Create `cc-deck/internal/project/worktree.go` with WorktreeInfo struct and ListWorktrees function per contracts/project-discovery.md
+- [x] T003 Create `cc-deck/internal/project/project_test.go` with unit tests for FindGitRoot (regular repo, worktree, non-git dir), FindProjectConfig (found, not found), CanonicalPath (symlink, no symlink), ProjectName, and ListWorktrees
 
 ---
 
@@ -42,16 +42,16 @@ cc-deck/internal/
 
 **WARNING**: No user story work can begin until this phase is complete.
 
-- [ ] T004 [P] Add ProjectEntry and ProjectStatusFile structs to `cc-deck/internal/env/types.go`; add `Projects []ProjectEntry` to StateFile; add `Env map[string]string` yaml tag to EnvironmentDefinition
-- [ ] T005 [P] Create `cc-deck/internal/env/project_status.go` with ProjectStatusStore (NewProjectStatusStore, Load, Save, Remove) per contracts/project-discovery.md
-- [ ] T006 [P] Add RegisterProject, UnregisterProject, ListProjects, PruneStaleProjects methods to `cc-deck/internal/env/state.go` per contracts/project-discovery.md
-- [ ] T007 [P] Add LoadProjectDefinition and SaveProjectDefinition functions to `cc-deck/internal/env/definition.go` per contracts/project-discovery.md (bare EnvironmentDefinition, not DefinitionFile wrapper)
-- [ ] T008 [P] Create ensureCCDeckGitignore helper function in `cc-deck/internal/env/gitignore.go` that idempotently creates `.cc-deck/.gitignore` with `status.yaml` and `run/` entries (FR-016, FR-030)
-- [ ] T009 [P] Unit tests for ProjectStatusStore, registry methods, LoadProjectDefinition, SaveProjectDefinition, ensureCCDeckGitignore in their respective `_test.go` files
-- [ ] T010 Update compose project dir from `.cc-deck/` to `.cc-deck/run/` in `cc-deck/internal/env/compose.go` (change composeProjectDir method, update all artifact write paths) (FR-014)
-- [ ] T011 Update proxy volume paths from `./proxy/` to `./run/proxy/` in `cc-deck/internal/compose/generate.go` (FR-014)
-- [ ] T012 Update compose Delete method in `cc-deck/internal/env/compose.go` to remove `.cc-deck/run/` and `.cc-deck/status.yaml` only, preserving `.cc-deck/environment.yaml` and `.cc-deck/image/` (FR-027)
-- [ ] T013 Replace project-root `.gitignore` handling (handleGitignore) in `cc-deck/internal/env/compose.go` with ensureCCDeckGitignore call from T008 (FR-016)
+- [x] T004 [P] Add ProjectEntry and ProjectStatusFile structs to `cc-deck/internal/env/types.go`; add `Projects []ProjectEntry` to StateFile; add `Env map[string]string` yaml tag to EnvironmentDefinition
+- [x] T005 [P] Create `cc-deck/internal/env/project_status.go` with ProjectStatusStore (NewProjectStatusStore, Load, Save, Remove) per contracts/project-discovery.md
+- [x] T006 [P] Add RegisterProject, UnregisterProject, ListProjects, PruneStaleProjects methods to `cc-deck/internal/env/state.go` per contracts/project-discovery.md
+- [x] T007 [P] Add LoadProjectDefinition and SaveProjectDefinition functions to `cc-deck/internal/env/definition.go` per contracts/project-discovery.md (bare EnvironmentDefinition, not DefinitionFile wrapper)
+- [x] T008 [P] Create ensureCCDeckGitignore helper function in `cc-deck/internal/env/gitignore.go` that idempotently creates `.cc-deck/.gitignore` with `status.yaml` and `run/` entries (FR-016, FR-030)
+- [x] T009 [P] Unit tests for ProjectStatusStore, registry methods, LoadProjectDefinition, SaveProjectDefinition, ensureCCDeckGitignore in their respective `_test.go` files
+- [x] T010 Update compose project dir from `.cc-deck/` to `.cc-deck/run/` in `cc-deck/internal/env/compose.go` (change composeProjectDir method, update all artifact write paths) (FR-014)
+- [x] T011 Update proxy volume paths from `./proxy/` to `./run/proxy/` in `cc-deck/internal/compose/generate.go` (FR-014)
+- [x] T012 Update compose Delete method in `cc-deck/internal/env/compose.go` to remove `.cc-deck/run/` and `.cc-deck/status.yaml` only, preserving `.cc-deck/environment.yaml` and `.cc-deck/image/` (FR-027)
+- [x] T013 Replace project-root `.gitignore` handling (handleGitignore) in `cc-deck/internal/env/compose.go` with ensureCCDeckGitignore call from T008 (FR-016)
 
 **Checkpoint**: Foundation ready. Data model, stores, and compose path migration complete. User story implementation can begin.
 
@@ -63,8 +63,8 @@ cc-deck/internal/
 
 **Independent Test**: Run `cc-deck env init --type compose --image quay.io/cc-deck/cc-deck-demo:latest` in a git repo. Verify `.cc-deck/environment.yaml` and `.cc-deck/.gitignore` are created with correct content. Run again and verify it fails with "already exists" error.
 
-- [ ] T014 [US2] Add `env init` subcommand to `cc-deck/internal/cmd/env.go` with flags: --type (required), --image, --auth, --allowed-domains, --name (default: directory basename). Uses FindGitRoot from project package, SaveProjectDefinition, ensureCCDeckGitignore. Fails if environment.yaml exists. Warns if not a git repo.
-- [ ] T015 [US2] Integration test for `env init` in `cc-deck/internal/cmd/env_init_test.go`: test in git repo (success), test with existing definition (error), test outside git repo (warning), verify environment.yaml content and .gitignore content
+- [x] T014 [US2] Add `env init` subcommand to `cc-deck/internal/cmd/env.go` with flags: --type (required), --image, --auth, --allowed-domains, --name (default: directory basename). Uses FindGitRoot from project package, SaveProjectDefinition, ensureCCDeckGitignore. Fails if environment.yaml exists. Warns if not a git repo.
+- [x] T015 [US2] Integration test for `env init` in `cc-deck/internal/cmd/env_init_test.go`: test in git repo (success), test with existing definition (error), test outside git repo (warning), verify environment.yaml content and .gitignore content
 
 **Checkpoint**: `cc-deck env init` works. Developers can scaffold project-local definitions.
 
@@ -76,12 +76,12 @@ cc-deck/internal/
 
 **Independent Test**: Create a temp git repo with `.cc-deck/environment.yaml`, run `cc-deck env create`, verify environment is created with definition settings and project is registered in global registry.
 
-- [ ] T016 [US1] Modify `cc-deck env create` in `cc-deck/internal/cmd/env.go` to accept optional name (cobra.MaximumNArgs(1)). When name omitted and in a git repo, use FindProjectConfig to resolve name from definition. Display "Using environment X from Y" message (FR-018).
-- [ ] T017 [US1] Add project-local definition reading to `cc-deck env create` in `cc-deck/internal/cmd/env.go`: when `.cc-deck/environment.yaml` exists, load it via LoadProjectDefinition and use as source of truth (FR-019). Auto-detect type from definition (FR-013). Apply CLI flag overrides as runtime-only values.
-- [ ] T018 [US1] Add auto-scaffold behavior to `cc-deck env create` in `cc-deck/internal/cmd/env.go`: when in a git repo with no `.cc-deck/environment.yaml`, scaffold definition from CLI flags before provisioning (FR-025). When outside git repo with no definition, require explicit name.
-- [ ] T019 [US1] Store CLI overrides in `.cc-deck/status.yaml` via ProjectStatusStore after successful create in `cc-deck/internal/cmd/env.go`. Auto-register project in global registry via RegisterProject (FR-007). Call ensureCCDeckGitignore (FR-030).
-- [ ] T020 [US1] Add project-local vs global definition precedence check in `cc-deck/internal/cmd/env.go`: when both exist with same name, use project-local and emit warning (FR-026).
-- [ ] T021 [US1] Integration tests in `cc-deck/internal/cmd/env_create_test.go`: (1) create from existing definition, (2) auto-scaffold when no definition, (3) CLI override stored in status.yaml not environment.yaml, (4) project registered in global registry, (5) state split: status in status.yaml not global instances, (6) no dual-state writes
+- [x] T016 [US1] Modify `cc-deck env create` in `cc-deck/internal/cmd/env.go` to accept optional name (cobra.MaximumNArgs(1)). When name omitted and in a git repo, use FindProjectConfig to resolve name from definition. Display "Using environment X from Y" message (FR-018).
+- [x] T017 [US1] Add project-local definition reading to `cc-deck env create` in `cc-deck/internal/cmd/env.go`: when `.cc-deck/environment.yaml` exists, load it via LoadProjectDefinition and use as source of truth (FR-019). Auto-detect type from definition (FR-013). Apply CLI flag overrides as runtime-only values.
+- [x] T018 [US1] Add auto-scaffold behavior to `cc-deck env create` in `cc-deck/internal/cmd/env.go`: when in a git repo with no `.cc-deck/environment.yaml`, scaffold definition from CLI flags before provisioning (FR-025). When outside git repo with no definition, require explicit name.
+- [x] T019 [US1] Store CLI overrides in `.cc-deck/status.yaml` via ProjectStatusStore after successful create in `cc-deck/internal/cmd/env.go`. Auto-register project in global registry via RegisterProject (FR-007). Call ensureCCDeckGitignore (FR-030).
+- [x] T020 [US1] Add project-local vs global definition precedence check in `cc-deck/internal/cmd/env.go`: when both exist with same name, use project-local and emit warning (FR-026).
+- [x] T021 [US1] Integration tests in `cc-deck/internal/cmd/env_create_test.go`: (1) create from existing definition, (2) auto-scaffold when no definition, (3) CLI override stored in status.yaml not environment.yaml, (4) project registered in global registry, (5) state split: status in status.yaml not global instances, (6) no dual-state writes
 
 **Checkpoint**: Clone-and-create workflow works end-to-end. MVP deliverable.
 
@@ -93,10 +93,10 @@ cc-deck/internal/
 
 **Independent Test**: cd into `~/projects/my-api/src/pkg/`, run `cc-deck env attach` (no name), verify it resolves the environment from `.cc-deck/` at the git root.
 
-- [ ] T022 [US3] Create resolveEnvironmentName helper in `cc-deck/internal/cmd/env.go` that walks to find project config when name is omitted, returns (name, projectRoot, error). Auto-registers project on walk-based discovery (FR-007).
-- [ ] T023 [US3] Modify attach, delete, status, start, stop commands in `cc-deck/internal/cmd/env.go` to use cobra.MaximumNArgs(1) and call resolveEnvironmentName when no name provided. Display "Using environment X from Y" (FR-018). Fail with clear error when no name and no project config found.
-- [ ] T024 [US3] Update resolveEnvironment in `cc-deck/internal/cmd/env.go` to check project-local ProjectStatusStore before global state. Self-heal .gitignore on env operations (FR-030).
-- [ ] T025 [US3] Integration test in `cc-deck/internal/cmd/env_resolve_test.go`: (1) resolve from subdirectory, (2) fail with no name and no config, (3) auto-register on discovery, (4) display message shows correct path
+- [x] T022 [US3] Create resolveEnvironmentName helper in `cc-deck/internal/cmd/env.go` that walks to find project config when name is omitted, returns (name, projectRoot, error). Auto-registers project on walk-based discovery (FR-007).
+- [x] T023 [US3] Modify attach, delete, status, start, stop commands in `cc-deck/internal/cmd/env.go` to use cobra.MaximumNArgs(1) and call resolveEnvironmentName when no name provided. Display "Using environment X from Y" (FR-018). Fail with clear error when no name and no project config found.
+- [x] T024 [US3] Update resolveEnvironment in `cc-deck/internal/cmd/env.go` to check project-local ProjectStatusStore before global state. Self-heal .gitignore on env operations (FR-030).
+- [x] T025 [US3] Integration test in `cc-deck/internal/cmd/env_resolve_test.go`: (1) resolve from subdirectory, (2) fail with no name and no config, (3) auto-register on discovery, (4) display message shows correct path
 
 **Checkpoint**: All env commands work without explicit name inside project directories.
 
@@ -108,9 +108,9 @@ cc-deck/internal/
 
 **Independent Test**: Register three projects (two existing, one moved), run `cc-deck env list`, verify output shows all three with correct columns and MISSING status for the moved project.
 
-- [ ] T026 [US4] Enhance writeEnvTable and writeEnvStructured in `cc-deck/internal/cmd/env.go` to include project-local environments from ListProjects + LoadProjectDefinition. Add PATH column for project-local environments (FR-012). Show MISSING status for stale registry entries (FR-008). Merge project-local and global in unified view, warning on shadowed definitions (FR-026).
-- [ ] T027 [US4] Add --worktrees flag to `cc-deck env list` in `cc-deck/internal/cmd/env.go`. When set, call ListWorktrees for each project and display worktree sub-entries with branch names (FR-020).
-- [ ] T028 [US4] Integration test in `cc-deck/internal/cmd/env_list_test.go`: (1) list shows project-local and global together, (2) MISSING status for removed directory, (3) --worktrees shows branches
+- [x] T026 [US4] Enhance writeEnvTable and writeEnvStructured in `cc-deck/internal/cmd/env.go` to include project-local environments from ListProjects + LoadProjectDefinition. Add PATH column for project-local environments (FR-012). Show MISSING status for stale registry entries (FR-008). Merge project-local and global in unified view, warning on shadowed definitions (FR-026).
+- [x] T027 [US4] Add --worktrees flag to `cc-deck env list` in `cc-deck/internal/cmd/env.go`. When set, call ListWorktrees for each project and display worktree sub-entries with branch names (FR-020).
+- [x] T028 [US4] Integration test in `cc-deck/internal/cmd/env_list_test.go`: (1) list shows project-local and global together, (2) MISSING status for removed directory, (3) --worktrees shows branches
 
 **Checkpoint**: `cc-deck env list` provides complete visibility across all projects.
 
@@ -122,10 +122,10 @@ cc-deck/internal/
 
 **Independent Test**: Create two worktrees, run `cc-deck env create --variant auth` in the second, verify separate container named `cc-deck-my-api-auth`.
 
-- [ ] T029 [US5] Add --variant flag to `cc-deck env create` in `cc-deck/internal/cmd/env.go`. Store variant in ProjectStatusFile. Append variant to container name as `cc-deck-<name>-<variant>` (FR-010).
-- [ ] T030 [US5] Add VARIANT column to `cc-deck env list` output in `cc-deck/internal/cmd/env.go`, shown conditionally when any variant is present (FR-011).
-- [ ] T031 [US5] Add --branch flag to `cc-deck env attach` in `cc-deck/internal/cmd/env.go`. Find matching worktree inside container via `git worktree list`, cd into it. Fail with error listing available worktrees if branch not found (FR-022).
-- [ ] T032 [US5] Integration test in `cc-deck/internal/cmd/env_variant_test.go`: (1) create with --variant produces container named cc-deck-<name>-<variant>, (2) variant shown in env list, (3) --branch fails with error when branch not found
+- [x] T029 [US5] Add --variant flag to `cc-deck env create` in `cc-deck/internal/cmd/env.go`. Store variant in ProjectStatusFile. Append variant to container name as `cc-deck-<name>-<variant>` (FR-010).
+- [x] T030 [US5] Add VARIANT column to `cc-deck env list` output in `cc-deck/internal/cmd/env.go`, shown conditionally when any variant is present (FR-011).
+- [x] T031 [US5] Add --branch flag to `cc-deck env attach` in `cc-deck/internal/cmd/env.go`. Find matching worktree inside container via `git worktree list`, cd into it. Fail with error listing available worktrees if branch not found (FR-022).
+- [x] T032 [US5] Integration test in `cc-deck/internal/cmd/env_variant_test.go`: (1) create with --variant produces container named cc-deck-<name>-<variant>, (2) variant shown in env list, (3) --branch fails with error when branch not found
 
 **Checkpoint**: Variant mechanism enables per-worktree container isolation.
 
@@ -137,8 +137,8 @@ cc-deck/internal/
 
 **Independent Test**: Run `cc-deck image init` in a project with `.cc-deck/`, verify `cc-deck-build.yaml` is created at `.cc-deck/image/cc-deck-build.yaml`.
 
-- [ ] T033 [US6] Update default --dir resolution in `cc-deck/internal/cmd/build.go` for init, verify, and diff subcommands: when --dir not specified and `.cc-deck/` exists at git root (via FindProjectConfig), default to `.cc-deck/image/` (FR-017).
-- [ ] T034 [US6] Integration test in `cc-deck/internal/cmd/build_image_test.go`: (1) image init creates artifacts in .cc-deck/image/, (2) verify and diff find artifacts in .cc-deck/image/
+- [x] T033 [US6] Update default --dir resolution in `cc-deck/internal/cmd/build.go` for init, verify, and diff subcommands: when --dir not specified and `.cc-deck/` exists at git root (via FindProjectConfig), default to `.cc-deck/image/` (FR-017).
+- [x] T034 [US6] Integration test in `cc-deck/internal/cmd/build_image_test.go`: (1) image init creates artifacts in .cc-deck/image/, (2) verify and diff find artifacts in .cc-deck/image/
 
 **Checkpoint**: Image build artifacts stored under `.cc-deck/image/`.
 
@@ -150,8 +150,8 @@ cc-deck/internal/
 
 **Independent Test**: Register a project, remove its directory, run `cc-deck env prune`, verify entry removed and count reported.
 
-- [ ] T035 [US7] Add `env prune` subcommand to `cc-deck/internal/cmd/env.go`. Calls PruneStaleProjects on FileStateStore. Reports count of removed entries (FR-009).
-- [ ] T036 [US7] Integration test in `cc-deck/internal/cmd/env_prune_test.go`: (1) prune removes stale entry, (2) prune is idempotent, (3) prune preserves valid entries
+- [x] T035 [US7] Add `env prune` subcommand to `cc-deck/internal/cmd/env.go`. Calls PruneStaleProjects on FileStateStore. Reports count of removed entries (FR-009).
+- [x] T036 [US7] Integration test in `cc-deck/internal/cmd/env_prune_test.go`: (1) prune removes stale entry, (2) prune is idempotent, (3) prune preserves valid entries
 
 **Checkpoint**: Registry housekeeping works.
 
@@ -163,8 +163,8 @@ cc-deck/internal/
 
 - [ ] T037 [P] Update README.md with project-local config feature description, usage examples, and updated Feature Specifications table
 - [ ] T038 [P] Update CLI reference in `docs/modules/reference/pages/cli.adoc` with env init, env prune, --variant, --worktrees, --branch flags
-- [ ] T039 Run `make test` and `make lint` to verify all tests pass and no lint issues
-- [ ] T040 Run quickstart.md validation: verify all 12 implementation steps are covered by tasks
+- [x] T039 Run `make test` and `make lint` to verify all tests pass and no lint issues
+- [x] T040 Run quickstart.md validation: verify all 12 implementation steps are covered by tasks
 
 ---
 
