@@ -34,8 +34,9 @@ type Snapshot struct {
 }
 
 // SessionsDir returns the XDG-conformant sessions directory path.
+// Snapshots are runtime state, not configuration, so they live under StateHome.
 func SessionsDir() string {
-	return filepath.Join(xdg.ConfigHome, sessionsDirName)
+	return filepath.Join(xdg.StateHome, sessionsDirName)
 }
 
 // snapshotPath returns the file path for a named snapshot.
