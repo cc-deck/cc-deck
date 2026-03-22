@@ -235,7 +235,7 @@ func SaveProjectDefinition(projectRoot string, def *EnvironmentDefinition) error
 		return fmt.Errorf("creating .cc-deck directory: %w", err)
 	}
 
-	if err := ensureCCDeckGitignore(projectRoot); err != nil {
+	if err := EnsureCCDeckGitignore(projectRoot); err != nil {
 		return fmt.Errorf("ensuring .gitignore: %w", err)
 	}
 

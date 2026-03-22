@@ -280,7 +280,7 @@ func (e *ComposeEnvironment) Create(ctx context.Context, opts CreateOpts) error 
 	}
 
 	// Ensure .cc-deck/.gitignore exists with status.yaml and run/ entries (FR-016, FR-030).
-	if err := ensureCCDeckGitignore(projDir); err != nil {
+	if err := EnsureCCDeckGitignore(projDir); err != nil {
 		log.Printf("WARNING: could not ensure .cc-deck/.gitignore: %v", err)
 	}
 
