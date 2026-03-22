@@ -46,7 +46,7 @@ func TestComposeEnvironment_ProjectDir_Explicit(t *testing.T) {
 
 func TestComposeEnvironment_ComposeProjectDir(t *testing.T) {
 	e := &ComposeEnvironment{name: "test", ProjectDir: "/tmp/myproject"}
-	assert.Equal(t, "/tmp/myproject/.cc-deck", e.composeProjectDir())
+	assert.Equal(t, "/tmp/myproject/.cc-deck/run", e.composeProjectDir())
 }
 
 // --- T021: Credential tests ---
