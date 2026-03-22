@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/cc-deck/cc-deck/internal/build"
+	"github.com/cc-deck/cc-deck/internal/project"
 )
 
 // NewImageCmd creates the image parent command with subcommands.
@@ -31,19 +32,22 @@ func newImageInitCmd(_ *GlobalFlags) *cobra.Command {
 	var force bool
 
 	cmd := &cobra.Command{
-		Use:   "init <dir>",
+		Use:   "init [dir]",
 		Short: "Initialize a build directory",
 		Long: `Scaffold a new build directory with a cc-deck-build.yaml manifest,
 Claude Code commands for AI-driven image configuration, and helper scripts.
+
+When no directory is specified and the current project has .cc-deck/,
+defaults to .cc-deck/image/ (FR-017).
 
 After initialization, open the directory in Claude Code and use:
   /cc-deck.extract       - Analyze repos for tool dependencies
   /cc-deck.settings     - Select local settings, plugins, MCP to include
   /cc-deck.build         - Generate Containerfile and build the image
   /cc-deck.push          - Push the image to a registry`,
-		Args: cobra.ExactArgs(1),
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			dir := args[0]
+			dir := resolveImageDir(args)
 			if err := build.InitBuildDir(dir, force); err != nil {
 				return err
 			}
@@ -70,11 +74,11 @@ After initialization, open the directory in Claude Code and use:
 
 func newImageVerifyCmd(_ *GlobalFlags) *cobra.Command {
 	return &cobra.Command{
-		Use:   "verify <dir>",
+		Use:   "verify [dir]",
 		Short: "Smoke-test a built container image",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runVerify(args[0])
+			return runVerify(resolveImageDir(args))
 		},
 	}
 }
@@ -149,13 +153,35 @@ func runVerify(dir string) error {
 
 func newImageDiffCmd(_ *GlobalFlags) *cobra.Command {
 	return &cobra.Command{
-		Use:   "diff <dir>",
+		Use:   "diff [dir]",
 		Short: "Show manifest changes since last Containerfile generation",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runDiff(args[0])
+			return runDiff(resolveImageDir(args))
 		},
 	}
+}
+
+// resolveImageDir returns the image directory from args or defaults to
+// .cc-deck/image/ if inside a project with .cc-deck/ (FR-017).
+func resolveImageDir(args []string) string {
+	if len(args) > 0 {
+		return args[0]
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "."
+	}
+	if root, findErr := project.FindProjectConfig(cwd); findErr == nil {
+		return filepath.Join(root, ".cc-deck", "image")
+	}
+	if root, gitErr := project.FindGitRoot(cwd); gitErr == nil {
+		candidate := filepath.Join(root, ".cc-deck", "image")
+		if _, statErr := os.Stat(filepath.Join(root, ".cc-deck")); statErr == nil {
+			return candidate
+		}
+	}
+	return "."
 }
 
 func runDiff(dir string) error {
