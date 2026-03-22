@@ -25,20 +25,40 @@ func NewEnvCmd(gf *GlobalFlags) *cobra.Command {
 		Long:  "Create, manage, and interact with cc-deck environments (local, container, Kubernetes).",
 	}
 
-	envCmd.AddCommand(
+	envCmd.AddGroup(
+		&cobra.Group{ID: "lifecycle", Title: "Lifecycle:"},
+		&cobra.Group{ID: "info", Title: "Info:"},
+		&cobra.Group{ID: "data", Title: "Data Transfer:"},
+		&cobra.Group{ID: "maintenance", Title: "Maintenance:"},
+	)
+
+	// Lifecycle: create → attach → start → stop → delete
+	addToGroup(envCmd, "lifecycle",
 		newEnvCreateCmd(gf),
-		newEnvPruneCmd(),
 		newEnvAttachCmd(gf),
-		newEnvDeleteCmd(gf),
-		newEnvListCmd(gf),
-		newEnvStatusCmd(gf),
 		newEnvStartCmd(gf),
 		newEnvStopCmd(gf),
+		newEnvDeleteCmd(gf),
+	)
+
+	// Info
+	addToGroup(envCmd, "info",
+		newEnvListCmd(gf),
+		newEnvStatusCmd(gf),
+		newEnvLogsCmd(gf),
+	)
+
+	// Data transfer
+	addToGroup(envCmd, "data",
 		newEnvExecCmd(gf),
 		newEnvPushCmd(gf),
 		newEnvPullCmd(gf),
 		newEnvHarvestCmd(gf),
-		newEnvLogsCmd(gf),
+	)
+
+	// Maintenance
+	addToGroup(envCmd, "maintenance",
+		newEnvPruneCmd(),
 	)
 
 	return envCmd
@@ -1307,6 +1327,14 @@ func resolveEnvironment(name string, store *env.FileStateStore, defs *env.Defini
 	}
 
 	return nil, fmt.Errorf("environment %q not found", name)
+}
+
+// addToGroup registers commands under a named group for help output.
+func addToGroup(parent *cobra.Command, groupID string, cmds ...*cobra.Command) {
+	for _, cmd := range cmds {
+		cmd.GroupID = groupID
+		parent.AddCommand(cmd)
+	}
 }
 
 // cmd_context returns a background context for CLI operations.
