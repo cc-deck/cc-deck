@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -74,6 +73,11 @@ func (e *ContainerEnvironment) Create(ctx context.Context, opts CreateOpts) erro
 		return ErrPodmanNotFound
 	}
 
+	// Fail fast if an environment with this name already exists.
+	if _, err := e.store.FindInstanceByName(e.name); err == nil {
+		return fmt.Errorf("instance %q: %w", e.name, ErrNameConflict)
+	}
+
 	// Check for existing definition and use as defaults.
 	var def *EnvironmentDefinition
 	if e.defs != nil {
@@ -130,10 +134,10 @@ func (e *ContainerEnvironment) Create(ctx context.Context, opts CreateOpts) erro
 		authMode = AuthMode(def.Auth)
 	}
 	if authMode == "" || authMode == AuthModeAuto {
-		authMode = detectAuthMode()
+		authMode = DetectAuthMode()
 	}
 	if authMode != AuthModeNone {
-		detectAuthCredentials(authMode, creds)
+		DetectAuthCredentials(authMode, creds)
 	}
 
 	cName := containerName(e.name)
@@ -254,6 +258,7 @@ func (e *ContainerEnvironment) Create(ctx context.Context, opts CreateOpts) erro
 	// Write environment instance to state store.
 	inst := &EnvironmentInstance{
 		Name:      e.name,
+		Type:      EnvironmentTypeContainer,
 		State:     EnvironmentStateRunning,
 		CreatedAt: time.Now().UTC(),
 		Container: &ContainerFields{
@@ -301,7 +306,7 @@ func (e *ContainerEnvironment) Attach(ctx context.Context) error {
 	// If any Zellij session exists inside the container, attach to it.
 	// Otherwise, create a new session using the cc-deck layout (sidebar plugin).
 	// Uses -n (--new-session-with-layout) which reliably starts with the layout.
-	if containerHasZellijSession(ctx, cName) {
+	if ContainerHasZellijSession(ctx, cName) {
 		return podman.Exec(ctx, cName, []string{"zellij", "attach"}, true)
 	}
 	return podman.Exec(ctx, cName, []string{
@@ -309,22 +314,6 @@ func (e *ContainerEnvironment) Attach(ctx context.Context) error {
 	}, true)
 }
 
-// containerHasZellijSession checks whether any active (non-exited) Zellij
-// session is running inside the container.
-func containerHasZellijSession(ctx context.Context, containerName string) bool {
-	cmd := exec.CommandContext(ctx, "podman", "exec", containerName, "zellij", "list-sessions", "-n")
-	out, err := cmd.Output()
-	if err != nil {
-		return false
-	}
-	for _, line := range strings.Split(string(out), "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" && !strings.Contains(line, "(EXITED") {
-			return true
-		}
-	}
-	return false
-}
 
 // Delete removes the container and its resources.
 func (e *ContainerEnvironment) Delete(ctx context.Context, force bool) error {
@@ -579,66 +568,4 @@ func CleanupOrphanedContainer(ctx context.Context, envName string, keepVolumes b
 	return cleaned
 }
 
-// detectAuthMode determines which Claude Code authentication mode the host
-// is using by checking environment variables.
-func detectAuthMode() AuthMode {
-	if os.Getenv("CLAUDE_CODE_USE_VERTEX") == "1" {
-		return AuthModeVertex
-	}
-	if os.Getenv("CLAUDE_CODE_USE_BEDROCK") == "1" {
-		return AuthModeBedrock
-	}
-	if os.Getenv("ANTHROPIC_API_KEY") != "" {
-		return AuthModeAPI
-	}
-	return AuthModeNone
-}
-
-// detectAuthCredentials populates the credentials map with the environment
-// variables required for the given auth mode. Existing entries (from
-// explicit --credential flags) are not overwritten.
-func detectAuthCredentials(mode AuthMode, creds map[string]string) {
-	inject := func(key string) {
-		if _, exists := creds[key]; !exists {
-			if val := os.Getenv(key); val != "" {
-				creds[key] = val
-			}
-		}
-	}
-
-	switch mode {
-	case AuthModeAPI:
-		inject("ANTHROPIC_API_KEY")
-
-	case AuthModeVertex:
-		creds["CLAUDE_CODE_USE_VERTEX"] = "1"
-		inject("ANTHROPIC_VERTEX_PROJECT_ID")
-		inject("CLOUD_ML_REGION")
-		inject("ANTHROPIC_MODEL")
-		// For GOOGLE_APPLICATION_CREDENTIALS: inject if set, otherwise
-		// check for the default ADC file from 'gcloud auth application-default login'.
-		inject("GOOGLE_APPLICATION_CREDENTIALS")
-		if _, exists := creds["GOOGLE_APPLICATION_CREDENTIALS"]; !exists {
-			home, _ := os.UserHomeDir()
-			defaultADC := home + "/.config/gcloud/application_default_credentials.json"
-			if _, err := os.Stat(defaultADC); err == nil {
-				creds["GOOGLE_APPLICATION_CREDENTIALS"] = defaultADC
-			}
-		}
-
-	case AuthModeBedrock:
-		creds["CLAUDE_CODE_USE_BEDROCK"] = "1"
-		inject("AWS_REGION")
-		inject("AWS_ACCESS_KEY_ID")
-		inject("AWS_SECRET_ACCESS_KEY")
-		inject("AWS_SESSION_TOKEN")
-		inject("AWS_PROFILE")
-		inject("ANTHROPIC_MODEL")
-	}
-
-	// Common optional variables for all modes.
-	inject("ANTHROPIC_DEFAULT_SONNET_MODEL")
-	inject("ANTHROPIC_DEFAULT_OPUS_MODEL")
-	inject("ANTHROPIC_DEFAULT_HAIKU_MODEL")
-}
 
