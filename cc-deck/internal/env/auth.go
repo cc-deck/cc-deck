@@ -64,6 +64,9 @@ func DetectAuthCredentials(mode AuthMode, creds map[string]string) {
 		inject("ANTHROPIC_MODEL")
 	}
 
+	// Always include API key if present (useful as fallback alongside Vertex/Bedrock).
+	inject("ANTHROPIC_API_KEY")
+
 	// Common optional variables for all modes.
 	inject("ANTHROPIC_DEFAULT_SONNET_MODEL")
 	inject("ANTHROPIC_DEFAULT_OPUS_MODEL")

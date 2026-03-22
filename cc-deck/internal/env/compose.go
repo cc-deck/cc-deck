@@ -18,8 +18,7 @@ import (
 const (
 	composeDir     = ".cc-deck"
 	composeFile    = "compose.yaml"
-	composeEnvFile = ".env"
-	secretsSubdir  = "secrets"
+	composeEnvFile = "env"
 	proxySubdir    = "proxy"
 )
 
@@ -77,6 +76,11 @@ func (e *ComposeEnvironment) composeFilePath() string {
 func (e *ComposeEnvironment) Create(ctx context.Context, opts CreateOpts) error {
 	if err := ValidateEnvName(e.name); err != nil {
 		return err
+	}
+
+	// Fail fast if an environment with this name already exists.
+	if _, err := e.store.FindInstanceByName(e.name); err == nil {
+		return fmt.Errorf("instance %q: %w", e.name, ErrNameConflict)
 	}
 
 	runtime, err := compose.Available()
@@ -187,9 +191,9 @@ func (e *ComposeEnvironment) Create(ctx context.Context, opts CreateOpts) error 
 	var volumes []string
 	switch storageType {
 	case StorageTypeHostPath:
-		// Bind mount project dir at /workspace.
-		// Use relative path "./.." from .cc-deck/ to reach the project dir.
-		volumes = append(volumes, "./..:/workspace")
+		// Bind mount project dir at /workspace with :U to auto-map ownership
+		// to the container user (podman-specific, fixes macOS UID mismatch).
+		volumes = append(volumes, "./..:/workspace:U")
 	case StorageTypeNamedVolume:
 		vName := volumeName(e.name)
 		if err := podman.VolumeCreate(ctx, vName); err != nil {
@@ -205,49 +209,34 @@ func (e *ComposeEnvironment) Create(ctx context.Context, opts CreateOpts) error 
 	}
 	volumes = append(volumes, e.Mounts...)
 
-	// Write credentials to .env file and handle file-based credentials.
+	// Write credentials to env file. File-based credentials use
+	// compose-native secrets (mounted at /run/secrets/<name>) so the
+	// container always reads the live host file, avoiding drift.
 	var credentialKeys []string
 	var envLines []string
-	secretsDirPath := filepath.Join(ccDeckDir, secretsSubdir)
-	hasSecrets := false
+	composeSecrets := make(map[string]string)
 
 	for key, val := range creds {
 		credentialKeys = append(credentialKeys, key)
 
-		// File-based credential: copy to secrets dir, set env to mount path.
+		// File-based credential: use compose secret pointing to original file.
 		if info, statErr := os.Stat(val); statErr == nil && !info.IsDir() {
-			if !hasSecrets {
-				if err := os.MkdirAll(secretsDirPath, 0o755); err != nil {
-					e.cleanupOnFailure(ccDeckDir)
-					return fmt.Errorf("creating secrets directory: %w", err)
-				}
-				hasSecrets = true
-			}
-			data, readErr := os.ReadFile(val)
-			if readErr != nil {
-				e.cleanupOnFailure(ccDeckDir)
-				return fmt.Errorf("reading credential file %q: %w", val, readErr)
-			}
-			secretFileName := strings.ToLower(strings.ReplaceAll(key, "_", "-"))
-			destPath := filepath.Join(secretsDirPath, secretFileName)
-			if err := os.WriteFile(destPath, data, 0o600); err != nil {
-				e.cleanupOnFailure(ccDeckDir)
-				return fmt.Errorf("writing secret file: %w", err)
-			}
-			envLines = append(envLines, fmt.Sprintf("%s=/run/secrets/%s", key, secretFileName))
+			secretName := strings.ToLower(strings.ReplaceAll(key, "_", "-"))
+			composeSecrets[secretName] = val
+			envLines = append(envLines, fmt.Sprintf("%s=/run/secrets/%s", key, secretName))
 		} else {
 			envLines = append(envLines, fmt.Sprintf("%s=%s", key, val))
 		}
 	}
 
-	// Write .env file.
+	// Write env file.
 	envContent := strings.Join(envLines, "\n")
 	if envContent != "" {
 		envContent += "\n"
 	}
 	if err := os.WriteFile(filepath.Join(ccDeckDir, composeEnvFile), []byte(envContent), 0o600); err != nil {
 		e.cleanupOnFailure(ccDeckDir)
-		return fmt.Errorf("writing .env file: %w", err)
+		return fmt.Errorf("writing env file: %w", err)
 	}
 
 	// Generate compose output.
@@ -257,10 +246,7 @@ func (e *ComposeEnvironment) Create(ctx context.Context, opts CreateOpts) error 
 		Domains:     resolvedDomains,
 		Volumes:     volumes,
 		Ports:       ports,
-	}
-
-	if hasSecrets {
-		genOpts.SecretsDir = "./" + secretsSubdir
+		Secrets:     composeSecrets,
 	}
 
 	output, err := compose.Generate(genOpts)
@@ -387,12 +373,7 @@ func (e *ComposeEnvironment) Start(ctx context.Context) error {
 		return err
 	}
 
-	runtime, runtimeErr := compose.Available()
-	if runtimeErr != nil {
-		return fmt.Errorf("compose runtime not available: %w", runtimeErr)
-	}
-
-	if err := e.composeCmd(ctx, runtime, "start"); err != nil {
+	if err := e.composeCmdOrFallback(ctx, "start"); err != nil {
 		return err
 	}
 
@@ -407,12 +388,7 @@ func (e *ComposeEnvironment) Stop(ctx context.Context) error {
 		return err
 	}
 
-	runtime, runtimeErr := compose.Available()
-	if runtimeErr != nil {
-		return fmt.Errorf("compose runtime not available: %w", runtimeErr)
-	}
-
-	if err := e.composeCmd(ctx, runtime, "stop"); err != nil {
+	if err := e.composeCmdOrFallback(ctx, "stop"); err != nil {
 		return err
 	}
 
@@ -648,6 +624,28 @@ func (e *ComposeEnvironment) composeUp(ctx context.Context, runtime string) erro
 		return fmt.Errorf("%s: %s", err, string(out))
 	}
 	return nil
+}
+
+// composeCmdOrFallback tries compose start/stop, falling back to direct
+// podman if the compose file or .cc-deck/ directory is missing.
+func (e *ComposeEnvironment) composeCmdOrFallback(ctx context.Context, action string) error {
+	runtime, runtimeErr := compose.Available()
+	if runtimeErr == nil {
+		if err := e.composeCmd(ctx, runtime, action); err == nil {
+			return nil
+		}
+	}
+
+	// Fallback: operate on the session container directly via podman.
+	cName := e.sessionContainerName()
+	switch action {
+	case "start":
+		return podman.Start(ctx, cName)
+	case "stop":
+		return podman.Stop(ctx, cName)
+	default:
+		return fmt.Errorf("unsupported fallback action: %s", action)
+	}
 }
 
 // composeCmd runs a compose command (start, stop) on the project.

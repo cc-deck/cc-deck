@@ -73,6 +73,11 @@ func (e *ContainerEnvironment) Create(ctx context.Context, opts CreateOpts) erro
 		return ErrPodmanNotFound
 	}
 
+	// Fail fast if an environment with this name already exists.
+	if _, err := e.store.FindInstanceByName(e.name); err == nil {
+		return fmt.Errorf("instance %q: %w", e.name, ErrNameConflict)
+	}
+
 	// Check for existing definition and use as defaults.
 	var def *EnvironmentDefinition
 	if e.defs != nil {
