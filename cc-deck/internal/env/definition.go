@@ -23,9 +23,10 @@ type EnvironmentDefinition struct {
 	Storage     *StorageConfig  `yaml:"storage,omitempty"`
 	Ports       []string        `yaml:"ports,omitempty"`
 	Credentials []string        `yaml:"credentials,omitempty"`
-	Mounts         []string        `yaml:"mounts,omitempty"`          // Bind mounts as "src:dst[:ro]" (container/compose only)
-	AllowedDomains []string        `yaml:"allowed-domains,omitempty"` // Domain groups for proxy sidecar (compose only)
-	ProjectDir     string          `yaml:"project-dir,omitempty"`     // Project directory (compose only)
+	Mounts         []string          `yaml:"mounts,omitempty"`          // Bind mounts as "src:dst[:ro]" (container/compose only)
+	AllowedDomains []string          `yaml:"allowed-domains,omitempty"` // Domain groups for proxy sidecar (compose only)
+	ProjectDir     string            `yaml:"project-dir,omitempty"`     // Project directory (compose only)
+	Env            map[string]string `yaml:"env,omitempty"`             // Arbitrary environment variables
 }
 
 // DefinitionFile is the top-level structure of the environment definitions file.
@@ -201,4 +202,58 @@ func (s *DefinitionStore) List(filter *ListFilter) ([]*EnvironmentDefinition, er
 	}
 
 	return result, nil
+}
+
+const projectDefinitionFile = ".cc-deck/environment.yaml"
+
+// LoadProjectDefinition reads the environment definition from
+// .cc-deck/environment.yaml in the given project root.
+// Returns a bare EnvironmentDefinition (not wrapped in DefinitionFile).
+func LoadProjectDefinition(projectRoot string) (*EnvironmentDefinition, error) {
+	path := filepath.Join(projectRoot, projectDefinitionFile)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("project definition %q: %w", path, ErrNotFound)
+		}
+		return nil, fmt.Errorf("reading project definition: %w", err)
+	}
+
+	var def EnvironmentDefinition
+	if err := yaml.Unmarshal(data, &def); err != nil {
+		return nil, fmt.Errorf("parsing project definition: %w", err)
+	}
+
+	return &def, nil
+}
+
+// SaveProjectDefinition writes an environment definition to
+// .cc-deck/environment.yaml, creating the directory and .gitignore if needed.
+func SaveProjectDefinition(projectRoot string, def *EnvironmentDefinition) error {
+	dir := filepath.Join(projectRoot, ".cc-deck")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("creating .cc-deck directory: %w", err)
+	}
+
+	if err := EnsureCCDeckGitignore(projectRoot); err != nil {
+		return fmt.Errorf("ensuring .gitignore: %w", err)
+	}
+
+	data, err := yaml.Marshal(def)
+	if err != nil {
+		return fmt.Errorf("marshaling project definition: %w", err)
+	}
+
+	path := filepath.Join(projectRoot, projectDefinitionFile)
+	tmpPath := path + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0o644); err != nil {
+		return fmt.Errorf("writing temporary project definition: %w", err)
+	}
+
+	if err := os.Rename(tmpPath, path); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("renaming project definition: %w", err)
+	}
+
+	return nil
 }

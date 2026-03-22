@@ -147,10 +147,12 @@ Container image lifecycle commands.
 ==== image init
 
 Scaffold a build directory with manifest and AI commands.
+When no directory is specified and the project has `.cc-deck/`, defaults to `.cc-deck/image/`.
 
 [source,bash]
 ----
 cc-deck image init my-team-image
+cc-deck image init                    # defaults to .cc-deck/image/
 cc-deck image init my-team-image --force
 ----
 
@@ -322,18 +324,21 @@ cc-deck domains remove my-session docker
 === env
 
 Manage environments across all supported backends (local, container, Kubernetes).
+When run inside a project with `.cc-deck/environment.yaml`, environment names are resolved automatically.
 
 ==== env create
 
 Create a new environment.
+When run inside a project with `.cc-deck/environment.yaml`, name and settings are read from the definition.
+In a git repository without a definition, one is scaffolded from CLI flags before provisioning.
 
 [source,bash]
 ----
-cc-deck env create mydev
-cc-deck env create mydev --type container --image quay.io/cc-deck/cc-deck-demo:latest
-cc-deck env create mydev --type container --port 8080:80 --credential ANTHROPIC_API_KEY=sk-ant-...
-cc-deck env create mydev --type compose --allowed-domains anthropic,github --gitignore
-cc-deck env create mydev --type compose --path ~/projects/myapp
+cc-deck env create                    # reads from .cc-deck/environment.yaml
+cc-deck env create mydev --type local
+cc-deck env create --type compose --image quay.io/cc-deck/cc-deck-demo:latest
+cc-deck env create --variant auth     # separate container instance
+cc-deck env create mydev --type container --port 8080:80
 ----
 
 [cols="1,1,3"]
@@ -342,7 +347,7 @@ cc-deck env create mydev --type compose --path ~/projects/myapp
 
 | `--type`
 | `-t`
-| Environment type: `local` (default), `container`, `compose`, `k8s-deploy`, `k8s-sandbox`
+| Environment type: `local`, `container`, `compose`, `k8s-deploy`, `k8s-sandbox`
 
 | `--image`
 |
@@ -380,9 +385,9 @@ cc-deck env create mydev --type compose --path ~/projects/myapp
 |
 | Domain groups for network filtering, repeatable (compose only)
 
-| `--gitignore`
+| `--variant`
 |
-| Auto-add `.cc-deck/` to `.gitignore` (compose only)
+| Variant name for multiple container instances from the same definition
 |===
 
 ==== env attach
@@ -390,21 +395,34 @@ cc-deck env create mydev --type compose --path ~/projects/myapp
 Attach to a running environment.
 For container environments, this opens a Zellij session inside the container.
 Stopped containers are auto-started before attaching.
+When no name is provided, resolves from `.cc-deck/environment.yaml` in the project.
 
 [source,bash]
 ----
 cc-deck env attach mydev
+cc-deck env attach                    # resolves from project config
+cc-deck env attach --branch feature   # land in a specific worktree
 ----
+
+[cols="1,1,3"]
+|===
+| Flag | Short | Description
+
+| `--branch`
+|
+| Attach and land in a specific worktree directory inside the container
+|===
 
 ==== env delete
 
 Delete an environment and its resources.
+For project-local environments, removes runtime state (`status.yaml`, `run/`) but preserves the committed definition (`environment.yaml`).
 
 [source,bash]
 ----
 cc-deck env delete mydev
-cc-deck env delete mydev --force
-cc-deck env delete mydev --force --keep-volumes
+cc-deck env delete                    # resolves from project config
+cc-deck env delete --force --keep-volumes
 ----
 
 [cols="1,1,3"]
@@ -423,11 +441,14 @@ cc-deck env delete mydev --force --keep-volumes
 ==== env list
 
 List all environments with their current status.
+Shows both global and project-local environments in a unified view.
+Projects registered in the global registry are included with their paths.
 
 [source,bash]
 ----
 cc-deck env list
 cc-deck env list --type container
+cc-deck env list --worktrees
 cc-deck env list -o json
 ----
 
@@ -438,6 +459,10 @@ cc-deck env list -o json
 | `--type`
 | `-t`
 | Filter by environment type
+
+| `--worktrees`
+| `-w`
+| Show git worktrees within each project
 |===
 
 ==== env status
@@ -447,7 +472,8 @@ Display detailed status information for an environment.
 [source,bash]
 ----
 cc-deck env status mydev
-cc-deck env status mydev -o json
+cc-deck env status                    # resolves from project config
+cc-deck env status -o json
 ----
 
 ==== env start
@@ -457,6 +483,7 @@ Start a stopped environment.
 [source,bash]
 ----
 cc-deck env start mydev
+cc-deck env start                     # resolves from project config
 ----
 
 ==== env stop
@@ -466,6 +493,17 @@ Gracefully stop a running environment.
 [source,bash]
 ----
 cc-deck env stop mydev
+cc-deck env stop                      # resolves from project config
+----
+
+==== env prune
+
+Remove stale entries from the global project registry.
+Entries whose directories no longer exist are removed.
+
+[source,bash]
+----
+cc-deck env prune
 ----
 
 ==== env exec
