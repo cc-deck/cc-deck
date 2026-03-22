@@ -279,8 +279,10 @@ func (e *ComposeEnvironment) Create(ctx context.Context, opts CreateOpts) error 
 		}
 	}
 
-	// Gitignore handling.
-	e.handleGitignore(projDir)
+	// Ensure .cc-deck/.gitignore exists with status.yaml and run/ entries (FR-016, FR-030).
+	if err := ensureCCDeckGitignore(projDir); err != nil {
+		log.Printf("WARNING: could not ensure .cc-deck/.gitignore: %v", err)
+	}
 
 	// Run podman-compose up -d.
 	if err := e.composeUp(ctx, runtime); err != nil {
@@ -681,48 +683,6 @@ func (e *ComposeEnvironment) composeCmd(ctx context.Context, runtime string, act
 		return fmt.Errorf("%s %s: %s", action, err, string(out))
 	}
 	return nil
-}
-
-// handleGitignore checks if .cc-deck/ is in .gitignore and warns or auto-adds.
-func (e *ComposeEnvironment) handleGitignore(projDir string) {
-	// Check if this is a git repo.
-	gitDir := filepath.Join(projDir, ".git")
-	if _, err := os.Stat(gitDir); err != nil {
-		return // Not a git repo, skip.
-	}
-
-	gitignorePath := filepath.Join(projDir, ".gitignore")
-	entry := ccDeckDir + "/"
-
-	// Read existing .gitignore.
-	content, err := os.ReadFile(gitignorePath)
-	if err == nil {
-		// Check if already present.
-		for _, line := range strings.Split(string(content), "\n") {
-			if strings.TrimSpace(line) == entry || strings.TrimSpace(line) == ccDeckDir {
-				return // Already present.
-			}
-		}
-	}
-
-	if e.Gitignore {
-		// Auto-add.
-		f, err := os.OpenFile(gitignorePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-		if err != nil {
-			log.Printf("WARNING: could not update .gitignore: %v", err)
-			return
-		}
-		defer f.Close()
-
-		// Add newline before entry if file doesn't end with one.
-		if len(content) > 0 && content[len(content)-1] != '\n' {
-			_, _ = f.WriteString("\n")
-		}
-		_, _ = f.WriteString(entry + "\n")
-	} else {
-		fmt.Fprintf(os.Stderr, "WARNING: Add '%s' to your .gitignore to avoid committing generated files.\n", entry)
-		fmt.Fprintf(os.Stderr, "  Use --gitignore to add it automatically.\n")
-	}
 }
 
 // cleanupOnFailure removes the .cc-deck/ directory on creation failure.
