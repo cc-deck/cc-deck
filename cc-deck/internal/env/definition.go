@@ -23,7 +23,9 @@ type EnvironmentDefinition struct {
 	Storage     *StorageConfig  `yaml:"storage,omitempty"`
 	Ports       []string        `yaml:"ports,omitempty"`
 	Credentials []string        `yaml:"credentials,omitempty"`
-	Mounts      []string        `yaml:"mounts,omitempty"` // Bind mounts as "src:dst[:ro]" (container/compose only)
+	Mounts         []string        `yaml:"mounts,omitempty"`          // Bind mounts as "src:dst[:ro]" (container/compose only)
+	AllowedDomains []string        `yaml:"allowed-domains,omitempty"` // Domain groups for proxy sidecar (compose only)
+	ProjectDir     string          `yaml:"project-dir,omitempty"`     // Project directory (compose only)
 }
 
 // DefinitionFile is the top-level structure of the environment definitions file.

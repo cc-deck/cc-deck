@@ -11,6 +11,8 @@ func NewEnvironment(envType EnvironmentType, name string, store *FileStateStore,
 		return &LocalEnvironment{name: name, store: store}, nil
 	case EnvironmentTypeContainer:
 		return &ContainerEnvironment{name: name, store: store, defs: defs}, nil
+	case EnvironmentTypeCompose:
+		return &ComposeEnvironment{name: name, store: store, defs: defs}, nil
 	default:
 		return nil, fmt.Errorf("%s: %w", envType, ErrNotImplemented)
 	}

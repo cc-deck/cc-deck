@@ -175,6 +175,13 @@ Environment variable overrides (`$XDG_CONFIG_HOME`, `$XDG_STATE_HOME`) MUST be r
 
 Files affected by this policy: `config.go`, `state.go`, `definition.go`, `snapshot.go`, `network/config.go`, `main.go`.
 
+### XIV. No Dotfile Nesting
+
+Files inside a dot directory (e.g., `.cc-deck/`) MUST NOT use a dot prefix themselves. The parent directory already signals "hidden/generated." Nested dotfiles are redundant and harder to discover when inspecting directory contents.
+
+- GOOD: `.cc-deck/env`, `.cc-deck/compose.yaml`, `.cc-deck/secrets/`
+- BAD: `.cc-deck/.env`, `.cc-deck/.gitkeep`
+
 ## Development Workflow
 
 - `make install` for building and installing (NON-NEGOTIABLE, see Principle VI)
@@ -193,4 +200,4 @@ Files affected by this policy: `config.go`, `state.go`, `definition.go`, `snapsh
 
 This constitution supersedes ad-hoc practices. Amendments require updating this file and the project memory.
 
-**Version**: 1.10.0 | **Ratified**: 2026-03-09 | **Last Amended**: 2026-03-21
+**Version**: 1.11.0 | **Ratified**: 2026-03-09 | **Last Amended**: 2026-03-22
