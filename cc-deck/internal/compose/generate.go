@@ -3,6 +3,7 @@ package compose
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -24,10 +25,12 @@ type GenerateOptions struct {
 	EnvVars map[string]string
 	// Volumes is a list of additional volume mounts for the session container (e.g., "./..:/workspace").
 	Volumes []string
-	// SecretsDir is an optional directory to mount for file-based credentials (e.g., "./secrets:/run/secrets:ro").
-	SecretsDir string
 	// Ports is a list of port mappings for the session container (e.g., "8080:8080").
 	Ports []string
+	// Secrets maps secret names to host file paths for compose-native secrets.
+	// Each entry becomes a top-level secret definition (file: <path>) and is
+	// attached to the session service, mounted at /run/secrets/<name>.
+	Secrets map[string]string
 }
 
 const defaultProxyImage = "docker.io/vimagick/tinyproxy:latest"
@@ -82,8 +85,18 @@ func Generate(opts GenerateOptions) (*ComposeOutput, error) {
 
 // composeFile represents the top-level compose.yaml structure.
 type composeFile struct {
-	Services map[string]composeService `yaml:"services"`
-	Networks map[string]composeNetwork `yaml:"networks,omitempty"`
+	Services map[string]composeService    `yaml:"services"`
+	Volumes  map[string]composeVolumeDecl `yaml:"volumes,omitempty"`
+	Secrets  map[string]composeSecret     `yaml:"secrets,omitempty"`
+	Networks map[string]composeNetwork    `yaml:"networks,omitempty"`
+}
+
+type composeSecret struct {
+	File string `yaml:"file"`
+}
+
+type composeVolumeDecl struct {
+	External bool `yaml:"external,omitempty"`
 }
 
 type composeService struct {
@@ -94,6 +107,7 @@ type composeService struct {
 	EnvFile       []string          `yaml:"env_file,omitempty"`
 	Volumes       []string          `yaml:"volumes,omitempty"`
 	Ports         []string          `yaml:"ports,omitempty"`
+	Secrets       []string          `yaml:"secrets,omitempty"`
 	DependsOn     []string          `yaml:"depends_on,omitempty"`
 	Command       string            `yaml:"command,omitempty"`
 	Stdin         bool              `yaml:"stdin_open,omitempty"`
@@ -118,16 +132,12 @@ func generateComposeYAML(opts GenerateOptions, proxyImage string, proxyPort int,
 	sessionSvc := composeService{
 		Image:         opts.ImageRef,
 		ContainerName: opts.SessionName,
-		EnvFile:       []string{".env"},
+		EnvFile:       []string{"env"},
 		Environment:   sessionEnv,
 		Volumes:       opts.Volumes,
 		Command:       "sleep infinity",
 		Stdin:         true,
 		TTY:           true,
-	}
-
-	if opts.SecretsDir != "" {
-		sessionSvc.Volumes = append(sessionSvc.Volumes, opts.SecretsDir+":/run/secrets:ro")
 	}
 
 	if len(opts.Ports) > 0 {
@@ -163,7 +173,27 @@ func generateComposeYAML(opts GenerateOptions, proxyImage string, proxyPort int,
 		}
 	}
 
+	// Attach compose-native secrets to the session service.
+	if len(opts.Secrets) > 0 {
+		cf.Secrets = make(map[string]composeSecret, len(opts.Secrets))
+		for name, hostPath := range opts.Secrets {
+			cf.Secrets[name] = composeSecret{File: hostPath}
+			sessionSvc.Secrets = append(sessionSvc.Secrets, name)
+		}
+	}
+
 	cf.Services["session"] = sessionSvc
+
+	// Declare named volumes at top level (required by compose spec).
+	for _, vol := range sessionSvc.Volumes {
+		src := strings.SplitN(vol, ":", 2)[0]
+		if src != "" && !strings.HasPrefix(src, ".") && !strings.HasPrefix(src, "/") && !strings.HasPrefix(src, "~") {
+			if cf.Volumes == nil {
+				cf.Volumes = make(map[string]composeVolumeDecl)
+			}
+			cf.Volumes[src] = composeVolumeDecl{External: true}
+		}
+	}
 
 	data, err := yaml.Marshal(cf)
 	if err != nil {

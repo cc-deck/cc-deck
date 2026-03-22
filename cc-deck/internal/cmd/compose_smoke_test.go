@@ -1,6 +1,7 @@
 package cmd_test
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -91,7 +92,7 @@ func TestComposeSmokeFullLifecycle(t *testing.T) {
 	ccDeckDir := filepath.Join(projectDir, ".cc-deck")
 	assert.DirExists(t, ccDeckDir)
 	assert.FileExists(t, filepath.Join(ccDeckDir, "compose.yaml"))
-	assert.FileExists(t, filepath.Join(ccDeckDir, ".env"))
+	assert.FileExists(t, filepath.Join(ccDeckDir, "env"))
 
 	// 3. Verify compose.yaml content
 	composeYAML, err := os.ReadFile(filepath.Join(ccDeckDir, "compose.yaml"))
@@ -285,4 +286,139 @@ func TestComposeSmokeBindMountSync(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(projectDir, "container-file.txt"))
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "from container")
+}
+
+// nonRootTestImage builds a minimal test image with a non-root user.
+// Returns the image name. The image is removed on test cleanup.
+func nonRootTestImage(t *testing.T) string {
+	t.Helper()
+	imageName := fmt.Sprintf("localhost/cc-deck-test-nonroot:%d", os.Getpid())
+	containerfile := filepath.Join(t.TempDir(), "Containerfile")
+	require.NoError(t, os.WriteFile(containerfile, []byte(
+		"FROM fedora:latest\nRUN useradd -m devuser\nUSER devuser\n"), 0o644))
+	out, err := exec.Command("podman", "build", "-t", imageName,
+		"-f", containerfile, filepath.Dir(containerfile)).CombinedOutput()
+	require.NoError(t, err, "failed to build non-root test image: %s", out)
+	t.Cleanup(func() {
+		_ = exec.Command("podman", "rmi", imageName).Run()
+	})
+	return imageName
+}
+
+func TestComposeSmokeWritePermissionsNonRoot(t *testing.T) {
+	skipIfNoCompose(t)
+	bin := buildTestBinary(t)
+	envVars, projectDir := setupComposeSmokeEnv(t)
+	image := nonRootTestImage(t)
+
+	defer func() {
+		ccd(t, bin, envVars, "env", "delete", "smoke-perms", "--force")
+	}()
+
+	_, err := ccd(t, bin, envVars, "env", "create", "smoke-perms",
+		"--type", "compose",
+		"--image", image,
+		"--path", projectDir)
+	require.NoError(t, err)
+
+	// Verify the container user is non-root.
+	podOut, err := exec.Command("podman", "exec", "cc-deck-smoke-perms",
+		"id", "-u").Output()
+	require.NoError(t, err)
+	uid := strings.TrimSpace(string(podOut))
+	assert.NotEqual(t, "0", uid, "container should run as non-root user")
+
+	// Container should be able to write to /workspace (the bind mount).
+	podOut, err = exec.Command("podman", "exec", "cc-deck-smoke-perms",
+		"sh", "-c", "echo 'write-test' > /workspace/nonroot-write.txt && cat /workspace/nonroot-write.txt").CombinedOutput()
+	require.NoError(t, err, "non-root user should be able to write to /workspace: %s", podOut)
+	assert.Contains(t, string(podOut), "write-test")
+
+	// Verify file exists on host.
+	data, err := os.ReadFile(filepath.Join(projectDir, "nonroot-write.txt"))
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "write-test")
+}
+
+func TestComposeSmokeNamedVolume(t *testing.T) {
+	skipIfNoCompose(t)
+	bin := buildTestBinary(t)
+	envVars, projectDir := setupComposeSmokeEnv(t)
+
+	defer func() {
+		ccd(t, bin, envVars, "env", "delete", "smoke-vol", "--force")
+	}()
+
+	// Create with named-volume storage.
+	out, err := ccd(t, bin, envVars, "env", "create", "smoke-vol",
+		"--type", "compose",
+		"--image", "fedora:latest",
+		"--path", projectDir,
+		"--storage", "named-volume")
+	require.NoError(t, err, "create with named-volume failed: %s", out)
+
+	// Verify compose.yaml declares the volume as external.
+	composeYAML, err := os.ReadFile(filepath.Join(projectDir, ".cc-deck", "compose.yaml"))
+	require.NoError(t, err)
+	assert.Contains(t, string(composeYAML), "external: true",
+		"compose.yaml should declare external volume")
+
+	// Verify container is running.
+	podOut, err := exec.Command("podman", "inspect", "cc-deck-smoke-vol",
+		"--format", "{{.State.Status}}").Output()
+	require.NoError(t, err)
+	assert.Equal(t, "running", strings.TrimSpace(string(podOut)))
+
+	// Verify volume exists.
+	podOut, err = exec.Command("podman", "volume", "inspect",
+		"cc-deck-smoke-vol-data").Output()
+	require.NoError(t, err, "named volume should exist")
+
+	// Write data, stop, start, verify data persists.
+	_, err = exec.Command("podman", "exec", "cc-deck-smoke-vol",
+		"sh", "-c", "echo 'persist-test' > /workspace/persist.txt").CombinedOutput()
+	require.NoError(t, err)
+
+	_, err = ccd(t, bin, envVars, "env", "stop", "smoke-vol")
+	require.NoError(t, err)
+
+	_, err = ccd(t, bin, envVars, "env", "start", "smoke-vol")
+	require.NoError(t, err)
+
+	podOut, err = exec.Command("podman", "exec", "cc-deck-smoke-vol",
+		"cat", "/workspace/persist.txt").Output()
+	require.NoError(t, err)
+	assert.Contains(t, string(podOut), "persist-test",
+		"data should persist across stop/start")
+}
+
+func TestComposeSmokeDuplicateNameFailsFast(t *testing.T) {
+	skipIfNoCompose(t)
+	bin := buildTestBinary(t)
+	envVars, projectDir := setupComposeSmokeEnv(t)
+
+	defer func() {
+		ccd(t, bin, envVars, "env", "delete", "smoke-dup", "--force")
+	}()
+
+	// First create should succeed.
+	_, err := ccd(t, bin, envVars, "env", "create", "smoke-dup",
+		"--type", "compose",
+		"--image", "fedora:latest",
+		"--path", projectDir)
+	require.NoError(t, err)
+
+	// Second create should fail fast.
+	projectDir2 := t.TempDir()
+	out, err := ccd(t, bin, envVars, "env", "create", "smoke-dup",
+		"--type", "compose",
+		"--image", "fedora:latest",
+		"--path", projectDir2)
+	assert.Error(t, err, "duplicate create should fail")
+	assert.Contains(t, out, "already exists", "should report name conflict")
+
+	// No .cc-deck/ directory should be created in the second project dir.
+	_, statErr := os.Stat(filepath.Join(projectDir2, ".cc-deck"))
+	assert.True(t, os.IsNotExist(statErr),
+		".cc-deck/ should NOT be created when duplicate name is rejected")
 }

@@ -56,7 +56,7 @@ func TestComposeCreate_EnvFile_APIKey(t *testing.T) {
 	ccDeckDir := filepath.Join(tmpDir, ".cc-deck")
 	require.NoError(t, os.MkdirAll(ccDeckDir, 0o755))
 
-	// Simulate writing a .env file with API key credentials.
+	// Simulate writing an env file with API key credentials.
 	creds := map[string]string{
 		"ANTHROPIC_API_KEY": "sk-ant-test-key-123",
 	}
@@ -66,7 +66,7 @@ func TestComposeCreate_EnvFile_APIKey(t *testing.T) {
 		envLines = append(envLines, key+"="+val)
 	}
 	envContent := strings.Join(envLines, "\n") + "\n"
-	envPath := filepath.Join(ccDeckDir, ".env")
+	envPath := filepath.Join(ccDeckDir, "env")
 	require.NoError(t, os.WriteFile(envPath, []byte(envContent), 0o600))
 
 	// Read back and verify.
@@ -75,28 +75,28 @@ func TestComposeCreate_EnvFile_APIKey(t *testing.T) {
 	assert.Contains(t, string(data), "ANTHROPIC_API_KEY=sk-ant-test-key-123")
 }
 
-func TestComposeCreate_FileCredential(t *testing.T) {
-	tmpDir := t.TempDir()
-	ccDeckDir := filepath.Join(tmpDir, ".cc-deck")
-	secretsDir := filepath.Join(ccDeckDir, "secrets")
-	require.NoError(t, os.MkdirAll(secretsDir, 0o755))
+func TestComposeCreate_FileCredentialAsSecret(t *testing.T) {
+	// File-based credentials should produce compose-native secrets, not copies.
+	credFile := filepath.Join(t.TempDir(), "adc.json")
+	require.NoError(t, os.WriteFile(credFile, []byte(`{"type":"authorized_user"}`), 0o600))
 
-	// Create a fake credential file.
-	credFile := filepath.Join(tmpDir, "adc.json")
-	credContent := `{"type":"authorized_user","client_id":"test"}`
-	require.NoError(t, os.WriteFile(credFile, []byte(credContent), 0o600))
+	creds := map[string]string{
+		"GOOGLE_APPLICATION_CREDENTIALS": credFile,
+	}
 
-	// Simulate copying file credential to secrets dir.
-	secretFileName := "google-application-credentials"
-	destPath := filepath.Join(secretsDir, secretFileName)
-	data, err := os.ReadFile(credFile)
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(destPath, data, 0o600))
+	composeSecrets := make(map[string]string)
+	var envLines []string
+	for key, val := range creds {
+		if info, statErr := os.Stat(val); statErr == nil && !info.IsDir() {
+			secretName := strings.ToLower(strings.ReplaceAll(key, "_", "-"))
+			composeSecrets[secretName] = val
+			envLines = append(envLines, key+"=/run/secrets/"+secretName)
+		}
+	}
 
-	// Verify the secret file exists with correct content.
-	readBack, err := os.ReadFile(destPath)
-	require.NoError(t, err)
-	assert.Equal(t, credContent, string(readBack))
+	require.Len(t, composeSecrets, 1)
+	assert.Equal(t, credFile, composeSecrets["google-application-credentials"])
+	assert.Equal(t, "GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/google-application-credentials", envLines[0])
 }
 
 // --- T024: Filtering tests ---

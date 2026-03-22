@@ -31,15 +31,15 @@ ccd env create test-compose --type compose
 
 # Verify .cc-deck/ directory was created
 ls -la .cc-deck/
-# Expected: compose.yaml, .env
+# Expected: compose.yaml, env (no dot prefix on env file)
 
 # Verify compose.yaml contains session service
 grep -A 2 'session:' .cc-deck/compose.yaml
 # Expected: image: quay.io/cc-deck/cc-deck-demo:latest
 
-# Verify workspace bind mount
+# Verify workspace bind mount with :U ownership mapping
 grep '/workspace' .cc-deck/compose.yaml
-# Expected: ./..:/workspace
+# Expected: ./..:/workspace:U  (the :U flag fixes UID mismatch on macOS)
 
 # Verify stdin_open and tty
 grep -E 'stdin_open|tty' .cc-deck/compose.yaml
@@ -82,11 +82,14 @@ cat ~/.local/state/cc-deck/state.yaml | grep -A 5 'test-compose'
 # Expected: type: compose, compose: { project_dir: ..., container_name: cc-deck-test-compose }
 ```
 
-### 1d. Duplicate name rejected
+### 1d. Duplicate name rejected (fast-fail)
 
 ```bash
 ccd env create test-compose --type compose
-# Expected: error "instance ... already exists"
+# Expected: error "already exists" - fails immediately before creating any resources
+# Verify no second container was started:
+podman ps --filter name=cc-deck-test-compose --format '{{.Names}}' | wc -l
+# Expected: 1 (only the original)
 ```
 
 ### 1e. Create with explicit project path
@@ -113,8 +116,15 @@ rm -rf /tmp/other-project
 
 ```bash
 ccd env create test-volume --type compose --image fedora:latest --storage named-volume
+
+# Verify volume exists
 podman volume ls --filter name=cc-deck-test-volume
 # Expected: cc-deck-test-volume-data
+
+# Verify compose.yaml declares the volume as external
+grep -A 1 'external' .cc-deck/compose.yaml
+# Expected: external: true (volume is pre-created by cc-deck)
+
 ccd env delete test-volume --force
 ```
 
@@ -147,6 +157,22 @@ podman inspect cc-deck-test-compose --format '{{.State.Status}}'
 # Verify workspace data survives stop/start
 podman exec cc-deck-test-compose cat /workspace/from-host.txt
 # Expected: hello (file persists across stop/start)
+```
+
+### 2a. Graceful fallback when .cc-deck/ is missing
+
+```bash
+# Simulate missing compose files (e.g., after manual cleanup)
+mv .cc-deck .cc-deck-backup
+ccd env stop test-compose
+# Expected: falls back to direct podman stop (no chdir error)
+podman inspect cc-deck-test-compose --format '{{.State.Status}}'
+# Expected: exited
+ccd env start test-compose
+# Expected: falls back to direct podman start
+podman inspect cc-deck-test-compose --format '{{.State.Status}}'
+# Expected: running
+mv .cc-deck-backup .cc-deck
 ```
 
 ## 3. List and Status (US3)
@@ -187,8 +213,8 @@ ccd env start test-compose
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-test-compose
 ccd env create test-creds --type compose --image fedora:latest
-# Verify credential in .env file
-cat .cc-deck/.env
+# Verify credential in env file
+cat .cc-deck/env
 # Expected: ANTHROPIC_API_KEY=sk-ant-test-compose
 
 # Verify credential available inside container
@@ -204,7 +230,7 @@ unset ANTHROPIC_API_KEY
 ```bash
 ccd env create test-explicit --type compose --image fedora:latest \
   --credential MY_SECRET=super-secret-value
-cat .cc-deck/.env | grep MY_SECRET
+cat .cc-deck/env | grep MY_SECRET
 # Expected: MY_SECRET=super-secret-value
 
 podman exec cc-deck-test-explicit env | grep MY_SECRET
@@ -213,7 +239,7 @@ podman exec cc-deck-test-explicit env | grep MY_SECRET
 ccd env delete test-explicit --force
 ```
 
-### 4c. File-based credential (Vertex ADC)
+### 4c. File-based credential (Vertex ADC) via compose-native secrets
 
 ```bash
 # Create a fake ADC file
@@ -227,29 +253,55 @@ export GOOGLE_APPLICATION_CREDENTIALS=/tmp/test-cred-dir/adc.json
 
 ccd env create test-vertex --type compose --image fedora:latest
 
-# Verify file credential was copied to secrets dir
-ls .cc-deck/secrets/
-# Expected: google-application-credentials
+# Verify NO .cc-deck/secrets/ directory (files are not copied)
+ls .cc-deck/secrets/ 2>&1
+# Expected: No such file or directory
 
-# Verify env var points to mounted secret
-cat .cc-deck/.env | grep GOOGLE_APPLICATION_CREDENTIALS
+# Verify env var points to secret mount path
+cat .cc-deck/env | grep GOOGLE_APPLICATION_CREDENTIALS
 # Expected: GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/google-application-credentials
 
-# Verify secrets dir is mounted in compose.yaml
-grep '/run/secrets' .cc-deck/compose.yaml
-# Expected: ./secrets:/run/secrets:ro
+# Verify compose.yaml uses compose-native secrets (not volume mounts)
+grep -A 2 'secrets:' .cc-deck/compose.yaml
+# Expected at top level:
+#   secrets:
+#     google-application-credentials:
+#       file: /tmp/test-cred-dir/adc.json
+# Expected in session service:
+#   secrets:
+#     - google-application-credentials
+
+# Verify the secret is live (no copy, reads from original file)
+echo '{"type":"updated"}' > /tmp/test-cred-dir/adc.json
+podman exec cc-deck-test-vertex cat /run/secrets/google-application-credentials
+# Expected: {"type":"updated"} (live file, not a stale copy)
 
 ccd env delete test-vertex --force
 unset CLAUDE_CODE_USE_VERTEX ANTHROPIC_VERTEX_PROJECT_ID CLOUD_ML_REGION GOOGLE_APPLICATION_CREDENTIALS
 rm -rf /tmp/test-cred-dir
 ```
 
-### 4d. Auth mode override (none)
+### 4d. Vertex + API key both included
+
+```bash
+export CLAUDE_CODE_USE_VERTEX=1
+export ANTHROPIC_VERTEX_PROJECT_ID=my-project
+export CLOUD_ML_REGION=europe-west1
+export ANTHROPIC_API_KEY=sk-ant-also-included
+ccd env create test-both --type compose --image fedora:latest
+cat .cc-deck/env
+# Expected: contains BOTH Vertex vars AND ANTHROPIC_API_KEY
+#           (API key is always included as fallback)
+ccd env delete test-both --force
+unset CLAUDE_CODE_USE_VERTEX ANTHROPIC_VERTEX_PROJECT_ID CLOUD_ML_REGION ANTHROPIC_API_KEY
+```
+
+### 4e. Auth mode override (none)
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-should-be-ignored
 ccd env create test-noauth --type compose --image fedora:latest --auth none
-cat .cc-deck/.env
+cat .cc-deck/env
 # Expected: empty (no credentials injected)
 ccd env delete test-noauth --force
 unset ANTHROPIC_API_KEY
@@ -512,7 +564,7 @@ ccd env create test-badpath --type compose --path /nonexistent/path
 
 ```bash
 # Remove all test environments
-for name in test-compose test-creds test-explicit test-vertex test-noauth test-filter test-nofilter test-literal test-gitignore test-autogit test-nodup test-regen test-runtime; do
+for name in test-compose test-creds test-explicit test-vertex test-both test-noauth test-filter test-nofilter test-literal test-gitignore test-autogit test-nodup test-regen test-runtime; do
   ccd env delete "$name" --force 2>/dev/null
 done
 
@@ -535,23 +587,28 @@ unalias ccd
 |------|----|----|--------|
 | Create with default image | US1 | FR-001, FR-015 | |
 | .cc-deck/ directory created | US1 | FR-002 | |
-| Bind mount at /workspace | US1 | FR-003 | |
+| No dotfile nesting (env not .env) | US1 | FR-002 | |
+| Bind mount at /workspace with :U | US1 | FR-003 | |
+| Non-root write permissions | US1 | FR-003 | |
 | Bidirectional file sync | US1 | FR-003 | |
 | stdin_open and tty set | US1 | FR-011 | |
-| Named volume storage | US1 | FR-004 | |
+| Named volume (external decl) | US1 | FR-004 | |
 | Port mapping | US1 | FR-001 | |
 | Explicit project path | US1 | FR-018 | |
 | Definition/state written | US1 | FR-001 | |
-| Duplicate name rejected | US1 | FR-019 | |
+| Duplicate name fast-fail | US1 | FR-019 | |
 | Stop container | US3 | FR-008 | |
 | Start container | US3 | FR-008 | |
 | Data survives stop/start | US3 | FR-008 | |
+| Stop/start fallback (no .cc-deck/) | US3 | FR-008 | |
 | List with compose type | US3 | FR-016 | |
 | Status detail | US3 | FR-016 | |
 | Reconcile external stop | US3 | FR-016 | |
 | Auto-detect API key | US4 | FR-010 | |
 | Explicit credential | US4 | FR-010 | |
-| File-based credential (ADC) | US4 | FR-010 | |
+| File credential (compose secrets) | US4 | FR-010 | |
+| Live secret (no copy drift) | US4 | FR-010 | |
+| Vertex + API key both included | US4 | FR-010 | |
 | Auth mode none (opt-out) | US4 | FR-010 | |
 | Allowed domains + proxy | US2 | FR-005, FR-006, FR-007 | |
 | No proxy without domains | US2 | FR-005 | |
