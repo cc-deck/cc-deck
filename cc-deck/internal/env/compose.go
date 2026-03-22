@@ -209,21 +209,22 @@ func (e *ComposeEnvironment) Create(ctx context.Context, opts CreateOpts) error 
 	}
 	volumes = append(volumes, e.Mounts...)
 
-	// Write credentials to env file. File-based credentials use
-	// compose-native secrets (mounted at /run/secrets/<name>) so the
-	// container always reads the live host file, avoiding drift.
+	// Write credentials to env file. File-based credentials are mounted
+	// directly from the host with :ro,U (read-only, ownership mapped to
+	// container user). This keeps the host file as the single source of
+	// truth, avoiding credential drift after re-authentication.
 	var credentialKeys []string
 	var envLines []string
-	composeSecrets := make(map[string]string)
 
 	for key, val := range creds {
 		credentialKeys = append(credentialKeys, key)
 
-		// File-based credential: use compose secret pointing to original file.
+		// File-based credential: bind mount the original file read-only.
 		if info, statErr := os.Stat(val); statErr == nil && !info.IsDir() {
 			secretName := strings.ToLower(strings.ReplaceAll(key, "_", "-"))
-			composeSecrets[secretName] = val
-			envLines = append(envLines, fmt.Sprintf("%s=/run/secrets/%s", key, secretName))
+			containerPath := "/run/secrets/" + secretName
+			volumes = append(volumes, val+":"+containerPath+":ro,U")
+			envLines = append(envLines, fmt.Sprintf("%s=%s", key, containerPath))
 		} else {
 			envLines = append(envLines, fmt.Sprintf("%s=%s", key, val))
 		}
@@ -246,7 +247,6 @@ func (e *ComposeEnvironment) Create(ctx context.Context, opts CreateOpts) error 
 		Domains:     resolvedDomains,
 		Volumes:     volumes,
 		Ports:       ports,
-		Secrets:     composeSecrets,
 	}
 
 	output, err := compose.Generate(genOpts)

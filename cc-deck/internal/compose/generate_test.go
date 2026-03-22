@@ -107,12 +107,13 @@ func TestGenerate_WithVolumes(t *testing.T) {
 	assert.True(t, session.TTY, "tty should be true")
 }
 
-func TestGenerate_WithSecrets(t *testing.T) {
+func TestGenerate_WithCredentialVolumeMounts(t *testing.T) {
 	out, err := Generate(GenerateOptions{
 		SessionName: "test-session",
 		ImageRef:    "quay.io/cc-deck/demo:latest",
-		Secrets: map[string]string{
-			"gcloud-adc": "/home/user/.config/gcloud/adc.json",
+		Volumes: []string{
+			"./..:/workspace:U",
+			"/home/user/.config/gcloud/adc.json:/run/secrets/google-application-credentials:ro,U",
 		},
 	})
 	require.NoError(t, err)
@@ -120,13 +121,9 @@ func TestGenerate_WithSecrets(t *testing.T) {
 	var cf composeFile
 	require.NoError(t, yaml.Unmarshal([]byte(out.ComposeYAML), &cf))
 
-	// Secret should be declared at top level.
-	require.Contains(t, cf.Secrets, "gcloud-adc")
-	assert.Equal(t, "/home/user/.config/gcloud/adc.json", cf.Secrets["gcloud-adc"].File)
-
-	// Session service should reference the secret.
 	session := cf.Services["session"]
-	assert.Contains(t, session.Secrets, "gcloud-adc")
+	assert.Contains(t, session.Volumes,
+		"/home/user/.config/gcloud/adc.json:/run/secrets/google-application-credentials:ro,U")
 }
 
 func TestGenerate_WithPorts(t *testing.T) {

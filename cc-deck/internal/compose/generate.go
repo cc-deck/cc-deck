@@ -27,10 +27,6 @@ type GenerateOptions struct {
 	Volumes []string
 	// Ports is a list of port mappings for the session container (e.g., "8080:8080").
 	Ports []string
-	// Secrets maps secret names to host file paths for compose-native secrets.
-	// Each entry becomes a top-level secret definition (file: <path>) and is
-	// attached to the session service, mounted at /run/secrets/<name>.
-	Secrets map[string]string
 }
 
 const defaultProxyImage = "docker.io/vimagick/tinyproxy:latest"
@@ -87,12 +83,7 @@ func Generate(opts GenerateOptions) (*ComposeOutput, error) {
 type composeFile struct {
 	Services map[string]composeService    `yaml:"services"`
 	Volumes  map[string]composeVolumeDecl `yaml:"volumes,omitempty"`
-	Secrets  map[string]composeSecret     `yaml:"secrets,omitempty"`
 	Networks map[string]composeNetwork    `yaml:"networks,omitempty"`
-}
-
-type composeSecret struct {
-	File string `yaml:"file"`
 }
 
 type composeVolumeDecl struct {
@@ -107,7 +98,6 @@ type composeService struct {
 	EnvFile       []string          `yaml:"env_file,omitempty"`
 	Volumes       []string          `yaml:"volumes,omitempty"`
 	Ports         []string          `yaml:"ports,omitempty"`
-	Secrets       []string          `yaml:"secrets,omitempty"`
 	DependsOn     []string          `yaml:"depends_on,omitempty"`
 	Command       string            `yaml:"command,omitempty"`
 	Stdin         bool              `yaml:"stdin_open,omitempty"`
@@ -170,15 +160,6 @@ func generateComposeYAML(opts GenerateOptions, proxyImage string, proxyPort int,
 				Internal: true,
 			},
 			"default": {},
-		}
-	}
-
-	// Attach compose-native secrets to the session service.
-	if len(opts.Secrets) > 0 {
-		cf.Secrets = make(map[string]composeSecret, len(opts.Secrets))
-		for name, hostPath := range opts.Secrets {
-			cf.Secrets[name] = composeSecret{File: hostPath}
-			sessionSvc.Secrets = append(sessionSvc.Secrets, name)
 		}
 	}
 

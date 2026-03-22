@@ -75,8 +75,8 @@ func TestComposeCreate_EnvFile_APIKey(t *testing.T) {
 	assert.Contains(t, string(data), "ANTHROPIC_API_KEY=sk-ant-test-key-123")
 }
 
-func TestComposeCreate_FileCredentialAsSecret(t *testing.T) {
-	// File-based credentials should produce compose-native secrets, not copies.
+func TestComposeCreate_FileCredentialVolumeMount(t *testing.T) {
+	// File-based credentials should produce :ro,U volume mounts, not copies.
 	credFile := filepath.Join(t.TempDir(), "adc.json")
 	require.NoError(t, os.WriteFile(credFile, []byte(`{"type":"authorized_user"}`), 0o600))
 
@@ -84,18 +84,19 @@ func TestComposeCreate_FileCredentialAsSecret(t *testing.T) {
 		"GOOGLE_APPLICATION_CREDENTIALS": credFile,
 	}
 
-	composeSecrets := make(map[string]string)
+	var volumeMounts []string
 	var envLines []string
 	for key, val := range creds {
 		if info, statErr := os.Stat(val); statErr == nil && !info.IsDir() {
 			secretName := strings.ToLower(strings.ReplaceAll(key, "_", "-"))
-			composeSecrets[secretName] = val
-			envLines = append(envLines, key+"=/run/secrets/"+secretName)
+			containerPath := "/run/secrets/" + secretName
+			volumeMounts = append(volumeMounts, val+":"+containerPath+":ro,U")
+			envLines = append(envLines, key+"="+containerPath)
 		}
 	}
 
-	require.Len(t, composeSecrets, 1)
-	assert.Equal(t, credFile, composeSecrets["google-application-credentials"])
+	require.Len(t, volumeMounts, 1)
+	assert.Contains(t, volumeMounts[0], credFile+":/run/secrets/google-application-credentials:ro,U")
 	assert.Equal(t, "GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/google-application-credentials", envLines[0])
 }
 
