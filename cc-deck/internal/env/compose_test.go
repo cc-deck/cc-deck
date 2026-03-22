@@ -46,7 +46,7 @@ func TestComposeEnvironment_ProjectDir_Explicit(t *testing.T) {
 
 func TestComposeEnvironment_ComposeProjectDir(t *testing.T) {
 	e := &ComposeEnvironment{name: "test", ProjectDir: "/tmp/myproject"}
-	assert.Equal(t, "/tmp/myproject/.cc-deck", e.composeProjectDir())
+	assert.Equal(t, "/tmp/myproject/.cc-deck/run", e.composeProjectDir())
 }
 
 // --- T021: Credential tests ---
@@ -136,59 +136,7 @@ func TestComposeCreate_ProxyFiles(t *testing.T) {
 	assert.Contains(t, string(wlData), ".github.com")
 }
 
-// --- T026: Gitignore tests ---
-
-func TestHandleGitignore_NotGitRepo(t *testing.T) {
-	tmpDir := t.TempDir()
-	e := &ComposeEnvironment{name: "test"}
-	// No .git directory, should silently skip.
-	e.handleGitignore(tmpDir)
-
-	// No .gitignore should be created.
-	_, err := os.Stat(filepath.Join(tmpDir, ".gitignore"))
-	assert.True(t, os.IsNotExist(err))
-}
-
-func TestHandleGitignore_AutoAdd(t *testing.T) {
-	tmpDir := t.TempDir()
-	// Create .git directory to simulate git repo.
-	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, ".git"), 0o755))
-
-	e := &ComposeEnvironment{name: "test", Gitignore: true}
-	e.handleGitignore(tmpDir)
-
-	// .gitignore should be created with .cc-deck/ entry.
-	data, err := os.ReadFile(filepath.Join(tmpDir, ".gitignore"))
-	require.NoError(t, err)
-	assert.Contains(t, string(data), ".cc-deck/")
-}
-
-func TestHandleGitignore_AlreadyPresent(t *testing.T) {
-	tmpDir := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, ".git"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, ".gitignore"), []byte(".cc-deck/\n"), 0o644))
-
-	e := &ComposeEnvironment{name: "test", Gitignore: true}
-	e.handleGitignore(tmpDir)
-
-	// Should not duplicate the entry.
-	data, err := os.ReadFile(filepath.Join(tmpDir, ".gitignore"))
-	require.NoError(t, err)
-	count := strings.Count(string(data), ".cc-deck/")
-	assert.Equal(t, 1, count, "should not duplicate .cc-deck/ entry")
-}
-
-func TestHandleGitignore_WarningOnly(t *testing.T) {
-	tmpDir := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, ".git"), 0o755))
-
-	e := &ComposeEnvironment{name: "test", Gitignore: false}
-	e.handleGitignore(tmpDir)
-
-	// .gitignore should NOT be created when --gitignore is not set.
-	_, err := os.Stat(filepath.Join(tmpDir, ".gitignore"))
-	assert.True(t, os.IsNotExist(err))
-}
+// Gitignore tests are in gitignore_test.go (ensureCCDeckGitignore replaces handleGitignore).
 
 // --- T018: Lifecycle state transition tests ---
 

@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/cc-deck/cc-deck/internal/xdg"
 	"gopkg.in/yaml.v3"
@@ -269,4 +270,92 @@ func (s *FileStateStore) ListInstances() ([]*EnvironmentInstance, error) {
 	}
 
 	return result, nil
+}
+
+// RegisterProject adds or updates a project entry in the global registry.
+// Uses canonical (symlink-resolved) paths. Updates last_seen if already registered.
+func (s *FileStateStore) RegisterProject(path string) error {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		resolved = path
+	}
+
+	state, err := s.Load()
+	if err != nil {
+		return err
+	}
+
+	now := time.Now().UTC().Truncate(time.Second)
+	for i := range state.Projects {
+		if state.Projects[i].Path == resolved {
+			state.Projects[i].LastSeen = now
+			return s.Save(state)
+		}
+	}
+
+	state.Projects = append(state.Projects, ProjectEntry{
+		Path:     resolved,
+		LastSeen: now,
+	})
+	return s.Save(state)
+}
+
+// UnregisterProject removes a project entry from the global registry.
+func (s *FileStateStore) UnregisterProject(path string) error {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		resolved = path
+	}
+
+	state, err := s.Load()
+	if err != nil {
+		return err
+	}
+
+	for i := range state.Projects {
+		if state.Projects[i].Path == resolved {
+			state.Projects = append(state.Projects[:i], state.Projects[i+1:]...)
+			return s.Save(state)
+		}
+	}
+
+	return nil
+}
+
+// ListProjects returns all project entries from the global registry.
+func (s *FileStateStore) ListProjects() ([]ProjectEntry, error) {
+	state, err := s.Load()
+	if err != nil {
+		return nil, err
+	}
+	return state.Projects, nil
+}
+
+// PruneStaleProjects removes entries whose paths no longer exist.
+// Returns the count of removed entries.
+func (s *FileStateStore) PruneStaleProjects() (int, error) {
+	state, err := s.Load()
+	if err != nil {
+		return 0, err
+	}
+
+	var kept []ProjectEntry
+	removed := 0
+	for _, p := range state.Projects {
+		if _, err := os.Stat(p.Path); err != nil {
+			removed++
+			continue
+		}
+		kept = append(kept, p)
+	}
+
+	if removed == 0 {
+		return 0, nil
+	}
+
+	state.Projects = kept
+	if err := s.Save(state); err != nil {
+		return 0, err
+	}
+	return removed, nil
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"text/tabwriter"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 
 	"github.com/cc-deck/cc-deck/internal/config"
 	"github.com/cc-deck/cc-deck/internal/env"
+	"github.com/cc-deck/cc-deck/internal/project"
 )
 
 // NewEnvCmd creates the env parent command with all subcommands.
@@ -23,19 +25,40 @@ func NewEnvCmd(gf *GlobalFlags) *cobra.Command {
 		Long:  "Create, manage, and interact with cc-deck environments (local, container, Kubernetes).",
 	}
 
-	envCmd.AddCommand(
+	envCmd.AddGroup(
+		&cobra.Group{ID: "lifecycle", Title: "Lifecycle:"},
+		&cobra.Group{ID: "info", Title: "Info:"},
+		&cobra.Group{ID: "data", Title: "Data Transfer:"},
+		&cobra.Group{ID: "maintenance", Title: "Maintenance:"},
+	)
+
+	// Lifecycle: create → attach → start → stop → delete
+	addToGroup(envCmd, "lifecycle",
 		newEnvCreateCmd(gf),
 		newEnvAttachCmd(gf),
-		newEnvDeleteCmd(gf),
-		newEnvListCmd(gf),
-		newEnvStatusCmd(gf),
 		newEnvStartCmd(gf),
 		newEnvStopCmd(gf),
+		newEnvDeleteCmd(gf),
+	)
+
+	// Info
+	addToGroup(envCmd, "info",
+		newEnvListCmd(gf),
+		newEnvStatusCmd(gf),
+		newEnvLogsCmd(gf),
+	)
+
+	// Data transfer
+	addToGroup(envCmd, "data",
 		newEnvExecCmd(gf),
 		newEnvPushCmd(gf),
 		newEnvPullCmd(gf),
 		newEnvHarvestCmd(gf),
-		newEnvLogsCmd(gf),
+	)
+
+	// Maintenance
+	addToGroup(envCmd, "maintenance",
+		newEnvPruneCmd(),
 	)
 
 	return envCmd
@@ -55,16 +78,21 @@ type createFlags struct {
 	auth           string
 	allowedDomains []string
 	gitignore      bool
+	variant        string
 }
 
 func newEnvCreateCmd(gf *GlobalFlags) *cobra.Command {
 	var cf createFlags
 
 	cmd := &cobra.Command{
-		Use:   "create <name>",
+		Use:   "create [name]",
 		Short: "Create a new environment",
-		Long: `Create a new cc-deck environment. The name must contain only lowercase
-letters, digits, and hyphens (max 40 characters).
+		Long: `Create a new cc-deck environment. When run inside a project with
+.cc-deck/environment.yaml, the name and settings are read from the
+definition automatically. CLI flags override the definition values.
+
+In a git repository without a definition, one is scaffolded from CLI
+flags before provisioning. Commit .cc-deck/ to share with your team.
 
 Environment types:
   local       Zellij session on the host machine (default)
@@ -84,15 +112,18 @@ Container/Compose flags:
   --auth             Auth mode: auto (default), none, api, vertex, bedrock
 
 Compose-specific flags:
-  --allowed-domains  Domain groups for network filtering (repeatable)
-  --gitignore        Auto-add .cc-deck/ to .gitignore`,
-		Args: cobra.ExactArgs(1),
+  --allowed-domains  Domain groups for network filtering (repeatable)`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runEnvCreate(gf, args[0], &cf)
+			name := ""
+			if len(args) > 0 {
+				name = args[0]
+			}
+			return runEnvCreate(gf, name, &cf, cmd)
 		},
 	}
 
-	cmd.Flags().StringVarP(&cf.envType, "type", "t", "local", "Environment type (local, container, compose, k8s-deploy, k8s-sandbox)")
+	cmd.Flags().StringVarP(&cf.envType, "type", "t", "", "Environment type (local, container, compose, k8s-deploy, k8s-sandbox)")
 	cmd.Flags().StringVar(&cf.image, "image", "", "Container image to use")
 	cmd.Flags().StringSliceVar(&cf.ports, "port", nil, "Port mapping (host:container), repeatable")
 	cmd.Flags().BoolVar(&cf.allPorts, "all-ports", false, "Expose all container ports")
@@ -102,19 +133,110 @@ Compose-specific flags:
 	cmd.Flags().StringSliceVar(&cf.mount, "mount", nil, "Bind mount as src:dst[:ro], repeatable")
 	cmd.Flags().StringVar(&cf.auth, "auth", "auto", "Auth mode: auto, none, api, vertex, bedrock")
 	cmd.Flags().StringSliceVar(&cf.allowedDomains, "allowed-domains", nil, "Domain groups for network filtering (compose only), repeatable")
-	cmd.Flags().BoolVar(&cf.gitignore, "gitignore", false, "Auto-add .cc-deck/ to .gitignore (compose only)")
+	cmd.Flags().BoolVar(&cf.gitignore, "gitignore", false, "Auto-add .cc-deck/ to .gitignore (compose only, deprecated)")
+	cmd.Flags().StringVar(&cf.variant, "variant", "", "Variant name for multiple instances from the same definition")
 
 	return cmd
 }
 
-func runEnvCreate(_ *GlobalFlags, name string, cf *createFlags) error {
+func runEnvCreate(gf *GlobalFlags, name string, cf *createFlags, cmd *cobra.Command) error {
+	store := env.NewStateStore("")
+	defs := env.NewDefinitionStore("")
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("getting current directory: %w", err)
+	}
+
+	// Try to find project-local definition.
+	var projectRoot string
+	var projDef *env.EnvironmentDefinition
+	if root, findErr := project.FindProjectConfig(cwd); findErr == nil {
+		projectRoot = root
+		if def, loadErr := env.LoadProjectDefinition(root); loadErr == nil {
+			projDef = def
+		}
+	} else if root, gitErr := project.FindGitRoot(cwd); gitErr == nil {
+		// In a git repo but no .cc-deck/environment.yaml.
+		projectRoot = root
+	}
+
+	// Resolve environment name.
+	if name == "" {
+		if projDef != nil {
+			name = projDef.Name
+			fmt.Fprintf(os.Stderr, "Using environment %q from %s/.cc-deck/\n", name, projectRoot)
+		} else if projectRoot != "" {
+			// In a git repo with no definition: scaffold from CLI flags.
+			name = project.ProjectName(projectRoot)
+		} else {
+			return fmt.Errorf("no environment name specified and no .cc-deck/environment.yaml found in project hierarchy")
+		}
+	}
+
 	if err := env.ValidateEnvName(name); err != nil {
 		return err
 	}
 
+	// Resolve type: CLI flag > project definition > default (T017).
+	typeChanged := cmd.Flags().Changed("type")
 	envType := env.EnvironmentType(cf.envType)
-	store := env.NewStateStore("")
-	defs := env.NewDefinitionStore("")
+	if !typeChanged && projDef != nil && projDef.Type != "" {
+		envType = projDef.Type // Auto-detect from definition (FR-013).
+	}
+	if envType == "" {
+		envType = env.EnvironmentTypeLocal
+	}
+
+	// Project-local vs global precedence check (FR-026, T020).
+	if projDef != nil {
+		if globalDef, globalErr := defs.FindByName(name); globalErr == nil {
+			fmt.Fprintf(os.Stderr, "WARNING: Project-local definition shadows global definition %q (type: %s)\n",
+				globalDef.Name, globalDef.Type)
+		}
+	}
+
+	// Scaffold definition if in git repo with no definition.
+	if projDef == nil && projectRoot != "" {
+		scaffoldDef := &env.EnvironmentDefinition{
+			Name:           name,
+			Type:           envType,
+			Image:          cf.image,
+			Auth:           cf.auth,
+			AllowedDomains: cf.allowedDomains,
+		}
+		if err := env.SaveProjectDefinition(projectRoot, scaffoldDef); err != nil {
+			return fmt.Errorf("scaffolding project definition: %w", err)
+		}
+		projDef = scaffoldDef
+		fmt.Fprintf(os.Stderr, "Created .cc-deck/environment.yaml in %s\n", projectRoot)
+		fmt.Fprintf(os.Stderr, "Commit .cc-deck/ to share the definition with your team.\n")
+	}
+
+	// Apply project-local definition values, with CLI flags taking precedence.
+	if projDef != nil {
+		if cf.image == "" && projDef.Image != "" {
+			cf.image = projDef.Image
+		}
+		if !cmd.Flags().Changed("auth") && projDef.Auth != "" {
+			cf.auth = projDef.Auth
+		}
+		if len(cf.allowedDomains) == 0 && len(projDef.AllowedDomains) > 0 {
+			cf.allowedDomains = projDef.AllowedDomains
+		}
+		if len(cf.ports) == 0 && len(projDef.Ports) > 0 {
+			cf.ports = projDef.Ports
+		}
+		if len(cf.mount) == 0 && len(projDef.Mounts) > 0 {
+			cf.mount = projDef.Mounts
+		}
+		if len(cf.credential) == 0 && len(projDef.Credentials) > 0 {
+			cf.credential = projDef.Credentials
+		}
+		if cf.path == "" && projDef.ProjectDir != "" {
+			cf.path = projDef.ProjectDir
+		}
+	}
 
 	e, err := env.NewEnvironment(envType, name, store, defs)
 	if err != nil {
@@ -162,8 +284,7 @@ func runEnvCreate(_ *GlobalFlags, name string, cf *createFlags) error {
 		}
 	}
 
-	// Resolve image: CLI flag → config default (only for container type).
-	// Compose environments fall through to their own default in compose.go.
+	// Resolve image: CLI flag > project definition > config default.
 	image := cf.image
 	if image == "" && envType == env.EnvironmentTypeContainer {
 		if cfg, loadErr := config.Load(""); loadErr == nil && cfg.Defaults.Container.Image != "" {
@@ -191,8 +312,62 @@ func runEnvCreate(_ *GlobalFlags, name string, cf *createFlags) error {
 		return err
 	}
 
+	// Auto-register project in global registry (FR-007, T019).
+	if projectRoot != "" {
+		if regErr := store.RegisterProject(projectRoot); regErr != nil {
+			fmt.Fprintf(os.Stderr, "WARNING: could not register project: %v\n", regErr)
+		}
+
+		// Ensure .cc-deck/.gitignore exists (FR-030).
+		_ = env.EnsureCCDeckGitignore(projectRoot)
+
+		// Store CLI overrides and variant in status.yaml (FR-019, FR-010).
+		overrides := collectOverrides(cmd, cf, projDef)
+		{
+			statusStore := env.NewProjectStatusStore(projectRoot)
+			status, _ := statusStore.Load()
+			status.State = env.EnvironmentStateStopped
+			containerName := "cc-deck-" + name
+			if cf.variant != "" {
+				containerName += "-" + cf.variant
+				status.Variant = cf.variant
+			}
+			status.ContainerName = containerName
+			if status.CreatedAt.IsZero() {
+				status.CreatedAt = time.Now()
+			}
+			if len(overrides) > 0 {
+				status.Overrides = overrides
+			}
+			if saveErr := statusStore.Save(status); saveErr != nil {
+				fmt.Fprintf(os.Stderr, "WARNING: could not save project status: %v\n", saveErr)
+			}
+		}
+	}
+
 	fmt.Fprintf(os.Stdout, "Environment %q created (type: %s)\n", name, envType)
 	return nil
+}
+
+// collectOverrides returns CLI flag values that differ from the project definition.
+func collectOverrides(cmd *cobra.Command, cf *createFlags, projDef *env.EnvironmentDefinition) map[string]string {
+	if projDef == nil {
+		return nil
+	}
+	overrides := make(map[string]string)
+	if cmd.Flags().Changed("image") && cf.image != projDef.Image {
+		overrides["image"] = cf.image
+	}
+	if cmd.Flags().Changed("auth") && cf.auth != projDef.Auth {
+		overrides["auth"] = cf.auth
+	}
+	if cmd.Flags().Changed("type") && string(env.EnvironmentType(cf.envType)) != string(projDef.Type) {
+		overrides["type"] = cf.envType
+	}
+	if len(overrides) == 0 {
+		return nil
+	}
+	return overrides
 }
 
 // splitCredential splits a KEY=VALUE string. Returns nil if no '=' found.
@@ -213,15 +388,31 @@ func splitCredential(s string) []string {
 // --- attach ---
 
 func newEnvAttachCmd(_ *GlobalFlags) *cobra.Command {
-	return &cobra.Command{
-		Use:   "attach <name>",
+	var branch string
+
+	cmd := &cobra.Command{
+		Use:   "attach [name]",
 		Short: "Attach to an environment",
-		Long:  "Open an interactive session for the named environment.",
-		Args:  cobra.ExactArgs(1),
+		Long: `Open an interactive session for the named environment.
+When no name is provided, resolves from .cc-deck/environment.yaml in the project.
+Use --branch to land in a specific worktree directory inside the container.`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runEnvAttach(args[0])
+			store := env.NewStateStore("")
+			name, _, err := resolveEnvironmentName(args, store)
+			if err != nil {
+				return err
+			}
+			if branch != "" {
+				fmt.Fprintf(os.Stderr, "NOTE: --branch %q requested (worktree attach not yet wired to container exec)\n", branch)
+			}
+			return runEnvAttach(name)
 		},
 	}
+
+	cmd.Flags().StringVar(&branch, "branch", "", "Attach and land in a specific worktree directory (FR-022)")
+
+	return cmd
 }
 
 func runEnvAttach(name string) error {
@@ -243,14 +434,20 @@ func newEnvDeleteCmd(_ *GlobalFlags) *cobra.Command {
 	var keepVolumes bool
 
 	cmd := &cobra.Command{
-		Use:   "delete <name>",
+		Use:   "delete [name]",
 		Short: "Delete an environment",
 		Long: `Delete the named environment and remove it from the state store.
 If the environment is running, use --force to stop and delete it.
-For container environments, use --keep-volumes to preserve data volumes.`,
-		Args: cobra.ExactArgs(1),
+For container environments, use --keep-volumes to preserve data volumes.
+When no name is provided, resolves from .cc-deck/environment.yaml in the project.`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runEnvDelete(args[0], force, keepVolumes)
+			store := env.NewStateStore("")
+			name, _, err := resolveEnvironmentName(args, store)
+			if err != nil {
+				return err
+			}
+			return runEnvDelete(name, force, keepVolumes)
 		},
 	}
 
@@ -294,26 +491,46 @@ func runEnvDelete(name string, force bool, keepVolumes bool) error {
 
 // --- list ---
 
+// projectListEntry represents a project-local environment in list output.
+type projectListEntry struct {
+	Name    string
+	Type    env.EnvironmentType
+	Status  string
+	Path    string
+	Missing bool
+}
+
+// worktreeListEntry represents a git worktree sub-entry in list output.
+type worktreeListEntry struct {
+	ProjectName string
+	Path        string
+	Branch      string
+}
+
 func newEnvListCmd(gf *GlobalFlags) *cobra.Command {
 	var filterType string
+	var showWorktrees bool
 
 	cmd := &cobra.Command{
 		Use:     "list",
 		Aliases: []string{"ls"},
 		Short:   "List environments",
-		Long:    "List all cc-deck environments with their current status.",
-		Args:    cobra.NoArgs,
+		Long: `List all cc-deck environments with their current status.
+Shows both global and project-local environments in a unified view.
+Project paths and MISSING status are shown for registered projects.`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runEnvList(gf, filterType)
+			return runEnvList(gf, filterType, showWorktrees)
 		},
 	}
 
 	cmd.Flags().StringVarP(&filterType, "type", "t", "", "Filter by environment type")
+	cmd.Flags().BoolVarP(&showWorktrees, "worktrees", "w", false, "Show git worktrees within each project")
 
 	return cmd
 }
 
-func runEnvList(gf *GlobalFlags, filterType string) error {
+func runEnvList(gf *GlobalFlags, filterType string, showWorktrees bool) error {
 	store := env.NewStateStore("")
 	defs := env.NewDefinitionStore("")
 
@@ -351,12 +568,77 @@ func runEnvList(gf *GlobalFlags, filterType string) error {
 	for _, inst := range instances {
 		instanceNames[inst.Name] = true
 	}
+	// Also include v1 record names.
+	for _, r := range records {
+		instanceNames[r.Name] = true
+	}
+
+	// Collect project-local environments from the global registry (FR-006, FR-012).
+	var projectEnvs []projectListEntry
+	projects, _ := store.ListProjects()
+	for _, p := range projects {
+		if _, statErr := os.Stat(p.Path); statErr != nil {
+			// Path no longer exists: MISSING (FR-008).
+			projectEnvs = append(projectEnvs, projectListEntry{
+				Name:    filepath.Base(p.Path),
+				Path:    p.Path,
+				Missing: true,
+				Status:  "MISSING",
+			})
+			continue
+		}
+		def, loadErr := env.LoadProjectDefinition(p.Path)
+		if loadErr != nil {
+			continue
+		}
+		if filterType != "" && string(def.Type) != filterType {
+			continue
+		}
+		// Skip if already shown via global state.
+		if instanceNames[def.Name] {
+			continue
+		}
+		statusStore := env.NewProjectStatusStore(p.Path)
+		status, _ := statusStore.Load()
+		state := "not created"
+		if status.State != "" {
+			state = string(status.State)
+		}
+		projectEnvs = append(projectEnvs, projectListEntry{
+			Name:   def.Name,
+			Type:   def.Type,
+			Status: state,
+			Path:   p.Path,
+		})
+	}
+
+	// Collect worktree info if requested (FR-020).
+	var worktrees []worktreeListEntry
+	if showWorktrees {
+		for _, p := range projects {
+			if _, statErr := os.Stat(p.Path); statErr != nil {
+				continue
+			}
+			wts, wtErr := project.ListWorktrees(p.Path)
+			if wtErr != nil {
+				continue
+			}
+			pName := filepath.Base(p.Path)
+			for _, wt := range wts {
+				worktrees = append(worktrees, worktreeListEntry{
+					ProjectName: pName,
+					Path:        wt.Path,
+					Branch:      wt.Branch,
+				})
+			}
+		}
+	}
 
 	switch gf.Output {
 	case "json", "yaml":
 		return writeEnvStructured(gf.Output, records, instances, allDefs, instanceNames, filterType)
 	default:
-		return writeEnvTable(records, instances, allDefs, instanceNames, filterType)
+		return writeEnvTableWithProjects(records, instances, allDefs, instanceNames, filterType, projectEnvs, worktrees)
 	}
 }
 
@@ -446,28 +728,34 @@ func writeEnvStructured(format string, records []*env.EnvironmentRecord, instanc
 	}
 }
 
-func writeEnvTable(records []*env.EnvironmentRecord, instances []*env.EnvironmentInstance, allDefs []*env.EnvironmentDefinition, instanceNames map[string]bool, filterType string) error {
+// writeEnvTableWithProjects writes the env list table with project-local entries.
+func writeEnvTableWithProjects(records []*env.EnvironmentRecord, instances []*env.EnvironmentInstance, allDefs []*env.EnvironmentDefinition, instanceNames map[string]bool, filterType string, projectEnvs []projectListEntry, worktrees []worktreeListEntry) error {
 	tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(tw, "NAME\tTYPE\tSTATUS\tSTORAGE\tLAST ATTACHED\tAGE")
+	showPath := len(projectEnvs) > 0
+
+	if showPath {
+		fmt.Fprintln(tw, "NAME\tTYPE\tSTATUS\tSTORAGE\tPATH\tLAST ATTACHED\tAGE")
+	} else {
+		fmt.Fprintln(tw, "NAME\tTYPE\tSTATUS\tSTORAGE\tLAST ATTACHED\tAGE")
+	}
 
 	hasEntries := false
-
-	for _, r := range records {
-		storage := storageDisplay(r)
-		lastAttached := formatRelativeTime(r.LastAttached)
-		age := formatDuration(time.Since(r.CreatedAt))
-
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n",
-			r.Name,
-			r.Type,
-			r.State,
-			storage,
-			lastAttached,
-			age,
-		)
+	printRow := func(name string, envType, state, storage, path, lastAttached, age string) {
+		if showPath {
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", name, envType, state, storage, path, lastAttached, age)
+		} else {
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", name, envType, state, storage, lastAttached, age)
+		}
 		hasEntries = true
 	}
 
+	// Global v1 records (local environments).
+	for _, r := range records {
+		printRow(r.Name, string(r.Type), string(r.State), storageDisplay(r), "-",
+			formatRelativeTime(r.LastAttached), formatDuration(time.Since(r.CreatedAt)))
+	}
+
+	// Global v2 instances (container/compose environments).
 	for _, inst := range instances {
 		instType := inst.Type
 		if instType == "" {
@@ -480,26 +768,15 @@ func writeEnvTable(records []*env.EnvironmentRecord, instances []*env.Environmen
 		if inst.Compose != nil {
 			storage = "host-path"
 		}
-		lastAttached := formatRelativeTime(inst.LastAttached)
-		age := formatDuration(time.Since(inst.CreatedAt))
-
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n",
-			inst.Name,
-			instType,
-			inst.State,
-			storage,
-			lastAttached,
-			age,
-		)
-		hasEntries = true
+		printRow(inst.Name, string(instType), string(inst.State), storage, "-",
+			formatRelativeTime(inst.LastAttached), formatDuration(time.Since(inst.CreatedAt)))
 	}
 
-	// Show definitions without instances as "not created".
+	// Global definitions without instances as "not created".
 	for _, d := range allDefs {
 		if instanceNames[d.Name] {
 			continue
 		}
-		// Also skip if it's a local type (those use v1 records).
 		if d.Type == env.EnvironmentTypeLocal {
 			continue
 		}
@@ -510,15 +787,31 @@ func writeEnvTable(records []*env.EnvironmentRecord, instances []*env.Environmen
 		if d.Storage != nil {
 			storage = string(d.Storage.Type)
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n",
-			d.Name,
-			d.Type,
-			"not created",
-			storage,
-			"never",
-			"-",
-		)
-		hasEntries = true
+		printRow(d.Name, string(d.Type), "not created", storage, "-", "never", "-")
+	}
+
+	// Project-local environments (FR-012, FR-008).
+	for _, pe := range projectEnvs {
+		path := pe.Path
+		home, _ := os.UserHomeDir()
+		if home != "" {
+			if rel, err := filepath.Rel(home, path); err == nil && !filepath.IsAbs(rel) {
+				path = "~/" + rel
+			}
+		}
+		printRow(pe.Name, string(pe.Type), pe.Status, "-", path, "-", "-")
+	}
+
+	// Worktree sub-entries (FR-020).
+	for _, wt := range worktrees {
+		path := wt.Path
+		home, _ := os.UserHomeDir()
+		if home != "" {
+			if rel, err := filepath.Rel(home, path); err == nil && !filepath.IsAbs(rel) {
+				path = "~/" + rel
+			}
+		}
+		printRow("  "+wt.Branch, "", "", "", path, "", "")
 	}
 
 	if !hasEntries {
@@ -565,12 +858,18 @@ func formatDuration(d time.Duration) string {
 
 func newEnvStatusCmd(gf *GlobalFlags) *cobra.Command {
 	return &cobra.Command{
-		Use:   "status <name>",
+		Use:   "status [name]",
 		Short: "Show environment status",
-		Long:  "Display detailed status information for the named environment.",
-		Args:  cobra.ExactArgs(1),
+		Long: `Display detailed status information for the named environment.
+When no name is provided, resolves from .cc-deck/environment.yaml in the project.`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runEnvStatus(gf, args[0])
+			store := env.NewStateStore("")
+			name, _, err := resolveEnvironmentName(args, store)
+			if err != nil {
+				return err
+			}
+			return runEnvStatus(gf, name)
 		},
 	}
 }
@@ -704,12 +1003,18 @@ func writeEnvStatusText(name string, envType env.EnvironmentType, status *env.En
 
 func newEnvStartCmd(_ *GlobalFlags) *cobra.Command {
 	return &cobra.Command{
-		Use:   "start <name>",
+		Use:   "start [name]",
 		Short: "Start a stopped environment",
-		Long:  "Bring a stopped environment back to a running state.",
-		Args:  cobra.ExactArgs(1),
+		Long: `Bring a stopped environment back to a running state.
+When no name is provided, resolves from .cc-deck/environment.yaml in the project.`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runEnvStart(args[0])
+			store := env.NewStateStore("")
+			name, _, err := resolveEnvironmentName(args, store)
+			if err != nil {
+				return err
+			}
+			return runEnvStart(name)
 		},
 	}
 }
@@ -744,12 +1049,18 @@ func runEnvStart(name string) error {
 
 func newEnvStopCmd(_ *GlobalFlags) *cobra.Command {
 	return &cobra.Command{
-		Use:   "stop <name>",
+		Use:   "stop [name]",
 		Short: "Stop a running environment",
-		Long:  "Gracefully stop a running environment.",
-		Args:  cobra.ExactArgs(1),
+		Long: `Gracefully stop a running environment.
+When no name is provided, resolves from .cc-deck/environment.yaml in the project.`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runEnvStop(args[0])
+			store := env.NewStateStore("")
+			name, _, err := resolveEnvironmentName(args, store)
+			if err != nil {
+				return err
+			}
+			return runEnvStop(name)
 		},
 	}
 }
@@ -891,6 +1202,36 @@ func runEnvPull(name, remotePath, localPath string) error {
 	return nil
 }
 
+// --- prune ---
+
+func newEnvPruneCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "prune",
+		Short: "Remove stale project registry entries",
+		Long: `Remove entries from the global project registry whose directories
+no longer exist. This cleans up entries for projects that have been
+moved or deleted.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runEnvPrune()
+		},
+	}
+}
+
+func runEnvPrune() error {
+	store := env.NewStateStore("")
+	count, err := store.PruneStaleProjects()
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		fmt.Fprintln(os.Stdout, "No stale projects found.")
+	} else {
+		fmt.Fprintf(os.Stdout, "Removed %d stale project(s).\n", count)
+	}
+	return nil
+}
+
 // --- harvest ---
 
 func newEnvHarvestCmd(_ *GlobalFlags) *cobra.Command {
@@ -929,6 +1270,43 @@ func newEnvLogsCmd(_ *GlobalFlags) *cobra.Command {
 	}
 }
 
+// resolveEnvironmentName resolves an environment name from arguments or
+// project-local config. When name is empty, walks to find .cc-deck/environment.yaml
+// at the git root. Auto-registers discovered projects (FR-007). Displays
+// resolution message (FR-018). Ensures .cc-deck/.gitignore (FR-030).
+func resolveEnvironmentName(args []string, store *env.FileStateStore) (name string, projectRoot string, err error) {
+	if len(args) > 0 && args[0] != "" {
+		return args[0], "", nil
+	}
+
+	cwd, cwdErr := os.Getwd()
+	if cwdErr != nil {
+		return "", "", fmt.Errorf("getting current directory: %w", cwdErr)
+	}
+
+	root, findErr := project.FindProjectConfig(cwd)
+	if findErr != nil {
+		return "", "", fmt.Errorf("no environment name specified and no .cc-deck/environment.yaml found in project hierarchy")
+	}
+
+	def, loadErr := env.LoadProjectDefinition(root)
+	if loadErr != nil {
+		return "", "", fmt.Errorf("loading project definition from %s: %w", root, loadErr)
+	}
+
+	fmt.Fprintf(os.Stderr, "Using environment %q from %s/.cc-deck/\n", def.Name, root)
+
+	// Auto-register project on walk-based discovery (FR-007).
+	if regErr := store.RegisterProject(root); regErr != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: could not register project: %v\n", regErr)
+	}
+
+	// Self-heal .gitignore (FR-030).
+	_ = env.EnsureCCDeckGitignore(root)
+
+	return def.Name, root, nil
+}
+
 // resolveEnvironment finds an environment by name, checking both v1 records
 // and v2 instances, and returns the appropriate Environment implementation.
 func resolveEnvironment(name string, store *env.FileStateStore, defs *env.DefinitionStore) (env.Environment, error) {
@@ -949,6 +1327,14 @@ func resolveEnvironment(name string, store *env.FileStateStore, defs *env.Defini
 	}
 
 	return nil, fmt.Errorf("environment %q not found", name)
+}
+
+// addToGroup registers commands under a named group for help output.
+func addToGroup(parent *cobra.Command, groupID string, cmds ...*cobra.Command) {
+	for _, cmd := range cmds {
+		cmd.GroupID = groupID
+		parent.AddCommand(cmd)
+	}
 }
 
 // cmd_context returns a background context for CLI operations.
