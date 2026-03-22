@@ -107,20 +107,26 @@ func TestGenerate_WithVolumes(t *testing.T) {
 	assert.True(t, session.TTY, "tty should be true")
 }
 
-func TestGenerate_WithSecretsDir(t *testing.T) {
+func TestGenerate_WithSecrets(t *testing.T) {
 	out, err := Generate(GenerateOptions{
 		SessionName: "test-session",
 		ImageRef:    "quay.io/cc-deck/demo:latest",
-		Volumes:     []string{"./..:/workspace"},
-		SecretsDir:  "./secrets",
+		Secrets: map[string]string{
+			"gcloud-adc": "/home/user/.config/gcloud/adc.json",
+		},
 	})
 	require.NoError(t, err)
 
 	var cf composeFile
 	require.NoError(t, yaml.Unmarshal([]byte(out.ComposeYAML), &cf))
 
+	// Secret should be declared at top level.
+	require.Contains(t, cf.Secrets, "gcloud-adc")
+	assert.Equal(t, "/home/user/.config/gcloud/adc.json", cf.Secrets["gcloud-adc"].File)
+
+	// Session service should reference the secret.
 	session := cf.Services["session"]
-	assert.Contains(t, session.Volumes, "./secrets:/run/secrets:ro")
+	assert.Contains(t, session.Secrets, "gcloud-adc")
 }
 
 func TestGenerate_WithPorts(t *testing.T) {
