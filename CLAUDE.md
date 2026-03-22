@@ -47,6 +47,8 @@ When creating or editing ANY documentation content (AsciiDoc, Markdown, landing 
 - YAML files at `$XDG_CONFIG_HOME/cc-deck/environments.yaml` (definitions) and `$XDG_STATE_HOME/cc-deck/state.yaml` (runtime state). Project-local `.cc-deck/` directory for generated compose artifacts. (025-compose-env)
 - Go 1.25 (from go.mod) + cobra v1.10.2 (CLI), gopkg.in/yaml.v3 (YAML), internal/xdg (XDG paths), internal/podman (container interaction), internal/compose (YAML generation) (026-project-local-config)
 - YAML files: `.cc-deck/environment.yaml` (project-local definition), `.cc-deck/status.yaml` (project-local state), `$XDG_STATE_HOME/cc-deck/state.yaml` (global registry) (026-project-local-config)
+- Go 1.25 (from go.mod) + cobra v1.10.2 (CLI framework), gopkg.in/yaml.v3, adrg/xdg (027-cli-restructuring)
+- N/A (no data changes) (027-cli-restructuring)
 
 - Rust (stable, latest edition 2021+) + `zellij-tile` (plugin SDK), `serde`/`serde_json` (serialization) (001-cc-deck)
 
@@ -68,9 +70,9 @@ cargo test [ONLY COMMANDS FOR ACTIVE TECHNOLOGIES][ONLY COMMANDS FOR ACTIVE TECH
 Rust (stable, latest edition 2021+): Follow standard conventions
 
 ## Recent Changes
+- 027-cli-restructuring: Added Go 1.25 (from go.mod) + cobra v1.10.2 (CLI framework), gopkg.in/yaml.v3, adrg/xdg
 - 026-project-local-config: Added Go 1.25 (from go.mod) + cobra v1.10.2 (CLI), gopkg.in/yaml.v3 (YAML), internal/xdg (XDG paths), internal/podman (container interaction), internal/compose (YAML generation)
 - 025-sidebar-state-refresh: Added Rust stable (edition 2021, wasm32-wasip1 target) + zellij-tile 0.43.1, serde/serde_json 1.x
-- 025-compose-env: Added Go 1.25 (from go.mod) + cobra v1.10.2 (CLI), gopkg.in/yaml.v3 (YAML parsing), internal/xdg (XDG paths), internal/podman (container interaction), internal/compose (YAML generation), internal/network (domain resolution)
 
 
 <!-- MANUAL ADDITIONS START -->
