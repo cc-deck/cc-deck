@@ -86,11 +86,10 @@
 
 **Purpose**: Documentation updates and final validation
 
-- [ ] T024 [P] Update `README.md` with new command structure: promoted top-level commands, removed K8s commands, help group organization
+- [ ] T024 Update `README.md` with new command structure (promoted top-level commands, removed K8s commands, help group organization) and add feature 027 to the "Feature Specifications" table
 - [ ] T025 [P] Update CLI reference documentation in `docs/modules/reference/pages/cli.adoc` to reflect new command hierarchy (add promoted commands, remove legacy K8s commands)
-- [ ] T026 [P] Add feature 027 to the "Feature Specifications" table in `README.md`
-- [ ] T027 Run `make test` and `make lint` for final validation
-- [ ] T028 Verify `cc-deck --help` output matches contract in `specs/027-cli-restructuring/contracts/command-hierarchy.md`
+- [ ] T026 Run `make test` and `make lint` for final validation
+- [ ] T027 Verify `cc-deck --help` output matches contract in `specs/027-cli-restructuring/contracts/command-hierarchy.md`
 
 ---
 
