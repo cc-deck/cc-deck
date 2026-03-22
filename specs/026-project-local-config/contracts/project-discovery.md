@@ -125,27 +125,6 @@ func (s *FileStateStore) PruneStaleProjects() (int, error)
 5. `SaveProjectDefinition` MUST create `.cc-deck/` directory and `.cc-deck/.gitignore` if they do not exist.
 6. Any environment operation (`Create`, `Start`, `Attach`) on a project-local environment MUST idempotently ensure `.cc-deck/.gitignore` exists with `status.yaml` and `run/` entries before proceeding (FR-030).
 
-## CLI Contract: `cc-deck env init`
-
-```
-Usage: cc-deck env init [flags]
-
-Flags:
-  -t, --type string              Environment type (compose, container) [required]
-      --image string             Container image
-      --auth string              Auth mode (default "auto")
-      --allowed-domains strings  Domain groups for network filtering
-      --name string              Environment name (default: directory basename)
-```
-
-### Behavioral Requirements
-
-1. MUST fail if `.cc-deck/environment.yaml` already exists.
-2. MUST create `.cc-deck/environment.yaml` with provided flags.
-3. MUST create `.cc-deck/.gitignore` with `status.yaml` and `run/` entries.
-4. MUST succeed outside a git repository with a warning.
-5. MUST NOT provision any runtime resources (containers, compose projects).
-
 ## CLI Contract: `cc-deck env prune`
 
 ```

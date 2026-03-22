@@ -23,7 +23,7 @@ Project-Local Environment Configuration
 - **`.cc-deck/.gitignore`** handles the commit/ignore boundary (explicit exception to Principle XIV)
 - **Global project registry** in `state.yaml` with auto-registration and stale detection
 - **`--variant` flag** for multiple container instances from same definition (worktree isolation)
-- **`cc-deck env init`** scaffolds definition, `cc-deck env create` provisions runtime
+- **`cc-deck env create`** handles both scaffolding and provisioning (no separate init command)
 - **CLI overrides are runtime-only** (stored in `status.yaml`, not persisted to `environment.yaml`)
 - **Image artifacts** (`cc-deck-build.yaml`, `Containerfile`, settings) move to `.cc-deck/image/`
 - **Precedence**: CLI flags > project config > global config > hardcoded defaults
