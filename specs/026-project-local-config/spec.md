@@ -23,19 +23,18 @@ A new team member clones a repository that already has a `.cc-deck/environment.y
 
 ---
 
-### User Story 2 - Initialize a Project (Priority: P1)
+### User Story 2 - Set Up a New Project (Priority: P1)
 
-A developer sets up a new project with `cc-deck env init`, which scaffolds `.cc-deck/environment.yaml` and `.cc-deck/.gitignore`. The developer commits `.cc-deck/` to share the environment definition with the team.
+A developer sets up a new project with `cc-deck env create --type compose --image ...`, which scaffolds `.cc-deck/environment.yaml` and `.cc-deck/.gitignore` and provisions the environment. The developer commits `.cc-deck/` to share the environment definition with the team.
 
-**Why this priority**: Equal to P1 because project initialization is the prerequisite for the clone-and-create workflow. Without init, there is nothing to clone.
+**Why this priority**: Equal to P1 because project setup is the prerequisite for the clone-and-create workflow. Without a committed definition, there is nothing to clone.
 
-**Independent Test**: Can be fully tested by running `cc-deck env init` in a git repo and verifying the scaffolded files.
+**Independent Test**: Can be fully tested by running `cc-deck env create --type compose` in a git repo and verifying the scaffolded files and provisioned environment.
 
 **Acceptance Scenarios**:
 
-1. **Given** a git repository without `.cc-deck/`, **When** the user runs `cc-deck env init --type compose --image quay.io/cc-deck/cc-deck-demo:latest`, **Then** `.cc-deck/environment.yaml` is created with the specified type and image, and `.cc-deck/.gitignore` is created with `status.yaml` and `run/` entries.
-2. **Given** a git repository that already has `.cc-deck/environment.yaml`, **When** the user runs `cc-deck env init`, **Then** the command fails with a clear error: "`.cc-deck/environment.yaml` already exists".
-3. **Given** a directory that is not a git repository, **When** the user runs `cc-deck env init`, **Then** the command succeeds with a warning: "Not a git repository; `.cc-deck/.gitignore` will have no effect until git is initialized."
+1. **Given** a git repository without `.cc-deck/`, **When** the user runs `cc-deck env create --type compose --image quay.io/cc-deck/cc-deck-demo:latest`, **Then** `.cc-deck/environment.yaml` is created with the specified type and image, `.cc-deck/.gitignore` is created with `status.yaml` and `run/` entries, and the environment is provisioned.
+2. **Given** a directory that is not a git repository, **When** the user runs `cc-deck env create` without a name, **Then** the command fails with a clear error message.
 
 ---
 
@@ -120,7 +119,7 @@ A developer who has moved or deleted project directories runs `cc-deck env prune
 - What happens when the `.cc-deck/.gitignore` is accidentally deleted? Regenerated on the next environment operation (FR-030). The `run/` and `status.yaml` entries are idempotently ensured.
 - What happens when two users on different machines create environments from the same cloned `.cc-deck/environment.yaml`? Each gets an independent container. No conflict because `status.yaml` is local and gitignored.
 - What happens when a project directory is a symlink? The canonical (symlink-resolved) path is stored in the global registry to prevent duplicate entries.
-- What happens when `cc-deck env init` is run outside a git repository? It succeeds with a warning. The `.cc-deck/.gitignore` has no effect but is still created for when git is initialized later.
+- What happens when `cc-deck env create` is run outside a git repository without a name? It fails with a clear error. An explicit name and `--type` are required outside git repos.
 - What happens when `environment.yaml` changes after the environment was created (new domain, updated image)? The user runs `cc-deck env delete` followed by `cc-deck env create` to apply changes. A dedicated `env recreate` command is out of scope for this feature.
 - What happens when a project "my-api" with variant "auth" and a separate project "my-api-auth" both produce containers named `cc-deck-my-api-auth`? The second `env create` fails with an `ErrNameConflict` because the container name already exists. The user must choose a different variant name or project name to resolve the collision.
 

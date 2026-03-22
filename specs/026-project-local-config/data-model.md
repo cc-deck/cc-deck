@@ -125,8 +125,8 @@ Fields resolved independently: each field uses the highest-priority source that 
 
 | File | Created by | Modified by | Committed |
 |------|-----------|-------------|-----------|
-| `.cc-deck/environment.yaml` | `env init` or `env create` (FR-025) | User (manual edit) | Yes |
-| `.cc-deck/.gitignore` | `env init`, `env create`, or self-healing (FR-030) | Never (idempotent) | Yes |
+| `.cc-deck/environment.yaml` | `env create` (FR-025, scaffolded if missing) | User (manual edit) | Yes |
+| `.cc-deck/.gitignore` | `env create` or self-healing (FR-030) | Never (idempotent) | Yes |
 | `.cc-deck/status.yaml` | `env create` | `env start/stop/attach/delete` | No |
 | `.cc-deck/run/*` | `env create` | `env create` (regenerated) | No |
 | `.cc-deck/image/*` | `image init/extract` | User + `image extract` | Yes |

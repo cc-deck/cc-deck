@@ -10,7 +10,7 @@ This feature moves environment definitions, image build artifacts, and runtime s
 - [ ] **plan.md**: Technical context, constitution check (all pass), 5-phase implementation approach, source code structure.
 - [ ] **research.md**: 6 research decisions with rationale and alternatives. Key: R1 (compose paths), R3 (git walk), R5 (status store).
 - [ ] **data-model.md**: 4 entities (2 new, 2 modified). Check ProjectStatusFile state transitions and precedence chain.
-- [ ] **contracts/project-discovery.md**: New `project` package, `ProjectStatusStore`, registry extensions, `env init`/`env prune` CLI contracts.
+- [ ] **contracts/project-discovery.md**: New `project` package, `ProjectStatusStore`, registry extensions, `env prune` CLI contract.
 - [ ] **quickstart.md**: 12-step implementation order across 5 phases. Verify dependency ordering.
 
 ### Key Design Decisions to Validate
@@ -19,7 +19,7 @@ This feature moves environment definitions, image build artifacts, and runtime s
 2. **`git rev-parse --show-toplevel`** for git root detection: Proven pattern in codebase. Alternative (manual walk) was rejected.
 3. **Project-local `status.yaml` separate from global state**: Avoids polluting global state with per-project data. Trade-off: two state locations to reconcile.
 4. **`.cc-deck/.gitignore` exception to Principle XIV**: Documented in FR-024. The only dotfile inside `.cc-deck/`.
-5. **`env create` auto-scaffolds when no definition exists** (FR-025): Combines init + create for convenience. Explicit `env init` remains for users who want to scaffold without provisioning.
+5. **`env create` auto-scaffolds when no definition exists** (FR-025): Scaffolds `.cc-deck/environment.yaml` from CLI flags in a git repo, then provisions. No separate init command.
 
 ### Areas Requiring Careful Review
 

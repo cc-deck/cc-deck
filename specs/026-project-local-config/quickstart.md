@@ -28,12 +28,7 @@
 
 ### Phase 2: CLI Commands (new commands, no breaking changes)
 
-5. **`env init` command** (`internal/cmd/env.go`)
-   - Scaffolds `.cc-deck/environment.yaml` and `.cc-deck/.gitignore`
-   - Uses `project` package for git root detection
-   - Integration test
-
-6. **`env prune` command** (`internal/cmd/env.go`)
+5. **`env prune` command** (`internal/cmd/env.go`)
    - Removes stale project registry entries
    - Integration test
 
@@ -87,7 +82,7 @@
 
 - **Unit tests**: `project/` package (git root, worktrees), status store, registry methods
 - **Integration tests**:
-  - `env init` + `env create` roundtrip
+  - `env create` roundtrip (scaffold + provision)
   - `env list` with mixed sources (project-local + global)
   - `env prune`
   - **State split reconciliation** (RF-1): Create one environment via project-local config and one via global definition. Verify `env list` merges both correctly in a single view.
