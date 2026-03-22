@@ -323,33 +323,68 @@ The `cc-deck env` command group provides a unified interface for managing Claude
 
 | Subcommand | Description |
 |------------|-------------|
-| `cc-deck env create` | Create a new environment (use `--type` to select backend) |
+| `cc-deck env create` | Create a new environment (scaffolds definition if needed, then provisions) |
 | `cc-deck env attach` | Attach to a running environment |
 | `cc-deck env start` | Start a stopped environment |
 | `cc-deck env stop` | Stop a running environment |
 | `cc-deck env delete` | Delete an environment and its resources |
-| `cc-deck env list` | List all environments |
+| `cc-deck env list` | List all environments (global and project-local) |
 | `cc-deck env status` | Show detailed status of an environment |
+| `cc-deck env prune` | Remove stale project registry entries |
+
+### Project-Local Configuration
+
+Environment definitions can live inside the project repository in a `.cc-deck/` directory at the git root. This allows team members to clone and create matching environments without manual flag passing.
+
+```bash
+# Set up a new project (scaffolds definition + provisions)
+cc-deck env create --type compose --image quay.io/cc-deck/cc-deck-demo:latest
+git add .cc-deck/ && git commit -m "Add cc-deck environment config"
+
+# Team member clones and creates without any flags
+git clone git@github.com:org/my-api.git && cd my-api
+cc-deck env create     # reads .cc-deck/environment.yaml
+cc-deck env attach     # no name needed inside the project
+```
+
+The `.cc-deck/` directory separates committed artifacts from runtime state:
+
+```
+.cc-deck/
+  environment.yaml    # Committed: declarative definition
+  .gitignore          # Committed: ignores status.yaml and run/
+  image/              # Committed: build manifest, Containerfile
+  status.yaml         # Gitignored: runtime state
+  run/                # Gitignored: generated compose files
+```
+
+When no environment name is provided, `cc-deck` walks from the current directory to the git root looking for `.cc-deck/environment.yaml`. All lifecycle commands (attach, status, start, stop, delete) support this implicit resolution.
 
 ### Compose Environments
 
-Compose environments use `podman-compose` for multi-container orchestration. They are project-local, generating files in a `.cc-deck/` subdirectory within the project directory.
+Compose environments use `podman-compose` for multi-container orchestration. They generate runtime artifacts in `.cc-deck/run/` within the project directory.
 
 ```bash
-# Create a compose environment in the current project directory
-cc-deck env create mydev --type compose
+# Create a compose environment in the current project
+cc-deck env create --type compose
 
 # Create with network filtering (proxy sidecar)
-cc-deck env create mydev --type compose --allowed-domains anthropic,github
-
-# Auto-add .cc-deck/ to .gitignore
-cc-deck env create mydev --type compose --gitignore
+cc-deck env create --type compose --allowed-domains anthropic,github
 
 # Attach to the environment
-cc-deck env attach mydev
+cc-deck env attach
 ```
 
-Compose environments support the same lifecycle commands as all environment types. The project directory is bind-mounted at `/workspace` by default, providing immediate bidirectional file sync.
+The project directory is bind-mounted at `/workspace` by default, providing immediate bidirectional file sync.
+
+### Variants
+
+When the same project needs multiple isolated container instances (for example, per-worktree containers), use the `--variant` flag:
+
+```bash
+cc-deck env create --variant auth    # container: cc-deck-my-api-auth
+cc-deck env create --variant bugfix  # container: cc-deck-my-api-bugfix
+```
 
 ## Build from Source
 
@@ -406,3 +441,4 @@ cc-deck follows [Spec-Driven Development](CONTRIBUTING.md#spec-driven-developmen
 | [024](specs/024-container-env/) | Container Environment | `podman run` lifecycle, definition/state separation, podman package | Implemented |
 | [025](specs/025-sidebar-state-refresh/) | Sidebar State Refresh on Reattach | In Progress |
 | [025](specs/025-compose-env/) | Compose Environment | Multi-container orchestration via `podman-compose`, optional network filtering | In Progress |
+| [026](specs/026-project-local-config/) | Project-Local Config | `.cc-deck/` directory with shareable definitions, implicit name resolution, global registry | In Progress |
