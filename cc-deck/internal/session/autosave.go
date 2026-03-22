@@ -14,6 +14,22 @@ const (
 	autoSaveCooldown = 5 * time.Minute
 )
 
+// autoSaveTier defines a retention tier for auto-snapshots.
+// Each tier keeps one snapshot that is updated when its age threshold is exceeded.
+type autoSaveTier struct {
+	name      string
+	threshold time.Duration
+}
+
+// autoSaveTiers defines the retention tiers from shortest to longest.
+// Each tier keeps a single snapshot, promoted from "auto" when its threshold elapses.
+var autoSaveTiers = []autoSaveTier{
+	{"auto-hourly", 1 * time.Hour},
+	{"auto-12h", 12 * time.Hour},
+	{"auto-daily", 24 * time.Hour},
+	{"auto-weekly", 7 * 24 * time.Hour},
+}
+
 // AutoSave checks the cooldown and, if elapsed, spawns a detached background
 // process to perform the actual save. This avoids blocking the caller (hook
 // subprocess) on the blocking zellij pipe query.
@@ -78,6 +94,8 @@ func RunAutoSave() error {
 		return err
 	}
 
+	rotateAutoSnapshots(snap)
+
 	return nil
 }
 
@@ -88,4 +106,17 @@ func CooldownElapsed() bool {
 		return true // no previous auto-save = proceed
 	}
 	return time.Since(info.ModTime()) >= autoSaveCooldown
+}
+
+// rotateAutoSnapshots promotes the current snapshot data to tiered retention slots.
+// Each tier keeps a single snapshot that is overwritten when its age threshold elapses.
+func rotateAutoSnapshots(snap *Snapshot) {
+	for _, tier := range autoSaveTiers {
+		info, err := os.Stat(snapshotPath(tier.name))
+		if err != nil || time.Since(info.ModTime()) >= tier.threshold {
+			tierSnap := *snap
+			tierSnap.Name = tier.name
+			_ = SaveSnapshot(&tierSnap)
+		}
+	}
 }
