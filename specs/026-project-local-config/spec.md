@@ -116,11 +116,13 @@ A developer who has moved or deleted project directories runs `cc-deck env prune
 
 ### Edge Cases
 
-- What happens when a user runs `cc-deck env create` in a project that has both a project-local `.cc-deck/environment.yaml` AND a global definition in `environments.yaml` with the same name? Project-local takes precedence; the global definition is ignored with a warning.
-- What happens when the `.cc-deck/.gitignore` is accidentally deleted? Regenerated on next `cc-deck env create`. The `run/` and `status.yaml` entries are idempotently ensured.
+- What happens when a user runs `cc-deck env create` in a project that has both a project-local `.cc-deck/environment.yaml` AND a global definition in `environments.yaml` with the same name? Project-local takes precedence; the global definition is ignored with a warning (FR-026).
+- What happens when the `.cc-deck/.gitignore` is accidentally deleted? Regenerated on the next environment operation (FR-030). The `run/` and `status.yaml` entries are idempotently ensured.
 - What happens when two users on different machines create environments from the same cloned `.cc-deck/environment.yaml`? Each gets an independent container. No conflict because `status.yaml` is local and gitignored.
 - What happens when a project directory is a symlink? The canonical (symlink-resolved) path is stored in the global registry to prevent duplicate entries.
 - What happens when `cc-deck env init` is run outside a git repository? It succeeds with a warning. The `.cc-deck/.gitignore` has no effect but is still created for when git is initialized later.
+- What happens when `environment.yaml` changes after the environment was created (new domain, updated image)? The user runs `cc-deck env delete` followed by `cc-deck env create` to apply changes. A dedicated `env recreate` command is out of scope for this feature.
+- What happens when a project "my-api" with variant "auth" and a separate project "my-api-auth" both produce containers named `cc-deck-my-api-auth`? The second `env create` fails with an `ErrNameConflict` because the container name already exists. The user must choose a different variant name or project name to resolve the collision.
 
 ## Requirements *(mandatory)*
 
@@ -147,9 +149,15 @@ A developer who has moved or deleted project directories runs `cc-deck env prune
 - **FR-019**: When an existing `.cc-deck/environment.yaml` is found during `cc-deck env create`, the system MUST use it as the source of truth and provision runtime resources without rewriting the definition. CLI flag overrides are runtime-only and stored in `status.yaml`, not persisted to `environment.yaml`.
 - **FR-020**: The system MUST support a `--worktrees` flag on `cc-deck env list` that shows git worktrees within each project (discovered via `git worktree list`).
 - **FR-021**: The system MUST store canonical (symlink-resolved) paths in the global registry to prevent duplicate entries from symlinks.
-- **FR-022**: The system MUST support `cc-deck env attach --branch <name>` to attach and land in a specific worktree directory inside the container.
+- **FR-022**: The system MUST support `cc-deck env attach --branch <name>` to attach and land in a specific worktree directory inside the container. If no worktree matches the given branch name, the command MUST fail with a clear error listing the available worktrees.
 - **FR-023**: All environment operations (Create, Attach, Delete, Status, Start, Stop) MUST satisfy the behavioral requirements defined in `specs/023-env-interface/contracts/environment-interface.md`, including nested Zellij detection, session creation with layout, auto-start on attach, timestamp updates, name validation, cleanup on failure, and state reconciliation.
 - **FR-024**: The `.cc-deck/.gitignore` file is an explicit exception to Principle XIV (No Dotfile Nesting) because `.gitignore` is a git-recognized filename that requires the dot prefix to function. No other files inside `.cc-deck/` may use a dot prefix.
+- **FR-025**: When `cc-deck env create` is run in a git repository with no `.cc-deck/environment.yaml`, the system MUST scaffold `.cc-deck/environment.yaml` and `.cc-deck/.gitignore` from CLI flags before provisioning, equivalent to an implicit `cc-deck env init`. When run outside a git repository with no definition, the system MUST require an explicit environment name.
+- **FR-026**: When both a project-local `.cc-deck/environment.yaml` and a global definition in `environments.yaml` exist with the same name, the system MUST use the project-local definition and emit a warning identifying the shadowed global definition.
+- **FR-027**: When deleting a project-local environment, the system MUST remove `.cc-deck/status.yaml` and `.cc-deck/run/`, MUST NOT remove `.cc-deck/environment.yaml` or `.cc-deck/image/`, and MUST deregister the project from the global registry. The committed definition remains intact for future `env create`.
+- **FR-028**: The environment definition (`environment.yaml`) MUST support an `env` section for declaring arbitrary environment variables to pass into the session container. These are additive with any variables set by the system (auth, credentials).
+- **FR-029**: The `environment.yaml` file MUST include a `version` field (starting at `1`) to support future schema evolution.
+- **FR-030**: When `.cc-deck/.gitignore` is missing or incomplete during any environment operation (`create`, `start`, `attach`), the system MUST idempotently regenerate it with `status.yaml` and `run/` entries.
 
 ### Key Entities
 
