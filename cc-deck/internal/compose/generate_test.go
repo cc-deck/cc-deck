@@ -90,6 +90,72 @@ func TestGenerate_MissingImageRef(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestGenerate_WithVolumes(t *testing.T) {
+	out, err := Generate(GenerateOptions{
+		SessionName: "test-session",
+		ImageRef:    "quay.io/cc-deck/demo:latest",
+		Volumes:     []string{"./..:/workspace"},
+	})
+	require.NoError(t, err)
+
+	var cf composeFile
+	require.NoError(t, yaml.Unmarshal([]byte(out.ComposeYAML), &cf))
+
+	session := cf.Services["session"]
+	assert.Contains(t, session.Volumes, "./..:/workspace")
+	assert.True(t, session.Stdin, "stdin_open should be true")
+	assert.True(t, session.TTY, "tty should be true")
+}
+
+func TestGenerate_WithCredentialVolumeMounts(t *testing.T) {
+	out, err := Generate(GenerateOptions{
+		SessionName: "test-session",
+		ImageRef:    "quay.io/cc-deck/demo:latest",
+		Volumes: []string{
+			"./..:/workspace:U",
+			"/home/user/.config/gcloud/adc.json:/run/secrets/google-application-credentials:ro,U",
+		},
+	})
+	require.NoError(t, err)
+
+	var cf composeFile
+	require.NoError(t, yaml.Unmarshal([]byte(out.ComposeYAML), &cf))
+
+	session := cf.Services["session"]
+	assert.Contains(t, session.Volumes,
+		"/home/user/.config/gcloud/adc.json:/run/secrets/google-application-credentials:ro,U")
+}
+
+func TestGenerate_WithPorts(t *testing.T) {
+	out, err := Generate(GenerateOptions{
+		SessionName: "test-session",
+		ImageRef:    "quay.io/cc-deck/demo:latest",
+		Ports:       []string{"8080:8080", "3000:3000"},
+	})
+	require.NoError(t, err)
+
+	var cf composeFile
+	require.NoError(t, yaml.Unmarshal([]byte(out.ComposeYAML), &cf))
+
+	session := cf.Services["session"]
+	assert.Equal(t, []string{"8080:8080", "3000:3000"}, session.Ports)
+}
+
+func TestGenerate_StdinAndTTY(t *testing.T) {
+	out, err := Generate(GenerateOptions{
+		SessionName: "s1",
+		ImageRef:    "img:latest",
+	})
+	require.NoError(t, err)
+
+	var cf composeFile
+	require.NoError(t, yaml.Unmarshal([]byte(out.ComposeYAML), &cf))
+
+	session := cf.Services["session"]
+	assert.True(t, session.Stdin, "stdin_open should always be true")
+	assert.True(t, session.TTY, "tty should always be true")
+}
+
 func TestGenerate_ProxyEnvVars(t *testing.T) {
 	out, err := Generate(GenerateOptions{
 		SessionName: "s1",
