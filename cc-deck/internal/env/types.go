@@ -122,6 +122,24 @@ type EnvironmentInstance struct {
 	Sandbox      *SandboxFields    `yaml:"sandbox,omitempty"`
 }
 
+// ProjectEntry is a global registry entry for a project directory
+// stored in state.yaml under the projects section.
+type ProjectEntry struct {
+	Path     string    `yaml:"path"`
+	LastSeen time.Time `yaml:"last_seen"`
+}
+
+// ProjectStatusFile holds per-project runtime state stored at
+// .cc-deck/status.yaml (gitignored).
+type ProjectStatusFile struct {
+	Variant       string            `yaml:"variant,omitempty"`
+	State         EnvironmentState  `yaml:"state"`
+	ContainerName string            `yaml:"container_name"`
+	CreatedAt     time.Time         `yaml:"created_at"`
+	LastAttached  *time.Time        `yaml:"last_attached,omitempty"`
+	Overrides     map[string]string `yaml:"overrides,omitempty"`
+}
+
 // StateFile is the top-level structure of the environment state file.
 // Version 1 files use Environments ([]EnvironmentRecord).
 // Version 2 files use Instances ([]EnvironmentInstance).
@@ -129,4 +147,5 @@ type StateFile struct {
 	Version      int                   `yaml:"version"`
 	Environments []EnvironmentRecord   `yaml:"environments,omitempty"`
 	Instances    []EnvironmentInstance  `yaml:"instances,omitempty"`
+	Projects     []ProjectEntry        `yaml:"projects,omitempty"`
 }
