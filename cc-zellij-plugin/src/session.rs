@@ -92,6 +92,11 @@ pub struct Session {
     /// Reset when activity transitions away from Done/AgentDone.
     #[serde(default)]
     pub done_attended: bool,
+    /// Whether the tab rename was deferred because tab_index was not yet
+    /// available when the display name was first set. Cleared after the
+    /// rename is issued in rebuild_pane_map.
+    #[serde(default)]
+    pub pending_tab_rename: bool,
 }
 
 impl Session {
@@ -110,6 +115,7 @@ impl Session {
             paused: false,
             meta_ts: 0,
             done_attended: false,
+            pending_tab_rename: false,
         }
     }
 
