@@ -27,6 +27,7 @@ func NewEnvCmd(gf *GlobalFlags) *cobra.Command {
 	envCmd.AddCommand(
 		newEnvInitCmd(gf),
 		newEnvCreateCmd(gf),
+		newEnvPruneCmd(),
 		newEnvAttachCmd(gf),
 		newEnvDeleteCmd(gf),
 		newEnvListCmd(gf),
@@ -447,12 +448,18 @@ func splitCredential(s string) []string {
 
 func newEnvAttachCmd(_ *GlobalFlags) *cobra.Command {
 	return &cobra.Command{
-		Use:   "attach <name>",
+		Use:   "attach [name]",
 		Short: "Attach to an environment",
-		Long:  "Open an interactive session for the named environment.",
-		Args:  cobra.ExactArgs(1),
+		Long: `Open an interactive session for the named environment.
+When no name is provided, resolves from .cc-deck/environment.yaml in the project.`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runEnvAttach(args[0])
+			store := env.NewStateStore("")
+			name, _, err := resolveEnvironmentName(args, store)
+			if err != nil {
+				return err
+			}
+			return runEnvAttach(name)
 		},
 	}
 }
@@ -476,14 +483,20 @@ func newEnvDeleteCmd(_ *GlobalFlags) *cobra.Command {
 	var keepVolumes bool
 
 	cmd := &cobra.Command{
-		Use:   "delete <name>",
+		Use:   "delete [name]",
 		Short: "Delete an environment",
 		Long: `Delete the named environment and remove it from the state store.
 If the environment is running, use --force to stop and delete it.
-For container environments, use --keep-volumes to preserve data volumes.`,
-		Args: cobra.ExactArgs(1),
+For container environments, use --keep-volumes to preserve data volumes.
+When no name is provided, resolves from .cc-deck/environment.yaml in the project.`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runEnvDelete(args[0], force, keepVolumes)
+			store := env.NewStateStore("")
+			name, _, err := resolveEnvironmentName(args, store)
+			if err != nil {
+				return err
+			}
+			return runEnvDelete(name, force, keepVolumes)
 		},
 	}
 
@@ -798,12 +811,18 @@ func formatDuration(d time.Duration) string {
 
 func newEnvStatusCmd(gf *GlobalFlags) *cobra.Command {
 	return &cobra.Command{
-		Use:   "status <name>",
+		Use:   "status [name]",
 		Short: "Show environment status",
-		Long:  "Display detailed status information for the named environment.",
-		Args:  cobra.ExactArgs(1),
+		Long: `Display detailed status information for the named environment.
+When no name is provided, resolves from .cc-deck/environment.yaml in the project.`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runEnvStatus(gf, args[0])
+			store := env.NewStateStore("")
+			name, _, err := resolveEnvironmentName(args, store)
+			if err != nil {
+				return err
+			}
+			return runEnvStatus(gf, name)
 		},
 	}
 }
@@ -937,12 +956,18 @@ func writeEnvStatusText(name string, envType env.EnvironmentType, status *env.En
 
 func newEnvStartCmd(_ *GlobalFlags) *cobra.Command {
 	return &cobra.Command{
-		Use:   "start <name>",
+		Use:   "start [name]",
 		Short: "Start a stopped environment",
-		Long:  "Bring a stopped environment back to a running state.",
-		Args:  cobra.ExactArgs(1),
+		Long: `Bring a stopped environment back to a running state.
+When no name is provided, resolves from .cc-deck/environment.yaml in the project.`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runEnvStart(args[0])
+			store := env.NewStateStore("")
+			name, _, err := resolveEnvironmentName(args, store)
+			if err != nil {
+				return err
+			}
+			return runEnvStart(name)
 		},
 	}
 }
@@ -977,12 +1002,18 @@ func runEnvStart(name string) error {
 
 func newEnvStopCmd(_ *GlobalFlags) *cobra.Command {
 	return &cobra.Command{
-		Use:   "stop <name>",
+		Use:   "stop [name]",
 		Short: "Stop a running environment",
-		Long:  "Gracefully stop a running environment.",
-		Args:  cobra.ExactArgs(1),
+		Long: `Gracefully stop a running environment.
+When no name is provided, resolves from .cc-deck/environment.yaml in the project.`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runEnvStop(args[0])
+			store := env.NewStateStore("")
+			name, _, err := resolveEnvironmentName(args, store)
+			if err != nil {
+				return err
+			}
+			return runEnvStop(name)
 		},
 	}
 }
@@ -1124,6 +1155,36 @@ func runEnvPull(name, remotePath, localPath string) error {
 	return nil
 }
 
+// --- prune ---
+
+func newEnvPruneCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "prune",
+		Short: "Remove stale project registry entries",
+		Long: `Remove entries from the global project registry whose directories
+no longer exist. This cleans up entries for projects that have been
+moved or deleted.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runEnvPrune()
+		},
+	}
+}
+
+func runEnvPrune() error {
+	store := env.NewStateStore("")
+	count, err := store.PruneStaleProjects()
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		fmt.Fprintln(os.Stdout, "No stale projects found.")
+	} else {
+		fmt.Fprintf(os.Stdout, "Removed %d stale project(s).\n", count)
+	}
+	return nil
+}
+
 // --- harvest ---
 
 func newEnvHarvestCmd(_ *GlobalFlags) *cobra.Command {
@@ -1160,6 +1221,43 @@ func newEnvLogsCmd(_ *GlobalFlags) *cobra.Command {
 			return fmt.Errorf("logs: not yet implemented")
 		},
 	}
+}
+
+// resolveEnvironmentName resolves an environment name from arguments or
+// project-local config. When name is empty, walks to find .cc-deck/environment.yaml
+// at the git root. Auto-registers discovered projects (FR-007). Displays
+// resolution message (FR-018). Ensures .cc-deck/.gitignore (FR-030).
+func resolveEnvironmentName(args []string, store *env.FileStateStore) (name string, projectRoot string, err error) {
+	if len(args) > 0 && args[0] != "" {
+		return args[0], "", nil
+	}
+
+	cwd, cwdErr := os.Getwd()
+	if cwdErr != nil {
+		return "", "", fmt.Errorf("getting current directory: %w", cwdErr)
+	}
+
+	root, findErr := project.FindProjectConfig(cwd)
+	if findErr != nil {
+		return "", "", fmt.Errorf("no environment name specified and no .cc-deck/environment.yaml found in project hierarchy")
+	}
+
+	def, loadErr := env.LoadProjectDefinition(root)
+	if loadErr != nil {
+		return "", "", fmt.Errorf("loading project definition from %s: %w", root, loadErr)
+	}
+
+	fmt.Fprintf(os.Stderr, "Using environment %q from %s/.cc-deck/\n", def.Name, root)
+
+	// Auto-register project on walk-based discovery (FR-007).
+	if regErr := store.RegisterProject(root); regErr != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: could not register project: %v\n", regErr)
+	}
+
+	// Self-heal .gitignore (FR-030).
+	_ = env.EnsureCCDeckGitignore(root)
+
+	return def.Name, root, nil
 }
 
 // resolveEnvironment finds an environment by name, checking both v1 records
