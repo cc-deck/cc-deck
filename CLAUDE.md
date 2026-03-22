@@ -1,6 +1,6 @@
 # cc-mux Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2026-03-21
+Auto-generated from all feature plans. Last updated: 2026-03-22
 
 ## Content Creation (MANDATORY)
 
@@ -45,6 +45,8 @@ When creating or editing ANY documentation content (AsciiDoc, Markdown, landing 
 - WASI `/cache/sessions.json` (existing, unchanged) (025-sidebar-state-refresh)
 - Go 1.25 (from go.mod) + cobra v1.10.2 (CLI), gopkg.in/yaml.v3 (YAML parsing), internal/xdg (XDG paths), internal/podman (container interaction), internal/compose (YAML generation), internal/network (domain resolution) (025-compose-env)
 - YAML files at `$XDG_CONFIG_HOME/cc-deck/environments.yaml` (definitions) and `$XDG_STATE_HOME/cc-deck/state.yaml` (runtime state). Project-local `.cc-deck/` directory for generated compose artifacts. (025-compose-env)
+- Go 1.25 (from go.mod) + cobra v1.10.2 (CLI), gopkg.in/yaml.v3 (YAML), internal/xdg (XDG paths), internal/podman (container interaction), internal/compose (YAML generation) (026-project-local-config)
+- YAML files: `.cc-deck/environment.yaml` (project-local definition), `.cc-deck/status.yaml` (project-local state), `$XDG_STATE_HOME/cc-deck/state.yaml` (global registry) (026-project-local-config)
 
 - Rust (stable, latest edition 2021+) + `zellij-tile` (plugin SDK), `serde`/`serde_json` (serialization) (001-cc-deck)
 
@@ -66,10 +68,9 @@ cargo test [ONLY COMMANDS FOR ACTIVE TECHNOLOGIES][ONLY COMMANDS FOR ACTIVE TECH
 Rust (stable, latest edition 2021+): Follow standard conventions
 
 ## Recent Changes
+- 026-project-local-config: Added Go 1.25 (from go.mod) + cobra v1.10.2 (CLI), gopkg.in/yaml.v3 (YAML), internal/xdg (XDG paths), internal/podman (container interaction), internal/compose (YAML generation)
 - 025-sidebar-state-refresh: Added Rust stable (edition 2021, wasm32-wasip1 target) + zellij-tile 0.43.1, serde/serde_json 1.x
 - 025-compose-env: Added Go 1.25 (from go.mod) + cobra v1.10.2 (CLI), gopkg.in/yaml.v3 (YAML parsing), internal/xdg (XDG paths), internal/podman (container interaction), internal/compose (YAML generation), internal/network (domain resolution)
-- 024-container-env: Added Go 1.25 (from go.mod) + cobra v1.10.2 (CLI), adrg/xdg v0.5.3 (XDG paths), gopkg.in/yaml.v3 (YAML parsing), client-go v0.35.2 (K8s, existing)
-- 023-env-interface: Added Go 1.25 (from go.mod) + cobra v1.10.2 (CLI), adrg/xdg v0.5.3 (XDG paths), gopkg.in/yaml.v3 (YAML), client-go v0.35.2 (K8s, existing)
 
 
 <!-- MANUAL ADDITIONS START -->
