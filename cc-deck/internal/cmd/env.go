@@ -22,7 +22,19 @@ func NewEnvCmd(gf *GlobalFlags) *cobra.Command {
 	envCmd := &cobra.Command{
 		Use:   "env",
 		Short: "Manage environments",
-		Long:  "Create, manage, and interact with cc-deck environments (local, container, Kubernetes).",
+		Long: `Environments are isolated workspaces where Claude Code sessions run.
+Each environment has its own filesystem, tools, and configuration.
+
+Use --type to select the runtime backend when creating an environment:
+
+  local       Zellij session on the host machine (default)
+  container   Single container managed by podman
+  compose     Multi-container setup via podman-compose
+  k8s-deploy  Kubernetes deployment (planned)
+  k8s-sandbox Ephemeral Kubernetes pod (planned)
+
+Most commands accept an environment name, or auto-detect it from
+a .cc-deck/environment.yaml file in the current project.`,
 	}
 
 	envCmd.AddGroup(
@@ -87,32 +99,35 @@ func newEnvCreateCmd(gf *GlobalFlags) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create [name]",
 		Short: "Create a new environment",
-		Long: `Create a new cc-deck environment. When run inside a project with
-.cc-deck/environment.yaml, the name and settings are read from the
-definition automatically. CLI flags override the definition values.
+		Long: `Provision a new workspace for Claude Code sessions. Pick a --type to
+control where the environment runs: locally in Zellij, inside a
+container, or as a multi-container compose stack.
 
-In a git repository without a definition, one is scaffolded from CLI
-flags before provisioning. Commit .cc-deck/ to share with your team.
+When run inside a git repository that contains .cc-deck/environment.yaml,
+the name, type, and settings are loaded from that file automatically.
+CLI flags override definition values. In a git repo without a definition,
+one is scaffolded for you so your team can share it via version control.
 
-Environment types:
+Environment types (--type):
   local       Zellij session on the host machine (default)
-  container   Container environment managed by podman
-  compose     Multi-container environment via podman-compose
-  k8s-deploy  Kubernetes StatefulSet (not yet implemented)
-  k8s-sandbox Ephemeral Kubernetes Pod (not yet implemented)
+  container   Single container managed by podman
+  compose     Multi-container setup via podman-compose
+  k8s-deploy  Kubernetes deployment (planned)
+  k8s-sandbox Ephemeral Kubernetes pod (planned)`,
+		Example: `  # Create a local Zellij environment
+  cc-deck env create my-project
 
-Container/Compose flags:
-  --image            Container image to use
-  --port             Port mapping (host:container), repeatable
-  --all-ports        Expose all container ports
-  --storage          Storage type: named-volume (container default), host-path (compose default)
-  --path             Project directory (compose: defaults to cwd)
-  --credential       Credential as KEY=VALUE, repeatable
-  --mount            Bind mount as src:dst[:ro], repeatable
-  --auth             Auth mode: auto (default), none, api, vertex, bedrock
+  # Create a container environment with a custom image
+  cc-deck env create my-project --type container --image quay.io/cc-deck/cc-deck-demo
 
-Compose-specific flags:
-  --allowed-domains  Domain groups for network filtering (repeatable)`,
+  # Create a container with port forwarding and Vertex AI auth
+  cc-deck env create api-dev --type container --port 8080:8080 --auth vertex
+
+  # Create a compose environment with network filtering
+  cc-deck env create my-app --type compose --allowed-domains python,github
+
+  # Create from a project definition (auto-detected in cwd)
+  cd ~/projects/my-app && cc-deck env create`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := ""
