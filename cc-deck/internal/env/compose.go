@@ -16,7 +16,8 @@ import (
 )
 
 const (
-	composeDir     = ".cc-deck"
+	ccDeckDir      = ".cc-deck"
+	runSubdir      = "run"
 	composeFile    = "compose.yaml"
 	composeEnvFile = "env"
 	proxySubdir    = "proxy"
@@ -49,7 +50,7 @@ func (e *ComposeEnvironment) Name() string {
 }
 
 func (e *ComposeEnvironment) composeProjectDir() string {
-	return filepath.Join(e.projectDir(), composeDir)
+	return filepath.Join(e.projectDir(), ccDeckDir, runSubdir)
 }
 
 func (e *ComposeEnvironment) projectDir() string {
@@ -184,7 +185,7 @@ func (e *ComposeEnvironment) Create(ctx context.Context, opts CreateOpts) error 
 		log.Printf("WARNING: regenerating compose files in %s", ccDeckDir)
 	}
 	if err := os.MkdirAll(ccDeckDir, 0o755); err != nil {
-		return fmt.Errorf("creating %s directory: %w", composeDir, err)
+		return fmt.Errorf("creating %s directory: %w", filepath.Join(ccDeckDir, runSubdir), err)
 	}
 
 	// Build volumes.
@@ -193,7 +194,7 @@ func (e *ComposeEnvironment) Create(ctx context.Context, opts CreateOpts) error 
 	case StorageTypeHostPath:
 		// Bind mount project dir at /workspace with :U to auto-map ownership
 		// to the container user (podman-specific, fixes macOS UID mismatch).
-		volumes = append(volumes, "./..:/workspace:U")
+		volumes = append(volumes, "./../..:/workspace:U")
 	case StorageTypeNamedVolume:
 		vName := volumeName(e.name)
 		if err := podman.VolumeCreate(ctx, vName); err != nil {
@@ -420,16 +421,16 @@ func (e *ComposeEnvironment) Delete(ctx context.Context, force bool) error {
 	}
 
 	// Run compose down (best-effort).
-	ccDeckDir := ""
+	runDir := ""
 	if projDir != "" {
-		ccDeckDir = filepath.Join(projDir, composeDir)
-		composePath := filepath.Join(ccDeckDir, composeFile)
+		runDir = filepath.Join(projDir, ccDeckDir, runSubdir)
+		composePath := filepath.Join(runDir, composeFile)
 		if _, statErr := os.Stat(composePath); statErr == nil {
 			if runtime, runtimeErr := compose.Available(); runtimeErr == nil {
 				cmdParts := compose.RuntimeCmd(runtime)
 				args := append(cmdParts[1:], "-f", composePath, "down")
 				cmd := exec.CommandContext(ctx, cmdParts[0], args...)
-				cmd.Dir = ccDeckDir
+				cmd.Dir = runDir
 				if out, err := cmd.CombinedOutput(); err != nil {
 					log.Printf("WARNING: compose down: %v: %s", err, string(out))
 				}
@@ -456,10 +457,17 @@ func (e *ComposeEnvironment) Delete(ctx context.Context, force bool) error {
 		}
 	}
 
-	// Remove .cc-deck/ directory.
-	if ccDeckDir != "" {
-		if err := os.RemoveAll(ccDeckDir); err != nil {
-			log.Printf("WARNING: removing %s: %v", ccDeckDir, err)
+	// Remove generated artifacts (.cc-deck/run/) and status file,
+	// but preserve committed files (environment.yaml, image/, .gitignore).
+	if runDir != "" {
+		if err := os.RemoveAll(runDir); err != nil {
+			log.Printf("WARNING: removing %s: %v", runDir, err)
+		}
+	}
+	if projDir != "" {
+		statusFile := filepath.Join(projDir, ccDeckDir, "status.yaml")
+		if err := os.Remove(statusFile); err != nil && !os.IsNotExist(err) {
+			log.Printf("WARNING: removing %s: %v", statusFile, err)
 		}
 	}
 
@@ -653,11 +661,11 @@ func (e *ComposeEnvironment) composeCmd(ctx context.Context, runtime string, act
 	// Find compose file path from instance.
 	composePath := ""
 	if inst, err := e.store.FindInstanceByName(e.name); err == nil && inst.Compose != nil {
-		composePath = filepath.Join(inst.Compose.ProjectDir, composeDir, composeFile)
+		composePath = filepath.Join(inst.Compose.ProjectDir, ccDeckDir, runSubdir, composeFile)
 	}
 	if composePath == "" {
 		if def, err := e.defs.FindByName(e.name); err == nil && def.ProjectDir != "" {
-			composePath = filepath.Join(def.ProjectDir, composeDir, composeFile)
+			composePath = filepath.Join(def.ProjectDir, ccDeckDir, runSubdir, composeFile)
 		}
 	}
 	if composePath == "" {
@@ -684,14 +692,14 @@ func (e *ComposeEnvironment) handleGitignore(projDir string) {
 	}
 
 	gitignorePath := filepath.Join(projDir, ".gitignore")
-	entry := composeDir + "/"
+	entry := ccDeckDir + "/"
 
 	// Read existing .gitignore.
 	content, err := os.ReadFile(gitignorePath)
 	if err == nil {
 		// Check if already present.
 		for _, line := range strings.Split(string(content), "\n") {
-			if strings.TrimSpace(line) == entry || strings.TrimSpace(line) == composeDir {
+			if strings.TrimSpace(line) == entry || strings.TrimSpace(line) == ccDeckDir {
 				return // Already present.
 			}
 		}
