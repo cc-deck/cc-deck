@@ -2,7 +2,7 @@
 
 **Feature Branch**: `025-compose-env`
 **Created**: 2026-03-21
-**Status**: Draft
+**Status**: Evolved (post-walkthrough)
 **Input**: User description: "Compose environment with multi-container orchestration and optional network filtering"
 
 ## Context: Existing Infrastructure
@@ -110,15 +110,15 @@ When a user creates a compose environment in a git-tracked project, they are war
 ### Functional Requirements
 
 - **FR-001**: The system MUST support creating compose environments via `cc-deck env create <name> --type compose`.
-- **FR-002**: On create, the system MUST generate orchestration files in a `.cc-deck/` subdirectory within the project directory.
-- **FR-003**: The default storage for compose environments MUST be a host-path bind mount of the project directory, mounted at `/workspace` inside the session container.
-- **FR-004**: Users MUST be able to specify `--storage named-volume` to use an isolated volume instead of a bind mount.
+- **FR-002**: On create, the system MUST generate orchestration files in a `.cc-deck/` subdirectory within the project directory. Generated files inside `.cc-deck/` MUST NOT use dot prefixes (e.g., `env` not `.env`) per constitution principle XIV (no dotfile nesting).
+- **FR-003**: The default storage for compose environments MUST be a host-path bind mount of the project directory, mounted at `/workspace` inside the session container. The mount MUST use the `:U` volume flag to map file ownership to the container user, ensuring non-root container images (e.g., images with `USER dev`) can write to the workspace on hosts with UID mismatch (common on macOS with Podman Machine).
+- **FR-004**: Users MUST be able to specify `--storage named-volume` to use an isolated volume instead of a bind mount. Named volumes MUST be pre-created via `podman volume create` and declared as `external: true` in the top-level `volumes:` section of the generated compose file (required by the compose specification).
 - **FR-005**: The system MUST support optional network filtering via `--allowed-domains`, which adds a proxy sidecar that enforces a domain allowlist.
 - **FR-006**: Domain group names specified in `--allowed-domains` MUST be expanded using the existing domain resolver, supporting built-in groups, user-defined groups, and literal domain patterns.
 - **FR-007**: When network filtering is active, the session container MUST NOT have direct internet access. All outbound traffic MUST route through the proxy sidecar.
-- **FR-008**: The system MUST support the full lifecycle: create, attach, start, stop, delete.
+- **FR-008**: The system MUST support the full lifecycle: create, attach, start, stop, delete. Start and stop MUST fall back to direct `podman start`/`podman stop` on the session container when the `.cc-deck/` directory or compose file is missing, ensuring graceful operation even if generated files were removed externally.
 - **FR-009**: Delete MUST remove all compose containers, clean up secrets, and remove the generated files directory from the project.
-- **FR-010**: Credential detection and injection MUST match the behavior of the existing container environment type (auto-detection of API keys, cloud provider credentials, file-based credentials).
+- **FR-010**: Credential detection and injection MUST match the behavior of the existing container environment type (auto-detection of API keys, cloud provider credentials, file-based credentials). File-based credentials (e.g., gcloud ADC) MUST be mounted as read-only volume mounts with `:ro,U` from the original host file, keeping the host file as the single source of truth (no copying, no drift after re-authentication). The `:U` flag ensures the container user can read the file regardless of host UID. The `ANTHROPIC_API_KEY` MUST always be included in the credential set when present in the host environment, regardless of the detected auth mode (useful as fallback alongside Vertex or Bedrock).
 - **FR-011**: Attach MUST open an interactive session identical to the container type (sidebar plugin loaded, Zellij session with cc-deck layout).
 - **FR-012**: Attach MUST auto-start a stopped compose environment before connecting.
 - **FR-013**: The system MUST detect and warn when the generated files directory is not in `.gitignore`, and offer automatic addition via `--gitignore`.
@@ -127,7 +127,7 @@ When a user creates a compose environment in a git-tracked project, they are war
 - **FR-016**: The compose environment MUST appear correctly in `cc-deck env list` and `cc-deck env status` output, including reconciliation of actual container state.
 - **FR-017**: Exec and push/pull operations MUST work identically to the container type, targeting the session container by name.
 - **FR-018**: The `--path` flag MUST allow specifying the project directory explicitly, defaulting to the current working directory.
-- **FR-019**: Create MUST validate the environment name and check that the compose runtime is available before proceeding.
+- **FR-019**: Create MUST validate the environment name, check for duplicate names in the state store, and check that the compose runtime is available before proceeding. The duplicate name check MUST happen before any resource creation (fail-fast) to prevent orphaned containers or generated files.
 - **FR-020**: Create MUST clean up partially created resources (generated files, secrets, containers) if creation fails partway through.
 - **FR-021**: Attach MUST update the last-attached timestamp in the state store.
 - **FR-022**: Delete MUST refuse to delete a running environment unless `--force` is specified.
@@ -151,6 +151,19 @@ When a user creates a compose environment in a git-tracked project, they are war
 - **SC-004**: File changes in the project directory are visible inside the container within one second (bind mount mode).
 - **SC-005**: Credential detection produces the same results as the container environment type for identical host configurations.
 - **SC-006**: The compose environment appears correctly in `cc-deck env list` with accurate state reconciliation.
+
+## Evolution Log
+
+**2026-03-22: Post-walkthrough fixes** (commits d27f763, a2a446d)
+
+Spec updated to reflect implementation improvements discovered during manual walkthrough testing:
+
+- FR-002: Added no-dotfile-nesting rule (`env` not `.env` inside `.cc-deck/`)
+- FR-003: Added `:U` volume flag requirement for non-root container UID mapping
+- FR-004: Added `external: true` requirement for named volumes in compose spec
+- FR-008: Added graceful podman fallback when `.cc-deck/` directory is missing
+- FR-010: File credentials use `:ro,U` volume mounts (not copies or compose secrets) for live reads without permission issues. API key always included alongside other auth modes.
+- FR-019: Added fail-fast duplicate name check before resource creation
 
 ## Assumptions
 
