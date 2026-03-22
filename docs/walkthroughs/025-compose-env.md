@@ -239,7 +239,7 @@ podman exec cc-deck-test-explicit env | grep MY_SECRET
 ccd env delete test-explicit --force
 ```
 
-### 4c. File-based credential (Vertex ADC) via compose-native secrets
+### 4c. File-based credential (Vertex ADC) via volume mount
 
 ```bash
 # Create a fake ADC file
@@ -261,17 +261,15 @@ ls .cc-deck/secrets/ 2>&1
 cat .cc-deck/env | grep GOOGLE_APPLICATION_CREDENTIALS
 # Expected: GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/google-application-credentials
 
-# Verify compose.yaml uses compose-native secrets (not volume mounts)
-grep -A 2 'secrets:' .cc-deck/compose.yaml
-# Expected at top level:
-#   secrets:
-#     google-application-credentials:
-#       file: /tmp/test-cred-dir/adc.json
-# Expected in session service:
-#   secrets:
-#     - google-application-credentials
+# Verify compose.yaml uses :ro,U volume mount (not compose secrets)
+grep 'google-application-credentials' .cc-deck/compose.yaml
+# Expected: /tmp/test-cred-dir/adc.json:/run/secrets/google-application-credentials:ro,U
 
-# Verify the secret is live (no copy, reads from original file)
+# Verify the credential is readable inside the container (non-root user)
+podman exec cc-deck-test-vertex cat /run/secrets/google-application-credentials
+# Expected: {"type":"authorized_user","client_id":"test"}
+
+# Verify the mount is live (no copy, reads from original file)
 echo '{"type":"updated"}' > /tmp/test-cred-dir/adc.json
 podman exec cc-deck-test-vertex cat /run/secrets/google-application-credentials
 # Expected: {"type":"updated"} (live file, not a stale copy)
@@ -606,8 +604,8 @@ unalias ccd
 | Reconcile external stop | US3 | FR-016 | |
 | Auto-detect API key | US4 | FR-010 | |
 | Explicit credential | US4 | FR-010 | |
-| File credential (compose secrets) | US4 | FR-010 | |
-| Live secret (no copy drift) | US4 | FR-010 | |
+| File credential (:ro,U mount) | US4 | FR-010 | |
+| Live mount (no copy drift) | US4 | FR-010 | |
 | Vertex + API key both included | US4 | FR-010 | |
 | Auth mode none (opt-out) | US4 | FR-010 | |
 | Allowed domains + proxy | US2 | FR-005, FR-006, FR-007 | |
