@@ -26,7 +26,6 @@ func NewEnvCmd(gf *GlobalFlags) *cobra.Command {
 	}
 
 	envCmd.AddCommand(
-		newEnvInitCmd(gf),
 		newEnvCreateCmd(gf),
 		newEnvPruneCmd(),
 		newEnvAttachCmd(gf),
@@ -43,92 +42,6 @@ func NewEnvCmd(gf *GlobalFlags) *cobra.Command {
 	)
 
 	return envCmd
-}
-
-// --- init ---
-
-type initFlags struct {
-	envType        string
-	image          string
-	auth           string
-	allowedDomains []string
-	name           string
-}
-
-func newEnvInitCmd(_ *GlobalFlags) *cobra.Command {
-	var inf initFlags
-
-	cmd := &cobra.Command{
-		Use:   "init",
-		Short: "Initialize project-local environment definition",
-		Long: `Scaffold .cc-deck/environment.yaml and .cc-deck/.gitignore in the current
-project. The definition is committed to version control so team members
-can run 'cc-deck env create' without specifying flags.
-
-This command does NOT provision any containers or runtime resources.
-Use 'cc-deck env create' after init to start the environment.`,
-		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runEnvInit(&inf)
-		},
-	}
-
-	cmd.Flags().StringVarP(&inf.envType, "type", "t", "", "Environment type (compose, container) [required]")
-	cmd.Flags().StringVar(&inf.image, "image", "", "Container image")
-	cmd.Flags().StringVar(&inf.auth, "auth", "auto", "Auth mode: auto, none, api, vertex, bedrock")
-	cmd.Flags().StringSliceVar(&inf.allowedDomains, "allowed-domains", nil, "Domain groups for network filtering, repeatable")
-	cmd.Flags().StringVar(&inf.name, "name", "", "Environment name (default: directory basename)")
-	_ = cmd.MarkFlagRequired("type")
-
-	return cmd
-}
-
-func runEnvInit(inf *initFlags) error {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("getting current directory: %w", err)
-	}
-
-	// Determine project root and name.
-	projectRoot := cwd
-	gitRoot, gitErr := project.FindGitRoot(cwd)
-	if gitErr == nil {
-		projectRoot = gitRoot
-	} else {
-		fmt.Fprintf(os.Stderr, "WARNING: Not a git repository; .cc-deck/.gitignore will have no effect until git is initialized.\n")
-	}
-
-	// Check if definition already exists.
-	if _, loadErr := env.LoadProjectDefinition(projectRoot); loadErr == nil {
-		return fmt.Errorf(".cc-deck/environment.yaml already exists in %s", projectRoot)
-	}
-
-	// Resolve environment name.
-	envName := inf.name
-	if envName == "" {
-		envName = project.ProjectName(projectRoot)
-	}
-	if err := env.ValidateEnvName(envName); err != nil {
-		return err
-	}
-
-	// Build definition.
-	def := &env.EnvironmentDefinition{
-		Name:           envName,
-		Type:           env.EnvironmentType(inf.envType),
-		Image:          inf.image,
-		Auth:           inf.auth,
-		AllowedDomains: inf.allowedDomains,
-	}
-
-	// Save definition (also creates .cc-deck/.gitignore).
-	if err := env.SaveProjectDefinition(projectRoot, def); err != nil {
-		return err
-	}
-
-	fmt.Fprintf(os.Stdout, "Created .cc-deck/environment.yaml in %s\n", projectRoot)
-	fmt.Fprintf(os.Stdout, "Commit .cc-deck/ to share the environment definition with your team.\n")
-	return nil
 }
 
 // --- create ---
@@ -158,8 +71,8 @@ func newEnvCreateCmd(gf *GlobalFlags) *cobra.Command {
 .cc-deck/environment.yaml, the name and settings are read from the
 definition automatically. CLI flags override the definition values.
 
-If no definition exists in a git repository, one is scaffolded from
-CLI flags before provisioning (equivalent to running env init first).
+In a git repository without a definition, one is scaffolded from CLI
+flags before provisioning. Commit .cc-deck/ to share with your team.
 
 Environment types:
   local       Zellij session on the host machine (default)
@@ -228,15 +141,14 @@ func runEnvCreate(gf *GlobalFlags, name string, cf *createFlags, cmd *cobra.Comm
 		projectRoot = root
 	}
 
-	// Resolve environment name (T016).
+	// Resolve environment name.
 	if name == "" {
 		if projDef != nil {
 			name = projDef.Name
 			fmt.Fprintf(os.Stderr, "Using environment %q from %s/.cc-deck/\n", name, projectRoot)
 		} else if projectRoot != "" {
-			// In a git repo with no definition: auto-scaffold (FR-025, T018).
+			// In a git repo with no definition: scaffold from CLI flags.
 			name = project.ProjectName(projectRoot)
-			fmt.Fprintf(os.Stderr, "No .cc-deck/environment.yaml found. Scaffolding from CLI flags.\n")
 		} else {
 			return fmt.Errorf("no environment name specified and no .cc-deck/environment.yaml found in project hierarchy")
 		}
@@ -264,7 +176,7 @@ func runEnvCreate(gf *GlobalFlags, name string, cf *createFlags, cmd *cobra.Comm
 		}
 	}
 
-	// Auto-scaffold definition if in git repo with no definition (FR-025, T018).
+	// Scaffold definition if in git repo with no definition.
 	if projDef == nil && projectRoot != "" {
 		scaffoldDef := &env.EnvironmentDefinition{
 			Name:           name,
@@ -278,9 +190,10 @@ func runEnvCreate(gf *GlobalFlags, name string, cf *createFlags, cmd *cobra.Comm
 		}
 		projDef = scaffoldDef
 		fmt.Fprintf(os.Stderr, "Created .cc-deck/environment.yaml in %s\n", projectRoot)
+		fmt.Fprintf(os.Stderr, "Commit .cc-deck/ to share the definition with your team.\n")
 	}
 
-	// Apply project-local definition values, with CLI flags taking precedence (T017).
+	// Apply project-local definition values, with CLI flags taking precedence.
 	if projDef != nil {
 		if cf.image == "" && projDef.Image != "" {
 			cf.image = projDef.Image
