@@ -9,9 +9,9 @@ import (
 
 var requiredGitignoreEntries = []string{"status.yaml", "run/"}
 
-// ensureCCDeckGitignore idempotently creates or updates .cc-deck/.gitignore
+// EnsureCCDeckGitignore idempotently creates or updates .cc-deck/.gitignore
 // with the required entries (status.yaml and run/).
-func ensureCCDeckGitignore(projectRoot string) error {
+func EnsureCCDeckGitignore(projectRoot string) error {
 	dir := filepath.Join(projectRoot, ".cc-deck")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("creating .cc-deck directory: %w", err)

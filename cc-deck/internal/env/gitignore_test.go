@@ -12,7 +12,7 @@ import (
 func TestEnsureCCDeckGitignore_CreatesNew(t *testing.T) {
 	dir := t.TempDir()
 
-	require.NoError(t, ensureCCDeckGitignore(dir))
+	require.NoError(t, EnsureCCDeckGitignore(dir))
 
 	content, err := os.ReadFile(filepath.Join(dir, ".cc-deck", ".gitignore"))
 	require.NoError(t, err)
@@ -23,8 +23,8 @@ func TestEnsureCCDeckGitignore_CreatesNew(t *testing.T) {
 func TestEnsureCCDeckGitignore_Idempotent(t *testing.T) {
 	dir := t.TempDir()
 
-	require.NoError(t, ensureCCDeckGitignore(dir))
-	require.NoError(t, ensureCCDeckGitignore(dir))
+	require.NoError(t, EnsureCCDeckGitignore(dir))
+	require.NoError(t, EnsureCCDeckGitignore(dir))
 
 	content, err := os.ReadFile(filepath.Join(dir, ".cc-deck", ".gitignore"))
 	require.NoError(t, err)
@@ -44,7 +44,7 @@ func TestEnsureCCDeckGitignore_PreservesExisting(t *testing.T) {
 	existing := "image/\n"
 	require.NoError(t, os.WriteFile(filepath.Join(ccDir, ".gitignore"), []byte(existing), 0o644))
 
-	require.NoError(t, ensureCCDeckGitignore(dir))
+	require.NoError(t, EnsureCCDeckGitignore(dir))
 
 	content, err := os.ReadFile(filepath.Join(ccDir, ".gitignore"))
 	require.NoError(t, err)
@@ -63,7 +63,7 @@ func TestEnsureCCDeckGitignore_PartialExisting(t *testing.T) {
 	existing := "status.yaml\n"
 	require.NoError(t, os.WriteFile(filepath.Join(ccDir, ".gitignore"), []byte(existing), 0o644))
 
-	require.NoError(t, ensureCCDeckGitignore(dir))
+	require.NoError(t, EnsureCCDeckGitignore(dir))
 
 	content, err := os.ReadFile(filepath.Join(ccDir, ".gitignore"))
 	require.NoError(t, err)

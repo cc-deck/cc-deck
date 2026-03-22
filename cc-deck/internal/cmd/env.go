@@ -149,10 +149,14 @@ func newEnvCreateCmd(gf *GlobalFlags) *cobra.Command {
 	var cf createFlags
 
 	cmd := &cobra.Command{
-		Use:   "create <name>",
+		Use:   "create [name]",
 		Short: "Create a new environment",
-		Long: `Create a new cc-deck environment. The name must contain only lowercase
-letters, digits, and hyphens (max 40 characters).
+		Long: `Create a new cc-deck environment. When run inside a project with
+.cc-deck/environment.yaml, the name and settings are read from the
+definition automatically. CLI flags override the definition values.
+
+If no definition exists in a git repository, one is scaffolded from
+CLI flags before provisioning (equivalent to running env init first).
 
 Environment types:
   local       Zellij session on the host machine (default)
@@ -172,15 +176,18 @@ Container/Compose flags:
   --auth             Auth mode: auto (default), none, api, vertex, bedrock
 
 Compose-specific flags:
-  --allowed-domains  Domain groups for network filtering (repeatable)
-  --gitignore        Auto-add .cc-deck/ to .gitignore`,
-		Args: cobra.ExactArgs(1),
+  --allowed-domains  Domain groups for network filtering (repeatable)`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runEnvCreate(gf, args[0], &cf)
+			name := ""
+			if len(args) > 0 {
+				name = args[0]
+			}
+			return runEnvCreate(gf, name, &cf, cmd)
 		},
 	}
 
-	cmd.Flags().StringVarP(&cf.envType, "type", "t", "local", "Environment type (local, container, compose, k8s-deploy, k8s-sandbox)")
+	cmd.Flags().StringVarP(&cf.envType, "type", "t", "", "Environment type (local, container, compose, k8s-deploy, k8s-sandbox)")
 	cmd.Flags().StringVar(&cf.image, "image", "", "Container image to use")
 	cmd.Flags().StringSliceVar(&cf.ports, "port", nil, "Port mapping (host:container), repeatable")
 	cmd.Flags().BoolVar(&cf.allPorts, "all-ports", false, "Expose all container ports")
@@ -190,19 +197,109 @@ Compose-specific flags:
 	cmd.Flags().StringSliceVar(&cf.mount, "mount", nil, "Bind mount as src:dst[:ro], repeatable")
 	cmd.Flags().StringVar(&cf.auth, "auth", "auto", "Auth mode: auto, none, api, vertex, bedrock")
 	cmd.Flags().StringSliceVar(&cf.allowedDomains, "allowed-domains", nil, "Domain groups for network filtering (compose only), repeatable")
-	cmd.Flags().BoolVar(&cf.gitignore, "gitignore", false, "Auto-add .cc-deck/ to .gitignore (compose only)")
+	cmd.Flags().BoolVar(&cf.gitignore, "gitignore", false, "Auto-add .cc-deck/ to .gitignore (compose only, deprecated)")
 
 	return cmd
 }
 
-func runEnvCreate(_ *GlobalFlags, name string, cf *createFlags) error {
+func runEnvCreate(gf *GlobalFlags, name string, cf *createFlags, cmd *cobra.Command) error {
+	store := env.NewStateStore("")
+	defs := env.NewDefinitionStore("")
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("getting current directory: %w", err)
+	}
+
+	// Try to find project-local definition.
+	var projectRoot string
+	var projDef *env.EnvironmentDefinition
+	if root, findErr := project.FindProjectConfig(cwd); findErr == nil {
+		projectRoot = root
+		if def, loadErr := env.LoadProjectDefinition(root); loadErr == nil {
+			projDef = def
+		}
+	} else if root, gitErr := project.FindGitRoot(cwd); gitErr == nil {
+		// In a git repo but no .cc-deck/environment.yaml.
+		projectRoot = root
+	}
+
+	// Resolve environment name (T016).
+	if name == "" {
+		if projDef != nil {
+			name = projDef.Name
+			fmt.Fprintf(os.Stderr, "Using environment %q from %s/.cc-deck/\n", name, projectRoot)
+		} else if projectRoot != "" {
+			// In a git repo with no definition: auto-scaffold (FR-025, T018).
+			name = project.ProjectName(projectRoot)
+			fmt.Fprintf(os.Stderr, "No .cc-deck/environment.yaml found. Scaffolding from CLI flags.\n")
+		} else {
+			return fmt.Errorf("no environment name specified and no .cc-deck/environment.yaml found in project hierarchy")
+		}
+	}
+
 	if err := env.ValidateEnvName(name); err != nil {
 		return err
 	}
 
+	// Resolve type: CLI flag > project definition > default (T017).
+	typeChanged := cmd.Flags().Changed("type")
 	envType := env.EnvironmentType(cf.envType)
-	store := env.NewStateStore("")
-	defs := env.NewDefinitionStore("")
+	if !typeChanged && projDef != nil && projDef.Type != "" {
+		envType = projDef.Type // Auto-detect from definition (FR-013).
+	}
+	if envType == "" {
+		envType = env.EnvironmentTypeLocal
+	}
+
+	// Project-local vs global precedence check (FR-026, T020).
+	if projDef != nil {
+		if globalDef, globalErr := defs.FindByName(name); globalErr == nil {
+			fmt.Fprintf(os.Stderr, "WARNING: Project-local definition shadows global definition %q (type: %s)\n",
+				globalDef.Name, globalDef.Type)
+		}
+	}
+
+	// Auto-scaffold definition if in git repo with no definition (FR-025, T018).
+	if projDef == nil && projectRoot != "" {
+		scaffoldDef := &env.EnvironmentDefinition{
+			Name:           name,
+			Type:           envType,
+			Image:          cf.image,
+			Auth:           cf.auth,
+			AllowedDomains: cf.allowedDomains,
+		}
+		if err := env.SaveProjectDefinition(projectRoot, scaffoldDef); err != nil {
+			return fmt.Errorf("scaffolding project definition: %w", err)
+		}
+		projDef = scaffoldDef
+		fmt.Fprintf(os.Stderr, "Created .cc-deck/environment.yaml in %s\n", projectRoot)
+	}
+
+	// Apply project-local definition values, with CLI flags taking precedence (T017).
+	if projDef != nil {
+		if cf.image == "" && projDef.Image != "" {
+			cf.image = projDef.Image
+		}
+		if !cmd.Flags().Changed("auth") && projDef.Auth != "" {
+			cf.auth = projDef.Auth
+		}
+		if len(cf.allowedDomains) == 0 && len(projDef.AllowedDomains) > 0 {
+			cf.allowedDomains = projDef.AllowedDomains
+		}
+		if len(cf.ports) == 0 && len(projDef.Ports) > 0 {
+			cf.ports = projDef.Ports
+		}
+		if len(cf.mount) == 0 && len(projDef.Mounts) > 0 {
+			cf.mount = projDef.Mounts
+		}
+		if len(cf.credential) == 0 && len(projDef.Credentials) > 0 {
+			cf.credential = projDef.Credentials
+		}
+		if cf.path == "" && projDef.ProjectDir != "" {
+			cf.path = projDef.ProjectDir
+		}
+	}
 
 	e, err := env.NewEnvironment(envType, name, store, defs)
 	if err != nil {
@@ -250,8 +347,7 @@ func runEnvCreate(_ *GlobalFlags, name string, cf *createFlags) error {
 		}
 	}
 
-	// Resolve image: CLI flag → config default (only for container type).
-	// Compose environments fall through to their own default in compose.go.
+	// Resolve image: CLI flag > project definition > config default.
 	image := cf.image
 	if image == "" && envType == env.EnvironmentTypeContainer {
 		if cfg, loadErr := config.Load(""); loadErr == nil && cfg.Defaults.Container.Image != "" {
@@ -279,8 +375,57 @@ func runEnvCreate(_ *GlobalFlags, name string, cf *createFlags) error {
 		return err
 	}
 
+	// Auto-register project in global registry (FR-007, T019).
+	if projectRoot != "" {
+		if regErr := store.RegisterProject(projectRoot); regErr != nil {
+			fmt.Fprintf(os.Stderr, "WARNING: could not register project: %v\n", regErr)
+		}
+
+		// Ensure .cc-deck/.gitignore exists (FR-030).
+		_ = env.EnsureCCDeckGitignore(projectRoot)
+
+		// Store CLI overrides in status.yaml (FR-019, T019).
+		overrides := collectOverrides(cmd, cf, projDef)
+		if len(overrides) > 0 || projDef != nil {
+			statusStore := env.NewProjectStatusStore(projectRoot)
+			status, _ := statusStore.Load()
+			status.State = env.EnvironmentStateStopped
+			status.ContainerName = "cc-deck-" + name
+			if status.CreatedAt.IsZero() {
+				status.CreatedAt = time.Now()
+			}
+			if len(overrides) > 0 {
+				status.Overrides = overrides
+			}
+			if saveErr := statusStore.Save(status); saveErr != nil {
+				fmt.Fprintf(os.Stderr, "WARNING: could not save project status: %v\n", saveErr)
+			}
+		}
+	}
+
 	fmt.Fprintf(os.Stdout, "Environment %q created (type: %s)\n", name, envType)
 	return nil
+}
+
+// collectOverrides returns CLI flag values that differ from the project definition.
+func collectOverrides(cmd *cobra.Command, cf *createFlags, projDef *env.EnvironmentDefinition) map[string]string {
+	if projDef == nil {
+		return nil
+	}
+	overrides := make(map[string]string)
+	if cmd.Flags().Changed("image") && cf.image != projDef.Image {
+		overrides["image"] = cf.image
+	}
+	if cmd.Flags().Changed("auth") && cf.auth != projDef.Auth {
+		overrides["auth"] = cf.auth
+	}
+	if cmd.Flags().Changed("type") && string(env.EnvironmentType(cf.envType)) != string(projDef.Type) {
+		overrides["type"] = cf.envType
+	}
+	if len(overrides) == 0 {
+		return nil
+	}
+	return overrides
 }
 
 // splitCredential splits a KEY=VALUE string. Returns nil if no '=' found.
