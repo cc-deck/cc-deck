@@ -105,7 +105,7 @@ The `overrides` section captures CLI flag values that differ from `environment.y
 
 ## R6: CLI Command Changes
 
-**Decision**: Modify existing commands to support optional name argument with walk-based resolution. Add `env init` and `env prune` subcommands.
+**Decision**: Modify existing commands to support optional name argument with walk-based resolution. Add `env prune` subcommand. Scaffolding is integrated into `env create` (no separate init command).
 
 **Current state** (`cmd/env.go`):
 - `create` requires `cobra.ExactArgs(1)` (name is mandatory)
@@ -119,6 +119,5 @@ The `overrides` section captures CLI flag values that differ from `environment.y
 - Add `--variant` flag to `create`
 - Add `--worktrees` flag to `list`
 - Add `--branch` flag to `attach`
-- Add `env init` subcommand
 - Add `env prune` subcommand
 - Update `resolveEnvironment()` to check project-local status before global state

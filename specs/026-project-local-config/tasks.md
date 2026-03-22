@@ -57,20 +57,9 @@ cc-deck/internal/
 
 ---
 
-## Phase 3: User Story 2 - Initialize a Project (Priority: P1)
+## Phase 3: User Story 1+2 - Create and Clone (Priority: P1) MVP
 
-**Goal**: `cc-deck env init` scaffolds `.cc-deck/environment.yaml` and `.cc-deck/.gitignore` so developers can commit and share environment definitions.
-
-**Independent Test**: Run `cc-deck env init --type compose --image quay.io/cc-deck/cc-deck-demo:latest` in a git repo. Verify `.cc-deck/environment.yaml` and `.cc-deck/.gitignore` are created with correct content. Run again and verify it fails with "already exists" error.
-
-- [x] T014 [US2] Add `env init` subcommand to `cc-deck/internal/cmd/env.go` with flags: --type (required), --image, --auth, --allowed-domains, --name (default: directory basename). Uses FindGitRoot from project package, SaveProjectDefinition, ensureCCDeckGitignore. Fails if environment.yaml exists. Warns if not a git repo.
-- [x] T015 [US2] Integration test for `env init` in `cc-deck/internal/cmd/env_init_test.go`: test in git repo (success), test with existing definition (error), test outside git repo (warning), verify environment.yaml content and .gitignore content
-
-**Checkpoint**: `cc-deck env init` works. Developers can scaffold project-local definitions.
-
----
-
-## Phase 4: User Story 1 - Clone and Create (Priority: P1) MVP
+NOTE: User Story 2 (Initialize) was merged into User Story 1 (Create). `env create` handles both scaffolding and provisioning. There is no separate `env init` command. T014-T015 are superseded by the auto-scaffold logic in T018.
 
 **Goal**: `cc-deck env create` from a project with `.cc-deck/environment.yaml` provisions an environment using the definition as source of truth. No flags needed.
 
@@ -162,7 +151,7 @@ cc-deck/internal/
 **Purpose**: Documentation, validation, and cleanup.
 
 - [ ] T037 [P] Update README.md with project-local config feature description, usage examples, and updated Feature Specifications table
-- [ ] T038 [P] Update CLI reference in `docs/modules/reference/pages/cli.adoc` with env init, env prune, --variant, --worktrees, --branch flags
+- [ ] T038 [P] Update CLI reference in `docs/modules/reference/pages/cli.adoc` with env prune, --variant, --worktrees, --branch flags
 - [x] T039 Run `make test` and `make lint` to verify all tests pass and no lint issues
 - [x] T040 Run quickstart.md validation: verify all 12 implementation steps are covered by tasks
 
@@ -234,7 +223,7 @@ Task T013: "Replace handleGitignore with ensureCCDeckGitignore"
 
 1. Complete Phase 1: Setup (project package)
 2. Complete Phase 2: Foundational (data model, stores, compose migration)
-3. Complete Phase 3: US2 (env init)
+3. Complete Phase 3: US1+2 (create with auto-scaffold)
 4. Complete Phase 4: US1 (clone and create)
 5. **STOP AND VALIDATE**: Test clone-and-create workflow end-to-end
 6. This delivers SC-001: "git clone + env create + env attach without flags"
