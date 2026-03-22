@@ -13,6 +13,7 @@ import (
 
 	"github.com/cc-deck/cc-deck/internal/config"
 	"github.com/cc-deck/cc-deck/internal/env"
+	"github.com/cc-deck/cc-deck/internal/project"
 )
 
 // NewEnvCmd creates the env parent command with all subcommands.
@@ -24,6 +25,7 @@ func NewEnvCmd(gf *GlobalFlags) *cobra.Command {
 	}
 
 	envCmd.AddCommand(
+		newEnvInitCmd(gf),
 		newEnvCreateCmd(gf),
 		newEnvAttachCmd(gf),
 		newEnvDeleteCmd(gf),
@@ -39,6 +41,92 @@ func NewEnvCmd(gf *GlobalFlags) *cobra.Command {
 	)
 
 	return envCmd
+}
+
+// --- init ---
+
+type initFlags struct {
+	envType        string
+	image          string
+	auth           string
+	allowedDomains []string
+	name           string
+}
+
+func newEnvInitCmd(_ *GlobalFlags) *cobra.Command {
+	var inf initFlags
+
+	cmd := &cobra.Command{
+		Use:   "init",
+		Short: "Initialize project-local environment definition",
+		Long: `Scaffold .cc-deck/environment.yaml and .cc-deck/.gitignore in the current
+project. The definition is committed to version control so team members
+can run 'cc-deck env create' without specifying flags.
+
+This command does NOT provision any containers or runtime resources.
+Use 'cc-deck env create' after init to start the environment.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runEnvInit(&inf)
+		},
+	}
+
+	cmd.Flags().StringVarP(&inf.envType, "type", "t", "", "Environment type (compose, container) [required]")
+	cmd.Flags().StringVar(&inf.image, "image", "", "Container image")
+	cmd.Flags().StringVar(&inf.auth, "auth", "auto", "Auth mode: auto, none, api, vertex, bedrock")
+	cmd.Flags().StringSliceVar(&inf.allowedDomains, "allowed-domains", nil, "Domain groups for network filtering, repeatable")
+	cmd.Flags().StringVar(&inf.name, "name", "", "Environment name (default: directory basename)")
+	_ = cmd.MarkFlagRequired("type")
+
+	return cmd
+}
+
+func runEnvInit(inf *initFlags) error {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("getting current directory: %w", err)
+	}
+
+	// Determine project root and name.
+	projectRoot := cwd
+	gitRoot, gitErr := project.FindGitRoot(cwd)
+	if gitErr == nil {
+		projectRoot = gitRoot
+	} else {
+		fmt.Fprintf(os.Stderr, "WARNING: Not a git repository; .cc-deck/.gitignore will have no effect until git is initialized.\n")
+	}
+
+	// Check if definition already exists.
+	if _, loadErr := env.LoadProjectDefinition(projectRoot); loadErr == nil {
+		return fmt.Errorf(".cc-deck/environment.yaml already exists in %s", projectRoot)
+	}
+
+	// Resolve environment name.
+	envName := inf.name
+	if envName == "" {
+		envName = project.ProjectName(projectRoot)
+	}
+	if err := env.ValidateEnvName(envName); err != nil {
+		return err
+	}
+
+	// Build definition.
+	def := &env.EnvironmentDefinition{
+		Name:           envName,
+		Type:           env.EnvironmentType(inf.envType),
+		Image:          inf.image,
+		Auth:           inf.auth,
+		AllowedDomains: inf.allowedDomains,
+	}
+
+	// Save definition (also creates .cc-deck/.gitignore).
+	if err := env.SaveProjectDefinition(projectRoot, def); err != nil {
+		return err
+	}
+
+	fmt.Fprintf(os.Stdout, "Created .cc-deck/environment.yaml in %s\n", projectRoot)
+	fmt.Fprintf(os.Stdout, "Commit .cc-deck/ to share the environment definition with your team.\n")
+	return nil
 }
 
 // --- create ---
