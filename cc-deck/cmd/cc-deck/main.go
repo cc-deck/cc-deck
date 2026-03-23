@@ -43,19 +43,45 @@ for containerized Claude Code environments.`,
 		initConfig(gf)
 	})
 
-	rootCmd.AddCommand(cmd.NewDeployCmd(gf))
-	rootCmd.AddCommand(cmd.NewConnectCmd(gf))
-	rootCmd.AddCommand(cmd.NewProfileCmd(gf))
-	rootCmd.AddCommand(cmd.NewListCmd(gf))
-	rootCmd.AddCommand(cmd.NewDeleteCmd(gf))
-	rootCmd.AddCommand(cmd.NewLogsCmd(gf))
-	rootCmd.AddCommand(cmd.NewVersionCmd(gf))
-	rootCmd.AddCommand(cmd.NewPluginCmd(gf))
-	rootCmd.AddCommand(cmd.NewSnapshotCmd(gf))
+	// Command groups in display order.
+	rootCmd.AddGroup(
+		&cobra.Group{ID: "daily", Title: "Daily:"},
+		&cobra.Group{ID: "session", Title: "Session:"},
+		&cobra.Group{ID: "environment", Title: "Environment:"},
+		&cobra.Group{ID: "setup", Title: "Setup:"},
+	)
+
+	// Daily: promoted env subcommands.
+	addToGroup(rootCmd, "daily",
+		cmd.NewAttachCmd(gf),
+		cmd.NewListCmd(gf),
+		cmd.NewStatusCmd(gf),
+		cmd.NewStartCmd(gf),
+		cmd.NewStopCmd(gf),
+		cmd.NewLogsCmd(gf),
+	)
+
+	// Session.
+	addToGroup(rootCmd, "session",
+		cmd.NewSnapshotCmd(gf),
+	)
+
+	// Environment.
+	addToGroup(rootCmd, "environment",
+		cmd.NewEnvCmd(gf),
+	)
+
+	// Setup.
+	addToGroup(rootCmd, "setup",
+		cmd.NewPluginCmd(gf),
+		cmd.NewProfileCmd(gf),
+		cmd.NewDomainsCmd(gf),
+		cmd.NewImageCmd(gf),
+	)
+
+	// Utility commands (ungrouped, appear under "Additional Commands").
 	rootCmd.AddCommand(cmd.NewHookCmd())
-	rootCmd.AddCommand(cmd.NewImageCmd(gf))
-	rootCmd.AddCommand(cmd.NewDomainsCmd(gf))
-	rootCmd.AddCommand(cmd.NewEnvCmd(gf))
+	rootCmd.AddCommand(cmd.NewVersionCmd(gf))
 	rootCmd.AddCommand(newCompletionCmd())
 
 	return rootCmd
@@ -109,6 +135,13 @@ Fish:
 				return fmt.Errorf("unsupported shell: %s", args[0])
 			}
 		},
+	}
+}
+
+func addToGroup(parent *cobra.Command, groupID string, cmds ...*cobra.Command) {
+	for _, c := range cmds {
+		c.GroupID = groupID
+		parent.AddCommand(c)
 	}
 }
 

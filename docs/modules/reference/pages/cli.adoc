@@ -33,7 +33,117 @@ The `cc-deck` command-line tool manages the plugin, sessions, snapshots, and con
 | Verbose output
 |===
 
-== Commands
+== Command Groups
+
+Help output organizes commands into four groups by usage frequency.
+
+Daily::
+`attach`, `list` (`ls`), `status`, `start`, `stop`, `logs`.
+These commands are available both at the top level and under `env`.
+
+Session::
+`snapshot`
+
+Environment::
+`env` (full lifecycle management)
+
+Setup::
+`plugin`, `profile`, `domains`, `image`
+
+== Daily Commands
+
+Six high-frequency environment commands are available directly at the top level.
+They behave identically to their `env` subcommand counterparts.
+
+=== attach
+
+Attach to a running environment.
+For container environments, this opens a Zellij session inside the container.
+Stopped containers are auto-started before attaching.
+When no name is provided, resolves from `.cc-deck/environment.yaml` in the project.
+
+[source,bash]
+----
+cc-deck attach mydev
+cc-deck attach                        # resolves from project config
+cc-deck attach --branch feature       # land in a specific worktree
+----
+
+[cols="1,3"]
+|===
+| Flag | Description
+
+| `--branch`
+| Attach and land in a specific worktree directory inside the container
+|===
+
+=== list
+
+List all environments with their current status.
+
+[source,bash]
+----
+cc-deck list
+cc-deck ls                            # alias
+cc-deck list --type container
+cc-deck list --worktrees
+cc-deck list -o json
+----
+
+[cols="1,1,3"]
+|===
+| Flag | Short | Description
+
+| `--type`
+| `-t`
+| Filter by environment type
+
+| `--worktrees`
+| `-w`
+| Show git worktrees within each project
+|===
+
+=== status
+
+Display detailed status information for an environment.
+
+[source,bash]
+----
+cc-deck status mydev
+cc-deck status                        # resolves from project config
+cc-deck status -o json
+----
+
+=== start
+
+Start a stopped environment.
+
+[source,bash]
+----
+cc-deck start mydev
+cc-deck start                         # resolves from project config
+----
+
+=== stop
+
+Gracefully stop a running environment.
+
+[source,bash]
+----
+cc-deck stop mydev
+cc-deck stop                          # resolves from project config
+----
+
+=== logs
+
+View environment logs.
+
+[source,bash]
+----
+cc-deck logs mydev
+----
+
+== Setup Commands
 
 === version
 
@@ -187,54 +297,46 @@ cc-deck image diff my-team-image
 
 Reports tools, plugins, MCP servers, and GitHub tools that are in the manifest but not reflected in the Containerfile.
 
-=== deploy (compose mode)
+=== profile
 
-When the `--compose` flag is provided, the `deploy` command generates Podman compose files instead of deploying to Kubernetes.
-This mode reads the manifest from the specified build directory and produces a `compose.yaml`, `.env.example`, and optional proxy sidecar configuration.
+Manage credential profiles for AI backends.
+
+==== profile add
+
+Interactively create a new credential profile.
 
 [source,bash]
 ----
-cc-deck deploy my-session --compose ./my-team-image
-cc-deck deploy my-session --compose ./my-team-image --output-dir ./output
-cc-deck deploy my-session --compose ./my-team-image --allowed-domains "+rust,-docker"
-cc-deck deploy my-session --compose ./my-team-image --allowed-domains "all"
+cc-deck profile add myprofile
 ----
 
-[cols="1,3"]
-|===
-| Flag | Description
+==== profile list
 
-| `--compose <build-dir>`
-| Generate Podman compose files from a build directory (reads `cc-deck-build.yaml` manifest)
+List all credential profiles.
 
-| `--output-dir <dir>`
-| Output directory for generated compose files (default: same as build directory)
+[source,bash]
+----
+cc-deck profile list
+cc-deck profile list -o json
+----
 
-| `--allowed-domains <spec>`
-| Domain override for network filtering (see below)
-|===
+==== profile use
 
-The `--allowed-domains` flag accepts several formats:
+Set the default credential profile.
 
-[cols="1,3"]
-|===
-| Format | Behavior
+[source,bash]
+----
+cc-deck profile use myprofile
+----
 
-| `+group`
-| Add a group to the manifest defaults (e.g., `+rust`)
+==== profile show
 
-| `-group`
-| Remove a group from the manifest defaults (e.g., `-docker`)
+Show details of a credential profile.
 
-| `group,group`
-| Replace manifest defaults entirely with the listed groups
-
-| `all`
-| Disable network filtering completely (all outbound traffic is allowed)
-|===
-
-Multiple additions and removals can be combined with commas (e.g., `+rust,-docker,+gitlab`).
-If neither `anthropic` nor `vertexai` is present in the final domain list, the `anthropic` group is injected automatically.
+[source,bash]
+----
+cc-deck profile show myprofile
+----
 
 === domains
 
@@ -321,10 +423,14 @@ cc-deck domains remove my-session pypi.org
 cc-deck domains remove my-session docker
 ----
 
+== Environment Commands
+
 === env
 
-Manage environments across all supported backends (local, container, Kubernetes).
+Manage environments across all supported backends (local, container, compose).
 When run inside a project with `.cc-deck/environment.yaml`, environment names are resolved automatically.
+
+NOTE: The commands `attach`, `list`, `status`, `start`, `stop`, and `logs` are also available at the top level (see <<Daily Commands>>).
 
 ==== env create
 
@@ -494,6 +600,15 @@ Gracefully stop a running environment.
 ----
 cc-deck env stop mydev
 cc-deck env stop                      # resolves from project config
+----
+
+==== env logs
+
+View environment logs.
+
+[source,bash]
+----
+cc-deck env logs mydev
 ----
 
 ==== env prune

@@ -37,7 +37,7 @@ When deploying containerized sessions, cc-deck can restrict outbound network acc
 
 ### Multi-Platform
 
-Run cc-deck locally with Zellij, in Podman containers with mounted source code, or deploy as Deployments on Kubernetes and OpenShift. The sidebar experience is the same everywhere.
+Run cc-deck locally with Zellij or in Podman containers with mounted source code. Kubernetes support (Deployments and OpenShift) is planned. The sidebar experience is the same everywhere.
 
 ## Install
 
@@ -246,10 +246,10 @@ network:
     - golang
 ```
 
-Then generate compose files with a proxy sidecar:
+Then create a compose environment with network filtering:
 
 ```bash
-cc-deck deploy --compose my-build-dir/ my-session
+cc-deck env create my-session --type compose --allowed-domains python,github
 ```
 
 The session container is placed on an internal network with all traffic routed through a tinyproxy sidecar that only allows the specified domains.
@@ -293,20 +293,15 @@ company:
     - git.internal.corp
 ```
 
-### Deploy-Time Overrides
+### Create-Time Domain Overrides
 
 ```bash
-# Add a group to manifest defaults
-cc-deck deploy --compose dir/ --allowed-domains +rust my-session
+# Specify domain groups when creating a compose environment
+cc-deck env create my-session --type compose --allowed-domains rust,github
 
-# Remove a group
-cc-deck deploy --compose dir/ --allowed-domains -nodejs my-session
-
-# Replace entirely
-cc-deck deploy --compose dir/ --allowed-domains vertexai,rust my-session
-
-# Disable filtering (security warning printed)
-cc-deck deploy --compose dir/ --allowed-domains all my-session
+# Add or remove domains at runtime on a running session
+cc-deck domains add my-session rust
+cc-deck domains remove my-session docker
 ```
 
 ### Debugging Blocked Domains
@@ -442,3 +437,4 @@ cc-deck follows [Spec-Driven Development](CONTRIBUTING.md#spec-driven-developmen
 | [025](specs/025-sidebar-state-refresh/) | Sidebar State Refresh on Reattach | In Progress |
 | [025](specs/025-compose-env/) | Compose Environment | Multi-container orchestration via `podman-compose`, optional network filtering | In Progress |
 | [026](specs/026-project-local-config/) | Project-Local Config | `.cc-deck/` directory with shareable definitions, implicit name resolution, global registry | In Progress |
+| [027](specs/027-cli-restructuring/) | CLI Command Restructuring | Promote daily commands to top level, remove legacy K8s commands, organize help groups | In Progress |
