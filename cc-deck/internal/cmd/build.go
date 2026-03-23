@@ -40,24 +40,23 @@ Claude Code commands for AI-driven image configuration, and helper scripts.
 When no directory is specified and the current project has .cc-deck/,
 defaults to .cc-deck/image/ (FR-017).
 
-After initialization, open the directory in Claude Code and use:
+After initialization, start Claude Code from the project directory and use:
   /cc-deck.extract       - Analyze repos for tool dependencies
   /cc-deck.settings     - Select local settings, plugins, MCP to include
   /cc-deck.build         - Generate Containerfile and build the image
   /cc-deck.push          - Push the image to a registry`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			dir := resolveImageDir(args)
-			if err := build.InitBuildDir(dir, force); err != nil {
+			dir, projectRoot := resolveImageDirAndRoot(args)
+			if err := build.InitBuildDir(dir, projectRoot, force); err != nil {
 				return err
 			}
 			fmt.Printf("Build directory initialized: %s\n\n", dir)
-			fmt.Println("  Manifest:  cc-deck-build.yaml")
-			fmt.Println("  Commands:  .claude/commands/cc-deck.*.md")
-			fmt.Println("  Scripts:   .claude/scripts/")
+			fmt.Printf("  Manifest:  %s/cc-deck-build.yaml\n", dir)
+			fmt.Printf("  Commands:  %s/.claude/commands/cc-deck.*.md\n", projectRoot)
 			fmt.Println()
 			fmt.Println("Next steps:")
-			fmt.Printf("  cd %s\n", dir)
+			fmt.Printf("  cd %s\n", projectRoot)
 			fmt.Println("  claude                        # Open in Claude Code")
 			fmt.Println("  /cc-deck.extract              # Analyze repositories")
 			fmt.Println("  /cc-deck.settings            # Select settings, plugins, MCP")
@@ -164,24 +163,31 @@ func newImageDiffCmd(_ *GlobalFlags) *cobra.Command {
 
 // resolveImageDir returns the image directory from args or defaults to
 // .cc-deck/image/ if inside a project with .cc-deck/ (FR-017).
+// resolveImageDir returns just the image directory (for verify, diff).
 func resolveImageDir(args []string) string {
+	dir, _ := resolveImageDirAndRoot(args)
+	return dir
+}
+
+// resolveImageDirAndRoot returns the image build directory and the project
+// root. Commands go into projectRoot/.claude/commands/, build artifacts
+// into imageDir (.cc-deck/image/).
+func resolveImageDirAndRoot(args []string) (imageDir string, projectRoot string) {
 	if len(args) > 0 {
-		return args[0]
+		// Explicit dir: use its parent as project root.
+		return args[0], filepath.Dir(args[0])
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
-		return "."
+		return ".", "."
 	}
 	if root, findErr := project.FindProjectConfig(cwd); findErr == nil {
-		return filepath.Join(root, ".cc-deck", "image")
+		return filepath.Join(root, ".cc-deck", "image"), root
 	}
 	if root, gitErr := project.FindGitRoot(cwd); gitErr == nil {
-		candidate := filepath.Join(root, ".cc-deck", "image")
-		if _, statErr := os.Stat(filepath.Join(root, ".cc-deck")); statErr == nil {
-			return candidate
-		}
+		return filepath.Join(root, ".cc-deck", "image"), root
 	}
-	return "."
+	return ".", "."
 }
 
 func runDiff(dir string) error {
