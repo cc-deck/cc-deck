@@ -91,6 +91,8 @@ pub struct PluginState {
     pub nav_enter_guard: bool,
     /// Last left-click timestamp (ms) and pane_id for double-click detection.
     pub last_click: Option<(u64, u32)>,
+    /// Guard: skip next PaneUpdate rename-cancel after entering rename via mouse.
+    pub rename_enter_guard: bool,
     /// Pending metadata overrides from snapshot restore, keyed by working directory.
     /// Applied when a hook event arrives with a matching CWD, then removed.
     pub pending_overrides: HashMap<String, PendingOverride>,
