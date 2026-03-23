@@ -21,15 +21,15 @@
 
 **Independent Test**: Running `cc-deck deploy`, `cc-deck connect`, `cc-deck sync` returns "unknown command" errors. `make test` and `make lint` pass.
 
-- [ ] T001 [US4] Remove legacy command registrations (NewDeployCmd, NewConnectCmd, NewListCmd, NewDeleteCmd, NewLogsCmd) from `cc-deck/cmd/cc-deck/main.go`
-- [ ] T002 [P] [US4] Delete legacy command files: `cc-deck/internal/cmd/deploy.go`, `cc-deck/internal/cmd/connect.go`, `cc-deck/internal/cmd/list.go`, `cc-deck/internal/cmd/delete.go`, `cc-deck/internal/cmd/logs.go`, `cc-deck/internal/cmd/sync.go`
-- [ ] T003 [P] [US4] Delete K8s session functions: `cc-deck/internal/session/deploy.go`, `cc-deck/internal/session/connect.go`, `cc-deck/internal/session/list.go`, `cc-deck/internal/session/delete.go`, `cc-deck/internal/session/logs.go`, `cc-deck/internal/session/validate.go`
-- [ ] T004 [P] [US4] Delete entire `cc-deck/internal/k8s/` directory (client.go, discovery.go, apply.go, errors.go, network.go, overlay.go, resources.go, and tests)
-- [ ] T005 [P] [US4] Delete entire `cc-deck/internal/sync/` directory (sync.go, sync_test.go)
-- [ ] T006 [P] [US4] Delete entire `cc-deck/internal/integration/` directory (integration_test.go, helpers_test.go)
-- [ ] T007 [US4] Remove K8s Secret validation from `cc-deck/internal/cmd/profile.go` (remove k8s import, keep profile CRUD functionality)
-- [ ] T008 [US4] Run `go mod tidy` in `cc-deck/` to remove unused dependencies (k8s.io/client-go and transitive deps)
-- [ ] T009 [US4] Verify `make test` and `make lint` pass after removal
+- [x] T001 [US4] Remove legacy command registrations (NewDeployCmd, NewConnectCmd, NewListCmd, NewDeleteCmd, NewLogsCmd) from `cc-deck/cmd/cc-deck/main.go`
+- [x] T002 [P] [US4] Delete legacy command files: `cc-deck/internal/cmd/deploy.go`, `cc-deck/internal/cmd/connect.go`, `cc-deck/internal/cmd/list.go`, `cc-deck/internal/cmd/delete.go`, `cc-deck/internal/cmd/logs.go`, `cc-deck/internal/cmd/sync.go`
+- [x] T003 [P] [US4] Delete K8s session functions: `cc-deck/internal/session/deploy.go`, `cc-deck/internal/session/connect.go`, `cc-deck/internal/session/list.go`, `cc-deck/internal/session/delete.go`, `cc-deck/internal/session/logs.go`, `cc-deck/internal/session/validate.go`
+- [x] T004 [P] [US4] Delete entire `cc-deck/internal/k8s/` directory (client.go, discovery.go, apply.go, errors.go, network.go, overlay.go, resources.go, and tests)
+- [x] T005 [P] [US4] Delete entire `cc-deck/internal/sync/` directory (sync.go, sync_test.go)
+- [x] T006 [P] [US4] Delete entire `cc-deck/internal/integration/` directory (integration_test.go, helpers_test.go)
+- [x] T007 [US4] Remove K8s Secret validation from `cc-deck/internal/cmd/profile.go` (remove k8s import, keep profile CRUD functionality)
+- [x] T008 [US4] Run `go mod tidy` in `cc-deck/` to remove unused dependencies (k8s.io/client-go and transitive deps)
+- [x] T009 [US4] Verify `make test` and `make lint` pass after removal
 
 **Checkpoint**: Legacy K8s code removed. CLI compiles cleanly with reduced dependency tree.
 
@@ -41,15 +41,15 @@
 
 **Independent Test**: `cc-deck attach mydev` and `cc-deck env attach mydev` produce identical output. Same for list, status, start, stop, logs.
 
-- [ ] T010 [US1] Extract shared constructor `newAttachCmdCore(gf)` from `newEnvAttachCmd(gf)` in `cc-deck/internal/cmd/env.go`, then have `newEnvAttachCmd` call the shared constructor
-- [ ] T011 [P] [US1] Extract shared constructor `newListCmdCore(gf)` from `newEnvListCmd(gf)` in `cc-deck/internal/cmd/env.go`
-- [ ] T012 [P] [US1] Extract shared constructor `newStatusCmdCore(gf)` from `newEnvStatusCmd(gf)` in `cc-deck/internal/cmd/env.go`
-- [ ] T013 [P] [US1] Extract shared constructor `newStartCmdCore(gf)` from `newEnvStartCmd(gf)` in `cc-deck/internal/cmd/env.go`
-- [ ] T014 [P] [US1] Extract shared constructor `newStopCmdCore(gf)` from `newEnvStopCmd(gf)` in `cc-deck/internal/cmd/env.go`
-- [ ] T015 [P] [US1] Extract shared constructor `newLogsCmdCore(gf)` from `newEnvLogsCmd(gf)` in `cc-deck/internal/cmd/env.go`
-- [ ] T016 [US1] Create `cc-deck/internal/cmd/env_promote.go` with exported factories: `NewAttachCmd(gf)`, `NewListCmd(gf)`, `NewStatusCmd(gf)`, `NewStartCmd(gf)`, `NewStopCmd(gf)`, `NewLogsCmd(gf)`, each calling their shared constructor
-- [ ] T017 [US1] Register six promoted commands in `cc-deck/cmd/cc-deck/main.go` via the new exported factories
-- [ ] T018 [US1] Add test in `cc-deck/internal/cmd/env_promote_test.go` verifying all six promoted commands exist on root, have correct Use/Short/Aliases, and share RunE behavior with env counterparts
+- [x] T010 [US1] Extract shared constructor `newAttachCmdCore(gf)` from `newEnvAttachCmd(gf)` in `cc-deck/internal/cmd/env.go`, then have `newEnvAttachCmd` call the shared constructor
+- [x] T011 [P] [US1] Extract shared constructor `newListCmdCore(gf)` from `newEnvListCmd(gf)` in `cc-deck/internal/cmd/env.go`
+- [x] T012 [P] [US1] Extract shared constructor `newStatusCmdCore(gf)` from `newEnvStatusCmd(gf)` in `cc-deck/internal/cmd/env.go`
+- [x] T013 [P] [US1] Extract shared constructor `newStartCmdCore(gf)` from `newEnvStartCmd(gf)` in `cc-deck/internal/cmd/env.go`
+- [x] T014 [P] [US1] Extract shared constructor `newStopCmdCore(gf)` from `newEnvStopCmd(gf)` in `cc-deck/internal/cmd/env.go`
+- [x] T015 [P] [US1] Extract shared constructor `newLogsCmdCore(gf)` from `newEnvLogsCmd(gf)` in `cc-deck/internal/cmd/env.go`
+- [x] T016 [US1] Create `cc-deck/internal/cmd/env_promote.go` with exported factories: `NewAttachCmd(gf)`, `NewListCmd(gf)`, `NewStatusCmd(gf)`, `NewStartCmd(gf)`, `NewStopCmd(gf)`, `NewLogsCmd(gf)`, each calling their shared constructor
+- [x] T017 [US1] Register six promoted commands in `cc-deck/cmd/cc-deck/main.go` via the new exported factories
+- [x] T018 [US1] Add test in `cc-deck/internal/cmd/env_promote_test.go` verifying all six promoted commands exist on root, have correct Use/Short/Aliases, and share RunE behavior with env counterparts
 
 **Checkpoint**: Both `cc-deck <cmd>` and `cc-deck env <cmd>` work identically for all six promoted commands.
 
@@ -61,9 +61,9 @@
 
 **Independent Test**: `cc-deck --help` shows commands under correct group headings in the expected display order.
 
-- [ ] T019 [US2] Add four command groups (Daily, Session, Environment, Setup) to root command in `cc-deck/cmd/cc-deck/main.go` using `rootCmd.AddGroup()` in display order
-- [ ] T020 [US2] Assign GroupID to each command registration in `cc-deck/cmd/cc-deck/main.go`: Daily (attach, list, status, start, stop, logs), Session (snapshot), Environment (env), Setup (plugin, profile, domains, image)
-- [ ] T021 [US2] Add test in `cc-deck/internal/cmd/env_promote_test.go` verifying help output contains all four group headings and correct command placement
+- [x] T019 [US2] Add four command groups (Daily, Session, Environment, Setup) to root command in `cc-deck/cmd/cc-deck/main.go` using `rootCmd.AddGroup()` in display order
+- [x] T020 [US2] Assign GroupID to each command registration in `cc-deck/cmd/cc-deck/main.go`: Daily (attach, list, status, start, stop, logs), Session (snapshot), Environment (env), Setup (plugin, profile, domains, image)
+- [x] T021 [US2] Add test in `cc-deck/internal/cmd/env_promote_test.go` verifying help output contains all four group headings and correct command placement
 
 **Checkpoint**: `cc-deck --help` shows organized command groups matching the contract in `contracts/command-hierarchy.md`.
 
@@ -75,8 +75,8 @@
 
 **Independent Test**: Running every promoted command through both paths produces identical output, exit codes, and side effects.
 
-- [ ] T022 [US3] Add test in `cc-deck/internal/cmd/env_promote_test.go` verifying all six commands exist under both root and env with identical flags, args, and aliases
-- [ ] T023 [US3] Add test verifying shell completion includes both top-level promoted commands and `env` subcommand with all its subcommands
+- [x] T022 [US3] Add test in `cc-deck/internal/cmd/env_promote_test.go` verifying all six commands exist under both root and env with identical flags, args, and aliases
+- [x] T023 [US3] Add test verifying shell completion includes both top-level promoted commands and `env` subcommand with all its subcommands
 
 **Checkpoint**: All dual-path commands verified. Shell completion works for both paths.
 
@@ -86,10 +86,10 @@
 
 **Purpose**: Documentation updates and final validation
 
-- [ ] T024 Update `README.md` with new command structure (promoted top-level commands, removed K8s commands, help group organization) and add feature 027 to the "Feature Specifications" table
-- [ ] T025 [P] Update CLI reference documentation in `docs/modules/reference/pages/cli.adoc` to reflect new command hierarchy (add promoted commands, remove legacy K8s commands)
-- [ ] T026 Run `make test` and `make lint` for final validation
-- [ ] T027 Verify `cc-deck --help` output matches contract in `specs/027-cli-restructuring/contracts/command-hierarchy.md`
+- [x] T024 Update `README.md` with new command structure (promoted top-level commands, removed K8s commands, help group organization) and add feature 027 to the "Feature Specifications" table
+- [x] T025 [P] Update CLI reference documentation in `docs/modules/reference/pages/cli.adoc` to reflect new command hierarchy (add promoted commands, remove legacy K8s commands)
+- [x] T026 Run `make test` and `make lint` for final validation
+- [x] T027 Verify `cc-deck --help` output matches contract in `specs/027-cli-restructuring/contracts/command-hierarchy.md`
 
 ---
 
