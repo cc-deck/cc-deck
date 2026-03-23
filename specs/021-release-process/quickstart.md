@@ -35,10 +35,23 @@ git push origin v0.3.0
 
 ## Post-Release
 
+After the CI pipeline completes and the GitHub Release is published:
+
 ```bash
-# Bump version for next development cycle
-# Update Makefile VERSION and Cargo.toml version
-# Commit: "Bump version to 0.3.1-dev"
+# 1. Build and push multi-arch container images (arm64 + amd64)
+#    CI only builds amd64; multi-arch requires local push
+make base-image-push
+make demo-image-push
+
+# 2. Verify Homebrew installation
+brew update
+brew install cc-deck/tap/cc-deck
+cc-deck version
+
+# 3. Bump version for next development cycle
+#    Update Makefile VERSION (e.g., 0.6.0 -> 0.7.0)
+#    Update cc-zellij-plugin/Cargo.toml version field
+#    Commit: "Bump version to 0.7.0"
 ```
 
 ## Installation Methods (for users)
