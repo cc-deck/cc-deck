@@ -402,7 +402,7 @@ func splitCredential(s string) []string {
 
 // --- attach ---
 
-func newEnvAttachCmd(_ *GlobalFlags) *cobra.Command {
+func newAttachCmdCore(_ *GlobalFlags) *cobra.Command {
 	var branch string
 
 	cmd := &cobra.Command{
@@ -428,6 +428,10 @@ Use --branch to land in a specific worktree directory inside the container.`,
 	cmd.Flags().StringVar(&branch, "branch", "", "Attach and land in a specific worktree directory (FR-022)")
 
 	return cmd
+}
+
+func newEnvAttachCmd(gf *GlobalFlags) *cobra.Command {
+	return newAttachCmdCore(gf)
 }
 
 func runEnvAttach(name string) error {
@@ -529,7 +533,7 @@ type worktreeListEntry struct {
 	Branch      string
 }
 
-func newEnvListCmd(gf *GlobalFlags) *cobra.Command {
+func newListCmdCore(gf *GlobalFlags) *cobra.Command {
 	var filterType string
 	var showWorktrees bool
 
@@ -550,6 +554,10 @@ Project paths and MISSING status are shown for registered projects.`,
 	cmd.Flags().BoolVarP(&showWorktrees, "worktrees", "w", false, "Show git worktrees within each project")
 
 	return cmd
+}
+
+func newEnvListCmd(gf *GlobalFlags) *cobra.Command {
+	return newListCmdCore(gf)
 }
 
 func runEnvList(gf *GlobalFlags, filterType string, showWorktrees bool) error {
@@ -878,7 +886,7 @@ func formatDuration(d time.Duration) string {
 
 // --- status ---
 
-func newEnvStatusCmd(gf *GlobalFlags) *cobra.Command {
+func newStatusCmdCore(gf *GlobalFlags) *cobra.Command {
 	return &cobra.Command{
 		Use:   "status [name]",
 		Short: "Show environment status",
@@ -894,6 +902,10 @@ When no name is provided, resolves from .cc-deck/environment.yaml in the project
 			return runEnvStatus(gf, name)
 		},
 	}
+}
+
+func newEnvStatusCmd(gf *GlobalFlags) *cobra.Command {
+	return newStatusCmdCore(gf)
 }
 
 // envStatusOutput is used for JSON/YAML marshaling of status information.
@@ -1023,7 +1035,7 @@ func writeEnvStatusText(name string, envType env.EnvironmentType, status *env.En
 
 // --- start ---
 
-func newEnvStartCmd(_ *GlobalFlags) *cobra.Command {
+func newStartCmdCore(_ *GlobalFlags) *cobra.Command {
 	return &cobra.Command{
 		Use:   "start [name]",
 		Short: "Start a stopped environment",
@@ -1039,6 +1051,10 @@ When no name is provided, resolves from .cc-deck/environment.yaml in the project
 			return runEnvStart(name)
 		},
 	}
+}
+
+func newEnvStartCmd(gf *GlobalFlags) *cobra.Command {
+	return newStartCmdCore(gf)
 }
 
 func runEnvStart(name string) error {
@@ -1069,7 +1085,7 @@ func runEnvStart(name string) error {
 
 // --- stop ---
 
-func newEnvStopCmd(_ *GlobalFlags) *cobra.Command {
+func newStopCmdCore(_ *GlobalFlags) *cobra.Command {
 	return &cobra.Command{
 		Use:   "stop [name]",
 		Short: "Stop a running environment",
@@ -1085,6 +1101,10 @@ When no name is provided, resolves from .cc-deck/environment.yaml in the project
 			return runEnvStop(name)
 		},
 	}
+}
+
+func newEnvStopCmd(gf *GlobalFlags) *cobra.Command {
+	return newStopCmdCore(gf)
 }
 
 func runEnvStop(name string) error {
@@ -1281,7 +1301,7 @@ func runEnvHarvest(name string) error {
 
 // --- logs ---
 
-func newEnvLogsCmd(_ *GlobalFlags) *cobra.Command {
+func newLogsCmdCore(_ *GlobalFlags) *cobra.Command {
 	return &cobra.Command{
 		Use:   "logs <name>",
 		Short: "View environment logs",
@@ -1290,6 +1310,10 @@ func newEnvLogsCmd(_ *GlobalFlags) *cobra.Command {
 			return fmt.Errorf("logs: not yet implemented")
 		},
 	}
+}
+
+func newEnvLogsCmd(gf *GlobalFlags) *cobra.Command {
+	return newLogsCmdCore(gf)
 }
 
 // resolveEnvironmentName resolves an environment name from arguments or
