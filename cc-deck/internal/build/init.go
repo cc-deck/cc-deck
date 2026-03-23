@@ -21,7 +21,10 @@ k8s/
 `
 
 // InitBuildDir scaffolds a new build directory.
-func InitBuildDir(dir string, force bool) error {
+// Commands are placed at projectRoot/.claude/commands/ so Claude Code
+// finds them when started from the project root (not from inside
+// .cc-deck/image/). The manifest and build artifacts go into dir.
+func InitBuildDir(dir string, projectRoot string, force bool) error {
 	manifestPath := filepath.Join(dir, "cc-deck-build.yaml")
 
 	// Check for existing manifest (unless --force)
@@ -36,8 +39,8 @@ func InitBuildDir(dir string, force bool) error {
 		return fmt.Errorf("creating build directory: %w", err)
 	}
 
-	// Derive image name from directory name
-	imageName := filepath.Base(dir)
+	// Derive image name from project directory name
+	imageName := filepath.Base(projectRoot)
 
 	// Write manifest from template
 	tmplData, err := ManifestTemplate()
@@ -62,8 +65,9 @@ func InitBuildDir(dir string, force bool) error {
 		return fmt.Errorf("writing manifest: %w", err)
 	}
 
-	// Extract commands to .claude/commands/
-	commandsDir := filepath.Join(dir, ".claude", "commands")
+	// Extract commands to project root's .claude/commands/ so Claude Code
+	// sees them when started from the project directory.
+	commandsDir := filepath.Join(projectRoot, ".claude", "commands")
 	if err := os.MkdirAll(commandsDir, 0o755); err != nil {
 		return fmt.Errorf("creating commands directory: %w", err)
 	}
@@ -71,8 +75,8 @@ func InitBuildDir(dir string, force bool) error {
 		return fmt.Errorf("extracting commands: %w", err)
 	}
 
-	// Extract scripts to .claude/scripts/
-	scriptsDir := filepath.Join(dir, ".claude", "scripts")
+	// Extract scripts to project root's .claude/scripts/
+	scriptsDir := filepath.Join(projectRoot, ".claude", "scripts")
 	if err := os.MkdirAll(scriptsDir, 0o755); err != nil {
 		return fmt.Errorf("creating scripts directory: %w", err)
 	}
@@ -80,7 +84,7 @@ func InitBuildDir(dir string, force bool) error {
 		return fmt.Errorf("extracting scripts: %w", err)
 	}
 
-	// Write .gitignore
+	// Write .gitignore in the image build dir
 	gitignorePath := filepath.Join(dir, ".gitignore")
 	if err := os.WriteFile(gitignorePath, []byte(gitignoreContent), 0o644); err != nil {
 		return fmt.Errorf("writing .gitignore: %w", err)
