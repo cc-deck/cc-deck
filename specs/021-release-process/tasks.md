@@ -54,7 +54,7 @@
 
 - [x] T014 [US5] Create `.github/workflows/release.yaml` with tag trigger (`v*`), Rust toolchain setup, GoReleaser action, and GitHub token permissions
 - [x] T015 [US5] Add `HOMEBREW_TAP_GITHUB_TOKEN` as a required secret in the release workflow (for Homebrew tap push)
-- [ ] T016 [US5] Verify: push a test tag `v0.2.1-rc.1` and confirm the release workflow runs and creates a draft GitHub Release
+- [x] T016 [US5] Verify: push a test tag `v0.2.1-rc.1` and confirm the release workflow runs and creates a draft GitHub Release
 
 **Checkpoint**: Tag push triggers automated release with all binary artifacts.
 
@@ -70,7 +70,7 @@
 
 - [x] T017 [US1] Create `cc-deck/homebrew-tap` repository on GitHub with initial README
 - [x] T018 [US1] Add brews section to `.goreleaser.yaml` with tap repository, formula name, homepage, description, dependencies (zellij as recommended), and post-install caveats
-- [ ] T019 [US1] Verify: after a release, the Homebrew tap repository contains a valid formula and `brew install cc-deck/tap/cc-deck` works
+- [x] T019 [US1] Verify: after a release, the Homebrew tap repository contains a valid formula and `brew install cc-deck/tap/cc-deck` works
 
 **Checkpoint**: Homebrew installation works end-to-end.
 
@@ -84,9 +84,9 @@
 
 ### Implementation
 
-- [ ] T020 [US2] Update `README.md` with installation section covering Homebrew, binary download, RPM, DEB
-- [ ] T021 [P] [US2] Update `docs/modules/ROOT/pages/install.adoc` with all installation methods
-- [ ] T022 [US2] Verify: GitHub Release page has archives for all 4 platform/arch combinations plus checksums file
+- [x] T020 [US2] Update `README.md` with installation section covering Homebrew, binary download, RPM, DEB
+- [x] T021 [P] [US2] Update `docs/modules/ROOT/pages/install.adoc` with all installation methods
+- [x] T022 [US2] Verify: GitHub Release page has archives for all 4 platform/arch combinations plus checksums file
 
 **Checkpoint**: Users can download and install from GitHub Releases.
 
@@ -100,9 +100,9 @@
 
 ### Implementation
 
-- [ ] T023 [US6] Add container image build and push job to `.github/workflows/release.yaml`: login to quay.io, build base + demo images for arm64/amd64, push multi-arch manifests with version tag and latest
+- [x] T023 [US6] Add container image build and push job to `.github/workflows/release.yaml`: login to quay.io, build base + demo images for arm64/amd64, push multi-arch manifests with version tag and latest
 - [x] T024 [P] [US6] Add `QUAY_USERNAME` and `QUAY_PASSWORD` as GitHub Actions secrets
-- [ ] T025 [US6] Verify: after release, `podman pull quay.io/cc-deck/cc-deck-demo:0.3.0` and `podman pull quay.io/cc-deck/cc-deck-demo:latest` both work
+- [x] T025 [US6] Verify: after release, `podman pull quay.io/cc-deck/cc-deck-demo:0.3.0` and `podman pull quay.io/cc-deck/cc-deck-demo:latest` both work
 
 **Checkpoint**: Container images available on new registry with version tags.
 
@@ -144,11 +144,11 @@
 
 **Purpose**: Documentation, version sync, and final validation
 
-- [ ] T032 Update `README.md` spec table with 021-release-process entry
+- [x] T032 Update `README.md` spec table with 021-release-process entry
 - [ ] T033 [P] Update landing page at `cc-deck.github.io` with new installation methods (Homebrew, packages) in the steps section
-- [ ] T034 [P] Update `docs/modules/ROOT/pages/one-liner.adoc` with `quay.io/cc-deck` image references
-- [ ] T035 Run full release dry-run: `goreleaser release --snapshot --clean` and verify all artifacts
-- [ ] T036 Document post-release version bump process in `specs/021-release-process/quickstart.md`
+- [x] T034 [P] Update `docs/modules/ROOT/pages/one-liner.adoc` with `quay.io/cc-deck` image references
+- [x] T035 Run full release dry-run: `goreleaser release --snapshot --clean` and verify all artifacts
+- [x] T036 Document post-release version bump process in `specs/021-release-process/quickstart.md`
 
 ---
 
