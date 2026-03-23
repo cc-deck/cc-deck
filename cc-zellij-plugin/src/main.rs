@@ -41,6 +41,27 @@ fn set_selectable_wasm(selectable: bool) {
 #[cfg(not(target_family = "wasm"))]
 fn set_selectable_wasm(_selectable: bool) {}
 
+/// Shared last_click across plugin instances via /cache/last_click file.
+/// All instances in the same Zellij session share the same /cache/ directory.
+const SHARED_LAST_CLICK_PATH: &str = "/cache/last_click";
+
+fn write_shared_last_click(ts: u64, pane_id: u32) {
+    let data = format!("{ts},{pane_id}");
+    let _ = std::fs::write(SHARED_LAST_CLICK_PATH, data);
+}
+
+fn read_shared_last_click() -> Option<(u64, u32)> {
+    let data = std::fs::read_to_string(SHARED_LAST_CLICK_PATH).ok()?;
+    let mut parts = data.trim().split(',');
+    let ts: u64 = parts.next()?.parse().ok()?;
+    let pid: u32 = parts.next()?.parse().ok()?;
+    Some((ts, pid))
+}
+
+fn clear_shared_last_click() {
+    let _ = std::fs::remove_file(SHARED_LAST_CLICK_PATH);
+}
+
 /// Register global keybindings via reconfigure() with MessagePluginId.
 /// Routes to this specific plugin instance. Each instance re-registers
 /// on load, and the active-tab instance re-registers on tab changes
@@ -746,9 +767,16 @@ impl PluginState {
                 if self.focused_pane_id.is_some() {
                     // Cancel rename if focus left the plugin
                     if self.rename_state.is_some() {
-                        self.rename_state = None;
-                        if !self.navigation_mode {
-                            set_selectable_wasm(false);
+                        if self.rename_enter_guard {
+                            // Skip: this PaneUpdate is stale (from the first click's
+                            // focus_terminal_pane, before focus_plugin_pane takes effect).
+                            self.rename_enter_guard = false;
+                        } else {
+                            debug_log(&format!("PANE_UPDATE cancelling rename! focused_pane_id={:?} nav={}", self.focused_pane_id, self.navigation_mode));
+                            self.rename_state = None;
+                            if !self.navigation_mode {
+                                set_selectable_wasm(false);
+                            }
                         }
                     }
                     if self.navigation_mode {
@@ -817,17 +845,23 @@ impl PluginState {
                         ));
                     } else {
                         // Double-click on same session triggers rename.
+                        // Read shared last_click from cache (cross-instance).
                         // Use a generous threshold (800ms) because Zellij may
                         // introduce latency re-rendering between clicks.
+                        let shared = read_shared_last_click();
+                        let effective_last = shared.or(self.last_click);
                         let now_ms = crate::session::unix_now_ms();
-                        let is_double_click = self.last_click
+                        let is_double_click = effective_last
                             .map(|(ts, pid)| pid == pane_id && now_ms.saturating_sub(ts) < 800)
                             .unwrap_or(false);
-                        debug_log(&format!("CLICK pane={pane_id} now={now_ms} last={:?} double={is_double_click}", self.last_click));
+                        debug_log(&format!("DBLCLICK check: now={now_ms} local={:?} shared={shared:?} pane={pane_id} is_dbl={is_double_click} nav={} rename={}", self.last_click, self.navigation_mode, self.rename_state.is_some()));
                         self.last_click = Some((now_ms, pane_id));
+                        write_shared_last_click(now_ms, pane_id);
 
                         if is_double_click {
+                            debug_log(&format!("DBLCLICK detected! Starting rename for pane={pane_id}"));
                             self.last_click = None;
+                            clear_shared_last_click();
                             if let Some(session) = self.sessions.get(&pane_id) {
                                 let name = session.display_name.clone();
                                 let len = name.len();
@@ -837,9 +871,17 @@ impl PluginState {
                                     cursor_pos: len,
                                 });
                                 set_selectable_wasm(true);
+                                self.rename_enter_guard = true;
+                                #[cfg(target_family = "wasm")]
+                                {
+                                    let plugin_id = zellij_tile::prelude::get_plugin_ids().plugin_id;
+                                    zellij_tile::prelude::focus_plugin_pane(plugin_id, false);
+                                }
+                                debug_log("DBLCLICK rename_state set, selectable=true, plugin focused");
                                 return true;
                             }
                         } else {
+                            debug_log(&format!("SINGLE click: switching to pane={pane_id}"));
                             // Single click: switch tab and focus pane.
                             // Only focus if clicking a session on a different tab,
                             // otherwise skip to keep sidebar focused for double-click.
@@ -865,6 +907,12 @@ impl PluginState {
                                 cursor_pos: len,
                             });
                             set_selectable_wasm(true);
+                            self.rename_enter_guard = true;
+                            #[cfg(target_family = "wasm")]
+                            {
+                                let plugin_id = zellij_tile::prelude::get_plugin_ids().plugin_id;
+                                zellij_tile::prelude::focus_plugin_pane(plugin_id, false);
+                            }
                             return true;
                         }
                     }
@@ -885,14 +933,17 @@ impl PluginState {
                             // Return to navigation mode if it was active, otherwise passive
                             if !self.navigation_mode {
                                 set_selectable_wasm(false);
+                                focus_terminal_pane(pane_id, false);
                             }
                             rename::complete_rename(self, pane_id, new_name);
                             true
                         }
                         rename::RenameAction::Cancel => {
+                            let pane_id = rs.pane_id;
                             self.rename_state = None;
                             if !self.navigation_mode {
                                 set_selectable_wasm(false);
+                                focus_terminal_pane(pane_id, false);
                             }
                             true
                         }
