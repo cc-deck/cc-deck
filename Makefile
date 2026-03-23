@@ -119,6 +119,7 @@ DEMO_IMAGE = $(REGISTRY)/cc-deck-demo
 demo-image: cross-cli  ## Build the cc-deck demo container image (multi-arch manifest)
 	mkdir -p demo-image/.build-context
 	cp cc-deck/cc-deck-linux-* demo-image/.build-context/
+	@podman rmi $(DEMO_IMAGE):latest 2>/dev/null || true
 	@podman manifest rm $(DEMO_IMAGE):latest 2>/dev/null || true
 	podman manifest create $(DEMO_IMAGE):latest
 	@for arch in arm64 amd64; do \
@@ -130,6 +131,7 @@ demo-image-push: demo-image  ## Build and push the demo image (multi-arch)
 	podman manifest push --all $(DEMO_IMAGE):latest docker://$(DEMO_IMAGE):latest
 
 base-image:  ## Build the cc-deck base container image (multi-arch manifest)
+	@podman rmi $(BASE_IMAGE):latest 2>/dev/null || true
 	@podman manifest rm $(BASE_IMAGE):latest 2>/dev/null || true
 	podman manifest create $(BASE_IMAGE):latest
 	@for arch in arm64 amd64; do \
