@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -11,16 +10,13 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/cc-deck/cc-deck/internal/config"
-	"github.com/cc-deck/cc-deck/internal/k8s"
-	"github.com/cc-deck/cc-deck/internal/session"
 )
 
 // NewProfileCmd creates the profile cobra command with subcommands.
 func NewProfileCmd(globalFlags *GlobalFlags) *cobra.Command {
 	profileCmd := &cobra.Command{
-		Use:    "profile",
-		Short:  "Manage credential profiles",
-		Hidden: true,
+		Use:   "profile",
+		Short: "Manage credential profiles",
 		Long:  "Create, list, switch, and inspect credential profiles for AI backends.",
 	}
 
@@ -40,11 +36,11 @@ func newProfileAddCmd(gf *GlobalFlags) *cobra.Command {
 		Short: "Add a credential profile",
 		Long: `Interactively create a new credential profile.
 
-Prompts for backend type (anthropic or vertex), credential Secret references,
-and optional settings like model. Validates that referenced K8s Secrets exist.`,
+Prompts for backend type (anthropic or vertex), credential references,
+and optional settings like model.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runProfileAdd(cmd.Context(), args[0], gf)
+			return runProfileAdd(args[0], gf)
 		},
 	}
 }
@@ -82,7 +78,7 @@ func newProfileShowCmd(gf *GlobalFlags) *cobra.Command {
 	}
 }
 
-func runProfileAdd(ctx context.Context, name string, gf *GlobalFlags) error {
+func runProfileAdd(name string, gf *GlobalFlags) error {
 	cfg, err := config.Load(gf.ConfigFile)
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
@@ -97,20 +93,6 @@ func runProfileAdd(ctx context.Context, name string, gf *GlobalFlags) error {
 	profile, err := config.PromptProfile(os.Stdin, os.Stdout)
 	if err != nil {
 		return fmt.Errorf("creating profile: %w", err)
-	}
-
-	// Validate Secrets exist on cluster
-	client, err := k8s.NewClient(k8s.ClientOptions{
-		Kubeconfig: gf.Kubeconfig,
-		Namespace:  gf.Namespace,
-	})
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: could not connect to cluster for Secret validation: %v\n", err)
-	} else {
-		if valErr := session.ValidateProfileSecrets(ctx, client.Clientset, client.Namespace, profile); valErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: %v\n", valErr)
-			fmt.Fprintf(os.Stderr, "Profile will be saved, but deploy will fail until Secrets are created.\n")
-		}
 	}
 
 	if err := cfg.AddProfile(name, profile); err != nil {
