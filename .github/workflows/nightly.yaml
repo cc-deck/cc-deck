@@ -1,0 +1,97 @@
+name: Nightly Images
+
+on:
+  schedule:
+    # 02:00 UTC daily
+    - cron: "0 2 * * *"
+  workflow_dispatch: # allow manual trigger
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    name: Check for changes
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.diff.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compare HEAD against last nightly tag
+        id: diff
+        run: |
+          if git rev-parse nightly >/dev/null 2>&1; then
+            if [ "$(git rev-parse HEAD)" = "$(git rev-parse nightly)" ]; then
+              echo "changed=false" >> "$GITHUB_OUTPUT"
+              echo "No changes since last nightly build"
+            else
+              echo "changed=true" >> "$GITHUB_OUTPUT"
+              echo "Changes detected: $(git log nightly..HEAD --oneline | wc -l) new commits"
+            fi
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "No previous nightly tag, building first nightly"
+          fi
+
+  build-and-push:
+    name: Build and Push Images (amd64)
+    runs-on: ubuntu-latest
+    needs: check
+    if: needs.check.outputs.changed == 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: cc-deck/go.mod
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+
+      - name: Build WASM plugin
+        run: |
+          cd cc-zellij-plugin && cargo build --target wasm32-wasip1 --release
+          mkdir -p ../cc-deck/internal/plugin
+          cp target/wasm32-wasip1/release/cc_deck.wasm ../cc-deck/internal/plugin/
+
+      - name: Build CLI (linux/amd64)
+        run: |
+          cd cc-deck && GOOS=linux GOARCH=amd64 go build \
+            -ldflags "-X github.com/cc-deck/cc-deck/internal/cmd.Version=nightly -X github.com/cc-deck/cc-deck/internal/cmd.ImageRegistry=quay.io/cc-deck" \
+            -o cc-deck-linux-amd64 ./cmd/cc-deck
+
+      - name: Prepare demo build context
+        run: |
+          mkdir -p demo-image/.build-context
+          cp cc-deck/cc-deck-linux-amd64 demo-image/.build-context/
+
+      - name: Log in to quay.io
+        run: podman login -u "${{ secrets.QUAY_USERNAME }}" -p "${{ secrets.QUAY_PASSWORD }}" quay.io
+
+      - name: Build and push base image
+        run: |
+          podman build --platform linux/amd64 \
+            -t quay.io/cc-deck/cc-deck-base:nightly base-image/
+          podman push quay.io/cc-deck/cc-deck-base:nightly
+
+      - name: Build and push demo image
+        run: |
+          podman build --platform linux/amd64 \
+            -t quay.io/cc-deck/cc-deck-demo:nightly demo-image/
+          podman push quay.io/cc-deck/cc-deck-demo:nightly
+
+  tag:
+    name: Update nightly tag
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Move nightly tag to HEAD
+        run: |
+          git tag -f nightly
+          git push origin nightly --force
