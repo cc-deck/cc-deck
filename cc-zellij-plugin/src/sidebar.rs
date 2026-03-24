@@ -1,7 +1,7 @@
 // T011-T013: Sidebar rendering with activity indicators, click-to-switch, empty state
 
 use crate::session::{Activity, Session};
-use crate::state::{PluginState, RenameState};
+use crate::state::{PluginState, RenameState, SidebarMode};
 
 /// Click region: (row, pane_id, tab_index).
 pub type ClickRegion = (usize, u32, usize);
@@ -61,24 +61,10 @@ pub fn render_sidebar(state: &PluginState, rows: usize, cols: usize) -> Vec<Clic
         return render_help_overlay(rows, cols);
     }
     // Use filtered sessions when filter is active
-    let sessions = if state.filter_state.is_some() {
-        let filter = state.filter_state.as_ref().map(|f| &f.input_buffer).unwrap();
-        if filter.is_empty() {
-            state.sessions_by_tab_order()
-        } else {
-            let lower = filter.to_lowercase();
-            let mut filtered: Vec<_> = state.sessions.values()
-                .filter(|s| s.display_name.to_lowercase().contains(&lower))
-                .collect();
-            filtered.sort_by_key(|s| s.tab_index.unwrap_or(usize::MAX));
-            filtered
-        }
-    } else {
-        state.sessions_by_tab_order()
-    };
+    let sessions = state.filtered_sessions_by_tab_order();
     let mut click_regions = Vec::new();
 
-    if sessions.is_empty() && state.filter_state.is_none() {
+    if sessions.is_empty() && state.sidebar_mode.filter_state().is_none() {
         return render_empty_state(state, rows, cols);
     }
 
@@ -128,10 +114,10 @@ pub fn render_sidebar(state: &PluginState, rows: usize, cols: usize) -> Vec<Clic
         };
 
         // Navigation mode: show cursor on the selected session
-        let has_cursor = state.navigation_mode && abs_idx == state.cursor_index;
+        let has_cursor = state.sidebar_mode.is_navigating() && abs_idx == state.sidebar_mode.cursor_index();
 
         // Check if this session has a pending delete confirmation
-        let is_delete_confirm = state.delete_confirm == Some(session.pane_id);
+        let is_delete_confirm = state.sidebar_mode.delete_confirm_pane() == Some(session.pane_id);
 
         if is_delete_confirm {
             // Render delete confirmation instead of normal entry
@@ -145,7 +131,7 @@ pub fn render_sidebar(state: &PluginState, rows: usize, cols: usize) -> Vec<Clic
             }
         } else {
             // Check if this session is being renamed
-            let rename_for_session = state.rename_state.as_ref().filter(|rs| rs.pane_id == session.pane_id);
+            let rename_for_session = state.sidebar_mode.rename_state().filter(|rs| rs.pane_id == session.pane_id);
 
             if let Some(region) = render_session_entry(session, is_active, has_cursor, row, cols, rename_for_session) {
                 click_regions.push(region);
@@ -162,7 +148,7 @@ pub fn render_sidebar(state: &PluginState, rows: usize, cols: usize) -> Vec<Clic
     }
 
     // Bottom row: search input (when filtering) or [+] button
-    if let Some(ref fs) = state.filter_state {
+    if let Some(fs) = state.sidebar_mode.filter_state() {
         // Render search input
         if row < rows.saturating_sub(1) {
             let prefix = " / ";
