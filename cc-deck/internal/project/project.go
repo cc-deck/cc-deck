@@ -11,8 +11,9 @@ import (
 )
 
 var (
-	ErrNotGitRepo      = errors.New("not inside a git repository")
-	ErrNoProjectConfig = errors.New("no .cc-deck/environment.yaml found at git root")
+	ErrNotGitRepo        = errors.New("not inside a git repository")
+	ErrNoProjectConfig   = errors.New("no .cc-deck/environment.yaml found in project hierarchy")
+	ErrNoWorkspaceConfig = errors.New("no .cc-deck/environment.yaml found in directory hierarchy")
 )
 
 const projectConfigPath = ".cc-deck/environment.yaml"
@@ -30,21 +31,50 @@ func FindGitRoot(startDir string) (string, error) {
 	return CanonicalPath(root), nil
 }
 
-// FindProjectConfig looks for .cc-deck/environment.yaml at the git root
-// of the given start directory. Returns the project root path (git root)
-// and nil error if found.
+// FindProjectConfig looks for .cc-deck/environment.yaml using two strategies:
+//  1. Check at the git root (fast, deterministic for single-repo projects).
+//  2. Walk up the directory tree (supports workspace directories without .git).
+//
+// Returns the project or workspace root path and nil error if found.
 func FindProjectConfig(startDir string) (string, error) {
-	root, err := FindGitRoot(startDir)
+	// Strategy 1: Check at the git root (existing behavior, fast path).
+	if root, err := FindGitRoot(startDir); err == nil {
+		configFile := filepath.Join(root, projectConfigPath)
+		if _, statErr := os.Stat(configFile); statErr == nil {
+			return root, nil
+		}
+	}
+
+	// Strategy 2: Walk up for workspace detection.
+	if root, err := FindWorkspaceRoot(startDir); err == nil {
+		return root, nil
+	}
+
+	return "", ErrNoProjectConfig
+}
+
+// FindWorkspaceRoot walks up from startDir looking for a directory
+// containing .cc-deck/environment.yaml. Unlike FindProjectConfig's
+// git-root strategy, this does not require a git repository.
+// Returns the canonical path of the directory containing .cc-deck/.
+func FindWorkspaceRoot(startDir string) (string, error) {
+	absDir, err := filepath.Abs(startDir)
 	if err != nil {
-		return "", err
+		return "", ErrNoWorkspaceConfig
 	}
-
-	configFile := filepath.Join(root, projectConfigPath)
-	if _, err := os.Stat(configFile); err != nil {
-		return "", ErrNoProjectConfig
+	dir := absDir
+	for {
+		configFile := filepath.Join(dir, projectConfigPath)
+		if _, err := os.Stat(configFile); err == nil {
+			return CanonicalPath(dir), nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
 	}
-
-	return root, nil
+	return "", ErrNoWorkspaceConfig
 }
 
 // CanonicalPath returns the symlink-resolved absolute path.
