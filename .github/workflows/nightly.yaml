@@ -66,8 +66,8 @@ jobs:
 
       - name: Prepare demo build context
         run: |
-          mkdir -p demo-image/.build-context
-          cp cc-deck/cc-deck-linux-amd64 demo-image/.build-context/
+          mkdir -p demo-image/build-context
+          cp cc-deck/cc-deck-linux-amd64 demo-image/build-context/
 
       - name: Log in to quay.io
         run: podman login -u "${{ secrets.QUAY_USERNAME }}" -p "${{ secrets.QUAY_PASSWORD }}" quay.io
