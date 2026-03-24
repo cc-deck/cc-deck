@@ -828,10 +828,20 @@ impl PluginState {
                     sync::save_sessions(&self.sessions);
                 }
                 let meta_changed = sync::apply_session_meta(&mut self.sessions);
-                if self.is_on_active_tab() {
+                // Git branch polling: only every 60s as a fallback for in-place
+                // `git checkout`. The primary path is event-driven (cwd changes).
+                let now_ms = session::unix_now_ms();
+                if self.is_on_active_tab() && now_ms.saturating_sub(self.last_git_poll_ms) >= 60_000 {
+                    self.last_git_poll_ms = now_ms;
                     for session in self.sessions.values() {
+                        if session.paused {
+                            continue;
+                        }
                         if let Some(ref cwd) = session.working_dir {
-                            git::detect_git_branch(session.pane_id, cwd);
+                            if !self.pending_git_branch.contains(&session.pane_id) {
+                                self.pending_git_branch.insert(session.pane_id);
+                                git::detect_git_branch(session.pane_id, cwd);
+                            }
                         }
                     }
                 }
@@ -912,6 +922,12 @@ impl PluginState {
             }
             Event::Key(key) => self.handle_key(key),
             Event::RunCommandResult(exit_code, stdout, _stderr, context) => {
+                // Clear in-flight tracking for git branch commands
+                if context.get("type").map(|t| t.as_str()) == Some("git_branch") {
+                    if let Some(pane_id) = context.get("pane_id").and_then(|s| s.parse::<u32>().ok()) {
+                        self.pending_git_branch.remove(&pane_id);
+                    }
+                }
                 self.handle_git_result(exit_code, stdout, context)
             }
             Event::CommandPaneOpened(terminal_pane_id, context) => {
@@ -936,6 +952,7 @@ impl PluginState {
                 };
                 let removed = self.sessions.remove(&id).is_some();
                 if removed {
+                    self.pending_git_branch.remove(&id);
                     sync::broadcast_state(self);
                     sync::save_sessions(&self.sessions);
                 }
