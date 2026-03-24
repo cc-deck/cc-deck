@@ -16,6 +16,10 @@ mod rename;
 mod session;
 mod sidebar;
 mod state;
+#[cfg(test)]
+mod state_machine_tests;
+#[cfg(test)]
+mod fuzz_tests;
 mod sync;
 
 #[cfg(target_family = "wasm")]
@@ -113,52 +117,30 @@ fn broadcast_action(name: &str) {
 #[cfg(not(target_family = "wasm"))]
 fn broadcast_action(_name: &str) {}
 
-/// Enter navigation mode: make sidebar selectable and focusable, initialize cursor.
-fn enter_navigation_mode(state: &mut PluginState) {
-    state.navigation_mode = true;
-    // Save the currently focused pane so Esc can restore it, and find cursor position
-    let (restore, cursor) = {
-        let sessions = state.sessions_by_tab_order();
-        let restore = state.focused_pane_id.and_then(|pid| {
-            sessions.iter()
-                .find(|s| s.pane_id == pid)
-                .and_then(|s| s.tab_index.map(|idx| (pid, idx)))
-        });
-        let cursor = state.focused_pane_id
-            .and_then(|pid| sessions.iter().position(|s| s.pane_id == pid))
-            .unwrap_or(0);
-        (restore, cursor)
-    };
-    state.nav_restore = restore;
-    state.cursor_index = cursor;
-    state.nav_enter_guard = true;
-    set_selectable_wasm(true);
-    #[cfg(target_family = "wasm")]
-    {
-        let plugin_id = zellij_tile::prelude::get_plugin_ids().plugin_id;
-        zellij_tile::prelude::focus_plugin_pane(plugin_id, false);
-    }
-    debug_log(&format!("NAV entered, cursor_index={} restore={:?}", state.cursor_index, state.nav_restore));
+#[cfg(target_family = "wasm")]
+fn focus_plugin() {
+    let plugin_id = zellij_tile::prelude::get_plugin_ids().plugin_id;
+    zellij_tile::prelude::focus_plugin_pane(plugin_id, false);
 }
 
-/// Exit navigation mode: return to passive, restore the original pane focus.
-fn exit_navigation_mode(state: &mut PluginState) {
-    let restore = state.nav_restore.take();
-    state.navigation_mode = false;
-    state.nav_enter_guard = false;
-    state.filter_state = None;
-    state.delete_confirm = None;
-    set_selectable_wasm(false);
-    // Restore the pane that was focused before navigation mode
-    if let Some((pane_id, tab_idx)) = restore {
-        #[cfg(target_family = "wasm")]
-        {
-            zellij_tile::prelude::switch_tab_to(tab_idx as u32 + 1);
-            zellij_tile::prelude::focus_terminal_pane(pane_id, false);
-        }
-    }
-    debug_log("NAV exited (restored original pane)");
+#[cfg(not(target_family = "wasm"))]
+fn focus_plugin() {}
+
+#[cfg(target_family = "wasm")]
+fn focus_terminal(pane_id: u32) {
+    zellij_tile::prelude::focus_terminal_pane(pane_id, false);
 }
+
+#[cfg(not(target_family = "wasm"))]
+fn focus_terminal(_pane_id: u32) {}
+
+#[cfg(target_family = "wasm")]
+fn switch_to_tab(tab_idx: usize) {
+    zellij_tile::prelude::switch_tab_to(tab_idx as u32 + 1);
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn switch_to_tab(_tab_idx: usize) {}
 
 #[cfg(target_family = "wasm")]
 fn create_new_session_tab() {
@@ -211,11 +193,102 @@ use config::PluginConfig;
 use git::GitResult;
 use pipe_handler::{hook_event_to_activity, is_session_end, parse_pipe_message, PipeAction};
 use session::Session;
-use state::{PluginMode, PluginState};
+use state::{NavigateContext, PluginMode, PluginState, SidebarMode};
 use std::collections::BTreeMap;
 use zellij_tile::prelude::*;
 
 register_plugin!(PluginState);
+
+// ---------------------------------------------------------------------------
+// Centralized mode transition functions
+// ---------------------------------------------------------------------------
+
+/// Enter navigation mode: make sidebar selectable and focusable, initialize cursor.
+fn enter_navigation_mode(state: &mut PluginState) {
+    let sessions = state.sessions_by_tab_order();
+    let restore = state.focused_pane_id.and_then(|pid| {
+        sessions.iter()
+            .find(|s| s.pane_id == pid)
+            .and_then(|s| s.tab_index.map(|idx| (pid, idx)))
+    });
+    let cursor = state.focused_pane_id
+        .and_then(|pid| sessions.iter().position(|s| s.pane_id == pid))
+        .unwrap_or(0);
+    let now_ms = session::unix_now_ms();
+
+    state.sidebar_mode = SidebarMode::Navigate(NavigateContext {
+        cursor_index: cursor,
+        restore,
+        entered_at_ms: now_ms,
+    });
+    set_selectable_wasm(true);
+    focus_plugin();
+    debug_log(&format!("NAV entered, cursor_index={cursor} restore={restore:?}"));
+}
+
+impl PluginState {
+    /// Exit to passive mode, restoring the pre-navigation focus (Esc path).
+    fn exit_to_passive(&mut self) {
+        let old = std::mem::replace(&mut self.sidebar_mode, SidebarMode::Passive);
+        set_selectable_wasm(false);
+
+        // Restore the pane that was focused before navigation mode
+        if let Some(ctx) = old.nav_ctx() {
+            if let Some((pane_id, tab_idx)) = ctx.restore {
+                #[cfg(target_family = "wasm")]
+                {
+                    zellij_tile::prelude::switch_tab_to(tab_idx as u32 + 1);
+                    zellij_tile::prelude::focus_terminal_pane(pane_id, false);
+                }
+            }
+        }
+        debug_log("NAV exited (restored original pane)");
+    }
+
+    /// Exit navigation and switch to a specific session (Enter, click, NavSelect).
+    fn switch_to_session(&mut self, pane_id: u32, tab_idx: Option<usize>) {
+        self.sidebar_mode = SidebarMode::Passive;
+        set_selectable_wasm(false);
+        #[cfg(target_family = "wasm")]
+        if let Some(idx) = tab_idx {
+            zellij_tile::prelude::switch_tab_to(idx as u32 + 1);
+            zellij_tile::prelude::focus_terminal_pane(pane_id, false);
+        }
+        debug_log(&format!("NAV switch to pane={pane_id} tab={tab_idx:?}"));
+    }
+
+    /// Abandon navigation without restoring focus (Attend, tab switch).
+    fn abandon_navigation(&mut self) {
+        self.sidebar_mode = SidebarMode::Passive;
+        set_selectable_wasm(false);
+        debug_log("NAV abandoned (no focus restore)");
+    }
+
+    /// Start a rename from passive mode (double-click, right-click).
+    fn start_passive_rename(&mut self, pane_id: u32) -> bool {
+        if let Some(session) = self.sessions.get(&pane_id) {
+            let name = session.display_name.clone();
+            let len = name.len();
+            self.sidebar_mode = SidebarMode::RenamePassive {
+                rename: state::RenameState {
+                    pane_id,
+                    input_buffer: name,
+                    cursor_pos: len,
+                },
+                entered_at_ms: session::unix_now_ms(),
+            };
+            set_selectable_wasm(true);
+            focus_plugin();
+            true
+        } else {
+            false
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ZellijPlugin implementation
+// ---------------------------------------------------------------------------
 
 impl ZellijPlugin for PluginState {
     fn load(&mut self, configuration: BTreeMap<String, String>) {
@@ -315,8 +388,6 @@ impl ZellijPlugin for PluginState {
         match action {
             PipeAction::HookEvent(hook) => {
                 if is_session_end(&hook.hook_event_name) {
-                    // Just remove from tracking, don't close panes or tabs.
-                    // The user manages tabs themselves.
                     let removed = self.sessions.remove(&hook.pane_id).is_some();
                     if removed {
                         sync::broadcast_state(self);
@@ -338,7 +409,6 @@ impl ZellijPlugin for PluginState {
                     }
                 };
 
-                // Use entry API then drop the borrow so we can access other fields of self.
                 let is_new = !self.sessions.contains_key(&hook.pane_id);
                 if is_new {
                     self.sessions.insert(
@@ -356,8 +426,6 @@ impl ZellijPlugin for PluginState {
                     self.sessions.get_mut(&hook.pane_id).unwrap().session_id = sid.clone();
                 }
                 if let Some(ref cwd) = hook.cwd {
-                    // Ignore CWD changes into .claude/ subdirectories (agent worktrees).
-                    // These are transient and cause display name flickering.
                     let is_worktree_cwd = cwd.contains("/.claude/");
                     let cwd_changed = self.sessions.get(&hook.pane_id)
                         .map(|s| s.working_dir.as_deref() != Some(cwd))
@@ -367,8 +435,6 @@ impl ZellijPlugin for PluginState {
                         self.sessions.get_mut(&hook.pane_id).unwrap().working_dir = Some(cwd.clone());
                         let cwd_clone = cwd.clone();
 
-                        // Check for pending overrides from snapshot restore.
-                        // Match by exact CWD (restore resolves to git root).
                         let pending = self.pending_overrides.remove(cwd);
                         if let Some(ovr) = pending {
                             debug_log(&format!("RESTORE applying override for {cwd}: name={}", ovr.display_name));
@@ -385,7 +451,6 @@ impl ZellijPlugin for PluginState {
                                 s.last_event_ts = now;
                                 s.meta_ts = now;
                             }
-                            // Auto-rename tab
                             if let Some(tab_idx) = self.sessions.get(&pane).and_then(|s| s.tab_index) {
                                 let sessions_on_tab = self.sessions.values()
                                     .filter(|s| s.tab_index == Some(tab_idx))
@@ -421,7 +486,6 @@ impl ZellijPlugin for PluginState {
                                 if let Some(s) = self.sessions.get_mut(&pane) {
                                     s.display_name = session::deduplicate_name(&dir_name, &name_refs);
                                 }
-                                // Auto-rename tab once when display name is first set
                                 if let Some(tab_idx) = self.sessions.get(&pane).and_then(|s| s.tab_index) {
                                     let sessions_on_tab = self.sessions.values()
                                         .filter(|s| s.tab_index == Some(tab_idx))
@@ -433,8 +497,6 @@ impl ZellijPlugin for PluginState {
                                         }
                                     }
                                 } else {
-                                    // tab_index not yet available; defer rename
-                                    // until rebuild_pane_map populates it.
                                     if let Some(s) = self.sessions.get_mut(&pane) {
                                         s.pending_tab_rename = true;
                                     }
@@ -445,8 +507,6 @@ impl ZellijPlugin for PluginState {
                             }
                         }
                     }
-                    // Always re-detect git branch on every hook event,
-                    // even if cwd hasn't changed (catches git checkout).
                     if !is_worktree_cwd {
                         git::detect_git_branch(pane, cwd);
                     }
@@ -473,22 +533,12 @@ impl ZellijPlugin for PluginState {
             }
 
             PipeAction::Attend => {
-                // Any instance can handle attend directly. The keybind routes
-                // to the last-registered plugin (deterministic), so round-robin
-                // state is preserved in that single instance. No forwarding needed.
-                // Exit navigation mode if active
-                if self.navigation_mode {
-                    self.navigation_mode = false;
-                    self.nav_enter_guard = false;
-                    self.nav_restore = None;
-                    self.filter_state = None;
-                    self.delete_confirm = None;
-                    set_selectable_wasm(false);
+                // Exit navigation/rename if active before attending
+                if self.sidebar_mode.is_selectable() {
+                    self.abandon_navigation();
                 }
                 match attend::perform_attend(self) {
-                    attend::AttendResult::Switched { .. } => {
-                        // No notification needed, tab switch is visible feedback
-                    }
+                    attend::AttendResult::Switched { .. } => {}
                     attend::AttendResult::NoneWaiting => {
                         self.notification = Some(notification::create_notification(
                             "No sessions waiting",
@@ -507,8 +557,12 @@ impl ZellijPlugin for PluginState {
 
             PipeAction::Rename => {
                 if let Some(rs) = rename::start_rename(self) {
-                    self.rename_state = Some(rs);
+                    self.sidebar_mode = SidebarMode::RenamePassive {
+                        rename: rs,
+                        entered_at_ms: session::unix_now_ms(),
+                    };
                     set_selectable_wasm(true);
+                    focus_plugin();
                     true
                 } else {
                     self.notification = Some(notification::create_notification(
@@ -534,7 +588,6 @@ impl ZellijPlugin for PluginState {
             }
 
             PipeAction::Navigate => {
-                // Only the active-tab instance handles navigate
                 if !self.is_on_active_tab() {
                     if is_user_action {
                         debug_log("NAVIGATE forwarding to active tab via broadcast");
@@ -542,11 +595,13 @@ impl ZellijPlugin for PluginState {
                     }
                     return false;
                 }
-                if self.navigation_mode {
-                    // Move cursor down with wrapping (same as j/↓)
+                if self.sidebar_mode.is_navigating() {
+                    // Move cursor down with wrapping (same as j/down)
                     let count = self.filtered_sessions_by_tab_order().len();
                     if count > 0 {
-                        self.cursor_index = (self.cursor_index + 1) % count;
+                        if let Some(ctx) = self.sidebar_mode.nav_ctx_mut() {
+                            ctx.cursor_index = (ctx.cursor_index + 1) % count;
+                        }
                     }
                 } else {
                     enter_navigation_mode(self);
@@ -561,8 +616,8 @@ impl ZellijPlugin for PluginState {
                     }
                     return false;
                 }
-                if self.navigation_mode {
-                    exit_navigation_mode(self);
+                if self.sidebar_mode.is_navigating() {
+                    self.exit_to_passive();
                 } else {
                     enter_navigation_mode(self);
                 }
@@ -570,61 +625,57 @@ impl ZellijPlugin for PluginState {
             }
 
             PipeAction::NavUp => {
-                if !self.is_on_active_tab() || !self.navigation_mode {
+                if !self.is_on_active_tab() || !self.sidebar_mode.is_navigating() {
                     return false;
                 }
                 let count = self.filtered_sessions_by_tab_order().len();
                 if count > 0 {
-                    self.cursor_index = if self.cursor_index == 0 {
-                        count - 1
-                    } else {
-                        self.cursor_index - 1
-                    };
+                    if let Some(ctx) = self.sidebar_mode.nav_ctx_mut() {
+                        ctx.cursor_index = if ctx.cursor_index == 0 {
+                            count - 1
+                        } else {
+                            ctx.cursor_index - 1
+                        };
+                    }
                 }
                 true
             }
 
             PipeAction::NavDown => {
-                if !self.is_on_active_tab() || !self.navigation_mode {
+                if !self.is_on_active_tab() || !self.sidebar_mode.is_navigating() {
                     return false;
                 }
                 let count = self.filtered_sessions_by_tab_order().len();
                 if count > 0 {
-                    self.cursor_index = (self.cursor_index + 1) % count;
+                    if let Some(ctx) = self.sidebar_mode.nav_ctx_mut() {
+                        ctx.cursor_index = (ctx.cursor_index + 1) % count;
+                    }
                 }
                 true
             }
 
             PipeAction::NavSelect => {
-                if !self.is_on_active_tab() || !self.navigation_mode {
+                if !self.is_on_active_tab() || !self.sidebar_mode.is_navigating() {
                     return false;
                 }
+                let cursor = self.sidebar_mode.cursor_index();
                 let sessions = self.filtered_sessions_by_tab_order();
-                if let Some(session) = sessions.get(self.cursor_index) {
+                if let Some(session) = sessions.get(cursor) {
                     let pane_id = session.pane_id;
                     let tab_idx = session.tab_index;
-                    self.navigation_mode = false;
-                    self.nav_enter_guard = false;
-                    self.nav_restore = None;
-                    self.filter_state = None;
-                    self.delete_confirm = None;
-                    set_selectable_wasm(false);
-                    #[cfg(target_family = "wasm")]
-                    if let Some(idx) = tab_idx {
-                        zellij_tile::prelude::switch_tab_to(idx as u32 + 1);
-                        zellij_tile::prelude::focus_terminal_pane(pane_id, false);
-                    }
+                    self.switch_to_session(pane_id, tab_idx);
                     debug_log(&format!("NAV-SELECT: switched to pane={pane_id} tab={tab_idx:?}"));
                 }
                 true
             }
 
             PipeAction::Pause => {
-                if !self.is_on_active_tab() || !self.navigation_mode {
+                if !self.is_on_active_tab() || !self.sidebar_mode.is_navigating() {
                     return false;
                 }
+                let cursor = self.sidebar_mode.cursor_index();
                 let sessions = self.filtered_sessions_by_tab_order();
-                if let Some(session) = sessions.get(self.cursor_index) {
+                if let Some(session) = sessions.get(cursor) {
                     let pane_id = session.pane_id;
                     if let Some(s) = self.sessions.get_mut(&pane_id) {
                         s.paused = !s.paused;
@@ -648,7 +699,6 @@ impl ZellijPlugin for PluginState {
             }
 
             PipeAction::DumpState => {
-                // Only respond from the active-tab instance to avoid duplicate output
                 if !self.is_on_active_tab() {
                     return false;
                 }
@@ -666,8 +716,6 @@ impl ZellijPlugin for PluginState {
             }
 
             PipeAction::RestoreMeta(payload) => {
-                // Parse pending overrides from snapshot restore.
-                // Format: {"<working_dir>": {"display_name": "...", "paused": false}, ...}
                 if let Ok(map) = serde_json::from_str::<std::collections::HashMap<String, serde_json::Value>>(&payload) {
                     for (dir, val) in map {
                         let name = val.get("display_name")
@@ -712,6 +760,10 @@ impl ZellijPlugin for PluginState {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Event handling
+// ---------------------------------------------------------------------------
+
 impl PluginState {
     fn handle_event(&mut self, event: Event) -> bool {
         match event {
@@ -729,20 +781,12 @@ impl PluginState {
                 self.preserve_cursor();
 
                 // Exit navigation mode if user switched away from this tab
-                if self.navigation_mode && !self.is_on_active_tab() {
-                    self.navigation_mode = false;
-                    self.nav_enter_guard = false;
-                    self.nav_restore = None;
-                    self.filter_state = None;
-                    self.delete_confirm = None;
-                    set_selectable_wasm(false);
+                if self.sidebar_mode.is_navigating() && !self.is_on_active_tab() {
+                    self.abandon_navigation();
                     debug_log("NAV auto-exited: tab switched away");
                 }
 
                 // Re-register keybindings from the active-tab instance.
-                // This recovers from dead plugin IDs: when the tab holding
-                // the last-registered plugin is closed, keybinds break.
-                // The active-tab instance re-registers to point at itself.
                 if self.is_on_active_tab() {
                     register_keybindings(&self.config);
                 }
@@ -752,43 +796,23 @@ impl PluginState {
             Event::PaneUpdate(manifest) => {
                 self.pane_manifest = Some(manifest);
                 self.rebuild_pane_map();
-                // Skip dead session cleanup during startup grace period
-                // to avoid wiping restored cached sessions before the
-                // pane manifest is fully populated.
                 if !self.in_startup_grace() {
                     self.remove_dead_sessions();
                 }
                 self.preserve_cursor();
 
-                // Exit navigation mode if a terminal pane gained focus
+                // Exit interactive modes if a terminal pane gained focus
                 // (user clicked away from the sidebar).
-                // Skip the first PaneUpdate after entering nav mode: it arrives
-                // with stale focus before focus_plugin_pane takes effect.
-                if self.focused_pane_id.is_some() {
-                    // Cancel rename if focus left the plugin
-                    if self.rename_state.is_some() {
-                        if self.rename_enter_guard {
-                            // Skip: this PaneUpdate is stale (from the first click's
-                            // focus_terminal_pane, before focus_plugin_pane takes effect).
-                            self.rename_enter_guard = false;
-                        } else {
-                            debug_log(&format!("PANE_UPDATE cancelling rename! focused_pane_id={:?} nav={}", self.focused_pane_id, self.navigation_mode));
-                            self.rename_state = None;
-                            if !self.navigation_mode {
-                                set_selectable_wasm(false);
-                            }
-                        }
-                    }
-                    if self.navigation_mode {
-                        if self.nav_enter_guard {
-                            self.nav_enter_guard = false;
-                        } else {
-                            self.navigation_mode = false;
-                            self.nav_restore = None;
-                            self.filter_state = None;
-                            self.delete_confirm = None;
-                            set_selectable_wasm(false);
-                        }
+                // Uses timestamp-based grace period instead of boolean guard:
+                // if the stale PaneUpdate never arrives, the grace expires naturally.
+                if self.focused_pane_id.is_some() && !matches!(self.sidebar_mode, SidebarMode::Passive) {
+                    let now_ms = session::unix_now_ms();
+                    if self.sidebar_mode.in_grace_period(now_ms) {
+                        debug_log("PANE_UPDATE within grace period, ignoring stale focus");
+                    } else {
+                        debug_log(&format!("PANE_UPDATE auto-exit: focused_pane_id={:?} mode={:?}",
+                            self.focused_pane_id, std::mem::discriminant(&self.sidebar_mode)));
+                        self.abandon_navigation();
                     }
                 }
 
@@ -804,10 +828,6 @@ impl PluginState {
                     sync::save_sessions(&self.sessions);
                 }
                 let meta_changed = sync::apply_session_meta(&mut self.sessions);
-                // Re-detect git branches for all sessions (picks up branch
-                // switches that happen without a CWD change).
-                // Only the active-tab instance runs detection to avoid
-                // T×S process spawns (one sidebar per tab, all hold all sessions).
                 if self.is_on_active_tab() {
                     for session in self.sessions.values() {
                         if let Some(ref cwd) = session.working_dir {
@@ -824,8 +844,8 @@ impl PluginState {
                     debug_log(&format!("CLICK tab_idx={tab_idx} pane_id={pane_id}"));
                     if pane_id == u32::MAX - 1 {
                         // Header clicked: toggle navigation mode
-                        if self.navigation_mode {
-                            exit_navigation_mode(self);
+                        if self.sidebar_mode.is_navigating() {
+                            self.exit_to_passive();
                         } else {
                             enter_navigation_mode(self);
                         }
@@ -835,7 +855,7 @@ impl PluginState {
                         match self.config.new_session_mode {
                             config::NewSessionMode::Tab => {
                                 debug_log(&format!("AUTO-START [+] clicked, tabs.len()={}", self.tabs.len()));
-                                        create_new_session_tab();
+                                create_new_session_tab();
                             }
                             config::NewSessionMode::Pane => create_new_session_pane(),
                         }
@@ -844,17 +864,15 @@ impl PluginState {
                             2,
                         ));
                     } else {
-                        // Double-click on same session triggers rename.
-                        // Read shared last_click from cache (cross-instance).
-                        // Use a generous threshold (800ms) because Zellij may
-                        // introduce latency re-rendering between clicks.
+                        // Double-click detection
                         let shared = read_shared_last_click();
                         let effective_last = shared.or(self.last_click);
-                        let now_ms = crate::session::unix_now_ms();
+                        let now_ms = session::unix_now_ms();
                         let is_double_click = effective_last
                             .map(|(ts, pid)| pid == pane_id && now_ms.saturating_sub(ts) < 800)
                             .unwrap_or(false);
-                        debug_log(&format!("DBLCLICK check: now={now_ms} local={:?} shared={shared:?} pane={pane_id} is_dbl={is_double_click} nav={} rename={}", self.last_click, self.navigation_mode, self.rename_state.is_some()));
+                        debug_log(&format!("DBLCLICK check: now={now_ms} local={:?} shared={shared:?} pane={pane_id} is_dbl={is_double_click} mode={:?}",
+                            self.last_click, std::mem::discriminant(&self.sidebar_mode)));
                         self.last_click = Some((now_ms, pane_id));
                         write_shared_last_click(now_ms, pane_id);
 
@@ -862,22 +880,7 @@ impl PluginState {
                             debug_log(&format!("DBLCLICK detected! Starting rename for pane={pane_id}"));
                             self.last_click = None;
                             clear_shared_last_click();
-                            if let Some(session) = self.sessions.get(&pane_id) {
-                                let name = session.display_name.clone();
-                                let len = name.len();
-                                self.rename_state = Some(crate::state::RenameState {
-                                    pane_id,
-                                    input_buffer: name,
-                                    cursor_pos: len,
-                                });
-                                set_selectable_wasm(true);
-                                self.rename_enter_guard = true;
-                                #[cfg(target_family = "wasm")]
-                                {
-                                    let plugin_id = zellij_tile::prelude::get_plugin_ids().plugin_id;
-                                    zellij_tile::prelude::focus_plugin_pane(plugin_id, false);
-                                }
-                                debug_log("DBLCLICK rename_state set, selectable=true, plugin focused");
+                            if self.start_passive_rename(pane_id) {
                                 return true;
                             }
                         } else {
@@ -886,8 +889,8 @@ impl PluginState {
                             // Only focus if clicking a session on a different tab,
                             // otherwise skip to keep sidebar focused for double-click.
                             if self.active_tab_index != Some(tab_idx) {
-                                switch_tab_to(tab_idx as u32 + 1);
-                                focus_terminal_pane(pane_id, false);
+                                switch_to_tab(tab_idx);
+                                focus_terminal(pane_id);
                             }
                         }
                     }
@@ -897,24 +900,8 @@ impl PluginState {
             Event::Mouse(Mouse::RightClick(row, _col)) => {
                 // Right-click on a session starts rename
                 if let Some((_tab_idx, pane_id)) = sidebar::handle_click(row as usize, &self.click_regions) {
-                    if pane_id != u32::MAX {
-                        if let Some(session) = self.sessions.get(&pane_id) {
-                            let name = session.display_name.clone();
-                            let len = name.len();
-                            self.rename_state = Some(crate::state::RenameState {
-                                pane_id,
-                                input_buffer: name,
-                                cursor_pos: len,
-                            });
-                            set_selectable_wasm(true);
-                            self.rename_enter_guard = true;
-                            #[cfg(target_family = "wasm")]
-                            {
-                                let plugin_id = zellij_tile::prelude::get_plugin_ids().plugin_id;
-                                zellij_tile::prelude::focus_plugin_pane(plugin_id, false);
-                            }
-                            return true;
-                        }
+                    if pane_id != u32::MAX && pane_id != u32::MAX - 1 && self.start_passive_rename(pane_id) {
+                        return true;
                     }
                 }
                 false
@@ -923,54 +910,14 @@ impl PluginState {
                 debug_log(&format!("MOUSE event={mouse:?}"));
                 false
             }
-            Event::Key(key) => {
-                if let Some(ref mut rs) = self.rename_state {
-                    match rename::handle_key(rs, key) {
-                        rename::RenameAction::Continue => true,
-                        rename::RenameAction::Confirm(new_name) => {
-                            let pane_id = rs.pane_id;
-                            self.rename_state = None;
-                            // Return to navigation mode if it was active, otherwise passive
-                            if !self.navigation_mode {
-                                set_selectable_wasm(false);
-                                focus_terminal_pane(pane_id, false);
-                            }
-                            rename::complete_rename(self, pane_id, new_name);
-                            true
-                        }
-                        rename::RenameAction::Cancel => {
-                            let pane_id = rs.pane_id;
-                            self.rename_state = None;
-                            if !self.navigation_mode {
-                                set_selectable_wasm(false);
-                                focus_terminal_pane(pane_id, false);
-                            }
-                            true
-                        }
-                    }
-                } else if self.show_help {
-                    // Any key dismisses help overlay
-                    self.show_help = false;
-                    true
-                } else if self.delete_confirm.is_some() {
-                    self.handle_delete_confirm_key(key)
-                } else if self.filter_state.is_some() {
-                    self.handle_filter_key(key)
-                } else if self.navigation_mode {
-                    self.handle_navigation_key(key)
-                } else {
-                    false
-                }
-            }
+            Event::Key(key) => self.handle_key(key),
             Event::RunCommandResult(exit_code, stdout, _stderr, context) => {
                 self.handle_git_result(exit_code, stdout, context)
             }
             Event::CommandPaneOpened(terminal_pane_id, context) => {
-                // Check if this was created by cc-deck
                 if context.get("cc-deck").map(|v| v.as_str()) == Some("new-session") {
                     let session = Session::new(terminal_pane_id, String::new());
                     self.sessions.insert(terminal_pane_id, session);
-                    // Trigger git detection for auto-naming
                     if let Some(cwd) = std::env::current_dir().ok().and_then(|p| p.to_str().map(String::from)) {
                         git::detect_git_repo(terminal_pane_id, &cwd);
                         git::detect_git_branch(terminal_pane_id, &cwd);
@@ -998,92 +945,95 @@ impl PluginState {
         }
     }
 
-    /// Handle a key in filter/search mode: characters filter, Enter confirms, Esc clears.
-    fn handle_filter_key(&mut self, key: KeyWithModifier) -> bool {
-        let fs = match self.filter_state.as_mut() {
-            Some(fs) => fs,
+    /// Unified key handler dispatching based on sidebar_mode.
+    fn handle_key(&mut self, key: KeyWithModifier) -> bool {
+        // Help overlay takes priority over everything (any key dismisses)
+        if self.show_help {
+            self.show_help = false;
+            return true;
+        }
+
+        match self.sidebar_mode {
+            // Rename (from any parent mode)
+            SidebarMode::NavigateRename { .. } | SidebarMode::RenamePassive { .. } => {
+                self.handle_rename_key(key)
+            }
+            // Delete confirmation (sub-mode of navigate)
+            SidebarMode::NavigateDeleteConfirm { .. } => {
+                self.handle_delete_confirm_key(key)
+            }
+            // Filter/search (sub-mode of navigate)
+            SidebarMode::NavigateFilter { .. } => {
+                self.handle_filter_key(key)
+            }
+            // Normal navigation
+            SidebarMode::Navigate(_) => {
+                self.handle_navigation_key(key)
+            }
+            // Passive: no keyboard input
+            SidebarMode::Passive => false,
+        }
+    }
+
+    /// Handle a key during rename (works for both NavigateRename and RenamePassive).
+    fn handle_rename_key(&mut self, key: KeyWithModifier) -> bool {
+        // Get mutable rename state
+        let rs = match self.sidebar_mode.rename_state_mut() {
+            Some(rs) => rs,
             None => return false,
         };
 
-        match key.bare_key {
-            BareKey::Char(c) => {
-                fs.input_buffer.insert(fs.cursor_pos, c);
-                fs.cursor_pos += 1;
-                // Reset cursor to 0 when filter changes
-                self.cursor_index = 0;
+        match rename::handle_key(rs, key) {
+            rename::RenameAction::Continue => true,
+            rename::RenameAction::Confirm(new_name) => {
+                let pane_id = self.sidebar_mode.rename_state().unwrap().pane_id;
+                // Determine return mode based on current variant
+                match std::mem::replace(&mut self.sidebar_mode, SidebarMode::Passive) {
+                    SidebarMode::NavigateRename { ctx, .. } => {
+                        // Return to navigation mode
+                        self.sidebar_mode = SidebarMode::Navigate(ctx);
+                    }
+                    SidebarMode::RenamePassive { .. } => {
+                        // Return to passive
+                        set_selectable_wasm(false);
+                        focus_terminal(pane_id);
+                    }
+                    _ => {}
+                }
+                rename::complete_rename(self, pane_id, new_name);
                 true
             }
-            BareKey::Backspace => {
-                if fs.cursor_pos > 0 {
-                    fs.cursor_pos -= 1;
-                    fs.input_buffer.remove(fs.cursor_pos);
-                    self.cursor_index = 0;
+            rename::RenameAction::Cancel => {
+                let pane_id = self.sidebar_mode.rename_state().unwrap().pane_id;
+                match std::mem::replace(&mut self.sidebar_mode, SidebarMode::Passive) {
+                    SidebarMode::NavigateRename { ctx, .. } => {
+                        self.sidebar_mode = SidebarMode::Navigate(ctx);
+                    }
+                    SidebarMode::RenamePassive { .. } => {
+                        set_selectable_wasm(false);
+                        focus_terminal(pane_id);
+                    }
+                    _ => {}
                 }
                 true
             }
-            BareKey::Enter => {
-                // Confirm filter: if no matches, show notification and clear
-                let filter = self.filter_state.as_ref().map(|f| f.input_buffer.clone()).unwrap_or_default();
-                let matches = self.filtered_session_count(&filter);
-                if matches == 0 && !filter.is_empty() {
-                    self.notification = Some(notification::create_notification("No matches", 2));
-                    self.filter_state = None;
-                } else {
-                    // Keep filter active, cursor at 0
-                    self.cursor_index = 0;
-                    // Exit filter input mode but keep the filter text for rendering
-                    // Actually just close filter input, the filter stays applied via filter_state
-                }
-                true
-            }
-            BareKey::Esc => {
-                // Clear filter and return to unfiltered navigation
-                self.filter_state = None;
-                self.cursor_index = 0;
-                true
-            }
-            _ => false,
         }
-    }
-
-    /// Count sessions matching the current filter.
-    fn filtered_session_count(&self, filter: &str) -> usize {
-        if filter.is_empty() {
-            return self.sessions.len();
-        }
-        let lower = filter.to_lowercase();
-        self.sessions.values()
-            .filter(|s| s.display_name.to_lowercase().contains(&lower))
-            .count()
-    }
-
-    /// Get filtered sessions in tab order.
-    fn filtered_sessions_by_tab_order(&self) -> Vec<&session::Session> {
-        let mut sessions: Vec<_> = if let Some(ref fs) = self.filter_state {
-            if fs.input_buffer.is_empty() {
-                self.sessions.values().collect()
-            } else {
-                let lower = fs.input_buffer.to_lowercase();
-                self.sessions.values()
-                    .filter(|s| s.display_name.to_lowercase().contains(&lower))
-                    .collect()
-            }
-        } else {
-            self.sessions.values().collect()
-        };
-        sessions.sort_by_key(|s| s.tab_index.unwrap_or(usize::MAX));
-        sessions
     }
 
     /// Handle a key during delete confirmation: y confirms, anything else cancels.
     fn handle_delete_confirm_key(&mut self, key: KeyWithModifier) -> bool {
-        let pane_id = match self.delete_confirm.take() {
-            Some(id) => id,
-            None => return false,
+        let (ctx, pane_id) = match std::mem::replace(&mut self.sidebar_mode, SidebarMode::Passive) {
+            SidebarMode::NavigateDeleteConfirm { ctx, pane_id } => (ctx, pane_id),
+            other => {
+                self.sidebar_mode = other;
+                return false;
+            }
         };
 
+        // Return to navigate regardless of confirm/cancel
+        self.sidebar_mode = SidebarMode::Navigate(ctx);
+
         if key.bare_key == BareKey::Char('y') {
-            // Get session info before removing
             let session_info = self.sessions.get(&pane_id).map(|s| {
                 let tab_idx = s.tab_index;
                 let is_only = tab_idx.map(|idx| {
@@ -1102,24 +1052,58 @@ impl PluginState {
             sync::save_sessions(&self.sessions);
             self.preserve_cursor();
         }
-        // Any other key: just cancel (delete_confirm already taken)
         true
     }
 
-    /// Preserve cursor position by pane_id after session list changes.
-    fn preserve_cursor(&mut self) {
-        if !self.navigation_mode {
-            return;
-        }
-        let sessions = self.sessions_by_tab_order();
-        let count = sessions.len();
-        if count == 0 {
-            self.cursor_index = 0;
-            return;
-        }
-        // Clamp cursor to valid range
-        if self.cursor_index >= count {
-            self.cursor_index = count - 1;
+    /// Handle a key in filter/search mode.
+    fn handle_filter_key(&mut self, key: KeyWithModifier) -> bool {
+        // Extract filter + ctx, work on them, then put back
+        let (mut ctx, mut filter) = match std::mem::replace(&mut self.sidebar_mode, SidebarMode::Passive) {
+            SidebarMode::NavigateFilter { ctx, filter } => (ctx, filter),
+            other => {
+                self.sidebar_mode = other;
+                return false;
+            }
+        };
+
+        match key.bare_key {
+            BareKey::Char(c) => {
+                filter.input_buffer.insert(filter.cursor_pos, c);
+                filter.cursor_pos += 1;
+                ctx.cursor_index = 0;
+                self.sidebar_mode = SidebarMode::NavigateFilter { ctx, filter };
+                true
+            }
+            BareKey::Backspace => {
+                if filter.cursor_pos > 0 {
+                    filter.cursor_pos -= 1;
+                    filter.input_buffer.remove(filter.cursor_pos);
+                    ctx.cursor_index = 0;
+                }
+                self.sidebar_mode = SidebarMode::NavigateFilter { ctx, filter };
+                true
+            }
+            BareKey::Enter => {
+                let matches = self.filtered_session_count(&filter.input_buffer);
+                if matches == 0 && !filter.input_buffer.is_empty() {
+                    self.notification = Some(notification::create_notification("No matches", 2));
+                    ctx.cursor_index = 0;
+                    self.sidebar_mode = SidebarMode::Navigate(ctx);
+                } else {
+                    ctx.cursor_index = 0;
+                    self.sidebar_mode = SidebarMode::NavigateFilter { ctx, filter };
+                }
+                true
+            }
+            BareKey::Esc => {
+                ctx.cursor_index = 0;
+                self.sidebar_mode = SidebarMode::Navigate(ctx);
+                true
+            }
+            _ => {
+                self.sidebar_mode = SidebarMode::NavigateFilter { ctx, filter };
+                false
+            }
         }
     }
 
@@ -1127,15 +1111,14 @@ impl PluginState {
     fn handle_navigation_key(&mut self, key: KeyWithModifier) -> bool {
         let session_count = self.filtered_sessions_by_tab_order().len();
         if session_count == 0 {
-            // Only Esc and n are useful with no sessions
             match key.bare_key {
                 BareKey::Esc => {
-                    exit_navigation_mode(self);
+                    self.exit_to_passive();
                     return true;
                 }
                 BareKey::Char('n') => {
                     create_new_session_tab();
-                    exit_navigation_mode(self);
+                    self.exit_to_passive();
                     return true;
                 }
                 _ => return false,
@@ -1145,83 +1128,97 @@ impl PluginState {
         match key.bare_key {
             // Cursor movement
             BareKey::Char('j') | BareKey::Down => {
-                self.cursor_index = (self.cursor_index + 1) % session_count;
+                if let Some(ctx) = self.sidebar_mode.nav_ctx_mut() {
+                    ctx.cursor_index = (ctx.cursor_index + 1) % session_count;
+                }
                 true
             }
             BareKey::Char('k') | BareKey::Up => {
-                self.cursor_index = if self.cursor_index == 0 {
-                    session_count - 1
-                } else {
-                    self.cursor_index - 1
-                };
+                if let Some(ctx) = self.sidebar_mode.nav_ctx_mut() {
+                    ctx.cursor_index = if ctx.cursor_index == 0 {
+                        session_count - 1
+                    } else {
+                        ctx.cursor_index - 1
+                    };
+                }
                 true
             }
             BareKey::Char('g') | BareKey::Home => {
-                self.cursor_index = 0;
+                if let Some(ctx) = self.sidebar_mode.nav_ctx_mut() {
+                    ctx.cursor_index = 0;
+                }
                 true
             }
             BareKey::Char('G') | BareKey::End => {
-                self.cursor_index = session_count.saturating_sub(1);
+                if let Some(ctx) = self.sidebar_mode.nav_ctx_mut() {
+                    ctx.cursor_index = session_count.saturating_sub(1);
+                }
                 true
             }
 
             // Switch to cursor session
             BareKey::Enter => {
+                let cursor = self.sidebar_mode.cursor_index();
                 let sessions = self.filtered_sessions_by_tab_order();
-                if let Some(session) = sessions.get(self.cursor_index) {
+                if let Some(session) = sessions.get(cursor) {
                     let pane_id = session.pane_id;
                     let tab_idx = session.tab_index;
-                    // Clear navigation state without restoring original pane
-                    // (we're switching to the selected session, not going back)
-                    self.navigation_mode = false;
-                    self.nav_enter_guard = false;
-                    self.nav_restore = None;
-                    self.filter_state = None;
-                    self.delete_confirm = None;
-                    set_selectable_wasm(false);
-                    #[cfg(target_family = "wasm")]
-                    if let Some(idx) = tab_idx {
-                        zellij_tile::prelude::switch_tab_to(idx as u32 + 1);
-                        zellij_tile::prelude::focus_terminal_pane(pane_id, false);
-                    }
-                    debug_log(&format!("NAV Enter: switched to pane={pane_id} tab={tab_idx:?}"));
+                    self.switch_to_session(pane_id, tab_idx);
                 }
                 true
             }
 
             // Exit navigation mode
             BareKey::Esc => {
-                exit_navigation_mode(self);
+                self.exit_to_passive();
                 true
             }
 
-            // Search/filter mode
+            // Search/filter mode: transition Navigate -> NavigateFilter
             BareKey::Char('/') => {
-                self.filter_state = Some(crate::state::FilterState::default());
-                true
-            }
-
-            // Rename cursor session
-            BareKey::Char('r') => {
-                let sessions = self.filtered_sessions_by_tab_order();
-                if let Some(session) = sessions.get(self.cursor_index) {
-                    let pane_id = session.pane_id;
-                    let name = session.display_name.clone();
-                    let len = name.len();
-                    self.rename_state = Some(crate::state::RenameState {
-                        pane_id,
-                        input_buffer: name,
-                        cursor_pos: len,
-                    });
+                if let SidebarMode::Navigate(ctx) = std::mem::replace(&mut self.sidebar_mode, SidebarMode::Passive) {
+                    self.sidebar_mode = SidebarMode::NavigateFilter {
+                        ctx,
+                        filter: state::FilterState::default(),
+                    };
                 }
                 true
             }
 
-            // Delete cursor session (show confirmation)
-            BareKey::Char('d') => {
+            // Rename cursor session: transition Navigate -> NavigateRename
+            BareKey::Char('r') => {
+                let cursor = self.sidebar_mode.cursor_index();
                 let sessions = self.filtered_sessions_by_tab_order();
-                if let Some(session) = sessions.get(self.cursor_index) {
-                    self.delete_confirm = Some(session.pane_id);
+                if let Some(session) = sessions.get(cursor) {
+                    let pane_id = session.pane_id;
+                    let name = session.display_name.clone();
+                    let len = name.len();
+                    if let SidebarMode::Navigate(ctx) = std::mem::replace(&mut self.sidebar_mode, SidebarMode::Passive) {
+                        self.sidebar_mode = SidebarMode::NavigateRename {
+                            ctx,
+                            rename: state::RenameState {
+                                pane_id,
+                                input_buffer: name,
+                                cursor_pos: len,
+                            },
+                        };
+                    }
+                }
+                true
+            }
+
+            // Delete cursor session: transition Navigate -> NavigateDeleteConfirm
+            BareKey::Char('d') => {
+                let cursor = self.sidebar_mode.cursor_index();
+                let sessions = self.filtered_sessions_by_tab_order();
+                if let Some(session) = sessions.get(cursor) {
+                    let target_pane = session.pane_id;
+                    if let SidebarMode::Navigate(ctx) = std::mem::replace(&mut self.sidebar_mode, SidebarMode::Passive) {
+                        self.sidebar_mode = SidebarMode::NavigateDeleteConfirm {
+                            ctx,
+                            pane_id: target_pane,
+                        };
+                    }
                 }
                 true
             }
@@ -1234,8 +1231,9 @@ impl PluginState {
 
             // Toggle pause on cursor session
             BareKey::Char('p') => {
+                let cursor = self.sidebar_mode.cursor_index();
                 let sessions = self.filtered_sessions_by_tab_order();
-                if let Some(session) = sessions.get(self.cursor_index) {
+                if let Some(session) = sessions.get(cursor) {
                     let pane_id = session.pane_id;
                     if let Some(s) = self.sessions.get_mut(&pane_id) {
                         s.paused = !s.paused;
@@ -1253,7 +1251,7 @@ impl PluginState {
             // New tab
             BareKey::Char('n') => {
                 create_new_session_tab();
-                exit_navigation_mode(self);
+                self.exit_to_passive();
                 true
             }
 
@@ -1292,7 +1290,6 @@ impl PluginState {
                         session.display_name = new_name.clone();
                     }
 
-                    // Auto-rename tab if this is the only session on it
                     if let Some(tab_idx) = self.sessions.get(&pane_id).and_then(|s| s.tab_index) {
                         let sessions_on_tab = self.sessions.values()
                             .filter(|s| s.tab_index == Some(tab_idx))

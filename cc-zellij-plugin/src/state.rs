@@ -6,6 +6,12 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use zellij_tile::prelude::*;
 
+/// Grace period for ignoring stale PaneUpdate events after mode entry (ms).
+/// When we call focus_plugin_pane(), the next PaneUpdate may still show a
+/// terminal pane as focused. This grace period prevents that stale event
+/// from triggering an auto-exit.
+pub const ENTER_GRACE_MS: u64 = 300;
+
 /// Plugin instance mode, set via configuration.
 #[derive(Default, Debug, Clone, PartialEq)]
 pub enum PluginMode {
@@ -36,6 +42,150 @@ pub struct Notification {
     pub expires_at_ms: u64,
 }
 
+/// Context shared across all navigation sub-modes.
+#[derive(Debug, Clone)]
+pub struct NavigateContext {
+    /// Cursor position in the session list.
+    pub cursor_index: usize,
+    /// Pane + tab to restore on Esc.
+    pub restore: Option<(u32, usize)>,
+    /// Timestamp (ms) when this mode was entered, for PaneUpdate grace period.
+    pub entered_at_ms: u64,
+}
+
+/// The sidebar interaction mode. Replaces the previous set of independent
+/// boolean/option fields with a single enum that makes illegal state
+/// combinations unrepresentable.
+#[derive(Default, Debug, Clone)]
+pub enum SidebarMode {
+    /// Passive: sidebar displays sessions but captures no input.
+    #[default]
+    Passive,
+
+    /// Cursor navigation active (amber highlight).
+    Navigate(NavigateContext),
+
+    /// Search/filter input active (sub-mode of navigate).
+    NavigateFilter {
+        ctx: NavigateContext,
+        filter: FilterState,
+    },
+
+    /// Delete confirmation pending (sub-mode of navigate).
+    NavigateDeleteConfirm {
+        ctx: NavigateContext,
+        pane_id: u32,
+    },
+
+    /// Inline rename within navigation (via 'r' key).
+    NavigateRename {
+        ctx: NavigateContext,
+        rename: RenameState,
+    },
+
+    /// Rename initiated from passive mode (double-click, right-click).
+    RenamePassive {
+        rename: RenameState,
+        /// Timestamp (ms) when rename was entered, for PaneUpdate grace period.
+        entered_at_ms: u64,
+    },
+}
+
+
+impl SidebarMode {
+    /// Whether the sidebar should be selectable (captures mouse/keyboard).
+    pub fn is_selectable(&self) -> bool {
+        !matches!(self, SidebarMode::Passive)
+    }
+
+    /// Whether we're in any navigation sub-mode.
+    pub fn is_navigating(&self) -> bool {
+        matches!(
+            self,
+            SidebarMode::Navigate(_)
+                | SidebarMode::NavigateFilter { .. }
+                | SidebarMode::NavigateDeleteConfirm { .. }
+                | SidebarMode::NavigateRename { .. }
+        )
+    }
+
+    /// Get navigate context reference (if in any navigate sub-mode).
+    pub fn nav_ctx(&self) -> Option<&NavigateContext> {
+        match self {
+            SidebarMode::Navigate(ctx)
+            | SidebarMode::NavigateFilter { ctx, .. }
+            | SidebarMode::NavigateDeleteConfirm { ctx, .. }
+            | SidebarMode::NavigateRename { ctx, .. } => Some(ctx),
+            _ => None,
+        }
+    }
+
+    /// Get mutable navigate context reference (if in any navigate sub-mode).
+    pub fn nav_ctx_mut(&mut self) -> Option<&mut NavigateContext> {
+        match self {
+            SidebarMode::Navigate(ctx)
+            | SidebarMode::NavigateFilter { ctx, .. }
+            | SidebarMode::NavigateDeleteConfirm { ctx, .. }
+            | SidebarMode::NavigateRename { ctx, .. } => Some(ctx),
+            _ => None,
+        }
+    }
+
+    /// Get cursor index (if in a navigation sub-mode).
+    pub fn cursor_index(&self) -> usize {
+        self.nav_ctx().map(|ctx| ctx.cursor_index).unwrap_or(0)
+    }
+
+    /// Whether within the entry grace period (stale PaneUpdate suppression).
+    /// Uses timestamp comparison instead of a boolean guard flag: if the
+    /// stale PaneUpdate never arrives, the grace period expires naturally.
+    pub fn in_grace_period(&self, now_ms: u64) -> bool {
+        let entered = match self {
+            SidebarMode::Navigate(ctx)
+            | SidebarMode::NavigateFilter { ctx, .. }
+            | SidebarMode::NavigateDeleteConfirm { ctx, .. }
+            | SidebarMode::NavigateRename { ctx, .. } => ctx.entered_at_ms,
+            SidebarMode::RenamePassive { entered_at_ms, .. } => *entered_at_ms,
+            SidebarMode::Passive => return false,
+        };
+        now_ms.saturating_sub(entered) < ENTER_GRACE_MS
+    }
+
+    /// Get the rename state if currently renaming (from any parent mode).
+    pub fn rename_state(&self) -> Option<&RenameState> {
+        match self {
+            SidebarMode::NavigateRename { rename, .. }
+            | SidebarMode::RenamePassive { rename, .. } => Some(rename),
+            _ => None,
+        }
+    }
+
+    /// Get mutable rename state if currently renaming.
+    pub fn rename_state_mut(&mut self) -> Option<&mut RenameState> {
+        match self {
+            SidebarMode::NavigateRename { rename, .. }
+            | SidebarMode::RenamePassive { rename, .. } => Some(rename),
+            _ => None,
+        }
+    }
+
+    /// Get the filter state if currently filtering.
+    pub fn filter_state(&self) -> Option<&FilterState> {
+        match self {
+            SidebarMode::NavigateFilter { filter, .. } => Some(filter),
+            _ => None,
+        }
+    }
+
+    /// Get the delete confirm pane_id if pending.
+    pub fn delete_confirm_pane(&self) -> Option<u32> {
+        match self {
+            SidebarMode::NavigateDeleteConfirm { pane_id, .. } => Some(*pane_id),
+            _ => None,
+        }
+    }
+}
+
 /// The aggregate state held by each plugin instance.
 #[derive(Default)]
 pub struct PluginState {
@@ -59,8 +209,6 @@ pub struct PluginState {
     pub permissions_granted: bool,
     /// Current Zellij input mode.
     pub input_mode: InputMode,
-    /// Active rename operation (if any).
-    pub rename_state: Option<RenameState>,
     /// Brief notification to display.
     pub notification: Option<Notification>,
     /// Guard flag to prevent re-entrancy from rename_tab -> TabUpdate loops.
@@ -69,30 +217,16 @@ pub struct PluginState {
     pub pending_events: Vec<Event>,
     /// Click regions from the last render (row, pane_id, tab_index).
     pub click_regions: Vec<(usize, u32, usize)>,
-    /// Whether the sidebar is in keyboard navigation mode.
-    pub navigation_mode: bool,
-    /// Cursor index in the sorted session list (navigation mode).
-    pub cursor_index: usize,
-    /// Active search/filter state (navigation mode `/` sub-mode).
-    pub filter_state: Option<FilterState>,
-    /// Pane ID of session pending delete confirmation.
-    pub delete_confirm: Option<u32>,
-    /// Pane ID + tab index that was focused before entering navigation mode (for Esc restore).
-    pub nav_restore: Option<(u32, usize)>,
+    /// The sidebar interaction mode (single enum replaces scattered booleans).
+    pub sidebar_mode: SidebarMode,
     /// Last pane_id that attend switched to, for round-robin cycling.
     pub last_attended_pane_id: Option<u32>,
     /// Whether the help overlay is displayed.
     pub show_help: bool,
     /// Tab index that this plugin instance lives on (derived from PaneManifest).
     pub my_tab_index: Option<usize>,
-    /// Guard: skip next PaneUpdate auto-exit after entering navigation mode.
-    /// Entering nav mode triggers a PaneUpdate with stale focus before
-    /// focus_plugin_pane takes effect, which would immediately exit nav mode.
-    pub nav_enter_guard: bool,
     /// Last left-click timestamp (ms) and pane_id for double-click detection.
     pub last_click: Option<(u64, u32)>,
-    /// Guard: skip next PaneUpdate rename-cancel after entering rename via mouse.
-    pub rename_enter_guard: bool,
     /// Pending metadata overrides from snapshot restore, keyed by working directory.
     /// Applied when a hook event arrives with a matching CWD, then removed.
     pub pending_overrides: HashMap<String, PendingOverride>,
@@ -266,6 +400,47 @@ impl PluginState {
             .map(|deadline| crate::session::unix_now_ms() < deadline)
             .unwrap_or(false)
     }
+
+    /// Preserve cursor position by clamping after session list changes.
+    pub fn preserve_cursor(&mut self) {
+        if let Some(ctx) = self.sidebar_mode.nav_ctx_mut() {
+            let count = self.sessions.len();
+            if count == 0 {
+                ctx.cursor_index = 0;
+            } else if ctx.cursor_index >= count {
+                ctx.cursor_index = count - 1;
+            }
+        }
+    }
+
+    /// Get filtered sessions in tab order (respects active filter).
+    pub fn filtered_sessions_by_tab_order(&self) -> Vec<&Session> {
+        let mut sessions: Vec<_> = if let Some(filter) = self.sidebar_mode.filter_state() {
+            if filter.input_buffer.is_empty() {
+                self.sessions.values().collect()
+            } else {
+                let lower = filter.input_buffer.to_lowercase();
+                self.sessions.values()
+                    .filter(|s| s.display_name.to_lowercase().contains(&lower))
+                    .collect()
+            }
+        } else {
+            self.sessions.values().collect()
+        };
+        sessions.sort_by_key(|s| s.tab_index.unwrap_or(usize::MAX));
+        sessions
+    }
+
+    /// Count sessions matching a filter string.
+    pub fn filtered_session_count(&self, filter: &str) -> usize {
+        if filter.is_empty() {
+            return self.sessions.len();
+        }
+        let lower = filter.to_lowercase();
+        self.sessions.values()
+            .filter(|s| s.display_name.to_lowercase().contains(&lower))
+            .count()
+    }
 }
 
 #[cfg(test)]
@@ -319,19 +494,13 @@ mod tests {
     #[test]
     fn test_grace_period_skips_dead_session_removal() {
         let mut state = PluginState::default();
-        // Simulate restored cached sessions for panes 10 and 20
         state.sessions.insert(10, make_session(10));
         state.sessions.insert(20, make_session(20));
-        // Manifest only has pane 10 (pane 20 not yet reported)
         state.pane_manifest = Some(make_manifest(&[10]));
-        // Set grace period 3 seconds in the future
         state.startup_grace_until =
             Some(crate::session::unix_now_ms() + 3000);
 
-        // During grace period, remove_dead_sessions should still work
-        // but the caller (PaneUpdate handler) should skip calling it.
         assert!(state.in_startup_grace());
-        // Verify sessions are still intact (caller would skip the call)
         assert_eq!(state.sessions.len(), 2);
     }
 
@@ -340,13 +509,10 @@ mod tests {
         let mut state = PluginState::default();
         state.sessions.insert(10, make_session(10));
         state.sessions.insert(20, make_session(20));
-        // Manifest only has pane 10 (pane 20 is dead)
         state.pane_manifest = Some(make_manifest(&[10]));
-        // Grace period already expired
         state.startup_grace_until = Some(0);
 
         assert!(!state.in_startup_grace());
-        // Now remove_dead_sessions runs and removes pane 20
         let changed = state.remove_dead_sessions();
         assert!(changed);
         assert_eq!(state.sessions.len(), 1);
@@ -357,12 +523,10 @@ mod tests {
     #[test]
     fn test_grace_period_no_effect_on_empty_sessions() {
         let mut state = PluginState::default();
-        // No sessions in cache (fresh start)
         state.pane_manifest = Some(make_manifest(&[10, 20]));
         state.startup_grace_until =
             Some(crate::session::unix_now_ms() + 3000);
 
-        // Grace period is active but irrelevant (no sessions to protect)
         assert!(state.in_startup_grace());
         let changed = state.remove_dead_sessions();
         assert!(!changed);
@@ -375,7 +539,6 @@ mod tests {
         state.sessions.insert(10, make_session(10));
         state.sessions.insert(20, make_session(20));
         state.pane_manifest = Some(make_manifest(&[10]));
-        // No grace period set (normal operation, not a reattach)
         assert!(state.startup_grace_until.is_none());
         assert!(!state.in_startup_grace());
 
@@ -383,5 +546,57 @@ mod tests {
         assert!(changed);
         assert_eq!(state.sessions.len(), 1);
     }
-}
 
+    #[test]
+    fn test_sidebar_mode_passive_not_selectable() {
+        assert!(!SidebarMode::Passive.is_selectable());
+        assert!(!SidebarMode::Passive.is_navigating());
+    }
+
+    #[test]
+    fn test_sidebar_mode_navigate_selectable() {
+        let mode = SidebarMode::Navigate(NavigateContext {
+            cursor_index: 0,
+            restore: None,
+            entered_at_ms: 0,
+        });
+        assert!(mode.is_selectable());
+        assert!(mode.is_navigating());
+        assert_eq!(mode.cursor_index(), 0);
+    }
+
+    #[test]
+    fn test_sidebar_mode_grace_period() {
+        let mode = SidebarMode::Navigate(NavigateContext {
+            cursor_index: 0,
+            restore: None,
+            entered_at_ms: 1000,
+        });
+        // Within grace period
+        assert!(mode.in_grace_period(1100));
+        // After grace period
+        assert!(!mode.in_grace_period(1500));
+    }
+
+    #[test]
+    fn test_sidebar_mode_rename_passive_grace() {
+        let mode = SidebarMode::RenamePassive {
+            rename: RenameState {
+                pane_id: 42,
+                input_buffer: "test".into(),
+                cursor_pos: 4,
+            },
+            entered_at_ms: 1000,
+        };
+        assert!(mode.is_selectable());
+        assert!(!mode.is_navigating());
+        assert!(mode.in_grace_period(1100));
+        assert!(!mode.in_grace_period(1500));
+    }
+
+    #[test]
+    fn test_sidebar_mode_passive_no_grace() {
+        assert!(!SidebarMode::Passive.in_grace_period(0));
+        assert!(!SidebarMode::Passive.in_grace_period(u64::MAX));
+    }
+}
