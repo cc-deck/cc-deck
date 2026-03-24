@@ -74,7 +74,7 @@ func TestFindProjectConfig_NotGitRepo(t *testing.T) {
 
 	_, err := FindProjectConfig(dir)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrNotGitRepo)
+	assert.ErrorIs(t, err, ErrNoProjectConfig)
 }
 
 func TestFindProjectConfig_FromSubdirectory(t *testing.T) {
@@ -91,6 +91,91 @@ func TestFindProjectConfig_FromSubdirectory(t *testing.T) {
 	root, err := FindProjectConfig(sub)
 	require.NoError(t, err)
 	assert.Equal(t, CanonicalPath(dir), root)
+}
+
+// --- Workspace detection tests ---
+
+func createWorkspaceConfig(t *testing.T, dir string) {
+	t.Helper()
+	ccDeckDir := filepath.Join(dir, ".cc-deck")
+	require.NoError(t, os.MkdirAll(ccDeckDir, 0o755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(ccDeckDir, "environment.yaml"),
+		[]byte("name: workspace-test\ntype: compose\n"), 0o644))
+}
+
+func TestFindWorkspaceRoot_Found(t *testing.T) {
+	dir := t.TempDir()
+	createWorkspaceConfig(t, dir)
+
+	root, err := FindWorkspaceRoot(dir)
+	require.NoError(t, err)
+	assert.Equal(t, CanonicalPath(dir), root)
+}
+
+func TestFindWorkspaceRoot_FromSubdirectory(t *testing.T) {
+	dir := t.TempDir()
+	createWorkspaceConfig(t, dir)
+
+	sub := filepath.Join(dir, "repo-a", "src", "pkg")
+	require.NoError(t, os.MkdirAll(sub, 0o755))
+
+	root, err := FindWorkspaceRoot(sub)
+	require.NoError(t, err)
+	assert.Equal(t, CanonicalPath(dir), root)
+}
+
+func TestFindWorkspaceRoot_NotFound(t *testing.T) {
+	dir := t.TempDir()
+
+	_, err := FindWorkspaceRoot(dir)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrNoWorkspaceConfig)
+}
+
+func TestFindProjectConfig_WorkspaceWithoutGit(t *testing.T) {
+	// Workspace directory (no .git/) with .cc-deck/environment.yaml.
+	dir := t.TempDir()
+	createWorkspaceConfig(t, dir)
+
+	sub := filepath.Join(dir, "some-subdir")
+	require.NoError(t, os.MkdirAll(sub, 0o755))
+
+	root, err := FindProjectConfig(sub)
+	require.NoError(t, err)
+	assert.Equal(t, CanonicalPath(dir), root)
+}
+
+func TestFindProjectConfig_GitRepoInsideWorkspace(t *testing.T) {
+	// Workspace has .cc-deck/, child git repo does not.
+	// Should find the workspace config via walk-up.
+	workspace := t.TempDir()
+	createWorkspaceConfig(t, workspace)
+
+	gitRepo := filepath.Join(workspace, "repo-a")
+	require.NoError(t, os.MkdirAll(gitRepo, 0o755))
+	initGitRepo(t, gitRepo)
+
+	root, err := FindProjectConfig(gitRepo)
+	require.NoError(t, err)
+	assert.Equal(t, CanonicalPath(workspace), root)
+}
+
+func TestFindProjectConfig_GitRepoWithOwnConfig(t *testing.T) {
+	// Both workspace and git repo have .cc-deck/environment.yaml.
+	// The git repo's own config should win (strategy 1).
+	workspace := t.TempDir()
+	createWorkspaceConfig(t, workspace)
+
+	gitRepo := filepath.Join(workspace, "repo-b")
+	require.NoError(t, os.MkdirAll(gitRepo, 0o755))
+	initGitRepo(t, gitRepo)
+	createWorkspaceConfig(t, gitRepo)
+
+	root, err := FindProjectConfig(gitRepo)
+	require.NoError(t, err)
+	assert.Equal(t, CanonicalPath(gitRepo), root,
+		"git repo with own .cc-deck/ should take precedence over workspace")
 }
 
 func TestCanonicalPath_RegularPath(t *testing.T) {

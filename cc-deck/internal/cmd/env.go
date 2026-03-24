@@ -174,6 +174,10 @@ func runEnvCreate(gf *GlobalFlags, name string, cf *createFlags, cmd *cobra.Comm
 	} else if root, gitErr := project.FindGitRoot(cwd); gitErr == nil {
 		// In a git repo but no .cc-deck/environment.yaml.
 		projectRoot = root
+	} else if name != "" {
+		// Not in a git repo and no workspace config found, but explicit
+		// name provided. Use cwd as workspace root for scaffolding.
+		projectRoot = cwd
 	}
 
 	// Resolve environment name.
@@ -211,7 +215,7 @@ func runEnvCreate(gf *GlobalFlags, name string, cf *createFlags, cmd *cobra.Comm
 		}
 	}
 
-	// Scaffold definition if in git repo with no definition.
+	// Scaffold definition if no definition exists yet.
 	if projDef == nil && projectRoot != "" {
 		scaffoldDef := &env.EnvironmentDefinition{
 			Name:           name,
@@ -225,7 +229,9 @@ func runEnvCreate(gf *GlobalFlags, name string, cf *createFlags, cmd *cobra.Comm
 		}
 		projDef = scaffoldDef
 		fmt.Fprintf(os.Stderr, "Created .cc-deck/environment.yaml in %s\n", projectRoot)
-		fmt.Fprintf(os.Stderr, "Commit .cc-deck/ to share the definition with your team.\n")
+		if _, gitErr := project.FindGitRoot(projectRoot); gitErr == nil {
+			fmt.Fprintf(os.Stderr, "Commit .cc-deck/ to share the definition with your team.\n")
+		}
 	}
 
 	// Apply project-local definition values, with CLI flags taking precedence.
