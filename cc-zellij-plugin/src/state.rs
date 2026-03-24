@@ -234,6 +234,14 @@ pub struct PluginState {
     /// Prevents the startup race condition where early PaneUpdate events deliver
     /// incomplete manifests that would wipe restored cached sessions.
     pub startup_grace_until: Option<u64>,
+    /// Pane IDs with in-flight git branch detection commands.
+    /// Prevents spawning duplicate `run_command` calls that leak file descriptors.
+    pub pending_git_branch: std::collections::HashSet<u32>,
+    /// Timestamp (ms) of the last timer-driven git branch poll.
+    /// Git branch detection is event-driven on cwd changes; the timer poll
+    /// is only a fallback for in-place `git checkout` and runs at a slower
+    /// cadence (60s) to avoid unnecessary process spawns.
+    pub last_git_poll_ms: u64,
 }
 
 /// Metadata override to apply when a restored session is discovered.
@@ -331,6 +339,8 @@ impl PluginState {
 
         self.sessions.retain(|pane_id, _| all_pane_ids.contains(pane_id));
         if self.sessions.len() != before {
+            // Clean up pending git tracking for removed sessions
+            self.pending_git_branch.retain(|id| self.sessions.contains_key(id));
             crate::debug_log(&format!("CLEANUP removed {} dead sessions, {} remaining",
                 before - self.sessions.len(), self.sessions.len()));
         }
