@@ -47,12 +47,12 @@ jobs:
 
       - name: Download release binary
         run: |
-          mkdir -p demo-image/.build-context
+          mkdir -p demo-image/build-context
           VERSION=${{ steps.version.outputs.version }}
           curl -fsSL "https://github.com/cc-deck/cc-deck/releases/download/${GITHUB_REF_NAME}/cc-deck_${VERSION}_linux_amd64.tar.gz" \
             | tar -xzf - -C /tmp cc-deck
-          mv /tmp/cc-deck demo-image/.build-context/cc-deck-linux-amd64
-          chmod +x demo-image/.build-context/cc-deck-linux-amd64
+          mv /tmp/cc-deck demo-image/build-context/cc-deck-linux-amd64
+          chmod +x demo-image/build-context/cc-deck-linux-amd64
 
       - name: Log in to quay.io
         run: podman login -u "${{ secrets.QUAY_USERNAME }}" -p "${{ secrets.QUAY_PASSWORD }}" quay.io

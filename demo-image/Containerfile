@@ -30,7 +30,7 @@ RUN ARCH=$(uname -m) && \
     chmod +x /usr/local/bin/cc-setup
 
 # cc-deck self-install (Zellij + plugin + layouts + hooks)
-COPY .build-context/cc-deck-linux-${TARGETARCH} /usr/local/bin/cc-deck
+COPY build-context/cc-deck-linux-${TARGETARCH} /usr/local/bin/cc-deck
 RUN chmod +x /usr/local/bin/cc-deck && \
     mkdir -p /home/dev/.claude /home/dev/.cache/zellij /home/dev/.cache/claude /home/dev/.local/bin /home/dev/.local/share && \
     HOME=/home/dev \

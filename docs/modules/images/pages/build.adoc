@@ -28,7 +28,7 @@ make cross-cli
 +
 [source,bash]
 ----
-cp cc-deck/cc-deck-linux-* /path/to/my-image/.build-context/
+cp cc-deck/cc-deck-linux-* /path/to/my-image/build-context/
 ----
 
 Or use the one-step `make test-image` which does both.
@@ -52,7 +52,7 @@ You can override this in your input:
 /cc-deck.build for linux/arm64 only
 ----
 
-The Containerfile uses `$\{TARGETARCH}` for architecture-dependent downloads, and the cc-deck binary is copied per-architecture from `.build-context/cc-deck-linux-$\{TARGETARCH}`.
+The Containerfile uses `$\{TARGETARCH}` for architecture-dependent downloads, and the cc-deck binary is copied per-architecture from `build-context/cc-deck-linux-$\{TARGETARCH}`.
 
 == Self-Correction
 

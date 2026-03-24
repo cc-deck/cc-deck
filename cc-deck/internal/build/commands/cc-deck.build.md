@@ -68,7 +68,7 @@ RUN ARCH=$(uname -m) && \
 # MANDATORY Layer: cc-deck self-install (Zellij + plugin + layouts + hooks)
 # Single install pass with HOME=/home/dev so both Zellij config and
 # Claude hooks (~/.claude/settings.json) go to the dev user's home.
-COPY .build-context/cc-deck-linux-${TARGETARCH} /usr/local/bin/cc-deck
+COPY build-context/cc-deck-linux-${TARGETARCH} /usr/local/bin/cc-deck
 RUN chmod +x /usr/local/bin/cc-deck && \
     mkdir -p /home/dev/.claude /home/dev/.cache/zellij && \
     HOME=/home/dev \
@@ -98,7 +98,7 @@ CMD ["sleep", "infinity"]
 
 **Settings handling** (read the `settings` section from the manifest):
 
-For each setting, copy the source file to `.build-context/` during Step 4, then add the matching COPY instruction to the Containerfile:
+For each setting, copy the source file to `build-context/` during Step 4, then add the matching COPY instruction to the Containerfile:
 
 | Manifest field | Source | Container destination | Notes |
 |---|---|---|---|
@@ -125,21 +125,21 @@ RUN cat /home/dev/.<shell>rc.custom >> /home/dev/.<shell>rc && rm /home/dev/.<sh
 
 # Zellij user config (if settings.zellij_config is set)
 # IMPORTANT: ensure default_shell matches the chosen shell (from settings.shell, default "zsh")
-COPY --chown=dev:dev .build-context/zellij-config.kdl /home/dev/.config/zellij/config.kdl
+COPY --chown=dev:dev build-context/zellij-config.kdl /home/dev/.config/zellij/config.kdl
 RUN grep -q 'default_shell' /home/dev/.config/zellij/config.kdl || \
     echo 'default_shell "<chosen-shell>"' >> /home/dev/.config/zellij/config.kdl
 
 # Claude global instructions (if settings.claude_md is set)
-COPY --chown=dev:dev .build-context/CLAUDE.md /home/dev/.claude/CLAUDE.md
+COPY --chown=dev:dev build-context/CLAUDE.md /home/dev/.claude/CLAUDE.md
 
 # Claude settings merge (if settings.claude_settings, hooks, or mcp_settings is set)
-COPY --chown=dev:dev .build-context/settings.json /home/dev/.claude/settings.json
+COPY --chown=dev:dev build-context/settings.json /home/dev/.claude/settings.json
 
 # cc-setup MCP cache (if settings.cc_setup_mcp is set)
-COPY --chown=dev:dev .build-context/cc-setup-mcp.json /home/dev/.config/cc-setup/mcp.json
+COPY --chown=dev:dev build-context/cc-setup-mcp.json /home/dev/.config/cc-setup/mcp.json
 ```
 
-**Merge strategy for settings.json**: Read the existing `/home/dev/.claude/settings.json` (created by cc-deck plugin install with hooks), merge in user preferences from the specified file, write the merged result to `.build-context/settings.json`. Never overwrite cc-deck hooks.
+**Merge strategy for settings.json**: Read the existing `/home/dev/.claude/settings.json` (created by cc-deck plugin install with hooks), merge in user preferences from the specified file, write the merged result to `build-context/settings.json`. Never overwrite cc-deck hooks.
 
 ### Step 3: Check for existing Containerfile
 
@@ -157,16 +157,16 @@ If no Containerfile exists, write the generated one directly.
 
 ### Step 4: Prepare the build context
 
-1. Create `.build-context/` directory
+1. Create `build-context/` directory
 2. Locate pre-built cc-deck binaries. They must already exist (built via `make cross-cli` before running this command). Search in this order:
-   - `.build-context/cc-deck-linux-amd64` and `.build-context/cc-deck-linux-arm64` (already in place)
+   - `build-context/cc-deck-linux-amd64` and `build-context/cc-deck-linux-arm64` (already in place)
    - `cc-deck/cc-deck-linux-amd64` and `cc-deck/cc-deck-linux-arm64` (in the source repo)
    - Ask the user for the path to the cc-deck source repo
-3. Copy the binaries to `.build-context/` if not already there:
+3. Copy the binaries to `build-context/` if not already there:
    ```bash
-   mkdir -p .build-context
-   cp <path>/cc-deck-linux-amd64 .build-context/
-   cp <path>/cc-deck-linux-arm64 .build-context/
+   mkdir -p build-context
+   cp <path>/cc-deck-linux-amd64 build-context/
+   cp <path>/cc-deck-linux-arm64 build-context/
    ```
 4. **NEVER compile cc-deck during the build**. If binaries are not found, stop and tell the user to run `make cross-cli` from the cc-deck source repo first
 
@@ -249,7 +249,7 @@ On success, show:
 
 - Never modify `cc-deck-build.yaml` (the manifest is the source of truth)
 - **NEVER omit the 3 mandatory layers** (cc-deck+Zellij, Claude Code, hooks). Every Containerfile must include them
-- Always use `.build-context/cc-deck-linux-${TARGETARCH}` as the COPY source in the Containerfile
+- Always use `build-context/cc-deck-linux-${TARGETARCH}` as the COPY source in the Containerfile
 - Always set `ZELLIJ_CONFIG_DIR=/home/dev/.config/zellij` when running `cc-deck plugin install` as root
 - Containerfile fixes during the build loop are expected and encouraged
 - Combine related `dnf install` calls into a single RUN for layer efficiency

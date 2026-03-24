@@ -15,7 +15,7 @@ This creates a directory with:
 ----
 my-image/
 ├── cc-deck-build.yaml          # The manifest (source of truth)
-├── .gitignore                  # Ignores .build-context/ and Containerfile
+├── .gitignore                  # Ignores build-context/ and Containerfile
 └── .claude/
     ├── commands/               # AI-driven slash commands
     │   ├── cc-deck.build.md
