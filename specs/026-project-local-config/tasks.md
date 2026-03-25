@@ -150,8 +150,8 @@ NOTE: User Story 2 (Initialize) was merged into User Story 1 (Create). `env crea
 
 **Purpose**: Documentation, validation, and cleanup.
 
-- [ ] T037 [P] Update README.md with project-local config feature description, usage examples, and updated Feature Specifications table
-- [ ] T038 [P] Update CLI reference in `docs/modules/reference/pages/cli.adoc` with env prune, --variant, --worktrees, --branch flags
+- [x] T037 [P] Update README.md with project-local config feature description, usage examples, and updated Feature Specifications table
+- [x] T038 [P] Update CLI reference in `docs/modules/reference/pages/cli.adoc` with env prune, --variant, --worktrees, --branch flags
 - [x] T039 Run `make test` and `make lint` to verify all tests pass and no lint issues
 - [x] T040 Run quickstart.md validation: verify all 12 implementation steps are covered by tasks
 
