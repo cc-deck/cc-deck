@@ -353,7 +353,7 @@ The `.cc-deck/` directory separates committed artifacts from runtime state:
   run/                # Gitignored: generated compose files
 ```
 
-When no environment name is provided, `cc-deck` walks from the current directory to the git root looking for `.cc-deck/environment.yaml`. All lifecycle commands (attach, status, start, stop, delete) support this implicit resolution.
+When no environment name is provided, `cc-deck` looks for `.cc-deck/environment.yaml` at the git root, then walks up the directory tree for workspace-level definitions. This supports both single-repo projects and multi-repo workspaces. All lifecycle commands (attach, status, start, stop, delete) support this implicit resolution.
 
 ### Compose Environments
 
@@ -436,5 +436,5 @@ cc-deck follows [Spec-Driven Development](CONTRIBUTING.md#spec-driven-developmen
 | [024](specs/024-container-env/) | Container Environment | `podman run` lifecycle, definition/state separation, podman package | Implemented |
 | [025](specs/025-sidebar-state-refresh/) | Sidebar State Refresh on Reattach | In Progress |
 | [025](specs/025-compose-env/) | Compose Environment | Multi-container orchestration via `podman-compose`, optional network filtering | In Progress |
-| [026](specs/026-project-local-config/) | Project-Local Config | `.cc-deck/` directory with shareable definitions, implicit name resolution, global registry | In Progress |
+| [026](specs/026-project-local-config/) | Project-Local Config | `.cc-deck/` directory with shareable definitions, implicit name resolution, workspace support | Implemented |
 | [027](specs/027-cli-restructuring/) | CLI Command Restructuring | Promote daily commands to top level, remove legacy K8s commands, organize help groups | In Progress |

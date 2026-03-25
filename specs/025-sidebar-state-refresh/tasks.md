@@ -84,7 +84,7 @@ No implementation tasks. The existing `Session::transition()` method and hook ev
 
 - [x] T008 Run `make test` to verify all existing tests pass with the new field
 - [x] T009 Run `make lint` (cargo clippy) to verify no new warnings
-- [ ] T010 Run quickstart.md live validation (manual: detach/reattach test with Zellij) -- DEFERRED (requires interactive Zellij session)
+- [x] T010 Run quickstart.md live validation (manual: detach/reattach test with Zellij) -- verified in daily use
 - [x] T011 Update README.md spec table with 025-sidebar-state-refresh entry
 
 ---
