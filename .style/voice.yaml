@@ -142,7 +142,7 @@ domain_vocabulary:
   # Field names: monospace format
   monospace_fields: true
   field_examples:
-    - "`cc-deck-build.yaml`"
+    - "`cc-deck-image.yaml`"
     - "`image.base`"
     - "`settings.zellij_config`"
     - "`Alt+s`"

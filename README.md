@@ -236,7 +236,7 @@ Containerized sessions can be restricted to only the network domains your projec
 
 ### Quick Setup
 
-Add a `network` section to your `cc-deck-build.yaml`:
+Add a `network` section to your `cc-deck-image.yaml`:
 
 ```yaml
 network:

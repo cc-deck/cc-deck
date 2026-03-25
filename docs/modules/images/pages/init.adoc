@@ -14,7 +14,7 @@ This creates a directory with:
 [source,text]
 ----
 my-image/
-├── cc-deck-build.yaml          # The manifest (source of truth)
+├── cc-deck-image.yaml          # The manifest (source of truth)
 ├── .gitignore                  # Ignores build-context/ and Containerfile
 └── .claude/
     ├── commands/               # AI-driven slash commands
@@ -28,7 +28,7 @@ my-image/
 
 == The Manifest
 
-The generated `cc-deck-build.yaml` contains your image name and the default base image, with all other sections commented out as examples:
+The generated `cc-deck-image.yaml` contains your image name and the default base image, with all other sections commented out as examples:
 
 [source,yaml]
 ----
@@ -54,7 +54,7 @@ You populate the manifest using the Claude Code commands or by editing it direct
 
 `--force` (`-f`)::
 Overwrite an existing build directory.
-Without this flag, `init` refuses to overwrite if `cc-deck-build.yaml` already exists.
+Without this flag, `init` refuses to overwrite if `cc-deck-image.yaml` already exists.
 
 == Next Steps
 

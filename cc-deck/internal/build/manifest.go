@@ -7,7 +7,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Manifest represents the cc-deck-build.yaml file.
+// Manifest represents the cc-deck-image.yaml file.
 type Manifest struct {
 	Version     int              `yaml:"version"`
 	Image       ImageConfig      `yaml:"image"`
@@ -81,7 +81,7 @@ type SettingsConfig struct {
 	CCSetupMCP     string `yaml:"cc_setup_mcp,omitempty"`
 }
 
-// LoadManifest reads and parses a cc-deck-build.yaml file.
+// LoadManifest reads and parses a cc-deck-image.yaml file.
 func LoadManifest(path string) (*Manifest, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {

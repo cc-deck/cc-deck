@@ -78,7 +78,7 @@ demos/
 ├── projects/
 │   ├── setup.sh            Create demo projects in /tmp
 │   ├── cleanup.sh          Remove demo projects
-│   ├── cc-deck-build.yaml  Pre-built manifest for image demo
+│   ├── cc-deck-image.yaml  Pre-built manifest for image demo
 │   ├── todo-api/           Python FastAPI template
 │   ├── weather-cli/        Go CLI template
 │   └── portfolio/          HTML/CSS template

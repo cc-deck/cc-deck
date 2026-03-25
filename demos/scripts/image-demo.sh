@@ -50,7 +50,7 @@ pause 1
 
 scene "Review the manifest"
 
-run_command "cat cc-deck-build.yaml"
+run_command "cat cc-deck-image.yaml"
 pause 4
 
 # ─── Scene 3: Copy Pre-Built Manifest ────────────────────────────────────────
@@ -58,11 +58,11 @@ pause 4
 scene "Use demo manifest with tools"
 
 # Copy the pre-built manifest that includes tools for all three demo projects
-if [[ -f "${SCRIPT_DIR}/../projects/cc-deck-build.yaml" ]]; then
-    cp "${SCRIPT_DIR}/../projects/cc-deck-build.yaml" "${BUILD_DIR}/cc-deck-build.yaml"
+if [[ -f "${SCRIPT_DIR}/../projects/cc-deck-image.yaml" ]]; then
+    cp "${SCRIPT_DIR}/../projects/cc-deck-image.yaml" "${BUILD_DIR}/cc-deck-image.yaml"
 fi
 
-run_command "cat cc-deck-build.yaml"
+run_command "cat cc-deck-image.yaml"
 pause 4
 
 # ─── Scene 4: Show Build Commands ────────────────────────────────────────────

@@ -1,8 +1,10 @@
 #!/bin/bash
 set -euo pipefail
 
-# Install all developer tools via dnf in a single layer
-dnf install -y --setopt=install_weak_deps=False \
+# Install all developer tools via microdnf in a single layer.
+# fedora-minimal ships microdnf (dnf5-based), which supports individual
+# package installs but not groups or modules.
+microdnf install -y --setopt=install_weak_deps=False \
   git \
   gh \
   glab \
@@ -37,8 +39,9 @@ dnf install -y --setopt=install_weak_deps=False \
   python3-pip \
   uv \
   zsh \
-  && dnf clean all \
-  && rm -rf /var/cache/dnf
+  shadow-utils \
+  && microdnf clean all \
+  && rm -rf /var/cache/libdnf5
 
 # Install starship from GitHub releases (not available in Fedora repos)
 STARSHIP_VERSION="${STARSHIP_VERSION:-latest}"

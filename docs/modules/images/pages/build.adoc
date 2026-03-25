@@ -14,28 +14,21 @@ Inside Claude Code in your build directory:
 
 == Prerequisites
 
-Before running the build command:
+The build command automatically downloads cc-deck Linux binaries (amd64 + arm64) from GitHub Releases, matching your installed cc-deck version.
+No manual cross-compilation is needed.
 
-1. Cross-compile the cc-deck binary for the target platforms:
-+
+If you are running a development build (version `dev`), pre-place the binaries manually:
+
 [source,bash]
 ----
 # From the cc-deck source repo
 make cross-cli
+cp cc-deck/cc-deck-linux-* .cc-deck/image/build-context/
 ----
-
-2. Copy the binaries to your build directory:
-+
-[source,bash]
-----
-cp cc-deck/cc-deck-linux-* /path/to/my-image/build-context/
-----
-
-Or use the one-step `make test-image` which does both.
 
 == What Happens
 
-1. **Manifest validation**: Checks that `cc-deck-build.yaml` has the required fields
+1. **Manifest validation**: Checks that `cc-deck-image.yaml` has the required fields
 2. **Containerfile generation**: Resolves free-form tool descriptions to concrete install commands
 3. **Existing file check**: If a Containerfile exists, shows a diff and asks whether to use the new or existing version
 4. **Build**: Runs the container build with a 10-minute timeout
@@ -65,7 +58,7 @@ When a build step fails, Claude Code:
 5. Retries the build (cached layers are reused)
 
 Common fixes include:
-* Fedora 41+ uses DNF 5, so `dnf module` commands are replaced with `dnf install`
+* `dnf` replaced with `microdnf` (fedora-minimal does not include full dnf)
 * Wrong package names are corrected via `dnf search`
 * Download URLs are fixed for the correct architecture
 

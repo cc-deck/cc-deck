@@ -80,5 +80,5 @@ NOTE: Only environment variable names for authentication are stored in the manif
 
 == After Selection
 
-The command updates `cc-deck-build.yaml` with your selections and copies the relevant files to the build directory.
+The command updates `cc-deck-image.yaml` with your selections and copies the relevant files to the build directory.
 Run `/cc-deck.build` next to generate the Containerfile and build the image.

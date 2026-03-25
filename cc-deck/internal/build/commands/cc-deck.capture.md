@@ -8,7 +8,7 @@ $ARGUMENTS
 
 ## Outline
 
-Scan local repositories and host configuration, then update the `cc-deck-build.yaml` manifest with everything needed to build a container image that mirrors your development setup.
+Scan local repositories and host configuration, then update the `cc-deck-image.yaml` manifest with everything needed to build a container image that mirrors your development setup.
 
 The command runs through sections in order. Each section presents findings and lets the user accept, edit, or skip.
 

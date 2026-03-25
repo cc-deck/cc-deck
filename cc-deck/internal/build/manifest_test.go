@@ -22,7 +22,7 @@ network:
     - custom.example.com
 `
 	dir := t.TempDir()
-	path := filepath.Join(dir, "cc-deck-build.yaml")
+	path := filepath.Join(dir, "cc-deck-image.yaml")
 	require.NoError(t, os.WriteFile(path, []byte(content), 0644))
 
 	m, err := LoadManifest(path)
@@ -39,7 +39,7 @@ image:
   name: my-image
 `
 	dir := t.TempDir()
-	path := filepath.Join(dir, "cc-deck-build.yaml")
+	path := filepath.Join(dir, "cc-deck-image.yaml")
 	require.NoError(t, os.WriteFile(path, []byte(content), 0644))
 
 	m, err := LoadManifest(path)
