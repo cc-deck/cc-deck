@@ -1,6 +1,6 @@
 = Settings Selection
 
-The `/cc-deck.settings` command is an interactive wizard that discovers your local settings and lets you choose what to bake into the container image.
+The `/cc-deck.capture` command is an interactive wizard that discovers your local settings and lets you choose what to bake into the container image.
 
 == Usage
 
@@ -8,7 +8,7 @@ Inside Claude Code in your build directory:
 
 [source,text]
 ----
-/cc-deck.settings
+/cc-deck.capture
 ----
 
 The command walks through five sections, presenting what it finds and letting you select what to include.
