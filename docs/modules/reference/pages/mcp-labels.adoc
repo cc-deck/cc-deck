@@ -49,7 +49,7 @@ LABEL cc-deck.mcp/description="GitHub API access for issue and PR management"
 
 == How Labels Are Used
 
-When `/cc-deck.settings` (Section E) encounters a container image reference, it inspects the image for `cc-deck.mcp/*` labels:
+When `/cc-deck.capture` (Section E) encounters a container image reference, it inspects the image for `cc-deck.mcp/*` labels:
 
 [source,bash]
 ----

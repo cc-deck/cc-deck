@@ -113,7 +113,7 @@ For each setting, copy the source file to `build-context/` during Step 4, then a
 | `settings.mcp_settings` | The specified path | Merge into `/home/dev/.claude/settings.json` | npx-based MCP server configs |
 | `settings.cc_setup_mcp` | The specified path | `/home/dev/.config/cc-setup/mcp.json` | cc-setup MCP server cache |
 
-Use `/cc-deck.settings` to interactively select what to include before building.
+Use `/cc-deck.capture` to interactively select what to include before building.
 
 **Containerfile COPY examples** (add these to the "User configuration" layer):
 

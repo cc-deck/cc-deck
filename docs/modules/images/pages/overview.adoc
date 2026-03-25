@@ -20,10 +20,10 @@ Four Claude Code commands drive the process:
 |===
 | Command | Purpose
 
-| `/cc-deck.extract`
+| `/cc-deck.capture`
 | Analyze your repositories and discover tool dependencies automatically.
 
-| `/cc-deck.settings`
+| `/cc-deck.capture`
 | Select which local settings (zsh config, Zellij theme, Claude Code plugins, MCP servers) to bake in.
 
 | `/cc-deck.build`
