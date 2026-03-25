@@ -1,6 +1,6 @@
 = Manifest Schema Reference
 
-The `cc-deck-build.yaml` manifest defines the desired contents of a container image.
+The `cc-deck-image.yaml` manifest defines the desired contents of a container image.
 For usage context, see xref:images:manifest.adoc[Manifest Reference] in the Images module.
 
 This page provides the complete field reference.

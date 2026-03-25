@@ -103,13 +103,17 @@ TEST_IMAGE_DIR ?= /tmp/cc-deck-test-image
 test-image: build cross-cli  ## Build cc-deck, cross-compile, init test dir, and open in Claude Code
 	rm -rf $(TEST_IMAGE_DIR)
 	$(CLI_BIN) image init $(TEST_IMAGE_DIR)
-	mkdir -p $(TEST_IMAGE_DIR)/build-context
-	cp cc-deck/cc-deck-linux-* $(TEST_IMAGE_DIR)/build-context/
 	@echo ""
 	@echo "Test directory ready: $(TEST_IMAGE_DIR)"
 	@echo ""
+	@echo "  Dev builds: cross-compiled binaries placed in build-context/ automatically"
+	@echo "  Released builds: /cc-deck.build downloads binaries from GitHub Releases"
+	@echo ""
 	@echo "Next: cd $(TEST_IMAGE_DIR) && claude"
 	@echo "Then: /cc-deck.build"
+	@# For dev builds, pre-place cross-compiled binaries so /cc-deck.build finds them
+	mkdir -p $(TEST_IMAGE_DIR)/build-context
+	cp cc-deck/cc-deck-linux-* $(TEST_IMAGE_DIR)/build-context/
 
 ## -- Container Images --------------------------------------
 

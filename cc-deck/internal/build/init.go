@@ -25,7 +25,7 @@ k8s/
 // finds them when started from the project root (not from inside
 // .cc-deck/image/). The manifest and build artifacts go into dir.
 func InitBuildDir(dir string, projectRoot string, force bool) error {
-	manifestPath := filepath.Join(dir, "cc-deck-build.yaml")
+	manifestPath := filepath.Join(dir, "cc-deck-image.yaml")
 
 	// Check for existing manifest (unless --force)
 	if !force {

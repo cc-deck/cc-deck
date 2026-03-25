@@ -12,13 +12,13 @@ See <<Kubernetes and OpenShift>> for details.
 
 == Quick Start
 
-Add a `network` section to your `cc-deck-build.yaml` manifest, generate compose files, and deploy.
+Add a `network` section to your `cc-deck-image.yaml` manifest, generate compose files, and deploy.
 
 . Define allowed domain groups in the manifest:
 +
 [source,yaml]
 ----
-# cc-deck-build.yaml
+# cc-deck-image.yaml
 version: 1
 image:
   name: quay.io/myorg/claude-dev

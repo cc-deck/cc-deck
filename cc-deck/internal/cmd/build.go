@@ -34,7 +34,7 @@ func newImageInitCmd(_ *GlobalFlags) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "init [dir]",
 		Short: "Initialize a build directory",
-		Long: `Scaffold a new build directory with a cc-deck-build.yaml manifest,
+		Long: `Scaffold a new build directory with a cc-deck-image.yaml manifest,
 Claude Code commands for AI-driven image configuration, and helper scripts.
 
 When no directory is specified and the current project has .cc-deck/,
@@ -51,7 +51,7 @@ After initialization, start Claude Code from the project directory and use:
 				return err
 			}
 			fmt.Printf("Build directory initialized: %s\n\n", dir)
-			fmt.Printf("  Manifest:  %s/cc-deck-build.yaml\n", dir)
+			fmt.Printf("  Manifest:  %s/cc-deck-image.yaml\n", dir)
 			fmt.Printf("  Commands:  %s/.claude/commands/cc-deck.*.md\n", projectRoot)
 			fmt.Println()
 			fmt.Println("Next steps:")
@@ -81,7 +81,7 @@ func newImageVerifyCmd(_ *GlobalFlags) *cobra.Command {
 }
 
 func runVerify(dir string) error {
-	manifestPath := filepath.Join(dir, "cc-deck-build.yaml")
+	manifestPath := filepath.Join(dir, "cc-deck-image.yaml")
 	m, err := build.LoadManifest(manifestPath)
 	if err != nil {
 		return err
@@ -170,6 +170,10 @@ func resolveImageDir(args []string) string {
 // resolveImageDirAndRoot returns the image build directory and the project
 // root. Commands go into projectRoot/.claude/commands/, build artifacts
 // into imageDir (.cc-deck/image/).
+//
+// When no args are given, defaults to .cc-deck/image/ relative to the
+// project root (git root or cwd). Image build artifacts always live
+// inside .cc-deck/ alongside other project-local cc-deck state.
 func resolveImageDirAndRoot(args []string) (imageDir string, projectRoot string) {
 	if len(args) > 0 {
 		// Explicit dir: use its parent as project root.
@@ -177,19 +181,20 @@ func resolveImageDirAndRoot(args []string) (imageDir string, projectRoot string)
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
-		return ".", "."
+		return filepath.Join(".", ".cc-deck", "image"), "."
 	}
+	// Prefer project config root, then git root, then cwd.
 	if root, findErr := project.FindProjectConfig(cwd); findErr == nil {
 		return filepath.Join(root, ".cc-deck", "image"), root
 	}
 	if root, gitErr := project.FindGitRoot(cwd); gitErr == nil {
 		return filepath.Join(root, ".cc-deck", "image"), root
 	}
-	return ".", "."
+	return filepath.Join(cwd, ".cc-deck", "image"), cwd
 }
 
 func runDiff(dir string) error {
-	manifestPath := filepath.Join(dir, "cc-deck-build.yaml")
+	manifestPath := filepath.Join(dir, "cc-deck-image.yaml")
 	m, err := build.LoadManifest(manifestPath)
 	if err != nil {
 		return err

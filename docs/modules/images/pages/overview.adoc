@@ -44,7 +44,7 @@ cd my-image
 claude
 ----
 
-This creates a `cc-deck-build.yaml` manifest and the Claude Code commands.
+This creates a `cc-deck-image.yaml` manifest and the Claude Code commands.
 Use the slash commands to populate the manifest and build the image.
 
 The manifest is the single source of truth.

@@ -1,10 +1,10 @@
 # cc-deck Base Container Image
 
-Fedora-based developer toolbox for Claude Code development environments.
+Fedora Minimal developer toolbox for Claude Code development environments.
 
 ## What's Included
 
-- **OS**: Fedora 41
+- **OS**: Fedora Minimal 41
 - **Runtimes**: Node.js 22.x, Python 3.13 + uv
 - **Image size**: ~1 GB
 - **Shell**: zsh with starship prompt, zoxide, fzf, aliases
@@ -49,7 +49,7 @@ podman manifest create cc-deck-base:latest cc-deck-base:amd64 cc-deck-base:arm64
 FROM quay.io/cc-deck/cc-deck-base:latest
 
 # Add project tools
-RUN dnf install -y golang && dnf clean all
+RUN microdnf install -y golang && microdnf clean all
 
 # Install cc-deck (self-embeds from build context)
 COPY cc-deck /usr/local/bin/cc-deck

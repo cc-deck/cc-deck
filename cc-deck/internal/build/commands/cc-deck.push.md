@@ -12,7 +12,7 @@ Push the container image built by `/cc-deck.build` to a container registry.
 
 ### Step 1: Read the manifest
 
-Read `cc-deck-build.yaml` and extract `image.name` and `image.tag` (default: `latest`).
+Read `cc-deck-image.yaml` and extract `image.name` and `image.tag` (default: `latest`).
 
 ### Step 2: Verify the image exists
 
