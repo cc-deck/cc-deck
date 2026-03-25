@@ -1,7 +1,8 @@
 # cc-deck Build Manifest
 # This file describes the container image to build for your Claude Code environment.
-# Populate it using Claude Code commands: /cc-deck.extract, /cc-deck.plugin, /cc-deck.mcp
-# Then generate the Containerfile: /cc-deck.containerfile
+# Populate it using Claude Code commands:
+#   /cc-deck.capture  - discover tools and settings from your local environment
+#   /cc-deck.build    - generate Containerfile and build the image
 
 version: 1
 
@@ -11,7 +12,7 @@ image:
   # tag: latest
 
 # Tool dependencies (free-form text, resolved during Containerfile generation).
-# Add manually or discover automatically with /cc-deck.extract
+# Add manually or discover automatically with /cc-deck.capture
 # tools:
 #   - "Go compiler >= 1.22"
 #   - "Python 3.12 with uv package manager"
@@ -20,7 +21,7 @@ image:
 #   - "Rust stable toolchain"
 
 # Repositories analyzed for tool discovery (provenance tracking).
-# Populated by /cc-deck.extract
+# Populated by /cc-deck.capture
 # sources:
 #   - url: https://github.com/org/repo
 #     ref: main
@@ -29,7 +30,7 @@ image:
 #     detected_from: [go.mod, buf.yaml, .github/workflows/ci.yml]
 
 # Claude Code plugins to install.
-# Add with /cc-deck.plugin
+# Populated by /cc-deck.capture
 # plugins:
 #   - name: sdd
 #     source: marketplace
@@ -37,7 +38,7 @@ image:
 #     source: "git:https://github.com/org/plugin.git"
 
 # MCP server sidecars (for compose/k8s deployment).
-# Add with /cc-deck.mcp
+# Populated by /cc-deck.capture
 # mcp:
 #   - name: github
 #     image: ghcr.io/modelcontextprotocol/github-mcp:latest
@@ -56,7 +57,7 @@ image:
 #     binary: cc-session
 
 # User configuration to bake into the image.
-# Run /cc-deck.settings to interactively select what to include.
+# Populated by /cc-deck.capture
 # settings:
 #   shell: zsh                       # Shell to use: "zsh" (default) or "bash"
 #   shell_rc: ./zshrc                # Custom shell config (appended to base image's rc file)

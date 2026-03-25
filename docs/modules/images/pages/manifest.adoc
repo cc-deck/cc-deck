@@ -70,7 +70,7 @@ Claude Code resolves these during `/cc-deck.build`.
 
 Optional.
 Provenance tracking for analyzed repositories.
-Populated automatically by `/cc-deck.extract`.
+Populated automatically by `/cc-deck.capture`.
 
 [source,yaml]
 ----
@@ -134,7 +134,7 @@ github_tools:
 
 Optional.
 User configuration to bake into the image.
-Populated by `/cc-deck.settings`.
+Populated by `/cc-deck.capture`.
 
 [source,yaml]
 ----

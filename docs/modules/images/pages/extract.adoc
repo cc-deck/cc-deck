@@ -1,6 +1,6 @@
 = Extract Tool Dependencies
 
-The `/cc-deck.extract` command analyzes your locally checked-out repositories to discover required build tools, compilers, and runtime dependencies.
+The `/cc-deck.capture` command analyzes your locally checked-out repositories to discover required build tools, compilers, and runtime dependencies.
 
 == Usage
 
@@ -8,7 +8,7 @@ Inside Claude Code in your build directory:
 
 [source,text]
 ----
-/cc-deck.extract
+/cc-deck.capture
 ----
 
 Claude Code will ask for the path to your repository (or repositories) and analyze them.

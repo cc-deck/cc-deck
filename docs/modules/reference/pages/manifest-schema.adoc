@@ -56,7 +56,7 @@ tools:
 
 Type: list of objects.
 Optional.
-Populated by `/cc-deck.extract`.
+Populated by `/cc-deck.capture`.
 
 [cols="1,1,3"]
 |===

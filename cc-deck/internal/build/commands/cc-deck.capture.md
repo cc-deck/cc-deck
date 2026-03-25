@@ -1,5 +1,5 @@
 ---
-description: Select local settings, plugins, and MCP servers to bake into the container image
+description: Discover tools and settings from your local environment for the container image
 ---
 
 ## User Input
@@ -8,13 +8,90 @@ $ARGUMENTS
 
 ## Outline
 
-Interactive wizard that discovers local settings and lets you choose what to transport into the container image. Updates `cc-deck-build.yaml` and copies selected files to the build directory.
+Scan local repositories and host configuration, then update the `cc-deck-build.yaml` manifest with everything needed to build a container image that mirrors your development setup.
 
-### Step 1: Discover local settings
-
-Scan the local system and present findings organized by section. For each section, show what was found and let the user select what to include.
+The command runs through sections in order. Each section presents findings and lets the user accept, edit, or skip.
 
 ---
+
+## Part 1: Repository Analysis
+
+### Step 1.1: Identify repositories
+
+If the user provided paths in the input, use those. Otherwise look for git repositories in the current directory and its immediate children. If none found, ask:
+
+"Which repositories should I analyze? Provide paths to local checkouts (one per line or comma-separated)."
+
+Validate that each path exists and contains source code.
+
+### Step 1.2: Analyze each repository
+
+For each repository, examine these files (if present):
+
+**Build files**: `go.mod`, `package.json`, `Cargo.toml`, `pyproject.toml`, `Gemfile`, `pom.xml`, `build.gradle`, `build.gradle.kts`, `settings.gradle`, `Makefile`, `CMakeLists.txt`
+
+**CI configs**: `.github/workflows/*.yml`, `.gitlab-ci.yml`, `Jenkinsfile`, `.circleci/config.yml`
+
+**Tool version files**: `.tool-versions`, `.nvmrc`, `.python-version`, `.sdkmanrc`, `.go-version`, `.ruby-version`, `.java-version`, `rust-toolchain.toml`
+
+**Java-specific**: `mvnw` / `gradlew` (detect Maven/Gradle version from wrapper properties), `jvm.config`, `.mvn/jvm.config` (JVM flags), `pom.xml` `<maven.compiler.source>` / `<maven.compiler.target>` / `<java.version>` properties
+
+**Container files**: `Dockerfile`, `Containerfile` (for system package hints)
+
+For each file found, extract:
+- Programming language and version requirements
+- Build tools and their versions
+- System-level dependencies (compilers, libraries)
+- Runtime requirements
+
+### Step 1.3: Deduplicate and resolve conflicts
+
+- Merge findings across all repositories
+- Deduplicate identical tools
+- For version conflicts (e.g., Go 1.22 vs Go 1.23), suggest the highest compatible version
+- Group tools by category (compilers, package managers, system tools)
+
+### Step 1.4: Present findings for review
+
+Show the user a summary table:
+
+```
+Tool                  | Version    | Source
+---------------------|------------|------------------
+Go compiler          | >= 1.23    | repo1/go.mod
+Python               | >= 3.12    | repo2/pyproject.toml
+protoc               | >= 25.0    | repo1/.github/workflows/ci.yml
+```
+
+Ask: "Which tools should I add to the manifest? You can accept all, reject specific ones, or modify versions."
+
+### Step 1.5: Detect network domain groups
+
+Based on the ecosystem files found in Step 1.2, determine which network domain groups to add to the manifest's `network.allowed_domains` section:
+
+| Ecosystem file | Domain group |
+|----------------|-------------|
+| `go.mod` | `golang` |
+| `pyproject.toml`, `requirements.txt`, `.python-version` | `python` |
+| `package.json`, `.nvmrc` | `nodejs` |
+| `Cargo.toml`, `rust-toolchain.toml` | `rust` |
+
+Always include `github` if a `.git` directory or `.github/` directory is found.
+
+Present the detected domain groups to the user alongside the tool findings:
+
+```
+Network domain groups detected:
+  golang   (from go.mod)
+  python   (from pyproject.toml)
+  github   (from .github/)
+```
+
+Ask: "Should I add these domain groups to the manifest's network.allowed_domains?"
+
+---
+
+## Part 2: Host Configuration
 
 ### Section A: Shell Configuration
 
@@ -64,7 +141,7 @@ Zsh Configuration:
   Analyzed: ~/.zshrc (85 lines)
 
   Proposed curated .zshrc for container:
-  ─────────────────────────────────────
+  ---
   # Custom aliases
   alias k='kubectl'
   alias kx='kubectx'
@@ -81,7 +158,7 @@ Zsh Configuration:
 
   # Custom functions
   mkcd() { mkdir -p "$1" && cd "$1" }
-  ─────────────────────────────────────
+  ---
 
   Stripped (macOS/local-specific):
     - 3 Homebrew path entries
@@ -280,34 +357,45 @@ MCP Servers:
 
 ---
 
-### Step 2: Summary and confirmation
+## Part 3: Summary and Manifest Update
 
-Show a summary of all selections:
+### Step 3.1: Show summary
 
 ```
-Settings to bake into image:
+Capture summary:
 
-  Zsh:     ~/.zshrc (42 lines)
-  Zellij:  config.kdl + themes/catppuccin.kdl
-  Claude:  CLAUDE.md + settings (merged)
-  Plugins: sdd, cc-rosa, copyedit (3 selected)
-  MCP:     github-mcp, postgres-mcp, playwright (3 selected)
+  Tools:    Rust stable >= 1.80, wasm32-wasip1 target (from cc-session/Cargo.toml)
+  Network:  rust, github
+  Shell:    zsh (42 custom lines)
+  Zellij:   config.kdl + themes/catppuccin.kdl
+  Claude:   CLAUDE.md + settings (merged)
+  Plugins:  sdd, cc-rosa, copyedit (3 selected)
+  MCP:      github-mcp, playwright (2 selected)
 
-Proceed? [y/n/edit]
+Write to manifest? [y/n/edit]
 ```
 
-### Step 3: Write files and update manifest
+### Step 3.2: Write files and update manifest
 
-1. Copy all selected files to the build directory
-2. Update `cc-deck-build.yaml` with the selections
-3. Report what was written
+1. Update `tools` section with accepted tool entries (as free-form text)
+2. Update `sources` section with repository provenance (URL, ref, path, detected_tools, detected_from)
+3. Update `network.allowed_domains` with detected domain groups
+4. Update `settings` section with shell, Zellij, Claude selections
+5. Update `plugins` section with selected plugins
+6. Update `mcp` section with selected MCP servers
+7. Copy selected config files to the build directory
+8. Report what was written
 
 ### Key Rules
 
-- Never overwrite existing manifest entries without asking
+- Never modify tools or settings the user explicitly rejected
+- Keep tool descriptions human-readable (e.g., "Rust stable >= 1.80", not "rustc-1.80.0")
+- Record which files each tool was detected from (for provenance)
+- If re-running on an already-analyzed repo, update existing entries and highlight changes
+- **NEVER include container runtimes** (podman, docker, buildah, skopeo) as detected tools. These are host build tools, not image dependencies. The base image does not need them. If found in CI configs or Containerfiles, silently exclude them from the results.
 - For settings.json, always MERGE (preserve cc-deck hooks)
 - Exclude cc-deck managed files from Zellij config (layouts, plugin)
 - For MCP auth, only store env var NAMES, never actual credentials
 - Show file sizes and line counts to help users decide what to include
-- If a file doesn't exist, silently skip it (don't error)
+- If a file or directory does not exist, silently skip that section (do not error)
 - Re-running this command should show current selections and allow modifications

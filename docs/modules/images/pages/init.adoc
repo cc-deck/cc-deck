@@ -18,10 +18,9 @@ my-image/
 ├── .gitignore                  # Ignores build-context/ and Containerfile
 └── .claude/
     ├── commands/               # AI-driven slash commands
+    │   ├── cc-deck.capture.md
     │   ├── cc-deck.build.md
-    │   ├── cc-deck.extract.md
-    │   ├── cc-deck.push.md
-    │   └── cc-deck.settings.md
+    │   └── cc-deck.push.md
     └── scripts/                # Helper scripts
         ├── update-manifest.sh
         └── validate-manifest.sh
@@ -69,6 +68,5 @@ claude
 
 Then use the slash commands:
 
-1. `/cc-deck.extract` to analyze your repositories
-2. `/cc-deck.settings` to select local configuration
-3. `/cc-deck.build` to generate the Containerfile and build
+1. `/cc-deck.capture` to discover tools and settings for the image
+2. `/cc-deck.build` to generate the Containerfile and build

@@ -41,8 +41,7 @@ When no directory is specified and the current project has .cc-deck/,
 defaults to .cc-deck/image/ (FR-017).
 
 After initialization, start Claude Code from the project directory and use:
-  /cc-deck.extract       - Analyze repos for tool dependencies
-  /cc-deck.settings     - Select local settings, plugins, MCP to include
+  /cc-deck.capture       - Discover tools and settings for the image
   /cc-deck.build         - Generate Containerfile and build the image
   /cc-deck.push          - Push the image to a registry`,
 		Args: cobra.MaximumNArgs(1),
@@ -58,8 +57,7 @@ After initialization, start Claude Code from the project directory and use:
 			fmt.Println("Next steps:")
 			fmt.Printf("  cd %s\n", projectRoot)
 			fmt.Println("  claude                        # Open in Claude Code")
-			fmt.Println("  /cc-deck.extract              # Analyze repositories")
-			fmt.Println("  /cc-deck.settings            # Select settings, plugins, MCP")
+			fmt.Println("  /cc-deck.capture              # Discover tools and settings")
 			fmt.Println("  /cc-deck.build                # Generate Containerfile & build")
 			fmt.Println("  /cc-deck.push                 # Push to registry")
 			return nil
