@@ -1329,6 +1329,9 @@ impl PluginState {
 
                     if let Some(session) = self.sessions.get_mut(&pane_id) {
                         session.display_name = new_name.clone();
+                        // Update timestamp so this rename wins over stale
+                        // sync broadcasts from other plugin instances.
+                        session.last_event_ts = session::unix_now();
                     }
 
                     if let Some(tab_idx) = self.sessions.get(&pane_id).and_then(|s| s.tab_index) {
