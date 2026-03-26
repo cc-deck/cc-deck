@@ -6,12 +6,18 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 )
+
+// maxBackups is the maximum number of backup files to retain per source file.
+const maxBackups = 3
 
 // BackupFile creates a timestamped backup of the given file.
 // Returns the backup path, or empty string if the file doesn't exist.
 // If skipBackup is true, no backup is created.
+// Old backups beyond maxBackups are pruned after the new backup is created.
 func BackupFile(path string, skipBackup bool) (string, error) {
 	if skipBackup {
 		return "", nil
@@ -35,5 +41,44 @@ func BackupFile(path string, skipBackup bool) (string, error) {
 		return "", fmt.Errorf("writing backup to %s: %w", backupPath, err)
 	}
 
+	pruneOldBackups(path)
+
 	return backupPath, nil
+}
+
+// pruneOldBackups removes the oldest backups for the given file,
+// keeping only the maxBackups most recent ones.
+func pruneOldBackups(path string) {
+	ext := filepath.Ext(path)
+	base := path[:len(path)-len(ext)]
+	prefix := base + ext + ".bak."
+
+	dir := filepath.Dir(path)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+
+	var backups []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		full := filepath.Join(dir, e.Name())
+		if strings.HasPrefix(full, prefix) {
+			backups = append(backups, full)
+		}
+	}
+
+	if len(backups) <= maxBackups {
+		return
+	}
+
+	// Sort lexicographically (timestamp format sorts chronologically)
+	sort.Strings(backups)
+
+	// Remove oldest, keep the last maxBackups entries
+	for _, old := range backups[:len(backups)-maxBackups] {
+		_ = os.Remove(old)
+	}
 }
