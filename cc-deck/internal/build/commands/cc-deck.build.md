@@ -18,11 +18,11 @@ Read `cc-deck-image.yaml` and validate it has `version` and `image.name`. Extrac
 
 Generate a complete Containerfile from the manifest. Follow these rules:
 
-**Base image**: Use the `image.base` field from the manifest. The base image is Fedora Minimal and already includes common developer tools (git, jq, zsh, nodejs, npm, python3, uv, ripgrep, bat, lsd, starship, etc.), so do NOT reinstall packages that the base image already provides. The base image does NOT include Zellij, cc-deck, or Claude Code. Those are installed in the user image layers below.
+**Base image**: Use the `image.base` field from the manifest. The base image is Fedora and already includes common developer tools (git, jq, zsh, nodejs, npm, python3, uv, ripgrep, bat, lsd, starship, etc.), so do NOT reinstall packages that the base image already provides. The base image does NOT include Zellij, cc-deck, or Claude Code. Those are installed in the user image layers below.
 
 **Tool resolution**: For each entry in the `tools` section, determine the concrete install command:
-- The base image is Fedora Minimal. Use `microdnf install` for packages in Fedora repos
-- **Do NOT use `dnf`** (not installed in fedora-minimal). Always use `microdnf install -y`
+- The base image is Fedora. Use `dnf install` for packages in Fedora repos
+- Use `dnf install -y` for packages in Fedora repos
 - For tools not in Fedora repos, use GitHub release downloads or language-specific installers
 - Use `${TARGETARCH}` for multi-arch GitHub release downloads
 
@@ -45,7 +45,7 @@ RUN chsh -s /bin/zsh dev 2>/dev/null || usermod -s /bin/zsh dev
 RUN touch /home/dev/.zshrc && chown dev:dev /home/dev/.zshrc
 
 # Layer: Additional system packages (only what the base image doesn't have)
-RUN microdnf install -y <packages not in base image> && microdnf clean all
+RUN dnf install -y <packages not in base image> && dnf clean all
 
 # Layer: Language-specific tools (changes occasionally)
 RUN <language tool installs>
@@ -196,8 +196,7 @@ If the build fails:
 1. **Read the error output** carefully
 2. **Identify the failing step** (which RUN instruction, which layer)
 3. **Diagnose the root cause**. Common issues:
-   - Package not found: wrong package name, use `microdnf search` to find the right one
-   - Do not use `dnf` (not available in fedora-minimal), always use `microdnf`
+   - Package not found: wrong package name, use `dnf search` to find the right one
    - Download failures: wrong URL or architecture, use `${TARGETARCH}`
    - Permission errors: missing `USER root`
    - Binary not found: wrong PATH, need symlinks
@@ -259,6 +258,6 @@ On success, show:
 - **Always download cc-deck Linux binaries** from GitHub Releases using the installed cc-deck version. Never compile cc-deck during the build. Skip download if binaries already exist in `build-context/`
 - If the version is `dev` or the release download fails, stop with a clear message pointing to `make cross-cli`
 - Containerfile fixes during the build loop are expected and encouraged
-- Combine related `microdnf install` calls into a single RUN for layer efficiency
-- Clean package caches in the same layer as installs (`&& microdnf clean all`)
+- Combine related `dnf install` calls into a single RUN for layer efficiency
+- Clean package caches in the same layer as installs (`&& dnf clean all`)
 - Keep the "DO NOT EDIT MANUALLY" header even after fixes
