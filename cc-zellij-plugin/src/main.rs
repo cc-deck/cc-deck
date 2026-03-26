@@ -385,6 +385,20 @@ impl ZellijPlugin for PluginState {
             pipe_message.payload.as_deref(),
         );
 
+        // Unblock CLI pipe input so `zellij pipe` does not hang.
+        // Must happen BEFORE match so the CLI returns promptly.
+        // DumpState sends output before its own unblock call inside the
+        // match; double-unblock is harmless but we cannot unblock after
+        // the match because DumpState needs output sent first.
+        // For all other actions the pipe carries no response, so early
+        // unblock is correct.
+        #[cfg(target_family = "wasm")]
+        if let PipeSource::Cli(ref pipe_id) = pipe_message.source {
+            if !matches!(action, PipeAction::DumpState) {
+                zellij_tile::prelude::unblock_cli_pipe_input(pipe_id);
+            }
+        }
+
         match action {
             PipeAction::HookEvent(hook) => {
                 if is_session_end(&hook.hook_event_name) {
@@ -823,6 +837,16 @@ impl PluginState {
                 true
             }
             Event::Timer(_) => {
+                // After startup grace expires, run one deferred cleanup pass.
+                // During grace, PaneUpdate skips remove_dead_sessions() to let
+                // the manifest stabilize. Once grace ends, no further PaneUpdate
+                // may arrive to trigger cleanup, so the timer handles it.
+                if self.startup_grace_until.is_some() && !self.in_startup_grace() {
+                    self.startup_grace_until = None;
+                    if self.remove_dead_sessions() {
+                        sync::save_sessions(&self.sessions);
+                    }
+                }
                 let stale = self.cleanup_stale_sessions(self.config.done_timeout);
                 if stale {
                     sync::save_sessions(&self.sessions);
