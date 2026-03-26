@@ -49,7 +49,7 @@ podman manifest create cc-deck-base:latest cc-deck-base:amd64 cc-deck-base:arm64
 FROM quay.io/cc-deck/cc-deck-base:latest
 
 # Add project tools
-RUN microdnf install -y golang && microdnf clean all
+RUN dnf install -y golang && dnf clean all
 
 # Install cc-deck (self-embeds from build context)
 COPY cc-deck /usr/local/bin/cc-deck

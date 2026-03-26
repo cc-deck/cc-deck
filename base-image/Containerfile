@@ -1,12 +1,12 @@
 # cc-deck Base Container Image
-# Fedora Minimal developer toolbox for Claude Code environments.
+# Fedora developer toolbox for Claude Code environments.
 # Does NOT include Zellij, Claude Code, or cc-deck (added during user image build).
 #
 # Build:  podman build -t cc-deck-base:local .
 # Run:    podman run -it --rm cc-deck-base:local
 
 ARG FEDORA_VERSION=41
-FROM registry.fedoraproject.org/fedora-minimal:${FEDORA_VERSION}
+FROM registry.fedoraproject.org/fedora:${FEDORA_VERSION}
 
 LABEL org.opencontainers.image.title="cc-deck-base" \
       org.opencontainers.image.description="Developer toolbox for Claude Code environments" \
