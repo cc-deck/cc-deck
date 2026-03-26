@@ -434,6 +434,29 @@ impl ZellijPlugin for PluginState {
                     );
                 }
 
+                // Detect session replacement: a new Claude Code instance started
+                // in the same pane (different session_id). Reset naming state so
+                // the display name updates to the new project.
+                let session_replaced = !is_new && hook.session_id.as_ref().is_some_and(|new_sid| {
+                    self.sessions.get(&hook.pane_id)
+                        .map(|s| !s.session_id.is_empty() && s.session_id != *new_sid)
+                        .unwrap_or(false)
+                });
+                if session_replaced {
+                    if let Some(session) = self.sessions.get_mut(&hook.pane_id) {
+                        debug_log(&format!("SESSION replaced pane={}: {} -> {}",
+                            hook.pane_id, session.session_id,
+                            hook.session_id.as_deref().unwrap_or("?")));
+                        session.manually_renamed = false;
+                        session.display_name = format!("session-{}", hook.pane_id);
+                        session.meta_ts = 0;
+                        session.done_attended = false;
+                        // Clear working_dir to force CWD change detection below,
+                        // which triggers git repo detection and auto-rename.
+                        session.working_dir = None;
+                    }
+                }
+
                 let changed = self.sessions.get_mut(&hook.pane_id).unwrap().transition(activity);
 
                 if let Some(ref sid) = hook.session_id {
