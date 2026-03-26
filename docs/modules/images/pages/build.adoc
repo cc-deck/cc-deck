@@ -58,7 +58,6 @@ When a build step fails, Claude Code:
 5. Retries the build (cached layers are reused)
 
 Common fixes include:
-* `dnf` replaced with `microdnf` (fedora-minimal does not include full dnf)
 * Wrong package names are corrected via `dnf search`
 * Download URLs are fixed for the correct architecture
 
