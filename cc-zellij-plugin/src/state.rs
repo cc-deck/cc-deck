@@ -306,7 +306,7 @@ impl PluginState {
         }
     }
 
-    /// Remove sessions whose panes no longer exist.
+    /// Remove sessions whose panes no longer exist or have exited.
     /// Uses the raw pane manifest (stable pane IDs) instead of the derived
     /// pane_to_tab map, which can be temporarily wrong when tab positions
     /// shift after a tab close (TabUpdate arrives before PaneUpdate).
@@ -322,11 +322,16 @@ impl PluginState {
 
         // Collect all terminal pane IDs from the manifest (across all tabs).
         // Pane IDs are globally unique and stable regardless of tab position shifts.
+        // Also track exited panes (command panes whose process finished).
         let mut all_pane_ids = std::collections::HashSet::new();
+        let mut exited_pane_ids = std::collections::HashSet::new();
         for panes in manifest.panes.values() {
             for pane in panes {
                 if !pane.is_plugin {
                     all_pane_ids.insert(pane.id);
+                    if pane.exited {
+                        exited_pane_ids.insert(pane.id);
+                    }
                 }
             }
         }
@@ -337,7 +342,11 @@ impl PluginState {
             return false;
         }
 
-        self.sessions.retain(|pane_id, _| all_pane_ids.contains(pane_id));
+        // Remove sessions whose panes no longer exist OR whose panes have exited
+        // (command panes where the process finished).
+        self.sessions.retain(|pane_id, _| {
+            all_pane_ids.contains(pane_id) && !exited_pane_ids.contains(pane_id)
+        });
         if self.sessions.len() != before {
             // Clean up pending git tracking for removed sessions
             self.pending_git_branch.retain(|id| self.sessions.contains_key(id));
@@ -555,6 +564,49 @@ mod tests {
         let changed = state.remove_dead_sessions();
         assert!(changed);
         assert_eq!(state.sessions.len(), 1);
+    }
+
+    fn make_manifest_with_exited(terminal_ids: &[u32], exited_ids: &[u32]) -> PaneManifest {
+        let panes: Vec<PaneInfo> = terminal_ids
+            .iter()
+            .map(|&id| {
+                let mut p = make_pane_info(id, false);
+                if exited_ids.contains(&id) {
+                    p.exited = true;
+                }
+                p
+            })
+            .collect();
+        let mut map = HashMap::new();
+        map.insert(0, panes);
+        PaneManifest { panes: map }
+    }
+
+    #[test]
+    fn test_exited_panes_removed() {
+        let mut state = PluginState::default();
+        state.sessions.insert(10, make_session(10));
+        state.sessions.insert(20, make_session(20));
+        // Pane 20 exists but has exited (command pane finished)
+        state.pane_manifest = Some(make_manifest_with_exited(&[10, 20], &[20]));
+
+        let changed = state.remove_dead_sessions();
+        assert!(changed);
+        assert_eq!(state.sessions.len(), 1);
+        assert!(state.sessions.contains_key(&10));
+        assert!(!state.sessions.contains_key(&20));
+    }
+
+    #[test]
+    fn test_non_exited_panes_kept() {
+        let mut state = PluginState::default();
+        state.sessions.insert(10, make_session(10));
+        state.sessions.insert(20, make_session(20));
+        state.pane_manifest = Some(make_manifest_with_exited(&[10, 20], &[]));
+
+        let changed = state.remove_dead_sessions();
+        assert!(!changed);
+        assert_eq!(state.sessions.len(), 2);
     }
 
     #[test]

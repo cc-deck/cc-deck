@@ -51,16 +51,51 @@ pub fn handle_sync(state: &mut PluginState, payload: &str) -> bool {
 // --- Full session state persistence via WASI /cache/ ---
 
 const SESSIONS_PATH: &str = "/cache/sessions.json";
+const PID_PATH: &str = "/cache/zellij_pid";
+
+/// Get the Zellij server PID (stable across reattach, different for new sessions).
+#[cfg(target_family = "wasm")]
+fn current_zellij_pid() -> u32 {
+    zellij_tile::prelude::get_plugin_ids().zellij_pid
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn current_zellij_pid() -> u32 {
+    0
+}
 
 /// Persist full session state to disk for reattach recovery.
 pub fn save_sessions(sessions: &BTreeMap<u32, Session>) {
     if let Ok(json) = serde_json::to_string(sessions) {
         let _ = std::fs::write(SESSIONS_PATH, json);
     }
+    // Track which Zellij session owns this cache so we can detect
+    // stale caches from a previous session on next startup.
+    let pid = current_zellij_pid();
+    if pid != 0 {
+        let _ = std::fs::write(PID_PATH, pid.to_string());
+    }
 }
 
 /// Restore sessions from disk (called on load/reattach).
+/// Returns an empty map if the cache belongs to a different Zellij session,
+/// preventing ghost sessions when pane IDs are reused across sessions.
 pub fn restore_sessions() -> BTreeMap<u32, Session> {
+    let current_pid = current_zellij_pid();
+    if current_pid != 0 {
+        let cached_pid = std::fs::read_to_string(PID_PATH)
+            .ok()
+            .and_then(|s| s.trim().parse::<u32>().ok())
+            .unwrap_or(0);
+        if cached_pid != 0 && cached_pid != current_pid {
+            // Cache belongs to a different Zellij session (stale).
+            // Clear it and return empty to avoid ghost sessions from
+            // coincidental pane ID collisions.
+            let _ = std::fs::remove_file(SESSIONS_PATH);
+            let _ = std::fs::remove_file(PID_PATH);
+            return BTreeMap::new();
+        }
+    }
     match std::fs::read_to_string(SESSIONS_PATH) {
         Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
         Err(_) => BTreeMap::new(),

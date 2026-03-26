@@ -161,8 +161,10 @@ func runHook(stdin io.Reader, paneIDStr string) {
 	// does the full save (zellij pipe + file write) run.
 	session.AutoSave()
 
-	// Clean up cache on session end
-	if (hook.HookEvent == "Stop" || hook.HookEvent == "SessionEnd") && hook.SessionID != "" {
+	// Clean up cache on session end only. Do NOT clean on Stop because
+	// SessionEnd fires after Stop and needs the cached pane_id mapping
+	// (Claude Code strips $ZELLIJ_PANE_ID from hook subprocesses).
+	if hook.HookEvent == "SessionEnd" && hook.SessionID != "" {
 		m := loadPaneMap()
 		delete(m, hook.SessionID)
 		savePaneMap(m)
