@@ -25,6 +25,9 @@ cc-deck/internal/plugin/cc_deck.wasm
 cc-deck/cc-deck
 cc-deck/cc-deck-linux-*
 
+# Project-local environment config (user-specific)
+.cc-deck/
+
 # Demo recordings (binary output)
 demos/recordings/*.cast
 demos/recordings/*.gif
