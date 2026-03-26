@@ -2,8 +2,18 @@
 
 **Feature Branch**: `022-network-filtering`
 **Created**: 2026-03-16
-**Status**: Draft
+**Status**: Evolved (2026-03-26)
 **Input**: User description: "Network Security and Domain Filtering for containerized AI agent sessions"
+
+> **Evolution Note (2026-03-26)**: Updated to reflect implementation scope.
+> Core domain group system (builtin groups, user config, recursive expansion,
+> wildcard dedup, CLI commands) fully implemented. Compose proxy integration works.
+> **Deferred**: K8s NetworkPolicy generation (FR-009, US6), OpenShift
+> EgressFirewall (FR-010, US7), ecosystem auto-detection in `/cc-deck.capture`
+> (FR-016), runtime domain modification (FR-018, US8), `domains blocked`
+> (FR-015), `--allowed-domains all` (FR-017), `+`/`-` deploy-time override
+> syntax (FR-011 partial, basic flag works without merge semantics).
+> Manifest filename updated from `cc-deck-build.yaml` to `cc-deck-image.yaml`.
 
 ## Clarifications
 
@@ -25,7 +35,7 @@ A user deploys a containerized Claude Code session using `cc-deck deploy --compo
 
 **Acceptance Scenarios**:
 
-1. **Given** a valid build directory with `cc-deck-build.yaml`, **When** the user runs `cc-deck deploy --compose`, **Then** the generated `compose.yaml` includes a forward proxy sidecar, an internal network, and the session container is only attached to the internal network.
+1. **Given** a valid build directory with `cc-deck-image.yaml`, **When** the user runs `cc-deck env create --type compose`, **Then** the generated `compose.yaml` includes a forward proxy sidecar, an internal network, and the session container is only attached to the internal network.
 2. **Given** a deployed session with Anthropic backend, **When** the session container attempts to reach `api.anthropic.com`, **Then** the request succeeds through the proxy.
 3. **Given** a deployed session with default filtering, **When** the session container attempts to reach `evil-exfil-server.com`, **Then** the request is blocked by the proxy and a log entry is created.
 4. **Given** a deployed session, **When** the session container attempts an SSH connection (port 22), **Then** the connection fails because only HTTP/HTTPS traffic is routed through the proxy and all other protocols are blocked by network isolation.
@@ -34,7 +44,10 @@ A user deploys a containerized Claude Code session using `cc-deck deploy --compo
 
 ### User Story 2 - Configure Domain Groups in Build Manifest (Priority: P1)
 
-A user configuring a custom container image specifies which domain groups to allow in `cc-deck-build.yaml`. During the `/cc-deck.extract` phase, the system auto-detects project ecosystems (Go, Python, Node.js, Rust) and populates the `network.allowedDomains` section with the corresponding group names. The user can add, remove, or override groups before building.
+A user configuring a custom container image specifies which domain groups to allow in `cc-deck-image.yaml`. During the `/cc-deck.capture` phase, the system auto-detects project ecosystems (Go, Python, Node.js, Rust) and populates the `network.allowedDomains` section with the corresponding group names. The user can add, remove, or override groups before building.
+
+> **Note (2026-03-26)**: Ecosystem auto-detection (FR-016) is not yet implemented.
+> Domain groups must be specified manually in the manifest.
 
 **Why this priority**: Domain groups are the core configuration mechanism. Without them, users would need to list individual domains manually, which is error-prone and tedious.
 
@@ -42,9 +55,9 @@ A user configuring a custom container image specifies which domain groups to all
 
 **Acceptance Scenarios**:
 
-1. **Given** a project containing `go.mod`, **When** the user runs `/cc-deck.extract`, **Then** `golang` is added to `network.allowedDomains` in the manifest.
-2. **Given** a project containing `pyproject.toml`, **When** the user runs `/cc-deck.extract`, **Then** `python` is added to `network.allowedDomains` in the manifest.
-3. **Given** a manifest with `allowedDomains: [python, golang]`, **When** `cc-deck deploy --compose` runs, **Then** the proxy allowlist includes all domains from both the `python` and `golang` groups.
+1. ~~**Given** a project containing `go.mod`, **When** the user runs `/cc-deck.capture`, **Then** `golang` is added to `network.allowedDomains` in the manifest.~~ DEFERRED: auto-detection not implemented.
+2. ~~**Given** a project containing `pyproject.toml`, **When** the user runs `/cc-deck.capture`, **Then** `python` is added to `network.allowedDomains` in the manifest.~~ DEFERRED: auto-detection not implemented.
+3. **Given** a manifest with `allowedDomains: [python, golang]`, **When** `cc-deck env create --type compose` runs, **Then** the proxy allowlist includes all domains from both the `python` and `golang` groups.
 4. **Given** a manifest with `allowedDomains: [python, custom.corp.com]`, **When** domain expansion runs, **Then** `python` is resolved as a group name (no dot) and `custom.corp.com` is passed through as a literal domain.
 
 ---
@@ -100,48 +113,24 @@ A user deploying a session needs to add or remove domain groups relative to the 
 
 ---
 
-### User Story 6 - Kubernetes NetworkPolicy Generation (Priority: P3)
+### ~~User Story 6 - Kubernetes NetworkPolicy Generation (Priority: P3)~~ DEFERRED
 
-A user deploying to Kubernetes uses `cc-deck deploy --k8s`. The system generates NetworkPolicy resources that restrict Pod egress to allowed domains. On clusters with DNS-aware CNIs (Cilium, Calico), FQDN-based rules are generated. On standard K8s clusters, the existing CIDR-based approach is used as fallback.
-
-**Why this priority**: K8s deployment is the secondary target after Podman. The existing `BuildNetworkPolicy()` code provides a foundation to build on.
-
-**Independent Test**: Can be tested by generating K8s manifests and verifying the NetworkPolicy contains the expected egress rules for the configured domain groups.
-
-**Acceptance Scenarios**:
-
-1. **Given** a standard K8s cluster, **When** `cc-deck deploy --k8s` runs with domain groups, **Then** a NetworkPolicy with CIDR-based egress rules is generated (using DNS resolution at creation time).
-2. **Given** a K8s cluster with Cilium CNI, **When** `cc-deck deploy --k8s` runs, **Then** a CiliumNetworkPolicy with FQDN-based egress rules is generated instead.
+> **Deferred (2026-03-26)**: K8s NetworkPolicy generation using domain groups not
+> implemented. K8s environment type itself is deferred (see spec 002, archived).
 
 ---
 
-### User Story 7 - OpenShift EgressFirewall Generation (Priority: P3)
+### ~~User Story 7 - OpenShift EgressFirewall Generation (Priority: P3)~~ DEFERRED
 
-A user deploying to OpenShift uses `cc-deck deploy --k8s --openshift`. The system generates an EgressFirewall CRD with FQDN-based allowlists, leveraging the existing `BuildEgressFirewall()` function but now fed by the domain group expansion system instead of hardcoded backend host lists.
-
-**Why this priority**: OpenShift is a secondary target, but already has partial implementation. This story refactors existing code to use the new domain group system.
-
-**Independent Test**: Can be tested by generating OpenShift manifests and verifying the EgressFirewall contains FQDN rules for all expanded domain groups.
-
-**Acceptance Scenarios**:
-
-1. **Given** an OpenShift deployment with `allowedDomains: [python, github]`, **When** manifests are generated, **Then** the EgressFirewall contains Allow rules for all `python` and `github` domains plus backend domains, followed by a Deny-all rule.
-2. **Given** the existing `backendDNSNames()` function, **When** this feature is implemented, **Then** backend DNS names are resolved through the domain group system instead of hardcoded switch statements.
+> **Deferred (2026-03-26)**: OpenShift EgressFirewall generation not implemented.
+> Depends on K8s environment type.
 
 ---
 
-### User Story 8 - Audit Blocked Requests (Priority: P3)
+### ~~User Story 8 - Audit Blocked Requests (Priority: P3)~~ DEFERRED
 
-A user's agent session is failing because a legitimate domain is being blocked. The user runs `cc-deck domains blocked <session>` to see which requests were denied by the proxy. They then add the missing domain and redeploy or modify the running session.
-
-**Why this priority**: Without audit capability, debugging blocked domains requires manual proxy log inspection. This is a quality-of-life feature that makes filtering practical.
-
-**Independent Test**: Can be tested by making a request to a blocked domain in a session, then running the blocked command and verifying the domain appears in the output.
-
-**Acceptance Scenarios**:
-
-1. **Given** a running Podman session with proxy filtering, **When** the user runs `cc-deck domains blocked <session>`, **Then** a list of blocked domain requests is displayed with timestamps.
-2. **Given** a blocked domain identified by the audit command, **When** the user adds it via `cc-deck domains add <session> <domain>`, **Then** the proxy is reconfigured and subsequent requests to that domain succeed.
+> **Deferred (2026-03-26)**: `cc-deck domains blocked` command not implemented.
+> `cc-deck domains add/remove` for runtime modification not implemented.
 
 ---
 
@@ -168,23 +157,23 @@ A user's agent session is failing because a legitimate domain is being blocked. 
 - **FR-006**: System MUST distinguish group names from literal domains by convention (no dot = group name, contains dot = domain)
 - **FR-007**: System MUST generate a forward proxy sidecar configuration in `compose.yaml` output with internal network isolation for Podman deployments
 - **FR-008**: System MUST perform wildcard deduplication before generating proxy config (`.example.com` covers both exact and subdomain matches). Specific proxy software is a planning-phase decision.
-- **FR-009**: System MUST generate Kubernetes NetworkPolicy with CIDR-based egress rules as the default K8s strategy
-- **FR-010**: System MUST generate OpenShift EgressFirewall CRD with FQDN-based rules, replacing the current hardcoded `backendDNSNames()` with domain group expansion
-- **FR-011**: System MUST support deploy-time domain overrides via `--allowed-domains` with `+` (add), `-` (remove), and bare (replace) syntax
+- ~~**FR-009**: System MUST generate Kubernetes NetworkPolicy with CIDR-based egress rules as the default K8s strategy~~ DEFERRED
+- ~~**FR-010**: System MUST generate OpenShift EgressFirewall CRD with FQDN-based rules~~ DEFERRED
+- **FR-011**: System MUST support deploy-time domain overrides via `--allowed-domains`. Note: `+`/`-` merge syntax not yet implemented; basic replacement works.
 - **FR-012**: System MUST provide `cc-deck domains init` to seed `~/.config/cc-deck/domains.yaml` with commented built-in definitions
 - **FR-013**: System MUST provide `cc-deck domains list` to show all available groups with their source
 - **FR-014**: System MUST provide `cc-deck domains show <group>` to display expanded domains for a group
-- **FR-015**: System MUST provide `cc-deck domains blocked <session>` to display blocked requests from proxy logs (Podman only)
-- **FR-016**: `/cc-deck.extract` MUST map detected project artifacts to domain groups (go.mod to golang, pyproject.toml to python, package.json to nodejs, Cargo.toml to rust)
-- **FR-017**: System MUST support `--allowed-domains all` to disable network filtering entirely, with a visible security warning printed to stderr
-- **FR-018**: System MUST support adding and removing domains on running Podman sessions by regenerating the proxy configuration without restarting the session container
+- ~~**FR-015**: System MUST provide `cc-deck domains blocked <session>`~~ DEFERRED
+- ~~**FR-016**: `/cc-deck.capture` MUST map detected project artifacts to domain groups~~ DEFERRED: ecosystem auto-detection not implemented
+- ~~**FR-017**: System MUST support `--allowed-domains all`~~ DEFERRED
+- ~~**FR-018**: System MUST support adding and removing domains on running Podman sessions~~ DEFERRED
 - **FR-019**: When a name without dots is used in `allowedDomains` or `--allowed-domains` and it does not match any known group (built-in or user-defined), the system MUST report an error listing available groups rather than silently treating it as a literal domain
 
 ### Key Entities
 
 - **Domain Group**: A named collection of domain patterns. Has a name (string without dots), a list of domain patterns, optional `extends` reference, and optional `includes` references to other groups. Source is either built-in (embedded) or user-defined (`domains.yaml`).
 - **Domain Pattern**: A string representing an allowed domain. Can be exact (`api.anthropic.com`) or wildcard (`.github.com` covering all subdomains). Regex patterns (as used by paude with `~` prefix) are deferred to a future iteration.
-- **Build Manifest Network Section**: The `network.allowedDomains` list in `cc-deck-build.yaml`. Contains group names and/or literal domain patterns. Resolved at deploy time.
+- **Build Manifest Network Section**: The `network.allowedDomains` list in `cc-deck-image.yaml`. Contains group names and/or literal domain patterns. Resolved at deploy time.
 - **Proxy Configuration**: Generated forward proxy allowlist rules for Podman deployments. Derived from expanded domain list after wildcard deduplication. Specific proxy software (Squid, tinyproxy, etc.) is a planning-phase decision.
 - **Network Policy**: Generated Kubernetes/OpenShift resources (NetworkPolicy, CiliumNetworkPolicy, or EgressFirewall) for cluster deployments. Derived from expanded domain list.
 

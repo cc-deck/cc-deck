@@ -2,8 +2,11 @@
 
 **Feature Branch**: `021-release-process`
 **Created**: 2026-03-15
-**Status**: Draft
+**Status**: Evolved (2026-03-26)
 **Input**: User description: "Release process for cc-deck using GoReleaser with cross-platform binaries, Homebrew, RPM, DEB, Flatpak, container images, and registry migration to quay.io/cc-deck"
+
+> **Evolution Note (2026-03-26)**: Flatpak packaging (User Story 4, FR-012)
+> moved to Out of Scope. Never implemented, deferred to future work.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -56,18 +59,10 @@ A Fedora user installs cc-deck via an RPM package. A Debian/Ubuntu user installs
 
 ---
 
-### User Story 4 - Install via Flatpak (Priority: P2)
+### ~~User Story 4 - Install via Flatpak (Priority: P2)~~ DESCOPED
 
-A Linux user installs cc-deck from Flathub using Flatpak. This provides a sandboxed, distribution-independent installation that works on any Linux distribution with Flatpak support.
-
-**Why this priority**: Flatpak provides distribution-independent installation and is increasingly the standard for desktop Linux applications. It complements RPM/DEB by covering distributions not explicitly supported.
-
-**Independent Test**: Install the Flatpak from Flathub and verify the cc-deck CLI is accessible and functional.
-
-**Acceptance Scenarios**:
-
-1. **Given** the Flatpak manifest is submitted to Flathub, **When** it is accepted, **Then** users can install via `flatpak install flathub io.github.cc_deck.cc_deck`.
-2. **Given** cc-deck is installed via Flatpak, **When** the user runs it, **Then** it can access the host Zellij configuration directory for plugin installation.
+> **Descoped (2026-03-26)**: Flatpak packaging was never implemented.
+> Deferred to future work. RPM/DEB and Homebrew cover primary distribution channels.
 
 ---
 
@@ -126,7 +121,7 @@ A user pulls the cc-deck demo image from the new `quay.io/cc-deck` organization.
 - **FR-009**: The release pipeline MUST build the Rust WASM plugin before cross-compiling the Go CLI.
 - **FR-010**: All references to `quay.io/rhuss` in documentation, Makefile, and configuration files MUST be updated to `quay.io/cc-deck`.
 - **FR-011**: The release pipeline MUST generate a changelog from commit history for the GitHub Release.
-- **FR-012**: A Flatpak manifest MUST be created for submission to Flathub.
+- ~~**FR-012**: A Flatpak manifest MUST be created for submission to Flathub.~~ DESCOPED.
 - **FR-013**: Version numbers MUST be derived from the git tag at release time. The Makefile `VERSION` and Cargo.toml `version` are updated post-release for development builds.
 
 ### Key Entities
@@ -168,7 +163,7 @@ A user pulls the cc-deck demo image from the new `quay.io/cc-deck` organization.
 - GoReleaser configuration for cross-platform binary distribution
 - Homebrew tap repository and formula
 - RPM and DEB packages via nFPM
-- Flatpak manifest for Flathub submission
+- ~~Flatpak manifest for Flathub submission~~ DESCOPED
 - GitHub Actions release workflow
 - Container image build and push to quay.io/cc-deck
 - Registry migration (quay.io/rhuss to quay.io/cc-deck)

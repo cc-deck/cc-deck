@@ -2,8 +2,14 @@
 
 **Feature Branch**: `020-demo-recordings`
 **Created**: 2026-03-14
-**Status**: Draft
+**Status**: Evolved (2026-03-26)
 **Input**: User description: "Automated demo recording system for cc-deck with scripted terminal demos, voiceover generation, and multiple output formats"
+
+> **Evolution Note (2026-03-26)**: Plugin demo operates in manual mode
+> (requires user interaction at key points), not fully automated as
+> originally specified. Voiceover uses OpenAI TTS API (requires
+> `OPENAI_API_KEY`). Makefile targets (`demo-setup`, `demo-record`,
+> `demo-gif`, `demo-mp4`, `demo-voiceover`) implemented.
 
 ## User Scenarios & Testing *(mandatory)*
 

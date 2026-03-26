@@ -2,8 +2,16 @@
 
 **Feature Branch**: `019-docs-landing-page`
 **Created**: 2026-03-13
-**Status**: Draft
+**Status**: Evolved (2026-03-26)
 **Input**: User description: "Documentation and landing page with Antora docs and Astro site"
+
+> **Evolution Note (2026-03-26)**: Antora documentation modules implemented.
+> Landing page is minimal ("Coming Soon" placeholder), not the full-featured
+> page described in the spec. Astro config site URL needs correction
+> (currently `antwort-dev.github.io`). Demo image registry updated from
+> `quay.io/rhuss` to `quay.io/cc-deck`. AI command names updated:
+> `/cc-deck.extract` is now `/cc-deck.capture`,
+> `/cc-deck.settings` merged into `/cc-deck.capture`.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -99,7 +107,7 @@ scratch using the cc-deck CLI and AI commands.
 1. **Given** the images documentation, **When** the user follows the pipeline, **Then**
    they can build a working container image with their tools and settings.
 2. **Given** the images documentation, **Then** it explains each AI command
-   (/cc-deck.extract, /cc-deck.settings, /cc-deck.build, /cc-deck.push).
+   (/cc-deck.capture, /cc-deck.build, /cc-deck.push).
 3. **Given** the images documentation, **Then** it includes the manifest schema reference
    with all sections and examples.
 
@@ -209,8 +217,8 @@ and run the test suite.
   `cc-deck-demo` image with both API key and Vertex AI authentication options.
 - **FR-012**: The plugin module MUST document all keyboard shortcuts, smart attend behavior,
   pause/resume, search, rename, and session management.
-- **FR-013**: The images module MUST document the full build pipeline (init, extract,
-  settings, build, push) with manifest schema reference.
+- **FR-013**: The images module MUST document the full build pipeline (init, capture,
+  build, push) with manifest schema reference.
 - **FR-014**: The podman module MUST be a complete reference covering volume mounts for
   local source directories, credential passthrough (API key and Vertex AI), persistent
   containers, GPU access, and port forwarding.
@@ -232,7 +240,7 @@ and run the test suite.
   navigation to docs.
 - **Documentation Site**: Antora-generated multi-module AsciiDoc site served under
   `cc-deck.github.io/docs/`.
-- **Demo Image**: Pre-built container image at `quay.io/rhuss/cc-deck-demo:latest` for
+- **Demo Image**: Pre-built container image at `quay.io/cc-deck/cc-deck-demo:latest` for
   quickstart workflows.
 
 ## Success Criteria *(mandatory)*
@@ -252,7 +260,7 @@ and run the test suite.
 
 ## Assumptions
 
-- The `cc-deck.github.io` repository will be created under the `rhuss` GitHub account.
+- The `cc-deck.github.io` repository will be created under the `cc-deck` GitHub organization.
 - GitHub Pages is used for hosting (free, automatic deployment).
 - The landing page follows the same Astro + Tailwind structure as `antwort.github.io`.
 - The Antora UI bundle is customized with cc-deck branding (logo, colors).
