@@ -88,14 +88,14 @@ func TestComposeSmokeFullLifecycle(t *testing.T) {
 	require.NoError(t, err, "create failed: %s", out)
 	assert.Contains(t, out, "created")
 
-	// 2. Verify .cc-deck/ generated
-	ccDeckDir := filepath.Join(projectDir, ".cc-deck")
-	assert.DirExists(t, ccDeckDir)
-	assert.FileExists(t, filepath.Join(ccDeckDir, "compose.yaml"))
-	assert.FileExists(t, filepath.Join(ccDeckDir, "env"))
+	// 2. Verify .cc-deck/run/ generated
+	ccDeckRunDir := filepath.Join(projectDir, ".cc-deck", "run")
+	assert.DirExists(t, ccDeckRunDir)
+	assert.FileExists(t, filepath.Join(ccDeckRunDir, "compose.yaml"))
+	assert.FileExists(t, filepath.Join(ccDeckRunDir, "env"))
 
 	// 3. Verify compose.yaml content
-	composeYAML, err := os.ReadFile(filepath.Join(ccDeckDir, "compose.yaml"))
+	composeYAML, err := os.ReadFile(filepath.Join(ccDeckRunDir, "compose.yaml"))
 	require.NoError(t, err)
 	assert.Contains(t, string(composeYAML), "cc-deck-smoke-full")
 	assert.Contains(t, string(composeYAML), "fedora:latest")
@@ -152,8 +152,8 @@ func TestComposeSmokeFullLifecycle(t *testing.T) {
 	assert.Contains(t, out, "deleted")
 
 	// 13. Verify cleanup
-	_, err = os.Stat(ccDeckDir)
-	assert.True(t, os.IsNotExist(err), ".cc-deck/ should be removed")
+	_, err = os.Stat(filepath.Join(projectDir, ".cc-deck", "run"))
+	assert.True(t, os.IsNotExist(err), ".cc-deck/run/ should be removed")
 
 	_, err = exec.Command("podman", "inspect", "cc-deck-smoke-full").Output()
 	assert.Error(t, err, "container should not exist after delete")
@@ -176,22 +176,22 @@ func TestComposeSmokeNetworkFiltering(t *testing.T) {
 		"--allowed-domains", "anthropic")
 	require.NoError(t, err, "create failed: %s", out)
 
-	ccDeckDir := filepath.Join(projectDir, ".cc-deck")
+	ccDeckRunDir := filepath.Join(projectDir, ".cc-deck", "run")
 
 	// Verify proxy config files.
-	assert.FileExists(t, filepath.Join(ccDeckDir, "proxy", "tinyproxy.conf"))
-	assert.FileExists(t, filepath.Join(ccDeckDir, "proxy", "whitelist"))
+	assert.FileExists(t, filepath.Join(ccDeckRunDir, "proxy", "tinyproxy.conf"))
+	assert.FileExists(t, filepath.Join(ccDeckRunDir, "proxy", "whitelist"))
 
-	whitelist, err := os.ReadFile(filepath.Join(ccDeckDir, "proxy", "whitelist"))
+	whitelist, err := os.ReadFile(filepath.Join(ccDeckRunDir, "proxy", "whitelist"))
 	require.NoError(t, err)
 	assert.Contains(t, string(whitelist), "anthropic")
 
-	tinyConf, err := os.ReadFile(filepath.Join(ccDeckDir, "proxy", "tinyproxy.conf"))
+	tinyConf, err := os.ReadFile(filepath.Join(ccDeckRunDir, "proxy", "tinyproxy.conf"))
 	require.NoError(t, err)
 	assert.Contains(t, string(tinyConf), "FilterDefaultDeny Yes")
 
 	// Verify compose.yaml has proxy service.
-	composeYAML, err := os.ReadFile(filepath.Join(ccDeckDir, "compose.yaml"))
+	composeYAML, err := os.ReadFile(filepath.Join(ccDeckRunDir, "compose.yaml"))
 	require.NoError(t, err)
 	assert.Contains(t, string(composeYAML), "proxy:")
 	assert.Contains(t, string(composeYAML), "HTTP_PROXY")
@@ -358,7 +358,7 @@ func TestComposeSmokeNamedVolume(t *testing.T) {
 	require.NoError(t, err, "create with named-volume failed: %s", out)
 
 	// Verify compose.yaml declares the volume as external.
-	composeYAML, err := os.ReadFile(filepath.Join(projectDir, ".cc-deck", "compose.yaml"))
+	composeYAML, err := os.ReadFile(filepath.Join(projectDir, ".cc-deck", "run", "compose.yaml"))
 	require.NoError(t, err)
 	assert.Contains(t, string(composeYAML), "external: true",
 		"compose.yaml should declare external volume")
