@@ -132,7 +132,16 @@ func runVerify(dir string) error {
 		if err != nil {
 			fmt.Printf("  FAIL  %s\n", c.name)
 			if result != "" {
-				fmt.Printf("        %s\n", result)
+				// Truncate long error output (e.g. crash stack traces)
+				lines := strings.SplitN(result, "\n", 4)
+				if len(lines) > 3 {
+					for _, line := range lines[:3] {
+						fmt.Printf("        %s\n", line)
+					}
+					fmt.Printf("        ... (output truncated)\n")
+				} else {
+					fmt.Printf("        %s\n", result)
+				}
 			}
 			failed++
 		} else {
@@ -204,7 +213,7 @@ func runDiff(dir string) error {
 	cfData, err := os.ReadFile(containerfilePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Errorf("no Containerfile found, run /cc-deck.containerfile first")
+			return fmt.Errorf("no Containerfile found, run /cc-deck.build first")
 		}
 		return err
 	}
@@ -256,7 +265,7 @@ func runDiff(dir string) error {
 	if !hasChanges {
 		fmt.Println("\nNo differences detected. Manifest and Containerfile appear in sync.")
 	} else {
-		fmt.Println("\nRegenerate with: claude /cc-deck.containerfile")
+		fmt.Println("\nRegenerate with: claude /cc-deck.build")
 	}
 
 	return nil

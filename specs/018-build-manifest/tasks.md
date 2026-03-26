@@ -67,7 +67,7 @@
 
 - [x] T012 (cc-mux-kn5.1) [US2] Write `cc-deck/internal/build/commands/cc-deck.extract.md` command file: YAML frontmatter + numbered steps for repository analysis, tool discovery, deduplication, conflict resolution, and manifest update
 - [x] T013 (cc-mux-kn5.2) [US2] Write `cc-deck/internal/build/scripts/update-manifest.sh` helper script for safe YAML section updates (tools, sources) without LLM touching raw YAML structure
-- [ ] T014 (cc-mux-kn5.3) [US2] Verify: init a build dir, open in Claude Code, run `/cc-deck.extract` on the cc-deck Go project itself, confirm tools (Go, Rust) are detected and written to manifest
+- [ ] T014 (cc-mux-kn5.3) [US2] Verify: init a build dir, open in Claude Code, run `/cc-deck.capture` on the cc-deck Go project itself, confirm tools (Go, Rust) are detected and written to manifest. **Requires interactive Claude Code session.**
 
 **Checkpoint**: Repository analysis works for Go and Rust projects.
 
@@ -83,7 +83,7 @@
 
 - [x] T015 (cc-mux-ho5.1) [US3] Write `cc-deck/internal/build/commands/cc-deck.containerfile.md` command file: reads manifest, resolves free-form tools to install commands, generates layered Containerfile with DO NOT EDIT header, cc-deck self-embedding, Claude Code install, and github_tools downloads
 - [x] T016 (cc-mux-ho5.2) [US3] Add manifest validation to `cc-deck/internal/build/manifest.go`: `Validate() error` method checking required fields (version, image.name) and YAML structure
-- [ ] T017 (cc-mux-ho5.3) [US3] Verify: populate a manifest manually, run `/cc-deck.containerfile`, confirm generated Containerfile is syntactically valid and includes all manifest entries
+- [ ] T017 (cc-mux-ho5.3) [US3] Verify: populate a manifest manually, run `/cc-deck.build`, confirm generated Containerfile is syntactically valid and includes all manifest entries. **Requires interactive Claude Code session.** (Note: `/cc-deck.containerfile` renamed to `/cc-deck.build`)
 
 **Checkpoint**: Containerfile generation works for standard tool combinations.
 
@@ -100,7 +100,7 @@
 - [x] T018 (cc-mux-6ed.1) [US4] Add `build` subcommand logic in `cc-deck/internal/cmd/build.go`: validate manifest, verify Containerfile exists, copy cc-deck binary to `.build-context/`, invoke container runtime with correct tags
 - [x] T019 (cc-mux-6ed.2) [US4] Add `push` subcommand in `cc-deck/internal/cmd/build.go`: read image name/tag from manifest, invoke container runtime push
 - [x] T020 (cc-mux-6ed.3) [US4] Add cc-deck self-embedding logic: `os.Executable()` to find own binary, copy to `.build-context/cc-deck`, add `.build-context/` to `.gitignore`
-- [ ] T021 (cc-mux-6ed.4) [US4] Verify: init a build dir, generate a Containerfile (manually or via AI), run `cc-deck build`, confirm image is created with correct name:tag
+- [ ] T021 (cc-mux-6ed.4) [US4] Verify: init a build dir, run `/cc-deck.build` end-to-end (generates Containerfile + builds image), confirm image is created with correct name:tag. **Requires interactive Claude Code session.** (Note: build is triggered by `/cc-deck.build` AI command, not a CLI subcommand)
 
 **Checkpoint**: Build and push commands work end-to-end.
 
@@ -116,7 +116,7 @@
 
 - [x] T022 (cc-mux-a31.1) [P] [US5] Write `cc-deck/internal/build/commands/cc-deck.plugin.md` command file: list current plugins, add from marketplace or git URL, update manifest
 - [x] T023 (cc-mux-a31.2) [P] [US5] Write `cc-deck/internal/build/commands/cc-deck.mcp.md` command file: accept image reference, read `cc-deck.mcp/*` labels via container runtime inspect, auto-populate MCP entry, handle missing labels interactively
-- [ ] T024 (cc-mux-a31.3) [US5] Verify: run `/cc-deck.plugin` to add "sdd", run `/cc-deck.mcp` with an image reference, confirm manifest has both entries
+- [x] T024 (cc-mux-a31.3) [US5] ~~Verify: run `/cc-deck.plugin` to add "sdd", run `/cc-deck.mcp` with an image reference~~ DESCOPED: plugin/mcp commands not implemented
 
 **Checkpoint**: Plugin and MCP management works through AI commands.
 
@@ -132,7 +132,7 @@
 
 - [x] T025 (cc-mux-9gm.1) [US6] Add `verify` subcommand in `cc-deck/internal/cmd/build.go`: start container from built image, check tool availability, Claude Code startup, cc-deck version, report pass/fail
 - [x] T026 (cc-mux-9gm.2) [US6] Add `diff` subcommand in `cc-deck/internal/cmd/build.go`: compare manifest tools/plugins/mcp against last generated Containerfile, report added/removed/changed
-- [ ] T027 (cc-mux-9gm.3) [US6] Verify: build an image, run `cc-deck build verify`, confirm it reports all tools present
+- [x] T027 (cc-mux-9gm.3) [US6] Verify: `cc-deck image verify` tested against quay.io/cc-deck/cc-deck-demo:latest, reports cc-deck 0.6.0 and Claude Code 2.1.81
 
 **Checkpoint**: Verify and diff commands provide build confidence.
 
