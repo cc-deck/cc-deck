@@ -29,6 +29,7 @@ microdnf install -y --setopt=install_weak_deps=False \
   make \
   sudo \
   procps-ng \
+  tar \
   tree \
   unzip \
   less \

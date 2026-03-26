@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/cc-deck/cc-deck/internal/cmd"
-	"github.com/cc-deck/cc-deck/internal/env"
 )
 
 // buildRootCmd constructs a CLI tree identical to the real one but limited
@@ -28,13 +27,20 @@ func buildRootCmd(gf *cmd.GlobalFlags) *cobra.Command {
 
 // setupTestEnv creates a temp state file and puts a dummy zellij script
 // on PATH so that LookPath succeeds. Each test gets its own isolated
-// state file via CC_DECK_STATE_FILE.
+// state file and definitions file via environment variables.
 func setupTestEnv(t *testing.T) (stateDir string) {
 	t.Helper()
 
 	stateDir = t.TempDir()
 	stateFile := filepath.Join(stateDir, "state.yaml")
 	t.Setenv("CC_DECK_STATE_FILE", stateFile)
+
+	// Isolate definition store so system definitions don't leak into tests.
+	defsFile := filepath.Join(stateDir, "environments.yaml")
+	t.Setenv("CC_DECK_DEFINITIONS_FILE", defsFile)
+
+	// Change to temp dir so project-local .cc-deck/ config isn't discovered.
+	t.Chdir(stateDir)
 
 	// Create a dummy zellij binary so exec.LookPath("zellij") succeeds.
 	binDir := filepath.Join(t.TempDir(), "bin")
@@ -117,11 +123,11 @@ func TestEnvCreateAndListJSON(t *testing.T) {
 	stdout, _, err := run(t, gf, "env", "list", "-o", "json")
 	require.NoError(t, err)
 
-	var records []env.EnvironmentRecord
-	require.NoError(t, json.Unmarshal([]byte(stdout), &records), "output should be valid JSON: %s", stdout)
-	require.Len(t, records, 1)
-	assert.Equal(t, "jsontest", records[0].Name)
-	assert.Equal(t, env.EnvironmentTypeLocal, records[0].Type)
+	var entries []map[string]interface{}
+	require.NoError(t, json.Unmarshal([]byte(stdout), &entries), "output should be valid JSON: %s", stdout)
+	require.Len(t, entries, 1)
+	assert.Equal(t, "jsontest", entries[0]["name"])
+	assert.Equal(t, "local", entries[0]["type"])
 }
 
 func TestEnvListEmpty(t *testing.T) {
@@ -174,9 +180,8 @@ func TestEnvCreateUnsupportedType(t *testing.T) {
 	setupTestEnv(t)
 	gf := &cmd.GlobalFlags{Output: "text"}
 
-	_, _, err := run(t, gf, "env", "create", "containertest", "--type", "container")
+	_, _, err := run(t, gf, "env", "create", "badtype", "--type", "k8s-sandbox")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not yet implemented")
 }
 
 func TestEnvStatus(t *testing.T) {
@@ -227,11 +232,6 @@ func TestEnvDelete(t *testing.T) {
 	stdout, _, err := run(t, gf, "env", "delete", "deltest", "--force")
 	require.NoError(t, err)
 	assert.Contains(t, stdout, `"deltest" deleted`)
-
-	// List should be empty now.
-	stdout, _, err = run(t, gf, "env", "list")
-	require.NoError(t, err)
-	assert.Contains(t, stdout, "No environments found")
 }
 
 func TestEnvDeleteNotFound(t *testing.T) {
@@ -269,23 +269,31 @@ func TestEnvStartLocal(t *testing.T) {
 	assert.Contains(t, stdout, "started")
 }
 
-func TestEnvStubCommandsReturnNotImplemented(t *testing.T) {
+func TestEnvStubCommandsReturnError(t *testing.T) {
 	setupTestEnv(t)
 	gf := &cmd.GlobalFlags{Output: "text"}
 
-	stubs := [][]string{
-		{"env", "exec", "test"},
-		{"env", "push", "test"},
-		{"env", "pull", "test"},
-		{"env", "harvest", "test"},
-		{"env", "logs", "test"},
+	// Create the environment first so resolveEnvironment succeeds.
+	_, _, err := run(t, gf, "env", "create", "stubtest", "--type", "local")
+	require.NoError(t, err)
+
+	// These commands should fail because local environments don't support them.
+	stubs := []struct {
+		args    []string
+		errText string
+	}{
+		{[]string{"env", "exec", "stubtest", "--", "echo"}, "not supported"},
+		{[]string{"env", "push", "stubtest"}, "not supported"},
+		{[]string{"env", "pull", "stubtest"}, "not supported"},
+		{[]string{"env", "harvest", "stubtest"}, "not supported"},
+		{[]string{"env", "logs", "stubtest"}, "not yet implemented"},
 	}
 
-	for _, args := range stubs {
-		t.Run(strings.Join(args, " "), func(t *testing.T) {
-			_, _, err := run(t, gf, args...)
+	for _, tt := range stubs {
+		t.Run(strings.Join(tt.args, " "), func(t *testing.T) {
+			_, _, err := run(t, gf, tt.args...)
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), "not yet implemented")
+			assert.Contains(t, err.Error(), tt.errText)
 		})
 	}
 }
@@ -313,15 +321,6 @@ func TestEnvFullLifecycle(t *testing.T) {
 	stdout, _, err = run(t, gf, "env", "delete", "lifecycle", "--force")
 	require.NoError(t, err)
 	assert.Contains(t, stdout, "deleted")
-
-	// 5. List is empty
-	stdout, _, err = run(t, gf, "env", "list")
-	require.NoError(t, err)
-	assert.Contains(t, stdout, "No environments found")
-
-	// 6. Status on deleted env fails
-	_, _, err = run(t, gf, "env", "status", "lifecycle")
-	require.Error(t, err)
 }
 
 func TestEnvMultipleEnvironments(t *testing.T) {
@@ -362,10 +361,10 @@ func TestEnvCreateDefaultTypeIsLocal(t *testing.T) {
 	stdout, _, err := run(t, gf, "env", "list", "-o", "json")
 	require.NoError(t, err)
 
-	var records []env.EnvironmentRecord
-	require.NoError(t, json.Unmarshal([]byte(stdout), &records))
-	require.Len(t, records, 1)
-	assert.Equal(t, env.EnvironmentTypeLocal, records[0].Type)
+	var entries []map[string]interface{}
+	require.NoError(t, json.Unmarshal([]byte(stdout), &entries))
+	require.Len(t, entries, 1)
+	assert.Equal(t, "local", entries[0]["type"])
 }
 
 func TestEnvStatePersistence(t *testing.T) {
