@@ -12,6 +12,20 @@ import (
 	"github.com/cc-deck/cc-deck/internal/env"
 )
 
+// ensureZellijStub puts a dummy zellij binary on PATH so that
+// exec.LookPath("zellij") succeeds in CI where zellij is not installed.
+func ensureZellijStub(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("zellij"); err == nil {
+		return // real zellij available
+	}
+	binDir := filepath.Join(t.TempDir(), "bin")
+	require.NoError(t, os.MkdirAll(binDir, 0o755))
+	stub := filepath.Join(binDir, "zellij")
+	require.NoError(t, os.WriteFile(stub, []byte("#!/bin/sh\nexit 0\n"), 0o755))
+	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+}
+
 // newTestCreateCmd creates a cobra command for testing runEnvCreate.
 func newTestCreateCmd() (*cobra.Command, *createFlags) {
 	var cf createFlags
@@ -34,6 +48,7 @@ func newTestCreateCmd() (*cobra.Command, *createFlags) {
 }
 
 func TestRunEnvCreate_ResolvesNameFromDefinition(t *testing.T) {
+	ensureZellijStub(t)
 	tmpDir := t.TempDir()
 	require.NoError(t, exec.Command("git", "init", tmpDir).Run())
 
@@ -74,6 +89,7 @@ func TestRunEnvCreate_ResolvesNameFromDefinition(t *testing.T) {
 }
 
 func TestRunEnvCreate_ScaffoldsDefinitionWhenMissing(t *testing.T) {
+	ensureZellijStub(t)
 	tmpDir := t.TempDir()
 	require.NoError(t, exec.Command("git", "init", tmpDir).Run())
 
@@ -101,6 +117,7 @@ func TestRunEnvCreate_ScaffoldsDefinitionWhenMissing(t *testing.T) {
 }
 
 func TestRunEnvCreate_CLIOverrideStoredInStatusYaml(t *testing.T) {
+	ensureZellijStub(t)
 	tmpDir := t.TempDir()
 	require.NoError(t, exec.Command("git", "init", tmpDir).Run())
 
