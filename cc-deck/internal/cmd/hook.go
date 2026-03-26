@@ -3,6 +3,7 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -146,12 +148,13 @@ func runHook(stdin io.Reader, paneIDStr string) {
 
 	// Send via broadcast pipe (like zellij-attention does).
 	// zellij pipe --name sends to all listening plugins in the current session.
-	cmd := exec.Command(zellijPath, "pipe",
+	// Use a 3-second timeout to prevent hangs when no Zellij session is active.
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, zellijPath, "pipe",
 		"--name", "cc-deck:hook",
 		"--", string(payloadJSON))
-	if err := cmd.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "cc-deck hook: zellij pipe failed: %v\n", err)
-	}
+	_ = cmd.Run()
 
 	// Auto-save session state (5-minute cooldown, rolling retention).
 	// cooldownElapsed() returns immediately most of the time; only every 5 min
