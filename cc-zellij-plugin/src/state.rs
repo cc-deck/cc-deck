@@ -242,6 +242,16 @@ pub struct PluginState {
     /// is only a fallback for in-place `git checkout` and runs at a slower
     /// cadence (60s) to avoid unnecessary process spawns.
     pub last_git_poll_ms: u64,
+    /// Whether session state has changed and needs syncing.
+    /// Set by high-frequency hook handlers instead of immediate broadcast.
+    /// Flushed by Timer or by immediate-sync actions.
+    pub sync_dirty: bool,
+    /// Tab count from last TabUpdate. Used to detect tab closures
+    /// which require re-registering keybindings.
+    pub last_tab_count: usize,
+    /// Hash of the last-read session-meta.json content.
+    /// Used to skip re-parsing when the file has not changed.
+    pub last_meta_content_hash: u64,
 }
 
 /// Metadata override to apply when a restored session is discovered.
@@ -256,6 +266,9 @@ impl PluginState {
     pub fn rebuild_pane_map(&mut self) {
         self.pane_to_tab.clear();
         self.focused_pane_id = None;
+        if self.tabs.is_empty() {
+            return; // Nothing to map yet
+        }
         #[cfg(target_family = "wasm")]
         let my_plugin_id = zellij_tile::prelude::get_plugin_ids().plugin_id;
         #[cfg(not(target_family = "wasm"))]
@@ -418,6 +431,16 @@ impl PluginState {
         self.startup_grace_until
             .map(|deadline| crate::session::unix_now_ms() < deadline)
             .unwrap_or(false)
+    }
+
+    /// Mark session state as needing sync. Actual broadcast+save deferred to timer.
+    /// Schedules a 1s debounce timer on first dirty marking.
+    pub fn mark_sync_dirty(&mut self) {
+        if !self.sync_dirty {
+            self.sync_dirty = true;
+            #[cfg(target_family = "wasm")]
+            zellij_tile::prelude::set_timeout(1.0);
+        }
     }
 
     /// Preserve cursor position by clamping after session list changes.

@@ -349,7 +349,7 @@ impl ZellijPlugin for PluginState {
                         Some(session::unix_now_ms() + 3000);
                 }
                 sync::request_state();
-                sync::apply_session_meta(&mut self.sessions);
+                sync::apply_session_meta(&mut self.sessions, &mut self.last_meta_content_hash);
                 let pending = std::mem::take(&mut self.pending_events);
                 let mut render = true;
                 for e in pending {
@@ -404,8 +404,7 @@ impl ZellijPlugin for PluginState {
                 if is_session_end(&hook.hook_event_name) {
                     let removed = self.sessions.remove(&hook.pane_id).is_some();
                     if removed {
-                        sync::broadcast_state(self);
-                        sync::save_sessions(&self.sessions);
+                        self.mark_sync_dirty();
                     }
                     return removed;
                 }
@@ -556,8 +555,7 @@ impl ZellijPlugin for PluginState {
                 }
 
                 if changed {
-                    sync::broadcast_state(self);
-                    sync::save_sessions(&self.sessions);
+                    self.mark_sync_dirty();
                 }
                 true
             }
@@ -720,8 +718,8 @@ impl ZellijPlugin for PluginState {
                         s.last_event_ts = now;
                         s.meta_ts = now;
                     }
-                    sync::broadcast_state(self);
-                    sync::save_sessions(&self.sessions);
+                    self.sync_dirty = false;
+                    sync::broadcast_and_save(self);
                     sync::write_session_meta(&self.sessions);
                 }
                 true
@@ -823,18 +821,25 @@ impl PluginState {
                     debug_log("NAV auto-exited: tab switched away");
                 }
 
-                // Re-register keybindings from the active-tab instance.
-                if self.is_on_active_tab() {
+                // Re-register keybindings only when a tab was closed
+                // (the registered plugin_id may be stale).
+                let current_tab_count = self.tabs.len();
+                if self.is_on_active_tab() && current_tab_count < self.last_tab_count {
                     register_keybindings(&self.config);
                 }
+                self.last_tab_count = current_tab_count;
 
                 true
             }
             Event::PaneUpdate(manifest) => {
+                let old_focused = self.focused_pane_id;
+                let old_session_count = self.sessions.len();
+
                 self.pane_manifest = Some(manifest);
                 self.rebuild_pane_map();
+                let mut removed = false;
                 if !self.in_startup_grace() {
-                    self.remove_dead_sessions();
+                    removed = self.remove_dead_sessions();
                 }
                 self.preserve_cursor();
 
@@ -842,6 +847,7 @@ impl PluginState {
                 // (user clicked away from the sidebar).
                 // Uses timestamp-based grace period instead of boolean guard:
                 // if the stale PaneUpdate never arrives, the grace expires naturally.
+                let mut mode_changed = false;
                 if self.focused_pane_id.is_some() && !matches!(self.sidebar_mode, SidebarMode::Passive) {
                     let now_ms = session::unix_now_ms();
                     if self.sidebar_mode.in_grace_period(now_ms) {
@@ -850,16 +856,23 @@ impl PluginState {
                         debug_log(&format!("PANE_UPDATE auto-exit: focused_pane_id={:?} mode={:?}",
                             self.focused_pane_id, std::mem::discriminant(&self.sidebar_mode)));
                         self.abandon_navigation();
+                        mode_changed = true;
                     }
                 }
 
-                true
+                // Only re-render if something visible changed
+                let focus_changed = self.focused_pane_id != old_focused;
+                let count_changed = self.sessions.len() != old_session_count;
+                focus_changed || count_changed || removed || mode_changed
             }
             Event::ModeUpdate(mode_info) => {
                 self.input_mode = mode_info.mode;
-                true
+                false // input_mode is not rendered in the sidebar
             }
             Event::Timer(_) => {
+                // Flush debounced sync before other timer work
+                sync::flush_if_dirty(self);
+
                 // After startup grace expires, run one deferred cleanup pass.
                 // During grace, PaneUpdate skips remove_dead_sessions() to let
                 // the manifest stabilize. Once grace ends, no further PaneUpdate
@@ -874,7 +887,7 @@ impl PluginState {
                 if stale {
                     sync::save_sessions(&self.sessions);
                 }
-                let meta_changed = sync::apply_session_meta(&mut self.sessions);
+                let meta_changed = sync::apply_session_meta(&mut self.sessions, &mut self.last_meta_content_hash);
                 // Git branch polling: only every 60s as a fallback for in-place
                 // `git checkout`. The primary path is event-driven (cwd changes).
                 let now_ms = session::unix_now_ms();
@@ -985,8 +998,7 @@ impl PluginState {
                         git::detect_git_repo(terminal_pane_id, &cwd);
                         git::detect_git_branch(terminal_pane_id, &cwd);
                     }
-                    sync::broadcast_state(self);
-                    sync::save_sessions(&self.sessions);
+                    self.mark_sync_dirty();
                     true
                 } else {
                     false
@@ -1000,8 +1012,8 @@ impl PluginState {
                 let removed = self.sessions.remove(&id).is_some();
                 if removed {
                     self.pending_git_branch.remove(&id);
-                    sync::broadcast_state(self);
-                    sync::save_sessions(&self.sessions);
+                    self.sync_dirty = false;
+                    sync::broadcast_and_save(self);
                 }
                 removed
             }
@@ -1112,8 +1124,8 @@ impl PluginState {
             if let Some((tab_idx, is_only)) = session_info {
                 close_session_pane(pane_id, tab_idx, is_only);
             }
-            sync::broadcast_state(self);
-            sync::save_sessions(&self.sessions);
+            self.sync_dirty = false;
+            sync::broadcast_and_save(self);
             self.preserve_cursor();
         }
         true
@@ -1173,7 +1185,16 @@ impl PluginState {
 
     /// Handle a key event in navigation mode.
     fn handle_navigation_key(&mut self, key: KeyWithModifier) -> bool {
-        let session_count = self.filtered_sessions_by_tab_order().len();
+        // Compute filtered sessions once; extract cursor target info to avoid
+        // re-calling filtered_sessions_by_tab_order() in each match arm.
+        let sessions = self.filtered_sessions_by_tab_order();
+        let session_count = sessions.len();
+        let cursor = self.sidebar_mode.cursor_index();
+        let cursor_info = sessions.get(cursor).map(|s| {
+            (s.pane_id, s.tab_index, s.display_name.clone())
+        });
+        drop(sessions); // Release the immutable borrow on self
+
         if session_count == 0 {
             match key.bare_key {
                 BareKey::Esc => {
@@ -1222,11 +1243,7 @@ impl PluginState {
 
             // Switch to cursor session
             BareKey::Enter => {
-                let cursor = self.sidebar_mode.cursor_index();
-                let sessions = self.filtered_sessions_by_tab_order();
-                if let Some(session) = sessions.get(cursor) {
-                    let pane_id = session.pane_id;
-                    let tab_idx = session.tab_index;
+                if let Some((pane_id, tab_idx, _)) = cursor_info {
                     self.switch_to_session(pane_id, tab_idx);
                 }
                 true
@@ -1251,18 +1268,14 @@ impl PluginState {
 
             // Rename cursor session: transition Navigate -> NavigateRename
             BareKey::Char('r') => {
-                let cursor = self.sidebar_mode.cursor_index();
-                let sessions = self.filtered_sessions_by_tab_order();
-                if let Some(session) = sessions.get(cursor) {
-                    let pane_id = session.pane_id;
-                    let name = session.display_name.clone();
-                    let len = name.len();
+                if let Some((pane_id, _, display_name)) = cursor_info {
+                    let len = display_name.len();
                     if let SidebarMode::Navigate(ctx) = std::mem::replace(&mut self.sidebar_mode, SidebarMode::Passive) {
                         self.sidebar_mode = SidebarMode::NavigateRename {
                             ctx,
                             rename: state::RenameState {
                                 pane_id,
-                                input_buffer: name,
+                                input_buffer: display_name,
                                 cursor_pos: len,
                             },
                         };
@@ -1273,14 +1286,11 @@ impl PluginState {
 
             // Delete cursor session: transition Navigate -> NavigateDeleteConfirm
             BareKey::Char('d') => {
-                let cursor = self.sidebar_mode.cursor_index();
-                let sessions = self.filtered_sessions_by_tab_order();
-                if let Some(session) = sessions.get(cursor) {
-                    let target_pane = session.pane_id;
+                if let Some((pane_id, _, _)) = cursor_info {
                     if let SidebarMode::Navigate(ctx) = std::mem::replace(&mut self.sidebar_mode, SidebarMode::Passive) {
                         self.sidebar_mode = SidebarMode::NavigateDeleteConfirm {
                             ctx,
-                            pane_id: target_pane,
+                            pane_id,
                         };
                     }
                 }
@@ -1295,18 +1305,15 @@ impl PluginState {
 
             // Toggle pause on cursor session
             BareKey::Char('p') => {
-                let cursor = self.sidebar_mode.cursor_index();
-                let sessions = self.filtered_sessions_by_tab_order();
-                if let Some(session) = sessions.get(cursor) {
-                    let pane_id = session.pane_id;
+                if let Some((pane_id, _, _)) = cursor_info {
                     if let Some(s) = self.sessions.get_mut(&pane_id) {
                         s.paused = !s.paused;
                         let now = session::unix_now();
                         s.last_event_ts = now;
                         s.meta_ts = now;
                     }
-                    sync::broadcast_state(self);
-                    sync::save_sessions(&self.sessions);
+                    self.sync_dirty = false;
+                    sync::broadcast_and_save(self);
                     sync::write_session_meta(&self.sessions);
                 }
                 true
@@ -1367,8 +1374,7 @@ impl PluginState {
                         }
                     }
 
-                    sync::broadcast_state(self);
-                    sync::save_sessions(&self.sessions);
+                    self.mark_sync_dirty();
                     true
                 } else {
                     false
