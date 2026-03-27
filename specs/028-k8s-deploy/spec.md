@@ -22,7 +22,8 @@ A developer wants to run a Claude Code session on a remote Kubernetes cluster ra
 3. **Given** an attached session where the user created files, **When** the user detaches and later re-attaches, **Then** the files persist because the PVC retains data across Pod restarts.
 4. **Given** a running environment, **When** the user runs `cc-deck env stop my-env`, **Then** the workload scales to zero replicas and the PVC is preserved.
 5. **Given** a stopped environment, **When** the user runs `cc-deck env start my-env`, **Then** the workload scales back to one replica, re-mounting the preserved PVC, and the workspace contents are intact.
-6. **Given** a running environment, **When** the user runs `cc-deck env delete my-env --force`, **Then** all K8s resources (StatefulSet, Service, ConfigMap, NetworkPolicy) are removed and the state record is cleared.
+6. **Given** a running environment, **When** the user runs `cc-deck env delete my-env --force`, **Then** all K8s resources (StatefulSet, Service, ConfigMap, NetworkPolicy, PVC) are removed and the state record is cleared.
+7. **Given** a running environment, **When** the user runs `cc-deck env delete my-env --force --keep-volumes`, **Then** all K8s resources except the PVC are removed, preserving workspace data for potential reuse.
 
 ---
 
@@ -161,6 +162,13 @@ A developer wants to see all their environments across types (local, Podman, com
 - What happens when ESO is not installed but `--secret-store` is specified? The system reports an error indicating that the External Secrets Operator CRDs are not available on the cluster.
 - What happens when an environment is deleted but some resources fail to clean up? The system logs warnings for resources it could not delete and removes the state record, noting the partially cleaned state.
 
+## Clarifications
+
+### Session 2026-03-27
+
+- Q: Should `env delete` remove PVCs (permanent workspace data loss) or preserve them? → A: Delete PVC by default; add `--keep-volumes` flag for opt-in preservation (consistent with container environment's KeepVolumes pattern).
+- Q: Should Pod readiness timeout be configurable via CLI? → A: Add `--timeout` flag with 5m default, following kubectl convention.
+
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
@@ -180,9 +188,9 @@ A developer wants to see all their environments across types (local, Podman, com
 - **FR-013**: System MUST support git harvesting via `ext::kubectl exec` for the git-harvest sync strategy.
 - **FR-014**: System MUST connect to environments via `kubectl exec` by default, using the predictable Pod name (`cc-deck-<name>-0`).
 - **FR-015**: System MUST register the `k8s-deploy` type in the environment factory.
-- **FR-016**: System MUST update the CLI command handling to accept k8s-deploy-specific flags (`--namespace`, `--kubeconfig`, `--storage-size`, `--storage-class`, `--secret-store`, `--build-dir`).
+- **FR-016**: System MUST update the CLI command handling to accept k8s-deploy-specific flags (`--namespace`, `--kubeconfig`, `--storage-size`, `--storage-class`, `--secret-store`, `--build-dir`, `--keep-volumes`, `--timeout`).
 - **FR-017**: System MUST reconcile state against the K8s API when listing or querying status, updating stale records.
-- **FR-018**: System MUST delete all generated K8s resources on environment deletion and preserve user-managed resources (existing Secrets).
+- **FR-018**: System MUST delete all generated K8s resources (including PVC) on environment deletion by default, and preserve user-managed resources (existing Secrets). When `--keep-volumes` is specified, the PVC is preserved.
 - **FR-019**: System MUST clean up partially created resources when creation fails partway through.
 - **FR-020**: System MUST include integration tests using kind that verify the full lifecycle (create, start, stop, delete) and resource correctness, runnable both locally and in GitHub Actions CI.
 
@@ -214,7 +222,7 @@ A developer wants to see all their environments across types (local, Podman, com
 - For ESO integration, the External Secrets Operator and at least one SecretStore are pre-configured by the cluster administrator. cc-deck generates ExternalSecret resources but does not install or configure ESO itself.
 - For OpenShift features, the user has permissions to create Routes and EgressFirewalls.
 - The stub container image for integration tests is a minimal Alpine image with `sleep infinity` as the entrypoint, sufficient for lifecycle testing without requiring the full cc-deck demo image.
-- Pod readiness timeout defaults to 5 minutes. This is sufficient for most clusters but may need adjustment for resource-constrained environments.
+- Pod readiness timeout defaults to 5 minutes (configurable via `--timeout`). This is sufficient for most clusters but may need adjustment for resource-constrained environments.
 
 ## Dependencies
 
