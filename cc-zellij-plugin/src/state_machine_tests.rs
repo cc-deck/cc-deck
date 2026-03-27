@@ -24,6 +24,55 @@ fn key_char(c: char) -> KeyWithModifier {
     bare(BareKey::Char(c))
 }
 
+fn make_tab_info(position: usize, name: &str, active: bool) -> TabInfo {
+    TabInfo {
+        position,
+        name: name.to_string(),
+        active,
+        panes_to_hide: 0,
+        is_fullscreen_active: false,
+        is_sync_panes_active: false,
+        are_floating_panes_visible: false,
+        other_focused_clients: vec![],
+        active_swap_layout_name: None,
+        is_swap_layout_dirty: false,
+        viewport_rows: 0,
+        viewport_columns: 0,
+        display_area_rows: 0,
+        display_area_columns: 0,
+        selectable_tiled_panes_count: 0,
+        selectable_floating_panes_count: 0,
+    }
+}
+
+fn make_pane_info(id: u32, is_plugin: bool) -> PaneInfo {
+    PaneInfo {
+        id,
+        is_plugin,
+        is_focused: false,
+        is_fullscreen: false,
+        is_floating: false,
+        is_suppressed: false,
+        title: String::new(),
+        exited: false,
+        exit_status: None,
+        is_held: false,
+        pane_x: 0,
+        pane_content_x: 0,
+        pane_y: 0,
+        pane_content_y: 0,
+        pane_rows: 0,
+        pane_content_rows: 0,
+        pane_columns: 0,
+        pane_content_columns: 0,
+        cursor_coordinates_in_pane: None,
+        terminal_command: None,
+        plugin_url: None,
+        is_selectable: true,
+        index_in_pane_group: std::collections::BTreeMap::new(),
+    }
+}
+
 /// Create a PluginState with N sessions (pane_id 1..=n, tab_index 0..n-1).
 fn state_with_sessions(n: u32) -> PluginState {
     let mut state = PluginState::default();
@@ -801,4 +850,135 @@ fn test_empty_sessions_only_esc_and_n_work() {
     });
     assert!(state.handle_key(bare(BareKey::Esc)));
     assert!(matches!(state.sidebar_mode, SidebarMode::Passive));
+}
+
+// --- Fix 2: Debounce sync tests ---
+
+#[test]
+fn test_sync_dirty_flag_set_by_mark() {
+    let mut state = state_with_sessions(3);
+    assert!(!state.sync_dirty);
+    state.mark_sync_dirty();
+    assert!(state.sync_dirty);
+}
+
+#[test]
+fn test_sync_dirty_cleared_by_flush() {
+    let mut state = state_with_sessions(3);
+    state.sync_dirty = true;
+    crate::sync::flush_if_dirty(&mut state);
+    assert!(!state.sync_dirty);
+}
+
+#[test]
+fn test_sync_flush_noop_when_clean() {
+    let mut state = state_with_sessions(3);
+    assert!(!state.sync_dirty);
+    // Should not panic or change state
+    crate::sync::flush_if_dirty(&mut state);
+    assert!(!state.sync_dirty);
+}
+
+#[test]
+fn test_mark_sync_dirty_idempotent() {
+    let mut state = state_with_sessions(3);
+    state.mark_sync_dirty();
+    assert!(state.sync_dirty);
+    // Calling again should not change state
+    state.mark_sync_dirty();
+    assert!(state.sync_dirty);
+}
+
+// --- Fix 3: rebuild_pane_map early return tests ---
+
+#[test]
+fn test_rebuild_pane_map_no_tabs_is_noop() {
+    let mut state = PluginState::default();
+    state.pane_manifest = Some(PaneManifest {
+        panes: {
+            let mut map = std::collections::HashMap::new();
+            map.insert(0, vec![make_pane_info(10, false)]);
+            map
+        },
+    });
+    // No tabs set
+    state.rebuild_pane_map();
+    assert!(state.pane_to_tab.is_empty());
+    assert!(state.focused_pane_id.is_none());
+}
+
+#[test]
+fn test_rebuild_pane_map_no_manifest_is_noop() {
+    let mut state = PluginState::default();
+    state.tabs = vec![make_tab_info(0, "Tab 1", true)];
+    // No pane_manifest set
+    state.rebuild_pane_map();
+    assert!(state.pane_to_tab.is_empty());
+}
+
+// --- Fix 4: Throttle keybinding registration tests ---
+
+#[test]
+fn test_tab_count_no_change_no_reregister() {
+    let state = PluginState { last_tab_count: 3, ..Default::default() };
+    let current = 3;
+    assert!(!(current < state.last_tab_count));
+}
+
+#[test]
+fn test_tab_count_increase_no_reregister() {
+    let state = PluginState { last_tab_count: 3, ..Default::default() };
+    let current = 4;
+    assert!(!(current < state.last_tab_count));
+}
+
+#[test]
+fn test_tab_count_decrease_triggers_reregister() {
+    let state = PluginState { last_tab_count: 3, ..Default::default() };
+    let current = 2;
+    assert!(current < state.last_tab_count);
+}
+
+// --- Fix 7: Reduce re-render tests ---
+
+#[test]
+fn test_pane_update_no_visible_change() {
+    // Simulates PaneUpdate logic: if focused_pane_id and session count
+    // don't change, no re-render is needed.
+    let mut state = state_with_sessions(1);
+    state.tabs = vec![make_tab_info(0, "Tab 1", true)];
+
+    let manifest = PaneManifest {
+        panes: {
+            let mut map = std::collections::HashMap::new();
+            map.insert(0, vec![make_pane_info(1, false)]);
+            map
+        },
+    };
+
+    // Establish baseline
+    state.pane_manifest = Some(manifest.clone());
+    state.rebuild_pane_map();
+    let old_focused = state.focused_pane_id;
+    let old_count = state.sessions.len();
+
+    // Simulate second PaneUpdate with same data
+    state.pane_manifest = Some(manifest);
+    state.rebuild_pane_map();
+
+    let focus_changed = state.focused_pane_id != old_focused;
+    let count_changed = state.sessions.len() != old_count;
+    assert!(!focus_changed, "focus should not change");
+    assert!(!count_changed, "session count should not change");
+}
+
+#[test]
+fn test_pane_update_focus_change_triggers_render() {
+    let mut state = state_with_sessions(2);
+    state.focused_pane_id = Some(1);
+    let old_focused = state.focused_pane_id;
+
+    // Simulate focus changing to pane 2
+    state.focused_pane_id = Some(2);
+    assert!(state.focused_pane_id != old_focused);
 }

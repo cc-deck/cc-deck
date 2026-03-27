@@ -20,6 +20,37 @@ pub fn broadcast_state(_state: &PluginState) {
     // No-op in native tests
 }
 
+/// Serialize sessions once, then broadcast via pipe AND save to disk.
+/// Avoids the double serialization of calling broadcast_state + save_sessions separately.
+#[cfg(target_family = "wasm")]
+pub fn broadcast_and_save(state: &PluginState) {
+    use zellij_tile::prelude::*;
+    let json = serde_json::to_string(&state.sessions).unwrap_or_default();
+    // Broadcast via pipe
+    let mut msg = MessageToPlugin::new("cc-deck:sync");
+    msg.message_payload = Some(json.clone());
+    pipe_message_to_plugin(msg);
+    // Save to disk (reusing same JSON)
+    let _ = std::fs::write(SESSIONS_PATH, &json);
+    let pid = current_zellij_pid();
+    if pid != 0 {
+        let _ = std::fs::write(PID_PATH, pid.to_string());
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+pub fn broadcast_and_save(_state: &PluginState) {
+    // No-op in native tests
+}
+
+/// Flush debounced sync if dirty: broadcast and save, then clear the flag.
+pub fn flush_if_dirty(state: &mut PluginState) {
+    if state.sync_dirty {
+        broadcast_and_save(state);
+        state.sync_dirty = false;
+    }
+}
+
 /// Request state from other plugin instances (called on load).
 #[cfg(target_family = "wasm")]
 pub fn request_state() {
@@ -162,9 +193,29 @@ pub fn write_session_meta(sessions: &BTreeMap<u32, Session>) {
 
 /// Read and apply session metadata from the shared file.
 /// Called on timer to pick up renames/pauses from other instances.
+/// Skips parsing if the file content hash matches the last read.
 /// Returns true if any session was updated.
-pub fn apply_session_meta(sessions: &mut BTreeMap<u32, Session>) -> bool {
-    let meta = read_session_meta_file();
+pub fn apply_session_meta(sessions: &mut BTreeMap<u32, Session>, last_hash: &mut u64) -> bool {
+    let content = match std::fs::read_to_string(META_PATH) {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+
+    // Quick hash check: skip parse if content unchanged
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    content.hash(&mut hasher);
+    let new_hash = hasher.finish();
+    if new_hash == *last_hash {
+        return false;
+    }
+    *last_hash = new_hash;
+
+    let meta: BTreeMap<u32, SessionMeta> = match serde_json::from_str(&content) {
+        Ok(m) => m,
+        Err(_) => return false,
+    };
     if meta.is_empty() {
         return false;
     }
@@ -360,5 +411,49 @@ mod tests {
         let result: BTreeMap<u32, Session> =
             serde_json::from_str("not valid json").unwrap_or_default();
         assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_meta_hash_skip_logic() {
+        // Verify that identical content hashes match and different content hashes differ.
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let content_a = r#"{"1":{"display_name":"api","manually_renamed":true,"paused":false,"meta_ts":100}}"#;
+        let content_b = r#"{"1":{"display_name":"renamed","manually_renamed":true,"paused":false,"meta_ts":200}}"#;
+
+        let hash = |s: &str| -> u64 {
+            let mut hasher = DefaultHasher::new();
+            s.hash(&mut hasher);
+            hasher.finish()
+        };
+
+        let hash_a = hash(content_a);
+        let hash_a2 = hash(content_a);
+        let hash_b = hash(content_b);
+
+        // Same content produces same hash (should skip)
+        assert_eq!(hash_a, hash_a2);
+        // Different content produces different hash (should parse)
+        assert_ne!(hash_a, hash_b);
+    }
+
+    #[test]
+    fn test_broadcast_and_save_json_roundtrip() {
+        // Verify the JSON produced by serializing sessions is valid and roundtrips.
+        // This validates the shared serialization path used by broadcast_and_save.
+        let mut sessions = BTreeMap::new();
+        let mut s1 = make_session(1, "api", 100);
+        s1.activity = crate::session::Activity::Working;
+        s1.working_dir = Some("/home/user/api".to_string());
+        sessions.insert(1, s1);
+        sessions.insert(2, make_session(2, "web", 200));
+
+        let json = serde_json::to_string(&sessions).unwrap();
+        let restored: BTreeMap<u32, Session> = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.len(), 2);
+        assert_eq!(restored[&1].display_name, "api");
+        assert_eq!(restored[&2].display_name, "web");
+        assert_eq!(restored[&1].activity, crate::session::Activity::Working);
     }
 }
