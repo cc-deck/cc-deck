@@ -53,6 +53,7 @@ for containerized Claude Code environments.`,
 
 	// Daily: promoted env subcommands.
 	addToGroup(rootCmd, "daily",
+		cmd.NewTuiCmd(gf),
 		cmd.NewAttachCmd(gf),
 		cmd.NewListCmd(gf),
 		cmd.NewStatusCmd(gf),
