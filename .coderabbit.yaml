@@ -1,0 +1,181 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+
+language: "en-US"
+tone_instructions: "Be direct and thorough. Flag all potential issues including security, performance, and correctness."
+early_access: true
+
+reviews:
+  profile: "assertive"
+  request_changes_workflow: true
+  high_level_summary: true
+  high_level_summary_instructions: |
+    Summarize architectural impact, security concerns, and performance
+    implications. Note any breaking changes or API surface modifications.
+    Call out any patterns that diverge from existing codebase conventions.
+  review_status: true
+  commit_status: true
+  fail_commit_status: true
+  sequence_diagrams: true
+  estimate_code_review_effort: true
+  assess_linked_issues: true
+  related_issues: true
+  related_prs: true
+  suggested_labels: true
+  suggested_reviewers: true
+  poem: false
+  in_progress_fortune: false
+
+  slop_detection:
+    enabled: true
+
+  path_instructions:
+    - path: "**/*.go"
+      instructions: |
+        Review Go code for:
+        - Idiomatic patterns (Effective Go, Go Code Review Comments)
+        - Proper error handling (no silently ignored errors, wrapped errors with context)
+        - Goroutine safety (race conditions, proper synchronization)
+        - Resource cleanup (defer for Close/Unlock, context cancellation)
+        - Interface design (small interfaces, accept interfaces return structs)
+        - Table-driven tests where applicable
+        - Proper use of context.Context propagation
+        - XDG paths must use internal/xdg package, not adrg/xdg directly
+        - Container runtime must be podman, never Docker
+    - path: "**/*.rs"
+      instructions: |
+        Review Rust code for:
+        - Ownership and borrowing correctness
+        - Error handling (Result/Option, avoid unwrap in production code)
+        - Unsafe block justification and soundness
+        - Lifetime annotation correctness
+        - Clippy compliance and idiomatic patterns
+        - WASM compatibility (no std-only APIs in wasm32-wasip1 targets)
+        - Proper use of serde derive macros and serialization
+        - zellij-tile API usage correctness
+    - path: "**/*_test.go"
+      instructions: |
+        Review Go tests for:
+        - Table-driven test patterns
+        - Meaningful test names and subtests
+        - Edge case coverage
+        - No test pollution (parallel safety, cleanup)
+        - Proper use of testify assertions
+        - Integration tests must use podman (not Docker) via
+          TESTCONTAINERS_RYUK_CONTAINER_PRIVILEGED=true
+    - path: "**/Containerfile"
+      instructions: |
+        Review for multi-stage build efficiency, minimal attack surface,
+        non-root user, proper layer caching, and Fedora base image conventions.
+        Must use podman for all container operations.
+    - path: "**/*.kdl"
+      instructions: |
+        Review Zellij KDL configuration for:
+        - Correct plugin location paths
+        - Proper layout structure (tab_template, load_plugins)
+        - Plugin configuration parameters
+    - path: "**/*.yaml"
+      instructions: |
+        Review YAML files for:
+        - Correct schema structure
+        - No hardcoded secrets or credentials
+        - Proper use of anchors and aliases where appropriate
+    - path: "cc-deck/internal/env/**/*.go"
+      instructions: |
+        Pay special attention to Environment interface compliance.
+        All implementations must satisfy behavioral contracts defined in
+        specs/023-env-interface/contracts/environment-interface.md.
+        Verify Create/Start/Stop/Delete/Attach/Exec/Push/Pull/Harvest
+        methods follow the interface contract.
+    - path: "cc-deck/internal/cmd/**/*.go"
+      instructions: |
+        Review CLI commands for:
+        - Consistent cobra command structure
+        - Proper flag validation and help text
+        - Error messages that guide the user
+        - Graceful degradation when optional dependencies are missing
+
+  path_filters:
+    - "!vendor/**"
+    - "!**/*.gen.go"
+    - "!**/generated/**"
+    - "!go.sum"
+    - "!**/*.wasm"
+
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+    drafts: false
+    ignore_title_keywords:
+      - "WIP"
+      - "DO NOT MERGE"
+      - "wip"
+
+  finishing_touches:
+    docstrings:
+      enabled: true
+    unit_tests:
+      enabled: true
+    simplify:
+      enabled: true
+
+  pre_merge_checks:
+    docstrings:
+      mode: "warning"
+      threshold: 80
+    title:
+      mode: "error"
+      requirements: |
+        Title must be concise (under 70 characters) and descriptive.
+        Prefer imperative mood (e.g., "Add session TUI" not "Added session TUI").
+    description:
+      mode: "warning"
+
+  tools:
+    golangci-lint:
+      enabled: true
+    clippy:
+      enabled: true
+    gitleaks:
+      enabled: true
+    trufflehog:
+      enabled: true
+    semgrep:
+      enabled: true
+    trivy:
+      enabled: true
+    osvScanner:
+      enabled: true
+    checkov:
+      enabled: true
+    ast-grep:
+      essential_rules: true
+    shellcheck:
+      enabled: true
+    hadolint:
+      enabled: true
+    yamllint:
+      enabled: true
+    actionlint:
+      enabled: true
+    markdownlint:
+      enabled: true
+    languagetool:
+      enabled: true
+      level: "picky"
+    github-checks:
+      enabled: true
+      timeout_ms: 90000
+
+knowledge_base:
+  opt_out: false
+  web_search:
+    enabled: true
+  learnings:
+    scope: "auto"
+  issues:
+    scope: "auto"
+  pull_requests:
+    scope: "auto"
+
+chat:
+  auto_reply: true

@@ -1,6 +1,6 @@
 # Brainstorm Overview
 
-Last updated: 2026-03-12
+Last updated: 2026-03-30
 
 ## Sessions
 
@@ -23,6 +23,12 @@ Last updated: 2026-03-12
 | 18 | 2026-03-12 | build-manifest | active | - |
 | 19 | 2026-03-12 | build-commands | active | - |
 | 20 | 2026-03-12 | deploy-integration | active | - |
+| 22 | 2026-03-14 | network-filtering | active | 022 |
+| 23 | 2026-03-14 | git-workflow | active | - |
+| 24 | 2026-03-19 | tui-environment-manager | superseded-by-31 | - |
+| 25 | 2026-03-20 | container-environment | active | - |
+| 30 | 2026-03-28 | single-instance-architecture | active | - |
+| 31 | 2026-03-30 | session-tui | active | - |
 
 ## Open Threads
 
