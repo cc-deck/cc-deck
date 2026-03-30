@@ -58,6 +58,36 @@ fn debug_log(msg: &str) {
 #[cfg(not(target_family = "wasm"))]
 fn debug_log(_msg: &str) {}
 
+/// Install a panic hook that always writes to /cache/panic.log regardless of
+/// debug_enabled. This ensures crash diagnostics are available even when
+/// debug logging is off. The default WASM panic handler produces the
+/// unhelpful `<NO PAYLOAD>` message in Zellij; this hook captures the
+/// actual panic message and location.
+#[cfg(target_family = "wasm")]
+fn install_panic_hook() {
+    std::panic::set_hook(Box::new(|info| {
+        let msg = if let Some(s) = info.payload().downcast_ref::<&str>() {
+            s.to_string()
+        } else if let Some(s) = info.payload().downcast_ref::<String>() {
+            s.clone()
+        } else {
+            "unknown panic payload".to_string()
+        };
+        let location = info.location().map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column())).unwrap_or_default();
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open("/cache/panic.log")
+        {
+            use std::io::Write;
+            let _ = writeln!(f, "PANIC at {location}: {msg}");
+        }
+    }));
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn install_panic_hook() {}
+
 /// RAII timer that logs event processing duration on drop (>1ms threshold).
 /// Uses unix_now_ms() since std::time::Instant is not available in WASI.
 struct PerfTimer {
@@ -343,11 +373,11 @@ impl PluginState {
 
         // Restore the pane that was focused before navigation mode
         if let Some(ctx) = old.nav_ctx() {
-            if let Some((pane_id, tab_idx)) = ctx.restore {
+            if let Some((_pane_id, _tab_idx)) = ctx.restore {
                 #[cfg(target_family = "wasm")]
                 {
-                    zellij_tile::prelude::switch_tab_to(tab_idx as u32 + 1);
-                    zellij_tile::prelude::focus_terminal_pane(pane_id, false);
+                    zellij_tile::prelude::switch_tab_to(_tab_idx as u32 + 1);
+                    zellij_tile::prelude::focus_terminal_pane(_pane_id, false);
                 }
             }
         }
@@ -410,6 +440,7 @@ impl PluginState {
 
 impl ZellijPlugin for PluginState {
     fn load(&mut self, configuration: BTreeMap<String, String>) {
+        install_panic_hook();
         debug_init();
         debug_log("LOAD start");
 
@@ -684,10 +715,8 @@ impl ZellijPlugin for PluginState {
                                         self.updating_tabs = true;
                                     }
                                 }
-                            } else {
-                                if let Some(s) = self.sessions.get_mut(&pane) {
-                                    s.pending_tab_rename = true;
-                                }
+                            } else if let Some(s) = self.sessions.get_mut(&pane) {
+                                s.pending_tab_rename = true;
                             }
                             sync::write_session_meta(&self.sessions);
                         } else if let Some(session) = self.sessions.get(&pane) {
@@ -718,10 +747,8 @@ impl ZellijPlugin for PluginState {
                                             self.updating_tabs = true;
                                         }
                                     }
-                                } else {
-                                    if let Some(s) = self.sessions.get_mut(&pane) {
-                                        s.pending_tab_rename = true;
-                                    }
+                                } else if let Some(s) = self.sessions.get_mut(&pane) {
+                                    s.pending_tab_rename = true;
                                 }
                             }
                             if not_renamed {
@@ -970,14 +997,22 @@ impl ZellijPlugin for PluginState {
 
             PipeAction::DumpState => {
                 if !self.is_on_active_tab() {
+                    // Must still unblock the CLI pipe even though we're not
+                    // responding. Zellij waits for ALL instances to unblock
+                    // before letting `zellij pipe` return. Without this,
+                    // `cc-deck snapshot save` hangs forever.
+                    #[cfg(target_family = "wasm")]
+                    if let PipeSource::Cli(ref pipe_id) = pipe_message.source {
+                        zellij_tile::prelude::unblock_cli_pipe_input(pipe_id);
+                    }
                     return false;
                 }
-                let state_json = serde_json::to_string(&self.sessions)
+                let _state_json = serde_json::to_string(&self.sessions)
                     .unwrap_or_else(|_| "{}".to_string());
                 #[cfg(target_family = "wasm")]
                 {
                     if let PipeSource::Cli(ref pipe_id) = pipe_message.source {
-                        zellij_tile::prelude::cli_pipe_output(pipe_id, &state_json);
+                        zellij_tile::prelude::cli_pipe_output(pipe_id, &_state_json);
                         zellij_tile::prelude::unblock_cli_pipe_input(pipe_id);
                     }
                 }
@@ -1013,6 +1048,26 @@ impl ZellijPlugin for PluginState {
                     debug_log(&format!("RESTORE-META loaded {total} pending overrides"));
                 }
                 false
+            }
+
+            PipeAction::Refresh => {
+                if !self.is_on_active_tab() {
+                    return false;
+                }
+                // Clear file-based caches
+                let _ = std::fs::remove_file("/cache/sessions.json");
+                let _ = std::fs::remove_file("/cache/session-meta.json");
+                let _ = std::fs::remove_file(SHARED_LAST_CLICK_PATH);
+                // Reset meta content hash so next apply_session_meta re-reads
+                self.last_meta_content_hash = 0;
+                // Broadcast current in-memory state as authoritative
+                sync::broadcast_and_save(self);
+                self.notification = Some(notification::create_notification(
+                    "State refreshed",
+                    3,
+                ));
+                debug_log("REFRESH cleared caches and broadcast state");
+                true
             }
 
             PipeAction::Unknown => false,
@@ -1133,6 +1188,12 @@ impl PluginState {
 
                 // Active-tab instance: full processing
                 self.remove_dead_sessions();
+                // Run stale session cleanup immediately on tab activation.
+                // Off-screen instances skip cleanup_stale_sessions in their
+                // timer handler, so expired Done/AgentDone sessions may still
+                // show green checkmarks. Running cleanup here prevents a
+                // visible flash when switching tabs.
+                self.cleanup_stale_sessions(self.config.done_timeout);
                 self.preserve_cursor();
 
                 // Exit navigation mode if we just became inactive (shouldn't
@@ -1144,6 +1205,10 @@ impl PluginState {
                 true
             }
             Event::PaneUpdate(manifest) => {
+                // Capture old focus BEFORE rebuild_pane_map updates it,
+                // so we can detect focus changes for re-rendering.
+                let old_focused = self.focused_pane_id;
+
                 self.pane_manifest = Some(manifest);
                 self.rebuild_pane_map();
 
@@ -1156,13 +1221,15 @@ impl PluginState {
                     return false;
                 }
 
-                let old_focused = self.focused_pane_id;
                 let old_session_count = self.sessions.len();
 
                 // Re-derive focused pane (rebuild_pane_map already ran)
                 let mut removed = false;
                 if !self.in_startup_grace() {
                     removed = self.remove_dead_sessions();
+                    if removed {
+                        sync::prune_session_meta(&self.sessions);
+                    }
                 }
                 self.preserve_cursor();
 
@@ -1209,12 +1276,13 @@ impl PluginState {
                 if self.startup_grace_until.is_some() && !self.in_startup_grace() {
                     self.startup_grace_until = None;
                     if self.remove_dead_sessions() {
-                        sync::save_sessions(&self.sessions);
+                        sync::broadcast_and_save(self);
+                        sync::prune_session_meta(&self.sessions);
                     }
                 }
                 let stale = self.cleanup_stale_sessions(self.config.done_timeout);
                 if stale {
-                    sync::save_sessions(&self.sessions);
+                    sync::broadcast_and_save(self);
                 }
                 let meta_changed = sync::apply_session_meta(&mut self.sessions, &mut self.last_meta_content_hash);
                 // Git branch polling: only every 60s as a fallback for in-place
@@ -1350,6 +1418,7 @@ impl PluginState {
                 if removed {
                     self.pending_git_branch.remove(&id);
                     sync::sync_now(self);
+                    sync::prune_session_meta(&self.sessions);
                 }
                 removed
             }
@@ -1488,15 +1557,21 @@ impl PluginState {
         match key.bare_key {
             BareKey::Char(c) => {
                 filter.input_buffer.insert(filter.cursor_pos, c);
-                filter.cursor_pos += 1;
+                filter.cursor_pos += c.len_utf8();
                 ctx.cursor_index = 0;
                 self.sidebar_mode = SidebarMode::NavigateFilter { ctx, filter };
                 true
             }
             BareKey::Backspace => {
                 if filter.cursor_pos > 0 {
-                    filter.cursor_pos -= 1;
-                    filter.input_buffer.remove(filter.cursor_pos);
+                    // Find the previous character boundary
+                    let prev = filter.input_buffer[..filter.cursor_pos]
+                        .char_indices()
+                        .last()
+                        .map(|(i, _)| i)
+                        .unwrap_or(0);
+                    filter.input_buffer.remove(prev);
+                    filter.cursor_pos = prev;
                     ctx.cursor_index = 0;
                 }
                 self.sidebar_mode = SidebarMode::NavigateFilter { ctx, filter };
@@ -1668,6 +1743,21 @@ impl PluginState {
                 true
             }
 
+            // Force-refresh state: clear caches and broadcast
+            BareKey::Char('!') => {
+                let _ = std::fs::remove_file("/cache/sessions.json");
+                let _ = std::fs::remove_file("/cache/session-meta.json");
+                let _ = std::fs::remove_file(SHARED_LAST_CLICK_PATH);
+                self.last_meta_content_hash = 0;
+                sync::broadcast_and_save(self);
+                self.notification = Some(notification::create_notification(
+                    "State refreshed",
+                    3,
+                ));
+                debug_log("REFRESH (!) cleared caches and broadcast state");
+                true
+            }
+
             _ => false,
         }
     }
@@ -1701,9 +1791,11 @@ impl PluginState {
 
                     if let Some(session) = self.sessions.get_mut(&pane_id) {
                         session.display_name = new_name.clone();
-                        // Update timestamp so this rename wins over stale
-                        // sync broadcasts from other plugin instances.
-                        session.last_event_ts = session::unix_now();
+                        // Ensure strictly greater timestamp so this rename
+                        // wins the merge on other instances. unix_now() returns
+                        // seconds, and the hook event that triggered git
+                        // detection often sets last_event_ts in the same second.
+                        session.last_event_ts = session::unix_now().max(session.last_event_ts + 1);
                     }
 
                     if let Some(tab_idx) = self.sessions.get(&pane_id).and_then(|s| s.tab_index) {
@@ -1716,7 +1808,9 @@ impl PluginState {
                         }
                     }
 
-                    self.mark_sync_dirty();
+                    // Immediate sync: git renames must reach cache and other
+                    // instances before a new tab can read stale data.
+                    sync::sync_now(self);
                     true
                 } else {
                     false
