@@ -80,10 +80,11 @@ pub fn handle_sync(state: &mut PluginState, payload: &str) -> bool {
     if incoming.is_empty() {
         return false;
     }
-    state.merge_sessions(incoming);
-    save_sessions(&state.sessions);
-    // Always re-render after sync (state may have updated even if count unchanged)
-    true
+    // Skip save_sessions here: the broadcasting instance already called
+    // broadcast_and_save() which persists the authoritative state. Saving
+    // on every receiver caused N redundant disk writes per sync, which
+    // overwhelmed Zellij's WASM runtime with 5+ instances after restore.
+    state.merge_sessions(incoming)
 }
 
 // --- Full session state persistence via WASI /cache/ ---
@@ -130,6 +131,7 @@ pub fn restore_sessions() -> BTreeMap<u32, Session> {
             // Clear it and return empty to avoid ghost sessions from
             // coincidental pane ID collisions.
             let _ = std::fs::remove_file(SESSIONS_PATH);
+            let _ = std::fs::remove_file(META_PATH);
             let _ = std::fs::remove_file(PID_PATH);
             return BTreeMap::new();
         }
@@ -242,6 +244,25 @@ pub fn apply_session_meta(sessions: &mut BTreeMap<u32, Session>, last_hash: &mut
     changed
 }
 
+/// Prune session-meta.json entries for pane IDs that no longer have living sessions.
+/// Called after remove_dead_sessions() and PaneClosed to prevent stale metadata
+/// from being applied to new sessions with reused pane IDs.
+pub fn prune_session_meta(live_sessions: &BTreeMap<u32, Session>) {
+    let existing = read_session_meta_file();
+    if existing.is_empty() {
+        return;
+    }
+    let pruned: BTreeMap<u32, SessionMeta> = existing
+        .into_iter()
+        .filter(|(id, _)| live_sessions.contains_key(id))
+        .collect();
+    if pruned.is_empty() {
+        let _ = std::fs::remove_file(META_PATH);
+    } else if let Ok(json) = serde_json::to_string(&pruned) {
+        let _ = std::fs::write(META_PATH, json);
+    }
+}
+
 fn read_session_meta_file() -> BTreeMap<u32, SessionMeta> {
     match std::fs::read_to_string(META_PATH) {
         Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
@@ -303,7 +324,8 @@ mod tests {
         incoming.insert(1, make_session(1, "stale", 100));
         let payload = serde_json::to_string(&incoming).unwrap();
 
-        handle_sync(&mut state, &payload);
+        // Stale sync should not trigger re-render
+        assert!(!handle_sync(&mut state, &payload));
         assert_eq!(state.sessions[&1].display_name, "current");
     }
 
@@ -411,6 +433,45 @@ mod tests {
         assert_eq!(r2.activity, Activity::Idle);
         assert!(r2.paused);
         assert!(r2.done_attended);
+    }
+
+    #[test]
+    fn test_prune_session_meta() {
+        // Simulate prune logic: filter meta entries to only living sessions
+        let mut meta = BTreeMap::new();
+        meta.insert(1, SessionMeta {
+            display_name: "alive".to_string(),
+            manually_renamed: true,
+            paused: false,
+            meta_ts: 100,
+        });
+        meta.insert(2, SessionMeta {
+            display_name: "dead".to_string(),
+            manually_renamed: true,
+            paused: false,
+            meta_ts: 100,
+        });
+        meta.insert(3, SessionMeta {
+            display_name: "also-alive".to_string(),
+            manually_renamed: false,
+            paused: true,
+            meta_ts: 200,
+        });
+
+        let mut live_sessions = BTreeMap::new();
+        live_sessions.insert(1, make_session(1, "alive", 100));
+        live_sessions.insert(3, make_session(3, "also-alive", 200));
+
+        // Prune: keep only entries for living sessions
+        let pruned: BTreeMap<u32, SessionMeta> = meta
+            .into_iter()
+            .filter(|(id, _)| live_sessions.contains_key(id))
+            .collect();
+
+        assert_eq!(pruned.len(), 2);
+        assert!(pruned.contains_key(&1));
+        assert!(!pruned.contains_key(&2));
+        assert!(pruned.contains_key(&3));
     }
 
     #[test]
