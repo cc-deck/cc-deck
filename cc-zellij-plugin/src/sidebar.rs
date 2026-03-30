@@ -163,15 +163,19 @@ pub fn render_sidebar(state: &PluginState, rows: usize, cols: usize) -> Vec<Clic
                 (cursor_pos - max_input + 1, cursor_pos + 1)
             };
             let vis_end = vis_end.min(buf.len());
-            let vis_cursor = cursor_pos - vis_start;
-            let visible = &buf[vis_start..vis_end];
+            let vis_cursor = cursor_pos.saturating_sub(vis_start);
+            let visible = buf.get(vis_start..vis_end).unwrap_or("");
             let input_display = if cursor_pos == buf.len() && visible.len() >= max_input {
-                let last_start = visible.len().saturating_sub(1);
-                format!("{}\x1b[7m{}\x1b[0m", &visible[..last_start], &visible[last_start..])
+                let last_start = char_floor(visible, visible.len().saturating_sub(1));
+                let before_last = visible.get(..last_start).unwrap_or("");
+                let last_ch = visible.get(last_start..).unwrap_or("");
+                format!("{before_last}\x1b[7m{last_ch}\x1b[0m")
             } else {
-                let before = &visible[..vis_cursor];
-                let cursor_char = visible.get(vis_cursor..vis_cursor + 1).unwrap_or(" ");
-                let after = if vis_cursor < visible.len() { &visible[vis_cursor + 1..] } else { "" };
+                let vis_cursor = char_floor(visible, vis_cursor);
+                let next = char_ceil(visible, vis_cursor);
+                let before = visible.get(..vis_cursor).unwrap_or("");
+                let cursor_char = visible.get(vis_cursor..next).unwrap_or(" ");
+                let after = visible.get(next..).unwrap_or("");
                 format!("{before}\x1b[7m{cursor_char}\x1b[0m{after}")
             };
             let search_line = format!("\x1b[2m{prefix}\x1b[0m{input_display}");
@@ -280,20 +284,22 @@ fn render_session_entry(
         };
         let vis_end = vis_end.min(buf.len());
 
-        let vis_cursor = cursor_pos - vis_start; // cursor position within visible window
-        let visible = &buf[vis_start..vis_end];
+        let vis_cursor = cursor_pos.saturating_sub(vis_start); // cursor position within visible window
+        let visible = buf.get(vis_start..vis_end).unwrap_or("");
 
         // When cursor is at end and name fills the width, show cursor on last char
         let input_display = if cursor_pos == buf.len() && visible.len() >= max_input {
             // Place cursor (reverse video) over the last visible character
-            let last_char_start = visible.len().saturating_sub(1);
-            let before_last = &visible[..last_char_start];
-            let last_ch = &visible[last_char_start..];
+            let last_char_start = char_floor(visible, visible.len().saturating_sub(1));
+            let before_last = visible.get(..last_char_start).unwrap_or("");
+            let last_ch = visible.get(last_char_start..).unwrap_or("");
             format!("{before_last}\x1b[7m{last_ch}\x1b[0m{bg}{fg}")
         } else {
-            let before = &visible[..vis_cursor];
-            let cursor_char = visible.get(vis_cursor..vis_cursor + 1).unwrap_or(" ");
-            let after = if vis_cursor < visible.len() { &visible[vis_cursor + 1..] } else { "" };
+            let vis_cursor = char_floor(visible, vis_cursor);
+            let next = char_ceil(visible, vis_cursor);
+            let before = visible.get(..vis_cursor).unwrap_or("");
+            let cursor_char = visible.get(vis_cursor..next).unwrap_or(" ");
+            let after = visible.get(next..).unwrap_or("");
             format!("{before}\x1b[7m{cursor_char}\x1b[0m{bg}{fg}{after}")
         };
 
@@ -418,6 +424,7 @@ fn render_help_overlay(rows: usize, cols: usize) -> Vec<ClickRegion> {
         " \x1b[1md\x1b[0m      Delete",
         " \x1b[1mp\x1b[0m      Pause/unpause",
         " \x1b[1mn\x1b[0m      New tab",
+        " \x1b[1m!\x1b[0m      Refresh state",
         " \x1b[1m/\x1b[0m      Search",
         " \x1b[1m?\x1b[0m      This help",
     ];
@@ -492,6 +499,32 @@ fn display_width(s: &str) -> usize {
         }
     }
     width
+}
+
+/// Round a byte position down to the nearest char boundary.
+/// Prevents panics when slicing strings with multi-byte characters.
+fn char_floor(s: &str, pos: usize) -> usize {
+    if pos >= s.len() {
+        return s.len();
+    }
+    let mut p = pos;
+    while p > 0 && !s.is_char_boundary(p) {
+        p -= 1;
+    }
+    p
+}
+
+/// Round a byte position up to the next char boundary (end of current char).
+/// Returns the byte position after the character at `pos`.
+fn char_ceil(s: &str, pos: usize) -> usize {
+    if pos >= s.len() {
+        return s.len();
+    }
+    let mut p = pos + 1;
+    while p < s.len() && !s.is_char_boundary(p) {
+        p += 1;
+    }
+    p
 }
 
 fn truncate(s: &str, max: usize) -> String {
