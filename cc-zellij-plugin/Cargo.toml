@@ -15,3 +15,16 @@ serde_json = "1"
 
 [dev-dependencies]
 proptest = "1"
+
+[profile.release]
+lto = "fat"          # Full link-time optimization across all crates
+codegen-units = 1    # Single codegen unit for maximum optimization
+opt-level = "z"      # Optimize for size (smaller WASM = faster wasmi interpretation)
+strip = true         # Strip debug symbols from WASM binary
+panic = "abort"      # No unwinding overhead (wasmi traps on panic anyway)
+
+# Fast iteration profile: optimized enough for wasmi but fast to compile
+[profile.dev-opt]
+inherits = "dev"
+opt-level = 1        # Basic optimizations (huge difference for wasmi interpreter)
+
