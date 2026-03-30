@@ -7,6 +7,7 @@ before:
   hooks:
     # Build the WASM plugin (platform-independent) before Go cross-compilation
     - cargo build --target wasm32-wasip1 --release --manifest-path cc-zellij-plugin/Cargo.toml
+    - sh -c 'command -v wasm-opt >/dev/null && wasm-opt -Oz --zero-filled-memory --enable-bulk-memory-opt cc-zellij-plugin/target/wasm32-wasip1/release/cc_deck.wasm -o cc-zellij-plugin/target/wasm32-wasip1/release/cc_deck.wasm || true'
     - mkdir -p cc-deck/internal/plugin
     - cp cc-zellij-plugin/target/wasm32-wasip1/release/cc_deck.wasm cc-deck/internal/plugin/
 
