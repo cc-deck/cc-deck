@@ -26,9 +26,9 @@
 
 **Purpose**: Add bubbletea dependencies and create TUI package structure
 
-- [ ] T001 Add bubbletea, lipgloss, and bubbles dependencies to cc-deck/go.mod
-- [ ] T002 Create TUI package directory structure at cc-deck/internal/tui/
-- [ ] T003 Add `tui` cobra subcommand in cc-deck/internal/cmd/tui.go and register it in the root command
+- [x] T001 Add bubbletea, lipgloss, and bubbles dependencies to cc-deck/go.mod
+- [x] T002 Create TUI package directory structure at cc-deck/internal/tui/
+- [x] T003 Add `tui` cobra subcommand in cc-deck/internal/cmd/tui.go and register it in the root command
 
 ---
 
@@ -38,14 +38,14 @@
 
 **CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T004 Implement root bubbletea model with view routing (viewList, viewCreate, viewHelp) and Init/Update/View methods in cc-deck/internal/tui/model.go
-- [ ] T005 [P] Define key bindings using bubbletea/key for all P1 views (global, list, create, help) in cc-deck/internal/tui/keys.go
-- [ ] T006 [P] Define lipgloss styles for header, table rows, footer, status indicators, and confirmation dialogs in cc-deck/internal/tui/styles.go
-- [ ] T007 [P] Implement envRow builder that merges FileStateStore records, instances, and definitions into a flat display model in cc-deck/internal/tui/envrow.go
-- [ ] T008 [P] Implement plugin session data reader that parses sessions.json from the Zellij WASI cache path on the host filesystem, handling the Rust serde enum format for Activity in cc-deck/internal/tui/session.go
-- [ ] T009 Implement status polling using tea.Tick that runs ReconcileLocalEnvs, ReconcileContainerEnvs, ReconcileComposeEnvs and rebuilds envRow list in cc-deck/internal/tui/polling.go
-- [ ] T010 [P] Unit tests for envRow builder (merging records + instances + definitions) in cc-deck/internal/tui/envrow_test.go
-- [ ] T011 [P] Unit tests for session.go (parsing sessions.json with all Activity variants) in cc-deck/internal/tui/session_test.go
+- [x] T004 Implement root bubbletea model with view routing (viewList, viewCreate, viewHelp) and Init/Update/View methods in cc-deck/internal/tui/model.go
+- [x] T005 [P] Define key bindings using bubbletea/key for all P1 views (global, list, create, help) in cc-deck/internal/tui/keys.go
+- [x] T006 [P] Define lipgloss styles for header, table rows, footer, status indicators, and confirmation dialogs in cc-deck/internal/tui/styles.go
+- [x] T007 [P] Implement envRow builder that merges FileStateStore records, instances, and definitions into a flat display model in cc-deck/internal/tui/envrow.go
+- [x] T008 [P] Implement plugin session data reader that parses sessions.json from the Zellij WASI cache path on the host filesystem, handling the Rust serde enum format for Activity in cc-deck/internal/tui/session.go
+- [x] T009 Implement status polling using tea.Tick that runs ReconcileLocalEnvs, ReconcileContainerEnvs, ReconcileComposeEnvs and rebuilds envRow list in cc-deck/internal/tui/polling.go
+- [x] T010 [P] Unit tests for envRow builder (merging records + instances + definitions) in cc-deck/internal/tui/envrow_test.go
+- [x] T011 [P] Unit tests for session.go (parsing sessions.json with all Activity variants) in cc-deck/internal/tui/session_test.go
 
 **Checkpoint**: Foundation ready. TUI launches, displays empty view, accepts key input, polls status.
 
@@ -59,14 +59,14 @@
 
 ### Implementation for User Story 1
 
-- [ ] T012 [US1] Implement list view table rendering with columns (name, type, status, sessions, storage, last attached, tags) and status indicators in cc-deck/internal/tui/list.go
-- [ ] T013 [US1] Implement aggregate header showing environment counts by state (N running, N stopped, N creating) in cc-deck/internal/tui/list.go
-- [ ] T014 [US1] Implement context-sensitive footer with key hints that change based on current view in cc-deck/internal/tui/list.go
-- [ ] T015 [US1] Implement keyboard navigation (j/k/Up/Down, g/G for top/bottom) and cursor selection in cc-deck/internal/tui/list.go
-- [ ] T016 [US1] Implement terminal resize handling (tea.WindowSizeMsg) that reflows the layout in cc-deck/internal/tui/model.go
-- [ ] T017 [US1] Implement empty state message with guidance when no environments exist in cc-deck/internal/tui/list.go
-- [ ] T018 [US1] Wire polling results into the list view so it auto-refreshes on tick in cc-deck/internal/tui/model.go
-- [ ] T019 [US1] Integration test: verify TUI model renders environment list from a test state file in cc-deck/internal/tui/list_test.go
+- [x] T012 [US1] Implement list view table rendering with columns (name, type, status, sessions, storage, last attached, tags) and status indicators in cc-deck/internal/tui/list.go
+- [x] T013 [US1] Implement aggregate header showing environment counts by state (N running, N stopped, N creating) in cc-deck/internal/tui/list.go
+- [x] T014 [US1] Implement context-sensitive footer with key hints that change based on current view in cc-deck/internal/tui/list.go
+- [x] T015 [US1] Implement keyboard navigation (j/k/Up/Down, g/G for top/bottom) and cursor selection in cc-deck/internal/tui/list.go
+- [x] T016 [US1] Implement terminal resize handling (tea.WindowSizeMsg) that reflows the layout in cc-deck/internal/tui/model.go
+- [x] T017 [US1] Implement empty state message with guidance when no environments exist in cc-deck/internal/tui/list.go
+- [x] T018 [US1] Wire polling results into the list view so it auto-refreshes on tick in cc-deck/internal/tui/model.go
+- [x] T019 [US1] Integration test: verify TUI model renders environment list from a test state file in cc-deck/internal/tui/list_test.go
 
 **Checkpoint**: User Story 1 complete. TUI shows live environment list with auto-refresh and keyboard navigation.
 
@@ -80,11 +80,11 @@
 
 ### Implementation for User Story 2
 
-- [ ] T020 [US2] Implement attach action using tea.ExecProcess for local environments (spawns `zellij attach cc-deck-<name>`) in cc-deck/internal/tui/model.go
-- [ ] T021 [US2] Implement attach action for container environments (spawns `podman exec -it <container> zellij attach`) in cc-deck/internal/tui/model.go
-- [ ] T022 [US2] Handle stopped environment selection: display message that environment must be started first (or offer to start it) in cc-deck/internal/tui/model.go
-- [ ] T023 [US2] Refresh environment list on resume after attach (tea.Resume handler) in cc-deck/internal/tui/model.go
-- [ ] T024 [US2] Unit test: verify attach command construction for local and container types in cc-deck/internal/tui/model_test.go
+- [x] T020 [US2] Implement attach action using tea.ExecProcess for local environments (spawns `zellij attach cc-deck-<name>`) in cc-deck/internal/tui/model.go
+- [x] T021 [US2] Implement attach action for container environments (spawns `podman exec -it <container> zellij attach`) in cc-deck/internal/tui/model.go
+- [x] T022 [US2] Handle stopped environment selection: display message that environment must be started first (or offer to start it) in cc-deck/internal/tui/model.go
+- [x] T023 [US2] Refresh environment list on resume after attach (tea.Resume handler) in cc-deck/internal/tui/model.go
+- [x] T024 [US2] Unit test: verify attach command construction for local and container types in cc-deck/internal/tui/model_test.go
 
 **Checkpoint**: User Story 2 complete. Users can attach to any running environment and resume the TUI after exiting.
 
@@ -98,13 +98,13 @@
 
 ### Implementation for User Story 3
 
-- [ ] T025 [US3] Implement create wizard model with form fields: name (text input), type selector (local/container), and type-specific fields in cc-deck/internal/tui/create.go
-- [ ] T026 [US3] Implement type selector (radio buttons: local, container) that dynamically shows/hides type-specific fields in cc-deck/internal/tui/create.go
-- [ ] T027 [US3] Implement container-specific fields (image, storage type, source path) using bubbles text input components in cc-deck/internal/tui/create.go
-- [ ] T028 [US3] Wire create wizard submission to env.NewEnvironment() + Create() using existing internal/env package in cc-deck/internal/tui/create.go
-- [ ] T029 [US3] Implement auto-attach after successful creation (default behavior, suspend/resume) in cc-deck/internal/tui/create.go
-- [ ] T030 [US3] Implement error display in the wizard when creation fails (invalid name, container pull error) in cc-deck/internal/tui/create.go
-- [ ] T031 [US3] Unit test: verify wizard form field navigation and submission in cc-deck/internal/tui/create_test.go
+- [x] T025 [US3] Implement create wizard model with form fields: name (text input), type selector (local/container), and type-specific fields in cc-deck/internal/tui/create.go
+- [x] T026 [US3] Implement type selector (radio buttons: local, container) that dynamically shows/hides type-specific fields in cc-deck/internal/tui/create.go
+- [x] T027 [US3] Implement container-specific fields (image, storage type, source path) using bubbles text input components in cc-deck/internal/tui/create.go
+- [x] T028 [US3] Wire create wizard submission to env.NewEnvironment() + Create() using existing internal/env package in cc-deck/internal/tui/create.go
+- [x] T029 [US3] Implement auto-attach after successful creation (default behavior, suspend/resume) in cc-deck/internal/tui/create.go
+- [x] T030 [US3] Implement error display in the wizard when creation fails (invalid name, container pull error) in cc-deck/internal/tui/create.go
+- [x] T031 [US3] Unit test: verify wizard form field navigation and submission in cc-deck/internal/tui/create_test.go
 
 **Checkpoint**: User Story 3 complete. Users can create local and container environments from the TUI.
 
@@ -118,13 +118,13 @@
 
 ### Implementation for User Story 4
 
-- [ ] T032 [US4] Implement start action (key `S`) that calls env.Start() on the selected stopped environment in cc-deck/internal/tui/model.go
-- [ ] T033 [US4] Implement stop action (key `X`) that calls env.Stop() on the selected running environment in cc-deck/internal/tui/model.go
-- [ ] T034 [US4] Implement confirmation dialog model with name-typing requirement for destructive operations in cc-deck/internal/tui/confirm.go
-- [ ] T035 [US4] Implement delete action (key `d`) that shows confirmation dialog, validates name match, then calls env.Delete() in cc-deck/internal/tui/model.go
-- [ ] T036 [US4] Handle operation errors (display inline error message, refresh state) in cc-deck/internal/tui/model.go
-- [ ] T037 [US4] Run operations in goroutines to keep UI responsive (non-blocking per spec clarification) in cc-deck/internal/tui/model.go
-- [ ] T038 [US4] Unit test: verify confirmation dialog accepts/rejects name input in cc-deck/internal/tui/confirm_test.go
+- [x] T032 [US4] Implement start action (key `S`) that calls env.Start() on the selected stopped environment in cc-deck/internal/tui/model.go
+- [x] T033 [US4] Implement stop action (key `X`) that calls env.Stop() on the selected running environment in cc-deck/internal/tui/model.go
+- [x] T034 [US4] Implement confirmation dialog model with name-typing requirement for destructive operations in cc-deck/internal/tui/confirm.go
+- [x] T035 [US4] Implement delete action (key `d`) that shows confirmation dialog, validates name match, then calls env.Delete() in cc-deck/internal/tui/model.go
+- [x] T036 [US4] Handle operation errors (display inline error message, refresh state) in cc-deck/internal/tui/model.go
+- [x] T037 [US4] Run operations in goroutines to keep UI responsive (non-blocking per spec clarification) in cc-deck/internal/tui/model.go
+- [x] T038 [US4] Unit test: verify confirmation dialog accepts/rejects name input in cc-deck/internal/tui/confirm_test.go
 
 **Checkpoint**: User Story 4 complete. Full lifecycle management from the TUI.
 
@@ -136,8 +136,8 @@
 
 **Independent Test**: Press `?` from any view. Verify the help overlay appears with all key bindings. Press Esc to dismiss.
 
-- [ ] T039 Implement help overlay model with categorized key binding display (Navigation, Lifecycle, Display, Global) in cc-deck/internal/tui/help.go
-- [ ] T040 Wire help overlay toggle (key `?` / `F1`) in the root model so it works from any view in cc-deck/internal/tui/model.go
+- [x] T039 Implement help overlay model with categorized key binding display (Navigation, Lifecycle, Display, Global) in cc-deck/internal/tui/help.go
+- [x] T040 Wire help overlay toggle (key `?` / `F1`) in the root model so it works from any view in cc-deck/internal/tui/model.go
 
 **Checkpoint**: Help overlay complete. All P1 user stories and help are functional.
 
@@ -147,12 +147,12 @@
 
 **Purpose**: Documentation, final testing, code quality
 
-- [ ] T041 [P] Update README.md with TUI feature description and usage examples
-- [ ] T042 [P] Add `cc-deck tui` to CLI reference in docs/modules/reference/pages/cli.adoc
-- [ ] T043 [P] Update spec tracking table in README.md with 031-session-tui entry
-- [ ] T044 Run `make lint` and fix any linting issues across all new files
-- [ ] T045 Run `make test` and verify all tests pass
-- [ ] T046 Manual integration test: launch TUI, verify list view, attach to a local env, resume, create a new env, start/stop/delete, help overlay
+- [x] T041 [P] Update README.md with TUI feature description and usage examples
+- [x] T042 [P] Add `cc-deck tui` to CLI reference in docs/modules/reference/pages/cli.adoc
+- [x] T043 [P] Update spec tracking table in README.md with 031-session-tui entry
+- [x] T044 Run `make lint` and fix any linting issues across all new files
+- [x] T045 Run `make test` and verify all tests pass
+- [x] T046 Manual integration test: launch TUI, verify list view, attach to a local env, resume, create a new env, start/stop/delete, help overlay
 
 ---
 
