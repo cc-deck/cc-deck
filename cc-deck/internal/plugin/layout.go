@@ -84,10 +84,16 @@ layout {
         }
     }
     tab name="main" focus=true {
-        pane
+        pane split_direction="vertical" {
+            %s
+            pane
+        }
+        pane size=1 borderless=true {
+            plugin location="compact-bar"
+        }
     }
 }
-`, sidebar, sidebar)
+`, sidebar, sidebar, sidebar)
 }
 
 // standardLayout: sidebar + tab-bar at top + status-bar at bottom (beginner-friendly).
@@ -120,10 +126,19 @@ layout {
         }
     }
     tab name="main" focus=true {
-        pane
+        pane size=1 borderless=true {
+            plugin location="tab-bar"
+        }
+        pane split_direction="vertical" {
+            %s
+            pane
+        }
+        pane size=2 borderless=true {
+            plugin location="status-bar"
+        }
     }
 }
-`, sidebar, sidebar)
+`, sidebar, sidebar, sidebar)
 }
 
 // cleanLayout: sidebar only, no bars. Maximum terminal space.
@@ -144,10 +159,13 @@ layout {
         }
     }
     tab name="main" focus=true {
-        pane
+        pane split_direction="vertical" {
+            %s
+            pane
+        }
     }
 }
-`, sidebar, sidebar)
+`, sidebar, sidebar, sidebar)
 }
 
 // SidebarLayout returns the default (minimal) layout. Kept for backwards compatibility.

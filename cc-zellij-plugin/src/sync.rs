@@ -43,11 +43,18 @@ pub fn broadcast_and_save(_state: &PluginState) {
     // No-op in native tests
 }
 
+/// Immediate sync: cancel any pending debounce, broadcast and save now.
+/// Use this for user-initiated actions (delete, rename, pause) where
+/// the state change must be visible to other instances immediately.
+pub fn sync_now(state: &mut PluginState) {
+    state.sync_dirty = false;
+    broadcast_and_save(state);
+}
+
 /// Flush debounced sync if dirty: broadcast and save, then clear the flag.
 pub fn flush_if_dirty(state: &mut PluginState) {
     if state.sync_dirty {
-        broadcast_and_save(state);
-        state.sync_dirty = false;
+        sync_now(state);
     }
 }
 

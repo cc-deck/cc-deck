@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -44,8 +45,11 @@ func Restore(name string, w io.Writer) error {
 			continue
 		}
 
-		// Brief pause for tab initialization
-		time.Sleep(500 * time.Millisecond)
+		// Wait for the plugin on the new tab to be fully initialized
+		// (WASM loaded, permissions granted, pipe handler active).
+		// Uses the dump-state pipe as a readiness probe: if the plugin
+		// responds, it is ready to handle events.
+		waitForPluginReady(3 * time.Second)
 
 		// Change to the working directory, preferring git root so that
 		// claude --resume finds the session in the correct project.
@@ -63,7 +67,7 @@ func Restore(name string, w io.Writer) error {
 		}
 
 		// Brief pause between tabs
-		time.Sleep(300 * time.Millisecond)
+		time.Sleep(200 * time.Millisecond)
 	}
 
 	// Switch to first restored tab (tab 2, since tab 1 is the original)
@@ -71,6 +75,30 @@ func Restore(name string, w io.Writer) error {
 
 	fmt.Fprintf(w, "Restored %d session(s) from snapshot %q\n", total, snap.Name)
 	return nil
+}
+
+// waitForPluginReady polls the plugin using dump-state until it responds,
+// proving the WASM is loaded, permissions are granted, and the pipe handler
+// is active. Falls back to a fixed delay after timeout.
+func waitForPluginReady(timeout time.Duration) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	for {
+		_, err := queryPluginCtx(ctx)
+		if err == nil {
+			return
+		}
+
+		select {
+		case <-ctx.Done():
+			// Timed out waiting for plugin; use a fallback delay
+			time.Sleep(500 * time.Millisecond)
+			return
+		default:
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
 }
 
 func zellijAction(args ...string) error {
@@ -103,18 +131,19 @@ type pendingOverride struct {
 }
 
 // sendPendingOverrides pipes session metadata to the plugin so custom names
-// and paused state survive restore. Keyed by resolved working directory.
+// and paused state survive restore. Keyed by resolved working directory,
+// with a list per directory to support multiple sessions sharing the same dir.
 func sendPendingOverrides(sessions []SessionEntry) {
-	overrides := make(map[string]pendingOverride)
+	overrides := make(map[string][]pendingOverride)
 	for _, entry := range sessions {
 		if entry.WorkingDir == "" {
 			continue
 		}
 		dir := resolveProjectDir(entry.WorkingDir)
-		overrides[dir] = pendingOverride{
+		overrides[dir] = append(overrides[dir], pendingOverride{
 			DisplayName: entry.DisplayName,
 			Paused:      entry.Paused,
-		}
+		})
 	}
 	if len(overrides) == 0 {
 		return
