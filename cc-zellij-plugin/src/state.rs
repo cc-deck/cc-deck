@@ -89,6 +89,9 @@ pub enum SidebarMode {
         /// Timestamp (ms) when rename was entered, for PaneUpdate grace period.
         entered_at_ms: u64,
     },
+
+    /// Help overlay: any key dismisses and returns to the previous mode.
+    Help(Box<SidebarMode>),
 }
 
 
@@ -96,6 +99,26 @@ impl SidebarMode {
     /// Whether the sidebar should be selectable (captures mouse/keyboard).
     pub fn is_selectable(&self) -> bool {
         !matches!(self, SidebarMode::Passive)
+    }
+
+    /// Whether the help overlay is active.
+    pub fn is_help(&self) -> bool {
+        matches!(self, SidebarMode::Help(_))
+    }
+
+    /// Toggle help overlay: push Help on top of current mode, or pop it.
+    pub fn toggle_help(&mut self) {
+        match std::mem::take(self) {
+            SidebarMode::Help(prev) => *self = *prev,
+            other => *self = SidebarMode::Help(Box::new(other)),
+        }
+    }
+
+    /// Dismiss help overlay, restoring the previous mode. No-op if not in Help.
+    pub fn dismiss_help(&mut self) {
+        if let SidebarMode::Help(prev) = std::mem::take(self) {
+            *self = *prev;
+        }
     }
 
     /// Whether we're in any navigation sub-mode.
@@ -146,6 +169,7 @@ impl SidebarMode {
             | SidebarMode::NavigateDeleteConfirm { ctx, .. }
             | SidebarMode::NavigateRename { ctx, .. } => ctx.entered_at_ms,
             SidebarMode::RenamePassive { entered_at_ms, .. } => *entered_at_ms,
+            SidebarMode::Help(prev) => return prev.in_grace_period(now_ms),
             SidebarMode::Passive => return false,
         };
         now_ms.saturating_sub(entered) < ENTER_GRACE_MS
@@ -221,15 +245,15 @@ pub struct PluginState {
     pub sidebar_mode: SidebarMode,
     /// Last pane_id that attend switched to, for round-robin cycling.
     pub last_attended_pane_id: Option<u32>,
-    /// Whether the help overlay is displayed.
-    pub show_help: bool,
     /// Tab index that this plugin instance lives on (derived from PaneManifest).
     pub my_tab_index: Option<usize>,
     /// Last left-click timestamp (ms) and pane_id for double-click detection.
     pub last_click: Option<(u64, u32)>,
     /// Pending metadata overrides from snapshot restore, keyed by working directory.
-    /// Applied when a hook event arrives with a matching CWD, then removed.
-    pub pending_overrides: HashMap<String, PendingOverride>,
+    /// Multiple sessions can share the same directory (different tabs), so each
+    /// directory maps to a list. Applied FIFO when hook events arrive with a
+    /// matching CWD.
+    pub pending_overrides: HashMap<String, Vec<PendingOverride>>,
     /// Millisecond timestamp until which `remove_dead_sessions()` is skipped.
     /// Prevents the startup race condition where early PaneUpdate events deliver
     /// incomplete manifests that would wipe restored cached sessions.
@@ -246,6 +270,10 @@ pub struct PluginState {
     /// Set by high-frequency hook handlers instead of immediate broadcast.
     /// Flushed by Timer or by immediate-sync actions.
     pub sync_dirty: bool,
+    /// Whether keybindings have been registered via reconfigure().
+    /// Deferred from permission grant to first TabUpdate so only the
+    /// active-tab instance registers (avoids N reconfigure() calls).
+    pub keybindings_registered: bool,
     /// Tab count from last TabUpdate. Used to detect tab closures
     /// which require re-registering keybindings.
     pub last_tab_count: usize,

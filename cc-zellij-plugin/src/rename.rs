@@ -113,8 +113,7 @@ pub fn complete_rename(state: &mut PluginState, pane_id: u32, new_name: String) 
         }
     }
 
-    state.sync_dirty = false;
-    crate::sync::broadcast_and_save(state);
+    crate::sync::sync_now(state);
     crate::sync::write_session_meta(&state.sessions);
 }
 
