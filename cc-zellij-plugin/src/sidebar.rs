@@ -57,7 +57,7 @@ fn render_header(state: &PluginState, cols: usize) {
 /// Render the sidebar into the plugin's stdout.
 /// Returns click regions for mouse handling.
 pub fn render_sidebar(state: &PluginState, rows: usize, cols: usize) -> Vec<ClickRegion> {
-    if state.show_help {
+    if state.sidebar_mode.is_help() {
         return render_help_overlay(rows, cols);
     }
     // Use filtered sessions when filter is active
@@ -402,8 +402,10 @@ fn render_help_overlay(rows: usize, cols: usize) -> Vec<ClickRegion> {
     let help_lines = [
         "\x1b[1m Keyboard Shortcuts\x1b[0m",
         "\x1b[2m \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\x1b[0m",
-        " \x1b[1mAlt+s\x1b[0m  Session list",
+        " \x1b[1mAlt+s\x1b[0m  Session list \x1b[2m/ next\x1b[0m",
+        " \x1b[1mAlt+S\x1b[0m  Session list \x1b[2m/ prev\x1b[0m",
         " \x1b[1mAlt+a\x1b[0m  Next session",
+        " \x1b[1mAlt+A\x1b[0m  Prev session",
         "",
         " \x1b[2mNavigation:\x1b[0m",
         " \x1b[1mj/\u{2193}\x1b[0m    Move down",

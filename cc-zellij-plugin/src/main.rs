@@ -22,8 +22,28 @@ mod state_machine_tests;
 mod fuzz_tests;
 mod sync;
 
+/// Debug logging is opt-in: only active when `/cache/debug_enabled` exists.
+/// Enable:  `touch /cache/debug_enabled`  (inside the WASI sandbox)
+/// Or from the host: `touch ~/.config/zellij/plugins/cc_deck.wasm/cache/debug_enabled`
+/// Disable: remove the file (or just delete debug.log).
+/// The flag is checked once on load and cached for the instance lifetime.
+static mut DEBUG_ENABLED: bool = false;
+
+#[cfg(target_family = "wasm")]
+fn debug_init() {
+    unsafe {
+        DEBUG_ENABLED = std::path::Path::new("/cache/debug_enabled").exists();
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn debug_init() {}
+
 #[cfg(target_family = "wasm")]
 fn debug_log(msg: &str) {
+    if unsafe { !DEBUG_ENABLED } {
+        return;
+    }
     if let Ok(mut f) = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -36,6 +56,67 @@ fn debug_log(msg: &str) {
 
 #[cfg(not(target_family = "wasm"))]
 fn debug_log(_msg: &str) {}
+
+/// RAII timer that logs event processing duration on drop (>1ms threshold).
+/// Uses unix_now_ms() since std::time::Instant is not available in WASI.
+struct PerfTimer {
+    label: String,
+    start_ms: u64,
+}
+
+impl PerfTimer {
+    fn new(event: &Event) -> Self {
+        let label = match event {
+            Event::TabUpdate(_) => "TabUpdate".to_string(),
+            Event::PaneUpdate(_) => "PaneUpdate".to_string(),
+            Event::ModeUpdate(_) => "ModeUpdate".to_string(),
+            Event::Timer(_) => "Timer".to_string(),
+            Event::Mouse(m) => format!("Mouse({m:?})"),
+            Event::Key(k) => format!("Key({:?})", k.bare_key),
+            Event::PermissionRequestResult(_) => "PermissionResult".to_string(),
+            Event::RunCommandResult(..) => "RunCommandResult".to_string(),
+            Event::PaneClosed(_) => "PaneClosed".to_string(),
+            _ => "Other".to_string(),
+        };
+        Self {
+            label,
+            start_ms: session::unix_now_ms(),
+        }
+    }
+}
+
+impl Drop for PerfTimer {
+    fn drop(&mut self) {
+        let elapsed = session::unix_now_ms().saturating_sub(self.start_ms);
+        if elapsed > 1 {
+            debug_log(&format!("PERF update({}) = {}ms", self.label, elapsed));
+        }
+    }
+}
+
+/// RAII timer for pipe message processing.
+struct PerfTimerPipe {
+    name: String,
+    start_ms: u64,
+}
+
+impl PerfTimerPipe {
+    fn new(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            start_ms: session::unix_now_ms(),
+        }
+    }
+}
+
+impl Drop for PerfTimerPipe {
+    fn drop(&mut self) {
+        let elapsed = session::unix_now_ms().saturating_sub(self.start_ms);
+        if elapsed > 1 {
+            debug_log(&format!("PERF pipe({}) = {}ms", self.name, elapsed));
+        }
+    }
+}
 
 #[cfg(target_family = "wasm")]
 fn set_selectable_wasm(selectable: bool) {
@@ -66,6 +147,18 @@ fn clear_shared_last_click() {
     let _ = std::fs::remove_file(SHARED_LAST_CLICK_PATH);
 }
 
+/// Derive the Shift variant of a keybinding string by uppercasing the last character.
+/// For example, "Alt s" becomes "Alt S", giving Shift+Alt+S.
+fn shift_variant(key: &str) -> String {
+    let trimmed = key.trim_end();
+    if let Some((prefix, last_char)) = trimmed.rsplit_once(' ') {
+        let shifted: String = last_char.chars().map(|c| c.to_uppercase().next().unwrap_or(c)).collect();
+        format!("{} {}", prefix, shifted)
+    } else {
+        trimmed.to_uppercase()
+    }
+}
+
 /// Register global keybindings via reconfigure() with MessagePluginId.
 /// Routes to this specific plugin instance. Each instance re-registers
 /// on load, and the active-tab instance re-registers on tab changes
@@ -74,6 +167,9 @@ fn clear_shared_last_click() {
 #[cfg(target_family = "wasm")]
 fn register_keybindings(config: &config::PluginConfig) {
     let plugin_id = zellij_tile::prelude::get_plugin_ids().plugin_id;
+
+    let nav_prev = shift_variant(&config.navigate_key);
+    let att_prev = shift_variant(&config.attend_key);
 
     let kdl = format!(
         r#"keybinds {{
@@ -88,14 +184,26 @@ fn register_keybindings(config: &config::PluginConfig) {
                 name "cc-deck:attend"
             }}
         }}
+        bind "{nav_prev}" {{
+            MessagePluginId {id} {{
+                name "cc-deck:navigate-prev"
+            }}
+        }}
+        bind "{att_prev}" {{
+            MessagePluginId {id} {{
+                name "cc-deck:attend-prev"
+            }}
+        }}
     }}
 }}"#,
         nav = config.navigate_key,
         att = config.attend_key,
+        nav_prev = nav_prev,
+        att_prev = att_prev,
         id = plugin_id,
     );
-    debug_log(&format!("KEYBINDS registering: navigate={} attend={} plugin_id={}",
-        config.navigate_key, config.attend_key, plugin_id));
+    debug_log(&format!("KEYBINDS registering: navigate={} ({}) attend={} ({}) plugin_id={}",
+        config.navigate_key, nav_prev, config.attend_key, att_prev, plugin_id));
     zellij_tile::prelude::reconfigure(kdl, false);
 }
 
@@ -249,6 +357,15 @@ impl PluginState {
     fn switch_to_session(&mut self, pane_id: u32, tab_idx: Option<usize>) {
         self.sidebar_mode = SidebarMode::Passive;
         set_selectable_wasm(false);
+        // Update focus state immediately so the next render highlights the
+        // correct session (Zellij API calls are async; PaneUpdate/TabUpdate
+        // arrive later and will confirm these values).
+        self.focused_pane_id = Some(pane_id);
+        self.active_tab_index = tab_idx;
+        // Suppress the TabUpdate that switch_tab_to triggers: it would call
+        // rebuild_pane_map with the stale manifest and overwrite our just-set
+        // focused_pane_id, causing a brief cyan flash on the wrong session.
+        self.updating_tabs = true;
         #[cfg(target_family = "wasm")]
         if let Some(idx) = tab_idx {
             zellij_tile::prelude::switch_tab_to(idx as u32 + 1);
@@ -292,6 +409,7 @@ impl PluginState {
 
 impl ZellijPlugin for PluginState {
     fn load(&mut self, configuration: BTreeMap<String, String>) {
+        debug_init();
         debug_log("LOAD start");
 
         self.mode = match configuration.get("mode").map(|s| s.as_str()) {
@@ -332,13 +450,17 @@ impl ZellijPlugin for PluginState {
     }
 
     fn update(&mut self, event: Event) -> bool {
+        let _t = PerfTimer::new(&event);
         if let Event::PermissionRequestResult(status) = event {
             debug_log(&format!("PERMISSION result={status:?}"));
             if status == PermissionStatus::Granted {
                 self.permissions_granted = true;
                 debug_log("PERMISSION granted, calling set_selectable(false)");
                 set_selectable(false);
-                register_keybindings(&self.config);
+                // Keybinding registration is deferred to the first TabUpdate
+                // when is_on_active_tab() has accurate data. This avoids N
+                // reconfigure() calls when many tabs are created at once.
+
                 // Restore persisted sessions (reattach recovery)
                 let restored = sync::restore_sessions();
                 if !restored.is_empty() {
@@ -347,8 +469,19 @@ impl ZellijPlugin for PluginState {
                     // pane manifest stabilize before reconciliation.
                     self.startup_grace_until =
                         Some(session::unix_now_ms() + 3000);
+                    // Cache provides state; skip the request_state() broadcast.
+                    // During restore with many tabs, each broadcast triggers
+                    // O(n) responses, creating an O(n^2) message storm that
+                    // overwhelms Zellij's WASM runtime.
+                } else {
+                    // No cached state: fresh start. Request from existing instances.
+                    sync::request_state();
+                    // Grace period needed here too: hook events from Claude Code
+                    // can create sessions before the pane manifest stabilizes,
+                    // causing remove_dead_sessions() to delete them prematurely.
+                    self.startup_grace_until =
+                        Some(session::unix_now_ms() + 3000);
                 }
-                sync::request_state();
                 sync::apply_session_meta(&mut self.sessions, &mut self.last_meta_content_hash);
                 let pending = std::mem::take(&mut self.pending_events);
                 let mut render = true;
@@ -369,16 +502,27 @@ impl ZellijPlugin for PluginState {
     }
 
     fn pipe(&mut self, pipe_message: PipeMessage) -> bool {
+        let _t = PerfTimerPipe::new(&pipe_message.name);
+        // Guard: pipe handlers call SDK functions (run_command, pipe_message_to_plugin,
+        // set_timeout) that require granted permissions. During rapid tab creation
+        // (e.g., snapshot restore), pipe messages can arrive before permissions are
+        // granted, causing a WASM trap. Drop these early messages safely; the plugin
+        // will pick up session state from sync once permissions are granted.
+        if !self.permissions_granted {
+            return false;
+        }
+
         // Keybinds and CLI pipes both represent direct user actions.
         // Plugin-to-plugin broadcasts (PipeSource::Plugin) are internal forwarding.
         let is_user_action = !matches!(pipe_message.source, PipeSource::Plugin(_));
-        // Trace log
-        debug_log(&format!("PIPE name={} payload={} source={} sessions={} pane_keys={:?}",
-            pipe_message.name,
-            pipe_message.payload.as_deref().unwrap_or("None"),
-            if is_user_action { "keybind" } else { "plugin/cli" },
-            self.sessions.len(),
-            self.pane_to_tab.keys().collect::<Vec<_>>()));
+        // Trace log (skip high-volume sync/request messages to avoid I/O contention)
+        if pipe_message.name != "cc-deck:sync" && pipe_message.name != "cc-deck:request" {
+            debug_log(&format!("PIPE name={} payload={} source={} sessions={}",
+                pipe_message.name,
+                pipe_message.payload.as_deref().unwrap_or("None"),
+                if is_user_action { "keybind" } else { "plugin/cli" },
+                self.sessions.len()));
+        }
 
         let action = parse_pipe_message(
             &pipe_message.name,
@@ -456,10 +600,26 @@ impl ZellijPlugin for PluginState {
                     }
                 }
 
-                let changed = self.sessions.get_mut(&hook.pane_id).unwrap().transition(activity);
+                // Skip all updates for paused sessions. The session stays
+                // frozen at whatever state it had when paused. The next hook
+                // event after unpause will update it naturally.
+                if !is_new {
+                    if let Some(s) = self.sessions.get(&hook.pane_id) {
+                        if s.paused {
+                            return false;
+                        }
+                    }
+                }
+
+                let changed = match self.sessions.get_mut(&hook.pane_id) {
+                    Some(s) => s.transition(activity),
+                    None => return false,
+                };
 
                 if let Some(ref sid) = hook.session_id {
-                    self.sessions.get_mut(&hook.pane_id).unwrap().session_id = sid.clone();
+                    if let Some(s) = self.sessions.get_mut(&hook.pane_id) {
+                        s.session_id = sid.clone();
+                    }
                 }
                 if let Some(ref cwd) = hook.cwd {
                     let is_worktree_cwd = cwd.contains("/.claude/");
@@ -468,11 +628,24 @@ impl ZellijPlugin for PluginState {
                         .unwrap_or(false);
                     let pane = hook.pane_id;
                     if !is_worktree_cwd && cwd_changed {
-                        self.sessions.get_mut(&hook.pane_id).unwrap().working_dir = Some(cwd.clone());
+                        if let Some(s) = self.sessions.get_mut(&hook.pane_id) {
+                            s.working_dir = Some(cwd.clone());
+                        }
                         let cwd_clone = cwd.clone();
 
-                        let pending = self.pending_overrides.remove(cwd);
-                        if let Some(ovr) = pending {
+                        // Pop one override for this CWD (FIFO). Multiple sessions
+                        // can share a directory; each consumes one override.
+                        let ovr = self.pending_overrides.get_mut(cwd).and_then(|v| {
+                            if v.is_empty() { None } else { Some(v.remove(0)) }
+                        });
+                        if let Some(empty_key) = ovr.as_ref().and_then(|_| {
+                            self.pending_overrides.get(cwd)
+                                .filter(|v| v.is_empty())
+                                .map(|_| cwd.clone())
+                        }) {
+                            self.pending_overrides.remove(&empty_key);
+                        }
+                        if let Some(ovr) = ovr {
                             debug_log(&format!("RESTORE applying override for {cwd}: name={}", ovr.display_name));
                             let names: Vec<String> = self.sessions.iter()
                                 .filter(|(&id, _)| id != pane)
@@ -503,8 +676,7 @@ impl ZellijPlugin for PluginState {
                                 }
                             }
                             sync::write_session_meta(&self.sessions);
-                        } else {
-                            let session = self.sessions.get(&pane).unwrap();
+                        } else if let Some(session) = self.sessions.get(&pane) {
                             let needs_dir_name = !session.manually_renamed && session.display_name.starts_with("session-");
                             let not_renamed = !session.manually_renamed;
 
@@ -549,9 +721,11 @@ impl ZellijPlugin for PluginState {
                 }
 
                 if let Some((idx, name)) = self.pane_to_tab.get(&hook.pane_id) {
-                    let session = self.sessions.get_mut(&hook.pane_id).unwrap();
-                    session.tab_index = Some(*idx);
-                    session.tab_name = Some(name.clone());
+                    let (idx, name) = (*idx, name.clone());
+                    if let Some(session) = self.sessions.get_mut(&hook.pane_id) {
+                        session.tab_index = Some(idx);
+                        session.tab_name = Some(name);
+                    }
                 }
 
                 if changed {
@@ -644,6 +818,54 @@ impl ZellijPlugin for PluginState {
                 true
             }
 
+            PipeAction::NavigatePrev => {
+                if !self.is_on_active_tab() {
+                    if is_user_action {
+                        broadcast_action("cc-deck:navigate-prev");
+                    }
+                    return false;
+                }
+                if self.sidebar_mode.is_navigating() {
+                    // Move cursor up with wrapping (same as k/up)
+                    let count = self.filtered_sessions_by_tab_order().len();
+                    if count > 0 {
+                        if let Some(ctx) = self.sidebar_mode.nav_ctx_mut() {
+                            ctx.cursor_index = if ctx.cursor_index == 0 {
+                                count - 1
+                            } else {
+                                ctx.cursor_index - 1
+                            };
+                        }
+                    }
+                } else {
+                    enter_navigation_mode(self);
+                }
+                true
+            }
+
+            PipeAction::AttendPrev => {
+                // Exit navigation/rename if active before attending
+                if self.sidebar_mode.is_selectable() {
+                    self.abandon_navigation();
+                }
+                match attend::perform_attend_prev(self) {
+                    attend::AttendResult::Switched { .. } => {}
+                    attend::AttendResult::NoneWaiting => {
+                        self.notification = Some(notification::create_notification(
+                            "No sessions waiting",
+                            3,
+                        ));
+                    }
+                    attend::AttendResult::AllBusy => {
+                        self.notification = Some(notification::create_notification(
+                            "All sessions busy",
+                            3,
+                        ));
+                    }
+                }
+                true
+            }
+
             PipeAction::NavToggle => {
                 if !self.is_on_active_tab() {
                     if is_user_action {
@@ -718,8 +940,7 @@ impl ZellijPlugin for PluginState {
                         s.last_event_ts = now;
                         s.meta_ts = now;
                     }
-                    self.sync_dirty = false;
-                    sync::broadcast_and_save(self);
+                    sync::sync_now(self);
                     sync::write_session_meta(&self.sessions);
                 }
                 true
@@ -729,7 +950,7 @@ impl ZellijPlugin for PluginState {
                 if !self.is_on_active_tab() {
                     return false;
                 }
-                self.show_help = !self.show_help;
+                self.sidebar_mode.toggle_help();
                 true
             }
 
@@ -751,23 +972,31 @@ impl ZellijPlugin for PluginState {
             }
 
             PipeAction::RestoreMeta(payload) => {
-                if let Ok(map) = serde_json::from_str::<std::collections::HashMap<String, serde_json::Value>>(&payload) {
-                    for (dir, val) in map {
-                        let name = val.get("display_name")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string();
-                        let paused = val.get("paused")
-                            .and_then(|v| v.as_bool())
-                            .unwrap_or(false);
-                        if !name.is_empty() {
-                            self.pending_overrides.insert(dir, state::PendingOverride {
-                                display_name: name,
-                                paused,
-                            });
+                // Overrides are keyed by directory, with a list per directory
+                // to support multiple sessions sharing the same working dir.
+                if let Ok(map) = serde_json::from_str::<std::collections::HashMap<String, Vec<serde_json::Value>>>(&payload) {
+                    for (dir, entries) in map {
+                        for val in entries {
+                            let name = val.get("display_name")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            let paused = val.get("paused")
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(false);
+                            if !name.is_empty() {
+                                self.pending_overrides
+                                    .entry(dir.clone())
+                                    .or_default()
+                                    .push(state::PendingOverride {
+                                        display_name: name,
+                                        paused,
+                                    });
+                            }
                         }
                     }
-                    debug_log(&format!("RESTORE-META loaded {} pending overrides", self.pending_overrides.len()));
+                    let total: usize = self.pending_overrides.values().map(|v| v.len()).sum();
+                    debug_log(&format!("RESTORE-META loaded {total} pending overrides"));
                 }
                 false
             }
@@ -805,38 +1034,76 @@ impl PluginState {
             Event::TabUpdate(tabs) => {
                 if self.updating_tabs {
                     self.updating_tabs = false;
+                    // Update tab data silently: our rename_tab or switch_to_session
+                    // triggered this event. Tab metadata must stay current, but we
+                    // skip rebuild_pane_map (would derive stale focus from the old
+                    // manifest) and suppress the render. PaneUpdate will arrive
+                    // shortly with authoritative state.
+                    self.active_tab_index = tabs.iter().find(|t| t.active).map(|t| t.position);
+                    self.last_tab_count = tabs.len();
+                    self.tabs = tabs;
                     return false;
                 }
 
+                let was_on_active = self.is_on_active_tab();
                 let new_active = tabs.iter().find(|t| t.active).map(|t| t.position);
                 self.active_tab_index = new_active;
                 self.tabs = tabs;
                 self.rebuild_pane_map();
+
+                let now_on_active = self.is_on_active_tab();
+
+                // Register keybindings on first TabUpdate (deferred from
+                // permission grant so only the active-tab instance registers)
+                // or when a tab is closed (the registered plugin_id may be stale).
+                let current_tab_count = self.tabs.len();
+                if now_on_active
+                    && (!self.keybindings_registered || current_tab_count < self.last_tab_count)
+                {
+                    register_keybindings(&self.config);
+                    self.keybindings_registered = true;
+                }
+                self.last_tab_count = current_tab_count;
+
+                if !now_on_active {
+                    // Off-screen instance: exit navigation if needed, skip
+                    // heavy work (dead session cleanup, re-render).
+                    if self.sidebar_mode.is_navigating() {
+                        self.abandon_navigation();
+                        debug_log("NAV auto-exited: tab switched away");
+                    }
+                    return false;
+                }
+
+                // Active-tab instance: full processing
                 self.remove_dead_sessions();
                 self.preserve_cursor();
 
-                // Exit navigation mode if user switched away from this tab
-                if self.sidebar_mode.is_navigating() && !self.is_on_active_tab() {
+                // Exit navigation mode if we just became inactive (shouldn't
+                // reach here, but guard for edge cases).
+                if was_on_active && !now_on_active && self.sidebar_mode.is_navigating() {
                     self.abandon_navigation();
-                    debug_log("NAV auto-exited: tab switched away");
                 }
-
-                // Re-register keybindings only when a tab was closed
-                // (the registered plugin_id may be stale).
-                let current_tab_count = self.tabs.len();
-                if self.is_on_active_tab() && current_tab_count < self.last_tab_count {
-                    register_keybindings(&self.config);
-                }
-                self.last_tab_count = current_tab_count;
 
                 true
             }
             Event::PaneUpdate(manifest) => {
+                self.pane_manifest = Some(manifest);
+                self.rebuild_pane_map();
+
+                // Off-screen instances: store manifest but skip heavy work.
+                // They don't need to remove dead sessions, check focus, or
+                // re-render since the sidebar is not visible. This avoids
+                // O(n) rebuild_pane_map + remove_dead_sessions calls across
+                // all n instances for every PaneUpdate.
+                if !self.is_on_active_tab() {
+                    return false;
+                }
+
                 let old_focused = self.focused_pane_id;
                 let old_session_count = self.sessions.len();
 
-                self.pane_manifest = Some(manifest);
-                self.rebuild_pane_map();
+                // Re-derive focused pane (rebuild_pane_map already ran)
                 let mut removed = false;
                 if !self.in_startup_grace() {
                     removed = self.remove_dead_sessions();
@@ -845,8 +1112,6 @@ impl PluginState {
 
                 // Exit interactive modes if a terminal pane gained focus
                 // (user clicked away from the sidebar).
-                // Uses timestamp-based grace period instead of boolean guard:
-                // if the stale PaneUpdate never arrives, the grace expires naturally.
                 let mut mode_changed = false;
                 if self.focused_pane_id.is_some() && !matches!(self.sidebar_mode, SidebarMode::Passive) {
                     let now_ms = session::unix_now_ms();
@@ -873,6 +1138,14 @@ impl PluginState {
                 // Flush debounced sync before other timer work
                 sync::flush_if_dirty(self);
 
+                // Off-screen instances: only flush sync and reschedule timer.
+                // Skip cleanup, meta polling, and git polling to reduce WASM
+                // overhead across n instances (saves O(n) work per tick).
+                if !self.is_on_active_tab() {
+                    set_timeout(self.config.timer_interval);
+                    return false;
+                }
+
                 // After startup grace expires, run one deferred cleanup pass.
                 // During grace, PaneUpdate skips remove_dead_sessions() to let
                 // the manifest stabilize. Once grace ends, no further PaneUpdate
@@ -891,7 +1164,7 @@ impl PluginState {
                 // Git branch polling: only every 60s as a fallback for in-place
                 // `git checkout`. The primary path is event-driven (cwd changes).
                 let now_ms = session::unix_now_ms();
-                if self.is_on_active_tab() && now_ms.saturating_sub(self.last_git_poll_ms) >= 60_000 {
+                if now_ms.saturating_sub(self.last_git_poll_ms) >= 60_000 {
                     self.last_git_poll_ms = now_ms;
                     for session in self.sessions.values() {
                         if session.paused {
@@ -1012,8 +1285,7 @@ impl PluginState {
                 let removed = self.sessions.remove(&id).is_some();
                 if removed {
                     self.pending_git_branch.remove(&id);
-                    self.sync_dirty = false;
-                    sync::broadcast_and_save(self);
+                    sync::sync_now(self);
                 }
                 removed
             }
@@ -1024,8 +1296,8 @@ impl PluginState {
     /// Unified key handler dispatching based on sidebar_mode.
     fn handle_key(&mut self, key: KeyWithModifier) -> bool {
         // Help overlay takes priority over everything (any key dismisses)
-        if self.show_help {
-            self.show_help = false;
+        if self.sidebar_mode.is_help() {
+            self.sidebar_mode.dismiss_help();
             return true;
         }
 
@@ -1048,6 +1320,8 @@ impl PluginState {
             }
             // Passive: no keyboard input
             SidebarMode::Passive => false,
+            // Help: handled by is_help() check above; unreachable
+            SidebarMode::Help(_) => false,
         }
     }
 
@@ -1062,7 +1336,10 @@ impl PluginState {
         match rename::handle_key(rs, key) {
             rename::RenameAction::Continue => true,
             rename::RenameAction::Confirm(new_name) => {
-                let pane_id = self.sidebar_mode.rename_state().unwrap().pane_id;
+                let pane_id = match self.sidebar_mode.rename_state() {
+                    Some(rs) => rs.pane_id,
+                    None => return true,
+                };
                 // Determine return mode based on current variant
                 match std::mem::replace(&mut self.sidebar_mode, SidebarMode::Passive) {
                     SidebarMode::NavigateRename { ctx, .. } => {
@@ -1080,7 +1357,10 @@ impl PluginState {
                 true
             }
             rename::RenameAction::Cancel => {
-                let pane_id = self.sidebar_mode.rename_state().unwrap().pane_id;
+                let pane_id = match self.sidebar_mode.rename_state() {
+                    Some(rs) => rs.pane_id,
+                    None => return true,
+                };
                 match std::mem::replace(&mut self.sidebar_mode, SidebarMode::Passive) {
                     SidebarMode::NavigateRename { ctx, .. } => {
                         self.sidebar_mode = SidebarMode::Navigate(ctx);
@@ -1124,8 +1404,7 @@ impl PluginState {
             if let Some((tab_idx, is_only)) = session_info {
                 close_session_pane(pane_id, tab_idx, is_only);
             }
-            self.sync_dirty = false;
-            sync::broadcast_and_save(self);
+            sync::sync_now(self);
             self.preserve_cursor();
         }
         true
@@ -1299,7 +1578,7 @@ impl PluginState {
 
             // Show help overlay
             BareKey::Char('?') => {
-                self.show_help = true;
+                self.sidebar_mode.toggle_help();
                 true
             }
 
@@ -1312,8 +1591,7 @@ impl PluginState {
                         s.last_event_ts = now;
                         s.meta_ts = now;
                     }
-                    self.sync_dirty = false;
-                    sync::broadcast_and_save(self);
+                    sync::sync_now(self);
                     sync::write_session_meta(&self.sessions);
                 }
                 true
@@ -1398,5 +1676,27 @@ impl PluginState {
             .filter(|(&id, _)| id != exclude_pane_id)
             .map(|(_, s)| s.display_name.as_str())
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod shift_variant_tests {
+    use super::shift_variant;
+
+    #[test]
+    fn test_alt_lowercase() {
+        assert_eq!(shift_variant("Alt s"), "Alt S");
+        assert_eq!(shift_variant("Alt a"), "Alt A");
+    }
+
+    #[test]
+    fn test_already_uppercase() {
+        assert_eq!(shift_variant("Alt S"), "Alt S");
+    }
+
+    #[test]
+    fn test_other_keys() {
+        assert_eq!(shift_variant("Alt x"), "Alt X");
+        assert_eq!(shift_variant("Ctrl a"), "Ctrl A");
     }
 }

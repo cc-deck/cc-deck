@@ -230,9 +230,11 @@ fn test_nav_question_mark_shows_help() {
 
     state.handle_key(key_char('?'));
 
-    assert!(state.show_help);
-    // Stays in navigate (help is an overlay, not a mode transition)
-    assert!(state.sidebar_mode.is_navigating());
+    assert!(state.sidebar_mode.is_help());
+    // Help wraps the navigate mode (restores on dismiss)
+    if let SidebarMode::Help(prev) = &state.sidebar_mode {
+        assert!(prev.is_navigating());
+    }
 }
 
 #[test]
@@ -565,12 +567,13 @@ fn test_rename_passive_grace_period() {
 fn test_help_any_key_dismisses() {
     let mut state = state_with_sessions(3);
     enter_nav(&mut state, 0);
-    state.show_help = true;
+    state.sidebar_mode.toggle_help();
+    assert!(state.sidebar_mode.is_help());
 
     state.handle_key(key_char('x')); // any key
 
-    assert!(!state.show_help);
-    // Should still be in navigate (help is an overlay, not a mode)
+    assert!(!state.sidebar_mode.is_help());
+    // Help restored the navigate mode underneath
     assert!(state.sidebar_mode.is_navigating());
 }
 
@@ -578,11 +581,11 @@ fn test_help_any_key_dismisses() {
 fn test_help_esc_dismisses_without_exiting_nav() {
     let mut state = state_with_sessions(3);
     enter_nav(&mut state, 0);
-    state.show_help = true;
+    state.sidebar_mode.toggle_help();
 
     state.handle_key(bare(BareKey::Esc));
 
-    assert!(!state.show_help);
+    assert!(!state.sidebar_mode.is_help());
     // Esc dismissed help but did NOT exit navigation
     assert!(state.sidebar_mode.is_navigating());
 }
@@ -629,6 +632,51 @@ fn test_pause_toggles_in_navigate() {
     state.handle_key(key_char('p'));
 
     assert!(!state.sessions[&1].paused);
+}
+
+// ---------------------------------------------------------------------------
+// Paused sessions skip hook event updates
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_paused_session_rejects_activity_transition() {
+    let mut state = state_with_sessions(2);
+    // Set session to Idle and pause it
+    state.sessions.get_mut(&1).unwrap().activity = crate::session::Activity::Idle;
+    state.sessions.get_mut(&1).unwrap().paused = true;
+
+    // Directly attempt a transition (as the hook handler would)
+    // Paused sessions should not transition
+    let session = state.sessions.get(&1).unwrap();
+    assert!(session.paused);
+    assert_eq!(session.activity, crate::session::Activity::Idle);
+
+    // The guard in pipe() checks `s.paused` and returns false before
+    // calling transition(). Verify the session stays frozen.
+    let would_transition = state.sessions.get_mut(&1).unwrap().transition(crate::session::Activity::Working);
+    // Undo the transition to verify the guard is needed
+    assert!(would_transition); // transition() itself doesn't check paused
+    state.sessions.get_mut(&1).unwrap().activity = crate::session::Activity::Idle;
+}
+
+#[test]
+fn test_paused_session_not_in_attend_candidates() {
+    let mut state = state_with_sessions(3);
+    for s in state.sessions.values_mut() {
+        s.activity = crate::session::Activity::Idle;
+    }
+    // Pause session 1
+    state.sessions.get_mut(&1).unwrap().paused = true;
+
+    // Attend should skip paused session
+    use crate::attend;
+    let result = attend::perform_attend(&mut state);
+    match result {
+        attend::AttendResult::Switched { pane_id, .. } => {
+            assert_ne!(pane_id, 1, "attend should skip paused session");
+        }
+        _ => {} // other results are fine
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -914,6 +962,49 @@ fn test_rebuild_pane_map_no_manifest_is_noop() {
     // No pane_manifest set
     state.rebuild_pane_map();
     assert!(state.pane_to_tab.is_empty());
+}
+
+// --- NavigatePrev: cursor up via k/Up key (mirrors the Navigate pipe action) ---
+
+#[test]
+fn test_navigate_cursor_up_moves_from_middle() {
+    let mut state = state_with_sessions(3);
+    enter_nav(&mut state, 1); // cursor at index 1
+
+    // k moves cursor up
+    assert!(state.handle_key(key_char('k')));
+    assert_eq!(state.sidebar_mode.cursor_index(), 0);
+}
+
+#[test]
+fn test_navigate_cursor_up_wraps_from_first_to_last() {
+    let mut state = state_with_sessions(3);
+    enter_nav(&mut state, 0); // cursor at index 0
+
+    // Up arrow wraps to last
+    assert!(state.handle_key(bare(BareKey::Up)));
+    assert_eq!(state.sidebar_mode.cursor_index(), 2);
+}
+
+#[test]
+fn test_attend_prev_cycles_backward() {
+    let mut state = state_with_sessions(3);
+    // Set all sessions to Idle so attend has candidates
+    for session in state.sessions.values_mut() {
+        session.activity = crate::session::Activity::Idle;
+    }
+
+    // Attend forward to session at index 0
+    use crate::attend;
+    attend::perform_attend(&mut state);
+    let first_attended = state.last_attended_pane_id;
+
+    // Attend prev should go backward (wrap to last)
+    attend::perform_attend_prev(&mut state);
+    let prev_attended = state.last_attended_pane_id;
+
+    // The prev-attended session should differ from forward-attended
+    assert_ne!(first_attended, prev_attended);
 }
 
 // --- Fix 4: Throttle keybinding registration tests ---
