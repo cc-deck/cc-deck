@@ -19,6 +19,14 @@ pub enum AttendResult {
     AllBusy,
 }
 
+/// Cycling direction for attend actions.
+enum AttendDirection {
+    /// Next session in tier (forward round-robin).
+    Forward,
+    /// Previous session in tier (backward round-robin).
+    Backward,
+}
+
 /// Find the next session needing attention using exclusive tiers:
 ///
 /// **Exclusive tier selection**: Only the highest non-empty tier is used.
@@ -34,6 +42,15 @@ pub enum AttendResult {
 ///
 /// Round-robin within the selected tier only.
 pub fn perform_attend(state: &mut PluginState) -> AttendResult {
+    perform_attend_directed(state, AttendDirection::Forward)
+}
+
+/// Like `perform_attend` but cycles in the reverse direction.
+pub fn perform_attend_prev(state: &mut PluginState) -> AttendResult {
+    perform_attend_directed(state, AttendDirection::Backward)
+}
+
+fn perform_attend_directed(state: &mut PluginState, direction: AttendDirection) -> AttendResult {
     let sessions = state.sessions_by_tab_order();
     if sessions.is_empty() {
         return AttendResult::NoneWaiting;
@@ -76,16 +93,24 @@ pub fn perform_attend(state: &mut PluginState) -> AttendResult {
         return AttendResult::AllBusy;
     };
 
+    let len = candidates.len();
+
     // Round-robin within the selected tier.
     // Read last attended from shared file (survives instance switches).
     let last_attended = read_last_attended().or(state.last_attended_pane_id);
     let start_idx = if let Some(last_id) = last_attended {
         candidates.iter()
             .position(|s| s.pane_id == last_id)
-            .map(|pos| (pos + 1) % candidates.len())
+            .map(|pos| match direction {
+                AttendDirection::Forward => (pos + 1) % len,
+                AttendDirection::Backward => if pos == 0 { len - 1 } else { pos - 1 },
+            })
             .unwrap_or(0)
     } else {
-        0
+        match direction {
+            AttendDirection::Forward => 0,
+            AttendDirection::Backward => len - 1,
+        }
     };
 
     let pane_id = candidates[start_idx].pane_id;
