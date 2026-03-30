@@ -39,31 +39,51 @@ pub fn handle_key(rename: &mut RenameState, key: KeyWithModifier) -> RenameActio
         BareKey::Esc => RenameAction::Cancel,
         BareKey::Char(c) => {
             rename.input_buffer.insert(rename.cursor_pos, c);
-            rename.cursor_pos += 1;
+            rename.cursor_pos += c.len_utf8();
             RenameAction::Continue
         }
         BareKey::Backspace => {
             if rename.cursor_pos > 0 {
-                rename.cursor_pos -= 1;
-                rename.input_buffer.remove(rename.cursor_pos);
+                // Find previous char boundary for multi-byte safety
+                let prev = rename.input_buffer[..rename.cursor_pos]
+                    .char_indices()
+                    .last()
+                    .map(|(i, _)| i)
+                    .unwrap_or(0);
+                rename.input_buffer.remove(prev);
+                rename.cursor_pos = prev;
             }
             RenameAction::Continue
         }
         BareKey::Delete => {
-            if rename.cursor_pos < rename.input_buffer.len() {
+            if rename.cursor_pos < rename.input_buffer.len()
+                && rename.input_buffer.is_char_boundary(rename.cursor_pos)
+            {
                 rename.input_buffer.remove(rename.cursor_pos);
             }
             RenameAction::Continue
         }
         BareKey::Left => {
             if rename.cursor_pos > 0 {
-                rename.cursor_pos -= 1;
+                // Move to previous char boundary
+                let prev = rename.input_buffer[..rename.cursor_pos]
+                    .char_indices()
+                    .last()
+                    .map(|(i, _)| i)
+                    .unwrap_or(0);
+                rename.cursor_pos = prev;
             }
             RenameAction::Continue
         }
         BareKey::Right => {
             if rename.cursor_pos < rename.input_buffer.len() {
-                rename.cursor_pos += 1;
+                // Move to next char boundary
+                let next = rename.input_buffer[rename.cursor_pos..]
+                    .char_indices()
+                    .nth(1)
+                    .map(|(i, _)| rename.cursor_pos + i)
+                    .unwrap_or(rename.input_buffer.len());
+                rename.cursor_pos = next;
             }
             RenameAction::Continue
         }

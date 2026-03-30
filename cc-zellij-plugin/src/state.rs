@@ -421,7 +421,9 @@ impl PluginState {
     }
 
     /// Merge incoming sessions from another instance (sync protocol).
-    pub fn merge_sessions(&mut self, incoming: BTreeMap<u32, Session>) {
+    /// Returns true if any session was actually updated.
+    pub fn merge_sessions(&mut self, incoming: BTreeMap<u32, Session>) -> bool {
+        let mut changed = false;
         for (pane_id, mut session) in incoming {
             let dominated = self
                 .sessions
@@ -435,8 +437,10 @@ impl PluginState {
                     session.tab_name = Some(name.clone());
                 }
                 self.sessions.insert(pane_id, session);
+                changed = true;
             }
         }
+        changed
     }
 
     /// Transition Done/AgentDone sessions to Idle after timeout.
@@ -475,13 +479,27 @@ impl PluginState {
     }
 
     /// Preserve cursor position by clamping after session list changes.
+    /// Handles Help overlay wrapping a navigation mode by peeking through it.
     pub fn preserve_cursor(&mut self) {
-        if let Some(ctx) = self.sidebar_mode.nav_ctx_mut() {
-            let count = self.sessions.len();
+        let count = self.sessions.len();
+        let clamp = |ctx: &mut NavigateContext| {
             if count == 0 {
                 ctx.cursor_index = 0;
             } else if ctx.cursor_index >= count {
                 ctx.cursor_index = count - 1;
+            }
+        };
+        // nav_ctx_mut doesn't see through Help, so handle it explicitly.
+        match &mut self.sidebar_mode {
+            SidebarMode::Help(inner) => {
+                if let Some(ctx) = inner.nav_ctx_mut() {
+                    clamp(ctx);
+                }
+            }
+            _ => {
+                if let Some(ctx) = self.sidebar_mode.nav_ctx_mut() {
+                    clamp(ctx);
+                }
             }
         }
     }
