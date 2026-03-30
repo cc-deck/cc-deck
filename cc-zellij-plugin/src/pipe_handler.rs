@@ -45,6 +45,10 @@ pub enum PipeAction {
     Pause,
     /// Toggle help overlay (cc-deck:help).
     Help,
+    /// Navigate previous - enter navigation or move cursor up (cc-deck:navigate-prev).
+    NavigatePrev,
+    /// Attend previous - reverse-cycle through attend tiers (cc-deck:attend-prev).
+    AttendPrev,
     /// Unknown message.
     Unknown,
 }
@@ -80,6 +84,8 @@ pub fn parse_pipe_message(name: &str, payload: Option<&str>) -> PipeAction {
         "cc-deck:nav-select" => PipeAction::NavSelect,
         "cc-deck:pause" => PipeAction::Pause,
         "cc-deck:help" => PipeAction::Help,
+        "cc-deck:navigate-prev" => PipeAction::NavigatePrev,
+        "cc-deck:attend-prev" => PipeAction::AttendPrev,
         _ => PipeAction::Unknown,
     }
 }
@@ -172,6 +178,8 @@ mod tests {
         assert!(matches!(parse_pipe_message("cc-deck:nav-select", None), PipeAction::NavSelect));
         assert!(matches!(parse_pipe_message("cc-deck:pause", None), PipeAction::Pause));
         assert!(matches!(parse_pipe_message("cc-deck:help", None), PipeAction::Help));
+        assert!(matches!(parse_pipe_message("cc-deck:navigate-prev", None), PipeAction::NavigatePrev));
+        assert!(matches!(parse_pipe_message("cc-deck:attend-prev", None), PipeAction::AttendPrev));
     }
 
     #[test]

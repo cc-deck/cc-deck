@@ -132,6 +132,18 @@ impl Session {
             }
         }
 
+        // Suppress AgentDone when the session is actively Working.
+        // SubagentStop fires when a subagent finishes, but the parent
+        // agent typically continues immediately with the next tool call.
+        // Transitioning to AgentDone here causes a brief green checkmark
+        // flicker before the next PreToolUse arrives. Only show AgentDone
+        // when the session is idle/init/done (i.e., the subagent was the
+        // final action).
+        if matches!(new_activity, Activity::AgentDone) && matches!(self.activity, Activity::Working) {
+            self.last_event_ts = unix_now();
+            return false;
+        }
+
         if self.activity != new_activity {
             // Reset done_attended when leaving Done/AgentDone
             if matches!(self.activity, Activity::Done | Activity::AgentDone)
@@ -203,6 +215,26 @@ mod tests {
 
         assert!(session.transition(Activity::Done));
         assert_eq!(session.activity, Activity::Done);
+    }
+
+    #[test]
+    fn test_agent_done_suppressed_when_working() {
+        let mut session = Session::new(1, "test".into());
+        session.activity = Activity::Working;
+
+        // AgentDone should be suppressed when Working
+        assert!(!session.transition(Activity::AgentDone));
+        assert_eq!(session.activity, Activity::Working);
+    }
+
+    #[test]
+    fn test_agent_done_allowed_when_idle() {
+        let mut session = Session::new(1, "test".into());
+        session.activity = Activity::Idle;
+
+        // AgentDone should be allowed when Idle
+        assert!(session.transition(Activity::AgentDone));
+        assert_eq!(session.activity, Activity::AgentDone);
     }
 
     #[test]
