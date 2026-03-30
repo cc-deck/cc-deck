@@ -20,6 +20,7 @@ mod state;
 mod state_machine_tests;
 #[cfg(test)]
 mod fuzz_tests;
+mod perf;
 mod sync;
 
 /// Debug logging is opt-in: only active when `/cache/debug_enabled` exists.
@@ -419,6 +420,10 @@ impl ZellijPlugin for PluginState {
 
         self.config = PluginConfig::from_configuration(&configuration);
 
+        // Initialize perf tracker from config
+        self.perf.enabled = self.config.perf_enabled;
+        self.perf.dump_interval_secs = self.config.perf_interval;
+
         debug_log("LOAD subscribing");
         subscribe(&[
             EventType::TabUpdate,
@@ -503,6 +508,7 @@ impl ZellijPlugin for PluginState {
 
     fn pipe(&mut self, pipe_message: PipeMessage) -> bool {
         let _t = PerfTimerPipe::new(&pipe_message.name);
+        let perf_start = if self.perf.enabled { session::unix_now_ms() } else { 0 };
         // Guard: pipe handlers call SDK functions (run_command, pipe_message_to_plugin,
         // set_timeout) that require granted permissions. During rapid tab creation
         // (e.g., snapshot restore), pipe messages can arrive before permissions are
@@ -524,6 +530,12 @@ impl ZellijPlugin for PluginState {
                 self.sessions.len()));
         }
 
+        let pipe_label = if self.perf.enabled {
+            format!("pipe:{}", pipe_message.name.strip_prefix("cc-deck:").unwrap_or(&pipe_message.name))
+        } else {
+            String::new()
+        };
+
         let action = parse_pipe_message(
             &pipe_message.name,
             pipe_message.payload.as_deref(),
@@ -543,13 +555,14 @@ impl ZellijPlugin for PluginState {
             }
         }
 
-        match action {
+        let result = match action {
             PipeAction::HookEvent(hook) => {
                 if is_session_end(&hook.hook_event_name) {
                     let removed = self.sessions.remove(&hook.pane_id).is_some();
                     if removed {
                         self.mark_sync_dirty();
                     }
+                    self.perf.record(&pipe_label, perf_start);
                     return removed;
                 }
 
@@ -562,6 +575,7 @@ impl ZellijPlugin for PluginState {
                         if let Some(session) = self.sessions.get_mut(&hook.pane_id) {
                             session.last_event_ts = session::unix_now();
                         }
+                        self.perf.record(&pipe_label, perf_start);
                         return false;
                     }
                 };
@@ -1002,10 +1016,18 @@ impl ZellijPlugin for PluginState {
             }
 
             PipeAction::Unknown => false,
+        };
+
+        if self.perf.enabled {
+            self.perf.record(&pipe_label, perf_start);
         }
+
+        result
     }
 
     fn render(&mut self, rows: usize, cols: usize) {
+        let perf_start = if self.perf.enabled { session::unix_now_ms() } else { 0 };
+
         match self.mode {
             PluginMode::Sidebar => {
                 self.click_regions = sidebar::render_sidebar(self, rows, cols);
@@ -1021,6 +1043,8 @@ impl ZellijPlugin for PluginState {
                 print!("cc-deck picker ({rows}x{cols})");
             }
         }
+
+        self.perf.record("render", perf_start);
     }
 }
 
@@ -1030,6 +1054,38 @@ impl ZellijPlugin for PluginState {
 
 impl PluginState {
     fn handle_event(&mut self, event: Event) -> bool {
+        let perf_label = if self.perf.enabled {
+            Some(match &event {
+                Event::TabUpdate(_) => "event:TabUpdate",
+                Event::PaneUpdate(_) => "event:PaneUpdate",
+                Event::ModeUpdate(_) => "event:ModeUpdate",
+                Event::Timer(_) => "event:Timer",
+                Event::Mouse(_) => "event:Mouse",
+                Event::Key(_) => "event:Key",
+                Event::RunCommandResult(..) => "event:RunCommandResult",
+                Event::CommandPaneOpened(..) => "event:CommandPaneOpened",
+                Event::PaneClosed(_) => "event:PaneClosed",
+                _ => "event:Other",
+            })
+        } else {
+            None
+        };
+        let perf_start = if perf_label.is_some() {
+            session::unix_now_ms()
+        } else {
+            0
+        };
+
+        let result = self.handle_event_inner(event);
+
+        if let Some(label) = perf_label {
+            self.perf.record(label, perf_start);
+        }
+
+        result
+    }
+
+    fn handle_event_inner(&mut self, event: Event) -> bool {
         match event {
             Event::TabUpdate(tabs) => {
                 if self.updating_tabs {
@@ -1178,6 +1234,14 @@ impl PluginState {
                         }
                     }
                 }
+                // Dump perf stats periodically (with context)
+                if self.perf.enabled {
+                    // Record session count as a gauge for context
+                    self.perf.record_raw("gauge:sessions", self.sessions.len() as u64);
+                    self.perf.record_raw("gauge:tabs", self.tabs.len() as u64);
+                }
+                self.perf.maybe_dump();
+
                 set_timeout(self.config.timer_interval);
                 stale || meta_changed
             }

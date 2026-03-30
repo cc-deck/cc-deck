@@ -26,6 +26,10 @@ pub struct PluginConfig {
     pub navigate_key: String,
     /// Global shortcut for smart attend action (default: "Alt a").
     pub attend_key: String,
+    /// Enable performance instrumentation (default: false).
+    pub perf_enabled: bool,
+    /// Perf stats dump interval in seconds (default: 30).
+    pub perf_interval: u64,
 }
 
 impl Default for PluginConfig {
@@ -37,6 +41,8 @@ impl Default for PluginConfig {
             new_session_mode: NewSessionMode::Tab,
             navigate_key: "Alt s".to_string(),
             attend_key: "Alt a".to_string(),
+            perf_enabled: false,
+            perf_interval: 30,
         }
     }
 }
@@ -76,6 +82,18 @@ impl PluginConfig {
         if let Some(v) = config.get("attend_key") {
             if !v.is_empty() {
                 result.attend_key = v.clone();
+            }
+        }
+
+        if let Some(v) = config.get("perf") {
+            result.perf_enabled = v == "true" || v == "1";
+        }
+
+        if let Some(v) = config.get("perf_interval") {
+            if let Ok(i) = v.parse::<u64>() {
+                if i >= 5 {
+                    result.perf_interval = i;
+                }
             }
         }
 

@@ -280,6 +280,9 @@ pub struct PluginState {
     /// Hash of the last-read session-meta.json content.
     /// Used to skip re-parsing when the file has not changed.
     pub last_meta_content_hash: u64,
+    /// Performance instrumentation tracker.
+    /// Enable via KDL config: `perf true`
+    pub perf: crate::perf::PerfTracker,
 }
 
 /// Metadata override to apply when a restored session is discovered.
