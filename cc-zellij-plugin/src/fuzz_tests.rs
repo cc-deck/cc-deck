@@ -177,8 +177,6 @@ fn apply_action(state: &mut PluginState, action: &Action) {
 // ---------------------------------------------------------------------------
 
 fn check_invariants(state: &PluginState, action_idx: usize, action: &Action) {
-    let session_count = state.sessions.len();
-
     // INV 1: cursor_index is within bounds
     if let Some(ctx) = state.sidebar_mode.nav_ctx() {
         let filtered_count = state.filtered_sessions_by_tab_order().len();
