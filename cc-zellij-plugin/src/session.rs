@@ -171,13 +171,14 @@ pub fn deduplicate_name(base: &str, existing_names: &[&str]) -> String {
     if !existing_names.contains(&base) {
         return base.to_string();
     }
-    for i in 2.. {
+    for i in 2..10_000 {
         let candidate = format!("{base}-{i}");
         if !existing_names.iter().any(|n| *n == candidate) {
             return candidate;
         }
     }
-    unreachable!()
+    // Fallback: should never happen with fewer than 10k sessions
+    format!("{base}-dup")
 }
 
 #[cfg(test)]

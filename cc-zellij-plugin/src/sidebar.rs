@@ -88,6 +88,11 @@ pub fn render_sidebar(state: &PluginState, rows: usize, cols: usize) -> Vec<Clic
     let (start_idx, end_idx, above_count, below_count) =
         visible_range(total, max_visible, state.active_tab_index, &sessions);
 
+    // Defensive bounds clamping: visible_range should return valid indices,
+    // but clamp to prevent panics if sessions changed between calls.
+    let start_idx = start_idx.min(total);
+    let end_idx = end_idx.min(total).max(start_idx);
+
     let mut row = content_start;
 
     // Overflow indicator (above)

@@ -113,9 +113,13 @@ fn perform_attend_directed(state: &mut PluginState, direction: AttendDirection) 
         }
     };
 
-    let pane_id = candidates[start_idx].pane_id;
-    let tab_index = candidates[start_idx].tab_index.unwrap_or(0);
-    let display_name = candidates[start_idx].display_name.clone();
+    let candidate = match candidates.get(start_idx) {
+        Some(c) => c,
+        None => return AttendResult::NoneWaiting,
+    };
+    let pane_id = candidate.pane_id;
+    let tab_index = candidate.tab_index.unwrap_or(0);
+    let display_name = candidate.display_name.clone();
 
     state.last_attended_pane_id = Some(pane_id);
     write_last_attended(pane_id);
