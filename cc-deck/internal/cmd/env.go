@@ -229,9 +229,6 @@ func runEnvCreate(gf *GlobalFlags, name string, cf *createFlags, cmd *cobra.Comm
 		}
 		projDef = scaffoldDef
 		fmt.Fprintf(os.Stderr, "Created .cc-deck/environment.yaml in %s\n", projectRoot)
-		if _, gitErr := project.FindGitRoot(projectRoot); gitErr == nil {
-			fmt.Fprintf(os.Stderr, "Commit .cc-deck/ to share the definition with your team.\n")
-		}
 	}
 
 	// Apply project-local definition values, with CLI flags taking precedence.
