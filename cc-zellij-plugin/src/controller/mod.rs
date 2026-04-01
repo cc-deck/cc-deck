@@ -120,8 +120,9 @@ impl ZellijPlugin for ControllerPlugin {
                     return false;
                 }
                 self.handle_event_inner(event);
-                // Immediately broadcast if state changed
-                render_broadcast::flush_render(&mut self.state);
+                // Automatic events (PaneUpdate, TabUpdate, Timer) use coalesced
+                // rendering via render_dirty flag + timer flush. This prevents
+                // message storms during rapid state changes (e.g., snapshot restore).
                 false // Controller has no UI
             }
         }
@@ -297,8 +298,9 @@ impl ZellijPlugin for ControllerPlugin {
             }
         }
 
-        // Immediately broadcast if any pipe handler changed state
-        render_broadcast::flush_render(&mut self.state);
+        // Hook events and other pipe messages use coalesced rendering.
+        // The 1s timer will flush. User-initiated actions (cc-deck:action)
+        // flush immediately above via the early-return path.
         false // Controller has no UI
     }
 

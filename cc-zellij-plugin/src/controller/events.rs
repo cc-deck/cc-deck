@@ -61,10 +61,14 @@ pub fn handle_pane_update(state: &mut ControllerState, manifest: PaneManifest) {
     // Auto-discover sidebar plugin panes from manifest for reliable targeting
     super::sidebar_registry::discover_sidebars_from_manifest(state);
 
-    // Only mark dirty if something visible changed
+    // Broadcast immediately on focus change (for responsive click/switch feedback).
+    // Other changes (count, removal) use coalesced rendering via timer.
     let focus_changed = state.focused_pane_id != old_focused;
     let count_changed = state.sessions.len() != old_session_count;
-    if focus_changed || count_changed || removed {
+    if focus_changed {
+        super::render_broadcast::broadcast_render(state);
+        state.render_dirty = false;
+    } else if count_changed || removed {
         state.mark_render_dirty();
     }
 }
