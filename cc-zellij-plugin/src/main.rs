@@ -23,6 +23,11 @@ mod fuzz_tests;
 mod perf;
 mod sync;
 
+#[cfg(feature = "controller")]
+mod controller;
+#[cfg(feature = "sidebar")]
+mod sidebar_plugin;
+
 /// Debug logging is opt-in: only active when `/cache/debug_enabled` exists.
 /// Enable:  `touch /cache/debug_enabled`  (inside the WASI sandbox)
 /// Or from the host: `touch ~/.config/zellij/plugins/cc_deck.wasm/cache/debug_enabled`
@@ -259,7 +264,7 @@ fn broadcast_action(_name: &str) {}
 #[cfg(target_family = "wasm")]
 fn focus_plugin() {
     let plugin_id = zellij_tile::prelude::get_plugin_ids().plugin_id;
-    zellij_tile::prelude::focus_plugin_pane(plugin_id, false);
+    zellij_tile::prelude::focus_plugin_pane(plugin_id, false, false);
 }
 
 #[cfg(not(target_family = "wasm"))]
@@ -267,7 +272,7 @@ fn focus_plugin() {}
 
 #[cfg(target_family = "wasm")]
 fn focus_terminal(pane_id: u32) {
-    zellij_tile::prelude::focus_terminal_pane(pane_id, false);
+    zellij_tile::prelude::focus_terminal_pane(pane_id, false, false);
 }
 
 #[cfg(not(target_family = "wasm"))]
@@ -336,7 +341,18 @@ use state::{NavigateContext, PluginMode, PluginState, SidebarMode};
 use std::collections::BTreeMap;
 use zellij_tile::prelude::*;
 
+// Plugin registration: cfg-gated for two-binary architecture.
+// When building with --features controller, register ControllerPlugin.
+// When building with --features sidebar, register SidebarRendererPlugin.
+// Without features (e.g., cargo test --lib), the legacy PluginState is used.
+#[cfg(not(any(feature = "controller", feature = "sidebar")))]
 register_plugin!(PluginState);
+
+#[cfg(feature = "controller")]
+register_plugin!(controller::ControllerPlugin);
+
+#[cfg(feature = "sidebar")]
+register_plugin!(sidebar_plugin::SidebarRendererPlugin);
 
 // ---------------------------------------------------------------------------
 // Centralized mode transition functions
@@ -377,7 +393,7 @@ impl PluginState {
                 #[cfg(target_family = "wasm")]
                 {
                     zellij_tile::prelude::switch_tab_to(_tab_idx as u32 + 1);
-                    zellij_tile::prelude::focus_terminal_pane(_pane_id, false);
+                    zellij_tile::prelude::focus_terminal_pane(_pane_id, false, false);
                 }
             }
         }
@@ -400,7 +416,7 @@ impl PluginState {
         #[cfg(target_family = "wasm")]
         if let Some(idx) = tab_idx {
             zellij_tile::prelude::switch_tab_to(idx as u32 + 1);
-            zellij_tile::prelude::focus_terminal_pane(pane_id, false);
+            zellij_tile::prelude::focus_terminal_pane(pane_id, false, false);
         }
         debug_log(&format!("NAV switch to pane={pane_id} tab={tab_idx:?}"));
     }

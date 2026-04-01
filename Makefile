@@ -16,6 +16,12 @@ WASM_TARGET = wasm32-wasip1
 WASM_SRC    = cc-zellij-plugin/target/$(WASM_TARGET)/release/cc_deck.wasm
 WASM_DBG    = cc-zellij-plugin/target/$(WASM_TARGET)/dev-opt/cc_deck.wasm
 WASM_DST    = cc-deck/internal/plugin/cc_deck.wasm
+
+# Two-binary architecture (030-single-instance-arch)
+WASM_CTRL_SRC = cc-zellij-plugin/target/$(WASM_TARGET)/release/cc_deck_controller.wasm
+WASM_SIDE_SRC = cc-zellij-plugin/target/$(WASM_TARGET)/release/cc_deck_sidebar.wasm
+WASM_CTRL_DST = cc-deck/internal/plugin/cc_deck_controller.wasm
+WASM_SIDE_DST = cc-deck/internal/plugin/cc_deck_sidebar.wasm
 CLI_BIN     = cc-deck/cc-deck
 
 BASE_IMAGE  = $(REGISTRY)/cc-deck-base
@@ -34,19 +40,31 @@ CLI_LDFLAGS = -X github.com/cc-deck/cc-deck/internal/cmd.Version=$(VERSION) \
 
 build: build-wasm copy-wasm build-cli  ## Build everything (release WASM + CLI)
 
-build-wasm:  ## Build WASM plugin (release, wasm-opt if available)
-	cd cc-zellij-plugin && cargo build --target $(WASM_TARGET) --release
+build-wasm: build-wasm-controller build-wasm-sidebar  ## Build both WASM plugins (release)
+
+build-wasm-controller:  ## Build controller WASM plugin (release, wasm-opt if available)
+	cd cc-zellij-plugin && cargo build --target $(WASM_TARGET) --release --features controller --bin cc_deck_controller
 	@if command -v wasm-opt >/dev/null 2>&1; then \
-		echo "Running wasm-opt on release binary..."; \
-		wasm-opt -Oz --zero-filled-memory --enable-bulk-memory-opt $(WASM_SRC) -o $(WASM_SRC); \
+		echo "Running wasm-opt on controller binary..."; \
+		wasm-opt -Oz --zero-filled-memory --enable-bulk-memory-opt $(WASM_CTRL_SRC) -o $(WASM_CTRL_SRC); \
+	fi
+
+build-wasm-sidebar:  ## Build sidebar WASM plugin (release, wasm-opt if available)
+	cd cc-zellij-plugin && cargo build --target $(WASM_TARGET) --release --features sidebar --bin cc_deck_sidebar
+	@if command -v wasm-opt >/dev/null 2>&1; then \
+		echo "Running wasm-opt on sidebar binary..."; \
+		wasm-opt -Oz --zero-filled-memory --enable-bulk-memory-opt $(WASM_SIDE_SRC) -o $(WASM_SIDE_SRC); \
 	fi
 
 build-wasm-debug:  ## Build WASM plugin (dev-opt: opt-level=1 for wasmi performance)
 	cd cc-zellij-plugin && cargo build --target $(WASM_TARGET) --profile dev-opt
 
-copy-wasm: $(WASM_SRC)  ## Copy WASM binary to Go embed location
+copy-wasm: $(WASM_CTRL_SRC) $(WASM_SIDE_SRC)  ## Copy WASM binaries to Go embed location
 	mkdir -p cc-deck/internal/plugin
-	cp $(WASM_SRC) $(WASM_DST)
+	cp $(WASM_CTRL_SRC) $(WASM_CTRL_DST)
+	cp $(WASM_SIDE_SRC) $(WASM_SIDE_DST)
+	@# Keep legacy single-binary path for backward compatibility during transition
+	cp $(WASM_CTRL_SRC) $(WASM_DST)
 
 build-cli: $(WASM_DST)  ## Build Go CLI (requires WASM to be copied first)
 	cd cc-deck && go build -ldflags "$(CLI_LDFLAGS)" -o cc-deck ./cmd/cc-deck
