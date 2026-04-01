@@ -80,9 +80,13 @@ func QueryPluginStateCtx(ctx context.Context, name string) (*Snapshot, error) {
 	}, nil
 }
 
-// queryPluginCtx runs zellij pipe to get session state JSON from the plugin.
+// queryPluginCtx runs zellij pipe to get session state JSON from the controller plugin.
+// Uses broadcast (--name only, no --plugin) because --plugin targeting can spawn
+// duplicate instances if the URL doesn't match exactly. The controller handles
+// DumpState; sidebars ignore it.
 func queryPluginCtx(ctx context.Context) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, "zellij", "pipe", "--name", "cc-deck:dump-state", "--", "")
+	cmd := exec.CommandContext(ctx, "zellij", "pipe",
+		"--name", "cc-deck:dump-state", "--", "")
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("querying plugin state: %w", err)

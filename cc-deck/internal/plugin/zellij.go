@@ -17,6 +17,7 @@ type ZellijInfo struct {
 	ConfigDir  string
 	PluginsDir string
 	LayoutsDir string
+	CacheDir   string
 }
 
 // DetectZellij probes the system for a Zellij installation.
@@ -43,6 +44,7 @@ func DetectZellij() ZellijInfo {
 	info.ConfigDir = resolveZellijConfigDir()
 	info.PluginsDir = filepath.Join(info.ConfigDir, "plugins")
 	info.LayoutsDir = filepath.Join(info.ConfigDir, "layouts")
+	info.CacheDir = resolveZellijCacheDir()
 
 	return info
 }
@@ -58,6 +60,59 @@ func resolveZellijConfigDir() string {
 		return filepath.Join("~", ".config", "zellij")
 	}
 	return filepath.Join(home, ".config", "zellij")
+}
+
+// resolveZellijCacheDir returns the Zellij cache directory.
+func resolveZellijCacheDir() string {
+	// macOS: ~/Library/Caches/org.Zellij-Contributors.Zellij
+	// Linux: ~/.cache/zellij
+	home, _ := os.UserHomeDir()
+	if home == "" {
+		home = "~"
+	}
+	// Check macOS path first
+	macDir := filepath.Join(home, "Library", "Caches", "org.Zellij-Contributors.Zellij")
+	if info, err := os.Stat(macDir); err == nil && info.IsDir() {
+		return macDir
+	}
+	// Linux fallback
+	if cacheDir := os.Getenv("XDG_CACHE_HOME"); cacheDir != "" {
+		return filepath.Join(cacheDir, "zellij")
+	}
+	return filepath.Join(home, ".cache", "zellij")
+}
+
+// EnsureControllerPermissions adds controller plugin permissions to Zellij's
+// permissions.kdl cache. Background plugins loaded via load_plugins don't show
+// a permission dialog, so permissions must be pre-populated.
+func EnsureControllerPermissions(cacheDir, pluginsDir string) error {
+	permPath := filepath.Join(cacheDir, "permissions.kdl")
+	pluginPath := filepath.Join(pluginsDir, "cc_deck_controller.wasm")
+
+	content, err := os.ReadFile(permPath)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+
+	if strings.Contains(string(content), "cc_deck_controller.wasm") {
+		return nil // Already has permissions
+	}
+
+	entry := fmt.Sprintf(`"%s" {
+    MessageAndLaunchOtherPlugins
+    ChangeApplicationState
+    Reconfigure
+    RunCommands
+    ReadCliPipes
+    ReadApplicationState
+}
+`, pluginPath)
+
+	if !strings.HasSuffix(string(content), "\n") && len(content) > 0 {
+		content = append(content, '\n')
+	}
+	content = append(content, []byte(entry)...)
+	return os.WriteFile(permPath, content, 0644)
 }
 
 // CheckCompatibility returns "compatible", "untested", or "incompatible"

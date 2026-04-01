@@ -1,6 +1,6 @@
 # cc-mux Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2026-03-22
+Auto-generated from all feature plans. Last updated: 2026-03-31
 
 ## Content Creation (MANDATORY)
 
@@ -49,6 +49,8 @@ When creating or editing ANY documentation content (AsciiDoc, Markdown, landing 
 - YAML files: `.cc-deck/environment.yaml` (project-local definition), `.cc-deck/status.yaml` (project-local state), `$XDG_STATE_HOME/cc-deck/state.yaml` (global registry) (026-project-local-config)
 - Go 1.25 (from go.mod) + cobra v1.10.2 (CLI framework), gopkg.in/yaml.v3, adrg/xdg (027-cli-restructuring)
 - N/A (no data changes) (027-cli-restructuring)
+- Rust stable (edition 2021, wasm32-wasip1 target) for plugin; Go 1.25 for CLI + zellij-tile 0.43.1 (plugin SDK), serde/serde_json 1.x; cobra (CLI), encoding/json (Go stdlib) (030-single-instance-arch)
+- WASI `/cache/` directory for persistent state (sessions.json) (030-single-instance-arch)
 
 - Rust (stable, latest edition 2021+) + `zellij-tile` (plugin SDK), `serde`/`serde_json` (serialization) (001-cc-deck)
 
@@ -70,9 +72,9 @@ cargo test [ONLY COMMANDS FOR ACTIVE TECHNOLOGIES][ONLY COMMANDS FOR ACTIVE TECH
 Rust (stable, latest edition 2021+): Follow standard conventions
 
 ## Recent Changes
+- 030-single-instance-arch: Added Rust stable (edition 2021, wasm32-wasip1 target) for plugin; Go 1.25 for CLI + zellij-tile 0.43.1 (plugin SDK), serde/serde_json 1.x; cobra (CLI), encoding/json (Go stdlib)
 - 027-cli-restructuring: Added Go 1.25 (from go.mod) + cobra v1.10.2 (CLI framework), gopkg.in/yaml.v3, adrg/xdg
 - 026-project-local-config: Added Go 1.25 (from go.mod) + cobra v1.10.2 (CLI), gopkg.in/yaml.v3 (YAML), internal/xdg (XDG paths), internal/podman (container interaction), internal/compose (YAML generation)
-- 025-sidebar-state-refresh: Added Rust stable (edition 2021, wasm32-wasip1 target) + zellij-tile 0.43.1, serde/serde_json 1.x
 
 
 <!-- MANUAL ADDITIONS START -->
