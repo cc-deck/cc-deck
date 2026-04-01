@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"fmt"
+	"os"
 	"strings"
 )
 
@@ -16,10 +17,106 @@ const (
 // sidebarPluginBlock returns the KDL snippet for the sidebar plugin pane.
 func sidebarPluginBlock(pluginsDir string) string {
 	return fmt.Sprintf(`pane size=22 borderless=true {
-                plugin location="file:%s/cc_deck.wasm" {
+                plugin location="file:%s/cc_deck_sidebar.wasm" {
                     mode "sidebar"
                 }
             }`, pluginsDir)
+}
+
+const (
+	// ConfigInjectionStart is the sentinel for the controller block in config.kdl.
+	ConfigInjectionStart = "// cc-deck-controller-start (managed by cc-deck, do not edit)"
+
+	// ConfigInjectionEnd is the sentinel for the controller block in config.kdl.
+	ConfigInjectionEnd = "// cc-deck-controller-end"
+)
+
+// controllerConfigBlock returns the marked load_plugins block for config.kdl.
+func controllerConfigBlock(pluginsDir string) string {
+	return fmt.Sprintf(`%s
+load_plugins {
+    "file:%s/cc_deck_controller.wasm" {
+        mode "controller"
+    }
+}
+%s
+`, ConfigInjectionStart, pluginsDir, ConfigInjectionEnd)
+}
+
+// HasControllerConfig returns true if config.kdl contains the controller markers.
+func HasControllerConfig(content string) bool {
+	return strings.Contains(content, ConfigInjectionStart) && strings.Contains(content, ConfigInjectionEnd)
+}
+
+// InjectControllerConfig adds the controller load_plugins block to config.kdl content.
+// Idempotent: if markers already exist, replaces the block (handles path changes).
+// If an existing load_plugins block is found, injects the controller entry inside it
+// rather than appending a duplicate block.
+func InjectControllerConfig(content, pluginsDir string) string {
+	// Already injected with same path: no-op
+	if HasControllerConfig(content) && strings.Contains(content, pluginsDir+"/cc_deck_controller.wasm") {
+		return content
+	}
+	// Different path or stale: remove and re-inject
+	if HasControllerConfig(content) {
+		content = RemoveControllerConfig(content)
+	}
+
+	controllerEntry := fmt.Sprintf(`    "file:%s/cc_deck_controller.wasm" {
+        mode "controller"
+    }`, pluginsDir)
+
+	// Check for existing load_plugins block and merge into it
+	lpIdx := strings.Index(content, "load_plugins")
+	if lpIdx >= 0 {
+		// Find the opening brace
+		braceOpen := strings.Index(content[lpIdx:], "{")
+		if braceOpen >= 0 {
+			insertAt := lpIdx + braceOpen + 1
+			// Check if the controller is already inside (shouldn't be after RemoveControllerConfig, but be safe)
+			closeBrace := strings.Index(content[insertAt:], "}")
+			if closeBrace >= 0 {
+				existingBlock := content[insertAt : insertAt+closeBrace]
+				if !strings.Contains(existingBlock, "cc_deck_controller.wasm") {
+					injected := content[:insertAt] + "\n" +
+						"    " + ConfigInjectionStart + "\n" +
+						controllerEntry + "\n" +
+						"    " + ConfigInjectionEnd + "\n" +
+						content[insertAt:]
+					return injected
+				}
+			}
+		}
+	}
+
+	// No existing load_plugins block: append a new one
+	block := controllerConfigBlock(pluginsDir)
+	if !strings.HasSuffix(content, "\n") && len(content) > 0 {
+		content += "\n"
+	}
+	return content + block
+}
+
+// RemoveControllerConfig removes the controller block from config.kdl content.
+func RemoveControllerConfig(content string) string {
+	startIdx := strings.Index(content, ConfigInjectionStart)
+	if startIdx < 0 {
+		return content
+	}
+	endIdx := strings.Index(content, ConfigInjectionEnd)
+	if endIdx < 0 {
+		return content
+	}
+	endIdx += len(ConfigInjectionEnd)
+
+	if endIdx < len(content) && content[endIdx] == '\n' {
+		endIdx++
+	}
+	if startIdx > 0 && content[startIdx-1] == '\n' {
+		startIdx--
+	}
+
+	return content[:startIdx] + content[endIdx:]
 }
 
 // LayoutVariant identifies a layout style.
@@ -84,16 +181,10 @@ layout {
         }
     }
     tab name="main" focus=true {
-        pane split_direction="vertical" {
-            %s
-            pane
-        }
-        pane size=1 borderless=true {
-            plugin location="compact-bar"
-        }
+        pane
     }
 }
-`, sidebar, sidebar, sidebar)
+`, sidebar, sidebar)
 }
 
 // standardLayout: sidebar + tab-bar at top + status-bar at bottom (beginner-friendly).
@@ -126,19 +217,10 @@ layout {
         }
     }
     tab name="main" focus=true {
-        pane size=1 borderless=true {
-            plugin location="tab-bar"
-        }
-        pane split_direction="vertical" {
-            %s
-            pane
-        }
-        pane size=2 borderless=true {
-            plugin location="status-bar"
-        }
+        pane
     }
 }
-`, sidebar, sidebar, sidebar)
+`, sidebar, sidebar)
 }
 
 // cleanLayout: sidebar only, no bars. Maximum terminal space.
@@ -159,13 +241,45 @@ layout {
         }
     }
     tab name="main" focus=true {
-        pane split_direction="vertical" {
-            %s
-            pane
-        }
+        pane
     }
 }
-`, sidebar, sidebar, sidebar)
+`, sidebar, sidebar)
+}
+
+// ensureControllerInConfig adds the controller load_plugins block to config.kdl.
+// Idempotent: safe to call repeatedly. Creates config.kdl if it doesn't exist.
+// Uses sentinel markers for reliable detection and removal.
+func ensureControllerInConfig(configPath, pluginsDir string) error {
+	content, err := os.ReadFile(configPath)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+
+	updated := InjectControllerConfig(string(content), pluginsDir)
+	if updated == string(content) {
+		return nil
+	}
+
+	return os.WriteFile(configPath, []byte(updated), 0644)
+}
+
+// removeControllerFromConfig removes the controller block from config.kdl.
+func removeControllerFromConfig(configPath string) error {
+	content, err := os.ReadFile(configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+
+	updated := RemoveControllerConfig(string(content))
+	if updated == string(content) {
+		return nil
+	}
+
+	return os.WriteFile(configPath, []byte(updated), 0644)
 }
 
 // SidebarLayout returns the default (minimal) layout. Kept for backwards compatibility.

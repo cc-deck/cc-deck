@@ -146,12 +146,17 @@ func runHook(stdin io.Reader, paneIDStr string) {
 		return
 	}
 
-	// Send via broadcast pipe (like zellij-attention does).
-	// zellij pipe --name sends to all listening plugins in the current session.
+	// Send targeted pipe to the controller plugin.
+	// The --plugin flag routes directly to the controller binary, avoiding
+	// broadcast to all sidebar instances. Fails silently if the plugin
+	// path is invalid or the plugin is not installed.
 	// Use a 3-second timeout to prevent hangs when no Zellij session is active.
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
+
+	controllerPlugin := filepath.Join(os.Getenv("HOME"), ".config", "zellij", "plugins", "cc_deck_controller.wasm")
 	cmd := exec.CommandContext(ctx, zellijPath, "pipe",
+		"--plugin", "file:"+controllerPlugin,
 		"--name", "cc-deck:hook",
 		"--", string(payloadJSON))
 	_ = cmd.Run()
