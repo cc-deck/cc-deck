@@ -47,6 +47,20 @@ func Remove(opts RemoveOptions) error {
 		fmt.Fprintf(opts.Stdout, "  Removed: %s\n", tildeHome(state.PluginPath))
 	}
 
+	// Remove two-binary architecture files
+	for _, name := range []string{"cc_deck_controller.wasm", "cc_deck_sidebar.wasm"} {
+		p := filepath.Join(zInfo.PluginsDir, name)
+		if err := os.Remove(p); err == nil {
+			fmt.Fprintf(opts.Stdout, "  Removed: %s\n", tildeHome(p))
+		}
+	}
+
+	// Remove controller from config.kdl
+	configPath := filepath.Join(zInfo.ConfigDir, "config.kdl")
+	if err := removeControllerFromConfig(configPath); err == nil {
+		fmt.Fprintf(opts.Stdout, "  Removed: controller from %s\n", tildeHome(configPath))
+	}
+
 	cleanupPluginSymlinks(zInfo.PluginsDir, opts.Stdout)
 
 	if state.LayoutInstalled {
