@@ -344,15 +344,116 @@ use zellij_tile::prelude::*;
 // Plugin registration: cfg-gated for two-binary architecture.
 // When building with --features controller, register ControllerPlugin.
 // When building with --features sidebar, register SidebarRendererPlugin.
-// Without features (e.g., cargo test --lib), the legacy PluginState is used.
-#[cfg(not(any(feature = "controller", feature = "sidebar")))]
-register_plugin!(PluginState);
-
+// Without features (e.g., cargo test), use the re-entrant-safe legacy registration.
 #[cfg(feature = "controller")]
 register_plugin!(controller::ControllerPlugin);
 
 #[cfg(feature = "sidebar")]
 register_plugin!(sidebar_plugin::SidebarRendererPlugin);
+
+// Legacy re-entrant-safe registration for no-feature-flag builds.
+// Uses try_borrow_mut() instead of borrow_mut() to avoid panics when
+// Zellij delivers events re-entrantly (pipe during update, render during pipe).
+#[cfg(not(any(feature = "controller", feature = "sidebar")))]
+thread_local! {
+    static STATE: std::cell::RefCell<PluginState> = std::cell::RefCell::new(Default::default());
+}
+
+#[cfg(not(any(feature = "controller", feature = "sidebar")))]
+fn main() {}
+
+#[cfg(not(any(feature = "controller", feature = "sidebar")))]
+#[no_mangle]
+fn load() {
+    STATE.with(|state| {
+        use std::convert::TryFrom;
+        use zellij_tile::shim::plugin_api::action::ProtobufPluginConfiguration;
+        use zellij_tile::shim::prost::Message;
+        let protobuf_bytes: Vec<u8> = zellij_tile::shim::object_from_stdin().unwrap();
+        let protobuf_configuration: ProtobufPluginConfiguration =
+            ProtobufPluginConfiguration::decode(protobuf_bytes.as_slice()).unwrap();
+        let plugin_configuration: BTreeMap<String, String> =
+            BTreeMap::try_from(&protobuf_configuration).unwrap();
+        state.borrow_mut().load(plugin_configuration);
+    });
+}
+
+#[cfg(not(any(feature = "controller", feature = "sidebar")))]
+#[no_mangle]
+pub fn update() -> bool {
+    use std::convert::TryInto;
+    use zellij_tile::shim::plugin_api::event::ProtobufEvent;
+    use zellij_tile::shim::prost::Message;
+    STATE.with(|state| {
+        let protobuf_bytes: Vec<u8> = match zellij_tile::shim::object_from_stdin() {
+            Ok(b) => b,
+            Err(_) => return false,
+        };
+        let protobuf_event = match ProtobufEvent::decode(protobuf_bytes.as_slice()) {
+            Ok(e) => e,
+            Err(_) => return false,
+        };
+        let event = match protobuf_event.try_into() {
+            Ok(e) => e,
+            Err(_) => return false,
+        };
+        match state.try_borrow_mut() {
+            Ok(mut s) => s.update(event),
+            Err(_) => {
+                debug_log("REENTRANT update() skipped (RefCell already borrowed)");
+                false
+            }
+        }
+    })
+}
+
+#[cfg(not(any(feature = "controller", feature = "sidebar")))]
+#[no_mangle]
+pub fn pipe() -> bool {
+    use std::convert::TryInto;
+    use zellij_tile::shim::plugin_api::pipe_message::ProtobufPipeMessage;
+    use zellij_tile::shim::prost::Message;
+    STATE.with(|state| {
+        let protobuf_bytes: Vec<u8> = match zellij_tile::shim::object_from_stdin() {
+            Ok(b) => b,
+            Err(_) => return false,
+        };
+        let protobuf_pipe_message = match ProtobufPipeMessage::decode(protobuf_bytes.as_slice()) {
+            Ok(m) => m,
+            Err(_) => return false,
+        };
+        let pipe_message = match protobuf_pipe_message.try_into() {
+            Ok(m) => m,
+            Err(_) => return false,
+        };
+        match state.try_borrow_mut() {
+            Ok(mut s) => s.pipe(pipe_message),
+            Err(_) => {
+                debug_log("REENTRANT pipe() skipped (RefCell already borrowed)");
+                false
+            }
+        }
+    })
+}
+
+#[cfg(not(any(feature = "controller", feature = "sidebar")))]
+#[no_mangle]
+pub fn render(rows: i32, cols: i32) {
+    STATE.with(|state| {
+        match state.try_borrow_mut() {
+            Ok(mut s) => s.render(rows as usize, cols as usize),
+            Err(_) => {
+                debug_log("REENTRANT render() skipped (RefCell already borrowed)");
+            }
+        }
+    });
+}
+
+#[cfg(not(any(feature = "controller", feature = "sidebar")))]
+#[no_mangle]
+pub fn plugin_version() {
+    println!("{}", zellij_tile::prelude::VERSION);
+}
 
 // ---------------------------------------------------------------------------
 // Centralized mode transition functions
