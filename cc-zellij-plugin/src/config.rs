@@ -37,7 +37,7 @@ impl Default for PluginConfig {
         Self {
             sidebar_width: 22,
             done_timeout: 30,
-            timer_interval: 10.0,
+            timer_interval: 1.0,
             new_session_mode: NewSessionMode::Tab,
             navigate_key: "Alt s".to_string(),
             attend_key: "Alt a".to_string(),

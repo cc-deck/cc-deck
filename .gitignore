@@ -33,3 +33,9 @@ demos/recordings/*.cast
 demos/recordings/*.gif
 demos/recordings/*.mp4
 dist/
+
+# spex: generated/local files
+.claude/commands/speckit.*
+.claude/settings.local.json
+.specify/.spex-phase
+.specify/.spex-ship-phase

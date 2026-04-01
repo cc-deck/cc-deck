@@ -169,7 +169,7 @@ fn switch_to(session: &crate::session::Session) -> AttendResult {
 #[cfg(target_family = "wasm")]
 fn switch_and_focus(tab_idx: usize, pane_id: u32) {
     zellij_tile::prelude::switch_tab_to(tab_idx as u32 + 1);
-    zellij_tile::prelude::focus_terminal_pane(pane_id, false);
+    zellij_tile::prelude::focus_terminal_pane(pane_id, false, false);
 }
 
 #[cfg(not(target_family = "wasm"))]

@@ -2,14 +2,25 @@
 name = "cc-deck"
 version = "0.8.0"
 edition = "2021"
-description = "Zellij plugin for managing Claude Code sessions (sidebar + picker)"
+description = "Zellij plugin for managing Claude Code sessions (controller + sidebar)"
+
+[features]
+default = []
+controller = []
+sidebar = []
 
 [[bin]]
-name = "cc_deck"
+name = "cc_deck_controller"
 path = "src/main.rs"
+required-features = ["controller"]
+
+[[bin]]
+name = "cc_deck_sidebar"
+path = "src/main.rs"
+required-features = ["sidebar"]
 
 [dependencies]
-zellij-tile = "0.43"
+zellij-tile = "0.44"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
@@ -27,4 +38,3 @@ panic = "abort"      # No unwinding overhead (wasmi traps on panic anyway)
 [profile.dev-opt]
 inherits = "dev"
 opt-level = 1        # Basic optimizations (huge difference for wasmi interpreter)
-
