@@ -61,6 +61,10 @@ pub struct SidebarState {
 
     /// Last left-click timestamp (ms) and pane_id for double-click detection.
     pub last_click: Option<(u64, u32)>,
+
+    /// When true, exit navigate mode on next render payload.
+    /// Used to keep cursor visible during async Switch processing.
+    pub pending_navigate_exit: bool,
 }
 
 impl Default for SidebarState {
@@ -80,6 +84,7 @@ impl Default for SidebarState {
             hello_sent: false,
             permissions_granted: false,
             last_click: None,
+            pending_navigate_exit: false,
         }
     }
 }

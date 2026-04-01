@@ -48,10 +48,10 @@ pub fn handle_key(state: &mut SidebarState, key: KeyWithModifier) -> bool {
 pub fn toggle_navigate_prev(state: &mut SidebarState) {
     match &state.mode {
         SidebarMode::Passive => {
-            // Enter navigate with cursor at the last session
-            let count = state.filtered_sessions().len();
+            // Enter navigate with cursor at active session
+            let start = active_session_index(state);
             let ctx = NavigateContext {
-                cursor_index: if count > 0 { count - 1 } else { 0 },
+                cursor_index: start,
                 restore_pane_id: state.focused_pane_id(),
                 restore_tab_index: state.my_tab_index,
                 entered_at_ms: unix_now_ms(),
@@ -80,13 +80,28 @@ pub fn toggle_navigate_prev(state: &mut SidebarState) {
     }
 }
 
+/// Find the index of the currently active (focused) session in the filtered list.
+fn active_session_index(state: &SidebarState) -> usize {
+    let focused = state.focused_pane_id();
+    if let Some(pid) = focused {
+        state
+            .filtered_sessions()
+            .iter()
+            .position(|s| s.pane_id == pid)
+            .unwrap_or(0)
+    } else {
+        0
+    }
+}
+
 /// Enter navigate mode, or move cursor down if already navigating.
 /// Called when controller forwards navigate keybinding (Alt-s).
 pub fn toggle_navigate(state: &mut SidebarState) {
     match &state.mode {
         SidebarMode::Passive => {
+            let start = active_session_index(state);
             let ctx = NavigateContext {
-                cursor_index: 0,
+                cursor_index: start,
                 restore_pane_id: state.focused_pane_id(),
                 restore_tab_index: state.my_tab_index,
                 entered_at_ms: unix_now_ms(),
@@ -232,22 +247,37 @@ fn handle_navigate_key(state: &mut SidebarState, key: KeyWithModifier) -> bool {
             true
         }
         BareKey::Enter => {
-            // Switch to session at cursor, then exit navigate WITHOUT restoring
+            // Switch to session at cursor. Keep the navigate cursor visible
+            // until the next render payload arrives with updated focus, avoiding
+            // a flash of no highlighting during the async switch.
             let cursor = state.mode.cursor_index();
-            if cursor < sessions.len() {
-                let s = sessions[cursor];
+            let target = if cursor < sessions.len() {
+                Some((sessions[cursor].pane_id, sessions[cursor].tab_index))
+            } else {
+                None
+            };
+            // Drop the immutable borrow on sessions before mutating state
+            drop(sessions);
+
+            if let Some((pane_id, tab_index)) = target {
                 send_action(
                     state,
                     ActionType::Switch,
-                    Some(s.pane_id),
-                    Some(s.tab_index),
+                    Some(pane_id),
+                    Some(tab_index),
                     None,
                 );
+                // Update restore_pane_id to the new target so the cyan highlight
+                // moves immediately (render uses restore_pane_id during navigation)
+                if let Some(ctx) = state.mode.nav_ctx_mut() {
+                    ctx.restore_pane_id = Some(pane_id);
+                }
+                // Mark pending exit: sidebar will exit navigate on next render payload
+                state.pending_navigate_exit = true;
+            } else {
+                state.mode = SidebarMode::Passive;
+                state.filter_text.clear();
             }
-            // Exit without restoring original pane (user chose a new target)
-            state.mode = SidebarMode::Passive;
-            state.filter_text.clear();
-            set_selectable_wasm(false);
             true
         }
         BareKey::Esc => {

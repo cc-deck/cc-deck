@@ -105,6 +105,14 @@ impl ZellijPlugin for SidebarRendererPlugin {
                         self.state.controller_plugin_id =
                             Some(render_payload.controller_plugin_id);
 
+                        // Exit navigate mode if pending (Enter was pressed, switch completed)
+                        if self.state.pending_navigate_exit && self.state.mode.is_navigating() {
+                            self.state.mode = modes::SidebarMode::Passive;
+                            self.state.filter_text.clear();
+                            self.state.pending_navigate_exit = false;
+                            // Don't set_selectable(false) here to avoid focus race
+                        }
+
                         // Exit navigate mode if active tab changed (user switched tabs)
                         if self.state.mode.is_navigating() {
                             let old_active = self.state.cached_payload
@@ -185,6 +193,10 @@ impl ZellijPlugin for SidebarRendererPlugin {
     }
 
     fn render(&mut self, rows: usize, cols: usize) {
+        if !self.state.permissions_granted {
+            render::render_permission_prompt(rows, cols);
+            return;
+        }
         self.state.clear_expired_notifications();
         let regions = render::render_sidebar(&self.state, rows, cols);
         self.state.click_regions = regions;

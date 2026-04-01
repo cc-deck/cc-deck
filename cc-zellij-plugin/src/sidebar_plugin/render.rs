@@ -84,8 +84,16 @@ pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> Vec<Cli
         }
         let abs_idx = start_idx + list_idx;
 
-        let is_active = payload.focused_pane_id
-            .map(|focused_id| session.pane_id == focused_id)
+        // When navigating, the sidebar has focus so focused_pane_id points
+        // to the sidebar plugin, not a terminal pane. Use the restore_pane_id
+        // (the pane that was active before entering navigate) for highlighting.
+        let active_pane_id = if state.mode.is_navigating() {
+            state.mode.nav_ctx().and_then(|ctx| ctx.restore_pane_id)
+        } else {
+            payload.focused_pane_id
+        };
+        let is_active = active_pane_id
+            .map(|pid| session.pane_id == pid)
             .unwrap_or(false);
 
         let has_cursor = state.mode.is_navigating() && abs_idx == state.mode.cursor_index();
@@ -211,6 +219,35 @@ pub fn render_loading(rows: usize, cols: usize) -> Vec<ClickRegion> {
     }
 
     Vec::new()
+}
+
+/// Render the permission prompt (shown before permissions are granted).
+pub fn render_permission_prompt(rows: usize, cols: usize) {
+    let header = " \x1b[38;2;255;170;50m\u{2731}\x1b[0m \x1b[1mClaude Code\x1b[0m".to_string();
+    print!("\x1b[1;1H{}", pad(&header, cols));
+
+    let sep: String = "\u{2500}".repeat(cols.min(40));
+    print!("\x1b[2;1H\x1b[2m{}\x1b[0m{}", sep, " ".repeat(cols.saturating_sub(sep.len())));
+
+    if rows > 3 {
+        print_line(3, cols, "", Style::Normal);
+    }
+    if rows > 4 {
+        print_line(4, cols, "  Grant permissions", Style::Normal);
+    }
+    if rows > 5 {
+        print_line(5, cols, "  to enable cc-deck", Style::Normal);
+    }
+    if rows > 6 {
+        print_line(6, cols, "", Style::Normal);
+    }
+    if rows > 7 {
+        print_line(7, cols, "  Press  y  to allow", Style::Dim);
+    }
+
+    for row in 8..rows {
+        print_line(row, cols, "", Style::Normal);
+    }
 }
 
 /// Render the "Controller unavailable" state.
