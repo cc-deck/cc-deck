@@ -146,17 +146,15 @@ func runHook(stdin io.Reader, paneIDStr string) {
 		return
 	}
 
-	// Send targeted pipe to the controller plugin.
-	// The --plugin flag routes directly to the controller binary, avoiding
-	// broadcast to all sidebar instances. Fails silently if the plugin
-	// path is invalid or the plugin is not installed.
+	// Send hook event via broadcast pipe. The controller handles cc-deck:hook
+	// messages; sidebars ignore them. Using broadcast (--name only, no --plugin)
+	// avoids URL mismatch issues where --plugin targeting spawns duplicate
+	// instances instead of routing to the existing controller.
 	// Use a 3-second timeout to prevent hangs when no Zellij session is active.
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	controllerPlugin := filepath.Join(os.Getenv("HOME"), ".config", "zellij", "plugins", "cc_deck_controller.wasm")
 	cmd := exec.CommandContext(ctx, zellijPath, "pipe",
-		"--plugin", "file:"+controllerPlugin,
 		"--name", "cc-deck:hook",
 		"--", string(payloadJSON))
 	_ = cmd.Run()
