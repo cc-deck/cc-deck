@@ -36,8 +36,13 @@ static mut DEBUG_ENABLED: bool = false;
 
 #[cfg(target_family = "wasm")]
 fn debug_init() {
+    let enabled = std::path::Path::new("/cache/debug_enabled").exists();
     unsafe {
-        DEBUG_ENABLED = std::path::Path::new("/cache/debug_enabled").exists();
+        DEBUG_ENABLED = enabled;
+    }
+    if enabled {
+        // Truncate the log on each plugin load so it stays fresh per session.
+        let _ = std::fs::write("/cache/debug.log", b"");
     }
 }
 

@@ -269,6 +269,10 @@ fn handle_navigate_key(state: &mut SidebarState, key: KeyWithModifier) -> bool {
                     None,
                 );
                 state.local_focus_override = Some(pane_id);
+                crate::debug_log(&format!(
+                    "SIDEBAR ENTER: set override={pane_id}, cached_focus={:?}",
+                    state.focused_pane_id()
+                ));
             }
             state.mode = SidebarMode::Passive;
             state.filter_text.clear();

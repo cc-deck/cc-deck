@@ -22,7 +22,14 @@ pub fn handle_tab_update(state: &mut ControllerState, tabs: Vec<TabInfo>) {
     let tab_count_changed = current_tab_count != state.last_tab_count;
 
     state.tabs = tabs;
+    let pre_focus = state.focused_pane_id;
     state.rebuild_pane_map();
+    if state.focused_pane_id != pre_focus {
+        crate::debug_log(&format!(
+            "CTRL TAB_UPDATE: rebuild changed focus {:?} -> {:?}",
+            pre_focus, state.focused_pane_id
+        ));
+    }
 
     // Register keybindings on first TabUpdate or when tabs are closed
     // (the registered plugin_id may have been on a closed tab).
@@ -66,6 +73,10 @@ pub fn handle_pane_update(state: &mut ControllerState, manifest: PaneManifest) {
     let focus_changed = state.focused_pane_id != old_focused;
     let count_changed = state.sessions.len() != old_session_count;
     if focus_changed {
+        crate::debug_log(&format!(
+            "CTRL PANE_UPDATE: focus changed {:?} -> {:?}, immediate broadcast",
+            old_focused, state.focused_pane_id
+        ));
         super::render_broadcast::broadcast_render(state);
         state.render_dirty = false;
     } else if count_changed || removed {

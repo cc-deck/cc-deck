@@ -102,6 +102,17 @@ pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> Vec<Cli
         // When local_focus_override targets this session, force cyan highlight
         // immediately (even during the same frame as a mode transition).
         let force_active = state.local_focus_override == Some(session.pane_id);
+        // Debug: detect when no row gets any highlight (potential flash)
+        if !is_active && !has_cursor && !force_active
+            && !state.mode.is_selectable()
+            && (state.cached_payload.as_ref().is_some_and(|p| p.focused_pane_id.is_none())
+                || active_pane_id.is_none())
+        {
+            crate::debug_log(&format!(
+                "SIDEBAR RENDER: no highlight for pane={} override={:?} active_pid={:?} mode=Passive",
+                session.pane_id, state.local_focus_override, active_pane_id
+            ));
+        }
         let is_delete_confirm = state.mode.delete_confirm_pane() == Some(session.pane_id);
 
         if is_delete_confirm {
@@ -320,12 +331,16 @@ fn render_session_entry(
     let (r, g, b) = session.color;
     let indicator = if session.paused { "\u{23f8}" } else { &session.indicator };
 
-    // force_active (from local_focus_override) takes priority over has_cursor
-    // so that Enter immediately shows cyan instead of briefly showing amber.
-    let (bg, fg, use_bg) = if force_active || is_active || rename_state.is_some() {
+    // has_cursor (amber) wins over is_active (cyan) during navigation so the
+    // cursor remains visible on the active row.  force_active (from
+    // local_focus_override after Enter/click) still wins over everything so
+    // the target row flips to cyan immediately.
+    let (bg, fg, use_bg) = if force_active || rename_state.is_some() {
         (ACTIVE_BG, ACTIVE_FG, true)
     } else if has_cursor {
         (CURSOR_BG, CURSOR_FG, true)
+    } else if is_active {
+        (ACTIVE_BG, ACTIVE_FG, true)
     } else {
         ("", "", false)
     };
