@@ -14,6 +14,10 @@ use zellij_tile::prelude::*;
 const SESSIONS_PATH: &str = "/cache/sessions.json";
 const PID_PATH: &str = "/cache/zellij_pid";
 
+/// TTL for in-flight focus protection. After this period, manifest-derived
+/// focus is trusted again even if it differs from the action-set value.
+const IN_FLIGHT_FOCUS_TTL_MS: u64 = 3000;
+
 /// Metadata override to apply when a restored session is discovered via CWD matching.
 #[derive(Debug, Clone)]
 pub struct PendingOverride {
@@ -66,16 +70,23 @@ pub struct ControllerState {
     pub pending_events: Vec<Event>,
     /// Monotonic tick counter for render coalescing.
     pub tick_count: u64,
+    /// In-flight focus set by action handlers (Switch, Navigate, Attend).
+    /// Protects focused_pane_id from being overwritten by stale manifest data
+    /// in rebuild_pane_map() until Zellij confirms the focus change.
+    /// Format: (target_pane_id, timestamp_ms). Expires after IN_FLIGHT_FOCUS_TTL_MS.
+    pub in_flight_focus: Option<(u32, u64)>,
 }
 
 
 impl ControllerState {
     /// Rebuild the pane-to-tab mapping from current tab and pane data.
-    /// Derives focused_pane_id from the manifest.
+    /// Derives focused_pane_id from the manifest, but respects in-flight
+    /// focus set by action handlers to avoid stale manifest overwrites.
     pub fn rebuild_pane_map(&mut self) {
         self.pane_to_tab.clear();
-        self.focused_pane_id = None;
+        let mut manifest_focus: Option<u32> = None;
         if self.tabs.is_empty() {
+            self.focused_pane_id = None;
             return;
         }
         if let Some(ref manifest) = self.pane_manifest {
@@ -86,12 +97,32 @@ impl ControllerState {
                             self.pane_to_tab
                                 .insert(pane.id, (tab.position, tab.name.clone()));
                             if pane.is_focused && tab.active {
-                                self.focused_pane_id = Some(pane.id);
+                                manifest_focus = Some(pane.id);
                             }
                         }
                     }
                 }
             }
+        }
+
+        // If an action recently set focus, protect it from stale manifests.
+        // Once the manifest confirms the target, clear the in-flight guard.
+        let now_ms = crate::session::unix_now_ms();
+        if let Some((target, ts)) = self.in_flight_focus {
+            if now_ms.saturating_sub(ts) > IN_FLIGHT_FOCUS_TTL_MS {
+                // Expired: trust the manifest
+                self.in_flight_focus = None;
+                self.focused_pane_id = manifest_focus;
+            } else if manifest_focus == Some(target) {
+                // Manifest confirmed the focus change
+                self.in_flight_focus = None;
+                self.focused_pane_id = manifest_focus;
+            } else {
+                // Manifest is stale: keep the action-set focus
+                self.focused_pane_id = Some(target);
+            }
+        } else {
+            self.focused_pane_id = manifest_focus;
         }
         // Refresh tab info on all sessions and process deferred tab renames.
         let mut pending_renames: Vec<(usize, String)> = Vec::new();
@@ -322,6 +353,8 @@ mod tests {
             plugin_url: None,
             is_selectable: true,
             index_in_pane_group: std::collections::BTreeMap::new(),
+            default_bg: None,
+            default_fg: None,
         }
     }
 
@@ -356,7 +389,8 @@ mod tests {
         let mut state = ControllerState::default();
         state.sessions.insert(10, make_session(10));
         state.sessions.insert(20, make_session(20));
-        state.pane_manifest = Some(make_manifest(&[10]));
+        // Pane 20 must be present AND exited for removal (absent panes are not removed)
+        state.pane_manifest = Some(make_manifest_with_exited(&[10, 20], &[20]));
 
         let changed = state.remove_dead_sessions();
         assert!(changed);

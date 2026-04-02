@@ -62,9 +62,10 @@ pub struct SidebarState {
     /// Last left-click timestamp (ms) and pane_id for double-click detection.
     pub last_click: Option<(u64, u32)>,
 
-    /// When true, exit navigate mode on next render payload.
-    /// Used to keep cursor visible during async Switch processing.
-    pub pending_navigate_exit: bool,
+    /// Predictive focus override set locally when the sidebar sends a Switch
+    /// action. Provides immediate highlight without waiting for the controller
+    /// to confirm the focus change in the next RenderPayload.
+    pub local_focus_override: Option<u32>,
 }
 
 impl Default for SidebarState {
@@ -84,7 +85,7 @@ impl Default for SidebarState {
             hello_sent: false,
             permissions_granted: false,
             last_click: None,
-            pending_navigate_exit: false,
+            local_focus_override: None,
         }
     }
 }
@@ -141,6 +142,15 @@ impl SidebarState {
     /// Get the focused pane ID from the cached payload.
     pub fn focused_pane_id(&self) -> Option<u32> {
         self.cached_payload.as_ref().and_then(|p| p.focused_pane_id)
+    }
+
+    /// Get the effective focused pane ID, preferring the local override
+    /// (set when the sidebar sends a Switch action) over the payload value.
+    /// This provides immediate highlight without waiting for controller confirmation.
+    pub fn effective_focused_pane_id(&self) -> Option<u32> {
+        self.local_focus_override.or_else(|| {
+            self.cached_payload.as_ref().and_then(|p| p.focused_pane_id)
+        })
     }
 
     /// Preserve cursor position by clamping after session list changes.

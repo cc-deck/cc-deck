@@ -87,16 +87,21 @@ pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> Vec<Cli
         // When navigating, the sidebar has focus so focused_pane_id points
         // to the sidebar plugin, not a terminal pane. Use the restore_pane_id
         // (the pane that was active before entering navigate) for highlighting.
+        // In Passive mode, use effective_focused_pane_id() which prefers the
+        // local override (set on Switch actions) for immediate highlight.
         let active_pane_id = if state.mode.is_navigating() {
             state.mode.nav_ctx().and_then(|ctx| ctx.restore_pane_id)
         } else {
-            payload.focused_pane_id
+            state.effective_focused_pane_id()
         };
         let is_active = active_pane_id
             .map(|pid| session.pane_id == pid)
             .unwrap_or(false);
 
         let has_cursor = state.mode.is_navigating() && abs_idx == state.mode.cursor_index();
+        // When local_focus_override targets this session, force cyan highlight
+        // immediately (even during the same frame as a mode transition).
+        let force_active = state.local_focus_override == Some(session.pane_id);
         let is_delete_confirm = state.mode.delete_confirm_pane() == Some(session.pane_id);
 
         if is_delete_confirm {
@@ -111,7 +116,7 @@ pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> Vec<Cli
                 .filter(|rs| rs.pane_id == session.pane_id);
 
             if let Some(region) = render_session_entry(
-                session, is_active, has_cursor, row, cols, rename_for_session,
+                session, is_active, has_cursor, force_active, row, cols, rename_for_session,
             ) {
                 click_regions.push(region);
             }
@@ -179,7 +184,7 @@ pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> Vec<Cli
     }
 
     // Also show controller notification from payload
-    if let Some(ref notif_msg) = state.cached_payload.as_ref().and_then(|p| p.notification.as_ref()) {
+    if let Some(notif_msg) = state.cached_payload.as_ref().and_then(|p| p.notification.as_ref()) {
         if row < rows {
             let truncated = truncate_chars(notif_msg, cols);
             let char_len = truncated.chars().count();
@@ -307,6 +312,7 @@ fn render_session_entry(
     session: &RenderSession,
     is_active: bool,
     has_cursor: bool,
+    force_active: bool,
     start_row: usize,
     cols: usize,
     rename_state: Option<&super::modes::RenameState>,
@@ -314,10 +320,12 @@ fn render_session_entry(
     let (r, g, b) = session.color;
     let indicator = if session.paused { "\u{23f8}" } else { &session.indicator };
 
-    let (bg, fg, use_bg) = if has_cursor {
-        (CURSOR_BG, CURSOR_FG, true)
-    } else if is_active || rename_state.is_some() {
+    // force_active (from local_focus_override) takes priority over has_cursor
+    // so that Enter immediately shows cyan instead of briefly showing amber.
+    let (bg, fg, use_bg) = if force_active || is_active || rename_state.is_some() {
         (ACTIVE_BG, ACTIVE_FG, true)
+    } else if has_cursor {
+        (CURSOR_BG, CURSOR_FG, true)
     } else {
         ("", "", false)
     };

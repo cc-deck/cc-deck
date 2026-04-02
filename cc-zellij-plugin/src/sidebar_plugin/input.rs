@@ -28,7 +28,7 @@ pub fn handle_key(state: &mut SidebarState, key: KeyWithModifier) -> bool {
     // Help mode: any key dismisses
     if state.mode.is_help() {
         state.mode.dismiss_help();
-        set_selectable_wasm(state.mode.is_selectable());
+        crate::wasm_compat::set_selectable_wasm(state.mode.is_selectable());
         return true;
     }
 
@@ -57,7 +57,7 @@ pub fn toggle_navigate_prev(state: &mut SidebarState) {
                 entered_at_ms: unix_now_ms(),
             };
             state.mode = SidebarMode::Navigate(ctx);
-            set_selectable_wasm(true);
+            crate::wasm_compat::set_selectable_wasm(true);
             focus_self_wasm();
             state.set_notification("Navigate mode", 2);
         }
@@ -107,7 +107,7 @@ pub fn toggle_navigate(state: &mut SidebarState) {
                 entered_at_ms: unix_now_ms(),
             };
             state.mode = SidebarMode::Navigate(ctx);
-            set_selectable_wasm(true);
+            crate::wasm_compat::set_selectable_wasm(true);
             focus_self_wasm();
             state.set_notification("Navigate mode", 2);
         }
@@ -163,7 +163,8 @@ fn handle_left_click(state: &mut SidebarState, row: usize) -> bool {
         }
         state.last_click = Some((now, pane_id));
 
-        // Single click: switch to session
+        // Single click: switch to session with immediate highlight
+        state.local_focus_override = Some(pane_id);
         send_action(
             state,
             ActionType::Switch,
@@ -174,7 +175,8 @@ fn handle_left_click(state: &mut SidebarState, row: usize) -> bool {
         // Exit navigate mode on switch
         if state.mode.is_navigating() {
             state.mode = SidebarMode::Passive;
-            set_selectable_wasm(false);
+            state.filter_text.clear();
+            crate::wasm_compat::set_selectable_wasm(false);
         }
         return true;
     }
@@ -212,7 +214,7 @@ fn enter_rename_passive(state: &mut SidebarState, pane_id: u32) -> bool {
         rename,
         entered_at_ms: unix_now_ms(),
     };
-    set_selectable_wasm(true);
+    crate::wasm_compat::set_selectable_wasm(true);
     focus_self_wasm();
     true
 }
@@ -247,9 +249,8 @@ fn handle_navigate_key(state: &mut SidebarState, key: KeyWithModifier) -> bool {
             true
         }
         BareKey::Enter => {
-            // Switch to session at cursor. Keep the navigate cursor visible
-            // until the next render payload arrives with updated focus, avoiding
-            // a flash of no highlighting during the async switch.
+            // Switch to session at cursor. Set local_focus_override for
+            // immediate highlight and go directly to Passive.
             let cursor = state.mode.cursor_index();
             let target = if cursor < sessions.len() {
                 Some((sessions[cursor].pane_id, sessions[cursor].tab_index))
@@ -267,17 +268,11 @@ fn handle_navigate_key(state: &mut SidebarState, key: KeyWithModifier) -> bool {
                     Some(tab_index),
                     None,
                 );
-                // Update restore_pane_id to the new target so the cyan highlight
-                // moves immediately (render uses restore_pane_id during navigation)
-                if let Some(ctx) = state.mode.nav_ctx_mut() {
-                    ctx.restore_pane_id = Some(pane_id);
-                }
-                // Mark pending exit: sidebar will exit navigate on next render payload
-                state.pending_navigate_exit = true;
-            } else {
-                state.mode = SidebarMode::Passive;
-                state.filter_text.clear();
+                state.local_focus_override = Some(pane_id);
             }
+            state.mode = SidebarMode::Passive;
+            state.filter_text.clear();
+            crate::wasm_compat::set_selectable_wasm(false);
             true
         }
         BareKey::Esc => {
@@ -446,7 +441,7 @@ fn handle_rename_key(state: &mut SidebarState, key: KeyWithModifier) -> bool {
                 }
                 SidebarMode::RenamePassive { .. } => {
                     state.mode = SidebarMode::Passive;
-                    set_selectable_wasm(false);
+                    crate::wasm_compat::set_selectable_wasm(false);
                 }
                 other => state.mode = other,
             }
@@ -459,7 +454,7 @@ fn handle_rename_key(state: &mut SidebarState, key: KeyWithModifier) -> bool {
                 }
                 SidebarMode::RenamePassive { .. } => {
                     state.mode = SidebarMode::Passive;
-                    set_selectable_wasm(false);
+                    crate::wasm_compat::set_selectable_wasm(false);
                 }
                 other => state.mode = other,
             }
@@ -485,7 +480,7 @@ fn exit_navigate(state: &mut SidebarState) {
     }
     state.mode = SidebarMode::Passive;
     state.filter_text.clear();
-    set_selectable_wasm(false);
+    crate::wasm_compat::set_selectable_wasm(false);
 }
 
 fn send_action(
@@ -520,14 +515,6 @@ fn send_action_wasm(msg: &ActionMessage) {
 
 #[cfg(not(target_family = "wasm"))]
 fn send_action_wasm(_msg: &ActionMessage) {}
-
-#[cfg(target_family = "wasm")]
-fn set_selectable_wasm(selectable: bool) {
-    set_selectable(selectable);
-}
-
-#[cfg(not(target_family = "wasm"))]
-fn set_selectable_wasm(_selectable: bool) {}
 
 #[cfg(target_family = "wasm")]
 fn focus_self_wasm() {
