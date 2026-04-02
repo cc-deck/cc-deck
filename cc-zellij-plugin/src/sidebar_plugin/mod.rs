@@ -12,7 +12,6 @@ pub mod rename;
 
 use self::state::SidebarState;
 use crate::config::PluginConfig;
-use crate::session;
 use cc_deck::{RenderPayload, SidebarHello, SidebarInit};
 use std::collections::BTreeMap;
 use zellij_tile::prelude::*;
@@ -25,22 +24,29 @@ pub struct SidebarRendererPlugin {
 
 impl ZellijPlugin for SidebarRendererPlugin {
     fn load(&mut self, configuration: BTreeMap<String, String>) {
+        crate::install_panic_hook();
         crate::debug_init();
         crate::debug_log("SIDEBAR LOAD start");
 
         self.state.config = PluginConfig::from_configuration(&configuration);
 
-        subscribe(&[
+        crate::wasm_compat::subscribe_wasm(&[
             EventType::Mouse,
             EventType::Key,
             EventType::PermissionRequestResult,
         ]);
 
-        request_permission(&[
+        // Request the full permission set (including RunCommands and Reconfigure
+        // needed by the controller). Since both controller and sidebar share the
+        // same WASM URL, the sidebar's permission dialog must cover all permissions
+        // the controller needs. Background plugins (controller) cannot show dialogs.
+        crate::wasm_compat::request_permission_wasm(&[
             PermissionType::ReadApplicationState,
             PermissionType::ChangeApplicationState,
+            PermissionType::RunCommands,
             PermissionType::ReadCliPipes,
             PermissionType::MessageAndLaunchOtherPlugins,
+            PermissionType::Reconfigure,
         ]);
 
         crate::debug_log("SIDEBAR LOAD complete");
@@ -51,7 +57,7 @@ impl ZellijPlugin for SidebarRendererPlugin {
             Event::PermissionRequestResult(status) => {
                 if status == PermissionStatus::Granted {
                     self.state.permissions_granted = true;
-                    set_selectable_wasm(false);
+                    crate::wasm_compat::set_selectable_wasm(false);
 
                     #[cfg(target_family = "wasm")]
                     {
@@ -91,11 +97,13 @@ impl ZellijPlugin for SidebarRendererPlugin {
                 // Re-request permissions if not yet granted (initial layout load
                 // can suppress the dialog before Zellij's UI is ready)
                 if !self.state.permissions_granted {
-                    request_permission(&[
+                    crate::wasm_compat::request_permission_wasm(&[
                         PermissionType::ReadApplicationState,
                         PermissionType::ChangeApplicationState,
+                        PermissionType::RunCommands,
                         PermissionType::ReadCliPipes,
                         PermissionType::MessageAndLaunchOtherPlugins,
+                        PermissionType::Reconfigure,
                     ]);
                 }
 
@@ -105,12 +113,12 @@ impl ZellijPlugin for SidebarRendererPlugin {
                         self.state.controller_plugin_id =
                             Some(render_payload.controller_plugin_id);
 
-                        // Exit navigate mode if pending (Enter was pressed, switch completed)
-                        if self.state.pending_navigate_exit && self.state.mode.is_navigating() {
-                            self.state.mode = modes::SidebarMode::Passive;
-                            self.state.filter_text.clear();
-                            self.state.pending_navigate_exit = false;
-                            // Don't set_selectable(false) here to avoid focus race
+                        // Clear predictive focus override once the controller
+                        // confirms the focus change in its payload.
+                        if let Some(override_pid) = self.state.local_focus_override {
+                            if render_payload.focused_pane_id == Some(override_pid) {
+                                self.state.local_focus_override = None;
+                            }
                         }
 
                         // Exit navigate mode if active tab changed (user switched tabs)
@@ -121,7 +129,7 @@ impl ZellijPlugin for SidebarRendererPlugin {
                             if old_active.is_some() && old_active != Some(render_payload.active_tab_index) {
                                 self.state.mode = modes::SidebarMode::Passive;
                                 self.state.filter_text.clear();
-                                set_selectable_wasm(false);
+                                crate::wasm_compat::set_selectable_wasm(false);
                             }
                         }
 
@@ -204,44 +212,6 @@ impl ZellijPlugin for SidebarRendererPlugin {
 }
 
 impl SidebarRendererPlugin {
-    /// Handle a CustomMessage event (from controller's post_message_to broadcast).
-    fn handle_custom_message(&mut self, name: &str, payload: &str) -> bool {
-        if name == "cc-deck:render" {
-            if let Ok(render_payload) = serde_json::from_str::<RenderPayload>(payload) {
-                self.state.controller_plugin_id =
-                    Some(render_payload.controller_plugin_id);
-                self.state.cached_payload = Some(render_payload);
-                self.state.initialized = true;
-                self.state.preserve_cursor();
-
-                if !self.state.hello_sent {
-                    self.send_hello();
-                    self.state.hello_sent = true;
-                }
-                return true;
-            }
-        } else if name == "cc-deck:sidebar-init" {
-            if let Ok(init) = serde_json::from_str::<SidebarInit>(payload) {
-                self.state.my_tab_index = Some(init.tab_index);
-                self.state.controller_plugin_id = Some(init.controller_plugin_id);
-            }
-        } else if name == "cc-deck:sidebar-reindex" {
-            self.state.my_tab_index = None;
-            self.state.hello_sent = false;
-        } else if name == "cc-deck:navigate" {
-            if let Ok(nav) = serde_json::from_str::<serde_json::Value>(payload) {
-                let active = nav.get("active_tab_index")
-                    .and_then(|v| v.as_u64())
-                    .map(|v| v as usize);
-                if active == self.state.my_tab_index {
-                    input::toggle_navigate(&mut self.state);
-                    return true;
-                }
-            }
-        }
-        false
-    }
-
     fn send_hello(&self) {
         let hello = SidebarHello {
             plugin_id: self.state.my_plugin_id,
@@ -251,14 +221,6 @@ impl SidebarRendererPlugin {
 }
 
 // --- WASM-gated helpers ---
-
-#[cfg(target_family = "wasm")]
-fn set_selectable_wasm(selectable: bool) {
-    set_selectable(selectable);
-}
-
-#[cfg(not(target_family = "wasm"))]
-fn set_selectable_wasm(_selectable: bool) {}
 
 #[cfg(target_family = "wasm")]
 fn send_hello_wasm(hello: &SidebarHello) {
