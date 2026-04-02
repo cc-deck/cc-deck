@@ -47,12 +47,10 @@ func Install(opts InstallOptions) error {
 	}
 
 	// 2. Check if already installed (prompt if not --force)
-	controllerPath := filepath.Join(zInfo.PluginsDir, "cc_deck_controller.wasm")
-	sidebarPath := filepath.Join(zInfo.PluginsDir, "cc_deck_sidebar.wasm")
-	legacyPath := filepath.Join(zInfo.PluginsDir, "cc_deck.wasm")
+	pluginPath := filepath.Join(zInfo.PluginsDir, "cc_deck.wasm")
 	if !opts.Force {
-		if _, err := os.Stat(controllerPath); err == nil {
-			fmt.Fprintf(opts.Stdout, "Plugin already installed at %s\n", controllerPath)
+		if _, err := os.Stat(pluginPath); err == nil {
+			fmt.Fprintf(opts.Stdout, "Plugin already installed at %s\n", pluginPath)
 			fmt.Fprint(opts.Stdout, "Overwrite? [y/N] ")
 			reader := bufio.NewReader(opts.Stdin)
 			answer, err := reader.ReadString('\n')
@@ -74,25 +72,16 @@ func Install(opts InstallOptions) error {
 		return wrapPermissionError(err, zInfo.LayoutsDir, "write")
 	}
 
-	// 4. Atomic write both WASM binaries
-	if err := atomicWrite(controllerPath, pInfo.ControllerBinary, 0o644); err != nil {
-		return wrapPermissionError(err, controllerPath, "write")
-	}
-	if err := atomicWrite(sidebarPath, pInfo.SidebarBinary, 0o644); err != nil {
-		// Rollback controller to avoid version mismatch
-		_ = os.Remove(controllerPath)
-		return wrapPermissionError(err, sidebarPath, "write")
+	// 4. Atomic write WASM binary
+	if err := atomicWrite(pluginPath, pInfo.Binary, 0o644); err != nil {
+		return wrapPermissionError(err, pluginPath, "write")
 	}
 
-	// Remove legacy single binary if present (migration from old architecture)
-	_ = os.Remove(legacyPath)
+	// Remove legacy two-binary files if present (migration from old architecture)
+	_ = os.Remove(filepath.Join(zInfo.PluginsDir, "cc_deck_controller.wasm"))
+	_ = os.Remove(filepath.Join(zInfo.PluginsDir, "cc_deck_sidebar.wasm"))
 
-	// 4b. Pre-populate controller permissions (background plugins can't show dialogs)
-	if err := EnsureControllerPermissions(zInfo.CacheDir, zInfo.PluginsDir); err != nil {
-		fmt.Fprintf(opts.Stderr, "Warning: Could not set controller permissions: %v\n", err)
-	}
-
-	// 4c. Ensure controller is registered in config.kdl load_plugins
+	// 4b. Ensure controller is registered in config.kdl load_plugins
 	configPath := filepath.Join(zInfo.ConfigDir, "config.kdl")
 	if err := ensureControllerInConfig(configPath, zInfo.PluginsDir); err != nil {
 		fmt.Fprintf(opts.Stderr, "Warning: Could not update config.kdl: %v\n", err)
@@ -134,8 +123,7 @@ func Install(opts InstallOptions) error {
 	fmt.Fprintln(opts.Stdout, "cc-deck installed successfully.")
 	fmt.Fprintln(opts.Stdout)
 	sizeMB := float64(pInfo.BinarySize) / (1024 * 1024)
-	fmt.Fprintf(opts.Stdout, "  Controller: %s\n", tildeHome(controllerPath))
-	fmt.Fprintf(opts.Stdout, "  Sidebar:    %s (%.1f MB total)\n", tildeHome(sidebarPath), sizeMB)
+	fmt.Fprintf(opts.Stdout, "  Plugin:   %s (%.1f MB)\n", tildeHome(pluginPath), sizeMB)
 	fmt.Fprintf(opts.Stdout, "  Layout:   %s (%s)\n", tildeHome(layoutPath), defaultVariant)
 	hookCount := HookEventCount(settingsPath)
 	fmt.Fprintf(opts.Stdout, "  Hooks:    registered (%d event types)\n", hookCount)

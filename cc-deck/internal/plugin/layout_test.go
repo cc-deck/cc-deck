@@ -15,7 +15,7 @@ func TestControllerConfigBlock_ContainsMarkers(t *testing.T) {
 	if !strings.Contains(block, ConfigInjectionEnd) {
 		t.Error("block missing end marker")
 	}
-	if !strings.Contains(block, "cc_deck_controller.wasm") {
+	if !strings.Contains(block, "cc_deck.wasm") {
 		t.Error("block missing controller wasm reference")
 	}
 }
@@ -42,7 +42,7 @@ func TestInjectControllerConfig_EmptyContent(t *testing.T) {
 	if !HasControllerConfig(result) {
 		t.Error("should contain markers after injection into empty content")
 	}
-	if !strings.Contains(result, "cc_deck_controller.wasm") {
+	if !strings.Contains(result, "cc_deck.wasm") {
 		t.Error("should contain controller reference")
 	}
 }
@@ -176,7 +176,7 @@ func TestInjectControllerConfig_MergesIntoExistingLoadPlugins(t *testing.T) {
 	if count != 1 {
 		t.Errorf("expected 1 load_plugins block, got %d:\n%s", count, result)
 	}
-	if !strings.Contains(result, "cc_deck_controller.wasm") {
+	if !strings.Contains(result, "cc_deck.wasm") {
 		t.Error("should contain controller entry")
 	}
 	if !HasControllerConfig(result) {
@@ -197,7 +197,7 @@ func TestRemoveControllerConfig_FromMergedBlock(t *testing.T) {
 	existing := "load_plugins {\n}\n"
 	injected := InjectControllerConfig(existing, "/plugins")
 	removed := RemoveControllerConfig(injected)
-	if strings.Contains(removed, "cc_deck_controller.wasm") {
+	if strings.Contains(removed, "cc_deck.wasm") {
 		t.Error("controller entry should be removed")
 	}
 	if !strings.Contains(removed, "load_plugins") {

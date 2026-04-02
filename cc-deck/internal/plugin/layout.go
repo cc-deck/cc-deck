@@ -17,7 +17,7 @@ const (
 // sidebarPluginBlock returns the KDL snippet for the sidebar plugin pane.
 func sidebarPluginBlock(pluginsDir string) string {
 	return fmt.Sprintf(`pane size=22 borderless=true {
-                plugin location="file:%s/cc_deck_sidebar.wasm" {
+                plugin location="file:%s/cc_deck.wasm" {
                     mode "sidebar"
                 }
             }`, pluginsDir)
@@ -35,7 +35,7 @@ const (
 func controllerConfigBlock(pluginsDir string) string {
 	return fmt.Sprintf(`%s
 load_plugins {
-    "file:%s/cc_deck_controller.wasm" {
+    "file:%s/cc_deck.wasm" {
         mode "controller"
     }
 }
@@ -54,7 +54,7 @@ func HasControllerConfig(content string) bool {
 // rather than appending a duplicate block.
 func InjectControllerConfig(content, pluginsDir string) string {
 	// Already injected with same path: no-op
-	if HasControllerConfig(content) && strings.Contains(content, pluginsDir+"/cc_deck_controller.wasm") {
+	if HasControllerConfig(content) && strings.Contains(content, pluginsDir+"/cc_deck.wasm") {
 		return content
 	}
 	// Different path or stale: remove and re-inject
@@ -62,7 +62,7 @@ func InjectControllerConfig(content, pluginsDir string) string {
 		content = RemoveControllerConfig(content)
 	}
 
-	controllerEntry := fmt.Sprintf(`    "file:%s/cc_deck_controller.wasm" {
+	controllerEntry := fmt.Sprintf(`    "file:%s/cc_deck.wasm" {
         mode "controller"
     }`, pluginsDir)
 
@@ -77,7 +77,7 @@ func InjectControllerConfig(content, pluginsDir string) string {
 			closeBrace := strings.Index(content[insertAt:], "}")
 			if closeBrace >= 0 {
 				existingBlock := content[insertAt : insertAt+closeBrace]
-				if !strings.Contains(existingBlock, "cc_deck_controller.wasm") {
+				if !strings.Contains(existingBlock, "cc_deck.wasm") {
 					injected := content[:insertAt] + "\n" +
 						"    " + ConfigInjectionStart + "\n" +
 						controllerEntry + "\n" +
@@ -123,8 +123,8 @@ func RemoveControllerConfig(content string) string {
 type LayoutVariant string
 
 const (
-	LayoutMinimal  LayoutVariant = "minimal"  // sidebar + compact-bar (default)
-	LayoutStandard LayoutVariant = "standard" // sidebar + tab-bar top + status-bar bottom
+	LayoutMinimal  LayoutVariant = "minimal"  // sidebar + compact-bar
+	LayoutStandard LayoutVariant = "standard" // sidebar + tab-bar top + status-bar bottom (default)
 	LayoutClean    LayoutVariant = "clean"    // sidebar only, no bars
 )
 
@@ -282,36 +282,9 @@ func removeControllerFromConfig(configPath string) error {
 	return os.WriteFile(configPath, []byte(updated), 0644)
 }
 
-// SidebarLayout returns the default (minimal) layout. Kept for backwards compatibility.
-func SidebarLayout(pluginsDir string) string {
-	return minimalLayout(pluginsDir)
-}
-
-// InjectionBlock returns the KDL snippet that gets appended to a default layout.
-func InjectionBlock(pluginsDir string) string {
-	return fmt.Sprintf(`%s
-pane size=1 borderless=true {
-    plugin location="file:%s/cc_deck.wasm"
-}
-%s
-`, InjectionStart, pluginsDir, InjectionEnd)
-}
-
 // HasInjection returns true if the content contains the cc-deck injection markers.
 func HasInjection(content string) bool {
 	return strings.Contains(content, InjectionStart) && strings.Contains(content, InjectionEnd)
-}
-
-// InjectPlugin appends the cc-deck plugin block to the given layout content.
-// If the content already has an injection, it is returned unchanged.
-func InjectPlugin(content, pluginsDir string) string {
-	if HasInjection(content) {
-		return content
-	}
-	if !strings.HasSuffix(content, "\n") {
-		content += "\n"
-	}
-	return content + InjectionBlock(pluginsDir)
 }
 
 // RemoveInjection removes the cc-deck plugin block from the given layout content.

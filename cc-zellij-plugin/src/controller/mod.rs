@@ -36,11 +36,6 @@ impl ZellijPlugin for ControllerPlugin {
     fn load(&mut self, configuration: BTreeMap<String, String>) {
         crate::install_panic_hook();
         crate::debug_init();
-        // Force-write to /cache/debug.log to verify plugin is loading
-        #[cfg(target_family = "wasm")]
-        {
-            let _ = std::fs::write("/cache/ctrl_alive", "controller loaded\n");
-        }
         crate::debug_log("CTRL LOAD start");
 
         self.state.config = PluginConfig::from_configuration(&configuration);
@@ -48,7 +43,7 @@ impl ZellijPlugin for ControllerPlugin {
         self.state.perf.dump_interval_secs = self.state.config.perf_interval;
 
         // Subscribe to heavyweight events only (no Mouse, Key since headless)
-        subscribe(&[
+        crate::wasm_compat::subscribe_wasm(&[
             EventType::TabUpdate,
             EventType::PaneUpdate,
             EventType::Timer,
@@ -58,7 +53,7 @@ impl ZellijPlugin for ControllerPlugin {
             EventType::PaneClosed,
         ]);
 
-        request_permission(&[
+        crate::wasm_compat::request_permission_wasm(&[
             PermissionType::ReadApplicationState,
             PermissionType::ChangeApplicationState,
             PermissionType::RunCommands,
@@ -67,10 +62,10 @@ impl ZellijPlugin for ControllerPlugin {
             PermissionType::Reconfigure,
         ]);
 
-        set_timeout(self.state.config.timer_interval);
+        crate::wasm_compat::set_timeout_wasm(self.state.config.timer_interval);
 
         // Controller is headless: never selectable
-        set_selectable_wasm(false);
+        crate::wasm_compat::set_selectable_wasm(false);
 
         crate::debug_log("CTRL LOAD complete");
     }
@@ -85,7 +80,7 @@ impl ZellijPlugin for ControllerPlugin {
                     // Capture plugin ID for keybinding registration and sidebar init
                     self.state.plugin_id = get_plugin_id_wasm();
 
-                    set_selectable_wasm(false);
+                    crate::wasm_compat::set_selectable_wasm(false);
 
                     // Restore persisted sessions (reattach recovery)
                     let restored = ControllerState::restore_sessions();
@@ -105,10 +100,6 @@ impl ZellijPlugin for ControllerPlugin {
                     }
                     // Immediately broadcast initial render payload so
                     // sidebars stop showing "Waiting for controller..."
-                    #[cfg(target_family = "wasm")]
-                    {
-                        let _ = std::fs::write("/cache/ctrl_permission", format!("granted, plugin_id={}\n", self.state.plugin_id));
-                    }
                     render_broadcast::broadcast_render(&self.state);
                     self.state.render_dirty = false;
                 }
@@ -365,15 +356,6 @@ impl ControllerPlugin {
 
 // --- WASM-gated helpers ---
 
-/// Make the plugin non-selectable (headless).
-#[cfg(target_family = "wasm")]
-fn set_selectable_wasm(selectable: bool) {
-    zellij_tile::prelude::set_selectable(selectable);
-}
-
-#[cfg(not(target_family = "wasm"))]
-fn set_selectable_wasm(_selectable: bool) {}
-
 /// Get this plugin's ID.
 #[cfg(target_family = "wasm")]
 fn get_plugin_id_wasm() -> u32 {
@@ -386,7 +368,6 @@ fn get_plugin_id_wasm() -> u32 {
 }
 
 /// Forward a navigate keybinding to sidebars via broadcast.
-/// `direction` is "forward" or "backward".
 #[cfg(target_family = "wasm")]
 fn broadcast_navigate(state: &ControllerState, direction: &str) {
     let payload = format!(

@@ -4,20 +4,9 @@ version = "0.8.0"
 edition = "2021"
 description = "Zellij plugin for managing Claude Code sessions (controller + sidebar)"
 
-[features]
-default = []
-controller = []
-sidebar = []
-
 [[bin]]
-name = "cc_deck_controller"
+name = "cc_deck"
 path = "src/main.rs"
-required-features = ["controller"]
-
-[[bin]]
-name = "cc_deck_sidebar"
-path = "src/main.rs"
-required-features = ["sidebar"]
 
 [dependencies]
 zellij-tile = "0.44"
