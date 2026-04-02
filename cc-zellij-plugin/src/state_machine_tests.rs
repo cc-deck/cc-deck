@@ -42,6 +42,9 @@ fn make_tab_info(position: usize, name: &str, active: bool) -> TabInfo {
         display_area_columns: 0,
         selectable_tiled_panes_count: 0,
         selectable_floating_panes_count: 0,
+        has_bell_notification: false,
+        is_flashing_bell: false,
+        tab_id: 0,
     }
 }
 
@@ -70,6 +73,8 @@ fn make_pane_info(id: u32, is_plugin: bool) -> PaneInfo {
         plugin_url: None,
         is_selectable: true,
         index_in_pane_group: std::collections::BTreeMap::new(),
+        default_bg: None,
+        default_fg: None,
     }
 }
 

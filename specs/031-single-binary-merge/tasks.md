@@ -13,8 +13,8 @@
 
 **Purpose**: No new project structure needed. This is a refactoring of an existing codebase. Setup verifies the starting state.
 
-- [ ] T001 Verify all existing tests pass before starting refactoring with `cargo test` in cc-zellij-plugin/
-- [ ] T002 Verify Go tests pass with `go test ./...` in cc-deck/
+- [X] T001 Verify all existing tests pass before starting refactoring with `cargo test` in cc-zellij-plugin/
+- [X] T002 Verify Go tests pass with `go test ./...` in cc-deck/
 
 ---
 
@@ -24,13 +24,13 @@
 
 **CRITICAL**: No Go CLI or Makefile changes can be validated until this phase produces a working single `cc_deck.wasm`.
 
-- [ ] T003 Remove `[features]` section and both `[[bin]]` targets from cc-zellij-plugin/Cargo.toml. Add single `[[bin]]` target named `cc_deck` with `path = "src/main.rs"` (no `required-features`)
-- [ ] T004 Remove `#[cfg(feature = "controller")]` and `#[cfg(feature = "sidebar")]` gates on `mod controller` and `mod sidebar_plugin` declarations in cc-zellij-plugin/src/main.rs. Both modules must always be compiled.
-- [ ] T005 Add `UnifiedPlugin` enum to cc-zellij-plugin/src/main.rs with variants `Controller(controller::ControllerPlugin)`, `Sidebar(sidebar_plugin::SidebarRendererPlugin)`, and `Uninitialized`. Implement `Default` returning `Uninitialized`.
-- [ ] T006 Implement `ZellijPlugin` for `UnifiedPlugin` in cc-zellij-plugin/src/main.rs: `load()` reads `configuration.get("mode")`, initializes the appropriate variant, delegates to its `load()`. Default to `Sidebar` when mode is absent. All other trait methods (`update`, `pipe`, `render`) delegate to the active variant.
-- [ ] T007 Replace all `register_plugin!` calls and the legacy no-feature-flag registration path (thread_local STATE, manual load/update/pipe/render functions) with single `register_plugin!(UnifiedPlugin)` in cc-zellij-plugin/src/main.rs
-- [ ] T008 Verify `cargo test` passes in cc-zellij-plugin/ after all Rust changes
-- [ ] T009 Verify `cargo build --target wasm32-wasip1 --release` produces a single cc-zellij-plugin/target/wasm32-wasip1/release/cc_deck.wasm
+- [X] T003 Remove `[features]` section and both `[[bin]]` targets from cc-zellij-plugin/Cargo.toml. Add single `[[bin]]` target named `cc_deck` with `path = "src/main.rs"` (no `required-features`)
+- [X] T004 Remove `#[cfg(feature = "controller")]` and `#[cfg(feature = "sidebar")]` gates on `mod controller` and `mod sidebar_plugin` declarations in cc-zellij-plugin/src/main.rs. Both modules must always be compiled.
+- [X] T005 Add `UnifiedPlugin` enum to cc-zellij-plugin/src/main.rs with variants `Controller(controller::ControllerPlugin)`, `Sidebar(sidebar_plugin::SidebarRendererPlugin)`, and `Uninitialized`. Implement `Default` returning `Uninitialized`.
+- [X] T006 Implement `ZellijPlugin` for `UnifiedPlugin` in cc-zellij-plugin/src/main.rs: `load()` reads `configuration.get("mode")`, initializes the appropriate variant, delegates to its `load()`. Default to `Sidebar` when mode is absent. All other trait methods (`update`, `pipe`, `render`) delegate to the active variant.
+- [X] T007 Replace all `register_plugin!` calls and the legacy no-feature-flag registration path (thread_local STATE, manual load/update/pipe/render functions) with single `register_plugin!(UnifiedPlugin)` in cc-zellij-plugin/src/main.rs
+- [X] T008 Verify `cargo test` passes in cc-zellij-plugin/ after all Rust changes
+- [X] T009 Verify `cargo build --target wasm32-wasip1 --release` produces a single cc-zellij-plugin/target/wasm32-wasip1/release/cc_deck.wasm
 
 **Checkpoint**: Single WASM binary builds and all Rust tests pass.
 
@@ -46,17 +46,17 @@ Note: US1 and US3 are coupled at implementation level. The permission fix is a n
 
 ### Implementation
 
-- [ ] T010 [US1] Update Makefile: replace `WASM_CTRL_SRC`, `WASM_CTRL_DST`, `WASM_SIDE_SRC`, `WASM_SIDE_DST` variables with single `WASM_SRC` and `WASM_DST` pointing to cc_deck.wasm
-- [ ] T011 [US1] Update Makefile: replace `build-wasm-controller` and `build-wasm-sidebar` targets with single `build-wasm` target running `cargo build --target wasm32-wasip1 --release` (no feature flags). Include conditional `wasm-opt` step.
-- [ ] T012 [US1] Update Makefile: simplify `copy-wasm` target to copy single binary from `WASM_SRC` to `WASM_DST`
-- [ ] T013 [US1] Update Makefile: simplify `build-wasm-debug` target to build without feature flags using `dev-opt` profile
-- [ ] T014 [US1] Update Makefile: add cleanup step in `install` target to remove old `cc_deck_controller.wasm` and `cc_deck_sidebar.wasm` from `~/.config/zellij/plugins/`
-- [ ] T015 [P] [US1] Update cc-deck/internal/plugin/layout.go: change `sidebarPluginBlock()` to reference `cc_deck.wasm` instead of `cc_deck_sidebar.wasm`
-- [ ] T016 [P] [US1] Update cc-deck/internal/plugin/layout.go: change `controllerConfigBlock()` to reference `cc_deck.wasm` instead of `cc_deck_controller.wasm`
-- [ ] T017 [US1] Remove `EnsureControllerPermissions()` function from cc-deck/internal/plugin/zellij.go
-- [ ] T018 [US1] Remove `EnsureControllerPermissions()` call from cc-deck/internal/plugin/install.go
-- [ ] T019 [US1] Update cc-deck/internal/plugin/layout_test.go: fix test assertions to expect `cc_deck.wasm` references instead of `cc_deck_controller.wasm` and `cc_deck_sidebar.wasm`
-- [ ] T020 [US1] Verify `go test ./internal/plugin/...` passes in cc-deck/ after layout and install changes
+- [X] T010 [US1] Update Makefile: replace `WASM_CTRL_SRC`, `WASM_CTRL_DST`, `WASM_SIDE_SRC`, `WASM_SIDE_DST` variables with single `WASM_SRC` and `WASM_DST` pointing to cc_deck.wasm
+- [X] T011 [US1] Update Makefile: replace `build-wasm-controller` and `build-wasm-sidebar` targets with single `build-wasm` target running `cargo build --target wasm32-wasip1 --release` (no feature flags). Include conditional `wasm-opt` step.
+- [X] T012 [US1] Update Makefile: simplify `copy-wasm` target to copy single binary from `WASM_SRC` to `WASM_DST`
+- [X] T013 [US1] Update Makefile: simplify `build-wasm-debug` target to build without feature flags using `dev-opt` profile
+- [X] T014 [US1] Update Makefile: add cleanup step in `install` target to remove old `cc_deck_controller.wasm` and `cc_deck_sidebar.wasm` from `~/.config/zellij/plugins/`
+- [X] T015 [P] [US1] Update cc-deck/internal/plugin/layout.go: change `sidebarPluginBlock()` to reference `cc_deck.wasm` instead of `cc_deck_sidebar.wasm`
+- [X] T016 [P] [US1] Update cc-deck/internal/plugin/layout.go: change `controllerConfigBlock()` to reference `cc_deck.wasm` instead of `cc_deck_controller.wasm`
+- [X] T017 [US1] Remove `EnsureControllerPermissions()` function from cc-deck/internal/plugin/zellij.go
+- [X] T018 [US1] Remove `EnsureControllerPermissions()` call from cc-deck/internal/plugin/install.go
+- [X] T019 [US1] Update cc-deck/internal/plugin/layout_test.go: fix test assertions to expect `cc_deck.wasm` references instead of `cc_deck_controller.wasm` and `cc_deck_sidebar.wasm`
+- [X] T020 [US1] Verify `go test ./internal/plugin/...` passes in cc-deck/ after layout and install changes
 
 **Checkpoint**: Permission workaround removed. Layout and config reference single binary. Go tests pass.
 
@@ -70,13 +70,13 @@ Note: US1 and US3 are coupled at implementation level. The permission fix is a n
 
 ### Implementation
 
-- [ ] T021 [P] [US2] Simplify cc-deck/internal/plugin/embed.go: remove `cc_deck_controller.wasm` and `cc_deck_sidebar.wasm` embeds. Keep single `//go:embed cc_deck.wasm`. Simplify `PluginInfo` to single `Binary []byte` and `BinarySize int64`, remove `ControllerBinary`, `SidebarBinary`, `ControllerSize`, `SidebarSize` fields.
-- [ ] T022 [US2] Update cc-deck/internal/plugin/install.go: replace two-binary atomic write logic with single `atomicWrite()` call for `cc_deck.wasm`. Remove rollback logic. Add removal of old `cc_deck_controller.wasm` and `cc_deck_sidebar.wasm` if present.
-- [ ] T023 [P] [US2] Update cc-deck/internal/plugin/remove.go: simplify to remove single `cc_deck.wasm` instead of separate controller/sidebar files. Keep controller config removal from config.kdl.
-- [ ] T024 [P] [US2] Update cc-deck/internal/plugin/state.go: change `InstallState` to check for `cc_deck.wasm` instead of `cc_deck_controller.wasm`
-- [ ] T025 [US2] Fix all compile errors in cc-deck/ from PluginInfo struct changes (update all callers of `EmbeddedPlugin()` that reference removed fields)
-- [ ] T026 [US2] Verify `go test ./...` passes in cc-deck/ after all Go changes
-- [ ] T027 [US2] Remove old embedded WASM files: delete cc-deck/internal/plugin/cc_deck_controller.wasm and cc-deck/internal/plugin/cc_deck_sidebar.wasm from the repository
+- [X] T021 [P] [US2] Simplify cc-deck/internal/plugin/embed.go: remove `cc_deck_controller.wasm` and `cc_deck_sidebar.wasm` embeds. Keep single `//go:embed cc_deck.wasm`. Simplify `PluginInfo` to single `Binary []byte` and `BinarySize int64`, remove `ControllerBinary`, `SidebarBinary`, `ControllerSize`, `SidebarSize` fields.
+- [X] T022 [US2] Update cc-deck/internal/plugin/install.go: replace two-binary atomic write logic with single `atomicWrite()` call for `cc_deck.wasm`. Remove rollback logic. Add removal of old `cc_deck_controller.wasm` and `cc_deck_sidebar.wasm` if present.
+- [X] T023 [P] [US2] Update cc-deck/internal/plugin/remove.go: simplify to remove single `cc_deck.wasm` instead of separate controller/sidebar files. Keep controller config removal from config.kdl.
+- [X] T024 [P] [US2] Update cc-deck/internal/plugin/state.go: change `InstallState` to check for `cc_deck.wasm` instead of `cc_deck_controller.wasm`
+- [X] T025 [US2] Fix all compile errors in cc-deck/ from PluginInfo struct changes (update all callers of `EmbeddedPlugin()` that reference removed fields)
+- [X] T026 [US2] Verify `go test ./...` passes in cc-deck/ after all Go changes
+- [X] T027 [US2] Remove old embedded WASM files: delete cc-deck/internal/plugin/cc_deck_controller.wasm and cc-deck/internal/plugin/cc_deck_sidebar.wasm from the repository
 
 **Checkpoint**: Go CLI fully simplified. Single embed, single install, single removal.
 
@@ -86,11 +86,11 @@ Note: US1 and US3 are coupled at implementation level. The permission fix is a n
 
 **Purpose**: End-to-end validation across both components.
 
-- [ ] T028 Run `make install` from project root and verify it succeeds
-- [ ] T029 Verify exactly one `cc_deck.wasm` exists in `~/.config/zellij/plugins/` and no `cc_deck_controller.wasm` or `cc_deck_sidebar.wasm` are present
-- [ ] T030 Verify generated layout files reference `cc_deck.wasm` with `mode "sidebar"`
-- [ ] T031 Verify config.kdl `load_plugins` references `cc_deck.wasm` with `mode "controller"`
-- [ ] T032 Run `make test` and `make lint` to confirm all tests and linting pass
+- [X] T028 Run `make install` from project root and verify it succeeds
+- [X] T029 Verify exactly one `cc_deck.wasm` exists in `~/.config/zellij/plugins/` and no `cc_deck_controller.wasm` or `cc_deck_sidebar.wasm` are present
+- [X] T030 Verify generated layout files reference `cc_deck.wasm` with `mode "sidebar"`
+- [X] T031 Verify config.kdl `load_plugins` references `cc_deck.wasm` with `mode "controller"`
+- [X] T032 Run `make test` and `make lint` to confirm all tests and linting pass
 
 **Checkpoint**: All automated checks pass. Ready for manual Zellij testing.
 
@@ -100,9 +100,9 @@ Note: US1 and US3 are coupled at implementation level. The permission fix is a n
 
 **Purpose**: Documentation updates and final cleanup.
 
-- [ ] T033 [P] Update README.md with single-binary architecture description (replace references to two binaries)
-- [ ] T034 [P] Update specs table in README.md with 031-single-binary-merge entry
-- [ ] T035 Remove legacy backward-compatibility comments from Makefile (the "Keep legacy single-binary path" comment and similar)
+- [X] T033 [P] Update README.md with single-binary architecture description (replace references to two binaries)
+- [X] T034 [P] Update specs table in README.md with 031-single-binary-merge entry
+- [X] T035 Remove legacy backward-compatibility comments from Makefile (the "Keep legacy single-binary path" comment and similar)
 
 ---
 
@@ -179,3 +179,4 @@ Task: "Simplify remove.go and state.go"
 - Commit after each phase completion
 - The Rust changes (Phase 2) are the riskiest part. Validate thoroughly before proceeding.
 - Legacy code cleanup (sync.rs, old PluginState, broken test fixtures) is explicitly out of scope per spec.
+- FR-007 (inter-plugin communication) and FR-008 (CLI hook routing) are implicitly covered by T008/T032: the existing test suite validates pipe message handling, and no routing logic was changed.

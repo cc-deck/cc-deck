@@ -565,6 +565,8 @@ mod tests {
             plugin_url: None,
             is_selectable: true,
             index_in_pane_group: std::collections::BTreeMap::new(),
+            default_bg: None,
+            default_fg: None,
         }
     }
 
