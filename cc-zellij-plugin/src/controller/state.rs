@@ -109,20 +109,38 @@ impl ControllerState {
         // Once the manifest confirms the target, clear the in-flight guard.
         let now_ms = crate::session::unix_now_ms();
         if let Some((target, ts)) = self.in_flight_focus {
-            if now_ms.saturating_sub(ts) > IN_FLIGHT_FOCUS_TTL_MS {
+            let age_ms = now_ms.saturating_sub(ts);
+            if age_ms > IN_FLIGHT_FOCUS_TTL_MS {
                 // Expired: trust the manifest
+                crate::debug_log(&format!(
+                    "CTRL REBUILD: in_flight EXPIRED target={target} age={age_ms}ms manifest={manifest_focus:?}"
+                ));
                 self.in_flight_focus = None;
                 self.focused_pane_id = manifest_focus;
             } else if manifest_focus == Some(target) {
                 // Manifest confirmed the focus change
+                crate::debug_log(&format!(
+                    "CTRL REBUILD: in_flight CONFIRMED target={target} age={age_ms}ms"
+                ));
                 self.in_flight_focus = None;
                 self.focused_pane_id = manifest_focus;
             } else {
                 // Manifest is stale: keep the action-set focus
+                crate::debug_log(&format!(
+                    "CTRL REBUILD: in_flight STALE target={target} age={age_ms}ms manifest={manifest_focus:?}"
+                ));
                 self.focused_pane_id = Some(target);
             }
         } else {
-            self.focused_pane_id = manifest_focus;
+            // Only update focus when manifest provides a definite value.
+            // When manifest_focus is None (e.g., a plugin pane has focus during
+            // navigation mode), preserve the current focused_pane_id. This
+            // prevents sidebars from caching None and causing a highlight flash
+            // when switching tabs (the target sidebar would render with no
+            // highlight until the next broadcast arrives).
+            if manifest_focus.is_some() {
+                self.focused_pane_id = manifest_focus;
+            }
         }
         // Refresh tab info on all sessions and process deferred tab renames.
         let mut pending_renames: Vec<(usize, String)> = Vec::new();

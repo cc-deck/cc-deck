@@ -118,6 +118,23 @@ impl ZellijPlugin for SidebarRendererPlugin {
                         if let Some(override_pid) = self.state.local_focus_override {
                             if render_payload.focused_pane_id == Some(override_pid) {
                                 self.state.local_focus_override = None;
+                                crate::debug_log(&format!(
+                                    "SIDEBAR PAYLOAD: cleared override={override_pid}, payload_focus={:?}",
+                                    render_payload.focused_pane_id
+                                ));
+                            } else {
+                                crate::debug_log(&format!(
+                                    "SIDEBAR PAYLOAD: kept override={override_pid}, payload_focus={:?} (mismatch)",
+                                    render_payload.focused_pane_id
+                                ));
+                            }
+                        } else {
+                            let prev_focus = self.state.cached_payload.as_ref().and_then(|p| p.focused_pane_id);
+                            if render_payload.focused_pane_id != prev_focus {
+                                crate::debug_log(&format!(
+                                    "SIDEBAR PAYLOAD: no override, focus changed {:?} -> {:?}",
+                                    prev_focus, render_payload.focused_pane_id
+                                ));
                             }
                         }
 
