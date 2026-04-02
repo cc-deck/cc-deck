@@ -25,12 +25,18 @@ pub fn handle_action(state: &mut ControllerState, msg: ActionMessage) {
 /// Switch to a specific session (focus its pane and tab).
 fn handle_switch(state: &mut ControllerState, pane_id: Option<u32>, tab_index: Option<usize>) {
     if let (Some(pid), Some(tab_idx)) = (pane_id, tab_index) {
-        switch_tab_to_wasm(tab_idx);
-        focus_terminal_pane_wasm(pid);
         state.focused_pane_id = Some(pid);
         state.active_tab_index = Some(tab_idx);
         state.in_flight_focus = Some((pid, crate::session::unix_now_ms()));
-        state.mark_render_dirty();
+        crate::debug_log(&format!("CTRL SWITCH: pid={pid} tab={tab_idx} in_flight={pid}"));
+        // Broadcast BEFORE the tab switch so pipe messages are queued in Zellij
+        // ahead of the switch_tab_to command. This gives the target sidebar a
+        // chance to cache the new focus before Zellij renders the new tab,
+        // preventing the highlight flash on cross-tab switches.
+        super::render_broadcast::broadcast_render(state);
+        state.render_dirty = false;
+        switch_tab_to_wasm(tab_idx);
+        focus_terminal_pane_wasm(pid);
     }
 }
 
@@ -131,12 +137,13 @@ fn handle_pause(state: &mut ControllerState, pane_id: Option<u32>) {
 fn handle_attend(state: &mut ControllerState) {
     let result = perform_attend_directed(state, AttendDirection::Forward);
     if let Some((pane_id, tab_index)) = result {
-        switch_tab_to_wasm(tab_index);
-        focus_terminal_pane_wasm(pane_id);
         state.focused_pane_id = Some(pane_id);
         state.active_tab_index = Some(tab_index);
         state.in_flight_focus = Some((pane_id, crate::session::unix_now_ms()));
-        state.mark_render_dirty();
+        super::render_broadcast::broadcast_render(state);
+        state.render_dirty = false;
+        switch_tab_to_wasm(tab_index);
+        focus_terminal_pane_wasm(pane_id);
     }
 }
 
@@ -144,12 +151,13 @@ fn handle_attend(state: &mut ControllerState) {
 fn handle_attend_prev(state: &mut ControllerState) {
     let result = perform_attend_directed(state, AttendDirection::Backward);
     if let Some((pane_id, tab_index)) = result {
-        switch_tab_to_wasm(tab_index);
-        focus_terminal_pane_wasm(pane_id);
         state.focused_pane_id = Some(pane_id);
         state.active_tab_index = Some(tab_index);
         state.in_flight_focus = Some((pane_id, crate::session::unix_now_ms()));
-        state.mark_render_dirty();
+        super::render_broadcast::broadcast_render(state);
+        state.render_dirty = false;
+        switch_tab_to_wasm(tab_index);
+        focus_terminal_pane_wasm(pane_id);
     }
 }
 
@@ -163,12 +171,13 @@ fn handle_navigate(
     // The sidebar handles cursor state locally and sends a Switch
     // when the user selects. This handler covers keybinding-triggered navigate.
     if let (Some(pid), Some(tab_idx)) = (pane_id, tab_index) {
-        switch_tab_to_wasm(tab_idx);
-        focus_terminal_pane_wasm(pid);
         state.focused_pane_id = Some(pid);
         state.active_tab_index = Some(tab_idx);
         state.in_flight_focus = Some((pid, crate::session::unix_now_ms()));
-        state.mark_render_dirty();
+        super::render_broadcast::broadcast_render(state);
+        state.render_dirty = false;
+        switch_tab_to_wasm(tab_idx);
+        focus_terminal_pane_wasm(pid);
     }
 }
 
@@ -380,7 +389,8 @@ mod tests {
         handle_switch(&mut state, Some(42), Some(1));
         assert_eq!(state.focused_pane_id, Some(42));
         assert_eq!(state.active_tab_index, Some(1));
-        assert!(state.render_dirty);
+        // render_dirty is false because handle_switch broadcasts immediately
+        assert!(!state.render_dirty);
     }
 
     #[test]
@@ -467,7 +477,8 @@ mod tests {
 
         handle_attend(&mut state);
         assert_eq!(state.last_attended_pane_id, Some(42));
-        assert!(state.render_dirty);
+        // render_dirty is false because handle_attend broadcasts immediately
+        assert!(!state.render_dirty);
     }
 
     #[test]
