@@ -47,11 +47,11 @@ func Remove(opts RemoveOptions) error {
 		fmt.Fprintf(opts.Stdout, "  Removed: %s\n", tildeHome(state.PluginPath))
 	}
 
-	// Remove two-binary architecture files
+	// Remove legacy two-binary files if present
 	for _, name := range []string{"cc_deck_controller.wasm", "cc_deck_sidebar.wasm"} {
 		p := filepath.Join(zInfo.PluginsDir, name)
 		if err := os.Remove(p); err == nil {
-			fmt.Fprintf(opts.Stdout, "  Removed: %s\n", tildeHome(p))
+			fmt.Fprintf(opts.Stdout, "  Removed: %s (legacy)\n", tildeHome(p))
 		}
 	}
 

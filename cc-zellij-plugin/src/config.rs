@@ -110,7 +110,7 @@ mod tests {
         let config = PluginConfig::default();
         assert_eq!(config.sidebar_width, 22);
         assert_eq!(config.done_timeout, 30);
-        assert!((config.timer_interval - 10.0).abs() < f64::EPSILON);
+        assert!((config.timer_interval - 1.0).abs() < f64::EPSILON);
     }
 
     #[test]

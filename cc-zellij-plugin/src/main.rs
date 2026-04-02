@@ -23,10 +23,9 @@ mod fuzz_tests;
 mod perf;
 mod sync;
 
-#[cfg(feature = "controller")]
 mod controller;
-#[cfg(feature = "sidebar")]
 mod sidebar_plugin;
+mod wasm_compat;
 
 /// Debug logging is opt-in: only active when `/cache/debug_enabled` exists.
 /// Enable:  `touch /cache/debug_enabled`  (inside the WASI sandbox)
@@ -341,118 +340,118 @@ use state::{NavigateContext, PluginMode, PluginState, SidebarMode};
 use std::collections::BTreeMap;
 use zellij_tile::prelude::*;
 
-// Plugin registration: cfg-gated for two-binary architecture.
-// When building with --features controller, register ControllerPlugin.
-// When building with --features sidebar, register SidebarRendererPlugin.
-// Without features (e.g., cargo test), use the re-entrant-safe legacy registration.
-#[cfg(feature = "controller")]
-register_plugin!(controller::ControllerPlugin);
-
-#[cfg(feature = "sidebar")]
-register_plugin!(sidebar_plugin::SidebarRendererPlugin);
-
-// Legacy re-entrant-safe registration for no-feature-flag builds.
-// Uses try_borrow_mut() instead of borrow_mut() to avoid panics when
-// Zellij delivers events re-entrantly (pipe during update, render during pipe).
-#[cfg(not(any(feature = "controller", feature = "sidebar")))]
-thread_local! {
-    static STATE: std::cell::RefCell<PluginState> = std::cell::RefCell::new(Default::default());
+// UnifiedPlugin: single binary that dispatches to controller or sidebar at runtime.
+// The mode is determined by configuration.get("mode") at load() time.
+// Default is Sidebar when mode is absent.
+#[derive(Default)]
+enum UnifiedPlugin {
+    Controller(controller::ControllerPlugin),
+    Sidebar(sidebar_plugin::SidebarRendererPlugin),
+    #[default]
+    Uninitialized,
 }
 
-#[cfg(not(any(feature = "controller", feature = "sidebar")))]
-fn main() {}
-
-#[cfg(not(any(feature = "controller", feature = "sidebar")))]
-#[no_mangle]
-fn load() {
-    STATE.with(|state| {
-        use std::convert::TryFrom;
-        use zellij_tile::shim::plugin_api::action::ProtobufPluginConfiguration;
-        use zellij_tile::shim::prost::Message;
-        let protobuf_bytes: Vec<u8> = zellij_tile::shim::object_from_stdin().unwrap();
-        let protobuf_configuration: ProtobufPluginConfiguration =
-            ProtobufPluginConfiguration::decode(protobuf_bytes.as_slice()).unwrap();
-        let plugin_configuration: BTreeMap<String, String> =
-            BTreeMap::try_from(&protobuf_configuration).unwrap();
-        state.borrow_mut().load(plugin_configuration);
-    });
-}
-
-#[cfg(not(any(feature = "controller", feature = "sidebar")))]
-#[no_mangle]
-pub fn update() -> bool {
-    use std::convert::TryInto;
-    use zellij_tile::shim::plugin_api::event::ProtobufEvent;
-    use zellij_tile::shim::prost::Message;
-    STATE.with(|state| {
-        let protobuf_bytes: Vec<u8> = match zellij_tile::shim::object_from_stdin() {
-            Ok(b) => b,
-            Err(_) => return false,
-        };
-        let protobuf_event = match ProtobufEvent::decode(protobuf_bytes.as_slice()) {
-            Ok(e) => e,
-            Err(_) => return false,
-        };
-        let event = match protobuf_event.try_into() {
-            Ok(e) => e,
-            Err(_) => return false,
-        };
-        match state.try_borrow_mut() {
-            Ok(mut s) => s.update(event),
-            Err(_) => {
-                debug_log("REENTRANT update() skipped (RefCell already borrowed)");
-                false
+impl ZellijPlugin for UnifiedPlugin {
+    fn load(&mut self, configuration: BTreeMap<String, String>) {
+        let mode = configuration.get("mode").map(|s| s.as_str());
+        match mode {
+            Some("controller") => {
+                let mut plugin = controller::ControllerPlugin::default();
+                plugin.load(configuration);
+                *self = UnifiedPlugin::Controller(plugin);
+            }
+            _ => {
+                // Default to sidebar when mode is absent or any other value
+                let mut plugin = sidebar_plugin::SidebarRendererPlugin::default();
+                plugin.load(configuration);
+                *self = UnifiedPlugin::Sidebar(plugin);
             }
         }
-    })
-}
+    }
 
-#[cfg(not(any(feature = "controller", feature = "sidebar")))]
-#[no_mangle]
-pub fn pipe() -> bool {
-    use std::convert::TryInto;
-    use zellij_tile::shim::plugin_api::pipe_message::ProtobufPipeMessage;
-    use zellij_tile::shim::prost::Message;
-    STATE.with(|state| {
-        let protobuf_bytes: Vec<u8> = match zellij_tile::shim::object_from_stdin() {
-            Ok(b) => b,
-            Err(_) => return false,
-        };
-        let protobuf_pipe_message = match ProtobufPipeMessage::decode(protobuf_bytes.as_slice()) {
-            Ok(m) => m,
-            Err(_) => return false,
-        };
-        let pipe_message = match protobuf_pipe_message.try_into() {
-            Ok(m) => m,
-            Err(_) => return false,
-        };
-        match state.try_borrow_mut() {
-            Ok(mut s) => s.pipe(pipe_message),
-            Err(_) => {
-                debug_log("REENTRANT pipe() skipped (RefCell already borrowed)");
-                false
+    fn update(&mut self, event: Event) -> bool {
+        // Write a one-time diagnostic file to confirm events are being delivered
+        #[cfg(target_family = "wasm")]
+        {
+            let variant = match self {
+                UnifiedPlugin::Controller(_) => "controller",
+                UnifiedPlugin::Sidebar(_) => "sidebar",
+                UnifiedPlugin::Uninitialized => "uninitialized",
+            };
+            let flag = format!("/cache/unified_update_{}", variant);
+            if std::fs::metadata(&flag).is_err() {
+                let _ = std::fs::write(&flag, format!("first update event received\n"));
             }
         }
-    })
-}
-
-#[cfg(not(any(feature = "controller", feature = "sidebar")))]
-#[no_mangle]
-pub fn render(rows: i32, cols: i32) {
-    STATE.with(|state| {
-        match state.try_borrow_mut() {
-            Ok(mut s) => s.render(rows as usize, cols as usize),
-            Err(_) => {
-                debug_log("REENTRANT render() skipped (RefCell already borrowed)");
-            }
+        match self {
+            UnifiedPlugin::Controller(p) => p.update(event),
+            UnifiedPlugin::Sidebar(p) => p.update(event),
+            UnifiedPlugin::Uninitialized => false,
         }
-    });
+    }
+
+    fn pipe(&mut self, pipe_message: PipeMessage) -> bool {
+        match self {
+            UnifiedPlugin::Controller(p) => p.pipe(pipe_message),
+            UnifiedPlugin::Sidebar(p) => p.pipe(pipe_message),
+            UnifiedPlugin::Uninitialized => false,
+        }
+    }
+
+    fn render(&mut self, rows: usize, cols: usize) {
+        match self {
+            UnifiedPlugin::Controller(p) => p.render(rows, cols),
+            UnifiedPlugin::Sidebar(p) => p.render(rows, cols),
+            UnifiedPlugin::Uninitialized => {}
+        }
+    }
 }
 
-#[cfg(not(any(feature = "controller", feature = "sidebar")))]
-#[no_mangle]
-pub fn plugin_version() {
-    println!("{}", zellij_tile::prelude::VERSION);
+register_plugin!(UnifiedPlugin);
+
+#[cfg(test)]
+mod unified_plugin_tests {
+    use super::*;
+
+    #[test]
+    fn test_unified_defaults_to_uninitialized() {
+        let p = UnifiedPlugin::default();
+        assert!(matches!(p, UnifiedPlugin::Uninitialized));
+    }
+
+    #[test]
+    fn test_unified_loads_as_sidebar_without_mode() {
+        let mut p = UnifiedPlugin::default();
+        p.load(BTreeMap::new());
+        assert!(matches!(p, UnifiedPlugin::Sidebar(_)));
+    }
+
+    #[test]
+    fn test_unified_loads_as_controller_with_mode() {
+        let mut p = UnifiedPlugin::default();
+        let mut config = BTreeMap::new();
+        config.insert("mode".to_string(), "controller".to_string());
+        p.load(config);
+        assert!(matches!(p, UnifiedPlugin::Controller(_)));
+    }
+
+    #[test]
+    fn test_unified_loads_as_sidebar_with_explicit_mode() {
+        let mut p = UnifiedPlugin::default();
+        let mut config = BTreeMap::new();
+        config.insert("mode".to_string(), "sidebar".to_string());
+        p.load(config);
+        assert!(matches!(p, UnifiedPlugin::Sidebar(_)));
+    }
+
+    #[test]
+    fn test_unified_defaults_to_sidebar_for_unknown_mode() {
+        let mut p = UnifiedPlugin::default();
+        let mut config = BTreeMap::new();
+        config.insert("mode".to_string(), "unknown".to_string());
+        p.load(config);
+        assert!(matches!(p, UnifiedPlugin::Sidebar(_)));
+    }
 }
 
 // ---------------------------------------------------------------------------

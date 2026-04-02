@@ -82,20 +82,24 @@ func resolveZellijCacheDir() string {
 	return filepath.Join(home, ".cache", "zellij")
 }
 
-// EnsureControllerPermissions adds controller plugin permissions to Zellij's
-// permissions.kdl cache. Background plugins loaded via load_plugins don't show
-// a permission dialog, so permissions must be pre-populated.
-func EnsureControllerPermissions(cacheDir, pluginsDir string) error {
+// EnsurePluginPermissions adds plugin permissions to Zellij's permissions.kdl
+// cache. Background plugins loaded via load_plugins cannot show permission
+// dialogs, so permissions must be pre-populated before the plugin loads.
+// With the single-binary architecture, both controller (background) and sidebar
+// (visible) share the same WASM URL. The sidebar would eventually show a dialog,
+// but the controller may load first and enter a blocking state waiting for
+// permissions that can never be granted interactively.
+func EnsurePluginPermissions(cacheDir, pluginsDir string) error {
 	permPath := filepath.Join(cacheDir, "permissions.kdl")
-	pluginPath := filepath.Join(pluginsDir, "cc_deck_controller.wasm")
+	pluginPath := filepath.Join(pluginsDir, "cc_deck.wasm")
 
 	content, err := os.ReadFile(permPath)
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
 
-	if strings.Contains(string(content), "cc_deck_controller.wasm") {
-		return nil // Already has permissions
+	if strings.Contains(string(content), pluginPath) {
+		return nil // Already has permissions for this plugin
 	}
 
 	entry := fmt.Sprintf(`"%s" {
