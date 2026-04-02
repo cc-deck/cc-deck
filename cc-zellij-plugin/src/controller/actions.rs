@@ -29,6 +29,7 @@ fn handle_switch(state: &mut ControllerState, pane_id: Option<u32>, tab_index: O
         focus_terminal_pane_wasm(pid);
         state.focused_pane_id = Some(pid);
         state.active_tab_index = Some(tab_idx);
+        state.in_flight_focus = Some((pid, crate::session::unix_now_ms()));
         state.mark_render_dirty();
     }
 }
@@ -132,6 +133,9 @@ fn handle_attend(state: &mut ControllerState) {
     if let Some((pane_id, tab_index)) = result {
         switch_tab_to_wasm(tab_index);
         focus_terminal_pane_wasm(pane_id);
+        state.focused_pane_id = Some(pane_id);
+        state.active_tab_index = Some(tab_index);
+        state.in_flight_focus = Some((pane_id, crate::session::unix_now_ms()));
         state.mark_render_dirty();
     }
 }
@@ -142,6 +146,9 @@ fn handle_attend_prev(state: &mut ControllerState) {
     if let Some((pane_id, tab_index)) = result {
         switch_tab_to_wasm(tab_index);
         focus_terminal_pane_wasm(pane_id);
+        state.focused_pane_id = Some(pane_id);
+        state.active_tab_index = Some(tab_index);
+        state.in_flight_focus = Some((pane_id, crate::session::unix_now_ms()));
         state.mark_render_dirty();
     }
 }
@@ -160,6 +167,7 @@ fn handle_navigate(
         focus_terminal_pane_wasm(pid);
         state.focused_pane_id = Some(pid);
         state.active_tab_index = Some(tab_idx);
+        state.in_flight_focus = Some((pid, crate::session::unix_now_ms()));
         state.mark_render_dirty();
     }
 }
