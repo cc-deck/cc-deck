@@ -5,7 +5,7 @@
 // and broadcasts an updated RenderPayload.
 
 use super::state::ControllerState;
-use crate::session::{self, deduplicate_name, Activity, WaitReason};
+use crate::session::{self, deduplicate_name, Activity, Session, WaitReason};
 use cc_deck::{ActionMessage, ActionType};
 
 /// Process an action message from a sidebar plugin.
@@ -17,6 +17,8 @@ pub fn handle_action(state: &mut ControllerState, msg: ActionMessage) {
         ActionType::Pause => handle_pause(state, msg.pane_id),
         ActionType::Attend => handle_attend(state),
         ActionType::AttendPrev => handle_attend_prev(state),
+        ActionType::Working => handle_working(state),
+        ActionType::WorkingPrev => handle_working_prev(state),
         ActionType::Navigate => handle_navigate(state, msg.pane_id, msg.tab_index),
         ActionType::NewSession => handle_new_session(state),
     }
@@ -25,6 +27,13 @@ pub fn handle_action(state: &mut ControllerState, msg: ActionMessage) {
 /// Switch to a specific session (focus its pane and tab).
 fn handle_switch(state: &mut ControllerState, pane_id: Option<u32>, tab_index: Option<usize>) {
     if let (Some(pid), Some(tab_idx)) = (pane_id, tab_index) {
+        // Auto-unpause on switch
+        if let Some(s) = state.sessions.get_mut(&pid) {
+            if s.paused {
+                s.paused = false;
+                s.last_event_ts = crate::session::unix_now();
+            }
+        }
         state.focused_pane_id = Some(pid);
         state.active_tab_index = Some(tab_idx);
         state.in_flight_focus = Some((pid, crate::session::unix_now_ms()));
@@ -161,6 +170,34 @@ fn handle_attend_prev(state: &mut ControllerState) {
     }
 }
 
+/// Cycle through working sessions (Alt+w).
+fn handle_working(state: &mut ControllerState) {
+    let result = perform_working_directed(state, AttendDirection::Forward);
+    if let Some((pane_id, tab_index)) = result {
+        state.focused_pane_id = Some(pane_id);
+        state.active_tab_index = Some(tab_index);
+        state.in_flight_focus = Some((pane_id, crate::session::unix_now_ms()));
+        super::render_broadcast::broadcast_render(state);
+        state.render_dirty = false;
+        switch_tab_to_wasm(tab_index);
+        focus_terminal_pane_wasm(pane_id);
+    }
+}
+
+/// Cycle through working sessions in reverse (Shift+Alt+w).
+fn handle_working_prev(state: &mut ControllerState) {
+    let result = perform_working_directed(state, AttendDirection::Backward);
+    if let Some((pane_id, tab_index)) = result {
+        state.focused_pane_id = Some(pane_id);
+        state.active_tab_index = Some(tab_index);
+        state.in_flight_focus = Some((pane_id, crate::session::unix_now_ms()));
+        super::render_broadcast::broadcast_render(state);
+        state.render_dirty = false;
+        switch_tab_to_wasm(tab_index);
+        focus_terminal_pane_wasm(pane_id);
+    }
+}
+
 /// Navigate action: switch to the specified pane (forwarded from sidebar).
 fn handle_navigate(
     state: &mut ControllerState,
@@ -198,111 +235,253 @@ enum AttendDirection {
 
 const ATTEND_STATE_PATH: &str = "/cache/attend-state.json";
 
+/// Lightweight candidate data extracted from Session to avoid borrow conflicts.
+#[derive(Clone)]
+struct AttendCandidate {
+    pane_id: u32,
+    tab_index: Option<usize>,
+    is_done: bool,
+}
+
 /// Perform tiered attend. Returns (pane_id, tab_index) if a session was found.
 fn perform_attend_directed(
     state: &mut ControllerState,
     direction: AttendDirection,
 ) -> Option<(u32, usize)> {
-    let sessions = state.sessions_by_tab_order();
-    if sessions.is_empty() {
+    // Build candidate tiers from session data, then drop the borrow.
+    let tiers: Vec<Vec<AttendCandidate>> = {
+        let sessions = state.sessions_by_tab_order();
+        if sessions.is_empty() {
+            return None;
+        }
+
+        // Tier 1: Waiting (Permission first, then Notification, oldest first)
+        let mut waiting: Vec<_> = sessions
+            .iter()
+            .filter(|s| !s.paused && matches!(s.activity, Activity::Waiting(_)))
+            .copied()
+            .collect();
+        waiting.sort_by(|a, b| {
+            let a_perm = matches!(a.activity, Activity::Waiting(WaitReason::Permission));
+            let b_perm = matches!(b.activity, Activity::Waiting(WaitReason::Permission));
+            b_perm
+                .cmp(&a_perm)
+                .then(a.last_event_ts.cmp(&b.last_event_ts))
+        });
+
+        // Tier 2: Done/AgentDone not yet attended (most recent first)
+        let mut done: Vec<_> = sessions
+            .iter()
+            .filter(|s| {
+                !s.paused
+                    && !s.done_attended
+                    && matches!(s.activity, Activity::Done | Activity::AgentDone)
+            })
+            .copied()
+            .collect();
+        done.sort_by(|a, b| b.last_event_ts.cmp(&a.last_event_ts));
+
+        // Tier 3: Idle/Init + already-attended Done (most recent first)
+        let mut idle: Vec<_> = sessions
+            .iter()
+            .filter(|s| {
+                !s.paused
+                    && (matches!(s.activity, Activity::Idle | Activity::Init)
+                        || (s.done_attended
+                            && matches!(s.activity, Activity::Done | Activity::AgentDone)))
+            })
+            .copied()
+            .collect();
+        idle.sort_by(|a, b| b.last_event_ts.cmp(&a.last_event_ts));
+
+        // Convert to lightweight candidates and drop the session borrows.
+        let to_candidates = |tier: Vec<&Session>| -> Vec<AttendCandidate> {
+            tier.iter()
+                .map(|s| AttendCandidate {
+                    pane_id: s.pane_id,
+                    tab_index: s.tab_index,
+                    is_done: matches!(s.activity, Activity::Done | Activity::AgentDone),
+                })
+                .collect()
+        };
+
+        [to_candidates(waiting), to_candidates(done), to_candidates(idle)]
+            .into_iter()
+            .filter(|t| !t.is_empty())
+            .collect()
+    };
+
+    if tiers.is_empty() {
         return None;
     }
 
-    // Tier 1: Waiting sessions (Permission first, then Notification, oldest first)
-    let mut waiting: Vec<_> = sessions
-        .iter()
-        .filter(|s| !s.paused && matches!(s.activity, Activity::Waiting(_)))
-        .copied()
-        .collect();
-    waiting.sort_by(|a, b| {
-        let a_perm = matches!(a.activity, Activity::Waiting(WaitReason::Permission));
-        let b_perm = matches!(b.activity, Activity::Waiting(WaitReason::Permission));
-        b_perm
-            .cmp(&a_perm)
-            .then(a.last_event_ts.cmp(&b.last_event_ts))
-    });
+    // Rapid-cycle detection: if the last attend was within the cycle window,
+    // keep the visited set so we skip already-seen sessions. Otherwise reset.
+    let now_ms = crate::session::unix_now_ms();
+    let in_rapid_cycle = state.config.attend_cycle_ms > 0
+        && now_ms.saturating_sub(state.last_attend_ms) < state.config.attend_cycle_ms;
 
-    // Tier 2: Done/AgentDone not yet attended (most recent first)
-    let mut done: Vec<_> = sessions
-        .iter()
-        .filter(|s| {
-            !s.paused
-                && !s.done_attended
-                && matches!(s.activity, Activity::Done | Activity::AgentDone)
-        })
-        .copied()
-        .collect();
-    done.sort_by(|a, b| b.last_event_ts.cmp(&a.last_event_ts));
+    if !in_rapid_cycle {
+        state.attend_visited.clear();
+    }
 
-    // Tier 3: Idle/Init + already-attended Done (tab order)
-    let mut idle: Vec<_> = sessions
-        .iter()
-        .filter(|s| {
-            !s.paused
-                && (matches!(s.activity, Activity::Idle | Activity::Init)
-                    || (s.done_attended
-                        && matches!(s.activity, Activity::Done | Activity::AgentDone)))
-        })
-        .copied()
-        .collect();
-    idle.sort_by_key(|s| s.tab_index.unwrap_or(usize::MAX));
+    // Never cycle back to the currently focused pane.
+    if let Some(fpid) = state.focused_pane_id {
+        state.attend_visited.insert(fpid);
+    }
 
-    // Pick highest non-empty tier exclusively
-    let candidates = if !waiting.is_empty() {
-        waiting
-    } else if !done.is_empty() {
-        done
-    } else if !idle.is_empty() {
-        idle
-    } else {
-        return None;
-    };
-
-    let len = candidates.len();
-    let last_attended = read_last_attended().or(state.last_attended_pane_id);
-    let start_idx = if let Some(last_id) = last_attended {
-        candidates
-            .iter()
-            .position(|s| s.pane_id == last_id)
-            .map(|pos| match direction {
-                AttendDirection::Forward => (pos + 1) % len,
+    // Try to find a candidate, with one retry after clearing visited on wrap-around.
+    for attempt in 0..2 {
+        for candidates in &tiers {
+            let pick = match direction {
+                AttendDirection::Forward => {
+                    candidates.iter().find(|c| !state.attend_visited.contains(&c.pane_id))
+                }
                 AttendDirection::Backward => {
-                    if pos == 0 {
-                        len - 1
-                    } else {
-                        pos - 1
+                    candidates.iter().rev().find(|c| !state.attend_visited.contains(&c.pane_id))
+                }
+            };
+
+            if let Some(candidate) = pick {
+                let pane_id = candidate.pane_id;
+                let tab_index = match candidate.tab_index {
+                    Some(t) => t,
+                    None => continue,
+                };
+
+                state.attend_visited.insert(pane_id);
+                state.last_attend_ms = now_ms;
+                state.last_attended_pane_id = Some(pane_id);
+                write_last_attended(pane_id);
+
+                if candidate.is_done {
+                    if let Some(session) = state.sessions.get_mut(&pane_id) {
+                        session.done_attended = true;
                     }
                 }
-            })
-            .unwrap_or(0)
-    } else {
-        match direction {
-            AttendDirection::Forward => 0,
-            AttendDirection::Backward => len - 1,
+
+                return Some((pane_id, tab_index));
+            }
         }
-    };
 
-    let candidate = candidates.get(start_idx)?;
-    let pane_id = candidate.pane_id;
-    let tab_index = candidate.tab_index?;
-
-    state.last_attended_pane_id = Some(pane_id);
-    write_last_attended(pane_id);
-
-    // Mark Done/AgentDone as attended
-    if let Some(session) = state.sessions.get_mut(&pane_id) {
-        if matches!(session.activity, Activity::Done | Activity::AgentDone) {
-            session.done_attended = true;
+        // First attempt exhausted all tiers. If in rapid cycle, clear and retry.
+        if attempt == 0 && in_rapid_cycle {
+            state.attend_visited.clear();
+            if let Some(fpid) = state.focused_pane_id {
+                state.attend_visited.insert(fpid);
+            }
+        } else {
+            break;
         }
     }
 
-    Some((pane_id, tab_index))
+    None
 }
 
-fn read_last_attended() -> Option<u32> {
-    std::fs::read_to_string(ATTEND_STATE_PATH)
-        .ok()
-        .and_then(|s| s.trim().parse::<u32>().ok())
+/// Cycle through working sessions. Tier 1: Working, Tier 2: Waiting.
+/// Uses the same rapid-cycle visited-set logic as attend.
+fn perform_working_directed(
+    state: &mut ControllerState,
+    direction: AttendDirection,
+) -> Option<(u32, usize)> {
+    let tiers: Vec<Vec<AttendCandidate>> = {
+        let sessions = state.sessions_by_tab_order();
+        if sessions.is_empty() {
+            return None;
+        }
+
+        // Tier 1: Working sessions (most recent first)
+        let mut working: Vec<_> = sessions
+            .iter()
+            .filter(|s| !s.paused && matches!(s.activity, Activity::Working))
+            .copied()
+            .collect();
+        working.sort_by(|a, b| b.last_event_ts.cmp(&a.last_event_ts));
+
+        // Tier 2: Waiting sessions (Permission first, then Notification, oldest first)
+        let mut waiting: Vec<_> = sessions
+            .iter()
+            .filter(|s| !s.paused && matches!(s.activity, Activity::Waiting(_)))
+            .copied()
+            .collect();
+        waiting.sort_by(|a, b| {
+            let a_perm = matches!(a.activity, Activity::Waiting(WaitReason::Permission));
+            let b_perm = matches!(b.activity, Activity::Waiting(WaitReason::Permission));
+            b_perm
+                .cmp(&a_perm)
+                .then(a.last_event_ts.cmp(&b.last_event_ts))
+        });
+
+        let to_candidates = |tier: Vec<&Session>| -> Vec<AttendCandidate> {
+            tier.iter()
+                .map(|s| AttendCandidate {
+                    pane_id: s.pane_id,
+                    tab_index: s.tab_index,
+                    is_done: false,
+                })
+                .collect()
+        };
+
+        [to_candidates(working), to_candidates(waiting)]
+            .into_iter()
+            .filter(|t| !t.is_empty())
+            .collect()
+    };
+
+    if tiers.is_empty() {
+        return None;
+    }
+
+    // Reuse attend's rapid-cycle state (shared visited set and timing).
+    let now_ms = crate::session::unix_now_ms();
+    let in_rapid_cycle = state.config.attend_cycle_ms > 0
+        && now_ms.saturating_sub(state.last_attend_ms) < state.config.attend_cycle_ms;
+
+    if !in_rapid_cycle {
+        state.attend_visited.clear();
+    }
+
+    if let Some(fpid) = state.focused_pane_id {
+        state.attend_visited.insert(fpid);
+    }
+
+    for attempt in 0..2 {
+        for candidates in &tiers {
+            let pick = match direction {
+                AttendDirection::Forward => {
+                    candidates.iter().find(|c| !state.attend_visited.contains(&c.pane_id))
+                }
+                AttendDirection::Backward => {
+                    candidates.iter().rev().find(|c| !state.attend_visited.contains(&c.pane_id))
+                }
+            };
+
+            if let Some(candidate) = pick {
+                let pane_id = candidate.pane_id;
+                let tab_index = match candidate.tab_index {
+                    Some(t) => t,
+                    None => continue,
+                };
+
+                state.attend_visited.insert(pane_id);
+                state.last_attend_ms = now_ms;
+                state.last_attended_pane_id = Some(pane_id);
+
+                return Some((pane_id, tab_index));
+            }
+        }
+
+        if attempt == 0 && in_rapid_cycle {
+            state.attend_visited.clear();
+            if let Some(fpid) = state.focused_pane_id {
+                state.attend_visited.insert(fpid);
+            }
+        } else {
+            break;
+        }
+    }
+
+    None
 }
 
 fn write_last_attended(pane_id: u32) {

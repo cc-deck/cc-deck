@@ -444,6 +444,7 @@ impl PluginState {
     }
 
     /// Transition Done/AgentDone sessions to Idle after timeout.
+    /// Waiting states are NOT cleaned up by the timer.
     pub fn cleanup_stale_sessions(&mut self, timeout_secs: u64) -> bool {
         let now = crate::session::unix_now();
         let mut changed = false;

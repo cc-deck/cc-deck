@@ -68,6 +68,21 @@ pub fn handle_pane_update(state: &mut ControllerState, manifest: PaneManifest) {
     // Auto-discover sidebar plugin panes from manifest for reliable targeting
     super::sidebar_registry::discover_sidebars_from_manifest(state);
 
+    // Auto-unpause: when the user focuses a paused session, unpause it.
+    if let Some(focused_pid) = state.focused_pane_id {
+        if state.focused_pane_id != old_focused {
+            if let Some(s) = state.sessions.get_mut(&focused_pid) {
+                if s.paused {
+                    crate::debug_log(&format!(
+                        "CTRL PANE_UPDATE: auto-unpausing pane={focused_pid}"
+                    ));
+                    s.paused = false;
+                    s.last_event_ts = session::unix_now();
+                }
+            }
+        }
+    }
+
     // Broadcast immediately on focus change (for responsive click/switch feedback).
     // Other changes (count, removal) use coalesced rendering via timer.
     let focus_changed = state.focused_pane_id != old_focused;
@@ -101,6 +116,16 @@ pub fn handle_timer(state: &mut ControllerState, _elapsed: f64) {
     let stale = state.cleanup_stale_sessions(state.config.done_timeout);
     if stale {
         state.save_sessions();
+        state.mark_render_dirty();
+    }
+
+    // Fading colors change every tick for Done/Idle sessions
+    if state.sessions.values().any(|s| {
+        matches!(
+            s.activity,
+            Activity::Done | Activity::AgentDone | Activity::Idle
+        )
+    }) {
         state.mark_render_dirty();
     }
 
@@ -150,11 +175,17 @@ pub fn handle_run_command_result(
     _stderr: Vec<u8>,
     context: BTreeMap<String, String>,
 ) {
+    // Track git_branch command context before parsing consumes it
+    let is_branch_cmd = context.get("type").map(|t| t.as_str()) == Some("git_branch");
+    let branch_pane_id = if is_branch_cmd {
+        context.get("pane_id").and_then(|s| s.parse::<u32>().ok())
+    } else {
+        None
+    };
+
     // Clear in-flight tracking for git branch commands
-    if context.get("type").map(|t| t.as_str()) == Some("git_branch") {
-        if let Some(pane_id) = context.get("pane_id").and_then(|s| s.parse::<u32>().ok()) {
-            state.pending_git_branch.remove(&pane_id);
-        }
+    if let Some(pane_id) = branch_pane_id {
+        state.pending_git_branch.remove(&pane_id);
     }
 
     match git::parse_git_result(exit_code, stdout, context) {
@@ -199,7 +230,17 @@ pub fn handle_run_command_result(
                 }
             }
         }
-        GitResult::NotGit => {}
+        GitResult::NotGit => {
+            // If a git_branch command failed, clear the stale branch
+            if let Some(pane_id) = branch_pane_id {
+                if let Some(s) = state.sessions.get_mut(&pane_id) {
+                    if s.git_branch.is_some() {
+                        s.git_branch = None;
+                        state.mark_render_dirty();
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -246,6 +287,7 @@ fn register_keybindings(state: &ControllerState) {
     let plugin_id = state.plugin_id;
     let nav_prev = shift_variant(&state.config.navigate_key);
     let att_prev = shift_variant(&state.config.attend_key);
+    let wrk_prev = shift_variant(&state.config.working_key);
 
     let kdl = format!(
         r#"keybinds {{
@@ -260,6 +302,11 @@ fn register_keybindings(state: &ControllerState) {
                 name "cc-deck:attend"
             }}
         }}
+        bind "{wrk}" {{
+            MessagePluginId {id} {{
+                name "cc-deck:working"
+            }}
+        }}
         bind "{nav_prev}" {{
             MessagePluginId {id} {{
                 name "cc-deck:navigate-prev"
@@ -270,17 +317,24 @@ fn register_keybindings(state: &ControllerState) {
                 name "cc-deck:attend-prev"
             }}
         }}
+        bind "{wrk_prev}" {{
+            MessagePluginId {id} {{
+                name "cc-deck:working-prev"
+            }}
+        }}
     }}
 }}"#,
         nav = state.config.navigate_key,
         att = state.config.attend_key,
+        wrk = state.config.working_key,
         nav_prev = nav_prev,
         att_prev = att_prev,
+        wrk_prev = wrk_prev,
         id = plugin_id,
     );
     crate::debug_log(&format!(
-        "CTRL KEYBINDS registering: navigate={} attend={} plugin_id={}",
-        state.config.navigate_key, state.config.attend_key, plugin_id
+        "CTRL KEYBINDS registering: navigate={} attend={} working={} plugin_id={}",
+        state.config.navigate_key, state.config.attend_key, state.config.working_key, plugin_id
     ));
     zellij_tile::prelude::reconfigure(kdl, false);
 }

@@ -66,6 +66,11 @@ pub struct SidebarState {
     /// action. Provides immediate highlight without waiting for the controller
     /// to confirm the focus change in the next RenderPayload.
     pub local_focus_override: Option<u32>,
+
+    /// Timestamp (ms) of the last navigate-mode input (key event or navigate pipe).
+    /// Used to detect when the sidebar loses focus in navigate mode: if no input
+    /// arrives within NAVIGATE_INACTIVITY_MS, navigate mode exits automatically.
+    pub last_nav_input_ms: u64,
 }
 
 impl Default for SidebarState {
@@ -86,6 +91,7 @@ impl Default for SidebarState {
             permissions_granted: false,
             last_click: None,
             local_focus_override: None,
+            last_nav_input_ms: 0,
         }
     }
 }

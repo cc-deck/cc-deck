@@ -53,6 +53,8 @@ pub enum ActionType {
     Pause,
     Attend,
     AttendPrev,
+    Working,
+    WorkingPrev,
     Navigate,
     NewSession,
 }
@@ -198,6 +200,8 @@ mod protocol_tests {
             ActionType::Pause,
             ActionType::Attend,
             ActionType::AttendPrev,
+            ActionType::Working,
+            ActionType::WorkingPrev,
             ActionType::Navigate,
             ActionType::NewSession,
         ];

@@ -40,7 +40,7 @@ zellij --layout cc-deck-clean
 
 == Custom Keybindings
 
-The two global shortcuts (`Alt+s` for navigation, `Alt+a` for attend) can be changed.
+The three global shortcuts (`Alt+s` for navigation, `Alt+a` for attend, `Alt+w` for working) can be changed.
 
 === Using the Personal Layout
 
@@ -60,6 +60,7 @@ cp ~/.config/zellij/layouts/cc-deck.kdl ~/.config/zellij/layouts/cc-deck-persona
 plugin location="file:~/.config/zellij/plugins/cc_deck.wasm" {
     navigate_key "Super s"
     attend_key "Super n"
+    working_key "Alt w"
 }
 ----
 
@@ -103,10 +104,57 @@ And configure cc-deck to use Super keys in your personal layout:
 plugin location="file:~/.config/zellij/plugins/cc_deck.wasm" {
     navigate_key "Super s"
     attend_key "Super n"
+    working_key "Alt w"
 }
 ----
 
 This gives you `Cmd+S` for navigation and `Cmd+N` for smart attend, matching the macOS convention of using `Cmd` for app-level shortcuts.
+
+== Session Timing
+
+The plugin controls session lifecycle transitions through configurable timeouts.
+These determine how long a session stays in each state before advancing to the next.
+
+The full lifecycle is:
+
+----
+Working ──[done_timeout]──> Done ──[done_timeout]──> Idle ──[auto_pause_secs]──> Paused
+----
+
+Configure these in the plugin block of your layout file:
+
+[source,kdl]
+----
+plugin location="file:~/.config/zellij/plugins/cc_deck.wasm" {
+    done_timeout "300"        // seconds before Working→Done and Done→Idle (default: 300)
+    idle_fade_secs "3600"     // idle indicator fade duration in seconds (default: 3600)
+    auto_pause_secs "3600"    // auto-pause after idle for this many seconds (default: 3600, 0 to disable)
+    attend_cycle_ms "2000"    // rapid-cycle window for attend/working in ms (default: 2000, 0 to disable)
+}
+----
+
+[cols="2,1,4"]
+|===
+| Key | Default | Description
+
+| `done_timeout`
+| 300
+| Seconds of inactivity before a Working session transitions to Done (green checkmark), and again before Done transitions to Idle.
+
+| `idle_fade_secs`
+| 3600
+| Duration in seconds over which the Idle indicator fades from light grey to dark grey, providing a visual sense of staleness.
+
+| `auto_pause_secs`
+| 3600
+| Seconds an Idle session waits before auto-pausing. Paused sessions are excluded from attend cycling and hook processing. Set to 0 to disable auto-pause.
+
+| `attend_cycle_ms`
+| 2000
+| When pressing `Alt+a` or `Alt+w` repeatedly within this window (in milliseconds), each press skips already-visited sessions. After the window expires, the next press resets to the most recent candidate. Set to 0 to disable rapid-cycle behavior.
+|===
+
+Auto-paused sessions unpause automatically when you switch to them (via click, navigate, or attend).
 
 == Setting cc-deck as Default
 

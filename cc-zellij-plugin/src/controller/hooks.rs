@@ -8,7 +8,7 @@
 use super::state::{ControllerState, PendingOverride};
 use crate::git;
 use crate::pipe_handler::{hook_event_to_activity, is_session_end, HookPayload};
-use crate::session::{self, Session};
+use crate::session::{self, Activity, Session};
 
 /// Process a hook event from the CLI. Returns true if state changed visibly.
 pub fn process_hook(state: &mut ControllerState, hook: HookPayload) -> bool {
@@ -22,11 +22,46 @@ pub fn process_hook(state: &mut ControllerState, hook: HookPayload) -> bool {
         return removed;
     }
 
+    // Guard: PostToolUse/PostToolUseFailure must NOT clear Waiting(Permission).
+    // With parallel tool execution, a PostToolUse from tool B can arrive
+    // right after PermissionRequest from tool A, incorrectly clearing the
+    // attention icon. Only forward-progress events (PreToolUse, UserPromptSubmit,
+    // SubagentStart, Stop) should clear Waiting(Permission).
+    //
+    // However, PostToolUse IS allowed to clear Waiting(Notification) since
+    // Notification is a soft/non-blocking state. A common sequence is:
+    //   PermissionRequest → Waiting(Permission)
+    //   Notification → Waiting(Notification) (fires after 6s inactivity)
+    //   PostToolUse → should transition to Working (tool was approved and ran)
+    // Without this, sessions get stuck in Waiting after the user approves.
+    let is_post_tool = matches!(
+        hook.hook_event_name.as_str(),
+        "PostToolUse" | "PostToolUseFailure"
+    );
+    let is_waiting_permission = state
+        .sessions
+        .get(&hook.pane_id)
+        .map(|s| matches!(s.activity, Activity::Waiting(session::WaitReason::Permission)))
+        .unwrap_or(false);
+    if is_post_tool && is_waiting_permission {
+        crate::debug_log(&format!(
+            "CTRL HOOK: pane={} suppressing {} while Waiting(Permission)",
+            hook.pane_id, hook.hook_event_name,
+        ));
+        if let Some(session) = state.sessions.get_mut(&hook.pane_id) {
+            session.last_event_ts = session::unix_now();
+        }
+        return false;
+    }
+
     // Map hook event to activity
     let activity = match hook_event_to_activity(&hook.hook_event_name, hook.tool_name.as_deref()) {
         Some(a) => a,
         None => {
-            // Unknown event: just refresh timestamp
+            // Non-activity events (Notification, unknown): just refresh timestamp.
+            // Notification fires after 6s of user inactivity (including while
+            // a permission prompt is showing), so it does NOT indicate the
+            // session has moved past the waiting state.
             if let Some(session) = state.sessions.get_mut(&hook.pane_id) {
                 session.last_event_ts = session::unix_now();
             }
@@ -80,10 +115,27 @@ pub fn process_hook(state: &mut ControllerState, hook: HookPayload) -> bool {
     }
 
     // Transition activity
+    let was_waiting = state
+        .sessions
+        .get(&hook.pane_id)
+        .map(|s| s.activity.is_waiting())
+        .unwrap_or(false);
     let changed = match state.sessions.get_mut(&hook.pane_id) {
         Some(s) => s.transition(activity),
         None => return false,
     };
+    if was_waiting && changed {
+        crate::debug_log(&format!(
+            "CTRL HOOK: pane={} left Waiting via {}",
+            hook.pane_id, hook.hook_event_name,
+        ));
+    }
+    if was_waiting && !changed {
+        crate::debug_log(&format!(
+            "CTRL HOOK: pane={} STUCK in Waiting, rejected {} transition",
+            hook.pane_id, hook.hook_event_name,
+        ));
+    }
 
     // Update session_id
     if let Some(ref sid) = hook.session_id {
