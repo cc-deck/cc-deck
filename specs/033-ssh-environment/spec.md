@@ -5,6 +5,15 @@
 **Status**: Draft  
 **Input**: User description: "SSH Remote Execution Environment - run Claude Code on persistent remote machines via SSH, managing Zellij sessions, credential forwarding, and file sync over SSH connections"
 
+## Clarifications
+
+### Session 2026-04-07
+
+- Q: How should the credential file be integrated into the remote shell? → A: Zellij layout ENV directive or wrapper command (no modification of user shell config files)
+- Q: What is the default workspace directory when not specified? → A: `~/workspace`
+- Q: How should harvest retrieve git commits from the remote? → A: Add temporary git remote via SSH, `git fetch`, then remove the temporary remote
+- Q: What is the `auto` auth mode detection priority order? → A: `ANTHROPIC_API_KEY` first, then Vertex, then Bedrock; first match wins
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Connect to a Remote Development Machine (Priority: P1)
@@ -52,14 +61,15 @@ The developer configures how API credentials (for Claude Code) are forwarded to 
 
 **Acceptance Scenarios**:
 
-1. **Given** `auth: auto` in the environment definition, **When** the user attaches, **Then** the system detects available credentials from the local environment, writes them to a credential file on the remote, and ensures the remote shell sources that file.
+1. **Given** `auth: auto` in the environment definition, **When** the user attaches, **Then** the system detects available credentials from the local environment using priority order (`ANTHROPIC_API_KEY` first, then Vertex via `GOOGLE_APPLICATION_CREDENTIALS`/`CLOUD_ML_REGION`, then Bedrock via `AWS_ACCESS_KEY_ID`; first match wins), writes them to a credential file on the remote, and ensures the remote shell sources that file.
 2. **Given** `auth: api` in the definition, **When** the user attaches, **Then** the system writes `ANTHROPIC_API_KEY` to the remote credential file.
 3. **Given** `auth: none` in the definition, **When** the user attaches, **Then** the system does not write any credential file (assumes credentials are already on the remote machine).
 4. **Given** explicit credential names in the `credentials` list, **When** the user attaches, **Then** exactly those environment variables are written to the remote credential file.
 5. **Given** the required credential is not available locally, **When** the user attempts to attach with a non-"none" auth mode, **Then** the system warns that the credential is missing and lets the user decide whether to continue without it.
-6. **Given** `auth: vertex` with a `GOOGLE_APPLICATION_CREDENTIALS` file path, **When** the user attaches, **Then** the system copies the referenced credential file to the remote and sets the env var in the credential file to point to the remote copy.
-7. **Given** a user has detached and reattached to an SSH environment, **When** a new pane is opened in Zellij, **Then** the new pane has access to the credentials from the most recent attach.
-8. **Given** credentials have changed locally since the last attach, **When** the user reattaches, **Then** the credential file on the remote is updated with the new values.
+6. **Given** `auth: bedrock` in the definition, **When** the user attaches, **Then** the system writes `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and (if present) `AWS_SESSION_TOKEN` and `AWS_REGION` to the remote credential file.
+7. **Given** `auth: vertex` with a `GOOGLE_APPLICATION_CREDENTIALS` file path, **When** the user attaches, **Then** the system copies the referenced credential file to the remote and sets the env var in the credential file to point to the remote copy.
+8. **Given** a user has detached and reattached to an SSH environment, **When** a new pane is opened in Zellij, **Then** the new pane has access to the credentials from the most recent attach.
+9. **Given** credentials have changed locally since the last attach, **When** the user reattaches, **Then** the credential file on the remote is updated with the new values.
 
 ---
 
@@ -160,7 +170,7 @@ The developer retrieves git commits made by Claude Code on the remote machine, b
 
 - **FR-001**: System MUST support a new environment type `ssh` that manages Zellij sessions on a remote machine over SSH connections.
 - **FR-002**: System MUST accept SSH environment definitions with at minimum a `host` field (user@host format) and `type: ssh`.
-- **FR-003**: System MUST support optional SSH configuration overrides: `port`, `identity-file`, `jump-host`, `ssh-config`, and `workspace`.
+- **FR-003**: System MUST support optional SSH configuration overrides: `port`, `identity-file`, `jump-host`, `ssh-config`, and `workspace` (defaults to `~/workspace` on the remote when not specified).
 - **FR-004**: System MUST respect the user's `~/.ssh/config` by default for connection parameters not explicitly overridden.
 - **FR-005**: System MUST run pre-flight checks during environment creation: SSH connectivity, OS/architecture detection, Zellij availability, Claude Code availability, cc-deck CLI availability, cc-deck plugin status, and credential verification.
 - **FR-006**: System MUST offer automated installation for missing tools (Zellij, Claude Code, cc-deck CLI, cc-deck plugin) when the remote platform is supported (linux/amd64, linux/arm64).
@@ -178,8 +188,8 @@ The developer retrieves git commits made by Claude Code on the remote machine, b
 - **FR-018**: System MUST implement `Status` by querying the remote machine over SSH (no caching), with a per-host timeout.
 - **FR-019**: System MUST implement `Push` and `Pull` using rsync over SSH, respecting configured exclusion patterns, with scp as a fallback when rsync is unavailable.
 - **FR-020**: System MUST implement `Exec` to run commands on the remote machine in the configured workspace directory.
-- **FR-021**: System MUST implement `Harvest` to retrieve git commits from the remote repository to the local repository.
-- **FR-022**: System MUST treat `Start` and `Stop` as no-ops with informational warnings, since remote machine lifecycle is managed externally.
+- **FR-021**: System MUST implement `Harvest` to retrieve git commits from the remote repository to the local repository by adding a temporary git remote pointing to the remote workspace via SSH, fetching commits, and removing the temporary remote.
+- **FR-022**: System MUST treat `Start` and `Stop` as no-ops that return `ErrNotSupported`, since remote machine lifecycle is managed externally. Callers that display status should present this as an informational message, not a failure.
 - **FR-023**: System MUST implement `Delete` to remove the state record and optionally kill the remote Zellij session (with `--force`).
 - **FR-024**: System MUST update `LastAttached` timestamp in the state store on each attach.
 - **FR-025**: System MUST comply with the Environment Interface behavioral contract (session naming via `cc-deck-<name>`, name validation, tool checks, state recording, cleanup on failure, running check before delete).
@@ -214,7 +224,7 @@ The developer retrieves git commits made by Claude Code on the remote machine, b
 - The system `ssh` binary is available on the local machine's PATH.
 - `rsync` is available on the local machine for push/pull operations. If rsync is unavailable on the remote, the system falls back to `scp`.
 - The user has working SSH key-based authentication configured (either via ssh-agent, key files, or SSH config) before creating the environment.
-- Credentials are persisted to a file on the remote (`~/.config/cc-deck/credentials.env`, mode 600) and sourced by the shell on pane startup. This ensures new panes pick up credentials after detach/reattach. The file is rewritten on each attach and can be refreshed independently via a dedicated command.
+- Credentials are persisted to a file on the remote (`~/.config/cc-deck/credentials.env`, mode 600). The Zellij layout uses an ENV directive or wrapper command to source this file on pane startup, so credential integration does not modify the user's shell config files (`.bashrc`, `.zshrc`). This ensures new panes pick up credentials after detach/reattach. The file is rewritten on each attach and can be refreshed independently via a dedicated command.
 - File-based credentials (e.g., GCP service account JSON referenced by `GOOGLE_APPLICATION_CREDENTIALS`) are copied to the remote via the SSH connection. The credential file's env var is updated to point to the remote copy.
 - For long-running sessions with short-lived tokens (AWS session tokens, Google Cloud access tokens), the recommended approach is to either use the refresh-creds command periodically or configure the remote machine's own auth CLI (gcloud, aws) for autonomous token renewal.
 - Multi-session support is provided via `cc-deck-<name>` session naming (one Zellij session per environment name on each remote host).
