@@ -49,6 +49,10 @@ pub enum PipeAction {
     NavigatePrev,
     /// Attend previous - reverse-cycle through attend tiers (cc-deck:attend-prev).
     AttendPrev,
+    /// Cycle through working sessions (cc-deck:working).
+    Working,
+    /// Cycle through working sessions in reverse (cc-deck:working-prev).
+    WorkingPrev,
     /// Force-refresh state: clear caches, broadcast active instance's state (cc-deck:refresh).
     Refresh,
     /// Unknown message.
@@ -88,6 +92,8 @@ pub fn parse_pipe_message(name: &str, payload: Option<&str>) -> PipeAction {
         "cc-deck:help" => PipeAction::Help,
         "cc-deck:navigate-prev" => PipeAction::NavigatePrev,
         "cc-deck:attend-prev" => PipeAction::AttendPrev,
+        "cc-deck:working" => PipeAction::Working,
+        "cc-deck:working-prev" => PipeAction::WorkingPrev,
         "cc-deck:refresh" => PipeAction::Refresh,
         _ => PipeAction::Unknown,
     }
@@ -98,7 +104,7 @@ pub fn parse_pipe_message(name: &str, payload: Option<&str>) -> PipeAction {
 pub fn hook_event_to_activity(event: &str, _tool_name: Option<&str>) -> Option<Activity> {
     match event {
         "SessionStart" => Some(Activity::Init),
-        "PreToolUse" | "PostToolUse" | "PostToolUseFailure" | "UserPromptSubmit" => Some(Activity::Working),
+        "PreToolUse" | "PostToolUse" | "PostToolUseFailure" | "UserPromptSubmit" | "SubagentStart" => Some(Activity::Working),
         "PermissionRequest" => Some(Activity::Waiting(WaitReason::Permission)),
         "Stop" => Some(Activity::Done),
         "SubagentStop" => Some(Activity::AgentDone),

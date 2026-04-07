@@ -12,7 +12,7 @@ use cc_deck::{ActionMessage, ActionType};
 use crate::session::unix_now_ms;
 use zellij_tile::prelude::*;
 
-const DOUBLE_CLICK_MS: u64 = 500;
+const DOUBLE_CLICK_MS: u64 = 300;
 
 /// Handle a mouse event. Returns true if the sidebar should re-render.
 pub fn handle_mouse(state: &mut SidebarState, mouse: Mouse) -> bool {
@@ -25,6 +25,17 @@ pub fn handle_mouse(state: &mut SidebarState, mouse: Mouse) -> bool {
 
 /// Handle a key event. Returns true if the sidebar should re-render.
 pub fn handle_key(state: &mut SidebarState, key: KeyWithModifier) -> bool {
+    crate::debug_log(&format!(
+        "SIDEBAR KEY: {:?} mode={:?}",
+        key.bare_key,
+        std::mem::discriminant(&state.mode),
+    ));
+
+    // Track last input time for navigate inactivity detection.
+    if state.mode.is_navigating() {
+        state.last_nav_input_ms = unix_now_ms();
+    }
+
     // Help mode: any key dismisses
     if state.mode.is_help() {
         state.mode.dismiss_help();
@@ -46,10 +57,24 @@ pub fn handle_key(state: &mut SidebarState, key: KeyWithModifier) -> bool {
 /// Enter navigate mode, or move cursor up if already navigating.
 /// Called when controller forwards navigate-prev keybinding (Shift-Alt-s).
 pub fn toggle_navigate_prev(state: &mut SidebarState) {
+    state.last_nav_input_ms = unix_now_ms();
+    crate::debug_log(&format!(
+        "SIDEBAR NAV-PREV: mode={:?} tab={:?}",
+        std::mem::discriminant(&state.mode),
+        state.my_tab_index,
+    ));
     match &state.mode {
         SidebarMode::Passive => {
-            // Enter navigate with cursor at active session
-            let start = active_session_index(state);
+            let active = active_session_index(state);
+            let count = state.filtered_sessions().len();
+            // Start one position back (symmetric with toggle_navigate)
+            let start = if count == 0 {
+                0
+            } else if active == 0 {
+                count - 1
+            } else {
+                active - 1
+            };
             let ctx = NavigateContext {
                 cursor_index: start,
                 restore_pane_id: state.focused_pane_id(),
@@ -59,7 +84,7 @@ pub fn toggle_navigate_prev(state: &mut SidebarState) {
             state.mode = SidebarMode::Navigate(ctx);
             crate::wasm_compat::set_selectable_wasm(true);
             focus_self_wasm();
-            state.set_notification("Navigate mode", 2);
+            crate::debug_log(&format!("SIDEBAR NAV-PREV: entered Navigate cursor={start}"));
         }
         SidebarMode::Navigate(_) => {
             // Already navigating: move cursor up
@@ -72,10 +97,30 @@ pub fn toggle_navigate_prev(state: &mut SidebarState) {
                 } else {
                     ctx.cursor_index - 1
                 };
+                crate::debug_log(&format!("SIDEBAR NAV-PREV: cursor up -> {}", ctx.cursor_index));
             }
+            // Re-assert focus (see toggle_navigate for rationale)
+            focus_self_wasm();
         }
         _ => {
-            exit_navigate(state);
+            // Cancel current mode and enter Navigate directly
+            crate::debug_log(&format!(
+                "SIDEBAR NAV-PREV: mode {:?}, cancelling and entering navigate",
+                std::mem::discriminant(&state.mode),
+            ));
+            state.mode = SidebarMode::Passive;
+            state.filter_text.clear();
+            let start = active_session_index(state);
+            let ctx = NavigateContext {
+                cursor_index: start,
+                restore_pane_id: state.focused_pane_id(),
+                restore_tab_index: state.my_tab_index,
+                entered_at_ms: unix_now_ms(),
+            };
+            state.mode = SidebarMode::Navigate(ctx);
+            crate::wasm_compat::set_selectable_wasm(true);
+            focus_self_wasm();
+            crate::debug_log(&format!("SIDEBAR NAV-PREV: entered Navigate cursor={start}"));
         }
     }
 }
@@ -97,9 +142,19 @@ fn active_session_index(state: &SidebarState) -> usize {
 /// Enter navigate mode, or move cursor down if already navigating.
 /// Called when controller forwards navigate keybinding (Alt-s).
 pub fn toggle_navigate(state: &mut SidebarState) {
+    state.last_nav_input_ms = unix_now_ms();
+    crate::debug_log(&format!(
+        "SIDEBAR NAV: mode={:?} tab={:?}",
+        std::mem::discriminant(&state.mode),
+        state.my_tab_index,
+    ));
     match &state.mode {
         SidebarMode::Passive => {
-            let start = active_session_index(state);
+            let active = active_session_index(state);
+            let count = state.filtered_sessions().len();
+            // Start one position ahead: the user typically wants to navigate
+            // away from the current session, not act on it.
+            let start = if count == 0 { 0 } else { (active + 1) % count };
             let ctx = NavigateContext {
                 cursor_index: start,
                 restore_pane_id: state.focused_pane_id(),
@@ -109,7 +164,7 @@ pub fn toggle_navigate(state: &mut SidebarState) {
             state.mode = SidebarMode::Navigate(ctx);
             crate::wasm_compat::set_selectable_wasm(true);
             focus_self_wasm();
-            state.set_notification("Navigate mode", 2);
+            crate::debug_log(&format!("SIDEBAR NAV: entered Navigate cursor={start}"));
         }
         SidebarMode::Navigate(_) => {
             // Already navigating: move cursor down
@@ -120,11 +175,35 @@ pub fn toggle_navigate(state: &mut SidebarState) {
                 } else {
                     (ctx.cursor_index + 1) % count
                 };
+                crate::debug_log(&format!("SIDEBAR NAV: cursor down -> {}", ctx.cursor_index));
             }
+            // Re-assert focus: the keybinding routes through the controller
+            // plugin, which can cause Zellij to shift focus away from the
+            // sidebar. Without this, key events (Enter, Esc, j/k) are
+            // delivered to the terminal instead.
+            focus_self_wasm();
         }
         _ => {
-            // In a sub-mode (filter, rename, delete confirm): exit to passive
-            exit_navigate(state);
+            // In another mode (filter, rename, delete confirm, RenamePassive):
+            // cancel it and enter Navigate directly so Alt+s always works.
+            crate::debug_log(&format!(
+                "SIDEBAR NAV: mode {:?}, cancelling and entering navigate",
+                std::mem::discriminant(&state.mode),
+            ));
+            state.mode = SidebarMode::Passive;
+            state.filter_text.clear();
+            // Re-enter navigate from the now-Passive state
+            let start = active_session_index(state);
+            let ctx = NavigateContext {
+                cursor_index: start,
+                restore_pane_id: state.focused_pane_id(),
+                restore_tab_index: state.my_tab_index,
+                entered_at_ms: unix_now_ms(),
+            };
+            state.mode = SidebarMode::Navigate(ctx);
+            crate::wasm_compat::set_selectable_wasm(true);
+            focus_self_wasm();
+            crate::debug_log(&format!("SIDEBAR NAV: entered Navigate cursor={start}"));
         }
     }
 }
@@ -134,10 +213,6 @@ pub fn toggle_navigate(state: &mut SidebarState) {
 fn handle_left_click(state: &mut SidebarState, row: usize) -> bool {
     // Check for special click regions
     if let Some(&(_r, pane_id, _)) = state.click_regions.iter().find(|(r, _, _)| *r == row) {
-        if pane_id == u32::MAX {
-            send_action(state, ActionType::NewSession, None, None, None);
-            return false;
-        }
         if pane_id == u32::MAX - 1 {
             // Header clicked: enter/cycle navigate mode
             toggle_navigate(state);
@@ -172,8 +247,12 @@ fn handle_left_click(state: &mut SidebarState, row: usize) -> bool {
             Some(tab_index),
             None,
         );
-        // Exit navigate mode on switch
-        if state.mode.is_navigating() {
+        // Exit navigate or RenamePassive mode on switch
+        if state.mode.is_navigating() || matches!(state.mode, SidebarMode::RenamePassive { .. }) {
+            crate::debug_log(&format!(
+                "SIDEBAR CLICK: exiting {:?}, switching to pane={pane_id}",
+                std::mem::discriminant(&state.mode),
+            ));
             state.mode = SidebarMode::Passive;
             state.filter_text.clear();
             crate::wasm_compat::set_selectable_wasm(false);
@@ -261,6 +340,9 @@ fn handle_navigate_key(state: &mut SidebarState, key: KeyWithModifier) -> bool {
             drop(sessions);
 
             if let Some((pane_id, tab_index)) = target {
+                crate::debug_log(&format!(
+                    "SIDEBAR ENTER: switching to pane={pane_id} tab={tab_index} cursor={cursor}"
+                ));
                 send_action(
                     state,
                     ActionType::Switch,
@@ -269,10 +351,6 @@ fn handle_navigate_key(state: &mut SidebarState, key: KeyWithModifier) -> bool {
                     None,
                 );
                 state.local_focus_override = Some(pane_id);
-                crate::debug_log(&format!(
-                    "SIDEBAR ENTER: set override={pane_id}, cached_focus={:?}",
-                    state.focused_pane_id()
-                ));
             }
             state.mode = SidebarMode::Passive;
             state.filter_text.clear();
@@ -280,6 +358,7 @@ fn handle_navigate_key(state: &mut SidebarState, key: KeyWithModifier) -> bool {
             true
         }
         BareKey::Esc => {
+            crate::debug_log("SIDEBAR ESC: exiting navigate");
             exit_navigate(state);
             true
         }
@@ -334,8 +413,11 @@ fn handle_navigate_key(state: &mut SidebarState, key: KeyWithModifier) -> bool {
             true
         }
         BareKey::Char('n') => {
-            // New session
+            // New session: create tab and exit navigate without restoring focus
             send_action(state, ActionType::NewSession, None, None, None);
+            state.mode = SidebarMode::Passive;
+            state.filter_text.clear();
+            crate::wasm_compat::set_selectable_wasm(false);
             true
         }
         _ => false,
@@ -470,9 +552,14 @@ fn handle_rename_key(state: &mut SidebarState, key: KeyWithModifier) -> bool {
 // --- Helpers ---
 
 fn exit_navigate(state: &mut SidebarState) {
+    crate::debug_log(&format!(
+        "SIDEBAR EXIT-NAV: mode={:?}",
+        std::mem::discriminant(&state.mode),
+    ));
     if let Some(ctx) = state.mode.nav_ctx() {
         // Restore focus to the original pane
         if let (Some(pid), Some(tab)) = (ctx.restore_pane_id, ctx.restore_tab_index) {
+            crate::debug_log(&format!("SIDEBAR EXIT-NAV: restoring pane={pid} tab={tab}"));
             send_action(
                 state,
                 ActionType::Switch,

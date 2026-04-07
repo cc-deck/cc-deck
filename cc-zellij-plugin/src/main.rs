@@ -36,14 +36,15 @@ static mut DEBUG_ENABLED: bool = false;
 
 #[cfg(target_family = "wasm")]
 fn debug_init() {
-    let enabled = std::path::Path::new("/cache/debug_enabled").exists();
+    // TEMPORARY: force debug on to diagnose navigate mode issues
+    let enabled = true;
+    // Create the marker so the plugin knows debug is active
+    let _ = std::fs::write("/cache/debug_enabled", b"");
     unsafe {
         DEBUG_ENABLED = enabled;
     }
-    if enabled {
-        // Truncate the log on each plugin load so it stays fresh per session.
-        let _ = std::fs::write("/cache/debug.log", b"");
-    }
+    // Truncate the log on each plugin load so it stays fresh per session.
+    let _ = std::fs::write("/cache/debug.log", b"");
 }
 
 #[cfg(not(target_family = "wasm"))]
@@ -60,7 +61,10 @@ fn debug_log(msg: &str) {
         .open("/cache/debug.log")
     {
         use std::io::Write;
-        let _ = writeln!(f, "{}", msg);
+        let ts = crate::session::unix_now_ms();
+        let secs = ts / 1000;
+        let millis = ts % 1000;
+        let _ = writeln!(f, "[{secs}.{millis:03}] {msg}");
     }
 }
 
@@ -1191,6 +1195,10 @@ impl ZellijPlugin for PluginState {
                 true
             }
 
+            // Working key actions: handled by controller in split architecture.
+            // Legacy monolithic plugin ignores them.
+            PipeAction::Working | PipeAction::WorkingPrev => false,
+
             PipeAction::Unknown => false,
         };
 
@@ -1446,19 +1454,6 @@ impl PluginState {
                             enter_navigation_mode(self);
                         }
                         return true;
-                    } else if pane_id == u32::MAX {
-                        // [+] New session button clicked
-                        match self.config.new_session_mode {
-                            config::NewSessionMode::Tab => {
-                                debug_log(&format!("AUTO-START [+] clicked, tabs.len()={}", self.tabs.len()));
-                                create_new_session_tab();
-                            }
-                            config::NewSessionMode::Pane => create_new_session_pane(),
-                        }
-                        self.notification = Some(notification::create_notification(
-                            "Creating tab...",
-                            2,
-                        ));
                     } else {
                         // Double-click detection
                         let shared = read_shared_last_click();
@@ -1508,13 +1503,17 @@ impl PluginState {
             }
             Event::Key(key) => self.handle_key(key),
             Event::RunCommandResult(exit_code, stdout, _stderr, context) => {
-                // Clear in-flight tracking for git branch commands
-                if context.get("type").map(|t| t.as_str()) == Some("git_branch") {
-                    if let Some(pane_id) = context.get("pane_id").and_then(|s| s.parse::<u32>().ok()) {
-                        self.pending_git_branch.remove(&pane_id);
-                    }
+                // Track git_branch command context before parsing
+                let is_branch_cmd = context.get("type").map(|t| t.as_str()) == Some("git_branch");
+                let branch_pane_id = if is_branch_cmd {
+                    context.get("pane_id").and_then(|s| s.parse::<u32>().ok())
+                } else {
+                    None
+                };
+                if let Some(pane_id) = branch_pane_id {
+                    self.pending_git_branch.remove(&pane_id);
                 }
-                self.handle_git_result(exit_code, stdout, context)
+                self.handle_git_result(exit_code, stdout, context, branch_pane_id)
             }
             Event::CommandPaneOpened(terminal_pane_id, context) => {
                 if context.get("cc-deck").map(|v| v.as_str()) == Some("new-session") {
@@ -1896,6 +1895,7 @@ impl PluginState {
         exit_code: Option<i32>,
         stdout: Vec<u8>,
         context: BTreeMap<String, String>,
+        branch_pane_id: Option<u32>,
     ) -> bool {
         match git::parse_git_result(exit_code, stdout, context) {
             GitResult::RepoDetected { pane_id, repo_path } => {
@@ -1945,7 +1945,18 @@ impl PluginState {
                     false
                 }
             }
-            GitResult::NotGit => false,
+            GitResult::NotGit => {
+                // If a git_branch command failed, clear the stale branch
+                if let Some(pane_id) = branch_pane_id {
+                    if let Some(s) = self.sessions.get_mut(&pane_id) {
+                        if s.git_branch.is_some() {
+                            s.git_branch = None;
+                            return true;
+                        }
+                    }
+                }
+                false
+            }
         }
     }
 

@@ -31,7 +31,7 @@ fn render_header(state: &PluginState, cols: usize) {
         // Orange star + total | status counts
         let mut status_parts = Vec::new();
         if waiting > 0 {
-            status_parts.push(format!("\x1b[38;2;255;60;60m\u{26a0} {waiting}\x1b[0m"));
+            status_parts.push(format!("\x1b[38;2;255;109;109m\u{26a0} {waiting}\x1b[0m"));
         }
         if working > 0 {
             status_parts.push(format!("\x1b[38;2;180;140;255m\u{25cf} {working}\x1b[0m"));
@@ -128,7 +128,7 @@ pub fn render_sidebar(state: &PluginState, rows: usize, cols: usize) -> Vec<Clic
             // Render delete confirmation instead of normal entry
             let prompt = format!(" Delete \"{}\"?", truncate(&session.display_name, cols.saturating_sub(14)));
             let confirm_hint = " [y/N]";
-            print!("\x1b[{};1H{}", row + 1, pad(&format!("\x1b[38;2;255;60;60m{prompt}\x1b[0m"), cols));
+            print!("\x1b[{};1H{}", row + 1, pad(&format!("\x1b[38;2;255;109;109m{prompt}\x1b[0m"), cols));
             print!("\x1b[{};1H{}", row + 2, pad(&format!("\x1b[2m{confirm_hint}\x1b[0m"), cols));
             print!("\x1b[{};1H{}", row + 3, " ".repeat(cols));
             if let Some(tab_idx) = session.tab_index {
@@ -152,7 +152,7 @@ pub fn render_sidebar(state: &PluginState, rows: usize, cols: usize) -> Vec<Clic
         row += 1;
     }
 
-    // Bottom row: search input (when filtering) or [+] button
+    // Bottom row: search input (when filtering)
     if let Some(fs) = state.sidebar_mode.filter_state() {
         // Render search input
         if row < rows.saturating_sub(1) {
@@ -187,11 +187,6 @@ pub fn render_sidebar(state: &PluginState, rows: usize, cols: usize) -> Vec<Clic
             print!("\x1b[{};1H{}", row + 1, pad(&search_line, cols));
             row += 1;
         }
-    } else if row < rows.saturating_sub(1) {
-        let btn = "  [+] New tab";
-        print_line(row, cols, btn, Style::Dim);
-        click_regions.push((row, u32::MAX, usize::MAX));
-        row += 1;
     }
 
     // Render notification right below session list (if active)
@@ -367,7 +362,6 @@ fn render_session_entry(
 }
 
 /// Render the empty state (no Claude sessions).
-/// Returns click regions for the [+] button.
 fn render_empty_state(state: &PluginState, rows: usize, cols: usize) -> Vec<ClickRegion> {
     render_header(state, cols);
     let mut click_regions = Vec::new();
@@ -378,16 +372,8 @@ fn render_empty_state(state: &PluginState, rows: usize, cols: usize) -> Vec<Clic
     if rows > 3 {
         print_line(3, cols, "  No Claude sessions", Style::Dim);
     }
-    if rows > 4 {
-        print_line(4, cols, "", Style::Normal);
-    }
-    if rows > 5 {
-        let btn = "  [+] New tab";
-        print_line(5, cols, btn, Style::Dim);
-        click_regions.push((5, u32::MAX, usize::MAX));
-    }
 
-    for row in 6..rows {
+    for row in 4..rows {
         print_line(row, cols, "", Style::Normal);
     }
 

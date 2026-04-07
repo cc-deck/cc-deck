@@ -49,21 +49,47 @@ Paused sessions::
 Sessions you have explicitly paused.
 See xref:sessions.adoc#pause[Pause] for how to toggle this.
 
-== Round-Robin Behavior
+== Recency-First Cycling
 
-Smart attend does not always jump to the same highest-priority session.
-It tracks which session you last attended and continues from there.
+Within each tier, sessions are sorted by most recently active first (except Waiting, which uses urgency ordering).
+This means the "hottest" sessions, those you worked on most recently, come first.
 
-For example, if you have three sessions waiting for permission (A, B, C):
+Pressing `Alt+a` repeatedly within 2 seconds (configurable via `attend_cycle_ms`) cycles through candidates without revisiting:
 
-1. First `Alt+a`: attends A
-2. Second `Alt+a`: attends B
-3. Third `Alt+a`: attends C
-4. Fourth `Alt+a`: back to A (if still waiting)
+1. First `Alt+a`: jumps to most recently active candidate
+2. Second `Alt+a` (within 2s): jumps to next most recent
+3. Third `Alt+a` (within 2s): jumps to the next, and so on
 
-This ensures every session gets your attention, not just the first one in the list.
+After a 2-second pause, the next press resets and jumps to the most recent candidate again.
 
-The round-robin state is persisted to disk, so it survives Zellij restarts and is shared across sidebar instances on different tabs.
+If the only candidate in the top tier is the session you are already on, attend falls through to the next tier so you always move somewhere.
+
+== Working Jump (Alt+w)
+
+While smart attend focuses on sessions that need your attention (waiting, done, idle), the working jump focuses on sessions that are actively running.
+
+Press `Alt+w` to jump to the next working session.
+This is useful when you want to check on sessions that are in progress.
+
+Working jump uses two tiers:
+
+[cols="1,1,3"]
+|===
+| Priority | State | Ordering
+
+| 1 (highest)
+| Working
+| Most recently active first
+
+| 2
+| Waiting
+| Permission first, then notification, oldest first
+|===
+
+Working jump uses the same rapid-cycle behavior as smart attend.
+Pressing `Alt+w` repeatedly within 2 seconds cycles through all working sessions without revisiting.
+
+The key is configurable via `working_key` in the plugin configuration.
 
 == Visual Indicators
 

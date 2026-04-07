@@ -210,6 +210,30 @@ impl ZellijPlugin for ControllerPlugin {
                     },
                 );
             }
+            PipeAction::Working => {
+                actions::handle_action(
+                    &mut self.state,
+                    ActionMessage {
+                        action: cc_deck::ActionType::Working,
+                        pane_id: None,
+                        tab_index: None,
+                        value: None,
+                        sidebar_plugin_id: 0,
+                    },
+                );
+            }
+            PipeAction::WorkingPrev => {
+                actions::handle_action(
+                    &mut self.state,
+                    ActionMessage {
+                        action: cc_deck::ActionType::WorkingPrev,
+                        pane_id: None,
+                        tab_index: None,
+                        value: None,
+                        sidebar_plugin_id: 0,
+                    },
+                );
+            }
             PipeAction::Navigate | PipeAction::NavToggle => {
                 let is_own_broadcast = matches!(
                     &pipe_message.source,

@@ -66,6 +66,10 @@ pub struct ControllerState {
     pub perf: PerfTracker,
     /// Last pane_id that attend switched to, for round-robin cycling.
     pub last_attended_pane_id: Option<u32>,
+    /// Timestamp (ms) of the last attend action, for rapid-cycle detection.
+    pub last_attend_ms: u64,
+    /// Pane IDs already visited during the current rapid-cycle sequence.
+    pub attend_visited: HashSet<u32>,
     /// Events received before permissions were granted.
     pub pending_events: Vec<Event>,
     /// Monotonic tick counter for render coalescing.
@@ -230,15 +234,38 @@ impl ControllerState {
             .collect()
     }
 
-    /// Transition Done/AgentDone sessions to Idle after timeout.
+    /// Transition stale sessions to Idle after timeout.
+    ///
+    /// Done/AgentDone: transition after `timeout_secs` (show green checkmark).
+    /// Working: transition after `timeout_secs` as a fallback. Claude Code's
+    ///   `Stop` hook does not fire reliably on natural response completion,
+    ///   so sessions can get stuck in Working after Claude finishes generating.
+    ///   If no hook events arrive within the timeout, the session has finished.
+    /// Waiting: NOT cleaned up. The user may take arbitrarily long to respond
+    ///   to a permission prompt. Only cleared by actual hook events.
     pub fn cleanup_stale_sessions(&mut self, timeout_secs: u64) -> bool {
         let now = crate::session::unix_now();
+        let auto_pause = self.config.auto_pause_secs;
         let mut changed = false;
         for session in self.sessions.values_mut() {
             match session.activity {
                 Activity::Done | Activity::AgentDone => {
                     if now.saturating_sub(session.last_event_ts) >= timeout_secs {
                         session.activity = Activity::Idle;
+                        changed = true;
+                    }
+                }
+                Activity::Working => {
+                    if now.saturating_sub(session.last_event_ts) >= timeout_secs {
+                        session.activity = Activity::Done;
+                        changed = true;
+                    }
+                }
+                Activity::Idle if !session.paused => {
+                    if auto_pause > 0
+                        && now.saturating_sub(session.last_event_ts) >= auto_pause
+                    {
+                        session.paused = true;
                         changed = true;
                     }
                 }
@@ -340,7 +367,7 @@ fn auto_rename_tab(_tab_idx: usize, _name: &str) {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::session::Session;
+    use crate::session::{Session, WaitReason};
 
     fn make_session(pane_id: u32) -> Session {
         Session::new(pane_id, format!("session-{pane_id}"))
@@ -453,6 +480,36 @@ mod tests {
         let changed = state.cleanup_stale_sessions(30);
         assert!(changed);
         assert_eq!(state.sessions[&10].activity, Activity::Idle);
+    }
+
+    #[test]
+    fn test_cleanup_stale_working_becomes_done() {
+        let mut state = ControllerState::default();
+        let mut s = make_session(10);
+        s.activity = Activity::Working;
+        s.last_event_ts = 0; // Very old
+        state.sessions.insert(10, s);
+
+        let changed = state.cleanup_stale_sessions(30);
+        assert!(changed);
+        assert_eq!(state.sessions[&10].activity, Activity::Done);
+    }
+
+    #[test]
+    fn test_cleanup_never_touches_waiting_sessions() {
+        let mut state = ControllerState::default();
+        let mut s = make_session(10);
+        s.activity = Activity::Waiting(WaitReason::Permission);
+        s.last_event_ts = 0; // Very old
+        state.sessions.insert(10, s);
+
+        // Waiting is never cleaned up by the timer, regardless of age
+        let changed = state.cleanup_stale_sessions(30);
+        assert!(!changed);
+        assert_eq!(
+            state.sessions[&10].activity,
+            Activity::Waiting(WaitReason::Permission)
+        );
     }
 
     #[test]

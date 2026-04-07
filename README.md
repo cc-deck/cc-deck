@@ -125,6 +125,7 @@ cc-deck plugin install --layout minimal --force
 |-----|--------|
 | `Alt+s` | Open session list / cycle through sessions |
 | `Alt+a` | Jump to next session needing attention |
+| `Alt+w` | Jump to next working session |
 
 ### Session List (navigation mode)
 
@@ -160,6 +161,11 @@ plugin location="file:~/.config/zellij/plugins/cc_deck.wasm" {
     mode "sidebar"
     navigate_key "Super s"    // default: "Alt s"
     attend_key "Super n"      // default: "Alt a"
+    working_key "Alt w"       // default: "Alt w"
+    done_timeout "300"        // seconds before Working→Done and Done→Idle (default: 300)
+    idle_fade_secs "3600"     // idle indicator fade duration in seconds (default: 3600)
+    auto_pause_secs "3600"    // auto-pause after idle for this many seconds (default: 3600, 0 to disable)
+    attend_cycle_ms "2000"    // rapid-cycle window for attend/working in ms (default: 2000, 0 to disable)
 }
 ```
 
@@ -214,10 +220,32 @@ keybind = cmd+n=unbind
 | ● | Working | Actively generating output or calling tools |
 | ⚠ | Waiting (Permission) | Needs user permission to proceed (highest attend priority) |
 | ⚠ | Waiting (Notification) | Paused with informational notification |
-| ○ | Idle | Running but waiting for user input |
-| ✓ | Done | Task completed |
+| ✓ | Done | Task completed (green, fades to grey over 5 minutes) |
 | ✓ | Agent Done | Sub-agent completed |
+| ○ | Idle | Running but waiting for user input (fades to dark grey over 1 hour) |
 | ⏸︎ | Paused | Excluded from attend cycling, name dimmed |
+
+### Session Lifecycle
+
+Sessions progress through states automatically based on activity timeouts:
+
+```
+Working ──[5m idle]──> Done ──[5m]──> Idle ──[1h]──> Paused
+```
+
+- **Working to Done**: When no hook events arrive for 5 minutes, the session is considered complete. This acts as a fallback since Claude Code's `Stop` hook does not always fire on natural response completion.
+- **Done to Idle**: After 5 more minutes, the green checkmark fades to a grey circle.
+- **Idle to Paused**: After 1 hour of inactivity, the session auto-pauses. Paused sessions are excluded from attend cycling and hook processing.
+- **Auto-unpause**: Switching to a paused session (via click, navigate, or attend) automatically unpauses it.
+
+### Fading Indicators
+
+Session indicators use time-aware color fading to show freshness at a glance:
+
+- **Done** (✓): Fades from bright green to light grey over 5 minutes
+- **Idle** (○): Fades from light grey to dark grey over 1 hour
+
+The fade uses a square-root curve, so changes are most visible in the first few minutes and taper off gradually.
 
 ## Smart Attend (Alt+a)
 
@@ -228,7 +256,16 @@ Uses exclusive tiers. Only the highest non-empty tier is cycled:
 3. **○ Idle/Init** (tab order). Only used when nothing else needs attention.
 4. **Skips**: Working and Paused sessions are never attended.
 
-Subsequent presses round-robin within the selected tier.
+Subsequent presses round-robin within the selected tier. If the current session is already the attend target, it skips to the next candidate.
+
+## Working Jump (Alt+w)
+
+Cycles through sessions that are actively running, prioritizing the most recently active:
+
+1. **● Working** (most recently active first). Sessions actively generating output or calling tools.
+2. **⚠ Waiting** (permission first, then notification). Falls through when no Working sessions exist.
+
+Rapid presses within 2 seconds cycle through all working sessions without revisiting. After a 2-second pause, the next press resets to the most recent working session.
 
 ## Network Filtering
 

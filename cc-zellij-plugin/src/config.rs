@@ -16,8 +16,16 @@ pub enum NewSessionMode {
 pub struct PluginConfig {
     /// Sidebar width in characters (default 22).
     pub sidebar_width: usize,
-    /// Done-to-Idle timeout in seconds (default 30).
+    /// Done-to-Idle timeout in seconds (default 120).
     pub done_timeout: u64,
+    /// Duration over which idle session indicators fade to dark grey (default 3600).
+    pub idle_fade_secs: u64,
+    /// Auto-pause idle sessions after this many seconds (default 3600 = 1h).
+    pub auto_pause_secs: u64,
+    /// Rapid-cycle window for attend in milliseconds (default 2000).
+    /// Within this window, repeated Alt+a presses skip already-visited sessions.
+    /// Set to 0 to disable rapid-cycle (always jump to most recent).
+    pub attend_cycle_ms: u64,
     /// Timer interval in seconds for stale session cleanup (default 10.0).
     pub timer_interval: f64,
     /// How new sessions are created (default: Tab).
@@ -26,6 +34,8 @@ pub struct PluginConfig {
     pub navigate_key: String,
     /// Global shortcut for smart attend action (default: "Alt a").
     pub attend_key: String,
+    /// Global shortcut to cycle through working sessions (default: "Alt w").
+    pub working_key: String,
     /// Enable performance instrumentation (default: false).
     pub perf_enabled: bool,
     /// Perf stats dump interval in seconds (default: 30).
@@ -36,11 +46,15 @@ impl Default for PluginConfig {
     fn default() -> Self {
         Self {
             sidebar_width: 22,
-            done_timeout: 30,
+            done_timeout: 300,
+            idle_fade_secs: 3600,
+            auto_pause_secs: 3600,
+            attend_cycle_ms: 2000,
             timer_interval: 1.0,
             new_session_mode: NewSessionMode::Tab,
             navigate_key: "Alt s".to_string(),
             attend_key: "Alt a".to_string(),
+            working_key: "Alt w".to_string(),
             perf_enabled: false,
             perf_interval: 30,
         }
@@ -66,6 +80,28 @@ impl PluginConfig {
             }
         }
 
+        if let Some(v) = config.get("idle_fade_secs") {
+            if let Ok(t) = v.parse::<u64>() {
+                if t >= 60 {
+                    result.idle_fade_secs = t;
+                }
+            }
+        }
+
+        if let Some(v) = config.get("auto_pause_secs") {
+            if let Ok(t) = v.parse::<u64>() {
+                if t >= 60 {
+                    result.auto_pause_secs = t;
+                }
+            }
+        }
+
+        if let Some(v) = config.get("attend_cycle_ms") {
+            if let Ok(t) = v.parse::<u64>() {
+                result.attend_cycle_ms = t;
+            }
+        }
+
         if let Some(v) = config.get("new_session") {
             match v.as_str() {
                 "pane" => result.new_session_mode = NewSessionMode::Pane,
@@ -82,6 +118,12 @@ impl PluginConfig {
         if let Some(v) = config.get("attend_key") {
             if !v.is_empty() {
                 result.attend_key = v.clone();
+            }
+        }
+
+        if let Some(v) = config.get("working_key") {
+            if !v.is_empty() {
+                result.working_key = v.clone();
             }
         }
 
@@ -109,7 +151,8 @@ mod tests {
     fn test_default_config() {
         let config = PluginConfig::default();
         assert_eq!(config.sidebar_width, 22);
-        assert_eq!(config.done_timeout, 30);
+        assert_eq!(config.done_timeout, 300);
+        assert_eq!(config.idle_fade_secs, 3600);
         assert!((config.timer_interval - 1.0).abs() < f64::EPSILON);
     }
 
