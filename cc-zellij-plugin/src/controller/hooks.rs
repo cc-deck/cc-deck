@@ -22,37 +22,20 @@ pub fn process_hook(state: &mut ControllerState, hook: HookPayload) -> bool {
         return removed;
     }
 
-    // Guard: PostToolUse/PostToolUseFailure must NOT clear Waiting(Permission).
-    // With parallel tool execution, a PostToolUse from tool B can arrive
-    // right after PermissionRequest from tool A, incorrectly clearing the
-    // attention icon. Only forward-progress events (PreToolUse, UserPromptSubmit,
-    // SubagentStart, Stop) should clear Waiting(Permission).
+    // PostToolUse/PostToolUseFailure is allowed to clear Waiting state.
     //
-    // However, PostToolUse IS allowed to clear Waiting(Notification) since
-    // Notification is a soft/non-blocking state. A common sequence is:
-    //   PermissionRequest → Waiting(Permission)
-    //   Notification → Waiting(Notification) (fires after 6s inactivity)
-    //   PostToolUse → should transition to Working (tool was approved and ran)
-    // Without this, sessions get stuck in Waiting after the user approves.
-    let is_post_tool = matches!(
-        hook.hook_event_name.as_str(),
-        "PostToolUse" | "PostToolUseFailure"
-    );
-    let is_waiting_permission = state
-        .sessions
-        .get(&hook.pane_id)
-        .map(|s| matches!(s.activity, Activity::Waiting(session::WaitReason::Permission)))
-        .unwrap_or(false);
-    if is_post_tool && is_waiting_permission {
-        crate::debug_log(&format!(
-            "CTRL HOOK: pane={} suppressing {} while Waiting(Permission)",
-            hook.pane_id, hook.hook_event_name,
-        ));
-        if let Some(session) = state.sessions.get_mut(&hook.pane_id) {
-            session.last_event_ts = session::unix_now();
-        }
-        return false;
-    }
+    // Previously these were suppressed during Waiting(Permission) to prevent
+    // a parallel tool B's PostToolUse from clearing tool A's permission prompt.
+    // In practice, this caused sessions to get permanently stuck in Waiting:
+    //   - With auto-approve ("accept edits on"), PermissionRequest fires but
+    //     the tool runs immediately. PostToolUse follows within milliseconds
+    //     but was suppressed, leaving the session stuck in Waiting.
+    //   - With parallel tools, multiple PermissionRequests fire and all their
+    //     PostToolUse events get suppressed.
+    //
+    // Letting PostToolUse clear Waiting may cause a brief Working flash if a
+    // parallel tool completes while another is still waiting for permission,
+    // but this is preferable to permanent stuck-in-Waiting states.
 
     // Map hook event to activity
     let activity = match hook_event_to_activity(&hook.hook_event_name, hook.tool_name.as_deref()) {

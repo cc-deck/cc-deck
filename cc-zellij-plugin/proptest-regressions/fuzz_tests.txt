@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 97c9907ab83d51e7225065177e6739a4bc42a8b394aa7e58b2aec393ddaefae7 # shrinks to initial_sessions = 1, actions = [AddSession, KeyP, EnterNavigation, KeyJ, KeyQuestion, RemoveSession, KeyJ]
+cc a085a93aa7331acf0ee7694ea1b9da0dabdd60517de87048e9ad8dee9c643020 # shrinks to initial_sessions = 2, actions = [EnterNavigation, KeyJ, KeyQuestion, RemoveSession, KeyJ]

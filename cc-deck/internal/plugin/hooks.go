@@ -25,11 +25,13 @@ var hookEvents = []string{
 	"SessionStart",
 	"PreToolUse",
 	"PostToolUse",
+	"PostToolUseFailure",
 	"UserPromptSubmit",
 	"PermissionRequest",
 	"Notification",
 	"Stop",
 	"SubagentStop",
+	"SubagentStart",
 	"SessionEnd",
 }
 
