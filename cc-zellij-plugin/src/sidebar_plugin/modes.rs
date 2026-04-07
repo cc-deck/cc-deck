@@ -5,7 +5,7 @@
 // manages local UI modes (navigation, rename, filter, help).
 
 /// Grace period (ms) for ignoring stale events after mode entry.
-pub const ENTER_GRACE_MS: u64 = 300;
+pub const ENTER_GRACE_MS: u64 = 1500;
 
 /// Context shared across all navigation sub-modes.
 #[derive(Debug, Clone)]
@@ -224,7 +224,8 @@ mod tests {
             entered_at_ms: 1000,
         });
         assert!(mode.in_grace_period(1100));
-        assert!(!mode.in_grace_period(1500));
+        assert!(mode.in_grace_period(2000));
+        assert!(!mode.in_grace_period(2600));
     }
 
     #[test]
@@ -246,7 +247,7 @@ mod tests {
         assert!(mode.is_selectable());
         assert!(!mode.is_navigating());
         assert!(mode.in_grace_period(1100));
-        assert!(!mode.in_grace_period(1500));
+        assert!(!mode.in_grace_period(2600));
     }
 
     #[test]

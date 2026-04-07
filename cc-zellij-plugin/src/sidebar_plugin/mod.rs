@@ -138,14 +138,60 @@ impl ZellijPlugin for SidebarRendererPlugin {
                             }
                         }
 
-                        // Exit navigate mode if active tab changed (user switched tabs)
+                        // Exit navigate mode if active tab changed (user switched tabs),
+                        // but NOT during the grace period after entering navigate.
+                        // Alt+s/Alt+a cause tab switches that arrive after the navigate
+                        // entry; exiting immediately would fight the navigation action.
                         if self.state.mode.is_navigating() {
+                            let now_ms = crate::session::unix_now_ms();
+                            let in_grace = self.state.mode.in_grace_period(now_ms);
                             let old_active = self.state.cached_payload
                                 .as_ref()
                                 .map(|p| p.active_tab_index);
-                            if old_active.is_some() && old_active != Some(render_payload.active_tab_index) {
+                            if !in_grace && old_active.is_some() && old_active != Some(render_payload.active_tab_index) {
+                                crate::debug_log(&format!(
+                                    "SIDEBAR RENDER: exiting navigate due to tab change old={:?} new={}",
+                                    old_active, render_payload.active_tab_index,
+                                ));
                                 self.state.mode = modes::SidebarMode::Passive;
                                 self.state.filter_text.clear();
+                                crate::wasm_compat::set_selectable_wasm(false);
+                            }
+                        }
+
+                        // Exit navigate mode if no input arrived recently.
+                        // The sidebar has no "focus lost" event, so we detect it
+                        // by checking whether navigate-related input (key events
+                        // or Alt+s pipe messages) stopped arriving. If the user
+                        // clicked the terminal or focus shifted, no input reaches
+                        // the sidebar and navigate mode should auto-exit.
+                        if self.state.mode.is_navigating() {
+                            let now_ms = crate::session::unix_now_ms();
+                            let in_grace = self.state.mode.in_grace_period(now_ms);
+                            let idle_ms = now_ms.saturating_sub(self.state.last_nav_input_ms);
+                            if !in_grace && self.state.last_nav_input_ms > 0 && idle_ms > 5000 {
+                                crate::debug_log(&format!(
+                                    "SIDEBAR RENDER: exiting navigate due to inactivity ({}ms)",
+                                    idle_ms,
+                                ));
+                                self.state.mode = modes::SidebarMode::Passive;
+                                self.state.filter_text.clear();
+                                crate::wasm_compat::set_selectable_wasm(false);
+                            }
+                        }
+
+                        // Exit RenamePassive when focus moves to a different pane.
+                        // Without this, the rename cursor stays visible on a row
+                        // that is no longer active, creating a ghost rename state.
+                        if let modes::SidebarMode::RenamePassive { ref rename, entered_at_ms } = self.state.mode {
+                            let now_ms = crate::session::unix_now_ms();
+                            let in_grace = now_ms.saturating_sub(entered_at_ms) < modes::ENTER_GRACE_MS;
+                            if !in_grace && render_payload.focused_pane_id != Some(rename.pane_id) {
+                                crate::debug_log(&format!(
+                                    "SIDEBAR RENDER: exiting RenamePassive, focus moved from {} to {:?}",
+                                    rename.pane_id, render_payload.focused_pane_id,
+                                ));
+                                self.state.mode = modes::SidebarMode::Passive;
                                 crate::wasm_compat::set_selectable_wasm(false);
                             }
                         }

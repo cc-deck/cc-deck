@@ -7,8 +7,11 @@ This page covers the actions you can take on sessions: pause, rename, search, de
 [[pause]]
 == Pause
 
-Pausing a session excludes it from the smart attend rotation.
+Pausing a session excludes it from the smart attend rotation and from hook processing.
 This is useful when you have sessions you want to keep open but do not need attention right now.
+
+Sessions also auto-pause after 1 hour of being idle (configurable via `auto_pause_secs`).
+Switching to a paused session, whether by click, navigate, or attend, automatically unpauses it.
 
 To pause a session:
 
@@ -107,6 +110,24 @@ The sidebar tracks several states for each session:
 
 State changes are detected automatically via Claude Code hooks.
 You do not need to do anything to keep the sidebar updated.
+
+=== Automatic Transitions
+
+Sessions progress through states based on activity timeouts (configurable in xref:configuration.adoc[Configuration]):
+
+* *Working to Done*: When no hook events arrive for 5 minutes (`done_timeout`), the session is considered complete.
+This acts as a fallback since Claude Code does not always fire a stop event on natural response completion.
+* *Done to Idle*: After 5 more minutes, the green checkmark transitions to a grey circle.
+* *Idle to Paused*: After 1 hour of inactivity (`auto_pause_secs`), the session auto-pauses.
+
+=== Fading Indicators
+
+Session indicators use time-aware color fading to show freshness at a glance:
+
+* *Done* (✓): Fades from bright green to light grey over 5 minutes.
+* *Idle* (○): Fades from light grey to dark grey over 1 hour (`idle_fade_secs`).
+
+The fade uses a perceptual curve, so changes are most visible in the first few minutes and taper off gradually.
 
 == Snapshots
 

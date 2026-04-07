@@ -21,6 +21,9 @@ pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
     let mut working = 0usize;
     let mut idle = 0usize;
 
+    let done_timeout = state.config.done_timeout;
+    let idle_fade_secs = state.config.idle_fade_secs;
+
     let render_sessions: Vec<RenderSession> = sessions
         .iter()
         .map(|s| {
@@ -39,7 +42,12 @@ pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
                 display_name: s.display_name.clone(),
                 activity_label: activity_label(&s.activity),
                 indicator: s.activity.indicator().to_string(),
-                color: s.activity.color(),
+                color: crate::session::faded_color(
+                    &s.activity,
+                    s.elapsed_secs(),
+                    done_timeout,
+                    idle_fade_secs,
+                ),
                 git_branch: s.git_branch.clone(),
                 tab_index: s.tab_index.unwrap_or(0),
                 paused: s.paused,
@@ -92,6 +100,18 @@ pub fn mark_render_dirty(state: &mut ControllerState) {
 /// Flush the render if dirty, then clear the flag.
 pub fn flush_render(state: &mut ControllerState) {
     if state.render_dirty {
+        // Log waiting sessions to diagnose missing attention icons
+        let waiting_panes: Vec<u32> = state
+            .sessions
+            .values()
+            .filter(|s| s.activity.is_waiting())
+            .map(|s| s.pane_id)
+            .collect();
+        if !waiting_panes.is_empty() {
+            crate::debug_log(&format!(
+                "CTRL FLUSH: waiting panes={waiting_panes:?}"
+            ));
+        }
         broadcast_render(state);
         state.render_dirty = false;
     }

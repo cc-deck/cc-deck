@@ -118,7 +118,7 @@ pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> Vec<Cli
         if is_delete_confirm {
             let prompt = format!(" Delete \"{}\"?", truncate(&session.display_name, cols.saturating_sub(14)));
             let confirm_hint = " [y/N]";
-            print!("\x1b[{};1H{}", row + 1, pad(&format!("\x1b[38;2;255;60;60m{prompt}\x1b[0m"), cols));
+            print!("\x1b[{};1H{}", row + 1, pad(&format!("\x1b[38;2;255;109;109m{prompt}\x1b[0m"), cols));
             print!("\x1b[{};1H{}", row + 2, pad(&format!("\x1b[2m{confirm_hint}\x1b[0m"), cols));
             print!("\x1b[{};1H{}", row + 3, " ".repeat(cols));
             click_regions.push((row, session.pane_id, session.tab_index));
@@ -142,7 +142,7 @@ pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> Vec<Cli
         row += 1;
     }
 
-    // Bottom row: search input (when filtering) or [+] button
+    // Bottom row: search input (when filtering)
     if let Some(fs) = state.mode.filter_state() {
         if row < rows.saturating_sub(1) {
             let prefix = " / ";
@@ -176,11 +176,6 @@ pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> Vec<Cli
             print!("\x1b[{};1H{}", row + 1, pad(&search_line, cols));
             row += 1;
         }
-    } else if row < rows.saturating_sub(1) {
-        let btn = "  [+] New tab";
-        print_line(row, cols, btn, Style::Dim);
-        click_regions.push((row, u32::MAX, usize::MAX));
-        row += 1;
     }
 
     // Render notification (if active)
@@ -296,7 +291,7 @@ fn render_header(payload: &cc_deck::RenderPayload, cols: usize) {
     } else {
         let mut status_parts = Vec::new();
         if payload.waiting > 0 {
-            status_parts.push(format!("\x1b[38;2;255;60;60m\u{26a0} {}\x1b[0m", payload.waiting));
+            status_parts.push(format!("\x1b[38;2;255;109;109m\u{26a0} {}\x1b[0m", payload.waiting));
         }
         if payload.working > 0 {
             status_parts.push(format!("\x1b[38;2;180;140;255m\u{25cf} {}\x1b[0m", payload.working));
@@ -419,13 +414,7 @@ fn render_empty_state(payload: &cc_deck::RenderPayload, rows: usize, cols: usize
     if rows > 4 {
         print_line(4, cols, "", Style::Normal);
     }
-    if rows > 5 {
-        let btn = "  [+] New tab";
-        print_line(5, cols, btn, Style::Dim);
-        click_regions.push((5, u32::MAX, usize::MAX));
-    }
-
-    for row in 6..rows {
+    for row in 5..rows {
         print_line(row, cols, "", Style::Normal);
     }
 
