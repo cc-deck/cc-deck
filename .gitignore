@@ -34,8 +34,7 @@ demos/recordings/*.gif
 demos/recordings/*.mp4
 dist/
 
+# Claude Code local settings (any level)
+**/.claude/
 # spex: generated/local files
-.claude/commands/speckit.*
-.claude/settings.local.json
-.specify/.spex-phase
-.specify/.spex-ship-phase
+**/.specify/
