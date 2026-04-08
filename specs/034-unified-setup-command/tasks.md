@@ -1,297 +1,266 @@
 # Tasks: Unified Setup Command
 
-**Branch**: `034-unified-setup-command` | **Plan**: [plan.md](plan.md)
+**Input**: Design documents from `/specs/034-unified-setup-command/`
+**Prerequisites**: plan.md (required), spec.md (required), research.md, data-model.md, contracts/
 
-## Phase 1: Package Rename and Manifest Evolution
+**Tests**: Test tasks included for foundational components (manifest, probe). Integration testing is explicit.
 
-### Task 1.1: Rename `internal/build` to `internal/setup`
+**Organization**: Tasks grouped by user story for independent implementation and testing.
 
-**Priority**: P1 | **Estimate**: S | **Risk**: Low
-**Files**: `cc-deck/internal/build/*` -> `cc-deck/internal/setup/*`, all import references
-**Spec**: FR-017
+## Format: `[ID] [P?] [Story] Description`
 
-Rename the `internal/build` package to `internal/setup`. Update all import paths in `cmd/build.go` (renamed to `cmd/setup.go`), `main.go`, and any other files that reference the build package. Verify with `make test` and `make lint`.
+- **[P]**: Can run in parallel (different files, no dependencies)
+- **[Story]**: Which user story this task belongs to (e.g., US1, US2, US3)
+- Include exact file paths in descriptions
 
-**Acceptance**: `make test` passes, `make lint` passes, no references to `internal/build` remain.
+## Path Conventions
 
----
-
-### Task 1.2: Evolve manifest struct with Targets
-
-**Priority**: P1 | **Estimate**: M | **Risk**: Low
-**Files**: `cc-deck/internal/setup/manifest.go`
-**Spec**: FR-012, data-model.md
-
-Replace `Image ImageConfig` with `Targets *TargetsConfig`. Add `ContainerTarget` (preserving all `ImageConfig` fields plus `Registry`) and `SSHTarget` structs. Update `Validate()` to check target-specific required fields. Update `ImageRef()` and `BaseImage()` to read from `Targets.Container`. Rename manifest filename constant from `cc-deck-image.yaml` to `cc-deck-setup.yaml`.
-
-**Acceptance**: Manifest loading, validation, and image ref methods work with the new struct. Existing tests updated. `make test` passes.
+- **CLI (Go)**: `cc-deck/internal/`, `cc-deck/cmd/cc-deck/`
+- **Claude Commands**: `cc-deck/internal/setup/commands/`
+- **Specs**: `specs/034-unified-setup-command/`
 
 ---
 
-### Task 1.3: Rename CLI command from `image` to `setup`
+## Phase 1: Setup (Shared Infrastructure)
 
-**Priority**: P1 | **Estimate**: S | **Risk**: Low
-**Files**: `cc-deck/internal/cmd/build.go` -> `cc-deck/internal/cmd/setup.go`, `cc-deck/cmd/cc-deck/main.go`
-**Spec**: FR-017
+**Purpose**: Package rename and CLI restructuring. No functional changes.
 
-Rename the cobra command from `image` to `setup`. Update command registration in `main.go`. Update all help text and usage strings. The subcommands (init, verify, diff) remain the same.
+- [ ] T001 Rename `cc-deck/internal/build/` to `cc-deck/internal/setup/` and update all import paths
+- [ ] T002 Rename `cc-deck/internal/cmd/build.go` to `cc-deck/internal/cmd/setup.go` and change cobra command from `image` to `setup` in `cc-deck/cmd/cc-deck/main.go`
+- [ ] T003 Delete `cc-deck/internal/setup/commands/cc-deck.push.md` and remove embed reference in `cc-deck/internal/setup/embed.go`
 
-**Acceptance**: `cc-deck setup init`, `cc-deck setup verify`, `cc-deck setup diff` work. `cc-deck image` no longer exists. `make test` passes.
-
----
-
-## Phase 2: Init Command Extension
-
-### Task 2.1: Add `--target` flag to init command
-
-**Priority**: P1 | **Estimate**: M | **Risk**: Low
-**Files**: `cc-deck/internal/cmd/setup.go`
-**Spec**: FR-001, FR-002
-
-Add `--target` flag accepting `container`, `ssh`, or comma-separated combination. When omitted, generate full template with target sections commented out. When `container` specified, uncomment container section. When `ssh` specified, uncomment SSH section and scaffold Ansible role skeletons.
-
-**Acceptance**: All four acceptance scenarios from User Story 1 pass.
+**Checkpoint**: `make test` and `make lint` pass. `cc-deck setup init` works (same as old `cc-deck image init`). `cc-deck image` no longer exists.
 
 ---
 
-### Task 2.2: Scaffold Ansible role skeletons
+## Phase 2: Foundational (Blocking Prerequisites)
 
-**Priority**: P1 | **Estimate**: M | **Risk**: Low
-**Files**: `cc-deck/internal/setup/init.go`
-**Spec**: FR-001, FR-007
+**Purpose**: Manifest evolution and template updates that ALL user stories depend on.
 
-When `--target ssh` is specified during init, create the Ansible directory structure: `roles/{base,tools,zellij,claude,cc_deck,shell_config,mcp}/tasks/main.yml`, `roles/{base,tools,zellij,claude,cc_deck,shell_config,mcp}/defaults/main.yml`, `group_vars/`, `site.yml` skeleton, `inventory.ini` template. Use `go:embed` for skeleton templates.
+**CRITICAL**: No user story work can begin until this phase is complete.
 
-**Acceptance**: `cc-deck setup init --target ssh` creates complete directory structure. `cc-deck setup init --target container,ssh` creates both container and SSH artifacts.
+- [ ] T004 Evolve `Manifest` struct in `cc-deck/internal/setup/manifest.go`: replace `Image ImageConfig` with `Targets *TargetsConfig`, add `ContainerTarget` and `SSHTarget` structs per `data-model.md`
+- [ ] T005 Update `Validate()`, `ImageRef()`, `BaseImage()` in `cc-deck/internal/setup/manifest.go` to read from `Targets.Container`
+- [ ] T006 Rename manifest filename constant from `cc-deck-image.yaml` to `cc-deck-setup.yaml` in `cc-deck/internal/setup/manifest.go`
+- [ ] T007 Update manifest template in `cc-deck/internal/setup/init.go` to include both `targets.container` and `targets.ssh` sections (commented out by default)
+- [ ] T008 Write unit tests for manifest loading, validation, and helper methods with new `Targets` struct in `cc-deck/internal/setup/manifest_test.go`
 
----
-
-### Task 2.3: Update manifest template for dual targets
-
-**Priority**: P1 | **Estimate**: S | **Risk**: Low
-**Files**: `cc-deck/internal/setup/init.go`, embedded template files
-**Spec**: FR-002, FR-012
-
-Update the embedded manifest template to include both `targets.container` and `targets.ssh` sections. Sections are commented/uncommented based on the `--target` flag. Update manifest filename from `cc-deck-image.yaml` to `cc-deck-setup.yaml`.
-
-**Acceptance**: Generated manifest template matches the schema in `data-model.md`.
+**Checkpoint**: Manifest v2 loads, validates, and passes all tests. `make test` passes.
 
 ---
 
-## Phase 3: Claude Command Updates
+## Phase 3: User Story 1 - Initialize a Setup Profile (Priority: P1) MVP
 
-### Task 3.1: Update `/cc-deck.capture` command
+**Goal**: A developer can scaffold a setup directory with manifest template, Claude commands, and target-specific file structures.
 
-**Priority**: P1 | **Estimate**: M | **Risk**: Low
-**Files**: `cc-deck/internal/setup/commands/cc-deck.capture.md`
-**Spec**: FR-004
+**Independent Test**: Run `cc-deck setup init --target container`, `--target ssh`, and `--target container,ssh`. Verify directory structure, manifest template sections, and Claude command installation.
 
-Update the capture command to read from `cc-deck-setup.yaml` instead of `cc-deck-image.yaml`. Ensure it only modifies shared sections (tools, sources, plugins, mcp, github_tools, settings, network) and never touches the `targets` section. The capture behavior is otherwise identical.
+### Implementation for User Story 1
 
-**Acceptance**: Capture populates shared sections. Target sections remain unchanged after capture. Re-running capture shows existing selections.
+- [ ] T009 [US1] Add `--target` flag to init command accepting `container`, `ssh`, or comma-separated combination in `cc-deck/internal/cmd/setup.go`
+- [ ] T010 [US1] Implement Ansible role skeleton scaffolding when `--target ssh`: create `roles/{base,tools,zellij,claude,cc_deck,shell_config,mcp}/tasks/main.yml` and `defaults/main.yml`, `group_vars/`, `site.yml` skeleton, `inventory.ini` template in `cc-deck/internal/setup/init.go`
+- [ ] T011 [US1] Implement target section commenting/uncommenting logic: uncomment `targets.container` when `--target container`, uncomment `targets.ssh` when `--target ssh` in `cc-deck/internal/setup/init.go`
+- [ ] T012 [US1] Update `/cc-deck.capture` command to read `cc-deck-setup.yaml` instead of `cc-deck-image.yaml`, ensure it only modifies shared sections in `cc-deck/internal/setup/commands/cc-deck.capture.md`
 
----
-
-### Task 3.2: Update `/cc-deck.build` for container target
-
-**Priority**: P1 | **Estimate**: M | **Risk**: Low
-**Files**: `cc-deck/internal/setup/commands/cc-deck.build.md`
-**Spec**: FR-005, FR-006
-
-Update the build command to require `--target container` or `--target ssh`. For `--target container`, preserve all existing Containerfile generation behavior but read from `targets.container` instead of `image`. Add `--push` support using `targets.container.registry`. Remove the separate `/cc-deck.push` command.
-
-**Acceptance**: `/cc-deck.build --target container` generates and builds a Containerfile. `/cc-deck.build --target container --push` builds and pushes. Same self-correction loop as before.
+**Checkpoint**: `cc-deck setup init --target container,ssh` creates correct directory structure. `/cc-deck.capture` populates shared sections without touching targets. All 4 acceptance scenarios from US-1 pass.
 
 ---
 
-### Task 3.3: Add `/cc-deck.build` SSH target section
+## Phase 4: User Story 2 - Build a Container Image (Priority: P1)
 
-**Priority**: P1 | **Estimate**: L | **Risk**: Medium
-**Files**: `cc-deck/internal/setup/commands/cc-deck.build.md`
-**Spec**: FR-005, FR-007, FR-008, FR-009, FR-013, FR-014, FR-015, FR-016
+**Goal**: A developer can build a container image from the unified manifest using `/cc-deck.build --target container`.
 
-Add the `--target ssh` section to the build command. This section generates Ansible playbooks from the manifest (inventory.ini, group_vars/all.yml, site.yml, role task files), then runs `ansible-playbook`. Includes self-correction loop (up to 3 retries) for Ansible task failures. Must check for Ansible availability first (FR-015).
+**Independent Test**: Initialize with `--target container`, populate manifest, run `/cc-deck.build --target container`, verify image builds with correct tools.
 
-The generated playbooks must be:
-- Idempotent (re-runnable without side effects)
-- Standalone (runnable without Claude Code after convergence)
-- Role-per-concern (base, tools, zellij, claude, cc_deck, shell_config, mcp)
+### Implementation for User Story 2
 
-**Acceptance**: All six acceptance scenarios from User Story 3 pass (including AS-6: role conflict diff-and-ask). Converged playbooks run standalone.
+- [ ] T013 [US2] Update `/cc-deck.build` command to require `--target container` or `--target ssh` dispatch, read from `targets.container` instead of `image` in `cc-deck/internal/setup/commands/cc-deck.build.md`
+- [ ] T014 [US2] Add `--push` support using `targets.container.registry` field in `cc-deck/internal/setup/commands/cc-deck.build.md`
+- [ ] T015 [US2] Update Containerfile generation to handle existing file conflicts (show diff, ask user) in `cc-deck/internal/setup/commands/cc-deck.build.md`
 
----
-
-### Task 3.4: Remove `/cc-deck.push` command
-
-**Priority**: P1 | **Estimate**: S | **Risk**: Low
-**Files**: `cc-deck/internal/setup/commands/cc-deck.push.md` (delete), `cc-deck/internal/setup/embed.go`
-**Spec**: FR-003
-
-Delete the push command file. Update embed.go to remove the push command reference. Push functionality is now part of `/cc-deck.build --target container --push`.
-
-**Acceptance**: Only two commands installed: `cc-deck.capture.md` and `cc-deck.build.md`. Push works via `--push` flag.
+**Checkpoint**: `/cc-deck.build --target container` generates Containerfile, builds image, and self-corrects. `--push` works with registry. All 4 acceptance scenarios from US-2 pass.
 
 ---
 
-## Phase 4: SSH Bootstrap Simplification
+## Phase 5: User Story 3 - Provision SSH Remote via Ansible (Priority: P1)
 
-### Task 4.1: Create lightweight probe
+**Goal**: A developer can provision a remote machine with Ansible playbooks generated from the manifest using `/cc-deck.build --target ssh`.
 
-**Priority**: P1 | **Estimate**: S | **Risk**: Low
-**Files**: `cc-deck/internal/ssh/probe.go` (new)
-**Spec**: FR-018
+**Independent Test**: Initialize with `--target ssh`, populate manifest, run `/cc-deck.build --target ssh` against a real SSH target, verify tools installed.
 
-Create a `Probe()` function in `internal/ssh` that runs `which zellij && which cc-deck && which claude` via SSH. Returns nil if all tools are found, or an error with "Host appears unprovisioned. Run 'cc-deck setup' first."
+### Implementation for User Story 3
 
-**Acceptance**: Probe passes on a provisioned host. Probe fails with clear message on an unprovisioned host.
+- [ ] T016 [US3] Add `--target ssh` section to `/cc-deck.build` command: Ansible availability check (FR-015), inventory generation from `targets.ssh`, `group_vars/all.yml` from manifest in `cc-deck/internal/setup/commands/cc-deck.build.md`
+- [ ] T017 [US3] Add Ansible role generation instructions to `/cc-deck.build`: 7 roles (base, tools, zellij, claude, cc_deck, shell_config, mcp) with idempotent tasks in `cc-deck/internal/setup/commands/cc-deck.build.md`
+- [ ] T018 [US3] Add `create_user` handling in base role: sudo access, SSH authorized keys from `identity_file` `.pub` counterpart (FR-013) in `cc-deck/internal/setup/commands/cc-deck.build.md`
+- [ ] T019 [US3] Add credential sourcing snippet to shell_config role: `[ -f ~/.config/cc-deck/credentials.env ] && source ...` (FR-014) in `cc-deck/internal/setup/commands/cc-deck.build.md`
+- [ ] T020 [US3] Add `cc-deck plugin install` execution in cc_deck role (FR-016) and `ansible-playbook` execution with self-correction loop (FR-009) in `cc-deck/internal/setup/commands/cc-deck.build.md`
+- [ ] T021 [US3] Add role conflict handling: show diff of changed roles, ask user to choose (per clarification, mirrors US-2 AS-4) in `cc-deck/internal/setup/commands/cc-deck.build.md`
+- [ ] T022 [P] [US3] Create lightweight probe function `Probe()` in `cc-deck/internal/ssh/probe.go` running `which zellij && which cc-deck && which claude` via SSH
+- [ ] T023 [P] [US3] Write unit tests for probe with mock SSH client in `cc-deck/internal/ssh/probe_test.go`
+- [ ] T024 [US3] Simplify `SSHEnvironment.Create()` in `cc-deck/internal/env/ssh.go` to use probe instead of bootstrap, delete `cc-deck/internal/ssh/bootstrap.go`
+- [ ] T025 [US3] Allow multiple environments targeting same SSH host (FR-019) by removing single-host uniqueness checks in `cc-deck/internal/env/ssh.go`
 
----
-
-### Task 4.2: Simplify SSH environment Create()
-
-**Priority**: P1 | **Estimate**: M | **Risk**: Medium
-**Files**: `cc-deck/internal/env/ssh.go`, `cc-deck/internal/ssh/bootstrap.go` (delete)
-**Spec**: FR-018, FR-019
-
-Replace the pre-flight bootstrap in `SSHEnvironment.Create()` with:
-1. Validate SSH connectivity
-2. Run lightweight probe
-3. If probe fails, error with provisioning instructions
-4. If probe passes, create workspace directory and register environment
-
-Delete `internal/ssh/bootstrap.go` entirely. Allow multiple environments targeting the same SSH host (FR-019) by removing any single-host uniqueness checks if they exist.
-
-**Acceptance**: `cc-deck env create` with SSH type uses probe instead of bootstrap. Multiple envs can target same host with different names/workspaces.
+**Checkpoint**: `/cc-deck.build --target ssh` generates and runs Ansible playbooks. Converged playbooks run standalone. Probe replaces bootstrap. All 6 acceptance scenarios from US-3 pass.
 
 ---
 
-## Phase 5: Verify and Diff Commands
+## Phase 6: User Story 4 - Reuse Single Capture for Both Targets (Priority: P2)
 
-### Task 5.1: Add `--target` flag to verify command
+**Goal**: A single `/cc-deck.capture` run populates a manifest that drives both container and SSH builds.
 
-**Priority**: P2 | **Estimate**: M | **Risk**: Low
-**Files**: `cc-deck/internal/cmd/setup.go`
-**Spec**: FR-010
+**Independent Test**: Initialize with `--target container,ssh`, run capture once, then build for each target separately. Verify both produce correct results from same manifest.
 
-Add `--target` flag to `cc-deck setup verify`. For `--target container`, preserve existing behavior (run checks inside container). For `--target ssh`, connect via SSH and run the same checks (cc-deck version, Claude Code, Zellij, tools from manifest).
+### Implementation for User Story 4
 
-**Acceptance**: Verify reports pass/fail per tool for both container and SSH targets.
+- [ ] T026 [US4] Validate that `/cc-deck.capture` does not modify `targets` section when both targets are present by reviewing and testing `cc-deck/internal/setup/commands/cc-deck.capture.md`
+- [ ] T027 [US4] End-to-end validation: init with both targets, capture, build container, build ssh (manual test against Hetzner VM)
 
----
-
-### Task 5.2: Add `--target` flag to diff command
-
-**Priority**: P3 | **Estimate**: M | **Risk**: Low
-**Files**: `cc-deck/internal/cmd/setup.go`
-**Spec**: FR-011
-
-Add `--target` flag to `cc-deck setup diff`. For `--target container`, preserve existing Containerfile diff behavior. For `--target ssh`, compare manifest against Ansible role task files. Auto-detect target if `--target` not specified (check for Containerfile/roles existence).
-
-**Acceptance**: Diff detects and reports drift for both target types.
+**Checkpoint**: Both acceptance scenarios from US-4 pass. Single capture drives both backends.
 
 ---
 
-## Phase 6: Documentation
+## Phase 7: User Story 5 - Detect Manifest Drift (Priority: P3)
 
-### Task 6.1: Update README.md
+**Goal**: Diff command compares manifest against generated artifacts and reports what changed.
 
-**Priority**: P1 | **Estimate**: M | **Risk**: Low
-**Files**: `README.md`
-**Spec**: Constitution IX, X
+**Independent Test**: Generate artifacts, modify manifest, run diff, verify report shows expected changes.
 
-Add spec 034 to the feature specifications table. Update the CLI reference section to replace `cc-deck image` with `cc-deck setup`. Document the `--target` flag and SSH provisioning workflow. Use prose plugin with cc-deck voice.
+### Implementation for User Story 5
 
-**Acceptance**: README reflects the new command structure. Spec table updated.
+- [ ] T028 [US5] Add `--target` flag to `cc-deck setup diff` in `cc-deck/internal/cmd/setup.go`
+- [ ] T029 [US5] Implement SSH target diff: compare manifest against Ansible role task files, auto-detect target from `roles/` directory existence in `cc-deck/internal/cmd/setup.go`
 
----
-
-### Task 6.2: Update CLI reference documentation
-
-**Priority**: P1 | **Estimate**: M | **Risk**: Low
-**Files**: `docs/modules/reference/pages/cli.adoc`
-**Spec**: Constitution IX
-
-Add `cc-deck setup` command group with init, verify, diff subcommands. Document all flags including `--target`. Remove `cc-deck image` references. Use prose plugin.
-
-**Acceptance**: CLI reference covers all new commands and flags.
+**Checkpoint**: Diff reports drift for both container and SSH targets. All 3 acceptance scenarios from US-5 pass.
 
 ---
 
-### Task 6.3: Create Antora guide page for setup command
+## Phase 8: User Story 6 - Verify a Provisioned Target (Priority: P3)
 
-**Priority**: P2 | **Estimate**: L | **Risk**: Low
-**Files**: `docs/modules/*/pages/setup.adoc` (new), `docs/modules/*/nav.adoc`
-**Spec**: Constitution IX
+**Goal**: Smoke-test a provisioned target (container or SSH remote) for expected tool availability.
 
-Create a dedicated guide page covering: overview, prerequisites, container workflow, SSH workflow, dual-target workflow, troubleshooting. Add to nav.adoc. Use prose plugin.
+**Independent Test**: Run verify against a built image and a provisioned SSH host, check pass/fail report.
 
-**Acceptance**: Guide page provides complete user documentation for the setup command.
+### Implementation for User Story 6
 
----
+- [ ] T030 [US6] Add `--target` flag to `cc-deck setup verify` in `cc-deck/internal/cmd/setup.go`
+- [ ] T031 [US6] Implement SSH target verify: connect via SSH, run tool checks (cc-deck, Claude Code, Zellij, manifest tools) in `cc-deck/internal/cmd/setup.go`
 
-### Task 6.4: Update landing page
-
-**Priority**: P2 | **Estimate**: S | **Risk**: Low
-**Files**: Landing page repo (`cc-deck/cc-deck.github.io`)
-**Spec**: Constitution IX
-
-Add a feature card for the unified setup command on the Astro landing page. Use prose plugin.
-
-**Acceptance**: Landing page shows the new feature.
+**Checkpoint**: Verify reports pass/fail per tool for both targets. All 3 acceptance scenarios from US-6 pass.
 
 ---
 
-## Phase 7: Testing
+## Phase 9: Polish & Cross-Cutting Concerns
 
-### Task 7.1: Unit tests for manifest evolution
+**Purpose**: Documentation, testing, and quality improvements across all stories.
 
-**Priority**: P1 | **Estimate**: M | **Risk**: Low
-**Files**: `cc-deck/internal/setup/manifest_test.go`
-
-Test manifest loading, validation, and helper methods with the new Targets struct. Test both v1 (should fail gracefully) and v2 manifests. Test target-specific validation rules.
-
-**Acceptance**: All manifest tests pass. Coverage for ContainerTarget and SSHTarget validation.
-
----
-
-### Task 7.2: Unit tests for probe
-
-**Priority**: P1 | **Estimate**: S | **Risk**: Low
-**Files**: `cc-deck/internal/ssh/probe_test.go`
-
-Test the probe function with mock SSH client. Test success case (all tools found) and failure case (tools missing).
-
-**Acceptance**: Probe tests pass.
+- [ ] T032 [P] Update `README.md`: add spec 034 to feature table, replace `cc-deck image` with `cc-deck setup`, document SSH provisioning workflow (use prose plugin)
+- [ ] T033 [P] Update CLI reference in `docs/modules/reference/pages/cli.adoc`: add `cc-deck setup` command group with all subcommands and flags (use prose plugin)
+- [ ] T034 [P] Create Antora guide page `docs/modules/using/pages/setup.adoc`: overview, prerequisites, container workflow, SSH workflow, dual-target, troubleshooting (use prose plugin)
+- [ ] T035 [P] Update landing page at `cc-deck/cc-deck.github.io`: add feature card for unified setup command (use prose plugin)
+- [ ] T036 Integration test against SSH target (Hetzner VM): full workflow init/capture/build/verify, validate F-001 through F-010 resolved, verify standalone playbook re-run
+- [ ] T037 Run `quickstart.md` validation: verify all steps from quickstart produce expected results
 
 ---
 
-### Task 7.3: Integration test against SSH target
+## Dependencies & Execution Order
 
-**Priority**: P2 | **Estimate**: L | **Risk**: High
-**Files**: Manual testing
+### Phase Dependencies
 
-End-to-end test against a real SSH target (Hetzner VM). Run the full workflow: init, capture, build --target ssh, verify. Verify all 10 testing findings (F-001 through F-010) are resolved.
+- **Setup (Phase 1)**: No dependencies, start immediately
+- **Foundational (Phase 2)**: Depends on Setup (Phase 1) completion, BLOCKS all user stories
+- **US1 Init (Phase 3)**: Depends on Foundational (Phase 2)
+- **US2 Container Build (Phase 4)**: Depends on US1 (needs init + capture working)
+- **US3 SSH Provisioning (Phase 5)**: Depends on US1 (needs init + capture working). T022-T025 (probe + bootstrap removal) can run in parallel with T016-T021 (Claude command).
+- **US4 Dual Target (Phase 6)**: Depends on US2 AND US3 (needs both backends working)
+- **US5 Drift (Phase 7)**: Depends on US2 or US3 (needs generated artifacts to diff against)
+- **US6 Verify (Phase 8)**: Depends on US2 or US3 (needs provisioned target to verify)
+- **Polish (Phase 9)**: Depends on all desired user stories being complete
 
-**Acceptance**: Full workflow completes. Playbooks converge. Standalone re-run succeeds. All F-001 through F-010 findings resolved.
+### User Story Dependencies
+
+- **US1 (P1)**: Start after Foundational. No dependencies on other stories.
+- **US2 (P1)**: Start after US1. Independently testable.
+- **US3 (P1)**: Start after US1. Independently testable. Can run in parallel with US2 (different code paths).
+- **US4 (P2)**: Requires US2 AND US3 complete. Validation-only phase.
+- **US5 (P3)**: Requires at least one of US2/US3. Independently testable.
+- **US6 (P3)**: Requires at least one of US2/US3. Independently testable.
+
+### Within Each User Story
+
+- Models before services
+- Core implementation before integration
+- Story complete before moving to next priority
+- Commit after each task or logical group
+
+### Parallel Opportunities
+
+- T001, T002, T003 in Setup can run sequentially (same package rename)
+- T004-T008 in Foundational are sequential (struct depends on prior changes)
+- T022-T023 (probe) can run in parallel with T016-T021 (Claude command SSH section)
+- T028-T029 (drift) can run in parallel with T030-T031 (verify)
+- T032-T035 (documentation) can all run in parallel
 
 ---
 
-## Dependency Graph
+## Parallel Example: User Story 3
 
-```
-Phase 1 (1.1, 1.2, 1.3) - Package rename, manifest evolution, CLI rename
-    ↓
-Phase 2 (2.1, 2.2, 2.3) - Init command extension
-    ↓
-Phase 3 (3.1, 3.2, 3.3, 3.4) - Claude command updates
-    ↓
-Phase 4 (4.1, 4.2) - SSH bootstrap simplification
-    ↓
-Phase 5 (5.1, 5.2) - Verify and diff updates
-    ↓
-Phase 6 (6.1, 6.2, 6.3, 6.4) - Documentation
-    ↓
-Phase 7 (7.1, 7.2, 7.3) - Testing
+```bash
+# Probe implementation runs in parallel with Claude command updates:
+# Agent A:
+Task: "T022 Create lightweight probe in cc-deck/internal/ssh/probe.go"
+Task: "T023 Write unit tests for probe in cc-deck/internal/ssh/probe_test.go"
+
+# Agent B:
+Task: "T016 Add --target ssh section to /cc-deck.build"
+Task: "T017 Add Ansible role generation instructions"
+
+# After both complete:
+Task: "T024 Simplify SSHEnvironment.Create() to use probe"
 ```
 
-Phases 1-3 are sequential (each depends on the previous). Phase 4 can run in parallel with Phase 3 (independent code paths). Phases 5-7 depend on Phases 1-4 being complete. Within phases, tasks can run in parallel.
+---
+
+## Implementation Strategy
+
+### MVP First (User Stories 1 + 2)
+
+1. Complete Phase 1: Setup (package rename)
+2. Complete Phase 2: Foundational (manifest v2)
+3. Complete Phase 3: User Story 1 (init + capture)
+4. Complete Phase 4: User Story 2 (container build)
+5. **STOP and VALIDATE**: Container workflow works end-to-end (preserves existing functionality)
+6. This MVP proves the rename works without breaking the container path
+
+### Incremental Delivery
+
+1. Setup + Foundational -> Foundation ready
+2. Add US1 (init) + US2 (container) -> Test independently -> Container path preserved (MVP)
+3. Add US3 (SSH provisioning) -> Test against Hetzner VM -> SSH provisioning works
+4. Add US4 (dual target) -> Validate single capture drives both backends
+5. Add US5 (drift) + US6 (verify) -> Quality tooling complete
+6. Polish: Documentation across all stories
+
+### Parallel Team Strategy
+
+With multiple developers:
+
+1. Team completes Setup + Foundational together
+2. Once Foundational is done:
+   - Developer A: US1 (init) then US2 (container build)
+   - Developer B: US3 probe + bootstrap (T022-T025)
+3. After US1 done, Developer B adds Claude command SSH section (T016-T021)
+4. US4 validation after both US2 and US3 complete
+5. US5 and US6 can be done by either developer in parallel
+
+---
+
+## Notes
+
+- [P] tasks = different files, no dependencies
+- [Story] label maps task to specific user story for traceability
+- Each user story is independently completable and testable
+- Commit after each task or logical group
+- All documentation must use prose plugin with cc-deck voice profile
+- Use `make install`, `make test`, `make lint` (never direct `go build`)
+- Stop at any checkpoint to validate story independently
