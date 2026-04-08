@@ -74,9 +74,9 @@
 
 ### Implementation for User Story 2
 
-- [ ] T013 [US2] Update `/cc-deck.build` command to require `--target container` or `--target ssh` dispatch, read from `targets.container` instead of `image` in `cc-deck/internal/setup/commands/cc-deck.build.md`
-- [ ] T014 [US2] Add `--push` support using `targets.container.registry` field in `cc-deck/internal/setup/commands/cc-deck.build.md`
-- [ ] T015 [US2] Update Containerfile generation to handle existing file conflicts (show diff, ask user) in `cc-deck/internal/setup/commands/cc-deck.build.md`
+- [X] T013 [US2] Update `/cc-deck.build` command to require `--target container` or `--target ssh` dispatch, read from `targets.container` instead of `image` in `cc-deck/internal/setup/commands/cc-deck.build.md`
+- [X] T014 [US2] Add `--push` support using `targets.container.registry` field in `cc-deck/internal/setup/commands/cc-deck.build.md`
+- [X] T015 [US2] Update Containerfile generation to handle existing file conflicts (show diff, ask user) in `cc-deck/internal/setup/commands/cc-deck.build.md`
 
 **Checkpoint**: `/cc-deck.build --target container` generates Containerfile, builds image, and self-corrects. `--push` works with registry. All 4 acceptance scenarios from US-2 pass.
 
@@ -90,16 +90,16 @@
 
 ### Implementation for User Story 3
 
-- [ ] T016 [US3] Add `--target ssh` section to `/cc-deck.build` command: Ansible availability check (FR-015), inventory generation from `targets.ssh`, `group_vars/all.yml` from manifest in `cc-deck/internal/setup/commands/cc-deck.build.md`
-- [ ] T017 [US3] Add Ansible role generation instructions to `/cc-deck.build`: 7 roles (base, tools, zellij, claude, cc_deck, shell_config, mcp) with idempotent tasks in `cc-deck/internal/setup/commands/cc-deck.build.md`
-- [ ] T018 [US3] Add `create_user` handling in base role: sudo access, SSH authorized keys from `identity_file` `.pub` counterpart (FR-013) in `cc-deck/internal/setup/commands/cc-deck.build.md`
-- [ ] T019 [US3] Add credential sourcing snippet to shell_config role: `[ -f ~/.config/cc-deck/credentials.env ] && source ...` (FR-014) in `cc-deck/internal/setup/commands/cc-deck.build.md`
-- [ ] T020 [US3] Add `cc-deck plugin install` execution in cc_deck role (FR-016) and `ansible-playbook` execution with self-correction loop (FR-009) in `cc-deck/internal/setup/commands/cc-deck.build.md`
-- [ ] T021 [US3] Add role conflict handling: show diff of changed roles, ask user to choose (per clarification, mirrors US-2 AS-4) in `cc-deck/internal/setup/commands/cc-deck.build.md`
-- [ ] T022 [P] [US3] Create lightweight probe function `Probe()` in `cc-deck/internal/ssh/probe.go` running `which zellij && which cc-deck && which claude` via SSH
-- [ ] T023 [P] [US3] Write unit tests for probe with mock SSH client in `cc-deck/internal/ssh/probe_test.go`
-- [ ] T024 [US3] Simplify `SSHEnvironment.Create()` in `cc-deck/internal/env/ssh.go` to use probe instead of bootstrap, delete `cc-deck/internal/ssh/bootstrap.go`
-- [ ] T025 [US3] Allow multiple environments targeting same SSH host (FR-019) by removing single-host uniqueness checks in `cc-deck/internal/env/ssh.go`
+- [X] T016 [US3] Add `--target ssh` section to `/cc-deck.build` command: Ansible availability check (FR-015), inventory generation from `targets.ssh`, `group_vars/all.yml` from manifest in `cc-deck/internal/setup/commands/cc-deck.build.md`
+- [X] T017 [US3] Add Ansible role generation instructions to `/cc-deck.build`: 7 roles (base, tools, zellij, claude, cc_deck, shell_config, mcp) with idempotent tasks in `cc-deck/internal/setup/commands/cc-deck.build.md`
+- [X] T018 [US3] Add `create_user` handling in base role: sudo access, SSH authorized keys from `identity_file` `.pub` counterpart (FR-013) in `cc-deck/internal/setup/commands/cc-deck.build.md`
+- [X] T019 [US3] Add credential sourcing snippet to shell_config role: `[ -f ~/.config/cc-deck/credentials.env ] && source ...` (FR-014) in `cc-deck/internal/setup/commands/cc-deck.build.md`
+- [X] T020 [US3] Add `cc-deck plugin install` execution in cc_deck role (FR-016) and `ansible-playbook` execution with self-correction loop (FR-009) in `cc-deck/internal/setup/commands/cc-deck.build.md`
+- [X] T021 [US3] Add role conflict handling: show diff of changed roles, ask user to choose (per clarification, mirrors US-2 AS-4) in `cc-deck/internal/setup/commands/cc-deck.build.md`
+- [X] T022 [P] [US3] Create lightweight probe function `Probe()` in `cc-deck/internal/ssh/probe.go` running `which zellij && which cc-deck && which claude` via SSH
+- [X] T023 [P] [US3] Write unit tests for probe with mock SSH client in `cc-deck/internal/ssh/probe_test.go`
+- [X] T024 [US3] Simplify `SSHEnvironment.Create()` in `cc-deck/internal/env/ssh.go` to use probe instead of bootstrap, delete `cc-deck/internal/ssh/bootstrap.go`
+- [X] T025 [US3] Allow multiple environments targeting same SSH host (FR-019) by removing single-host uniqueness checks in `cc-deck/internal/env/ssh.go`
 
 **Checkpoint**: `/cc-deck.build --target ssh` generates and runs Ansible playbooks. Converged playbooks run standalone. Probe replaces bootstrap. All 6 acceptance scenarios from US-3 pass.
 
