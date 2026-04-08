@@ -27,6 +27,12 @@ type EnvironmentDefinition struct {
 	AllowedDomains []string          `yaml:"allowed-domains,omitempty"` // Domain groups for proxy sidecar (compose only)
 	ProjectDir     string            `yaml:"project-dir,omitempty"`     // Project directory (compose only)
 	Env            map[string]string `yaml:"env,omitempty"`             // Arbitrary environment variables
+	Host           string            `yaml:"host,omitempty"`            // SSH target (user@host)
+	Port           int               `yaml:"port,omitempty"`            // SSH port
+	IdentityFile   string            `yaml:"identity-file,omitempty"`   // Path to SSH private key
+	JumpHost       string            `yaml:"jump-host,omitempty"`       // Bastion/jump host
+	SSHConfig      string            `yaml:"ssh-config,omitempty"`      // Custom SSH config file
+	Workspace      string            `yaml:"workspace,omitempty"`       // Remote workspace directory
 }
 
 // DefinitionFile is the top-level structure of the environment definitions file.

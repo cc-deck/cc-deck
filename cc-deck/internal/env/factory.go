@@ -13,6 +13,8 @@ func NewEnvironment(envType EnvironmentType, name string, store *FileStateStore,
 		return &ContainerEnvironment{name: name, store: store, defs: defs}, nil
 	case EnvironmentTypeCompose:
 		return &ComposeEnvironment{name: name, store: store, defs: defs}, nil
+	case EnvironmentTypeSSH:
+		return &SSHEnvironment{name: name, store: store, defs: defs}, nil
 	default:
 		return nil, fmt.Errorf("%s: %w", envType, ErrNotImplemented)
 	}
