@@ -395,10 +395,10 @@ func diffSSH(dir string, m *setup.Manifest) error {
 
 	hasChanges := false
 
-	// Check tools role for manifest tools
+	// Check tools role for manifest tools and github tools
 	toolsTaskFile := filepath.Join(rolesDir, "tools", "tasks", "main.yml")
-	toolsContent, err := os.ReadFile(toolsTaskFile)
-	if err == nil {
+	toolsContent, toolsErr := os.ReadFile(toolsTaskFile)
+	if toolsErr == nil {
 		fmt.Println("Tools:")
 		for _, tool := range m.Tools {
 			toolLower := strings.ToLower(tool)
@@ -415,27 +415,24 @@ func diffSSH(dir string, m *setup.Manifest) error {
 				hasChanges = true
 			}
 		}
-	}
 
-	// Check plugins
-	ccDeckTaskFile := filepath.Join(rolesDir, "cc_deck", "tasks", "main.yml")
-	ccDeckContent, err := os.ReadFile(ccDeckTaskFile)
-	if err == nil {
-		fmt.Println("\nPlugins:")
-		for _, p := range m.Plugins {
-			if !strings.Contains(string(ccDeckContent), p.Name) {
-				fmt.Printf("  + %s (%s) (in manifest, not in roles/cc_deck)\n", p.Name, p.Source)
+		fmt.Println("\nGitHub Tools:")
+		for _, gt := range m.GithubTools {
+			if !strings.Contains(string(toolsContent), gt.Repo) {
+				fmt.Printf("  + %s (%s) (in manifest, not in roles/tools)\n", gt.Binary, gt.Repo)
 				hasChanges = true
 			}
 		}
 	}
 
-	// Check github tools
-	if err == nil {
-		fmt.Println("\nGitHub Tools:")
-		for _, gt := range m.GithubTools {
-			if !strings.Contains(string(toolsContent), gt.Repo) {
-				fmt.Printf("  + %s (%s) (in manifest, not in roles/tools)\n", gt.Binary, gt.Repo)
+	// Check plugins
+	ccDeckTaskFile := filepath.Join(rolesDir, "cc_deck", "tasks", "main.yml")
+	ccDeckContent, ccDeckErr := os.ReadFile(ccDeckTaskFile)
+	if ccDeckErr == nil {
+		fmt.Println("\nPlugins:")
+		for _, p := range m.Plugins {
+			if !strings.Contains(string(ccDeckContent), p.Name) {
+				fmt.Printf("  + %s (%s) (in manifest, not in roles/cc_deck)\n", p.Name, p.Source)
 				hasChanges = true
 			}
 		}
