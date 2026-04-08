@@ -108,7 +108,7 @@ Update the build command to require `--target container` or `--target ssh`. For 
 
 **Priority**: P1 | **Estimate**: L | **Risk**: Medium
 **Files**: `cc-deck/internal/setup/commands/cc-deck.build.md`
-**Spec**: FR-005, FR-007, FR-008, FR-009
+**Spec**: FR-005, FR-007, FR-008, FR-009, FR-013, FR-014, FR-015, FR-016
 
 Add the `--target ssh` section to the build command. This section generates Ansible playbooks from the manifest (inventory.ini, group_vars/all.yml, site.yml, role task files), then runs `ansible-playbook`. Includes self-correction loop (up to 3 retries) for Ansible task failures. Must check for Ansible availability first (FR-015).
 
@@ -117,7 +117,7 @@ The generated playbooks must be:
 - Standalone (runnable without Claude Code after convergence)
 - Role-per-concern (base, tools, zellij, claude, cc_deck, shell_config, mcp)
 
-**Acceptance**: All five acceptance scenarios from User Story 3 pass. Converged playbooks run standalone.
+**Acceptance**: All six acceptance scenarios from User Story 3 pass (including AS-6: role conflict diff-and-ask). Converged playbooks run standalone.
 
 ---
 
