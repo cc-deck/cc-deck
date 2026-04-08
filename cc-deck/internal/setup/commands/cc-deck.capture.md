@@ -1,5 +1,5 @@
 ---
-description: Discover tools and settings from your local environment for the container image
+description: Discover tools and settings from your local environment for the setup manifest
 ---
 
 ## User Input
@@ -8,7 +8,7 @@ $ARGUMENTS
 
 ## Outline
 
-Scan local repositories and host configuration, then update the `cc-deck-image.yaml` manifest with everything needed to build a container image that mirrors your development setup.
+Scan local repositories and host configuration, then update the `cc-deck-setup.yaml` manifest with everything needed to set up a Claude Code environment (container image or SSH remote).
 
 The command runs through sections in order. Each section presents findings and lets the user accept, edit, or skip.
 

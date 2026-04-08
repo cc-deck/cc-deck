@@ -9,85 +9,102 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/cc-deck/cc-deck/internal/build"
 	"github.com/cc-deck/cc-deck/internal/project"
+	"github.com/cc-deck/cc-deck/internal/setup"
 )
 
-// NewImageCmd creates the image parent command with subcommands.
-func NewImageCmd(flags *GlobalFlags) *cobra.Command {
+// NewSetupCmd creates the setup parent command with subcommands.
+func NewSetupCmd(flags *GlobalFlags) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "image",
-		Short: "Container image lifecycle",
-		Long:  "Commands for creating, building, pushing, and verifying cc-deck container images.",
+		Use:   "setup",
+		Short: "Setup profile lifecycle",
+		Long:  "Commands for initializing, verifying, and diffing cc-deck setup profiles.",
 	}
 
-	cmd.AddCommand(newImageInitCmd(flags))
-	cmd.AddCommand(newImageVerifyCmd(flags))
-	cmd.AddCommand(newImageDiffCmd(flags))
+	cmd.AddCommand(newSetupInitCmd(flags))
+	cmd.AddCommand(newSetupVerifyCmd(flags))
+	cmd.AddCommand(newSetupDiffCmd(flags))
 
 	return cmd
 }
 
-func newImageInitCmd(_ *GlobalFlags) *cobra.Command {
+func newSetupInitCmd(_ *GlobalFlags) *cobra.Command {
 	var force bool
+	var target string
 
 	cmd := &cobra.Command{
 		Use:   "init [dir]",
-		Short: "Initialize a build directory",
-		Long: `Scaffold a new build directory with a cc-deck-image.yaml manifest,
-Claude Code commands for AI-driven image configuration, and helper scripts.
+		Short: "Initialize a setup directory",
+		Long: `Scaffold a new setup directory with a cc-deck-setup.yaml manifest
+and Claude Code commands for AI-driven environment configuration.
 
-When no directory is specified and the current project has .cc-deck/,
-defaults to .cc-deck/image/ (FR-017).
+When no directory is specified, defaults to .cc-deck/setup/.
+
+Use --target to pre-configure for specific targets:
+  --target container      Uncomment container target section
+  --target ssh            Uncomment SSH target section and create role skeletons
+  --target container,ssh  Configure both targets
 
 After initialization, start Claude Code from the project directory and use:
-  /cc-deck.capture       - Discover tools and settings for the image
-  /cc-deck.build         - Generate Containerfile and build the image
-  /cc-deck.push          - Push the image to a registry`,
+  /cc-deck.capture       - Discover tools and settings
+  /cc-deck.build         - Build container image or provision SSH target`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			dir, projectRoot := resolveImageDirAndRoot(args)
-			if err := build.InitBuildDir(dir, projectRoot, force); err != nil {
+			dir, projectRoot := resolveSetupDirAndRoot(args)
+
+			var targets []string
+			if target != "" {
+				for _, t := range strings.Split(target, ",") {
+					t = strings.TrimSpace(t)
+					if t != "container" && t != "ssh" {
+						return fmt.Errorf("invalid target %q: must be container, ssh, or container,ssh", t)
+					}
+					targets = append(targets, t)
+				}
+			}
+
+			if err := setup.InitSetupDir(dir, projectRoot, force, targets); err != nil {
 				return err
 			}
-			fmt.Printf("Build directory initialized: %s\n\n", dir)
-			fmt.Printf("  Manifest:  %s/cc-deck-image.yaml\n", dir)
+			fmt.Printf("Setup directory initialized: %s\n\n", dir)
+			fmt.Printf("  Manifest:  %s/cc-deck-setup.yaml\n", dir)
 			fmt.Printf("  Commands:  %s/.claude/commands/cc-deck.*.md\n", projectRoot)
 			fmt.Println()
 			fmt.Println("Next steps:")
 			fmt.Printf("  cd %s\n", projectRoot)
 			fmt.Println("  claude                        # Open in Claude Code")
 			fmt.Println("  /cc-deck.capture              # Discover tools and settings")
-			fmt.Println("  /cc-deck.build                # Generate Containerfile & build")
-			fmt.Println("  /cc-deck.push                 # Push to registry")
+			fmt.Println("  /cc-deck.build --target container  # Build container image")
+			fmt.Println("  /cc-deck.build --target ssh        # Provision SSH target")
 			return nil
 		},
 	}
 
-	cmd.Flags().BoolVarP(&force, "force", "f", false, "Overwrite existing build directory")
+	cmd.Flags().BoolVarP(&force, "force", "f", false, "Overwrite existing setup directory")
+	cmd.Flags().StringVar(&target, "target", "", "Comma-separated targets: container, ssh, or container,ssh")
 
 	return cmd
 }
 
-func newImageVerifyCmd(_ *GlobalFlags) *cobra.Command {
+func newSetupVerifyCmd(_ *GlobalFlags) *cobra.Command {
 	return &cobra.Command{
 		Use:   "verify [dir]",
-		Short: "Smoke-test a built container image",
+		Short: "Smoke-test a provisioned target",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runVerify(resolveImageDir(args))
+			return runVerify(resolveSetupDir(args))
 		},
 	}
 }
 
 func runVerify(dir string) error {
-	manifestPath := filepath.Join(dir, "cc-deck-image.yaml")
-	m, err := build.LoadManifest(manifestPath)
+	manifestPath := filepath.Join(dir, "cc-deck-setup.yaml")
+	m, err := setup.LoadManifest(manifestPath)
 	if err != nil {
 		return err
 	}
 
-	runtime, err := build.DetectRuntime()
+	runtime, err := setup.DetectRuntime()
 	if err != nil {
 		return err
 	}
@@ -132,7 +149,6 @@ func runVerify(dir string) error {
 		if err != nil {
 			fmt.Printf("  FAIL  %s\n", c.name)
 			if result != "" {
-				// Truncate long error output (e.g. crash stack traces)
 				lines := strings.SplitN(result, "\n", 4)
 				if len(lines) > 3 {
 					for _, line := range lines[:3] {
@@ -157,54 +173,46 @@ func runVerify(dir string) error {
 	return nil
 }
 
-func newImageDiffCmd(_ *GlobalFlags) *cobra.Command {
+func newSetupDiffCmd(_ *GlobalFlags) *cobra.Command {
 	return &cobra.Command{
 		Use:   "diff [dir]",
-		Short: "Show manifest changes since last Containerfile generation",
+		Short: "Show manifest changes since last artifact generation",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runDiff(resolveImageDir(args))
+			return runDiff(resolveSetupDir(args))
 		},
 	}
 }
 
-// resolveImageDir returns the image directory from args or defaults to
-// .cc-deck/image/ if inside a project with .cc-deck/ (FR-017).
-// resolveImageDir returns just the image directory (for verify, diff).
-func resolveImageDir(args []string) string {
-	dir, _ := resolveImageDirAndRoot(args)
+// resolveSetupDir returns just the setup directory (for verify, diff).
+func resolveSetupDir(args []string) string {
+	dir, _ := resolveSetupDirAndRoot(args)
 	return dir
 }
 
-// resolveImageDirAndRoot returns the image build directory and the project
-// root. Commands go into projectRoot/.claude/commands/, build artifacts
-// into imageDir (.cc-deck/image/).
-//
-// When no args are given, defaults to .cc-deck/image/ relative to the
-// project root (git root or cwd). Image build artifacts always live
-// inside .cc-deck/ alongside other project-local cc-deck state.
-func resolveImageDirAndRoot(args []string) (imageDir string, projectRoot string) {
+// resolveSetupDirAndRoot returns the setup directory and the project root.
+// Commands go into projectRoot/.claude/commands/, setup artifacts into
+// setupDir (.cc-deck/setup/).
+func resolveSetupDirAndRoot(args []string) (setupDir string, projectRoot string) {
 	if len(args) > 0 {
-		// Explicit dir: use its parent as project root.
 		return args[0], filepath.Dir(args[0])
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
-		return filepath.Join(".", ".cc-deck", "image"), "."
+		return filepath.Join(".", ".cc-deck", "setup"), "."
 	}
-	// Prefer project config root, then git root, then cwd.
 	if root, findErr := project.FindProjectConfig(cwd); findErr == nil {
-		return filepath.Join(root, ".cc-deck", "image"), root
+		return filepath.Join(root, ".cc-deck", "setup"), root
 	}
 	if root, gitErr := project.FindGitRoot(cwd); gitErr == nil {
-		return filepath.Join(root, ".cc-deck", "image"), root
+		return filepath.Join(root, ".cc-deck", "setup"), root
 	}
-	return filepath.Join(cwd, ".cc-deck", "image"), cwd
+	return filepath.Join(cwd, ".cc-deck", "setup"), cwd
 }
 
 func runDiff(dir string) error {
-	manifestPath := filepath.Join(dir, "cc-deck-image.yaml")
-	m, err := build.LoadManifest(manifestPath)
+	manifestPath := filepath.Join(dir, "cc-deck-setup.yaml")
+	m, err := setup.LoadManifest(manifestPath)
 	if err != nil {
 		return err
 	}
@@ -263,7 +271,7 @@ func runDiff(dir string) error {
 	}
 
 	if !hasChanges {
-		fmt.Println("\nNo differences detected. Manifest and Containerfile appear in sync.")
+		fmt.Println("\nNo differences detected. Manifest and artifacts appear in sync.")
 	} else {
 		fmt.Println("\nRegenerate with: claude /cc-deck.build")
 	}

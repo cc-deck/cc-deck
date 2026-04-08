@@ -1,11 +1,11 @@
 #!/bin/bash
-# Validate cc-deck-image.yaml manifest schema.
+# Validate cc-deck-setup.yaml manifest schema.
 # Usage: validate-manifest.sh [manifest-path]
 # Exit 0 if valid, exit 1 with error message if not.
 
 set -euo pipefail
 
-MANIFEST="${1:-cc-deck-image.yaml}"
+MANIFEST="${1:-cc-deck-setup.yaml}"
 
 if [ ! -f "$MANIFEST" ]; then
   echo "Error: manifest not found: $MANIFEST"

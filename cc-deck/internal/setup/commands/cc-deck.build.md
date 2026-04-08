@@ -12,7 +12,7 @@ End-to-end image build: read the manifest, generate a Containerfile, build the c
 
 ### Step 1: Read and validate the manifest
 
-Read `cc-deck-image.yaml` and validate it has `version` and `image.name`. Extract `image.tag` (default: `latest`).
+Read `cc-deck-setup.yaml` and validate it has `version` and `image.name`. Extract `image.tag` (default: `latest`).
 
 ### Step 2: Generate the Containerfile
 
@@ -251,7 +251,7 @@ On success, show:
 
 ### Key Rules
 
-- Never modify `cc-deck-image.yaml` (the manifest is the source of truth)
+- Never modify `cc-deck-setup.yaml` (the manifest is the source of truth)
 - **NEVER omit the 3 mandatory layers** (cc-deck+Zellij, Claude Code, hooks). Every Containerfile must include them
 - Always use `build-context/cc-deck-linux-${TARGETARCH}` as the COPY source in the Containerfile
 - Always set `ZELLIJ_CONFIG_DIR=/home/dev/.config/zellij` when running `cc-deck plugin install` as root
