@@ -151,7 +151,11 @@ func uncommentTargets(content string, container, ssh bool) string {
 		// Detect the start of the commented targets block
 		if trimmed == "# targets:" {
 			inTargetsBlock = true
-			result = append(result, "targets:")
+			if container || ssh {
+				result = append(result, "targets:")
+			} else {
+				result = append(result, line)
+			}
 			continue
 		}
 

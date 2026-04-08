@@ -3,6 +3,7 @@ package setup
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -82,8 +83,9 @@ type MCPAuth struct {
 
 // GithubTool describes a tool to download from GitHub releases.
 type GithubTool struct {
-	Repo   string `yaml:"repo"`
-	Binary string `yaml:"binary"`
+	Repo         string `yaml:"repo"`
+	Binary       string `yaml:"binary"`
+	AssetPattern string `yaml:"asset_pattern,omitempty"`
 }
 
 // SettingsConfig describes user configuration to apply to the target.
@@ -115,6 +117,24 @@ func LoadManifest(path string) (*Manifest, error) {
 func (m *Manifest) Validate() error {
 	if m.Version < 1 {
 		return fmt.Errorf("manifest version must be >= 1, got %d", m.Version)
+	}
+	for i, p := range m.Plugins {
+		if p.Name == "" {
+			return fmt.Errorf("plugins[%d].name is required", i)
+		}
+		if p.Source == "" {
+			return fmt.Errorf("plugins[%d].source is required", i)
+		}
+	}
+	for i, mcp := range m.MCP {
+		if mcp.Name == "" {
+			return fmt.Errorf("mcp[%d].name is required", i)
+		}
+	}
+	for i, gt := range m.GithubTools {
+		if gt.Repo == "" || !strings.Contains(gt.Repo, "/") {
+			return fmt.Errorf("github_tools[%d].repo must be in owner/repo format", i)
+		}
 	}
 	if m.Targets != nil {
 		if ct := m.Targets.Container; ct != nil {
