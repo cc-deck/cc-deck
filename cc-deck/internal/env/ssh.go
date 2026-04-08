@@ -77,10 +77,13 @@ func (e *SSHEnvironment) Create(ctx context.Context, _ CreateOpts) error {
 
 	client := e.newSSHClient(def)
 
-	// Run pre-flight checks with interactive prompts.
-	fmt.Fprintf(os.Stderr, "Running pre-flight checks for %s...\n", def.Host)
-	if err := ssh.RunPreflightChecks(ctx, client, def.Auth, os.Stdin, os.Stderr); err != nil {
-		return fmt.Errorf("pre-flight checks failed: %w", err)
+	// Verify SSH connectivity and check that the host is provisioned.
+	fmt.Fprintf(os.Stderr, "Checking host %s...\n", def.Host)
+	if err := client.Check(ctx); err != nil {
+		return fmt.Errorf("SSH connectivity failed: %w", err)
+	}
+	if err := ssh.Probe(ctx, client); err != nil {
+		return err
 	}
 
 	workspace := resolveWorkspace(def)
