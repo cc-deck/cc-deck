@@ -66,10 +66,11 @@ if [[ ! -x "$CC_DECK" ]]; then
 fi
 
 # Prepare test manifest
-cat > "$BUILD_DIR/cc-deck-image.yaml" <<EOF
-version: 1
-image:
-  name: quay.io/cc-deck/cc-deck-demo
+cat > "$BUILD_DIR/cc-deck-setup.yaml" <<EOF
+version: 2
+targets:
+  container:
+    name: quay.io/cc-deck/cc-deck-demo
 network:
   allowed_domains:
     - github

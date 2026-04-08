@@ -1,4 +1,4 @@
-package build
+package setup
 
 import (
 	"fmt"
@@ -7,10 +7,9 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Manifest represents the cc-deck-image.yaml file.
+// Manifest represents the cc-deck-setup.yaml file.
 type Manifest struct {
 	Version     int              `yaml:"version"`
-	Image       ImageConfig      `yaml:"image"`
 	Tools       []string         `yaml:"tools,omitempty"`
 	Sources     []SourceEntry    `yaml:"sources,omitempty"`
 	Plugins     []PluginEntry    `yaml:"plugins,omitempty"`
@@ -18,18 +17,36 @@ type Manifest struct {
 	GithubTools []GithubTool     `yaml:"github_tools,omitempty"`
 	Settings    *SettingsConfig  `yaml:"settings,omitempty"`
 	Network     *NetworkConfig   `yaml:"network,omitempty"`
+	Targets     *TargetsConfig   `yaml:"targets,omitempty"`
+}
+
+// TargetsConfig holds per-target configuration.
+type TargetsConfig struct {
+	Container *ContainerTarget `yaml:"container,omitempty"`
+	SSH       *SSHTarget       `yaml:"ssh,omitempty"`
+}
+
+// ContainerTarget describes the container image to build.
+type ContainerTarget struct {
+	Name     string `yaml:"name"`
+	Tag      string `yaml:"tag,omitempty"`
+	Base     string `yaml:"base,omitempty"`
+	Registry string `yaml:"registry,omitempty"`
+}
+
+// SSHTarget describes the SSH provisioning target.
+type SSHTarget struct {
+	Host         string `yaml:"host"`
+	Port         int    `yaml:"port,omitempty"`
+	IdentityFile string `yaml:"identity_file,omitempty"`
+	CreateUser   bool   `yaml:"create_user,omitempty"`
+	User         string `yaml:"user,omitempty"`
+	Workspace    string `yaml:"workspace,omitempty"`
 }
 
 // NetworkConfig describes network filtering for containerized sessions.
 type NetworkConfig struct {
 	AllowedDomains []string `yaml:"allowed_domains,omitempty"`
-}
-
-// ImageConfig describes the container image to build.
-type ImageConfig struct {
-	Name string `yaml:"name"`
-	Tag  string `yaml:"tag,omitempty"`
-	Base string `yaml:"base,omitempty"`
 }
 
 // SourceEntry tracks a repository analyzed for tool discovery.
@@ -49,12 +66,12 @@ type PluginEntry struct {
 
 // MCPEntry describes an MCP server sidecar container.
 type MCPEntry struct {
-	Name        string   `yaml:"name"`
-	Image       string   `yaml:"image"`
-	Transport   string   `yaml:"transport,omitempty"`
-	Port        int      `yaml:"port,omitempty"`
-	Auth        MCPAuth  `yaml:"auth,omitempty"`
-	Description string   `yaml:"description,omitempty"`
+	Name        string  `yaml:"name"`
+	Image       string  `yaml:"image"`
+	Transport   string  `yaml:"transport,omitempty"`
+	Port        int     `yaml:"port,omitempty"`
+	Auth        MCPAuth `yaml:"auth,omitempty"`
+	Description string  `yaml:"description,omitempty"`
 }
 
 // MCPAuth describes authentication requirements for an MCP server.
@@ -69,7 +86,7 @@ type GithubTool struct {
 	Binary string `yaml:"binary"`
 }
 
-// SettingsConfig describes user configuration to bake into the image.
+// SettingsConfig describes user configuration to apply to the target.
 type SettingsConfig struct {
 	Shell          string `yaml:"shell,omitempty"`
 	ShellRC        string `yaml:"shell_rc,omitempty"`
@@ -81,7 +98,7 @@ type SettingsConfig struct {
 	CCSetupMCP     string `yaml:"cc_setup_mcp,omitempty"`
 }
 
-// LoadManifest reads and parses a cc-deck-image.yaml file.
+// LoadManifest reads and parses a cc-deck-setup.yaml file.
 func LoadManifest(path string) (*Manifest, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -99,19 +116,36 @@ func (m *Manifest) Validate() error {
 	if m.Version < 1 {
 		return fmt.Errorf("manifest version must be >= 1, got %d", m.Version)
 	}
-	if m.Image.Name == "" {
-		return fmt.Errorf("image.name is required")
+	if m.Targets != nil {
+		if ct := m.Targets.Container; ct != nil {
+			if ct.Name == "" {
+				return fmt.Errorf("targets.container.name is required")
+			}
+		}
+		if st := m.Targets.SSH; st != nil {
+			if st.Host == "" {
+				return fmt.Errorf("targets.ssh.host is required")
+			}
+			if st.CreateUser && st.User == "" {
+				return fmt.Errorf("targets.ssh.user is required when create_user is true")
+			}
+		}
 	}
 	return nil
 }
 
-// ImageRef returns the full image reference (name:tag).
+// ImageRef returns the full container image reference (name:tag).
+// Returns empty string if no container target is configured.
 func (m *Manifest) ImageRef() string {
-	tag := m.Image.Tag
+	if m.Targets == nil || m.Targets.Container == nil {
+		return ""
+	}
+	ct := m.Targets.Container
+	tag := ct.Tag
 	if tag == "" {
 		tag = "latest"
 	}
-	return m.Image.Name + ":" + tag
+	return ct.Name + ":" + tag
 }
 
 // DefaultBaseImage is the fallback base image reference.
@@ -120,8 +154,8 @@ var DefaultBaseImage = "quay.io/cc-deck/cc-deck-base:latest"
 
 // BaseImage returns the base image reference, with default.
 func (m *Manifest) BaseImage() string {
-	if m.Image.Base != "" {
-		return m.Image.Base
+	if m.Targets != nil && m.Targets.Container != nil && m.Targets.Container.Base != "" {
+		return m.Targets.Container.Base
 	}
 	return DefaultBaseImage
 }

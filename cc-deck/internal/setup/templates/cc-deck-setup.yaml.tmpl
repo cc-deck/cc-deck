@@ -1,17 +1,12 @@
-# cc-deck Build Manifest
-# This file describes the container image to build for your Claude Code environment.
+# cc-deck Setup Manifest
+# This file describes the environment to set up for Claude Code.
 # Populate it using Claude Code commands:
 #   /cc-deck.capture  - discover tools and settings from your local environment
-#   /cc-deck.build    - generate Containerfile and build the image
+#   /cc-deck.build    - build container image or provision SSH target
 
-version: 1
+version: 2
 
-image:
-  name: {{.ImageName}}
-  base: {{.BaseImage}}
-  # tag: latest
-
-# Tool dependencies (free-form text, resolved during Containerfile generation).
+# Tool dependencies (free-form text, resolved during build).
 # Add manually or discover automatically with /cc-deck.capture
 # tools:
 #   - "Go compiler >= 1.22"
@@ -56,14 +51,38 @@ image:
 #   - repo: cc-deck/cc-session
 #     binary: cc-session
 
-# User configuration to bake into the image.
+# User configuration to apply to the target.
 # Populated by /cc-deck.capture
 # settings:
 #   shell: zsh                       # Shell to use: "zsh" (default) or "bash"
-#   shell_rc: ./zshrc                # Custom shell config (appended to base image's rc file)
+#   shell_rc: ./zshrc                # Custom shell config (appended to base rc file)
 #   zellij_config: current           # "current" (copy local config.kdl), "vanilla", or a path
 #   claude_md: ./CLAUDE.md           # Global Claude instructions (-> ~/.claude/CLAUDE.md)
 #   claude_settings: ./settings.json # Claude preferences to merge (model, theme, etc.)
 #   hooks: ./hooks.json              # Extra hooks to merge with cc-deck hooks
 #   mcp_settings: ./mcp-settings.json     # npx-based MCP server configs to merge
 #   cc_setup_mcp: ./cc-setup-mcp.json     # cc-setup MCP cache (-> ~/.config/cc-setup/mcp.json)
+
+# Network domain groups for container environments.
+# network:
+#   allowed_domains:
+#     - golang
+#     - github
+
+# ---- Target sections ----
+# Uncomment the targets you need, or use cc-deck setup init --target to auto-configure.
+
+# targets:
+#   container:
+#     name: {{.ImageName}}
+#     base: {{.BaseImage}}
+#     # tag: latest
+#     # registry: quay.io/cc-deck    # Enable --push support
+#
+#   ssh:
+#     host: dev@your-server
+#     # port: 22
+#     # identity_file: ~/.ssh/id_ed25519
+#     # create_user: true
+#     # user: dev
+#     # workspace: ~/workspace

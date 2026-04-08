@@ -25,9 +25,9 @@
 
 **Purpose**: Package rename and CLI restructuring. No functional changes.
 
-- [ ] T001 Rename `cc-deck/internal/build/` to `cc-deck/internal/setup/` and update all import paths
-- [ ] T002 Rename `cc-deck/internal/cmd/build.go` to `cc-deck/internal/cmd/setup.go` and change cobra command from `image` to `setup` in `cc-deck/cmd/cc-deck/main.go`
-- [ ] T003 Delete `cc-deck/internal/setup/commands/cc-deck.push.md` and remove embed reference in `cc-deck/internal/setup/embed.go`
+- [X] T001 Rename `cc-deck/internal/build/` to `cc-deck/internal/setup/` and update all import paths
+- [X] T002 Rename `cc-deck/internal/cmd/build.go` to `cc-deck/internal/cmd/setup.go` and change cobra command from `image` to `setup` in `cc-deck/cmd/cc-deck/main.go`
+- [X] T003 Delete `cc-deck/internal/setup/commands/cc-deck.push.md` and remove embed reference in `cc-deck/internal/setup/embed.go`
 
 **Checkpoint**: `make test` and `make lint` pass. `cc-deck setup init` works (same as old `cc-deck image init`). `cc-deck image` no longer exists.
 
@@ -39,11 +39,11 @@
 
 **CRITICAL**: No user story work can begin until this phase is complete.
 
-- [ ] T004 Evolve `Manifest` struct in `cc-deck/internal/setup/manifest.go`: replace `Image ImageConfig` with `Targets *TargetsConfig`, add `ContainerTarget` and `SSHTarget` structs per `data-model.md`
-- [ ] T005 Update `Validate()`, `ImageRef()`, `BaseImage()` in `cc-deck/internal/setup/manifest.go` to read from `Targets.Container`
-- [ ] T006 Rename manifest filename constant from `cc-deck-image.yaml` to `cc-deck-setup.yaml` in `cc-deck/internal/setup/manifest.go`
-- [ ] T007 Update manifest template in `cc-deck/internal/setup/init.go` to include both `targets.container` and `targets.ssh` sections (commented out by default)
-- [ ] T008 Write unit tests for manifest loading, validation, and helper methods with new `Targets` struct in `cc-deck/internal/setup/manifest_test.go`
+- [X] T004 Evolve `Manifest` struct in `cc-deck/internal/setup/manifest.go`: replace `Image ImageConfig` with `Targets *TargetsConfig`, add `ContainerTarget` and `SSHTarget` structs per `data-model.md`
+- [X] T005 Update `Validate()`, `ImageRef()`, `BaseImage()` in `cc-deck/internal/setup/manifest.go` to read from `Targets.Container`
+- [X] T006 Rename manifest filename constant from `cc-deck-image.yaml` to `cc-deck-setup.yaml` in `cc-deck/internal/setup/manifest.go`
+- [X] T007 Update manifest template in `cc-deck/internal/setup/init.go` to include both `targets.container` and `targets.ssh` sections (commented out by default)
+- [X] T008 Write unit tests for manifest loading, validation, and helper methods with new `Targets` struct in `cc-deck/internal/setup/manifest_test.go`
 
 **Checkpoint**: Manifest v2 loads, validates, and passes all tests. `make test` passes.
 
@@ -57,10 +57,10 @@
 
 ### Implementation for User Story 1
 
-- [ ] T009 [US1] Add `--target` flag to init command accepting `container`, `ssh`, or comma-separated combination in `cc-deck/internal/cmd/setup.go`
-- [ ] T010 [US1] Implement Ansible role skeleton scaffolding when `--target ssh`: create `roles/{base,tools,zellij,claude,cc_deck,shell_config,mcp}/tasks/main.yml` and `defaults/main.yml`, `group_vars/`, `site.yml` skeleton, `inventory.ini` template in `cc-deck/internal/setup/init.go`
-- [ ] T011 [US1] Implement target section commenting/uncommenting logic: uncomment `targets.container` when `--target container`, uncomment `targets.ssh` when `--target ssh` in `cc-deck/internal/setup/init.go`
-- [ ] T012 [US1] Update `/cc-deck.capture` command to read `cc-deck-setup.yaml` instead of `cc-deck-image.yaml`, ensure it only modifies shared sections in `cc-deck/internal/setup/commands/cc-deck.capture.md`
+- [X] T009 [US1] Add `--target` flag to init command accepting `container`, `ssh`, or comma-separated combination in `cc-deck/internal/cmd/setup.go`
+- [X] T010 [US1] Implement Ansible role skeleton scaffolding when `--target ssh`: create `roles/{base,tools,zellij,claude,cc_deck,shell_config,mcp}/tasks/main.yml` and `defaults/main.yml`, `group_vars/`, `site.yml` skeleton, `inventory.ini` template in `cc-deck/internal/setup/init.go`
+- [X] T011 [US1] Implement target section commenting/uncommenting logic: uncomment `targets.container` when `--target container`, uncomment `targets.ssh` when `--target ssh` in `cc-deck/internal/setup/init.go`
+- [X] T012 [US1] Update `/cc-deck.capture` command to read `cc-deck-setup.yaml` instead of `cc-deck-image.yaml`, ensure it only modifies shared sections in `cc-deck/internal/setup/commands/cc-deck.capture.md`
 
 **Checkpoint**: `cc-deck setup init --target container,ssh` creates correct directory structure. `/cc-deck.capture` populates shared sections without touching targets. All 4 acceptance scenarios from US-1 pass.
 
