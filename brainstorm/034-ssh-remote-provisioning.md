@@ -1,137 +1,341 @@
-# Brainstorm: SSH Remote Machine Provisioning
+# 034: Unified Setup Command (Container Images + SSH Provisioning)
 
 **Date:** 2026-04-08
-**Context:** Hands-on testing of spec 033 (SSH Remote Execution Environment) against a Hetzner CAX11 VM (Fedora 43, aarch64)
+**Context:** Hands-on testing of spec 033 (SSH environment) against a Hetzner CAX11 VM revealed that the pre-flight bootstrap is insufficient. Simultaneously, the existing `cc-deck image` command (specs 017-018) solves the same problem for containers. This brainstorm unifies both approaches into a single command with a shared manifest.
 **Status:** active
-**Depends on:** 033-ssh-environment (transport layer, implemented)
+**Depends on:** 033-ssh-environment (transport layer, implemented), 017-base-image, 018-build-manifest
+**Supersedes:** the "Design: Automated Remote Provisioning" section of the original 034 brainstorm
 
-## Background
+## Problem
 
-Spec 033 implements the SSH environment transport layer: create, attach, detach, credentials, status, exec, push, pull, and harvest. All of these work correctly against a real remote host. The missing piece is automated provisioning of the remote machine so that the full cc-deck experience (sidebar monitoring, session tracking, credential sourcing) works out of the box.
+Two parallel systems exist for preparing a machine to run cc-deck:
 
-During testing against a bare Hetzner VM (hostname: marovo, Fedora 43, aarch64), we discovered that the pre-flight bootstrap in spec 033 is insufficient for a production-quality setup. This brainstorm captures what went wrong and proposes the design for the next iteration.
+1. **Container images** (`cc-deck image`): a manifest-driven pipeline that uses Claude Code slash commands to discover local tools, generate a Containerfile, build the image, and push it to a registry.
+2. **SSH remote machines**: a pre-flight bootstrap in `Create()` that checks for Zellij, Claude Code, and cc-deck, with interactive remediation prompts.
 
-## Findings from Testing
+These solve the same problem ("make a target machine ready for cc-deck") with different mechanisms but identical intent. The container pipeline is mature, declarative, and idempotent. The SSH bootstrap is procedural, fragile, and riddled with bugs discovered during real-world testing (see "Findings from Testing" below).
+
+The goal is to replace both with a unified `cc-deck setup` command that uses a single manifest and two generation backends: Containerfile for container images, Ansible playbooks for SSH targets.
+
+## Findings from Testing (spec 033)
+
+Testing against a bare Hetzner VM (hostname: marovo, Fedora 43, aarch64) uncovered ten issues with the current SSH bootstrap approach. These findings motivated the redesign.
 
 ### F-001: Workspace directory not created automatically
 
-The `Create()` flow validates SSH connectivity but does not create the workspace directory on the remote. When the workspace does not exist, `Attach()` fails with "No such file or directory" when trying to `cd` into it.
-
-**Resolution:** Create the workspace directory during `Create()` after pre-flight checks pass, before recording state.
+The `Create()` flow validates SSH connectivity but does not create the workspace directory on the remote. When the workspace does not exist, `Attach()` fails with "No such file or directory."
 
 ### F-002: Tilde expansion happens locally instead of remotely
 
-When the user passes `--workspace ~/workspace`, the shell expands `~` to the local home directory (e.g., `/Users/rhuss/workspace`). The stored path is then wrong for the remote machine.
-
-**Resolution:** Document that users should quote the path (`'~/workspace'`) or use `$HOME/workspace`. Consider expanding `~` to `$HOME` in the CLI before storing.
+When the user passes `--workspace ~/workspace`, the shell expands `~` to the local home directory (e.g., `/Users/rhuss/workspace`). The stored path is wrong for the remote machine.
 
 ### F-003: Layout file contains absolute local paths
 
-Copying the local `cc-deck.kdl` layout to the remote preserves absolute paths like `/Users/rhuss/.config/zellij/plugins/cc_deck.wasm`. Zellij on the remote cannot find the plugin at that path.
-
-**Resolution:** The layout on the remote must use relative paths (e.g., `file:~/.config/zellij/plugins/cc_deck.wasm`). Running `cc-deck plugin install` on the remote generates the layout with correct paths.
+Copying the local `cc-deck.kdl` layout to the remote preserves absolute paths like `/Users/rhuss/.config/zellij/plugins/cc_deck.wasm`. Zellij on the remote cannot find the plugin at that path. Running `cc-deck plugin install` on the remote generates the layout with correct paths.
 
 ### F-004: Controller plugin not loaded
 
 The cc-deck layout only defines the sidebar plugin instance. The controller plugin is loaded via `load_plugins` in the Zellij config, which is set up by `cc-deck plugin install`. Without the controller, the sidebar shows "Waiting for controller."
 
-**Resolution:** Running `cc-deck plugin install` on the remote adds the controller to `load_plugins` in the Zellij config. This is not something we can replicate by copying individual files.
-
 ### F-005: Claude Code hooks not registered
 
-Even with the controller running, the sidebar shows "No Claude sessions" because the Claude Code hooks (in `~/.claude/settings.json` on the remote) are not configured. These hooks pipe session events through Zellij pipes to the controller plugin. `cc-deck plugin install` registers them.
-
-**Resolution:** Same as F-004. Running `cc-deck plugin install` on the remote is the only correct approach.
+Even with the controller running, the sidebar shows "No Claude sessions" because the Claude Code hooks (in `~/.claude/settings.json` on the remote) are not configured. Running `cc-deck plugin install` on the remote is the only correct approach.
 
 ### F-006: Credential file not sourced by shell
 
-Credentials are written to `~/.config/cc-deck/credentials.env` on the remote, but new Zellij panes do not source this file automatically. The spec says "no modification of user shell config files," but without sourcing there is no way for new panes to pick up credentials.
-
-**Resolution:** Two options. First, `cc-deck plugin install` could add sourcing to `.bashrc` (practical but violates spec intent). Second, generate a layout where pane commands wrap credential sourcing. This needs further design.
+Credentials are written to `~/.config/cc-deck/credentials.env` on the remote, but new Zellij panes do not source this file automatically. The provisioning system needs to add a sourcing snippet to the shell config.
 
 ### F-007: Zellij remedy uses wrong URL format
 
-The Zellij install remedy constructs URLs using Go-normalized architecture names (`arm64`, `amd64`) but the GitHub release uses raw uname names (`aarch64`, `x86_64`). The download URL is wrong.
-
-**Resolution:** Store the raw uname architecture alongside the normalized one, or reverse the normalization when constructing download URLs.
+The Zellij install remedy constructs URLs using Go-normalized architecture names (`arm64`, `amd64`) but the GitHub release uses raw uname names (`aarch64`, `x86_64`).
 
 ### F-008: Claude Code remedy uses npm instead of official installer
 
-The `ClaudeCodeCheck` remedy runs `npm install -g @anthropic-ai/claude-code`. The official installation method is `curl -fsSL https://claude.ai/install.sh | bash`, which installs a native binary with auto-updates.
-
-**Resolution:** Switch to the official installer in the remedy.
+The `ClaudeCodeCheck` remedy runs `npm install -g @anthropic-ai/claude-code`. The official installation method is `curl -fsSL https://claude.ai/install.sh | bash`.
 
 ### F-009: cc-deck remedy references nonexistent install script
 
-The `CcDeckCheck` remedy runs `curl | bash` from a `main` branch install script that does not exist in the repository.
-
-**Resolution:** Download the release binary from GitHub Releases for the detected OS and architecture. The release process (spec 021) publishes `cc-deck-linux-amd64` and `cc-deck-linux-arm64` binaries.
+The `CcDeckCheck` remedy runs `curl | bash` from a `main` branch install script that does not exist. It should download the release binary from GitHub Releases.
 
 ### F-010: Zellij `attach --layout` flag does not exist
 
-The attach flow used `zellij attach --create-background <name> --layout cc-deck`, but the `--layout` flag is not valid on `zellij attach`. The layout is a top-level flag: `zellij --layout cc-deck attach --create-background <name>`.
+The attach flow used `zellij attach --create-background <name> --layout cc-deck`, but `--layout` is a top-level flag, not a subcommand flag. Fixed during testing.
 
-**Resolution:** Fixed during testing. The code now uses the correct flag position and falls back to the default layout if the cc-deck layout is not found.
-
-## Design: Automated Remote Provisioning
+## Design: Unified `cc-deck setup`
 
 ### Core Principle
 
-The remote machine should be provisioned by running `cc-deck plugin install` on the remote via SSH. This single command handles the WASM plugin, layout files, controller config, and Claude Code hooks. We should not try to replicate its behavior by copying individual files.
+The "what to install" (tools, shell config, plugins, MCP servers) is orthogonal to "where to install it" (container image vs SSH remote). A single manifest captures the developer profile. Two backends generate target-specific artifacts from that profile.
 
-### Proposed Pre-flight Sequence
+### Architecture Overview
 
 ```
-1. SSH connectivity check
-2. OS/architecture detection
-3. Zellij check → remedy: download release binary
-4. Claude Code check → remedy: official installer (curl | bash)
-5. cc-deck CLI check → remedy: download release binary from GitHub Releases
-6. cc-deck plugin check → remedy: run `cc-deck plugin install` on remote
-7. Credential verification
-8. Create workspace directory
+                    cc-deck-setup.yaml
+                    (single manifest)
+                          │
+              ┌───────────┴───────────┐
+              │                       │
+     /cc-deck.capture          /cc-deck.capture
+     (populates manifest,       (same command,
+      target-agnostic)           reusable)
+              │                       │
+              v                       v
+     /cc-deck.build            /cc-deck.build
+     --target container        --target ssh
+              │                       │
+              v                       v
+        Containerfile           Ansible playbooks
+              │                (roles directory)
+              v                       │
+        podman build                  v
+        [--push]             ansible-playbook
+              │                       │
+              v                       v
+     Container image          Provisioned remote
 ```
 
-Steps 5 and 6 are the key change. Step 5 downloads the cc-deck binary. Step 6 runs `cc-deck plugin install`, which sets up everything else.
+### CLI Commands
 
-### Analogy: Image Building Pattern
+```
+cc-deck setup init [dir]          # scaffold manifest + install Claude commands
+cc-deck setup verify [dir]        # smoke-test target (container or remote)
+cc-deck setup diff [dir]          # manifest vs last-generated artifacts
+```
 
-The cc-deck image building system (specs 017-018) uses a declarative manifest (`cc-deck-image.yaml`) to describe what goes into a container image. The build process reads the manifest, resolves dependencies, and produces a ready-to-use environment.
+The `cc-deck image` command is renamed to `cc-deck setup`. No backwards compatibility needed (no external users).
 
-We can apply the same pattern to SSH remote provisioning:
+### Claude Code Commands
 
-1. **Manifest:** The environment definition (host, workspace, auth mode, tool versions) is the "manifest" for the remote machine.
-2. **Build step:** The pre-flight bootstrap reads the manifest, checks the remote state, and installs what is missing.
-3. **Idempotent:** Running pre-flight again on an already-provisioned machine is a no-op (all checks pass).
-4. **Reproducible:** A second machine with the same definition gets the same setup.
+Two commands replace the current three:
 
-### Version Pinning
+| Command | Purpose |
+|---------|---------|
+| `/cc-deck.capture` | Discover tools, shell config, plugins, MCP servers from local machine. Target-agnostic. Populates the manifest. |
+| `/cc-deck.build --target container\|ssh` | Generate artifacts from manifest, then apply. For containers: generate Containerfile, build image, optionally push (`--push`). For SSH: generate Ansible playbooks, run `ansible-playbook`. |
 
-The current remedies download "latest" versions. For reproducibility, we should consider:
+The current `/cc-deck.push` is folded into `/cc-deck.build --target container --push`. Users who need to re-push without rebuilding can run `podman push` directly.
 
-- Pinning Zellij to the version used during development/testing
-- Pinning cc-deck to the version running locally (so remote and local match)
-- Claude Code auto-updates itself, so pinning is less relevant
+### Manifest Schema
 
-### Credential Sourcing Strategy
+```yaml
+version: 1
 
-The spec says "Zellij layout ENV directive or wrapper command." The most practical approach:
+# ---- WHAT (populated by /cc-deck.capture, target-agnostic) ----
+tools:
+  - go 1.25
+  - ripgrep
+  - jq
+  - yq
+  - fzf
+  - starship
 
-1. Generate a remote-specific layout where panes start with `bash --rcfile <wrapper>` where `<wrapper>` sources credentials then sources the real `.bashrc`.
-2. `cc-deck plugin install` could accept a `--remote` flag that generates this wrapper-style layout.
-3. Alternatively, add a small shell snippet to `.bashrc` that sources the credential file if it exists. This is what tools like `nvm`, `rvm`, and `sdkman` do, and users generally accept it.
+settings:
+  shell: zsh
+  shell_rc: ./build-context/zshrc
+  zellij_config: current
+  claude_md: ~/.claude/CLAUDE.md
+  claude_settings: ~/.claude/settings.json
+  hooks: ~/.claude/hooks.json
+  mcp_settings: ~/.config/cc-setup/mcp.json
 
-### Open Questions
+plugins:
+  - name: superpowers
+    source: superpowers@claude-plugins-official
 
-- Q: Should we version-pin all tools or use latest?
-- Q: Should `cc-deck plugin install --remote` be a separate mode or should the regular install detect it is on a headless machine?
-- Q: Should the credential sourcing be in `.bashrc`, a layout wrapper, or a Zellij environment directive (if Zellij adds support)?
-- Q: Should the pre-flight bootstrap run again on every `attach` (detect drift) or only on `create`?
-- Q: How do we handle cc-deck upgrades on the remote? Auto-update like Claude Code, or manual via `refresh-creds`-style command?
+mcp:
+  - name: filesystem
+    command: npx
+    args: ["-y", "@anthropic-ai/mcp-filesystem"]
+
+github_tools:
+  - name: starship
+    repo: starship/starship
+    asset_pattern: "starship-{arch}-unknown-linux-gnu.tar.gz"
+
+sources:
+  - url: https://github.com/user/project
+    tools: [go 1.25]
+
+# ---- WHERE (target-specific configuration) ----
+targets:
+  container:
+    name: my-dev
+    tag: latest
+    base: quay.io/cc-deck/cc-deck-base:latest
+    registry: quay.io/cc-deck
+
+  ssh:
+    host: dev@marovo
+    port: 22
+    identity_file: ~/.ssh/id_ed25519
+    create_user: true
+    user: dev
+    workspace: ~/workspace
+```
+
+Both target sections can coexist. A single `/cc-deck.capture` run populates the shared sections. Then `/cc-deck.build --target container` and `/cc-deck.build --target ssh` each generate from the same manifest.
+
+### Generated Directory Structure
+
+For `--target container` (same as current `cc-deck image`):
+
+```
+.cc-deck/setup/
+├── cc-deck-setup.yaml              # manifest (source of truth)
+├── Containerfile                    # generated (DO NOT EDIT)
+├── build-context/                   # cc-deck binaries, config files
+│   ├── cc-deck-linux-amd64
+│   ├── cc-deck-linux-arm64
+│   └── zshrc
+├── build.sh                         # standalone rebuild script
+└── .gitignore
+```
+
+For `--target ssh`:
+
+```
+.cc-deck/setup/
+├── cc-deck-setup.yaml              # manifest (source of truth)
+├── inventory.ini                    # generated from targets.ssh
+├── site.yml                         # main playbook entry point
+├── roles/
+│   ├── base/                        # user creation, SSH keys, shell setup
+│   │   ├── tasks/main.yml
+│   │   ├── templates/
+│   │   └── defaults/main.yml
+│   ├── tools/                       # system packages + github releases
+│   ├── cc-deck/                     # cc-deck CLI + plugin install + hooks
+│   ├── claude/                      # Claude Code via official installer
+│   ├── zellij/                      # Zellij binary download
+│   ├── shell-config/               # zshrc, starship, aliases, credential sourcing
+│   └── mcp/                         # MCP server setup
+├── group_vars/
+│   └── all.yml                      # variables extracted from manifest
+├── README.md                        # standalone usage instructions
+└── .gitignore
+```
+
+### Ansible Design Principles
+
+**Idempotent and standalone.** The generated playbooks must run correctly without an LLM. After the initial convergence loop with Claude (where playbook errors are fixed interactively), anyone can re-run `ansible-playbook -i inventory.ini site.yml` to update the target machine. No Claude Code involvement needed.
+
+**Local control node.** Ansible runs on the user's local machine, connecting to the remote via SSH. Ansible is a required prerequisite (`brew install ansible` on macOS). The `/cc-deck.build` command checks for Ansible and provides a clear error message if missing.
+
+**Role-per-concern.** Each Ansible role handles one logical concern (tools, cc-deck, Claude, shell config). Roles are small, testable independently, and can be skipped selectively.
+
+**Self-correction loop.** When `/cc-deck.build --target ssh` runs `ansible-playbook` and a task fails, Claude reads the error output, fixes the relevant role, and re-runs. Ansible's idempotency means already-succeeded tasks are skipped on retry. The loop runs up to 3 iterations before stopping.
+
+### Ansible Roles Detail
+
+**`base` role:**
+- Detects OS and package manager (dnf, apt, etc.)
+- Creates user if `create_user: true` (with sudo access, SSH authorized keys)
+- Sets default shell (zsh or bash)
+- Installs core packages (git, curl, tar, unzip)
+
+**`tools` role:**
+- Installs system packages from `tools` list (maps free-form descriptions to package names)
+- Downloads GitHub release binaries from `github_tools` list
+- Handles architecture mapping (aarch64/x86_64 for download URLs)
+
+**`zellij` role:**
+- Downloads Zellij release binary for the target architecture
+- Installs to `/usr/local/bin/zellij`
+- Supports version pinning (pin to the version used during development)
+
+**`claude` role:**
+- Installs Claude Code via official installer (`curl -fsSL https://claude.ai/install.sh | bash`)
+- Claude Code auto-updates itself, so version pinning is not relevant
+
+**`cc-deck` role:**
+- Downloads cc-deck release binary from GitHub Releases for the target OS and architecture
+- Runs `cc-deck plugin install` on the remote (installs WASM plugin, layout files, controller config, Claude Code hooks)
+- This single command resolves F-003, F-004, F-005 from the testing findings
+
+**`shell-config` role:**
+- Installs curated base shell config (generated from captured local config, filtered for portability)
+- Adds user overlay file for personal aliases and functions
+- Adds credential sourcing snippet to shell RC: `[ -f ~/.config/cc-deck/credentials.env ] && source ~/.config/cc-deck/credentials.env`
+- Installs starship prompt config if starship is in the tools list
+
+**`mcp` role:**
+- Configures MCP servers from the manifest `mcp` section
+- Sets up config files (not credentials; those flow through `cc-deck env attach`)
+
+### Credential Handling
+
+Ansible provisions the **mechanism** (shell sourcing, credential file path, directory permissions). The actual secrets flow through the existing `cc-deck env attach` credential forwarding at attach time. This keeps secrets out of playbooks entirely and makes the playbooks safe to commit to git.
+
+The `shell-config` role adds a sourcing line to the shell RC file:
+```bash
+# cc-deck credential sourcing
+[ -f ~/.config/cc-deck/credentials.env ] && source ~/.config/cc-deck/credentials.env
+```
+
+This resolves F-006 from the testing findings.
+
+### Relationship to `cc-deck env create --type ssh`
+
+The lifecycle is cleanly separated:
+
+- **`cc-deck setup`** provisions the machine (one-time or update). Makes a bare VM into a ready dev environment.
+- **`cc-deck env create --type ssh`** registers a session environment (many times per machine). Assumes the machine is already provisioned.
+
+The current `internal/ssh/bootstrap.go` (pre-flight checks with interactive remediation) is deleted. The `Create()` flow becomes:
+
+1. Validate SSH connectivity
+2. Lightweight probe: `ssh user@host 'which zellij && which cc-deck && which claude'`
+3. If probe fails: "Host appears unprovisioned. Run `cc-deck setup` first."
+4. If probe passes: register the environment, create workspace directory, done.
+
+Multiple environments can target the same SSH host (different workspaces, different names). The provisioning is host-level; the environment is session-level.
+
+### Diff Command
+
+`cc-deck setup diff` compares the **current manifest** against the **last generated artifacts** (Containerfile or Ansible playbooks). If the manifest changed since the last `/cc-deck.build` run, diff shows what would change before regenerating.
+
+For container targets: same as the current `cc-deck image diff` behavior (manifest entries not reflected in Containerfile).
+
+For SSH targets: manifest entries not reflected in the current playbook roles (e.g., a new tool added to the manifest but no corresponding task in `roles/tools/tasks/main.yml`).
+
+### Verify Command
+
+`cc-deck setup verify` smoke-tests the target:
+
+- **Container target**: runs checks inside the container (same as current `cc-deck image verify`). Verifies cc-deck version, Claude Code availability, language tools.
+- **SSH target**: runs the same checks via SSH against the remote host. Reuses the probe logic but with detailed per-tool reporting.
+
+### Init Command
+
+`cc-deck setup init [dir] --target container,ssh` scaffolds the setup directory:
+
+1. Creates `.cc-deck/setup/` directory
+2. Generates manifest template with the requested target sections uncommented
+3. Installs Claude commands to `.claude/commands/` (capture and build)
+4. For SSH target: scaffolds empty Ansible role skeletons in `roles/`
+5. Creates `.gitignore`
+
+The `--target` flag accepts `container`, `ssh`, or both (comma-separated). If omitted, the full template is generated with all sections commented out.
+
+## Migration from `cc-deck image`
+
+The existing `cc-deck image` command (init, verify, diff) and its Claude commands (capture, build, push) are replaced by the unified `cc-deck setup` command. Since there are no external users, this is a clean rename with no backwards compatibility concerns.
+
+The internal `build` package is renamed to `setup`. The manifest file changes from `cc-deck-image.yaml` to `cc-deck-setup.yaml`. The Claude commands change from `cc-deck.capture`/`cc-deck.build`/`cc-deck.push` to `cc-deck.capture`/`cc-deck.build`.
+
+## Open Questions
+
+- Q: Should the Ansible roles support both dnf and apt, or should we start with one package manager and add others later? Starting with dnf (Fedora/RHEL) matches the current testing target (Hetzner VM with Fedora 43).
+- Q: Should `cc-deck setup verify --target ssh` run an Ansible `verify.yml` playbook (declarative, reusable) or direct SSH commands (simpler, no Ansible dependency for verification)?
+- Q: How should version pinning work? Pin Zellij and cc-deck to specific versions in the manifest, or always install latest? Pinning cc-deck to the local version ensures remote and local match.
+- Q: Should the `init` command detect that the project already has an old-style `.cc-deck/image/` directory and offer to migrate?
 
 ## Next Steps
 
-1. Create a spec (034 or similar) for SSH remote provisioning
-2. Fix the immediate remedy bugs in spec 033 (wrong URLs, wrong installer)
-3. Design the `cc-deck plugin install --remote` mode
-4. Implement and test against marovo (Hetzner CAX11, Fedora 43, aarch64)
+1. Create a spec (034) for the unified setup command
+2. Implement the CLI command (`cc-deck setup init/verify/diff`)
+3. Refactor `internal/build` to `internal/setup` with target abstraction
+4. Create the Ansible generation backend
+5. Update the Claude commands (capture, build) for dual-target support
+6. Remove `internal/ssh/bootstrap.go` and simplify `Create()` to lightweight probe
+7. Test against marovo (Hetzner CAX11, Fedora 43, aarch64)
