@@ -260,10 +260,7 @@ Subsequent presses round-robin within the selected tier. If the current session 
 
 ## Working Jump (Alt+w)
 
-Cycles through sessions that are actively running, prioritizing the most recently active:
-
-1. **● Working** (most recently active first). Sessions actively generating output or calling tools.
-2. **⚠ Waiting** (permission first, then notification). Falls through when no Working sessions exist.
+Cycles through sessions that are actively running, ordered by most recently active first. Only Working sessions (purple `●`) are included. Waiting sessions are excluded since they need attention, which is Alt+a's job.
 
 Rapid presses within 2 seconds cycle through all working sessions without revisiting. After a 2-second pause, the next press resets to the most recent working session.
 
