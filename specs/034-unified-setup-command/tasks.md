@@ -113,7 +113,7 @@
 
 ### Implementation for User Story 4
 
-- [ ] T026 [US4] Validate that `/cc-deck.capture` does not modify `targets` section when both targets are present by reviewing and testing `cc-deck/internal/setup/commands/cc-deck.capture.md`
+- [X] T026 [US4] Validate that `/cc-deck.capture` does not modify `targets` section when both targets are present by reviewing and testing `cc-deck/internal/setup/commands/cc-deck.capture.md`
 - [ ] T027 [US4] End-to-end validation: init with both targets, capture, build container, build ssh (manual test against Hetzner VM)
 
 **Checkpoint**: Both acceptance scenarios from US-4 pass. Single capture drives both backends.
@@ -128,8 +128,8 @@
 
 ### Implementation for User Story 5
 
-- [ ] T028 [US5] Add `--target` flag to `cc-deck setup diff` in `cc-deck/internal/cmd/setup.go`
-- [ ] T029 [US5] Implement SSH target diff: compare manifest against Ansible role task files, auto-detect target from `roles/` directory existence in `cc-deck/internal/cmd/setup.go`
+- [X] T028 [US5] Add `--target` flag to `cc-deck setup diff` in `cc-deck/internal/cmd/setup.go`
+- [X] T029 [US5] Implement SSH target diff: compare manifest against Ansible role task files, auto-detect target from `roles/` directory existence in `cc-deck/internal/cmd/setup.go`
 
 **Checkpoint**: Diff reports drift for both container and SSH targets. All 3 acceptance scenarios from US-5 pass.
 
@@ -143,8 +143,8 @@
 
 ### Implementation for User Story 6
 
-- [ ] T030 [US6] Add `--target` flag to `cc-deck setup verify` in `cc-deck/internal/cmd/setup.go`
-- [ ] T031 [US6] Implement SSH target verify: connect via SSH, run tool checks (cc-deck, Claude Code, Zellij, manifest tools) in `cc-deck/internal/cmd/setup.go`
+- [X] T030 [US6] Add `--target` flag to `cc-deck setup verify` in `cc-deck/internal/cmd/setup.go`
+- [X] T031 [US6] Implement SSH target verify: connect via SSH, run tool checks (cc-deck, Claude Code, Zellij, manifest tools) in `cc-deck/internal/cmd/setup.go`
 
 **Checkpoint**: Verify reports pass/fail per tool for both targets. All 3 acceptance scenarios from US-6 pass.
 
