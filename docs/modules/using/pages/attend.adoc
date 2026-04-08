@@ -71,20 +71,9 @@ While smart attend focuses on sessions that need your attention (waiting, done, 
 Press `Alt+w` to jump to the next working session.
 This is useful when you want to check on sessions that are in progress.
 
-Working jump uses two tiers:
-
-[cols="1,1,3"]
-|===
-| Priority | State | Ordering
-
-| 1 (highest)
-| Working
-| Most recently active first
-
-| 2
-| Waiting
-| Permission first, then notification, oldest first
-|===
+Only Working sessions (actively generating output or calling tools) are included.
+Waiting sessions are excluded since they need attention, which is `Alt+a`'s domain.
+Sessions are ordered by most recently active first.
 
 Working jump uses the same rapid-cycle behavior as smart attend.
 Pressing `Alt+w` repeatedly within 2 seconds cycles through all working sessions without revisiting.
