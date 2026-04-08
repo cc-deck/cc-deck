@@ -11,6 +11,7 @@ const (
 	EnvironmentTypeCompose    EnvironmentType = "compose"
 	EnvironmentTypeK8sDeploy  EnvironmentType = "k8s-deploy"
 	EnvironmentTypeK8sSandbox EnvironmentType = "k8s-sandbox"
+	EnvironmentTypeSSH        EnvironmentType = "ssh"
 )
 
 // EnvironmentState represents the current state of an environment.
@@ -83,6 +84,16 @@ type ComposeFields struct {
 	ProxyName     string `yaml:"proxy_name,omitempty"`
 }
 
+// SSHFields holds SSH-specific fields for an SSH environment.
+type SSHFields struct {
+	Host         string `yaml:"host"`
+	Port         int    `yaml:"port,omitempty"`
+	IdentityFile string `yaml:"identity_file,omitempty"`
+	JumpHost     string `yaml:"jump_host,omitempty"`
+	SSHConfig    string `yaml:"ssh_config,omitempty"`
+	Workspace    string `yaml:"workspace,omitempty"`
+}
+
 // SandboxFields holds fields for a K8sSandbox environment.
 type SandboxFields struct {
 	Namespace  string     `yaml:"namespace,omitempty"`
@@ -120,6 +131,7 @@ type EnvironmentInstance struct {
 	Compose      *ComposeFields    `yaml:"compose,omitempty"`
 	K8s          *K8sFields        `yaml:"k8s,omitempty"`
 	Sandbox      *SandboxFields    `yaml:"sandbox,omitempty"`
+	SSH          *SSHFields        `yaml:"ssh,omitempty"`
 }
 
 // ProjectEntry is a global registry entry for a project directory
