@@ -5,6 +5,13 @@
 **Status**: Draft
 **Input**: User description: "Unify cc-deck image and SSH remote provisioning into a single cc-deck setup command with a shared manifest, two Claude commands (capture + build), and Ansible playbooks as the SSH provisioning backend"
 
+## Clarifications
+
+### Session 2026-04-08
+
+- Q: When `/cc-deck.build --target ssh` is re-run after playbooks already exist with user modifications, how should conflicts be handled? → A: Show diff of changed roles and ask user to choose (same as container path, consistent with US-2 AS-4).
+- Q: What is the source of SSH authorized keys when `create_user: true`? → A: Use the public key matching `targets.ssh.identity_file` (append `.pub`). The Ansible `base` role reads the local public key file and installs it as the new user's authorized key.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Initialize a Setup Profile for a New Project (Priority: P1)
@@ -56,6 +63,7 @@ A developer who has captured their local setup wants to provision a remote machi
 3. **Given** a converged set of Ansible playbooks, **When** a user runs `ansible-playbook -i inventory.ini site.yml` from the command line without Claude, **Then** the playbooks execute successfully and the remote machine state converges to the manifest definition.
 4. **Given** an SSH target with `create_user: true`, **When** the playbooks run against a fresh VM, **Then** the specified user is created with sudo access and SSH authorized keys configured.
 5. **Given** a manifest with tools, plugins, and shell settings, **When** the playbooks complete on the remote, **Then** the remote has Zellij, Claude Code (via official installer), cc-deck CLI (from GitHub Releases), the cc-deck plugin (via `cc-deck plugin install`), and the specified shell configuration with credential sourcing enabled.
+6. **Given** previously generated Ansible role task files, **When** the user runs `/cc-deck.build --target ssh` again after manifest changes, **Then** Claude shows the diff between existing and newly generated role files and asks the user to choose (use new, keep existing, or stop).
 
 ---
 
@@ -114,6 +122,7 @@ A developer wants to smoke-test whether a container image or SSH remote has the 
 - What happens when a user runs build for a target that was not scaffolded by init (e.g., SSH roles directory does not exist)? The build command creates the necessary directory structure on first run.
 - What happens when the Ansible self-correction loop exhausts 3 retries without convergence? The command stops, reports the failing task and error, and leaves the playbooks in their last-edited state for manual inspection.
 - What happens when both container and SSH artifacts exist and the user modifies only the shared manifest section? The diff command reports drift for both targets.
+- What happens when Ansible role task files have been manually edited since the last build and the user re-runs `/cc-deck.build --target ssh`? Claude shows a diff of each changed role and asks the user to choose (use new generated content, keep existing, or stop). This mirrors the Containerfile conflict handling in US-2 AS-4.
 
 ## Requirements *(mandatory)*
 
@@ -131,7 +140,7 @@ A developer wants to smoke-test whether a container image or SSH remote has the 
 - **FR-010**: System MUST provide a CLI command (`cc-deck setup verify`) that smoke-tests a provisioned target (container image or SSH remote) for expected tool availability.
 - **FR-011**: System MUST provide a CLI command (`cc-deck setup diff`) that compares the current manifest against last-generated artifacts and reports drift.
 - **FR-012**: The manifest MUST support both target sections (container and SSH) simultaneously, with shared tool/settings sections.
-- **FR-013**: For SSH targets with `create_user: true`, the Ansible playbooks MUST create the specified user with sudo access and SSH authorized keys.
+- **FR-013**: For SSH targets with `create_user: true`, the Ansible playbooks MUST create the specified user with sudo access and SSH authorized keys from the public key matching `targets.ssh.identity_file` (the `.pub` counterpart).
 - **FR-014**: The Ansible playbooks MUST install credential sourcing in the shell configuration (source `~/.config/cc-deck/credentials.env` if it exists). Actual credentials are NOT stored in playbooks.
 - **FR-015**: The build command MUST check that Ansible is installed locally before attempting SSH target builds and provide a clear error message if missing.
 - **FR-016**: The Ansible playbooks MUST run `cc-deck plugin install` on the remote to set up the WASM plugin, layout files, controller config, and Claude Code hooks.
