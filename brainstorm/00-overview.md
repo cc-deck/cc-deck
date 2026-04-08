@@ -1,6 +1,6 @@
 # Brainstorm Overview
 
-Last updated: 2026-03-12
+Last updated: 2026-04-08
 
 ## Sessions
 
@@ -23,9 +23,11 @@ Last updated: 2026-03-12
 | 18 | 2026-03-12 | build-manifest | active | - |
 | 19 | 2026-03-12 | build-commands | active | - |
 | 20 | 2026-03-12 | deploy-integration | active | - |
+| 34 | 2026-04-08 | ssh-remote-provisioning | active | - |
 
 ## Open Threads
 
+- SSH remote provisioning: automated tool installation and cc-deck setup on remote machines (from #34, depends on 033)
 - Vertex AI Workload Identity vs service account key for GKE/OpenShift (from #02)
 - Base container image definition (from #02)
 - Move Rust code to cc-zellij-plugin/ subdirectory (from #03)

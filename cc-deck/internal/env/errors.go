@@ -34,4 +34,8 @@ var (
 	// ErrPodmanNotFound indicates that the podman binary could not be
 	// located in PATH.
 	ErrPodmanNotFound = errors.New("podman binary not found in PATH")
+
+	// ErrSSHNotFound indicates that the ssh binary could not be
+	// located in PATH.
+	ErrSSHNotFound = errors.New("ssh binary not found in PATH")
 )

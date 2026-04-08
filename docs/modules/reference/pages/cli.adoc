@@ -453,7 +453,7 @@ cc-deck env create mydev --type container --port 8080:80
 
 | `--type`
 | `-t`
-| Environment type: `local`, `container`, `compose`, `k8s-deploy`, `k8s-sandbox`
+| Environment type: `local`, `container`, `compose`, `ssh`, `k8s-deploy`, `k8s-sandbox`
 
 | `--image`
 |
@@ -485,7 +485,7 @@ cc-deck env create mydev --type container --port 8080:80
 
 | `--auth`
 |
-| Auth mode: `auto` (default), `none`, `api`, `vertex`, `bedrock` (container, compose)
+| Auth mode: `auto` (default), `none`, `api`, `vertex`, `bedrock` (container, compose, ssh)
 
 | `--allowed-domains`
 |
@@ -494,6 +494,30 @@ cc-deck env create mydev --type container --port 8080:80
 | `--variant`
 |
 | Variant name for multiple container instances from the same definition
+
+| `--host`
+|
+| SSH target host as `user@hostname` (ssh only)
+
+| `--ssh-port`
+|
+| SSH port (ssh only, default: 22)
+
+| `--identity-file`
+|
+| Path to SSH private key (ssh only)
+
+| `--jump-host`
+|
+| SSH jump/bastion host (ssh only)
+
+| `--ssh-config`
+|
+| Custom SSH config file path (ssh only)
+
+| `--workspace`
+|
+| Remote workspace directory (ssh only, default: `~/workspace`)
 |===
 
 ==== env attach
@@ -609,6 +633,18 @@ View environment logs.
 [source,bash]
 ----
 cc-deck env logs mydev
+----
+
+==== env refresh-creds
+
+Push fresh credentials to a remote SSH environment without attaching.
+This is useful for keeping long-running sessions alive when local credentials rotate.
+Only applicable to SSH environments.
+
+[source,bash]
+----
+cc-deck env refresh-creds remote-dev
+cc-deck env refresh-creds             # resolves from project config
 ----
 
 ==== env prune

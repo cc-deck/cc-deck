@@ -15,6 +15,7 @@ import (
 	"github.com/cc-deck/cc-deck/internal/config"
 	"github.com/cc-deck/cc-deck/internal/env"
 	"github.com/cc-deck/cc-deck/internal/project"
+	sshPkg "github.com/cc-deck/cc-deck/internal/ssh"
 )
 
 // NewEnvCmd creates the env parent command with all subcommands.
@@ -30,6 +31,7 @@ Use --type to select the runtime backend when creating an environment:
   local       Zellij session on the host machine (default)
   container   Single container managed by podman
   compose     Multi-container setup via podman-compose
+  ssh         Remote machine over SSH
   k8s-deploy  Kubernetes deployment (planned)
   k8s-sandbox Ephemeral Kubernetes pod (planned)
 
@@ -51,6 +53,7 @@ a .cc-deck/environment.yaml file in the current project.`,
 		newEnvStartCmd(gf),
 		newEnvStopCmd(gf),
 		newEnvDeleteCmd(gf),
+		newEnvRefreshCredsCmd(gf),
 	)
 
 	// Info
@@ -91,6 +94,13 @@ type createFlags struct {
 	allowedDomains []string
 	gitignore      bool
 	variant        string
+	// SSH-specific flags
+	host         string
+	sshPort      int
+	identityFile string
+	jumpHost     string
+	sshConfig    string
+	workspace    string
 }
 
 func newEnvCreateCmd(gf *GlobalFlags) *cobra.Command {
@@ -112,6 +122,7 @@ Environment types (--type):
   local       Zellij session on the host machine (default)
   container   Single container managed by podman
   compose     Multi-container setup via podman-compose
+  ssh         Remote machine over SSH
   k8s-deploy  Kubernetes deployment (planned)
   k8s-sandbox Ephemeral Kubernetes pod (planned)`,
 		Example: `  # Create a local Zellij environment
@@ -125,6 +136,9 @@ Environment types (--type):
 
   # Create a compose environment with network filtering
   cc-deck env create my-app --type compose --allowed-domains python,github
+
+  # Create an SSH environment on a remote machine
+  cc-deck env create remote-dev --type ssh --host user@dev.example.com
 
   # Create from a project definition (auto-detected in cwd)
   cd ~/projects/my-app && cc-deck env create`,
@@ -150,6 +164,14 @@ Environment types (--type):
 	cmd.Flags().StringSliceVar(&cf.allowedDomains, "allowed-domains", nil, "Domain groups for network filtering (compose only), repeatable")
 	cmd.Flags().BoolVar(&cf.gitignore, "gitignore", false, "Auto-add .cc-deck/ to .gitignore (compose only, deprecated)")
 	cmd.Flags().StringVar(&cf.variant, "variant", "", "Variant name for multiple instances from the same definition")
+
+	// SSH-specific flags
+	cmd.Flags().StringVar(&cf.host, "host", "", "SSH target host (user@host, SSH only)")
+	cmd.Flags().IntVar(&cf.sshPort, "ssh-port", 0, "SSH port (SSH only)")
+	cmd.Flags().StringVar(&cf.identityFile, "identity-file", "", "Path to SSH private key (SSH only)")
+	cmd.Flags().StringVar(&cf.jumpHost, "jump-host", "", "SSH jump/bastion host (SSH only)")
+	cmd.Flags().StringVar(&cf.sshConfig, "ssh-config", "", "Custom SSH config file path (SSH only)")
+	cmd.Flags().StringVar(&cf.workspace, "workspace", "", "Remote workspace directory (SSH only, default: ~/workspace)")
 
 	return cmd
 }
@@ -257,6 +279,25 @@ func runEnvCreate(gf *GlobalFlags, name string, cf *createFlags, cmd *cobra.Comm
 		if cf.path == "" && projDef.ProjectDir != "" {
 			cf.path = projDef.ProjectDir
 		}
+		// SSH-specific: inherit from project definition.
+		if cf.host == "" && projDef.Host != "" {
+			cf.host = projDef.Host
+		}
+		if cf.sshPort == 0 && projDef.Port != 0 {
+			cf.sshPort = projDef.Port
+		}
+		if cf.identityFile == "" && projDef.IdentityFile != "" {
+			cf.identityFile = projDef.IdentityFile
+		}
+		if cf.jumpHost == "" && projDef.JumpHost != "" {
+			cf.jumpHost = projDef.JumpHost
+		}
+		if cf.sshConfig == "" && projDef.SSHConfig != "" {
+			cf.sshConfig = projDef.SSHConfig
+		}
+		if cf.workspace == "" && projDef.Workspace != "" {
+			cf.workspace = projDef.Workspace
+		}
 	}
 
 	e, err := env.NewEnvironment(envType, name, store, defs)
@@ -301,6 +342,29 @@ func runEnvCreate(gf *GlobalFlags, name string, cf *createFlags, cmd *cobra.Comm
 					return fmt.Errorf("invalid credential format %q, expected KEY=VALUE", c)
 				}
 				ce.Credentials[parts[0]] = parts[1]
+			}
+		}
+	}
+
+	// For SSH environments, ensure the definition has SSH fields populated
+	// so SSHEnvironment.Create() can load them.
+	if envType == env.EnvironmentTypeSSH {
+		sshDef := &env.EnvironmentDefinition{
+			Name:         name,
+			Type:         env.EnvironmentTypeSSH,
+			Auth:         cf.auth,
+			Host:         cf.host,
+			Port:         cf.sshPort,
+			IdentityFile: cf.identityFile,
+			JumpHost:     cf.jumpHost,
+			SSHConfig:    cf.sshConfig,
+			Workspace:    cf.workspace,
+			Credentials:  cf.credential,
+		}
+		// Try update first (existing global definition), fall back to add.
+		if err := defs.Update(sshDef); err != nil {
+			if err := defs.Add(sshDef); err != nil {
+				return fmt.Errorf("saving SSH definition: %w", err)
 			}
 		}
 	}
@@ -574,6 +638,7 @@ func runEnvList(gf *GlobalFlags, filterType string, showWorktrees bool) error {
 	_ = env.ReconcileLocalEnvs(store)
 	_ = env.ReconcileContainerEnvs(store, defs)
 	_ = env.ReconcileComposeEnvs(store)
+	_ = env.ReconcileSSHEnvs(store)
 
 	var filter *env.ListFilter
 	if filterType != "" {
@@ -951,7 +1016,7 @@ func runEnvStatus(gf *GlobalFlags, name string) error {
 			storage = storageDisplay(record)
 			lastAttached = formatRelativeTime(record.LastAttached)
 		}
-	} else if envType == env.EnvironmentTypeContainer || envType == env.EnvironmentTypeCompose {
+	} else if envType == env.EnvironmentTypeContainer || envType == env.EnvironmentTypeCompose || envType == env.EnvironmentTypeSSH {
 		inst, findErr := store.FindInstanceByName(name)
 		if findErr == nil {
 			lastAttached = formatRelativeTime(inst.LastAttached)
@@ -961,6 +1026,9 @@ func runEnvStatus(gf *GlobalFlags, name string) error {
 			}
 			if inst.Compose != nil {
 				storage = "host-path"
+			}
+			if inst.SSH != nil {
+				storage = "remote"
 			}
 		}
 	}
@@ -1322,6 +1390,82 @@ func newEnvLogsCmd(gf *GlobalFlags) *cobra.Command {
 	return newLogsCmdCore(gf)
 }
 
+// --- refresh-creds ---
+
+func newEnvRefreshCredsCmd(_ *GlobalFlags) *cobra.Command {
+	return &cobra.Command{
+		Use:   "refresh-creds [name]",
+		Short: "Push fresh credentials to a remote SSH environment",
+		Long: `Refresh the credential file on a remote SSH environment without
+attaching. This is useful for keeping long-running sessions alive
+when local credentials rotate.
+
+Only applicable to SSH environments. For auth=none, reports that
+credential management is disabled.`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			store := env.NewStateStore("")
+			name, _, err := resolveEnvironmentName(args, store)
+			if err != nil {
+				return err
+			}
+			return runEnvRefreshCreds(name)
+		},
+	}
+}
+
+func runEnvRefreshCreds(name string) error {
+	store := env.NewStateStore("")
+	defs := env.NewDefinitionStore("")
+
+	e, err := resolveEnvironment(name, store, defs)
+	if err != nil {
+		return err
+	}
+
+	if e.Type() != env.EnvironmentTypeSSH {
+		return fmt.Errorf("refresh-creds is only supported for SSH environments (got: %s)", e.Type())
+	}
+
+	def, err := defs.FindByName(name)
+	if err != nil {
+		return err
+	}
+
+	if def.Auth == "none" {
+		fmt.Fprintf(os.Stdout, "Credential management is disabled for environment %q (auth=none)\n", name)
+		return nil
+	}
+
+	inst, err := store.FindInstanceByName(name)
+	if err != nil {
+		return err
+	}
+
+	if inst.SSH == nil {
+		return fmt.Errorf("SSH fields missing for environment %q", name)
+	}
+
+	client := sshPkg.NewClient(inst.SSH.Host, inst.SSH.Port, inst.SSH.IdentityFile, inst.SSH.JumpHost, inst.SSH.SSHConfig)
+
+	creds, err := sshPkg.BuildCredentialSet(def.Auth, def.Credentials, def.Env)
+	if err != nil {
+		return fmt.Errorf("building credentials: %w", err)
+	}
+
+	if len(creds) == 0 {
+		fmt.Fprintf(os.Stdout, "No credentials found to refresh for environment %q\n", name)
+		return nil
+	}
+
+	if err := sshPkg.WriteCredentialFile(cmd_context(), client, creds); err != nil {
+		return fmt.Errorf("writing credentials: %w", err)
+	}
+
+	fmt.Fprintf(os.Stdout, "Credentials refreshed for environment %q\n", name)
+	return nil
+}
+
 // resolveEnvironmentName resolves an environment name from arguments or
 // project-local config. When name is empty, walks to find .cc-deck/environment.yaml
 // at the git root. Auto-registers discovered projects (FR-007). Displays
@@ -1367,13 +1511,15 @@ func resolveEnvironment(name string, store *env.FileStateStore, defs *env.Defini
 		return env.NewEnvironment(record.Type, name, store, defs)
 	}
 
-	// Try v2 instance (container/compose environments).
+	// Try v2 instance (container/compose/ssh environments).
 	if inst, err := store.FindInstanceByName(name); err == nil {
 		instType := env.EnvironmentTypeContainer
 		if inst.Type != "" {
 			instType = inst.Type
 		} else if inst.Compose != nil {
 			instType = env.EnvironmentTypeCompose
+		} else if inst.SSH != nil {
+			instType = env.EnvironmentTypeSSH
 		}
 		return env.NewEnvironment(instType, name, store, defs)
 	}
