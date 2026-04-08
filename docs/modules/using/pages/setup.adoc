@@ -1,0 +1,293 @@
+= Setup Command
+
+The `cc-deck setup` command provisions developer environments from a declarative manifest.
+It supports two targets: container images built with Podman, and remote machines provisioned over SSH with Ansible.
+A single manifest captures your local tools, shell configuration, Claude Code plugins, and MCP servers, then generates the correct artifacts for whichever target you choose.
+
+This command replaces the previous `cc-deck image` command with a unified interface that covers both container and SSH workflows.
+
+== Prerequisites
+
+Before using the setup command, make sure the following tools are installed:
+
+cc-deck CLI::
+Install via Homebrew: `brew install cc-deck/tap/cc-deck`.
+
+Claude Code::
+Required for the `/cc-deck.capture` and `/cc-deck.build` slash commands that drive the capture and build workflows.
+
+Ansible (SSH targets only)::
+Required for SSH provisioning.
+Install via Homebrew on macOS: `brew install ansible`.
+The setup command checks for Ansible availability and reports a clear error if it is missing.
+
+Podman (container targets only)::
+Required for building and running container images.
+See xref:ROOT:install.adoc[] for installation details.
+
+== Container Workflow
+
+The container workflow generates a Containerfile from your manifest, builds an OCI image, and optionally pushes it to a registry.
+
+=== 1. Initialize the Setup Directory
+
+[source,bash]
+----
+cd your-project
+cc-deck setup init --target container
+----
+
+This creates a `.cc-deck/setup/` directory containing:
+
+* `cc-deck-setup.yaml` (manifest template with the container target section enabled)
+* `build-context/` directory for binaries and configuration files
+* `.gitignore` for generated artifacts
+
+It also installs two Claude Code slash commands into `.claude/commands/`:
+
+* `cc-deck.capture.md` for environment discovery
+* `cc-deck.build.md` for artifact generation
+
+=== 2. Capture Your Environment
+
+Run the capture command inside Claude Code:
+
+[source]
+----
+/cc-deck.capture
+----
+
+The command scans your project for build files, CI configurations, version files, and shell settings.
+It discovers installed Claude Code plugins and MCP server configurations.
+For each section, it presents its findings and lets you accept, edit, or skip.
+
+Capture is target-agnostic.
+It populates the shared sections of the manifest (tools, settings, plugins, MCP servers) without touching the target-specific sections.
+
+=== 3. Build the Image
+
+Run the build command inside Claude Code:
+
+[source]
+----
+/cc-deck.build --target container
+----
+
+Claude generates a Containerfile from the manifest, builds the image using Podman, and reports the result (image name and size).
+If the build fails, Claude reads the error output, fixes the Containerfile, and retries automatically (up to 3 attempts).
+
+To push the image to the registry configured in `targets.container.registry`:
+
+[source]
+----
+/cc-deck.build --target container --push
+----
+
+If a Containerfile already exists from a previous build, Claude shows a diff between the existing file and the newly generated version and asks you to choose which to use.
+
+=== 4. Verify the Image
+
+[source,bash]
+----
+cc-deck setup verify --target container
+----
+
+The verify command runs checks inside the container image to confirm that expected tools are present.
+It tests for cc-deck, Claude Code, Zellij, and every tool listed in the manifest.
+Each tool gets a pass or fail result.
+
+== SSH Workflow
+
+The SSH workflow generates Ansible playbooks from your manifest and runs them against a remote machine.
+After the initial provisioning converges, the playbooks can be re-run standalone without Claude Code involvement.
+
+=== 1. Initialize the Setup Directory
+
+[source,bash]
+----
+cd your-project
+cc-deck setup init --target ssh
+----
+
+This creates the same `.cc-deck/setup/` directory as the container workflow, plus Ansible role skeletons:
+
+[source]
+----
+roles/
+├── base/           # User creation, SSH keys, core packages
+├── tools/          # Development tools from manifest
+├── zellij/         # Zellij binary download
+├── claude/         # Claude Code via official installer
+├── cc_deck/        # cc-deck CLI and plugin installation
+├── shell_config/   # Shell RC, credential sourcing, starship
+└── mcp/            # MCP server configuration
+----
+
+Each role contains `tasks/` and `defaults/` directories.
+
+=== 2. Configure the SSH Target
+
+Edit the `targets.ssh` section in `.cc-deck/setup/cc-deck-setup.yaml`:
+
+[source,yaml]
+----
+targets:
+  ssh:
+    host: dev@your-server
+    port: 22
+    identity_file: ~/.ssh/id_ed25519
+    create_user: true
+    user: dev
+    workspace: ~/workspace
+----
+
+When `create_user` is set to `true`, the Ansible `base` role creates the specified user with sudo access.
+It reads the public key matching `identity_file` (appending `.pub`) and installs it as the new user's authorized key.
+
+=== 3. Capture Your Environment
+
+Run the capture command inside Claude Code, exactly as in the container workflow:
+
+[source]
+----
+/cc-deck.capture
+----
+
+The capture command works the same way for both targets.
+It populates the shared manifest sections and leaves the SSH target configuration untouched.
+
+=== 4. Build (Provision the Remote)
+
+Run the build command inside Claude Code:
+
+[source]
+----
+/cc-deck.build --target ssh
+----
+
+Claude generates Ansible playbooks from the manifest, including an inventory file, group variables, a `site.yml` entry point, and role task files.
+It then runs `ansible-playbook` against the remote host.
+
+If a task fails, Claude reads the Ansible error output, fixes the relevant role, and retries (up to 3 attempts).
+Already-succeeded tasks are skipped on retry because Ansible playbooks are idempotent.
+
+After convergence, you can re-run the playbooks from the command line without Claude:
+
+[source,bash]
+----
+cd .cc-deck/setup
+ansible-playbook -i inventory.ini site.yml
+----
+
+The provisioning installs Zellij, Claude Code (via the official installer), the cc-deck CLI (from GitHub Releases), the cc-deck plugin (via `cc-deck plugin install`), and your shell configuration with credential sourcing enabled.
+
+=== 5. Verify the Remote
+
+[source,bash]
+----
+cc-deck setup verify --target ssh
+----
+
+The verify command connects to the remote host via SSH and runs the same tool checks as the container verification.
+Each tool gets a pass or fail result.
+
+=== 6. Register an Environment
+
+After provisioning, register the remote as a cc-deck environment:
+
+[source,bash]
+----
+cc-deck env create my-remote --type ssh --host dev@your-server
+----
+
+The create command runs a lightweight probe (`which zellij && which cc-deck && which claude`) to confirm the host is provisioned.
+If any tool is missing, the command fails with a message directing you to run `cc-deck setup` first.
+
+See xref:running:ssh-environments.adoc[] for details on attaching to SSH environments.
+
+== Dual-Target Workflow
+
+To maintain both a container image and an SSH-provisioned remote from the same project, initialize with both targets:
+
+[source,bash]
+----
+cc-deck setup init --target container,ssh
+----
+
+This scaffolds the container build-context directory and Ansible role skeletons side by side.
+
+Capture your environment once:
+
+[source]
+----
+/cc-deck.capture
+----
+
+Then build for each target separately:
+
+[source]
+----
+/cc-deck.build --target container
+/cc-deck.build --target ssh
+----
+
+Both targets draw from the same shared manifest sections.
+The container backend generates a Containerfile while the SSH backend generates Ansible playbooks, but both install the same set of tools and configuration.
+
+== Detecting Manifest Drift
+
+After modifying your manifest (adding a tool, changing a setting), you can check what would change before rebuilding:
+
+[source,bash]
+----
+cc-deck setup diff
+----
+
+The diff command compares the current manifest against the last-generated artifacts and reports additions and removals.
+If both container and SSH artifacts exist, it reports drift for both targets.
+
+You can also scope the diff to a single target:
+
+[source,bash]
+----
+cc-deck setup diff --target container
+cc-deck setup diff --target ssh
+----
+
+== Troubleshooting
+
+=== Ansible is not installed
+
+If you run `/cc-deck.build --target ssh` without Ansible installed, the command fails immediately with a message telling you to install it.
+On macOS, install with `brew install ansible`.
+
+=== SSH target is unreachable
+
+When the remote host is unreachable, `ansible-playbook` fails with a connection error.
+Claude reports the error but does not retry, because connectivity problems cannot be resolved by a playbook fix.
+Check your SSH configuration, network access, and that the host is running.
+
+=== Build retries exhausted
+
+If the self-correction loop exhausts all 3 retry attempts, the command stops and reports the failing step with the error output.
+The generated artifacts (Containerfile or Ansible role files) remain in their last-edited state for manual inspection.
+Review the error, fix the artifact by hand, and re-run the build command.
+
+=== Missing target section in manifest
+
+If you run build for a target that is not configured in the manifest, the command fails with a message directing you to add the target section manually or re-run `cc-deck setup init --target <target>`.
+
+=== Conflict with previously generated artifacts
+
+When you re-run `/cc-deck.build` after playbooks or a Containerfile have been modified, Claude shows a diff of the changed files and asks you to choose: use the newly generated content, keep the existing version, or stop.
+This prevents accidental overwrites of manual edits.
+
+=== Verify reports missing tools
+
+If `cc-deck setup verify` reports failures, check the manifest to confirm the tool is listed, then re-run the build command for the appropriate target.
+For SSH targets, you can also connect directly and inspect the remote machine:
+
+[source,bash]
+----
+ssh dev@your-server "which <tool-name>"
+----
