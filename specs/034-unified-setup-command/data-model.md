@@ -244,8 +244,8 @@ github_tools:
 
 ### base role
 - **Purpose**: System preparation and user creation
-- **Inputs**: `create_user`, `target_user`, `shell`
-- **Tasks**: Detect OS family (set_fact), install core packages (git, curl, tar, unzip, zsh), create user with sudo if `create_user` is true, set default shell, create workspace directory
+- **Inputs**: `create_user`, `target_user`, `shell`, `identity_file`
+- **Tasks**: Detect OS family (set_fact), install core packages (git, curl, tar, unzip, zsh), create user with sudo if `create_user` is true, install SSH authorized key from the public key matching `identity_file` (the `.pub` counterpart), set default shell, create workspace directory
 
 ### tools role
 - **Purpose**: Install development tools from manifest
