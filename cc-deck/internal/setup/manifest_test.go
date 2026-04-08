@@ -201,6 +201,47 @@ func TestManifest_Validate(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "plugin missing name",
+			m: &Manifest{
+				Version: 2,
+				Plugins: []PluginEntry{{Source: "marketplace"}},
+			},
+			wantErr: "plugins[0].name is required",
+		},
+		{
+			name: "plugin missing source",
+			m: &Manifest{
+				Version: 2,
+				Plugins: []PluginEntry{{Name: "test"}},
+			},
+			wantErr: "plugins[0].source is required",
+		},
+		{
+			name: "mcp missing name",
+			m: &Manifest{
+				Version: 2,
+				MCP:     []MCPEntry{{Image: "test:latest"}},
+			},
+			wantErr: "mcp[0].name is required",
+		},
+		{
+			name: "github_tools invalid repo format",
+			m: &Manifest{
+				Version: 2,
+				GithubTools: []GithubTool{{Repo: "invalid", Binary: "test"}},
+			},
+			wantErr: "github_tools[0].repo must be in owner/repo format",
+		},
+		{
+			name: "valid with plugins and github_tools",
+			m: &Manifest{
+				Version:     2,
+				Plugins:     []PluginEntry{{Name: "test", Source: "marketplace"}},
+				GithubTools: []GithubTool{{Repo: "org/tool", Binary: "tool"}},
+				MCP:         []MCPEntry{{Name: "mcp-test", Image: "test:latest"}},
+			},
+		},
 	}
 
 	for _, tt := range tests {

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -139,8 +140,11 @@ func runContainerVerify(dir string) error {
 	}
 	fmt.Printf("Verifying image: %s\n\n", imageRef)
 
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
 	return runChecks(m, func(command string) (string, error) {
-		verifyCmd := exec.Command(runtime, "run", "--rm", imageRef, "sh", "-c", command)
+		verifyCmd := exec.CommandContext(ctx, runtime, "run", "--rm", imageRef, "sh", "-c", command)
 		output, err := verifyCmd.CombinedOutput()
 		return strings.TrimSpace(string(output)), err
 	})
@@ -159,6 +163,9 @@ func runSSHVerify(dir string) error {
 
 	st := m.Targets.SSH
 	host := st.Host
+	if st.User != "" && !strings.Contains(host, "@") {
+		host = st.User + "@" + host
+	}
 	port := st.Port
 	identity := st.IdentityFile
 
@@ -270,7 +277,14 @@ func resolveSetupDir(args []string) string {
 // setupDir (.cc-deck/setup/).
 func resolveSetupDirAndRoot(args []string) (setupDir string, projectRoot string) {
 	if len(args) > 0 {
-		return args[0], filepath.Dir(args[0])
+		// Explicit dir: the project root is two levels up from .cc-deck/setup/
+		// (or the parent of the dir if it's not the conventional path).
+		dir := args[0]
+		parent := filepath.Dir(dir)
+		if filepath.Base(parent) == ".cc-deck" {
+			return dir, filepath.Dir(parent)
+		}
+		return dir, parent
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -299,12 +313,16 @@ func runDiff(dir string, target string) error {
 		switch {
 		case hasContainerfile && hasRoles:
 			// Both exist, diff both
+			var errs []error
 			fmt.Println("=== Container Target ===")
 			if err := diffContainer(dir, m); err != nil {
-				fmt.Printf("  Error: %v\n", err)
+				errs = append(errs, fmt.Errorf("container: %w", err))
 			}
 			fmt.Println("\n=== SSH Target ===")
-			return diffSSH(dir, m)
+			if err := diffSSH(dir, m); err != nil {
+				errs = append(errs, fmt.Errorf("ssh: %w", err))
+			}
+			return errors.Join(errs...)
 		case hasContainerfile:
 			target = "container"
 		case hasRoles:
