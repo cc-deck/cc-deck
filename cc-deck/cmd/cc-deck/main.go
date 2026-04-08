@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"github.com/cc-deck/cc-deck/internal/build"
+	"github.com/cc-deck/cc-deck/internal/setup"
 	"github.com/cc-deck/cc-deck/internal/cmd"
 	"github.com/cc-deck/cc-deck/internal/xdg"
 )
@@ -27,8 +27,8 @@ func newRootCmd() *cobra.Command {
 		Short: "Manage Claude Code sessions with the Zellij sidebar plugin",
 		Long: `cc-deck manages Claude Code + Zellij sessions through a sidebar plugin
 that tracks session status, enables keyboard navigation, and provides
-session snapshots. It also supports building custom container images
-for containerized Claude Code environments.`,
+session snapshots. It also supports setting up container images and
+SSH remotes for Claude Code environments.`,
 		SilenceUsage: true,
 	}
 
@@ -76,7 +76,7 @@ for containerized Claude Code environments.`,
 		cmd.NewPluginCmd(gf),
 		cmd.NewProfileCmd(gf),
 		cmd.NewDomainsCmd(gf),
-		cmd.NewImageCmd(gf),
+		cmd.NewSetupCmd(gf),
 	)
 
 	// Utility commands (ungrouped, appear under "Additional Commands").
@@ -169,9 +169,9 @@ func initConfig(gf *cmd.GlobalFlags) {
 }
 
 func main() {
-	// Propagate build-time registry to the build package
+	// Propagate build-time registry to the setup package
 	if cmd.ImageRegistry != "" {
-		build.DefaultBaseImage = cmd.ImageRegistry + "/cc-deck-base:latest"
+		setup.DefaultBaseImage = cmd.ImageRegistry + "/cc-deck-base:latest"
 	}
 
 	rootCmd := newRootCmd()
