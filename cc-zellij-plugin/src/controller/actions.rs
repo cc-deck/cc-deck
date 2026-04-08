@@ -390,7 +390,8 @@ fn perform_working_directed(
             return None;
         }
 
-        // Tier 1: Working sessions (most recent first)
+        // Working sessions only (most recent first).
+        // Waiting sessions are excluded: they need attention (Alt+a's job).
         let mut working: Vec<_> = sessions
             .iter()
             .filter(|s| !s.paused && matches!(s.activity, Activity::Working))
@@ -398,34 +399,20 @@ fn perform_working_directed(
             .collect();
         working.sort_by(|a, b| b.last_event_ts.cmp(&a.last_event_ts));
 
-        // Tier 2: Waiting sessions (Permission first, then Notification, oldest first)
-        let mut waiting: Vec<_> = sessions
+        let candidates: Vec<AttendCandidate> = working
             .iter()
-            .filter(|s| !s.paused && matches!(s.activity, Activity::Waiting(_)))
-            .copied()
+            .map(|s| AttendCandidate {
+                pane_id: s.pane_id,
+                tab_index: s.tab_index,
+                is_done: false,
+            })
             .collect();
-        waiting.sort_by(|a, b| {
-            let a_perm = matches!(a.activity, Activity::Waiting(WaitReason::Permission));
-            let b_perm = matches!(b.activity, Activity::Waiting(WaitReason::Permission));
-            b_perm
-                .cmp(&a_perm)
-                .then(a.last_event_ts.cmp(&b.last_event_ts))
-        });
 
-        let to_candidates = |tier: Vec<&Session>| -> Vec<AttendCandidate> {
-            tier.iter()
-                .map(|s| AttendCandidate {
-                    pane_id: s.pane_id,
-                    tab_index: s.tab_index,
-                    is_done: false,
-                })
-                .collect()
-        };
-
-        [to_candidates(working), to_candidates(waiting)]
-            .into_iter()
-            .filter(|t| !t.is_empty())
-            .collect()
+        if candidates.is_empty() {
+            vec![]
+        } else {
+            vec![candidates]
+        }
     };
 
     if tiers.is_empty() {
