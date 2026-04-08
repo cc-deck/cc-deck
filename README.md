@@ -409,6 +409,26 @@ cc-deck env attach
 
 The project directory is bind-mounted at `/workspace` by default, providing immediate bidirectional file sync.
 
+### SSH Environments
+
+SSH environments run Zellij sessions on persistent remote machines. You connect over SSH, work inside the remote Zellij session, and detach when finished. The session continues running on the remote host.
+
+```bash
+# Create an SSH environment
+cc-deck env create remote-dev --type ssh --host user@dev.example.com
+
+# Attach to the remote Zellij session
+cc-deck attach remote-dev
+
+# Refresh credentials without attaching
+cc-deck env refresh-creds remote-dev
+
+# Push files to the remote workspace
+cc-deck env push remote-dev ./src
+```
+
+Pre-flight checks during creation verify SSH connectivity and offer to install missing tools (Zellij, Claude Code, cc-deck) on the remote.
+
 ### Variants
 
 When the same project needs multiple isolated container instances (for example, per-worktree containers), use the `--variant` flag:
@@ -477,3 +497,4 @@ cc-deck follows [Spec-Driven Development](CONTRIBUTING.md#spec-driven-developmen
 | [027](specs/027-cli-restructuring/) | CLI Command Restructuring | Promote daily commands to top level, remove legacy K8s commands, organize help groups | In Progress |
 | [030](specs/030-single-instance-arch/) | Single Instance Architecture | Controller + sidebar plugin split for scalable multi-tab performance | Implemented |
 | [031](specs/031-single-binary-merge/) | Single Binary Merge | Merge controller + sidebar into one WASM binary with runtime mode selection | Implemented |
+| [033](specs/033-ssh-environment/) | SSH Remote Execution | Remote Zellij sessions over SSH with pre-flight bootstrap, credential forwarding, and file sync | In Progress |
