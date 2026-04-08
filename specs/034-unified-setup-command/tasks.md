@@ -154,9 +154,9 @@
 
 **Purpose**: Documentation, testing, and quality improvements across all stories.
 
-- [ ] T032 [P] Update `README.md`: add spec 034 to feature table, replace `cc-deck image` with `cc-deck setup`, document SSH provisioning workflow (use prose plugin)
-- [ ] T033 [P] Update CLI reference in `docs/modules/reference/pages/cli.adoc`: add `cc-deck setup` command group with all subcommands and flags (use prose plugin)
-- [ ] T034 [P] Create Antora guide page `docs/modules/using/pages/setup.adoc`: overview, prerequisites, container workflow, SSH workflow, dual-target, troubleshooting (use prose plugin)
+- [X] T032 [P] Update `README.md`: add spec 034 to feature table, replace `cc-deck image` with `cc-deck setup`, document SSH provisioning workflow (use prose plugin)
+- [X] T033 [P] Update CLI reference in `docs/modules/reference/pages/cli.adoc`: add `cc-deck setup` command group with all subcommands and flags (use prose plugin)
+- [X] T034 [P] Create Antora guide page `docs/modules/using/pages/setup.adoc`: overview, prerequisites, container workflow, SSH workflow, dual-target, troubleshooting (use prose plugin)
 - [ ] T035 [P] Update landing page at `cc-deck/cc-deck.github.io`: add feature card for unified setup command (use prose plugin)
 - [ ] T036 Integration test against SSH target (Hetzner VM): full workflow init/capture/build/verify, validate F-001 through F-010 resolved, verify standalone playbook re-run
 - [ ] T037 Run `quickstart.md` validation: verify all steps from quickstart produce expected results

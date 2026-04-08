@@ -25,10 +25,14 @@ if [ "$VERSION" -lt 1 ]; then
   exit 1
 fi
 
-NAME=$(yq '.image.name // ""' "$MANIFEST")
-if [ -z "$NAME" ]; then
-  echo "Error: image.name is required"
-  exit 1
-fi
+# Check target configuration (at least one target should be present for builds)
+CONTAINER_NAME=$(yq '.targets.container.name // ""' "$MANIFEST")
+SSH_HOST=$(yq '.targets.ssh.host // ""' "$MANIFEST")
 
-echo "Manifest valid: $NAME (version $VERSION)"
+if [ -n "$CONTAINER_NAME" ]; then
+  echo "Manifest valid: container target '$CONTAINER_NAME' (version $VERSION)"
+elif [ -n "$SSH_HOST" ]; then
+  echo "Manifest valid: ssh target '$SSH_HOST' (version $VERSION)"
+else
+  echo "Manifest valid: no targets configured yet (version $VERSION)"
+fi
