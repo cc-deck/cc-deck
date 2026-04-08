@@ -1,0 +1,226 @@
+= SSH Environments
+
+SSH environments run Zellij sessions on persistent remote machines.
+You connect over SSH, work inside the remote Zellij session, and detach when you are finished.
+The session continues running on the remote host, so Claude Code keeps working while your laptop sleeps.
+
+This is particularly useful for long-running tasks on powerful remote machines, working across network boundaries with jump hosts, and maintaining persistent development sessions that survive disconnects.
+
+The environment uses the system `ssh` binary directly, so all existing SSH configurations, keys, and agents work without additional setup.
+
+== Defining an SSH Environment
+
+Add an SSH environment definition to `~/.config/cc-deck/environments.yaml`:
+
+[source,yaml]
+----
+version: 1
+environments:
+  - name: remote-dev
+    type: ssh
+    host: user@dev.example.com
+    workspace: ~/projects/my-app
+    auth: auto
+----
+
+The following fields are available for SSH environments:
+
+[cols="1,1,3"]
+|===
+| Field | Default | Description
+
+| `host`
+| (required)
+| SSH target in `user@hostname` format
+
+| `port`
+| 22
+| SSH port number
+
+| `identity-file`
+|
+| Path to the SSH private key
+
+| `jump-host`
+|
+| Bastion or jump host for multi-hop connections
+
+| `ssh-config`
+|
+| Path to a custom SSH config file
+
+| `workspace`
+| `~/workspace`
+| Remote working directory for file operations
+
+| `auth`
+| `auto`
+| Credential mode: `auto`, `api`, `vertex`, `bedrock`, or `none`
+|===
+
+NOTE: The `auth`, `credentials`, and `env` fields from the standard environment definition are reused for SSH credential management.
+
+== Creating the Environment
+
+[source,bash]
+----
+cc-deck env create remote-dev
+----
+
+The create command runs a series of pre-flight checks that verify the remote host is ready:
+
+1. *SSH connectivity* to the remote host.
+2. *OS and architecture detection* on the remote machine.
+3. *Zellij availability* (offers automatic installation if missing on Linux).
+4. *Claude Code availability* (offers installation via npm).
+5. *cc-deck CLI and plugin availability* (offers installation).
+6. *Credential configuration* (validates the chosen auth mode).
+
+For each missing tool, the pre-flight check offers three options: automatic installation, manual instructions, or skip.
+
+You can also create SSH environments directly from CLI flags without a definition file:
+
+[source,bash]
+----
+cc-deck env create my-remote --type ssh --host user@host.example.com --workspace ~/projects
+----
+
+== Attaching and Detaching
+
+Attach to the remote Zellij session:
+
+[source,bash]
+----
+cc-deck attach remote-dev
+----
+
+If no Zellij session exists on the remote host, one is created automatically with the `cc-deck` layout.
+The attach command replaces the current process with an SSH connection, giving you a direct terminal session.
+
+To detach without stopping the session, press `Ctrl+o d`.
+The remote Zellij session continues running, and Claude Code keeps working on any active tasks.
+
+Reattach at any time with the same command:
+
+[source,bash]
+----
+cc-deck attach remote-dev
+----
+
+Each attach writes fresh credentials to the remote before connecting, so credential rotation between sessions is handled automatically.
+
+== Credential Management
+
+Credentials are written to `~/.config/cc-deck/credentials.env` on the remote host with mode 600 permissions.
+The Zellij layout sources this file, so all panes pick up the credentials automatically.
+
+The credential set is built from the `auth` mode in the environment definition:
+
+* `auto` detects the local auth mode (`ANTHROPIC_API_KEY`, Vertex AI, or Bedrock) and forwards the matching credentials.
+* `api` forwards the `ANTHROPIC_API_KEY` environment variable.
+* `vertex` forwards Vertex AI credentials including `ANTHROPIC_VERTEX_PROJECT_ID` and `CLOUD_ML_REGION`.
+* `bedrock` forwards AWS credentials including `AWS_REGION`, `AWS_ACCESS_KEY_ID`, and `AWS_SESSION_TOKEN`.
+* `none` disables credential management entirely.
+
+File-based credentials (such as GCP service account JSON files) are copied to the remote via `scp` and referenced by path in the credential file.
+
+=== Refreshing Credentials Without Attaching
+
+When local credentials rotate, push fresh credentials to the remote without opening a session:
+
+[source,bash]
+----
+cc-deck env refresh-creds remote-dev
+----
+
+This updates the credential file on the remote host without disrupting any running Zellij session or Claude Code process.
+
+== File Synchronization
+
+Push local files to the remote workspace:
+
+[source,bash]
+----
+cc-deck env push remote-dev ./src
+----
+
+Pull files from the remote:
+
+[source,bash]
+----
+cc-deck env pull remote-dev ./output ./local-output
+----
+
+File synchronization uses `rsync` over SSH for efficient incremental transfers.
+If `rsync` is not available on the local machine, the command falls back to `scp` with a warning.
+
+== Remote Command Execution
+
+Run commands on the remote host without attaching to the full Zellij session:
+
+[source,bash]
+----
+cc-deck env exec remote-dev -- make test
+----
+
+Commands execute in the configured workspace directory.
+Standard output and standard error are returned to the local terminal.
+
+== Harvesting Git Commits
+
+Retrieve git commits from the remote repository and bring them into your local checkout:
+
+[source,bash]
+----
+cc-deck env harvest remote-dev
+----
+
+The harvest command adds a temporary git remote pointing to the remote workspace via SSH, runs `git fetch`, and then removes the temporary remote.
+
+To also create a pull request from the fetched branch:
+
+[source,bash]
+----
+cc-deck env harvest remote-dev --branch feature/remote-work --create-pr
+----
+
+This requires the `gh` CLI to be available locally.
+
+== Checking Status
+
+View the current state of an SSH environment:
+
+[source,bash]
+----
+cc-deck status remote-dev
+----
+
+The status command queries the remote host via SSH and checks whether the Zellij session `cc-deck-<name>` is running.
+Possible states are `running` (session active), `stopped` (host reachable but no session found), and `error` (host unreachable).
+
+The `cc-deck list` command also reconciles SSH environment status in parallel with other environment types.
+
+== Deleting an SSH Environment
+
+Remove an environment from the state store:
+
+[source,bash]
+----
+cc-deck env delete remote-dev
+----
+
+If the environment has a running Zellij session, deletion is refused unless you pass `--force`:
+
+[source,bash]
+----
+cc-deck env delete remote-dev --force
+----
+
+With force, the command attempts to kill the remote Zellij session before removing the state record.
+Cleanup failures are logged as warnings but do not block deletion.
+
+== Unsupported Operations
+
+SSH environments do not support the `start` and `stop` commands.
+The remote machine lifecycle is managed externally.
+Use `attach` to reconnect to the remote session and `Ctrl+o d` to detach.

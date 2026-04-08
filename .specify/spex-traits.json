@@ -4,12 +4,15 @@
     "superpowers": true,
     "deep-review": true,
     "teams": true,
-    "worktrees": false
+    "worktrees": true
+  },
+  "worktrees_config": {
+    "base_path": ".."
   },
   "external_tools": {
     "enabled": true,
     "coderabbit": true,
     "copilot": true
   },
-  "applied_at": "2026-04-01T20:51:58Z"
+  "applied_at": "2026-04-07T14:57:54Z"
 }
