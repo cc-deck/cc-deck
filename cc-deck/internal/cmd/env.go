@@ -646,14 +646,8 @@ func runEnvList(gf *GlobalFlags, filterType string, showWorktrees bool) error {
 		filter = &env.ListFilter{Type: &t}
 	}
 
-	// List v1 records (local environments).
-	records, err := store.List(filter)
-	if err != nil {
-		return err
-	}
-
-	// List v2 instances (container environments).
-	instances, err := store.ListInstances()
+	// List all environment instances.
+	instances, err := store.ListInstances(filter)
 	if err != nil {
 		return err
 	}
@@ -668,10 +662,6 @@ func runEnvList(gf *GlobalFlags, filterType string, showWorktrees bool) error {
 	instanceNames := make(map[string]bool)
 	for _, inst := range instances {
 		instanceNames[inst.Name] = true
-	}
-	// Also include v1 record names.
-	for _, r := range records {
-		instanceNames[r.Name] = true
 	}
 
 	// Collect project-local environments from the global registry (FR-006, FR-012).
@@ -737,9 +727,9 @@ func runEnvList(gf *GlobalFlags, filterType string, showWorktrees bool) error {
 
 	switch gf.Output {
 	case "json", "yaml":
-		return writeEnvStructured(gf.Output, records, instances, allDefs, instanceNames, filterType)
+		return writeEnvStructured(gf.Output, instances, allDefs, instanceNames, filterType)
 	default:
-		return writeEnvTableWithProjects(records, instances, allDefs, instanceNames, filterType, projectEnvs, worktrees)
+		return writeEnvTableWithProjects(instances, allDefs, instanceNames, filterType, projectEnvs, worktrees)
 	}
 }
 
@@ -754,19 +744,8 @@ type envListEntry struct {
 	Age          string `json:"age,omitempty" yaml:"age,omitempty"`
 }
 
-func writeEnvStructured(format string, records []*env.EnvironmentRecord, instances []*env.EnvironmentInstance, allDefs []*env.EnvironmentDefinition, instanceNames map[string]bool, filterType string) error {
+func writeEnvStructured(format string, instances []*env.EnvironmentInstance, allDefs []*env.EnvironmentDefinition, instanceNames map[string]bool, filterType string) error {
 	var entries []envListEntry
-
-	for _, r := range records {
-		entries = append(entries, envListEntry{
-			Name:         r.Name,
-			Type:         string(r.Type),
-			State:        string(r.State),
-			Storage:      storageDisplay(r),
-			LastAttached: formatRelativeTime(r.LastAttached),
-			Age:          formatDuration(time.Since(r.CreatedAt)),
-		})
-	}
 
 	for _, inst := range instances {
 		image := ""
@@ -797,17 +776,6 @@ func writeEnvStructured(format string, records []*env.EnvironmentRecord, instanc
 		if instanceNames[def.Name] {
 			continue
 		}
-		// Skip if already in v1 records.
-		found := false
-		for _, r := range records {
-			if r.Name == def.Name {
-				found = true
-				break
-			}
-		}
-		if found {
-			continue
-		}
 		if filterType != "" && string(def.Type) != filterType {
 			continue
 		}
@@ -830,7 +798,7 @@ func writeEnvStructured(format string, records []*env.EnvironmentRecord, instanc
 }
 
 // writeEnvTableWithProjects writes the env list table with project-local entries.
-func writeEnvTableWithProjects(records []*env.EnvironmentRecord, instances []*env.EnvironmentInstance, allDefs []*env.EnvironmentDefinition, instanceNames map[string]bool, filterType string, projectEnvs []projectListEntry, worktrees []worktreeListEntry) error {
+func writeEnvTableWithProjects(instances []*env.EnvironmentInstance, allDefs []*env.EnvironmentDefinition, instanceNames map[string]bool, filterType string, projectEnvs []projectListEntry, worktrees []worktreeListEntry) error {
 	tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 	showPath := len(projectEnvs) > 0
 
@@ -850,13 +818,7 @@ func writeEnvTableWithProjects(records []*env.EnvironmentRecord, instances []*en
 		hasEntries = true
 	}
 
-	// Global v1 records (local environments).
-	for _, r := range records {
-		printRow(r.Name, string(r.Type), string(r.State), storageDisplay(r), "-",
-			formatRelativeTime(r.LastAttached), formatDuration(time.Since(r.CreatedAt)))
-	}
-
-	// Global v2 instances (container/compose environments).
+	// Global environment instances.
 	for _, inst := range instances {
 		instType := inst.Type
 		if instType == "" {
@@ -866,8 +828,12 @@ func writeEnvTableWithProjects(records []*env.EnvironmentRecord, instances []*en
 			continue
 		}
 		storage := "named-volume"
-		if inst.Compose != nil {
+		if inst.Type == env.EnvironmentTypeLocal {
+			storage = "host"
+		} else if inst.Compose != nil {
 			storage = "host-path"
+		} else if inst.SSH != nil {
+			storage = "-"
 		}
 		printRow(inst.Name, string(instType), string(inst.State), storage, "-",
 			formatRelativeTime(inst.LastAttached), formatDuration(time.Since(inst.CreatedAt)))
@@ -924,15 +890,7 @@ func writeEnvTableWithProjects(records []*env.EnvironmentRecord, instances []*en
 	return tw.Flush()
 }
 
-func storageDisplay(r *env.EnvironmentRecord) string {
-	if r.Type == env.EnvironmentTypeLocal {
-		return "host"
-	}
-	if r.Storage != nil {
-		return string(r.Storage.Type)
-	}
-	return "-"
-}
+
 
 func formatRelativeTime(t *time.Time) string {
 	if t == nil {
@@ -1010,26 +968,19 @@ func runEnvStatus(gf *GlobalFlags, name string) error {
 	lastAttached := "never"
 	image := ""
 
-	if envType == env.EnvironmentTypeLocal {
-		record, findErr := store.FindByName(name)
-		if findErr == nil {
-			storage = storageDisplay(record)
-			lastAttached = formatRelativeTime(record.LastAttached)
+	if inst, findErr := store.FindInstanceByName(name); findErr == nil {
+		lastAttached = formatRelativeTime(inst.LastAttached)
+		if inst.Type == env.EnvironmentTypeLocal {
+			storage = "host"
+		} else if inst.Container != nil {
+			storage = "named-volume"
+			image = inst.Container.Image
 		}
-	} else if envType == env.EnvironmentTypeContainer || envType == env.EnvironmentTypeCompose || envType == env.EnvironmentTypeSSH {
-		inst, findErr := store.FindInstanceByName(name)
-		if findErr == nil {
-			lastAttached = formatRelativeTime(inst.LastAttached)
-			if inst.Container != nil {
-				storage = "named-volume"
-				image = inst.Container.Image
-			}
-			if inst.Compose != nil {
-				storage = "host-path"
-			}
-			if inst.SSH != nil {
-				storage = "remote"
-			}
+		if inst.Compose != nil {
+			storage = "host-path"
+		}
+		if inst.SSH != nil {
+			storage = "remote"
 		}
 	}
 
@@ -1144,15 +1095,6 @@ func runEnvStart(name string) error {
 		return err
 	}
 
-	// For local environments, update the v1 record state too.
-	if e.Type() == env.EnvironmentTypeLocal {
-		record, findErr := store.FindByName(name)
-		if findErr == nil {
-			record.State = env.EnvironmentStateRunning
-			_ = store.Update(record)
-		}
-	}
-
 	fmt.Fprintf(os.Stdout, "Environment %q started\n", name)
 	return nil
 }
@@ -1192,15 +1134,6 @@ func runEnvStop(name string) error {
 
 	if err := e.Stop(cmd_context()); err != nil {
 		return err
-	}
-
-	// For local environments, update the v1 record state too.
-	if e.Type() == env.EnvironmentTypeLocal {
-		record, findErr := store.FindByName(name)
-		if findErr == nil {
-			record.State = env.EnvironmentStateStopped
-			_ = store.Update(record)
-		}
 	}
 
 	fmt.Fprintf(os.Stdout, "Environment %q stopped\n", name)
@@ -1503,15 +1436,9 @@ func resolveEnvironmentName(args []string, store *env.FileStateStore) (name stri
 	return def.Name, root, nil
 }
 
-// resolveEnvironment finds an environment by name, checking both v1 records
-// and v2 instances, and returns the appropriate Environment implementation.
+// resolveEnvironment finds an environment by name and returns the appropriate
+// Environment implementation.
 func resolveEnvironment(name string, store *env.FileStateStore, defs *env.DefinitionStore) (env.Environment, error) {
-	// Try v1 record first (local environments).
-	if record, err := store.FindByName(name); err == nil {
-		return env.NewEnvironment(record.Type, name, store, defs)
-	}
-
-	// Try v2 instance (container/compose/ssh environments).
 	if inst, err := store.FindInstanceByName(name); err == nil {
 		instType := env.EnvironmentTypeContainer
 		if inst.Type != "" {

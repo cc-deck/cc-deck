@@ -24,7 +24,7 @@ func TestLocalEnvironment_Name(t *testing.T) {
 	assert.Equal(t, "my-project", env.Name())
 }
 
-func TestLocalEnvironment_CreateAddsRecord(t *testing.T) {
+func TestLocalEnvironment_CreateAddsInstance(t *testing.T) {
 	if _, err := exec.LookPath("zellij"); err != nil {
 		t.Skip("zellij not found in PATH, skipping")
 	}
@@ -35,10 +35,10 @@ func TestLocalEnvironment_CreateAddsRecord(t *testing.T) {
 	err := env.Create(context.Background(), CreateOpts{})
 	require.NoError(t, err)
 
-	record, err := store.FindByName("test-env")
+	inst, err := store.FindInstanceByName("test-env")
 	require.NoError(t, err)
-	assert.Equal(t, EnvironmentTypeLocal, record.Type)
-	assert.Equal(t, EnvironmentStateRunning, record.State)
+	assert.Equal(t, EnvironmentTypeLocal, inst.Type)
+	assert.Equal(t, EnvironmentStateRunning, inst.State)
 }
 
 func TestLocalEnvironment_CreateRejectsDuplicate(t *testing.T) {
@@ -75,22 +75,22 @@ func TestLocalEnvironment_ExecReturnsNotSupported(t *testing.T) {
 	assert.True(t, errors.Is(err, ErrNotSupported))
 }
 
-func TestLocalEnvironment_DeleteRemovesRecord(t *testing.T) {
+func TestLocalEnvironment_DeleteRemovesInstance(t *testing.T) {
 	store := newTestStore(t)
 
-	// Manually add a record (bypassing Create to avoid zellij dependency).
-	record := &EnvironmentRecord{
+	// Manually add an instance (bypassing Create to avoid zellij dependency).
+	inst := &EnvironmentInstance{
 		Name:  "del-env",
 		Type:  EnvironmentTypeLocal,
 		State: EnvironmentStateUnknown,
 	}
-	require.NoError(t, store.Add(record))
+	require.NoError(t, store.AddInstance(inst))
 
 	env := &LocalEnvironment{name: "del-env", store: store}
 	err := env.Delete(context.Background(), true)
 	require.NoError(t, err)
 
-	_, err = store.FindByName("del-env")
+	_, err = store.FindInstanceByName("del-env")
 	assert.True(t, errors.Is(err, ErrNotFound))
 }
 
