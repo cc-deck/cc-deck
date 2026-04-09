@@ -61,8 +61,9 @@ type SourceEntry struct {
 
 // PluginEntry describes a Claude Code plugin to install.
 type PluginEntry struct {
-	Name   string `yaml:"name"`
-	Source string `yaml:"source"`
+	Name        string `yaml:"name"`
+	Source      string `yaml:"source"`
+	Marketplace string `yaml:"marketplace,omitempty"`
 }
 
 // MCPEntry describes an MCP server sidecar container.
@@ -90,14 +91,22 @@ type GithubTool struct {
 
 // SettingsConfig describes user configuration to apply to the target.
 type SettingsConfig struct {
-	Shell          string `yaml:"shell,omitempty"`
-	ShellRC        string `yaml:"shell_rc,omitempty"`
-	ZellijConfig   string `yaml:"zellij_config,omitempty"`
-	ClaudeMD       string `yaml:"claude_md,omitempty"`
-	ClaudeSettings string `yaml:"claude_settings,omitempty"`
-	Hooks          string `yaml:"hooks,omitempty"`
-	MCPSettings    string `yaml:"mcp_settings,omitempty"`
-	CCSetupMCP     string `yaml:"cc_setup_mcp,omitempty"`
+	Shell          string       `yaml:"shell,omitempty"`
+	ShellRC        string       `yaml:"shell_rc,omitempty"`
+	ZellijConfig   string       `yaml:"zellij_config,omitempty"`
+	ClaudeMD       string       `yaml:"claude_md,omitempty"`
+	ClaudeSettings string       `yaml:"claude_settings,omitempty"`
+	Hooks          string       `yaml:"hooks,omitempty"`
+	MCPSettings    string       `yaml:"mcp_settings,omitempty"`
+	CCSetupMCP     string       `yaml:"cc_setup_mcp,omitempty"`
+	ToolConfigs    []ToolConfig `yaml:"tool_configs,omitempty"`
+}
+
+// ToolConfig describes a tool's configuration file to deploy to the target.
+type ToolConfig struct {
+	Tool   string `yaml:"tool"`
+	Source string `yaml:"source"`
+	Target string `yaml:"target,omitempty"`
 }
 
 // LoadManifest reads and parses a cc-deck-setup.yaml file.
@@ -134,6 +143,16 @@ func (m *Manifest) Validate() error {
 	for i, gt := range m.GithubTools {
 		if gt.Repo == "" || !strings.Contains(gt.Repo, "/") {
 			return fmt.Errorf("github_tools[%d].repo must be in owner/repo format", i)
+		}
+	}
+	if m.Settings != nil {
+		for i, tc := range m.Settings.ToolConfigs {
+			if tc.Tool == "" {
+				return fmt.Errorf("settings.tool_configs[%d].tool is required", i)
+			}
+			if tc.Source == "" {
+				return fmt.Errorf("settings.tool_configs[%d].source is required", i)
+			}
 		}
 	}
 	if m.Targets != nil {

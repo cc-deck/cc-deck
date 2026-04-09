@@ -6,6 +6,16 @@ description: Build a container image or provision an SSH remote from the manifes
 
 $ARGUMENTS
 
+## Setup directory
+
+All setup artifacts live in `.cc-deck/setup/` relative to the project root (the git root or the directory containing `.cc-deck/`). Resolve the setup directory first:
+
+1. Find the project root (look for `.cc-deck/` directory or git root, walking up from the current working directory)
+2. The setup directory is `<project-root>/.cc-deck/setup/`
+3. The manifest is at `<setup-dir>/cc-deck-setup.yaml`
+
+All file references in this command (manifest, Containerfile, build-context/, Ansible artifacts) are relative to the setup directory unless stated otherwise.
+
 ## Outline
 
 Build a target environment from the `cc-deck-setup.yaml` manifest. Requires `--target container` or `--target ssh` in the arguments. Optionally accepts `--push` (container only).
@@ -21,7 +31,7 @@ Parse `$ARGUMENTS` for the `--target` flag.
 | `--target` not provided | Error: "Specify --target container or --target ssh" |
 | `--push` with `--target ssh` | Error: "--push is only valid with --target container" |
 
-Read `cc-deck-setup.yaml` and validate it has `version >= 1`. Check that the relevant target section exists in the manifest:
+Read `<setup-dir>/cc-deck-setup.yaml` and validate it has `version >= 1`. Check that the relevant target section exists in the manifest:
 
 - For `--target container`: `targets.container` must be present with a `name` field
 - For `--target ssh`: `targets.ssh` must be present with a `host` field
@@ -111,8 +121,16 @@ ENV PATH="/home/dev/.local/bin:${PATH}"
 
 # ============================================================
 
-# Layer: Plugins (from manifest)
-RUN <plugin install commands>
+# Layer: Claude Code plugins (from manifest plugins section)
+# For each plugin entry, install using Claude Code's CLI:
+#   source: marketplace         -> claude plugins install <name>
+#   source: github:<owner/repo> -> claude plugins marketplace add <owner/repo>
+#                                  claude plugins install <name>@<marketplace>
+#   source: directory           -> skip (local dev only, not available in container)
+USER dev
+RUN <claude plugins marketplace add commands> && \
+    <claude plugins install commands>
+USER root
 
 # Layer: User configuration (changes often, keep last for cache efficiency)
 # <settings-based COPY commands, see Settings handling below>
@@ -138,6 +156,9 @@ For each setting, copy the source file to `build-context/` during Step A4, then 
 | `settings.hooks` | The specified path | Merge into `/home/dev/.claude/settings.json` | Merge with cc-deck hooks, do not overwrite |
 | `settings.mcp_settings` | The specified path | Merge into `/home/dev/.claude/settings.json` | npx-based MCP server configs |
 | `settings.cc_setup_mcp` | The specified path | `/home/dev/.config/cc-setup/mcp.json` | cc-setup MCP server cache |
+| `settings.tool_configs[]` | Each entry's `source` path | `/home/dev/.config/<target>` | One COPY per tool config entry |
+
+**Tool config destination**: Each `tool_configs` entry has a `target` field that specifies the path relative to `~/.config/` (e.g., `starship.toml`, `helix/config.toml`). The container destination is `/home/dev/.config/<target>`. If an entry lacks a `target` field, fall back to `/home/dev/.config/<tool>/<source-filename>`.
 
 Use `/cc-deck.capture` to interactively select what to include before building.
 
@@ -161,6 +182,10 @@ COPY --chown=dev:dev build-context/settings.json /home/dev/.claude/settings.json
 
 # cc-setup MCP cache (if settings.cc_setup_mcp is set)
 COPY --chown=dev:dev build-context/cc-setup-mcp.json /home/dev/.config/cc-setup/mcp.json
+
+# Tool configs (for each entry in settings.tool_configs)
+COPY --chown=dev:dev build-context/starship.toml /home/dev/.config/starship.toml
+COPY --chown=dev:dev build-context/helix-config.toml /home/dev/.config/helix/config.toml
 ```
 
 **Merge strategy for settings.json**: Read the existing `/home/dev/.claude/settings.json` (created by cc-deck plugin install with hooks), merge in user preferences from the specified file, write the merged result to `build-context/settings.json`. Never overwrite cc-deck hooks.
@@ -338,6 +363,8 @@ plugins:
   <manifest plugins list>
 github_tools:
   <manifest github_tools list>
+tool_configs:
+  <list from settings.tool_configs, each with tool, source, and dest_path resolved from the XDG mapping>
 ```
 
 #### site.yml
@@ -352,6 +379,7 @@ github_tools:
     - zellij
     - claude
     - cc_deck
+    - plugins
     - shell_config
     - mcp
 ```
@@ -390,10 +418,45 @@ Generate task content for each role from the manifest data. Each role is idempot
 - Install to `/usr/local/bin/cc-deck`
 - Run `cc-deck plugin install` as the target user (installs WASM plugin, layout files, controller config, Claude Code hooks)
 
+**plugins role** (`roles/plugins/tasks/main.yml`):
+- Install Claude Code plugins from the manifest `plugins` section using the `claude` CLI as the target user
+- For each plugin entry:
+  - `source: marketplace` -> run `claude plugins install <name>` (installs from official Anthropic marketplace)
+  - `source: "github:<owner/repo>"` -> run `claude plugins marketplace add <owner/repo>` first, then `claude plugins install <name>@<marketplace>`
+  - `source: directory` -> skip with a debug message ("plugin X is a local development plugin, skipping remote install")
+- All commands run as the target user (`become_user: {{ target_user }}`)
+- Requires Claude Code to already be installed (depends on `claude` role)
+- Example Ansible task:
+  ```yaml
+  - name: Add custom marketplace for {{ item.name }}
+    command: claude plugins marketplace add {{ item.source | regex_replace('^github:', '') }}
+    become_user: "{{ target_user }}"
+    when: item.source is match('^github:')
+    loop: "{{ plugins }}"
+
+  - name: Install plugin {{ item.name }}
+    command: >-
+      claude plugins install
+      {% if item.marketplace is defined %}{{ item.name }}@{{ item.marketplace }}{% else %}{{ item.name }}{% endif %}
+    become_user: "{{ target_user }}"
+    when: item.source != 'directory'
+    loop: "{{ plugins }}"
+  ```
+
 **shell_config role** (`roles/shell_config/tasks/main.yml`):
 - Install curated shell RC from template (if `settings.shell_rc` is set)
 - Add credential sourcing snippet: `[ -f ~/.config/cc-deck/credentials.env ] && source ~/.config/cc-deck/credentials.env`
 - Install starship config if present
+- For each entry in `settings.tool_configs`: copy the source file to `/home/<target_user>/.config/<target>` (using the `target` field from the manifest entry; fall back to `<tool>/<source-filename>` if `target` is not set). Create parent directories as needed. Example Ansible task:
+  ```yaml
+  - name: Deploy tool config for {{ item.tool }}
+    copy:
+      src: "{{ item.source }}"
+      dest: "/home/{{ target_user }}/.config/{{ item.target }}"
+      owner: "{{ target_user }}"
+      mode: '0644'
+    loop: "{{ tool_configs }}"
+  ```
 
 **mcp role** (`roles/mcp/tasks/main.yml`):
 - For each MCP entry in the manifest, set up the appropriate config

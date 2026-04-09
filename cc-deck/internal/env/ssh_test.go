@@ -1,10 +1,25 @@
 package env
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+// mockSSHRunner implements ssh.Runner for testing workspace resolution.
+type mockSSHRunner struct {
+	handler func(cmd string) (string, error)
+}
+
+func (m *mockSSHRunner) Run(_ context.Context, cmd string) (string, error) {
+	return m.handler(cmd)
+}
 
 func TestSSHEnvironment_TypeAndName(t *testing.T) {
 	e := &SSHEnvironment{name: "test-ssh"}
@@ -109,7 +124,7 @@ func TestSSHEnvironment_AttachInsideZellij(t *testing.T) {
 	}
 }
 
-func TestResolveWorkspace(t *testing.T) {
+func TestWorkspacePath(t *testing.T) {
 	tests := []struct {
 		workspace string
 		want      string
@@ -121,11 +136,34 @@ func TestResolveWorkspace(t *testing.T) {
 
 	for _, tt := range tests {
 		def := &EnvironmentDefinition{Workspace: tt.workspace}
-		got := resolveWorkspace(def)
+		got := workspacePath(def)
 		if got != tt.want {
-			t.Errorf("resolveWorkspace(%q) = %q, want %q", tt.workspace, got, tt.want)
+			t.Errorf("workspacePath(%q) = %q, want %q", tt.workspace, got, tt.want)
 		}
 	}
+}
+
+func TestResolveWorkspaceRemote(t *testing.T) {
+	runner := &mockSSHRunner{
+		handler: func(cmd string) (string, error) {
+			// Simulate remote shell expanding ~/workspace to /home/dev/workspace.
+			if strings.Contains(cmd, "~/workspace") {
+				return "/home/dev/workspace", nil
+			}
+			if strings.Contains(cmd, "/abs/path") {
+				return "/abs/path", nil
+			}
+			return "", fmt.Errorf("unexpected command: %s", cmd)
+		},
+	}
+
+	ws, err := resolveWorkspaceRemote(context.Background(), runner, "~/workspace")
+	require.NoError(t, err)
+	assert.Equal(t, "/home/dev/workspace", ws)
+
+	ws, err = resolveWorkspaceRemote(context.Background(), runner, "/abs/path")
+	require.NoError(t, err)
+	assert.Equal(t, "/abs/path", ws)
 }
 
 func TestSSHEnvironment_ExecRequiresDefinition(t *testing.T) {

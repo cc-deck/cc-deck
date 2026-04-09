@@ -9,18 +9,30 @@ import (
 
 // mockRunner implements Runner for testing.
 type mockRunner struct {
+	// results maps command substrings to output/error pairs.
+	// When Run is called, the first matching key is used.
+	results map[string]mockResult
+	// fallback is used when no key matches.
+	fallback mockResult
+}
+
+type mockResult struct {
 	output string
 	err    error
 }
 
-func (m *mockRunner) Run(_ context.Context, _ string) (string, error) {
-	return m.output, m.err
+func (m *mockRunner) Run(_ context.Context, cmd string) (string, error) {
+	for key, result := range m.results {
+		if strings.Contains(cmd, key) {
+			return result.output, result.err
+		}
+	}
+	return m.fallback.output, m.fallback.err
 }
 
 func TestProbe_Success(t *testing.T) {
 	runner := &mockRunner{
-		output: "/usr/bin/zellij\n/usr/local/bin/cc-deck\n/usr/local/bin/claude",
-		err:    nil,
+		fallback: mockResult{output: "/usr/local/bin/tool", err: nil},
 	}
 
 	err := Probe(context.Background(), runner)
@@ -29,10 +41,9 @@ func TestProbe_Success(t *testing.T) {
 	}
 }
 
-func TestProbe_MissingTools(t *testing.T) {
+func TestProbe_AllMissing(t *testing.T) {
 	runner := &mockRunner{
-		output: "",
-		err:    fmt.Errorf("exit status 1"),
+		fallback: mockResult{output: "", err: fmt.Errorf("exit status 1")},
 	}
 
 	err := Probe(context.Background(), runner)
@@ -47,12 +58,20 @@ func TestProbe_MissingTools(t *testing.T) {
 	if !strings.Contains(msg, "cc-deck setup") {
 		t.Errorf("error should mention 'cc-deck setup', got: %s", msg)
 	}
+	for _, tool := range requiredTools {
+		if !strings.Contains(msg, tool) {
+			t.Errorf("error should list missing tool %q, got: %s", tool, msg)
+		}
+	}
 }
 
-func TestProbe_MissingToolsWithOutput(t *testing.T) {
+func TestProbe_PartialMissing(t *testing.T) {
 	runner := &mockRunner{
-		output: "/usr/bin/zellij",
-		err:    fmt.Errorf("exit status 1"),
+		results: map[string]mockResult{
+			"which zellij":  {output: "/usr/local/bin/zellij", err: nil},
+			"which cc-deck": {output: "/usr/local/bin/cc-deck", err: nil},
+			"which claude":  {output: "", err: fmt.Errorf("exit status 1")},
+		},
 	}
 
 	err := Probe(context.Background(), runner)
@@ -61,8 +80,11 @@ func TestProbe_MissingToolsWithOutput(t *testing.T) {
 	}
 
 	msg := err.Error()
-	if !strings.Contains(msg, "/usr/bin/zellij") {
-		t.Errorf("error should include partial output, got: %s", msg)
+	if !strings.Contains(msg, "claude") {
+		t.Errorf("error should list missing tool 'claude', got: %s", msg)
+	}
+	if strings.Contains(msg, "zellij") {
+		t.Errorf("error should NOT list found tool 'zellij', got: %s", msg)
 	}
 }
 
