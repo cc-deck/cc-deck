@@ -54,14 +54,14 @@ func (e *LocalEnvironment) Create(_ context.Context, _ CreateOpts) error {
 		return ErrZellijNotFound
 	}
 
-	record := &EnvironmentRecord{
+	inst := &EnvironmentInstance{
 		Name:      e.name,
 		Type:      EnvironmentTypeLocal,
 		State:     EnvironmentStateRunning,
 		CreatedAt: time.Now().UTC(),
 	}
 
-	return e.store.Add(record)
+	return e.store.AddInstance(inst)
 }
 
 // Attach connects to the environment's Zellij session. If the session
@@ -77,10 +77,10 @@ func (e *LocalEnvironment) Attach(_ context.Context) error {
 	sessionName := e.zellijSessionName()
 
 	// Update last_attached timestamp.
-	if record, findErr := e.store.FindByName(e.name); findErr == nil {
+	if inst, findErr := e.store.FindInstanceByName(e.name); findErr == nil {
 		now := time.Now().UTC()
-		record.LastAttached = &now
-		_ = e.store.Update(record)
+		inst.LastAttached = &now
+		_ = e.store.UpdateInstance(inst)
 	}
 
 	// Inside Zellij: cannot attach from within another session.
@@ -123,7 +123,7 @@ func (e *LocalEnvironment) Delete(_ context.Context, force bool) error {
 	}
 
 	// Remove from state store.
-	if err := e.store.Remove(e.name); err != nil {
+	if err := e.store.RemoveInstance(e.name); err != nil {
 		return err
 	}
 
@@ -136,7 +136,7 @@ func (e *LocalEnvironment) Delete(_ context.Context, force bool) error {
 // Status returns the current state of the local environment by checking
 // for a running Zellij session and reading the pane map for session details.
 func (e *LocalEnvironment) Status(_ context.Context) (*EnvironmentStatus, error) {
-	record, err := e.store.FindByName(e.name)
+	inst, err := e.store.FindInstanceByName(e.name)
 	if err != nil {
 		return nil, err
 	}
@@ -149,7 +149,7 @@ func (e *LocalEnvironment) Status(_ context.Context) (*EnvironmentStatus, error)
 
 	status := &EnvironmentStatus{
 		State: state,
-		Since: record.CreatedAt,
+		Since: inst.CreatedAt,
 	}
 
 	// Best effort: read pane map for session info.
@@ -294,12 +294,12 @@ func readPaneMapSessions() ([]SessionInfo, error) {
 // session list are marked as Running; those not found are marked as Unknown.
 func ReconcileLocalEnvs(store *FileStateStore) error {
 	localType := EnvironmentTypeLocal
-	envs, err := store.List(&ListFilter{Type: &localType})
+	instances, err := store.ListInstances(&ListFilter{Type: &localType})
 	if err != nil {
 		return err
 	}
 
-	if len(envs) == 0 {
+	if len(instances) == 0 {
 		return nil
 	}
 
@@ -310,16 +310,16 @@ func ReconcileLocalEnvs(store *FileStateStore) error {
 		sessionSet[s] = true
 	}
 
-	for _, env := range envs {
-		sessionName := zellijSessionPrefix + env.Name
+	for _, inst := range instances {
+		sessionName := zellijSessionPrefix + inst.Name
 		newState := EnvironmentStateUnknown
 		if sessionSet[sessionName] {
 			newState = EnvironmentStateRunning
 		}
 
-		if env.State != newState {
-			env.State = newState
-			if err := store.Update(env); err != nil {
+		if inst.State != newState {
+			inst.State = newState
+			if err := store.UpdateInstance(inst); err != nil {
 				return err
 			}
 		}

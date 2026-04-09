@@ -1,4 +1,4 @@
-package build
+package setup
 
 import (
 	"embed"
@@ -28,7 +28,7 @@ func ExtractScripts(targetDir string) error {
 
 // ManifestTemplate returns the manifest template content.
 func ManifestTemplate() ([]byte, error) {
-	return embeddedTemplates.ReadFile("templates/cc-deck-image.yaml.tmpl")
+	return embeddedTemplates.ReadFile("templates/cc-deck-setup.yaml.tmpl")
 }
 
 // extractFS walks an embedded filesystem and writes files to disk.
