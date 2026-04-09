@@ -4,3 +4,4 @@
 * xref:attend.adoc[Smart Attend]
 * xref:sessions.adoc[Session Management]
 * xref:configuration.adoc[Configuration]
+* xref:setup.adoc[Setup Command]

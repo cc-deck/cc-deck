@@ -97,95 +97,6 @@ func (s *FileStateStore) Save(state *StateFile) error {
 	return nil
 }
 
-// FindByName loads the state and returns the record with the given name,
-// or ErrNotFound if no such record exists.
-func (s *FileStateStore) FindByName(name string) (*EnvironmentRecord, error) {
-	state, err := s.Load()
-	if err != nil {
-		return nil, err
-	}
-
-	for i := range state.Environments {
-		if state.Environments[i].Name == name {
-			return &state.Environments[i], nil
-		}
-	}
-
-	return nil, fmt.Errorf("environment %q: %w", name, ErrNotFound)
-}
-
-// Add appends a new environment record to the state file. Returns
-// ErrNameConflict if an environment with the same name already exists.
-func (s *FileStateStore) Add(record *EnvironmentRecord) error {
-	state, err := s.Load()
-	if err != nil {
-		return err
-	}
-
-	for _, env := range state.Environments {
-		if env.Name == record.Name {
-			return fmt.Errorf("environment %q: %w", record.Name, ErrNameConflict)
-		}
-	}
-
-	state.Environments = append(state.Environments, *record)
-	return s.Save(state)
-}
-
-// Update replaces an existing environment record matched by name.
-// Returns ErrNotFound if no record with the given name exists.
-func (s *FileStateStore) Update(record *EnvironmentRecord) error {
-	state, err := s.Load()
-	if err != nil {
-		return err
-	}
-
-	for i := range state.Environments {
-		if state.Environments[i].Name == record.Name {
-			state.Environments[i] = *record
-			return s.Save(state)
-		}
-	}
-
-	return fmt.Errorf("environment %q: %w", record.Name, ErrNotFound)
-}
-
-// Remove deletes an environment record by name. Returns ErrNotFound if
-// no record with the given name exists.
-func (s *FileStateStore) Remove(name string) error {
-	state, err := s.Load()
-	if err != nil {
-		return err
-	}
-
-	for i := range state.Environments {
-		if state.Environments[i].Name == name {
-			state.Environments = append(state.Environments[:i], state.Environments[i+1:]...)
-			return s.Save(state)
-		}
-	}
-
-	return fmt.Errorf("environment %q: %w", name, ErrNotFound)
-}
-
-// List returns all environment records, optionally filtered by type.
-func (s *FileStateStore) List(filter *ListFilter) ([]*EnvironmentRecord, error) {
-	state, err := s.Load()
-	if err != nil {
-		return nil, err
-	}
-
-	var result []*EnvironmentRecord
-	for i := range state.Environments {
-		if filter != nil && filter.Type != nil && state.Environments[i].Type != *filter.Type {
-			continue
-		}
-		result = append(result, &state.Environments[i])
-	}
-
-	return result, nil
-}
-
 // FindInstanceByName loads the state and returns the instance with the given
 // name, or ErrNotFound if no such instance exists.
 func (s *FileStateStore) FindInstanceByName(name string) (*EnvironmentInstance, error) {
@@ -200,7 +111,7 @@ func (s *FileStateStore) FindInstanceByName(name string) (*EnvironmentInstance, 
 		}
 	}
 
-	return nil, fmt.Errorf("instance %q: %w", name, ErrNotFound)
+	return nil, fmt.Errorf("environment %q: %w", name, ErrNotFound)
 }
 
 // AddInstance appends a new environment instance to the state file. Returns
@@ -213,7 +124,7 @@ func (s *FileStateStore) AddInstance(inst *EnvironmentInstance) error {
 
 	for _, existing := range state.Instances {
 		if existing.Name == inst.Name {
-			return fmt.Errorf("instance %q: %w", inst.Name, ErrNameConflict)
+			return fmt.Errorf("environment %q already exists (type: %s): %w", inst.Name, existing.Type, ErrNameConflict)
 		}
 	}
 
@@ -236,7 +147,7 @@ func (s *FileStateStore) UpdateInstance(inst *EnvironmentInstance) error {
 		}
 	}
 
-	return fmt.Errorf("instance %q: %w", inst.Name, ErrNotFound)
+	return fmt.Errorf("environment %q: %w", inst.Name, ErrNotFound)
 }
 
 // RemoveInstance deletes an environment instance by name. Returns ErrNotFound
@@ -254,11 +165,11 @@ func (s *FileStateStore) RemoveInstance(name string) error {
 		}
 	}
 
-	return fmt.Errorf("instance %q: %w", name, ErrNotFound)
+	return fmt.Errorf("environment %q: %w", name, ErrNotFound)
 }
 
-// ListInstances returns all environment instances from the state file.
-func (s *FileStateStore) ListInstances() ([]*EnvironmentInstance, error) {
+// ListInstances returns all environment instances, optionally filtered by type.
+func (s *FileStateStore) ListInstances(filter *ListFilter) ([]*EnvironmentInstance, error) {
 	state, err := s.Load()
 	if err != nil {
 		return nil, err
@@ -266,6 +177,9 @@ func (s *FileStateStore) ListInstances() ([]*EnvironmentInstance, error) {
 
 	var result []*EnvironmentInstance
 	for i := range state.Instances {
+		if filter != nil && filter.Type != nil && state.Instances[i].Type != *filter.Type {
+			continue
+		}
 		result = append(result, &state.Instances[i])
 	}
 

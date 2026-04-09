@@ -9,7 +9,7 @@ import (
 )
 
 // MigrateFromConfig reads the config file at configPath, converts any
-// Session entries to EnvironmentRecord values with type K8sDeploy, saves
+// Session entries to EnvironmentInstance values with type K8sDeploy, saves
 // them to the state store, and removes the sessions from the config file.
 //
 // This function is idempotent: if the config file does not exist or has
@@ -29,9 +29,9 @@ func MigrateFromConfig(configPath string, store *FileStateStore) error {
 		return fmt.Errorf("loading state for migration: %w", err)
 	}
 
-	existingNames := make(map[string]bool, len(state.Environments))
-	for _, env := range state.Environments {
-		existingNames[env.Name] = true
+	existingNames := make(map[string]bool, len(state.Instances))
+	for _, inst := range state.Instances {
+		existingNames[inst.Name] = true
 	}
 
 	for _, sess := range cfg.Sessions {
@@ -39,8 +39,8 @@ func MigrateFromConfig(configPath string, store *FileStateStore) error {
 			continue
 		}
 
-		rec := sessionToRecord(sess)
-		state.Environments = append(state.Environments, rec)
+		inst := sessionToInstance(sess)
+		state.Instances = append(state.Instances, inst)
 		existingNames[sess.Name] = true
 	}
 
@@ -57,9 +57,9 @@ func MigrateFromConfig(configPath string, store *FileStateStore) error {
 	return nil
 }
 
-// sessionToRecord converts a legacy config.Session to an EnvironmentRecord.
-func sessionToRecord(sess config.Session) EnvironmentRecord {
-	rec := EnvironmentRecord{
+// sessionToInstance converts a legacy config.Session to an EnvironmentInstance.
+func sessionToInstance(sess config.Session) EnvironmentInstance {
+	inst := EnvironmentInstance{
 		Name:  sess.Name,
 		Type:  EnvironmentTypeK8sDeploy,
 		State: mapSessionStatus(sess.Status),
@@ -68,18 +68,18 @@ func sessionToRecord(sess config.Session) EnvironmentRecord {
 	// Parse created_at timestamp.
 	if sess.CreatedAt != "" {
 		if t, err := time.Parse(time.RFC3339, sess.CreatedAt); err == nil {
-			rec.CreatedAt = t
+			inst.CreatedAt = t
 		}
 	}
 
 	// Populate K8s fields.
-	rec.K8s = &K8sFields{
+	inst.K8s = &K8sFields{
 		Namespace:   sess.Namespace,
 		Profile:     sess.Profile,
 		StatefulSet: deriveStatefulSet(sess.PodName),
 	}
 
-	return rec
+	return inst
 }
 
 // mapSessionStatus converts a legacy session status string to an EnvironmentState.
