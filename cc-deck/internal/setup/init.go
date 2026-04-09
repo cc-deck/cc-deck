@@ -25,7 +25,7 @@ k8s/
 `
 
 // sshRoles lists the Ansible role names created during SSH scaffolding.
-var sshRoles = []string{"base", "tools", "zellij", "claude", "cc_deck", "shell_config", "mcp"}
+var sshRoles = []string{"base", "tools", "zellij", "claude", "cc_deck", "plugins", "shell_config", "mcp"}
 
 // InitSetupDir scaffolds a new setup directory.
 // Commands are placed at projectRoot/.claude/commands/ so Claude Code
@@ -295,6 +295,7 @@ func scaffoldSSHRoles(dir string) error {
     - zellij
     - claude
     - cc_deck
+    - plugins
     - shell_config
     - mcp
 `

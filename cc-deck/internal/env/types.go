@@ -103,24 +103,8 @@ type SandboxFields struct {
 	ExpiresAt  *time.Time `yaml:"expires_at,omitempty"`
 }
 
-// EnvironmentRecord is the persistent representation of an environment
-// stored in the state file.
-type EnvironmentRecord struct {
-	Name         string            `yaml:"name"`
-	Type         EnvironmentType   `yaml:"type"`
-	State        EnvironmentState  `yaml:"state"`
-	CreatedAt    time.Time         `yaml:"created_at"`
-	LastAttached *time.Time        `yaml:"last_attached,omitempty"`
-	Storage      *StorageConfig    `yaml:"storage,omitempty"`
-	Sync         *SyncConfig       `yaml:"sync,omitempty"`
-	Container    *ContainerFields   `yaml:"container,omitempty"`
-	K8s          *K8sFields        `yaml:"k8s,omitempty"`
-	Sandbox      *SandboxFields    `yaml:"sandbox,omitempty"`
-}
-
-// EnvironmentInstance is the slim runtime state for a v2 state file.
-// It holds only runtime-relevant fields; definition details live in the
-// DefinitionStore.
+// EnvironmentInstance is the runtime state for an environment.
+// Definition details (storage, sync) live in the DefinitionStore.
 type EnvironmentInstance struct {
 	Name         string            `yaml:"name"`
 	Type         EnvironmentType   `yaml:"type"`
@@ -153,11 +137,8 @@ type ProjectStatusFile struct {
 }
 
 // StateFile is the top-level structure of the environment state file.
-// Version 1 files use Environments ([]EnvironmentRecord).
-// Version 2 files use Instances ([]EnvironmentInstance).
 type StateFile struct {
-	Version      int                   `yaml:"version"`
-	Environments []EnvironmentRecord   `yaml:"environments,omitempty"`
-	Instances    []EnvironmentInstance  `yaml:"instances,omitempty"`
-	Projects     []ProjectEntry        `yaml:"projects,omitempty"`
+	Version   int                   `yaml:"version"`
+	Instances []EnvironmentInstance `yaml:"instances,omitempty"`
+	Projects  []ProjectEntry       `yaml:"projects,omitempty"`
 }

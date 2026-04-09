@@ -87,6 +87,13 @@ func Install(opts InstallOptions) error {
 		fmt.Fprintf(opts.Stderr, "Warning: Could not update config.kdl: %v\n", err)
 	}
 
+	// 4c. Pre-populate permissions.kdl so the background plugin can load
+	// without showing a permission dialog (which cannot be displayed for
+	// background plugins). See https://github.com/zellij-org/zellij/issues/4982
+	if err := EnsurePluginPermissions(zInfo.CacheDir, zInfo.PluginsDir); err != nil {
+		fmt.Fprintf(opts.Stderr, "Warning: Could not pre-populate permissions.kdl: %v\n", err)
+	}
+
 	// 5. Write all layout variants (with diff check for existing files)
 	defaultVariant := LayoutVariant(opts.Layout)
 	if defaultVariant == "" {

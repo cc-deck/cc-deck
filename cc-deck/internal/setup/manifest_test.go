@@ -242,6 +242,37 @@ func TestManifest_Validate(t *testing.T) {
 				MCP:         []MCPEntry{{Name: "mcp-test", Image: "test:latest"}},
 			},
 		},
+		{
+			name: "valid tool_configs",
+			m: &Manifest{
+				Version: 2,
+				Settings: &SettingsConfig{
+					ToolConfigs: []ToolConfig{
+						{Tool: "starship", Source: "./starship.toml", Target: "starship.toml"},
+					},
+				},
+			},
+		},
+		{
+			name: "tool_configs missing tool",
+			m: &Manifest{
+				Version: 2,
+				Settings: &SettingsConfig{
+					ToolConfigs: []ToolConfig{{Source: "./config.toml"}},
+				},
+			},
+			wantErr: "settings.tool_configs[0].tool is required",
+		},
+		{
+			name: "tool_configs missing source",
+			m: &Manifest{
+				Version: 2,
+				Settings: &SettingsConfig{
+					ToolConfigs: []ToolConfig{{Tool: "helix"}},
+				},
+			},
+			wantErr: "settings.tool_configs[0].source is required",
+		},
 	}
 
 	for _, tt := range tests {

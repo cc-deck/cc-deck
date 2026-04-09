@@ -584,7 +584,7 @@ func (e *ComposeEnvironment) Harvest(_ context.Context, _ HarvestOpts) error {
 // ReconcileComposeEnvs updates the state of all compose environment
 // instances by inspecting their actual container state via podman.
 func ReconcileComposeEnvs(store *FileStateStore) error {
-	instances, err := store.ListInstances()
+	instances, err := store.ListInstances(nil)
 	if err != nil {
 		return err
 	}
