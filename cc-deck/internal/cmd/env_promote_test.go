@@ -53,7 +53,7 @@ func buildRootCmd() *cobra.Command {
 		NewPluginCmd(gf),
 		NewProfileCmd(gf),
 		NewDomainsCmd(gf),
-		NewImageCmd(gf),
+		NewSetupCmd(gf),
 	)
 
 	// Utility commands (ungrouped).

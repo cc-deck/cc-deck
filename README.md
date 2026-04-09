@@ -27,9 +27,15 @@ cc-deck solves this with a real-time sidebar that shows all your sessions and in
 
 The sidebar plugin tracks every Claude Code session across tabs. It shows activity status, handles permission requests, and provides keyboard-driven navigation. Smart attend automatically cycles through sessions that need your attention, prioritizing permission requests over completed tasks over idle sessions.
 
-### Custom Container Images
+### Unified Setup Command
 
-An AI-driven build pipeline analyzes your local environment for tool dependencies, lets you configure shell, Zellij, and Claude Code settings, and generates optimized container images. Four Claude Code commands handle the workflow: extract, settings, build, push.
+The `cc-deck setup` command provides a single workflow for replicating your developer environment to both container images and remote SSH machines. A shared manifest captures your local tools, shell configuration, Claude Code plugins, and MCP servers. Two Claude Code slash commands handle the workflow:
+
+- **`/cc-deck.capture`** discovers your local setup and writes it into the manifest
+- **`/cc-deck.build --target container`** generates a Containerfile and builds an optimized image
+- **`/cc-deck.build --target ssh`** generates Ansible playbooks and provisions a remote machine
+
+Capture once, then build for either target (or both) from the same manifest. SSH provisioning uses Ansible roles that can also be run standalone without Claude Code involvement after initial generation.
 
 ### Network Filtering
 
@@ -495,3 +501,4 @@ cc-deck follows [Spec-Driven Development](CONTRIBUTING.md#spec-driven-developmen
 | [030](specs/030-single-instance-arch/) | Single Instance Architecture | Controller + sidebar plugin split for scalable multi-tab performance | Implemented |
 | [031](specs/031-single-binary-merge/) | Single Binary Merge | Merge controller + sidebar into one WASM binary with runtime mode selection | Implemented |
 | [033](specs/033-ssh-environment/) | SSH Remote Execution | Remote Zellij sessions over SSH with pre-flight bootstrap, credential forwarding, and file sync | In Progress |
+| [034](specs/034-unified-setup-command/) | Unified Setup Command | Single `cc-deck setup` command with shared manifest, Claude Code slash commands, and Ansible-based SSH provisioning | Planned |

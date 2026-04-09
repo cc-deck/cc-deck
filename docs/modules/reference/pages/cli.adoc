@@ -1,6 +1,6 @@
 = CLI Reference
 
-The `cc-deck` command-line tool manages the plugin, sessions, snapshots, and container images.
+The `cc-deck` command-line tool manages the plugin, sessions, snapshots, and environment setup.
 
 == Global Flags
 
@@ -48,7 +48,7 @@ Environment::
 `env` (full lifecycle management)
 
 Setup::
-`plugin`, `profile`, `domains`, `image`
+`plugin`, `profile`, `domains`, `setup`
 
 == Daily Commands
 
@@ -250,20 +250,25 @@ Delete a snapshot.
 cc-deck snapshot remove my-checkpoint
 ----
 
-=== image
+=== setup
 
-Container image lifecycle commands.
+Unified setup lifecycle commands for provisioning container images and SSH hosts from a declarative manifest.
+The `--target` flag selects which provisioning targets to operate on.
+Valid targets are `container`, `ssh`, or both as `container,ssh`.
 
-==== image init
+==== setup init
 
-Scaffold a build directory with manifest and AI commands.
-When no directory is specified and the project has `.cc-deck/`, defaults to `.cc-deck/image/`.
+Scaffold a setup directory with manifest and AI commands.
+When no directory is specified and the project has `.cc-deck/`, defaults to `.cc-deck/setup/`.
 
 [source,bash]
 ----
-cc-deck image init my-team-image
-cc-deck image init                    # defaults to .cc-deck/image/
-cc-deck image init my-team-image --force
+cc-deck setup init my-team-setup
+cc-deck setup init                    # defaults to .cc-deck/setup/
+cc-deck setup init my-team-setup --force
+cc-deck setup init --target container
+cc-deck setup init --target ssh
+cc-deck setup init --target container,ssh
 ----
 
 [cols="1,3"]
@@ -271,31 +276,54 @@ cc-deck image init my-team-image --force
 | Flag | Description
 
 | `--force`, `-f`
-| Overwrite existing build directory
+| Overwrite existing setup directory
+
+| `--target`
+| Provisioning targets to generate: `container`, `ssh`, or `container,ssh` (default: `container`)
 |===
 
-==== image verify
+==== setup verify
 
-Smoke-test a built container image.
-
-[source,bash]
-----
-cc-deck image verify my-team-image
-----
-
-Starts a container, checks tool availability, Claude Code startup, and cc-deck version.
+Smoke-test a provisioned target.
+For container targets, starts a container and checks tool availability, Claude Code startup, and cc-deck version.
+For SSH targets, connects to the remote host and validates installed tools.
 Reports pass/fail for each check.
 
-==== image diff
+[source,bash]
+----
+cc-deck setup verify my-team-setup --target container
+cc-deck setup verify my-team-setup --target ssh
+----
 
-Compare manifest against generated Containerfile.
+[cols="1,3"]
+|===
+| Flag | Description
+
+| `--target`
+| Target to verify: `container` or `ssh` (required)
+|===
+
+==== setup diff
+
+Show manifest drift between the declared setup and the generated artifacts.
+When `--target` is omitted, auto-detects available targets in the setup directory.
 
 [source,bash]
 ----
-cc-deck image diff my-team-image
+cc-deck setup diff my-team-setup
+cc-deck setup diff my-team-setup --target container
+cc-deck setup diff my-team-setup --target ssh
 ----
 
-Reports tools, plugins, MCP servers, and GitHub tools that are in the manifest but not reflected in the Containerfile.
+[cols="1,3"]
+|===
+| Flag | Description
+
+| `--target`
+| Target to diff: `container` or `ssh` (auto-detected if omitted)
+|===
+
+Reports tools, plugins, MCP servers, and other components that are in the manifest but not reflected in the generated provisioning artifacts.
 
 === profile
 

@@ -1,14 +1,24 @@
 ---
-description: Discover tools and settings from your local environment for the container image
+description: Discover tools and settings from your local environment for the setup manifest
 ---
 
 ## User Input
 
 $ARGUMENTS
 
+## Setup directory
+
+All setup artifacts live in `.cc-deck/setup/` relative to the project root (the git root or the directory containing `.cc-deck/`). Resolve the setup directory first:
+
+1. Find the project root (look for `.cc-deck/` directory or git root, walking up from the current working directory)
+2. The setup directory is `<project-root>/.cc-deck/setup/`
+3. The manifest is at `<setup-dir>/cc-deck-setup.yaml`
+
+All file references in this command (manifest, config files, build directory) are relative to the setup directory unless stated otherwise.
+
 ## Outline
 
-Scan local repositories and host configuration, then update the `cc-deck-image.yaml` manifest with everything needed to build a container image that mirrors your development setup.
+Scan local repositories and host configuration, then update `<setup-dir>/cc-deck-setup.yaml` with everything needed to set up a Claude Code environment (container image or SSH remote).
 
 The command runs through sections in order. Each section presents findings and lets the user accept, edit, or skip.
 
@@ -88,6 +98,61 @@ Network domain groups detected:
 ```
 
 Ask: "Should I add these domain groups to the manifest's network.allowed_domains?"
+
+### Step 1.6: Detect tool configuration files
+
+For each tool accepted in Step 1.4 (and any tools already in the manifest), check whether a corresponding config file exists locally under `~/.config/`.
+
+**Skip list**: `zellij` (handled separately in Section B), `git` (global gitconfig is not XDG by default).
+
+**Name aliases** (tool binary name differs from config directory):
+
+| Binary name | Config directory name |
+|---|---|
+| `hx` | `helix` |
+| `btm` | `bottom` |
+
+For all other tools, the config directory name matches the tool name.
+
+**Discovery procedure** for each tool (using the resolved config name):
+
+1. Check `~/.config/<name>.toml` (top-level file, e.g., `starship.toml`)
+2. Check `~/.config/<name>/config.*` (any extension: `.toml`, `.yaml`, `.yml`, `.json`, `.kdl`, `.ron`, no extension)
+3. Check `~/.config/<name>/<name>.*` (self-named config, e.g., `yazi/yazi.toml`, `alacritty/alacritty.toml`)
+4. Check `~/.config/<name>/` for any config-like files (`*.toml`, `*.yaml`, `*.yml`, `*.json`, `*.ron`, `*.kdl`)
+
+Stop at the first match. If multiple files are found in step 4, prefer `config.*` over others, then pick the largest file. Record the full path of the discovered config file.
+
+**Present** the findings:
+
+```
+Tool configuration files detected:
+  [x] starship  ~/.config/starship.toml (42 lines)
+  [x] helix     ~/.config/helix/config.toml (78 lines)
+  [x] k9s       ~/.config/k9s/config.yaml (15 lines)
+  [ ] ripgrep   (no config found)
+
+Include selected tool configs? [y/edit/skip]
+```
+
+Pre-select all tools that have a config file. Let the user toggle selections.
+
+**Action**: For each accepted tool config:
+1. Copy the config file to the setup directory with a descriptive name (e.g., `starship.toml`, `helix-config.toml`)
+2. Add an entry to `settings.tool_configs` in the manifest, always including `target` with the path relative to `~/.config/` on the target machine:
+
+```yaml
+settings:
+  tool_configs:
+    - tool: starship
+      source: ./starship.toml
+      target: starship.toml
+    - tool: helix
+      source: ./helix-config.toml
+      target: helix/config.toml
+```
+
+The `source` field is relative to the setup directory. The `target` field is relative to `~/.config/` and tells the build command exactly where to place the file.
 
 ---
 
@@ -272,23 +337,29 @@ For `settings.json`, extract only portable preferences (model, theme, permission
 
 ### Section D: Claude Code Plugins
 
-**Scan**: Discover installed plugins by reading:
-- `~/.claude/settings.json` (look for `plugins` or `pluginDirs` entries)
-- `~/.claude/plugins/` directory
-- Claude Code plugin cache locations
+**Scan**: Discover installed plugins and their marketplace sources:
+1. Run `claude plugins list` to get all installed plugins
+2. Run `claude plugins marketplace list` to get all registered marketplaces
+3. Read `~/.claude/settings.json` for `enabledPlugins` entries (format: `pluginName@marketplaceName`)
+
+For each installed plugin, determine the marketplace source type:
+- **Official marketplace** (`anthropics/claude-code` or `anthropics/claude-plugins-official`): record `source: marketplace`
+- **GitHub-based marketplace** (custom GitHub repo): record `source: "github:<owner>/<repo>"` and `marketplace: <marketplace-name>`
+- **Directory-based marketplace** (local development path): record `source: directory`
 
 **Present**:
 ```
 Claude Code Plugins:
-  [x] sdd (marketplace)
-  [x] cc-rosa (marketplace)
-  [ ] prose (marketplace)
-  [x] copyedit (git:https://github.com/org/copyedit.git)
+  [x] sdd (marketplace, official)
+  [x] cc-rosa (github:cc-deck/cc-rosa-rhoai, marketplace: cc-rosa-dev-marketplace)
+  [ ] prose (directory, local dev - cannot install remotely)
+  [x] copyedit (github:org/cc-copyedit, marketplace: cc-rhuss-marketplace)
 
   Toggle with numbers, 'a' for all, 'n' for none, Enter to confirm:
+  Note: directory-based plugins cannot be installed on remote targets.
 ```
 
-Show all discovered plugins with checkboxes. Pre-select all that are currently active.
+Show all discovered plugins with checkboxes. Pre-select all that are currently active. Mark directory-based plugins with a note that they will be skipped on remote targets.
 
 **Action**: Update the manifest plugins section:
 ```yaml
@@ -296,12 +367,14 @@ plugins:
   - name: sdd
     source: marketplace
   - name: cc-rosa
-    source: marketplace
+    source: "github:cc-deck/cc-rosa-rhoai"
+    marketplace: cc-rosa-dev-marketplace
   - name: copyedit
-    source: "git:https://github.com/org/copyedit.git"
+    source: "github:org/cc-copyedit"
+    marketplace: cc-rhuss-marketplace
 ```
 
-For marketplace plugins, also check if there are cached plugin directories that should be copied. Copy the plugin's marketplace metadata so `cc-deck plugin install` can restore them inside the container.
+Directory-based plugins are included in the manifest with `source: directory` so the user sees them, but the build command will skip them with a warning.
 
 ---
 

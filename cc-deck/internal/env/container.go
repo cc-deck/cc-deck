@@ -504,7 +504,7 @@ func baseNameFromPath(path string) string {
 // ReconcileContainerEnvs updates the state of all container environment
 // instances by inspecting their actual container state via podman.
 func ReconcileContainerEnvs(store *FileStateStore, defs *DefinitionStore) error {
-	instances, err := store.ListInstances()
+	instances, err := store.ListInstances(nil)
 	if err != nil {
 		return err
 	}
