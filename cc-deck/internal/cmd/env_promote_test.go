@@ -174,7 +174,7 @@ func TestHelpOutput_ContainsGroups(t *testing.T) {
 	assert.Contains(t, help, "env")
 
 	// Verify setup commands appear.
-	setupCmds := []string{"plugin", "profile", "domains", "image"}
+	setupCmds := []string{"plugin", "profile", "domains", "setup"}
 	for _, c := range setupCmds {
 		assert.Contains(t, help, c, "missing setup command %q in help output", c)
 	}
@@ -203,7 +203,7 @@ func TestHelpOutput_CommandPlacement(t *testing.T) {
 		{"plugin", "setup"},
 		{"profile", "setup"},
 		{"domains", "setup"},
-		{"image", "setup"},
+		{"setup", "setup"},
 		{"hook", ""},
 		{"version", ""},
 	}
