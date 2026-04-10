@@ -10,7 +10,7 @@
 #   make test           Run all tests
 #   make dev            Start Zellij with cc-deck layout for development
 
-VERSION    ?= 0.9.0
+VERSION    ?= 0.9.1-dev
 REGISTRY   ?= quay.io/cc-deck
 WASM_TARGET = wasm32-wasip1
 WASM_SRC    = cc-zellij-plugin/target/$(WASM_TARGET)/release/cc_deck.wasm
@@ -20,7 +20,13 @@ CLI_BIN     = cc-deck/cc-deck
 
 BASE_IMAGE  = $(REGISTRY)/cc-deck-base
 
-CLI_LDFLAGS = -X github.com/cc-deck/cc-deck/internal/cmd.Version=$(VERSION) \
+GIT_COMMIT  = $(shell git rev-parse --short=8 HEAD 2>/dev/null || echo "unknown")
+GIT_DIRTY   = $(shell git diff --quiet 2>/dev/null && echo "" || echo "-dirty")
+BUILD_DATE  = $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+
+CLI_LDFLAGS = -X github.com/cc-deck/cc-deck/internal/cmd.Version=$(VERSION)+$(GIT_COMMIT)$(GIT_DIRTY) \
+              -X github.com/cc-deck/cc-deck/internal/cmd.Commit=$(GIT_COMMIT)$(GIT_DIRTY) \
+              -X github.com/cc-deck/cc-deck/internal/cmd.Date=$(BUILD_DATE) \
               -X github.com/cc-deck/cc-deck/internal/cmd.ImageRegistry=$(REGISTRY)
 
 .PHONY: build build-wasm build-wasm-debug copy-wasm build-cli cross-cli \
