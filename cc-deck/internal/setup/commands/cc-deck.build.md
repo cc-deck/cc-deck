@@ -444,6 +444,7 @@ Generate task content for each role from the manifest data. Each role is idempot
   ```
 
 **shell_config role** (`roles/shell_config/tasks/main.yml`):
+- Ensure `~/.local/bin` is on PATH by adding `export PATH="$HOME/.local/bin:$PATH"` to the shell RC file (required for `claude` which installs there)
 - Install curated shell RC from template (if `settings.shell_rc` is set)
 - Add credential sourcing snippet: `[ -f ~/.config/cc-deck/credentials.env ] && source ~/.config/cc-deck/credentials.env`
 - Install starship config if present
