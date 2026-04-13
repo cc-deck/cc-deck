@@ -34,8 +34,9 @@ The `cc-deck setup` command provides a single workflow for replicating your deve
 - **`/cc-deck.capture`** discovers your local setup and writes it into the manifest
 - **`/cc-deck.build --target container`** generates a Containerfile and builds an optimized image
 - **`/cc-deck.build --target ssh`** generates Ansible playbooks and provisions a remote machine
+- **`cc-deck setup run`** executes the generated artifacts directly (container build or Ansible playbook)
 
-Capture once, then build for either target (or both) from the same manifest. SSH provisioning uses Ansible roles that can also be run standalone without Claude Code involvement after initial generation.
+Capture once, then build for either target (or both) from the same manifest. After generating artifacts, run `cc-deck setup run` to execute them without Claude Code involvement. Use `--push` to also push container images to a registry.
 
 ### Network Filtering
 
@@ -502,3 +503,4 @@ cc-deck follows [Spec-Driven Development](CONTRIBUTING.md#spec-driven-developmen
 | [031](specs/031-single-binary-merge/) | Single Binary Merge | Merge controller + sidebar into one WASM binary with runtime mode selection | Implemented |
 | [033](specs/033-ssh-environment/) | SSH Remote Execution | Remote Zellij sessions over SSH with pre-flight bootstrap, credential forwarding, and file sync | In Progress |
 | [034](specs/034-unified-setup-command/) | Unified Setup Command | Single `cc-deck setup` command with shared manifest, Claude Code slash commands, and Ansible-based SSH provisioning | Planned |
+| [036](specs/036-setup-run-command/) | Setup Run Command | `cc-deck setup run` executes pre-generated build artifacts (container build or Ansible playbook) directly from the CLI | Implemented |
