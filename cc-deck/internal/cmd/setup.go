@@ -26,6 +26,7 @@ func NewSetupCmd(flags *GlobalFlags) *cobra.Command {
 	}
 
 	cmd.AddCommand(newSetupInitCmd(flags))
+	cmd.AddCommand(newSetupRunCmd(flags))
 	cmd.AddCommand(newSetupVerifyCmd(flags))
 	cmd.AddCommand(newSetupDiffCmd(flags))
 
@@ -88,6 +89,171 @@ After initialization, start Claude Code from the project directory and use:
 	cmd.Flags().StringVar(&target, "target", "", "Comma-separated targets: container, ssh, or container,ssh")
 
 	return cmd
+}
+
+func newSetupRunCmd(_ *GlobalFlags) *cobra.Command {
+	var target string
+	var push bool
+
+	cmd := &cobra.Command{
+		Use:   "run [dir]",
+		Short: "Execute build artifacts",
+		Long: `Execute pre-generated build artifacts (Containerfile or Ansible playbooks)
+directly from the CLI, without Claude Code involvement.
+
+Target type is auto-detected from artifacts present in the setup directory:
+  Containerfile only         → container build via podman/docker
+  site.yml + inventory.ini   → SSH provisioning via ansible-playbook
+  Both present               → use --target to select one
+
+Use --push to push the container image after a successful build.`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			dir := resolveSetupDir(args)
+
+			detected, err := detectRunTarget(dir, target)
+			if err != nil {
+				return err
+			}
+
+			if err := validateRunFlags(detected, push); err != nil {
+				return err
+			}
+
+			switch detected {
+			case "container":
+				return runContainerBuild(dir, push)
+			case "ssh":
+				return runSSHProvision(dir)
+			default:
+				return fmt.Errorf("invalid target %q: must be container or ssh", detected)
+			}
+		},
+	}
+
+	cmd.Flags().StringVar(&target, "target", "", "Force target type: container or ssh")
+	cmd.Flags().BoolVar(&push, "push", false, "Push image after build (container only)")
+
+	return cmd
+}
+
+// detectRunTarget determines the run target from artifacts or explicit flag.
+func detectRunTarget(dir string, explicit string) (string, error) {
+	if explicit != "" {
+		if explicit != "container" && explicit != "ssh" {
+			return "", fmt.Errorf("invalid target %q: must be container or ssh", explicit)
+		}
+		return explicit, nil
+	}
+
+	hasContainerfile := fileExists(filepath.Join(dir, "Containerfile"))
+	hasSSH := fileExists(filepath.Join(dir, "site.yml")) && fileExists(filepath.Join(dir, "inventory.ini"))
+
+	switch {
+	case hasContainerfile && hasSSH:
+		return "", fmt.Errorf("both container and SSH artifacts found; use --target to select one")
+	case hasContainerfile:
+		return "container", nil
+	case hasSSH:
+		return "ssh", nil
+	default:
+		return "", fmt.Errorf("no build artifacts found in %s; run /cc-deck.build to generate them", dir)
+	}
+}
+
+// validateRunFlags checks flag compatibility with the detected target.
+func validateRunFlags(target string, push bool) error {
+	if push && target != "container" {
+		return fmt.Errorf("--push is only valid for container targets")
+	}
+	return nil
+}
+
+func runContainerBuild(dir string, push bool) error {
+	manifestPath := filepath.Join(dir, "cc-deck-setup.yaml")
+	m, err := setup.LoadManifest(manifestPath)
+	if err != nil {
+		return err
+	}
+
+	runtime, err := setup.DetectRuntime()
+	if err != nil {
+		return err
+	}
+
+	imageRef := m.ImageRef()
+	if imageRef == "" {
+		return fmt.Errorf("no container target configured in manifest")
+	}
+
+	fmt.Printf("Building image: %s\n", imageRef)
+
+	buildCmd := exec.Command(runtime, "build", "-t", imageRef, "-f", "Containerfile", ".")
+	buildCmd.Dir = dir
+	buildCmd.Stdout = os.Stdout
+	buildCmd.Stderr = os.Stderr
+	buildCmd.Stdin = os.Stdin
+
+	if err := buildCmd.Run(); err != nil {
+		return exitError(err)
+	}
+
+	if push {
+		ct := m.Targets.Container
+		if ct.Registry == "" {
+			return fmt.Errorf("targets.container.registry not set in manifest")
+		}
+		pushRef := strings.TrimRight(ct.Registry, "/") + "/" + imageRef
+		fmt.Printf("Pushing image: %s\n", pushRef)
+
+		tagCmd := exec.Command(runtime, "tag", imageRef, pushRef)
+		tagCmd.Stdout = os.Stdout
+		tagCmd.Stderr = os.Stderr
+		if err := tagCmd.Run(); err != nil {
+			return exitError(err)
+		}
+
+		pushCmd := exec.Command(runtime, "push", pushRef)
+		pushCmd.Stdout = os.Stdout
+		pushCmd.Stderr = os.Stderr
+
+		if err := pushCmd.Run(); err != nil {
+			return exitError(err)
+		}
+	}
+
+	return nil
+}
+
+func runSSHProvision(dir string) error {
+	ansiblePath, err := exec.LookPath("ansible-playbook")
+	if err != nil {
+		return fmt.Errorf("ansible-playbook not found in PATH; install with: pip install ansible")
+	}
+
+	fmt.Println("Running Ansible playbook")
+
+	cmd := exec.Command(ansiblePath, "-i", "inventory.ini", "site.yml")
+	cmd.Dir = dir
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+
+	if err := cmd.Run(); err != nil {
+		return exitError(err)
+	}
+
+	return nil
+}
+
+// exitError extracts the exit code from an exec error and returns it as an
+// exec.ExitError so the CLI framework can pass it through.
+func exitError(err error) error {
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr
+	}
+	return err
 }
 
 func newSetupVerifyCmd(_ *GlobalFlags) *cobra.Command {
