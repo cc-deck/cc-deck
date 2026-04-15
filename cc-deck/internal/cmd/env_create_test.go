@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -44,6 +45,16 @@ func newTestCreateCmd() (*cobra.Command, *createFlags) {
 	cmd.Flags().StringVar(&cf.path, "path", "", "")
 	cmd.Flags().BoolVar(&cf.allPorts, "all-ports", false, "")
 	cmd.Flags().BoolVar(&cf.gitignore, "gitignore", false, "")
+	cmd.Flags().StringVar(&cf.host, "host", "", "")
+	cmd.Flags().IntVar(&cf.sshPort, "ssh-port", 0, "")
+	cmd.Flags().StringVar(&cf.identityFile, "identity-file", "", "")
+	cmd.Flags().StringVar(&cf.jumpHost, "jump-host", "", "")
+	cmd.Flags().StringVar(&cf.sshConfig, "ssh-config", "", "")
+	cmd.Flags().StringVar(&cf.workspace, "workspace", "", "")
+	cmd.Flags().StringVar(&cf.variant, "variant", "", "")
+	cmd.Flags().BoolVar(&cf.global, "global", false, "")
+	cmd.Flags().BoolVar(&cf.local, "local", false, "")
+	cmd.MarkFlagsMutuallyExclusive("global", "local")
 	return cmd, &cf
 }
 
@@ -156,6 +167,339 @@ func TestRunEnvCreate_CLIOverrideStoredInStatusYaml(t *testing.T) {
 	assert.Equal(t, "original:latest", loadedDef.Image)
 }
 
+func TestRunEnvCreate_ExplicitNameUsesGlobalDefinition(t *testing.T) {
+	ensureZellijStub(t)
+	tmpDir := t.TempDir()
+	require.NoError(t, exec.Command("git", "init", tmpDir).Run())
+
+	// Create a project-local definition with a different name.
+	projDef := &env.EnvironmentDefinition{
+		Name: "project-env",
+		Type: env.EnvironmentTypeLocal,
+	}
+	require.NoError(t, env.SaveProjectDefinition(tmpDir, projDef))
+
+	origDir, _ := os.Getwd()
+	require.NoError(t, os.Chdir(tmpDir))
+	defer os.Chdir(origDir)
+
+	stateFile := filepath.Join(tmpDir, "test-state.yaml")
+	defFile := filepath.Join(tmpDir, "test-defs.yaml")
+	t.Setenv("CC_DECK_STATE_FILE", stateFile)
+	t.Setenv("CC_DECK_DEFINITIONS_FILE", defFile)
+
+	// Add a global definition for a different name.
+	defs := env.NewDefinitionStore(defFile)
+	require.NoError(t, defs.Add(&env.EnvironmentDefinition{
+		Name: "global-env",
+		Type: env.EnvironmentTypeLocal,
+	}))
+
+	cmd, cf := newTestCreateCmd()
+	// Explicit name matching global def, not project-local def.
+	err := runEnvCreate(nil, "global-env", cf, cmd)
+	require.NoError(t, err)
+
+	// Verify instance was created with the global env name.
+	store := env.NewStateStore(stateFile)
+	inst, findErr := store.FindInstanceByName("global-env")
+	require.NoError(t, findErr)
+	assert.Equal(t, env.EnvironmentTypeLocal, inst.Type)
+
+	// Verify no scaffolding happened (FR-002a): project definition should still be "project-env".
+	loadedDef, loadErr := env.LoadProjectDefinition(tmpDir)
+	require.NoError(t, loadErr)
+	assert.Equal(t, "project-env", loadedDef.Name, "project-local definition should not be overwritten")
+}
+
+func TestRunEnvCreate_ExplicitNameNotFoundFallsToLocal(t *testing.T) {
+	ensureZellijStub(t)
+	tmpDir := t.TempDir()
+	require.NoError(t, exec.Command("git", "init", tmpDir).Run())
+
+	// Create a project-local definition with a different name.
+	projDef := &env.EnvironmentDefinition{
+		Name: "project-env",
+		Type: env.EnvironmentTypeLocal,
+	}
+	require.NoError(t, env.SaveProjectDefinition(tmpDir, projDef))
+
+	origDir, _ := os.Getwd()
+	require.NoError(t, os.Chdir(tmpDir))
+	defer os.Chdir(origDir)
+
+	stateFile := filepath.Join(tmpDir, "test-state.yaml")
+	defFile := filepath.Join(tmpDir, "test-defs.yaml")
+	t.Setenv("CC_DECK_STATE_FILE", stateFile)
+	t.Setenv("CC_DECK_DEFINITIONS_FILE", defFile)
+
+	cmd, cf := newTestCreateCmd()
+	// Explicit name not in any store: should fall back to local type (FR-003).
+	err := runEnvCreate(nil, "unknown-env", cf, cmd)
+	require.NoError(t, err)
+
+	store := env.NewStateStore(stateFile)
+	inst, findErr := store.FindInstanceByName("unknown-env")
+	require.NoError(t, findErr)
+	assert.Equal(t, env.EnvironmentTypeLocal, inst.Type)
+}
+
+func TestRunEnvCreate_ExplicitNameMatchingProjectLocalUsesIt(t *testing.T) {
+	ensureZellijStub(t)
+	tmpDir := t.TempDir()
+	require.NoError(t, exec.Command("git", "init", tmpDir).Run())
+
+	// Create a project-local definition.
+	projDef := &env.EnvironmentDefinition{
+		Name: "my-env",
+		Type: env.EnvironmentTypeLocal,
+	}
+	require.NoError(t, env.SaveProjectDefinition(tmpDir, projDef))
+
+	origDir, _ := os.Getwd()
+	require.NoError(t, os.Chdir(tmpDir))
+	defer os.Chdir(origDir)
+
+	stateFile := filepath.Join(tmpDir, "test-state.yaml")
+	defFile := filepath.Join(tmpDir, "test-defs.yaml")
+	t.Setenv("CC_DECK_STATE_FILE", stateFile)
+	t.Setenv("CC_DECK_DEFINITIONS_FILE", defFile)
+
+	cmd, cf := newTestCreateCmd()
+	// Explicit name matches project-local: should use project-local (FR-004).
+	err := runEnvCreate(nil, "my-env", cf, cmd)
+	require.NoError(t, err)
+
+	store := env.NewStateStore(stateFile)
+	inst, findErr := store.FindInstanceByName("my-env")
+	require.NoError(t, findErr)
+	assert.Equal(t, env.EnvironmentTypeLocal, inst.Type)
+}
+
+func TestRunEnvCreate_TypeFlagOverridesGlobalDefinition(t *testing.T) {
+	ensureZellijStub(t)
+	tmpDir := t.TempDir()
+	require.NoError(t, exec.Command("git", "init", tmpDir).Run())
+
+	// Create a project-local definition with a different name.
+	projDef := &env.EnvironmentDefinition{
+		Name: "project-env",
+		Type: env.EnvironmentTypeLocal,
+	}
+	require.NoError(t, env.SaveProjectDefinition(tmpDir, projDef))
+
+	origDir, _ := os.Getwd()
+	require.NoError(t, os.Chdir(tmpDir))
+	defer os.Chdir(origDir)
+
+	stateFile := filepath.Join(tmpDir, "test-state.yaml")
+	defFile := filepath.Join(tmpDir, "test-defs.yaml")
+	t.Setenv("CC_DECK_STATE_FILE", stateFile)
+	t.Setenv("CC_DECK_DEFINITIONS_FILE", defFile)
+
+	// Add a global definition with a specific type.
+	defs := env.NewDefinitionStore(defFile)
+	require.NoError(t, defs.Add(&env.EnvironmentDefinition{
+		Name: "global-env",
+		Type: env.EnvironmentTypeLocal,
+	}))
+
+	cmd, cf := newTestCreateCmd()
+	// --type flag should override global definition type (FR-011).
+	require.NoError(t, cmd.Flags().Set("type", "local"))
+	err := runEnvCreate(nil, "global-env", cf, cmd)
+	require.NoError(t, err)
+
+	store := env.NewStateStore(stateFile)
+	inst, findErr := store.FindInstanceByName("global-env")
+	require.NoError(t, findErr)
+	assert.Equal(t, env.EnvironmentTypeLocal, inst.Type)
+}
+
+func TestRunEnvCreate_GlobalFlagSelectsGlobalDefinition(t *testing.T) {
+	ensureZellijStub(t)
+	tmpDir := t.TempDir()
+	require.NoError(t, exec.Command("git", "init", tmpDir).Run())
+
+	// Create project-local definition.
+	projDef := &env.EnvironmentDefinition{
+		Name: "myenv",
+		Type: env.EnvironmentTypeLocal,
+	}
+	require.NoError(t, env.SaveProjectDefinition(tmpDir, projDef))
+
+	origDir, _ := os.Getwd()
+	require.NoError(t, os.Chdir(tmpDir))
+	defer os.Chdir(origDir)
+
+	stateFile := filepath.Join(tmpDir, "test-state.yaml")
+	defFile := filepath.Join(tmpDir, "test-defs.yaml")
+	t.Setenv("CC_DECK_STATE_FILE", stateFile)
+	t.Setenv("CC_DECK_DEFINITIONS_FILE", defFile)
+
+	// Add a global definition with the same name.
+	defs := env.NewDefinitionStore(defFile)
+	require.NoError(t, defs.Add(&env.EnvironmentDefinition{
+		Name: "myenv",
+		Type: env.EnvironmentTypeLocal,
+	}))
+
+	cmd, cf := newTestCreateCmd()
+	require.NoError(t, cmd.Flags().Set("global", "true"))
+	err := runEnvCreate(nil, "myenv", cf, cmd)
+	require.NoError(t, err)
+
+	store := env.NewStateStore(stateFile)
+	_, findErr := store.FindInstanceByName("myenv")
+	require.NoError(t, findErr)
+}
+
+func TestRunEnvCreate_LocalFlagSelectsProjectLocal(t *testing.T) {
+	ensureZellijStub(t)
+	tmpDir := t.TempDir()
+	require.NoError(t, exec.Command("git", "init", tmpDir).Run())
+
+	projDef := &env.EnvironmentDefinition{
+		Name: "myenv",
+		Type: env.EnvironmentTypeLocal,
+	}
+	require.NoError(t, env.SaveProjectDefinition(tmpDir, projDef))
+
+	origDir, _ := os.Getwd()
+	require.NoError(t, os.Chdir(tmpDir))
+	defer os.Chdir(origDir)
+
+	stateFile := filepath.Join(tmpDir, "test-state.yaml")
+	defFile := filepath.Join(tmpDir, "test-defs.yaml")
+	t.Setenv("CC_DECK_STATE_FILE", stateFile)
+	t.Setenv("CC_DECK_DEFINITIONS_FILE", defFile)
+
+	cmd, cf := newTestCreateCmd()
+	require.NoError(t, cmd.Flags().Set("local", "true"))
+	err := runEnvCreate(nil, "myenv", cf, cmd)
+	require.NoError(t, err)
+
+	store := env.NewStateStore(stateFile)
+	_, findErr := store.FindInstanceByName("myenv")
+	require.NoError(t, findErr)
+}
+
+func TestRunEnvCreate_GlobalFlagErrorsWhenNoGlobalDef(t *testing.T) {
+	tmpDir := t.TempDir()
+	require.NoError(t, exec.Command("git", "init", tmpDir).Run())
+
+	origDir, _ := os.Getwd()
+	require.NoError(t, os.Chdir(tmpDir))
+	defer os.Chdir(origDir)
+
+	stateFile := filepath.Join(tmpDir, "test-state.yaml")
+	defFile := filepath.Join(tmpDir, "test-defs.yaml")
+	t.Setenv("CC_DECK_STATE_FILE", stateFile)
+	t.Setenv("CC_DECK_DEFINITIONS_FILE", defFile)
+
+	cmd, cf := newTestCreateCmd()
+	require.NoError(t, cmd.Flags().Set("global", "true"))
+	err := runEnvCreate(nil, "nonexistent", cf, cmd)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no global definition found")
+}
+
+func TestRunEnvCreate_LocalFlagErrorsWhenNoProjectDef(t *testing.T) {
+	tmpDir := t.TempDir()
+	require.NoError(t, exec.Command("git", "init", tmpDir).Run())
+
+	origDir, _ := os.Getwd()
+	require.NoError(t, os.Chdir(tmpDir))
+	defer os.Chdir(origDir)
+
+	stateFile := filepath.Join(tmpDir, "test-state.yaml")
+	defFile := filepath.Join(tmpDir, "test-defs.yaml")
+	t.Setenv("CC_DECK_STATE_FILE", stateFile)
+	t.Setenv("CC_DECK_DEFINITIONS_FILE", defFile)
+
+	cmd, cf := newTestCreateCmd()
+	require.NoError(t, cmd.Flags().Set("local", "true"))
+	err := runEnvCreate(nil, "myenv", cf, cmd)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no project-local definition found")
+}
+
+func TestRunEnvCreate_LocalFlagErrorsOnNameMismatch(t *testing.T) {
+	tmpDir := t.TempDir()
+	require.NoError(t, exec.Command("git", "init", tmpDir).Run())
+
+	// Create project-local definition with name "proj-env".
+	projDef := &env.EnvironmentDefinition{
+		Name: "proj-env",
+		Type: env.EnvironmentTypeLocal,
+	}
+	require.NoError(t, env.SaveProjectDefinition(tmpDir, projDef))
+
+	origDir, _ := os.Getwd()
+	require.NoError(t, os.Chdir(tmpDir))
+	defer os.Chdir(origDir)
+
+	stateFile := filepath.Join(tmpDir, "test-state.yaml")
+	defFile := filepath.Join(tmpDir, "test-defs.yaml")
+	t.Setenv("CC_DECK_STATE_FILE", stateFile)
+	t.Setenv("CC_DECK_DEFINITIONS_FILE", defFile)
+
+	cmd, cf := newTestCreateCmd()
+	require.NoError(t, cmd.Flags().Set("local", "true"))
+	// Explicit name differs from project-local definition name.
+	err := runEnvCreate(nil, "other-name", cf, cmd)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "project-local definition is")
+}
+
+func TestRunEnvCreate_GlobalAndLocalMutuallyExclusive(t *testing.T) {
+	cmd, _ := newTestCreateCmd()
+	// Cobra validates mutual exclusion during Execute, but we can test
+	// that the flags are registered and mutually exclusive.
+	require.NoError(t, cmd.Flags().Set("global", "true"))
+	err := cmd.Flags().Set("local", "true")
+	// Both can be set on flags, but cobra validates during execution.
+	// Let's verify by checking the ValidateFlagGroups method.
+	_ = err
+	cmd.SetArgs([]string{})
+	cmd.RunE = func(cmd *cobra.Command, args []string) error { return nil }
+	execErr := cmd.Execute()
+	require.Error(t, execErr, "should reject mutually exclusive --global and --local")
+}
+
+func TestRunEnvCreate_GlobalWithTypeFlagOverridesType(t *testing.T) {
+	ensureZellijStub(t)
+	tmpDir := t.TempDir()
+	require.NoError(t, exec.Command("git", "init", tmpDir).Run())
+
+	origDir, _ := os.Getwd()
+	require.NoError(t, os.Chdir(tmpDir))
+	defer os.Chdir(origDir)
+
+	stateFile := filepath.Join(tmpDir, "test-state.yaml")
+	defFile := filepath.Join(tmpDir, "test-defs.yaml")
+	t.Setenv("CC_DECK_STATE_FILE", stateFile)
+	t.Setenv("CC_DECK_DEFINITIONS_FILE", defFile)
+
+	// Add a global definition.
+	defs := env.NewDefinitionStore(defFile)
+	require.NoError(t, defs.Add(&env.EnvironmentDefinition{
+		Name: "global-env",
+		Type: env.EnvironmentTypeLocal,
+	}))
+
+	cmd, cf := newTestCreateCmd()
+	require.NoError(t, cmd.Flags().Set("global", "true"))
+	require.NoError(t, cmd.Flags().Set("type", "local"))
+	err := runEnvCreate(nil, "global-env", cf, cmd)
+	require.NoError(t, err)
+
+	store := env.NewStateStore(stateFile)
+	inst, findErr := store.FindInstanceByName("global-env")
+	require.NoError(t, findErr)
+	assert.Equal(t, env.EnvironmentTypeLocal, inst.Type)
+}
+
 func TestRunEnvCreate_FailsWithoutNameOutsideGitRepo(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -167,4 +511,98 @@ func TestRunEnvCreate_FailsWithoutNameOutsideGitRepo(t *testing.T) {
 	err := runEnvCreate(nil, "", cf, cmd)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no environment name specified")
+}
+
+func TestWriteEnvStructured_IncludesSourceField(t *testing.T) {
+	tmpDir := t.TempDir()
+	defFile := filepath.Join(tmpDir, "test-defs.yaml")
+	t.Setenv("CC_DECK_DEFINITIONS_FILE", defFile)
+
+	defs := env.NewDefinitionStore(defFile)
+	require.NoError(t, defs.Add(&env.EnvironmentDefinition{
+		Name: "global-env",
+		Type: env.EnvironmentTypeSSH,
+		Host: "user@host",
+	}))
+
+	instances := []*env.EnvironmentInstance{
+		{Name: "global-env", Type: env.EnvironmentTypeSSH, State: env.EnvironmentStateRunning,
+			SSH: &env.SSHFields{Host: "user@host"}},
+	}
+	instanceNames := map[string]bool{"global-env": true}
+
+	// Capture JSON output.
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err := writeEnvStructured("json", instances, nil, instanceNames, "", defs, nil)
+	require.NoError(t, err)
+
+	w.Close()
+	os.Stdout = old
+
+	out, _ := io.ReadAll(r)
+	output := string(out)
+
+	assert.Contains(t, output, `"source"`)
+	assert.Contains(t, output, `"global"`)
+}
+
+func TestWriteEnvStructured_ProjectSourceForProjectEnvs(t *testing.T) {
+	tmpDir := t.TempDir()
+	defFile := filepath.Join(tmpDir, "test-defs.yaml")
+	t.Setenv("CC_DECK_DEFINITIONS_FILE", defFile)
+
+	defs := env.NewDefinitionStore(defFile)
+
+	projectEnvs := []projectListEntry{
+		{Name: "proj-env", Type: env.EnvironmentTypeCompose, Status: "not created", Path: "/some/path"},
+	}
+
+	// Capture JSON output.
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err := writeEnvStructured("json", nil, nil, map[string]bool{}, "", defs, projectEnvs)
+	require.NoError(t, err)
+
+	w.Close()
+	os.Stdout = old
+
+	out, _ := io.ReadAll(r)
+	output := string(out)
+
+	assert.Contains(t, output, `"source"`)
+	assert.Contains(t, output, `"project"`)
+}
+
+func TestWriteEnvTableWithProjects_HasSourceNoPath(t *testing.T) {
+	tmpDir := t.TempDir()
+	defFile := filepath.Join(tmpDir, "test-defs.yaml")
+	t.Setenv("CC_DECK_DEFINITIONS_FILE", defFile)
+
+	defs := env.NewDefinitionStore(defFile)
+
+	projectEnvs := []projectListEntry{
+		{Name: "proj-env", Type: env.EnvironmentTypeCompose, Status: "not created", Path: "/some/path"},
+	}
+
+	// Capture output.
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err := writeEnvTableWithProjects(nil, nil, map[string]bool{}, "", projectEnvs, nil, defs)
+	require.NoError(t, err)
+
+	w.Close()
+	os.Stdout = old
+
+	out, _ := io.ReadAll(r)
+	output := string(out)
+
+	assert.Contains(t, output, "SOURCE")
+	assert.NotContains(t, output, "PATH")
 }

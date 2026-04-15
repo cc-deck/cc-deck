@@ -216,6 +216,13 @@ func (e *SSHEnvironment) Delete(ctx context.Context, force bool) error {
 		log.Printf("WARNING: removing instance from state: %v", err)
 	}
 
+	// Remove definition (best-effort, matching container/compose behavior).
+	if e.defs != nil {
+		if err := e.defs.Remove(e.name); err != nil {
+			log.Printf("WARNING: removing definition: %v", err)
+		}
+	}
+
 	return nil
 }
 
