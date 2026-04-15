@@ -94,6 +94,8 @@ type createFlags struct {
 	allowedDomains []string
 	gitignore      bool
 	variant        string
+	global         bool
+	local          bool
 	// SSH-specific flags
 	host         string
 	sshPort      int
@@ -173,6 +175,11 @@ Environment types (--type):
 	cmd.Flags().StringVar(&cf.sshConfig, "ssh-config", "", "Custom SSH config file path (SSH only)")
 	cmd.Flags().StringVar(&cf.workspace, "workspace", "", "Remote workspace directory (SSH only, default: ~/workspace)")
 
+	// Definition resolution flags
+	cmd.Flags().BoolVar(&cf.global, "global", false, "Force resolution from global definition store")
+	cmd.Flags().BoolVar(&cf.local, "local", false, "Force resolution from project-local definition")
+	cmd.MarkFlagsMutuallyExclusive("global", "local")
+
 	return cmd
 }
 
@@ -219,18 +226,53 @@ func runEnvCreate(gf *GlobalFlags, name string, cf *createFlags, cmd *cobra.Comm
 		return err
 	}
 
-	// Resolve type: CLI flag > project definition > default (T017).
+	// Handle --global and --local flags (FR-012, FR-013, FR-014, FR-015).
+	var usedGlobalDef bool
+	var resolvedDef *env.EnvironmentDefinition
+
+	if cf.global {
+		globalDef, globalErr := defs.FindByName(name)
+		if globalErr != nil {
+			return fmt.Errorf("no global definition found for %q", name)
+		}
+		resolvedDef = globalDef
+		usedGlobalDef = true
+		projDef = nil
+	} else if cf.local {
+		if projDef == nil {
+			return fmt.Errorf("no project-local definition found (no .cc-deck/environment.yaml)")
+		}
+		if name != projDef.Name {
+			return fmt.Errorf("project-local definition is %q, not %q; use --global or omit --local", projDef.Name, name)
+		}
+		// Use project-local definition, ignore any global definitions.
+	} else if projDef != nil && name != projDef.Name {
+		// Explicit name differs from project-local definition: ignore project-local (FR-001).
+		projDef = nil
+		if globalDef, globalErr := defs.FindByName(name); globalErr == nil {
+			// Use global definition's type and settings (FR-002).
+			resolvedDef = globalDef
+			usedGlobalDef = true
+		}
+		// If not found in global store, fall through to default type (FR-003).
+	}
+
+	// Resolve type: CLI flag > resolved definition > project definition > default (T017).
 	typeChanged := cmd.Flags().Changed("type")
 	envType := env.EnvironmentType(cf.envType)
-	if !typeChanged && projDef != nil && projDef.Type != "" {
-		envType = projDef.Type // Auto-detect from definition (FR-013).
+	if !typeChanged {
+		if resolvedDef != nil && resolvedDef.Type != "" {
+			envType = resolvedDef.Type
+		} else if projDef != nil && projDef.Type != "" {
+			envType = projDef.Type
+		}
 	}
 	if envType == "" {
 		envType = env.EnvironmentTypeLocal
 	}
 
 	// Project-local vs global precedence check (FR-026, T020).
-	if projDef != nil {
+	if projDef != nil && !usedGlobalDef {
 		if globalDef, globalErr := defs.FindByName(name); globalErr == nil {
 			fmt.Fprintf(os.Stderr, "WARNING: Project-local definition shadows global definition %q (type: %s)\n",
 				globalDef.Name, globalDef.Type)
@@ -238,7 +280,8 @@ func runEnvCreate(gf *GlobalFlags, name string, cf *createFlags, cmd *cobra.Comm
 	}
 
 	// Scaffold definition if no definition exists yet.
-	if projDef == nil && projectRoot != "" {
+	// Skip scaffolding when using a global definition (FR-002a).
+	if projDef == nil && projectRoot != "" && !usedGlobalDef {
 		scaffoldDef := &env.EnvironmentDefinition{
 			Name:           name,
 			Type:           envType,
@@ -256,47 +299,51 @@ func runEnvCreate(gf *GlobalFlags, name string, cf *createFlags, cmd *cobra.Comm
 		}
 	}
 
-	// Apply project-local definition values, with CLI flags taking precedence.
-	if projDef != nil {
-		if cf.image == "" && projDef.Image != "" {
-			cf.image = projDef.Image
+	// Apply definition values (from resolved global or project-local def), with CLI flags taking precedence.
+	activeDef := projDef
+	if resolvedDef != nil {
+		activeDef = resolvedDef
+	}
+	if activeDef != nil {
+		if cf.image == "" && activeDef.Image != "" {
+			cf.image = activeDef.Image
 		}
-		if !cmd.Flags().Changed("auth") && projDef.Auth != "" {
-			cf.auth = projDef.Auth
+		if !cmd.Flags().Changed("auth") && activeDef.Auth != "" {
+			cf.auth = activeDef.Auth
 		}
-		if len(cf.allowedDomains) == 0 && len(projDef.AllowedDomains) > 0 {
-			cf.allowedDomains = projDef.AllowedDomains
+		if len(cf.allowedDomains) == 0 && len(activeDef.AllowedDomains) > 0 {
+			cf.allowedDomains = activeDef.AllowedDomains
 		}
-		if len(cf.ports) == 0 && len(projDef.Ports) > 0 {
-			cf.ports = projDef.Ports
+		if len(cf.ports) == 0 && len(activeDef.Ports) > 0 {
+			cf.ports = activeDef.Ports
 		}
-		if len(cf.mount) == 0 && len(projDef.Mounts) > 0 {
-			cf.mount = projDef.Mounts
+		if len(cf.mount) == 0 && len(activeDef.Mounts) > 0 {
+			cf.mount = activeDef.Mounts
 		}
-		if len(cf.credential) == 0 && len(projDef.Credentials) > 0 {
-			cf.credential = projDef.Credentials
+		if len(cf.credential) == 0 && len(activeDef.Credentials) > 0 {
+			cf.credential = activeDef.Credentials
 		}
-		if cf.path == "" && projDef.ProjectDir != "" {
-			cf.path = projDef.ProjectDir
+		if cf.path == "" && activeDef.ProjectDir != "" {
+			cf.path = activeDef.ProjectDir
 		}
-		// SSH-specific: inherit from project definition.
-		if cf.host == "" && projDef.Host != "" {
-			cf.host = projDef.Host
+		// SSH-specific: inherit from definition.
+		if cf.host == "" && activeDef.Host != "" {
+			cf.host = activeDef.Host
 		}
-		if cf.sshPort == 0 && projDef.Port != 0 {
-			cf.sshPort = projDef.Port
+		if cf.sshPort == 0 && activeDef.Port != 0 {
+			cf.sshPort = activeDef.Port
 		}
-		if cf.identityFile == "" && projDef.IdentityFile != "" {
-			cf.identityFile = projDef.IdentityFile
+		if cf.identityFile == "" && activeDef.IdentityFile != "" {
+			cf.identityFile = activeDef.IdentityFile
 		}
-		if cf.jumpHost == "" && projDef.JumpHost != "" {
-			cf.jumpHost = projDef.JumpHost
+		if cf.jumpHost == "" && activeDef.JumpHost != "" {
+			cf.jumpHost = activeDef.JumpHost
 		}
-		if cf.sshConfig == "" && projDef.SSHConfig != "" {
-			cf.sshConfig = projDef.SSHConfig
+		if cf.sshConfig == "" && activeDef.SSHConfig != "" {
+			cf.sshConfig = activeDef.SSHConfig
 		}
-		if cf.workspace == "" && projDef.Workspace != "" {
-			cf.workspace = projDef.Workspace
+		if cf.workspace == "" && activeDef.Workspace != "" {
+			cf.workspace = activeDef.Workspace
 		}
 	}
 
@@ -727,9 +774,9 @@ func runEnvList(gf *GlobalFlags, filterType string, showWorktrees bool) error {
 
 	switch gf.Output {
 	case "json", "yaml":
-		return writeEnvStructured(gf.Output, instances, allDefs, instanceNames, filterType)
+		return writeEnvStructured(gf.Output, instances, allDefs, instanceNames, filterType, defs, projectEnvs)
 	default:
-		return writeEnvTableWithProjects(instances, allDefs, instanceNames, filterType, projectEnvs, worktrees)
+		return writeEnvTableWithProjects(instances, allDefs, instanceNames, filterType, projectEnvs, worktrees, defs)
 	}
 }
 
@@ -738,13 +785,32 @@ type envListEntry struct {
 	Name         string `json:"name" yaml:"name"`
 	Type         string `json:"type" yaml:"type"`
 	State        string `json:"state" yaml:"state"`
+	Source       string `json:"source" yaml:"source"`
 	Storage      string `json:"storage,omitempty" yaml:"storage,omitempty"`
 	Image        string `json:"image,omitempty" yaml:"image,omitempty"`
 	LastAttached string `json:"last_attached,omitempty" yaml:"last_attached,omitempty"`
 	Age          string `json:"age,omitempty" yaml:"age,omitempty"`
 }
 
-func writeEnvStructured(format string, instances []*env.EnvironmentInstance, allDefs []*env.EnvironmentDefinition, instanceNames map[string]bool, filterType string) error {
+// buildSourceMap pre-computes the source origin for each environment name.
+// Project-local entries take precedence over global definitions.
+func buildSourceMap(defs *env.DefinitionStore, projectEnvs []projectListEntry) map[string]string {
+	sourceMap := make(map[string]string)
+	// Load global definitions once.
+	if allGlobal, err := defs.List(nil); err == nil {
+		for _, d := range allGlobal {
+			sourceMap[d.Name] = "global"
+		}
+	}
+	// Project-local entries override global.
+	for _, pe := range projectEnvs {
+		sourceMap[pe.Name] = "project"
+	}
+	return sourceMap
+}
+
+func writeEnvStructured(format string, instances []*env.EnvironmentInstance, allDefs []*env.EnvironmentDefinition, instanceNames map[string]bool, filterType string, defs *env.DefinitionStore, projectEnvs []projectListEntry) error {
+	sourceMap := buildSourceMap(defs, projectEnvs)
 	var entries []envListEntry
 
 	for _, inst := range instances {
@@ -764,6 +830,7 @@ func writeEnvStructured(format string, instances []*env.EnvironmentInstance, all
 			Name:         inst.Name,
 			Type:         instType,
 			State:        string(inst.State),
+			Source:       sourceMap[inst.Name],
 			Storage:      storage,
 			Image:        image,
 			LastAttached: formatRelativeTime(inst.LastAttached),
@@ -783,7 +850,18 @@ func writeEnvStructured(format string, instances []*env.EnvironmentInstance, all
 			Name:    def.Name,
 			Type:    string(def.Type),
 			State:   "not created",
+			Source:  "global",
 			Storage: "-",
+		})
+	}
+
+	// Add project-local entries that are not yet in entries.
+	for _, pe := range projectEnvs {
+		entries = append(entries, envListEntry{
+			Name:   pe.Name,
+			Type:   string(pe.Type),
+			State:  pe.Status,
+			Source: "project",
 		})
 	}
 
@@ -798,23 +876,15 @@ func writeEnvStructured(format string, instances []*env.EnvironmentInstance, all
 }
 
 // writeEnvTableWithProjects writes the env list table with project-local entries.
-func writeEnvTableWithProjects(instances []*env.EnvironmentInstance, allDefs []*env.EnvironmentDefinition, instanceNames map[string]bool, filterType string, projectEnvs []projectListEntry, worktrees []worktreeListEntry) error {
+func writeEnvTableWithProjects(instances []*env.EnvironmentInstance, allDefs []*env.EnvironmentDefinition, instanceNames map[string]bool, filterType string, projectEnvs []projectListEntry, worktrees []worktreeListEntry, defs *env.DefinitionStore) error {
+	sourceMap := buildSourceMap(defs, projectEnvs)
 	tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	showPath := len(projectEnvs) > 0
 
-	if showPath {
-		fmt.Fprintln(tw, "NAME\tTYPE\tSTATUS\tSTORAGE\tPATH\tLAST ATTACHED\tAGE")
-	} else {
-		fmt.Fprintln(tw, "NAME\tTYPE\tSTATUS\tSTORAGE\tLAST ATTACHED\tAGE")
-	}
+	fmt.Fprintln(tw, "NAME\tTYPE\tSTATUS\tSOURCE\tSTORAGE\tLAST ATTACHED\tAGE")
 
 	hasEntries := false
-	printRow := func(name string, envType, state, storage, path, lastAttached, age string) {
-		if showPath {
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", name, envType, state, storage, path, lastAttached, age)
-		} else {
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", name, envType, state, storage, lastAttached, age)
-		}
+	printRow := func(name string, envType, state, source, storage, lastAttached, age string) {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", name, envType, state, source, storage, lastAttached, age)
 		hasEntries = true
 	}
 
@@ -835,7 +905,7 @@ func writeEnvTableWithProjects(instances []*env.EnvironmentInstance, allDefs []*
 		} else if inst.SSH != nil {
 			storage = "-"
 		}
-		printRow(inst.Name, string(instType), string(inst.State), storage, "-",
+		printRow(inst.Name, string(instType), string(inst.State), sourceMap[inst.Name], storage,
 			formatRelativeTime(inst.LastAttached), formatDuration(time.Since(inst.CreatedAt)))
 	}
 
@@ -854,31 +924,17 @@ func writeEnvTableWithProjects(instances []*env.EnvironmentInstance, allDefs []*
 		if d.Storage != nil {
 			storage = string(d.Storage.Type)
 		}
-		printRow(d.Name, string(d.Type), "not created", storage, "-", "never", "-")
+		printRow(d.Name, string(d.Type), "not created", "global", storage, "never", "-")
 	}
 
 	// Project-local environments (FR-012, FR-008).
 	for _, pe := range projectEnvs {
-		path := pe.Path
-		home, _ := os.UserHomeDir()
-		if home != "" {
-			if rel, err := filepath.Rel(home, path); err == nil && !filepath.IsAbs(rel) {
-				path = "~/" + rel
-			}
-		}
-		printRow(pe.Name, string(pe.Type), pe.Status, "-", path, "-", "-")
+		printRow(pe.Name, string(pe.Type), pe.Status, "project", "-", "-", "-")
 	}
 
 	// Worktree sub-entries (FR-020).
 	for _, wt := range worktrees {
-		path := wt.Path
-		home, _ := os.UserHomeDir()
-		if home != "" {
-			if rel, err := filepath.Rel(home, path); err == nil && !filepath.IsAbs(rel) {
-				path = "~/" + rel
-			}
-		}
-		printRow("  "+wt.Branch, "", "", "", path, "", "")
+		printRow("  "+wt.Branch, "", "", "", "", "", "")
 	}
 
 	if !hasEntries {
@@ -889,8 +945,6 @@ func writeEnvTableWithProjects(instances []*env.EnvironmentInstance, allDefs []*
 
 	return tw.Flush()
 }
-
-
 
 func formatRelativeTime(t *time.Time) string {
 	if t == nil {
@@ -947,6 +1001,7 @@ type envStatusOutput struct {
 	LastAttached string               `json:"last_attached" yaml:"last_attached"`
 	Sessions     []env.SessionInfo    `json:"sessions,omitempty" yaml:"sessions,omitempty"`
 	Image        string               `json:"image,omitempty" yaml:"image,omitempty"`
+	ProjectPath  string               `json:"project_path,omitempty" yaml:"project_path,omitempty"`
 }
 
 func runEnvStatus(gf *GlobalFlags, name string) error {
@@ -986,6 +1041,20 @@ func runEnvStatus(gf *GlobalFlags, name string) error {
 
 	uptime := formatDuration(time.Since(status.Since))
 
+	// Look up project path from project registry (FR-009).
+	var projectPath string
+	projects, _ := store.ListProjects()
+	for _, p := range projects {
+		def, loadErr := env.LoadProjectDefinition(p.Path)
+		if loadErr != nil {
+			continue
+		}
+		if def.Name == name {
+			projectPath = p.Path
+			break
+		}
+	}
+
 	switch gf.Output {
 	case "json":
 		out := envStatusOutput{
@@ -997,6 +1066,7 @@ func runEnvStatus(gf *GlobalFlags, name string) error {
 			LastAttached: lastAttached,
 			Sessions:     status.Sessions,
 			Image:        image,
+			ProjectPath:  projectPath,
 		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
@@ -1011,14 +1081,15 @@ func runEnvStatus(gf *GlobalFlags, name string) error {
 			LastAttached: lastAttached,
 			Sessions:     status.Sessions,
 			Image:        image,
+			ProjectPath:  projectPath,
 		}
 		return yaml.NewEncoder(os.Stdout).Encode(out)
 	default:
-		return writeEnvStatusText(name, envType, status, storage, uptime, lastAttached, image)
+		return writeEnvStatusText(name, envType, status, storage, uptime, lastAttached, image, projectPath)
 	}
 }
 
-func writeEnvStatusText(name string, envType env.EnvironmentType, status *env.EnvironmentStatus, storage, uptime, lastAttached, image string) error {
+func writeEnvStatusText(name string, envType env.EnvironmentType, status *env.EnvironmentStatus, storage, uptime, lastAttached, image, projectPath string) error {
 	tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
 	fmt.Fprintf(tw, "Environment:\t%s\n", name)
 	fmt.Fprintf(tw, "Type:\t%s\n", envType)
@@ -1028,6 +1099,9 @@ func writeEnvStatusText(name string, envType env.EnvironmentType, status *env.En
 	fmt.Fprintf(tw, "Attached:\t%s\n", lastAttached)
 	if image != "" {
 		fmt.Fprintf(tw, "Image:\t%s\n", image)
+	}
+	if projectPath != "" {
+		fmt.Fprintf(tw, "Project:\t%s\n", projectPath)
 	}
 	if err := tw.Flush(); err != nil {
 		return err
@@ -1041,7 +1115,7 @@ func writeEnvStatusText(name string, envType env.EnvironmentType, status *env.En
 		for _, s := range status.Sessions {
 			lastEvent := ""
 			if !s.LastEvent.IsZero() {
-				lastEvent = formatRelativeTime(&s.LastEvent) + " ago"
+				lastEvent = formatRelativeTime(&s.LastEvent)
 			}
 			fmt.Fprintf(stw, "  %s\t%s\t%s\t%s\n",
 				s.Name,
