@@ -573,6 +573,14 @@ cc-deck env create mydev --type container --port 8080:80
 | `--workspace`
 |
 | Remote workspace directory (ssh only, default: `~/workspace`)
+
+| `--global`
+|
+| Force resolution from global definition store (mutually exclusive with `--local`)
+
+| `--local`
+|
+| Force resolution from project-local definition (mutually exclusive with `--global`)
 |===
 
 ==== env attach
@@ -627,7 +635,7 @@ cc-deck env delete --force --keep-volumes
 
 List all environments with their current status.
 Shows both global and project-local environments in a unified view.
-Projects registered in the global registry are included with their paths.
+Each entry includes a SOURCE column indicating the definition origin (`global`, `project`, or empty for orphan instances).
 
 [source,bash]
 ----
@@ -653,6 +661,7 @@ cc-deck env list -o json
 ==== env status
 
 Display detailed status information for an environment.
+For project-local environments, the output includes the project directory path.
 
 [source,bash]
 ----

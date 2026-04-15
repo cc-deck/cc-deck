@@ -92,6 +92,61 @@ func TestSSHEnvironment_DeleteNotFound(t *testing.T) {
 	}
 }
 
+func TestSSHEnvironment_DeleteRemovesDefinition(t *testing.T) {
+	tmpDir := t.TempDir()
+	stateFile := filepath.Join(tmpDir, "state.yaml")
+	store := NewStateStore(stateFile)
+
+	defFile := filepath.Join(tmpDir, "defs.yaml")
+	defs := NewDefinitionStore(defFile)
+
+	// Add a definition and an instance.
+	require.NoError(t, defs.Add(&EnvironmentDefinition{
+		Name: "ssh-env",
+		Type: EnvironmentTypeSSH,
+		Host: "user@host",
+	}))
+	require.NoError(t, store.AddInstance(&EnvironmentInstance{
+		Name:  "ssh-env",
+		Type:  EnvironmentTypeSSH,
+		State: EnvironmentStateStopped,
+		SSH:   &SSHFields{Host: "user@host"},
+	}))
+
+	e := &SSHEnvironment{name: "ssh-env", store: store, defs: defs}
+	err := e.Delete(context.Background(), true)
+	require.NoError(t, err)
+
+	// Verify definition was removed.
+	_, findErr := defs.FindByName("ssh-env")
+	assert.Error(t, findErr, "definition should be removed after delete")
+
+	// Verify instance was removed.
+	_, instErr := store.FindInstanceByName("ssh-env")
+	assert.Error(t, instErr, "instance should be removed after delete")
+}
+
+func TestSSHEnvironment_DeleteSucceedsWhenDefRemovalFails(t *testing.T) {
+	tmpDir := t.TempDir()
+	stateFile := filepath.Join(tmpDir, "state.yaml")
+	store := NewStateStore(stateFile)
+
+	defFile := filepath.Join(tmpDir, "defs.yaml")
+	defs := NewDefinitionStore(defFile)
+
+	// Add instance but no definition (simulates already-removed definition).
+	require.NoError(t, store.AddInstance(&EnvironmentInstance{
+		Name:  "ssh-env",
+		Type:  EnvironmentTypeSSH,
+		State: EnvironmentStateStopped,
+		SSH:   &SSHFields{Host: "user@host"},
+	}))
+
+	e := &SSHEnvironment{name: "ssh-env", store: store, defs: defs}
+	err := e.Delete(context.Background(), true)
+	assert.NoError(t, err, "delete should succeed even when definition removal fails")
+}
+
 func TestSSHEnvironment_DeleteRefusesRunning(t *testing.T) {
 	tmpDir := t.TempDir()
 	stateFile := filepath.Join(tmpDir, "state.yaml")

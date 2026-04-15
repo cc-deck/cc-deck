@@ -504,3 +504,4 @@ cc-deck follows [Spec-Driven Development](CONTRIBUTING.md#spec-driven-developmen
 | [033](specs/033-ssh-environment/) | SSH Remote Execution | Remote Zellij sessions over SSH with pre-flight bootstrap, credential forwarding, and file sync | In Progress |
 | [034](specs/034-unified-setup-command/) | Unified Setup Command | Single `cc-deck setup` command with shared manifest, Claude Code slash commands, and Ansible-based SSH provisioning | Planned |
 | [036](specs/036-setup-run-command/) | Setup Run Command | `cc-deck setup run` executes pre-generated build artifacts (container build or Ansible playbook) directly from the CLI | Implemented |
+| [037](specs/037-env-lifecycle-fixes/) | Environment Lifecycle Fixes | Fix type resolution for global definitions, SSH delete cleanup, SOURCE column in list, `--global`/`--local` flags | In Progress |
