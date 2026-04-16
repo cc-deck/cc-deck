@@ -163,6 +163,12 @@ pub struct Session {
     /// rename is issued in rebuild_pane_map.
     #[serde(default)]
     pub pending_tab_rename: bool,
+    /// Number of currently active subagents (between SubagentStart/SubagentStop).
+    /// Used to suppress Working transitions that would clear Waiting(Permission)
+    /// when the tool events are coming from parallel subagents, not from the
+    /// main agent answering the permission prompt.
+    #[serde(default)]
+    pub active_subagents: u32,
 }
 
 impl Session {
@@ -182,6 +188,7 @@ impl Session {
             meta_ts: 0,
             done_attended: false,
             pending_tab_rename: false,
+            active_subagents: 0,
         }
     }
 
