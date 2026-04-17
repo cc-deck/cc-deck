@@ -12,11 +12,12 @@ import (
 
 // Client wraps the system ssh binary for remote operations.
 type Client struct {
-	Host         string
-	Port         int
-	IdentityFile string
-	JumpHost     string
-	SSHConfig    string
+	Host            string
+	Port            int
+	IdentityFile    string
+	JumpHost        string
+	SSHConfig       string
+	AgentForwarding bool
 }
 
 // NewClient creates a new SSH client with the given connection parameters.
@@ -46,6 +47,10 @@ func (c *Client) buildArgs(extraArgs ...string) []string {
 	}
 	if c.JumpHost != "" {
 		args = append(args, "-J", c.JumpHost)
+	}
+
+	if c.AgentForwarding {
+		args = append(args, "-A")
 	}
 
 	// Disable strict host key checking for non-interactive use and
@@ -112,6 +117,10 @@ func (c *Client) buildInteractiveArgs(cmd string) []string {
 	}
 	if c.JumpHost != "" {
 		args = append(args, "-J", c.JumpHost)
+	}
+
+	if c.AgentForwarding {
+		args = append(args, "-A")
 	}
 
 	args = append(args, "-t", c.Host, "--", cmd)
