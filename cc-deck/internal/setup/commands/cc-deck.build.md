@@ -338,14 +338,28 @@ If not available, error: "Ansible is required for SSH provisioning. Install with
 
 Generate the following files from the manifest:
 
+#### ansible.cfg
+
+```ini
+[defaults]
+deprecation_warnings = false
+
+[ssh_connection]
+ssh_args = -o SendEnv=TERM -o SetEnv=TERM=dumb
+```
+
+This suppresses deprecation warnings and prevents OSC escape sequences from the remote shell (e.g., starship prompt) that cause "junk after JSON data" warnings.
+
 #### inventory.ini
 
 ```ini
 [setup_targets]
-target ansible_host=<host> ansible_user=<user-from-host> ansible_port=<port> ansible_ssh_private_key_file=<identity_file>
+target ansible_host=<host> ansible_user=<user-from-host> ansible_port=<port> ansible_ssh_private_key_file=<identity_file> ansible_python_interpreter=auto_silent
 ```
 
 Parse the `host` field: if it contains `@`, split into `user@hostname`. The `ansible_user` comes from the user part. If no `@`, use the current local username.
+
+**Note:** Always include `ansible_python_interpreter=auto_silent` to suppress Python interpreter discovery warnings.
 
 #### group_vars/all.yml
 
@@ -388,8 +402,16 @@ tool_configs:
 
 Generate task content for each role from the manifest data. Each role is idempotent.
 
+**Ansible best practices (apply to ALL generated roles):**
+- Use `ansible_facts['architecture']` instead of `ansible_architecture` (avoids INJECT_FACTS_AS_VARS deprecation)
+- Use `ansible_facts['os_family']` instead of `ansible_os_family`
+- Never use `{{ item }}` or `{{ item.name }}` in task `name:` fields (causes template errors in Ansible 2.18+). Use static names; the `loop_control.label` handles display.
+- Always add `executable: /bin/bash` to `ansible.builtin.shell` tasks (prevents "junk after JSON data" warnings)
+- Prefer `ansible.builtin.command` over `ansible.builtin.shell` when no shell features are needed
+- Add `export TERM=dumb` at the start of shell tasks that run interactive tools (rustup, claude, cc-deck) to suppress OSC escape sequences that cause "junk after JSON data" warnings
+
 **base role** (`roles/base/tasks/main.yml`):
-- Detect OS family (`ansible_os_family` fact)
+- Detect OS family (`ansible_facts['os_family']` fact)
 - Install core packages: git, curl, tar, unzip, zsh (via `dnf`)
 - If `create_user` is true:
   - Create user with `useradd -m -s /bin/zsh <target_user>`
@@ -428,19 +450,29 @@ Generate task content for each role from the manifest data. Each role is idempot
 - Requires Claude Code to already be installed (depends on `claude` role)
 - Example Ansible task:
   ```yaml
-  - name: Add custom marketplace for {{ item.name }}
-    command: claude plugins marketplace add {{ item.source | regex_replace('^github:', '') }}
+  - name: Add custom marketplace
+    ansible.builtin.shell: |
+      export PATH="/home/{{ target_user }}/.local/bin:$PATH"
+      claude plugins marketplace add {{ item.source | regex_replace('^github:', '') }}
+    args:
+      executable: /bin/bash
     become_user: "{{ target_user }}"
     when: item.source is match('^github:')
     loop: "{{ plugins }}"
+    loop_control:
+      label: "{{ item.name }}"
 
-  - name: Install plugin {{ item.name }}
-    command: >-
-      claude plugins install
-      {% if item.marketplace is defined %}{{ item.name }}@{{ item.marketplace }}{% else %}{{ item.name }}{% endif %}
+  - name: Install plugin
+    ansible.builtin.shell: |
+      export PATH="/home/{{ target_user }}/.local/bin:$PATH"
+      claude plugins install {{ item.name }}
+    args:
+      executable: /bin/bash
     become_user: "{{ target_user }}"
     when: item.source != 'directory'
     loop: "{{ plugins }}"
+    loop_control:
+      label: "{{ item.name }}"
   ```
 
 **shell_config role** (`roles/shell_config/tasks/main.yml`):
@@ -448,10 +480,11 @@ Generate task content for each role from the manifest data. Each role is idempot
 - Install curated shell RC from template (if `settings.shell_rc` is set)
 - Add credential sourcing snippet: `[ -f ~/.config/cc-deck/credentials.env ] && source ~/.config/cc-deck/credentials.env`
 - Install starship config if present
+- Guard starship init with interactive shell check: `[[ $- == *i* ]] && eval "$(starship init zsh)"` (prevents OSC escape sequences in non-interactive sessions like Ansible)
 - For each entry in `settings.tool_configs`: copy the source file to `/home/<target_user>/.config/<target>` (using the `target` field from the manifest entry; fall back to `<tool>/<source-filename>` if `target` is not set). Create parent directories as needed. Example Ansible task:
   ```yaml
-  - name: Deploy tool config for {{ item.tool }}
-    copy:
+  - name: Deploy tool config
+    ansible.builtin.copy:
       src: "{{ item.source }}"
       dest: "/home/{{ target_user }}/.config/{{ item.target }}"
       owner: "{{ target_user }}"
