@@ -26,15 +26,13 @@ func TestK8sDeployLifecycle(t *testing.T) {
 	envName := "inttest-lifecycle"
 
 	// Create
-	e := &env.K8sDeployEnvironment{}
 	raw, err := env.NewEnvironment(env.EnvironmentTypeK8sDeploy, envName, store, defs)
 	require.NoError(t, err)
 
 	ke, ok := raw.(*env.K8sDeployEnvironment)
 	require.True(t, ok)
-	*ke = *e
 	ke.Namespace = testNamespace
-	ke.NoNetworkPolicy = true // Simplify for test
+	ke.NoNetworkPolicy = true
 	ke.Timeout = 3 * time.Minute
 
 	err = ke.Create(ctx, env.CreateOpts{Image: testImage})
@@ -85,6 +83,7 @@ func TestK8sDeployResourceVerification(t *testing.T) {
 
 	ke := raw.(*env.K8sDeployEnvironment)
 	ke.Namespace = testNamespace
+	ke.NoNetworkPolicy = true
 	ke.Timeout = 3 * time.Minute
 	ke.Credentials = map[string]string{"TEST_KEY": "test-value"}
 
