@@ -136,6 +136,107 @@ func TestK8sDeployEnvironment_Create_NameConflict(t *testing.T) {
 	assert.ErrorIs(t, err, ErrNameConflict)
 }
 
+func TestK8sDeployEnvironment_Delete_KeepVolumes(t *testing.T) {
+	store := createTempStateStore(t)
+	_ = store.AddInstance(&EnvironmentInstance{
+		Name:  "keep-vol",
+		Type:  EnvironmentTypeK8sDeploy,
+		State: EnvironmentStateStopped,
+		K8s:   &K8sFields{Namespace: "default"},
+	})
+
+	e := &K8sDeployEnvironment{name: "keep-vol", store: store, KeepVolumes: true}
+	assert.True(t, e.KeepVolumes)
+
+	e2 := &K8sDeployEnvironment{name: "keep-vol", store: store, KeepVolumes: false}
+	assert.False(t, e2.KeepVolumes)
+}
+
+func TestK8sDeployEnvironment_Delete_RunningWithoutForce(t *testing.T) {
+	store := createTempStateStore(t)
+	_ = store.AddInstance(&EnvironmentInstance{
+		Name:  "running-env",
+		Type:  EnvironmentTypeK8sDeploy,
+		State: EnvironmentStateRunning,
+		K8s:   &K8sFields{Namespace: "default"},
+	})
+
+	e := &K8sDeployEnvironment{name: "running-env", store: store}
+	err := e.Delete(t.Context(), false)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrRunning)
+}
+
+func TestK8sDeployEnvironment_NotRunningErrorIsActionable(t *testing.T) {
+	store := createTempStateStore(t)
+	_ = store.AddInstance(&EnvironmentInstance{
+		Name:  "stopped-env",
+		Type:  EnvironmentTypeK8sDeploy,
+		State: EnvironmentStateStopped,
+		K8s:   &K8sFields{Namespace: "default"},
+	})
+
+	e := &K8sDeployEnvironment{name: "stopped-env", store: store}
+	err := e.Exec(t.Context(), []string{"ls"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cc-deck env start")
+}
+
+func TestK8sDeployEnvironment_ESOValidation(t *testing.T) {
+	store := createTempStateStore(t)
+	e := &K8sDeployEnvironment{
+		name:        "eso-test",
+		store:       store,
+		SecretStore: "vault",
+	}
+
+	err := e.Create(t.Context(), CreateOpts{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--secret-store-ref is required")
+
+	e.SecretStoreRef = "my-vault"
+	err = e.Create(t.Context(), CreateOpts{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--secret-path is required")
+}
+
+func TestReconcileK8sDeployEnvs_EmptyStore(t *testing.T) {
+	store := createTempStateStore(t)
+	err := ReconcileK8sDeployEnvs(store)
+	require.NoError(t, err)
+}
+
+func TestReconcileK8sDeployEnvs_SkipsNonK8s(t *testing.T) {
+	store := createTempStateStore(t)
+	_ = store.AddInstance(&EnvironmentInstance{
+		Name:  "local-env",
+		Type:  EnvironmentTypeLocal,
+		State: EnvironmentStateRunning,
+	})
+
+	err := ReconcileK8sDeployEnvs(store)
+	require.NoError(t, err)
+
+	inst, _ := store.FindInstanceByName("local-env")
+	assert.Equal(t, EnvironmentStateRunning, inst.State)
+}
+
+func TestReconcileK8sDeployEnvs_SkipsNilK8sFields(t *testing.T) {
+	store := createTempStateStore(t)
+	_ = store.AddInstance(&EnvironmentInstance{
+		Name:  "broken-k8s",
+		Type:  EnvironmentTypeK8sDeploy,
+		State: EnvironmentStateRunning,
+		K8s:   nil,
+	})
+
+	err := ReconcileK8sDeployEnvs(store)
+	require.NoError(t, err)
+
+	inst, _ := store.FindInstanceByName("broken-k8s")
+	assert.Equal(t, EnvironmentStateRunning, inst.State)
+}
+
 func createTempStateStore(t *testing.T) *FileStateStore {
 	t.Helper()
 	dir := t.TempDir()
