@@ -245,6 +245,33 @@ func (s *FileStateStore) ListProjects() ([]ProjectEntry, error) {
 	return state.Projects, nil
 }
 
+// AllProjectEnvironmentNames returns a map of environment name to project path
+// for all registered projects that have a .cc-deck/environment.yaml definition.
+// The excludePath argument (if non-empty) is skipped, allowing callers to
+// exclude the current project when checking for cross-project collisions.
+func (s *FileStateStore) AllProjectEnvironmentNames(excludePath string) (map[string]string, error) {
+	projects, err := s.ListProjects()
+	if err != nil {
+		return nil, err
+	}
+
+	result := make(map[string]string)
+	for _, p := range projects {
+		if excludePath != "" && p.Path == excludePath {
+			continue
+		}
+		if _, statErr := os.Stat(p.Path); statErr != nil {
+			continue
+		}
+		def, loadErr := LoadProjectDefinition(p.Path)
+		if loadErr != nil {
+			continue
+		}
+		result[def.Name] = p.Path
+	}
+	return result, nil
+}
+
 // PruneStaleProjects removes entries whose paths no longer exist.
 // Returns the count of removed entries.
 func (s *FileStateStore) PruneStaleProjects() (int, error) {
