@@ -32,7 +32,7 @@ Use --type to select the runtime backend when creating an environment:
   container   Single container managed by podman
   compose     Multi-container setup via podman-compose
   ssh         Remote machine over SSH
-  k8s-deploy  Kubernetes deployment (planned)
+  k8s-deploy  Persistent Kubernetes environment with StatefulSet
   k8s-sandbox Ephemeral Kubernetes pod (planned)
 
 Most commands accept an environment name, or auto-detect it from
@@ -103,6 +103,23 @@ type createFlags struct {
 	jumpHost     string
 	sshConfig    string
 	workspace    string
+
+	// k8s-deploy flags
+	namespace      string
+	kubeconfig     string
+	k8sContext     string
+	storageSize    string
+	storageClass   string
+	existingSecret string
+	secretStore    string
+	secretStoreRef string
+	secretPath     string
+	buildDir       string
+	noNetworkPolicy bool
+	allowDomain    []string
+	allowGroup     []string
+	keepVolumes    bool
+	timeout        string
 }
 
 func newEnvCreateCmd(gf *GlobalFlags) *cobra.Command {
@@ -125,7 +142,7 @@ Environment types (--type):
   container   Single container managed by podman
   compose     Multi-container setup via podman-compose
   ssh         Remote machine over SSH
-  k8s-deploy  Kubernetes deployment (planned)
+  k8s-deploy  Persistent Kubernetes environment with StatefulSet
   k8s-sandbox Ephemeral Kubernetes pod (planned)`,
 		Example: `  # Create a local Zellij environment
   cc-deck env create my-project
@@ -179,6 +196,23 @@ Environment types (--type):
 	cmd.Flags().BoolVar(&cf.global, "global", false, "Force resolution from global definition store")
 	cmd.Flags().BoolVar(&cf.local, "local", false, "Force resolution from project-local definition")
 	cmd.MarkFlagsMutuallyExclusive("global", "local")
+
+	// k8s-deploy flags
+	cmd.Flags().StringVarP(&cf.namespace, "namespace", "n", "", "Kubernetes namespace (k8s-deploy)")
+	cmd.Flags().StringVar(&cf.kubeconfig, "kubeconfig", "", "Path to kubeconfig file (k8s-deploy)")
+	cmd.Flags().StringVar(&cf.k8sContext, "context", "", "Kubeconfig context name (k8s-deploy)")
+	cmd.Flags().StringVar(&cf.storageSize, "storage-size", "", "PVC storage size, e.g. 10Gi (k8s-deploy, default: 10Gi)")
+	cmd.Flags().StringVar(&cf.storageClass, "storage-class", "", "Kubernetes StorageClass name (k8s-deploy)")
+	cmd.Flags().StringVar(&cf.existingSecret, "existing-secret", "", "Reference to pre-existing K8s Secret (k8s-deploy)")
+	cmd.Flags().StringVar(&cf.secretStore, "secret-store", "", "ESO SecretStore type (k8s-deploy)")
+	cmd.Flags().StringVar(&cf.secretStoreRef, "secret-store-ref", "", "ESO SecretStore name (k8s-deploy)")
+	cmd.Flags().StringVar(&cf.secretPath, "secret-path", "", "ESO secret path (k8s-deploy)")
+	cmd.Flags().StringVar(&cf.buildDir, "build-dir", "", "Build directory containing cc-deck-image.yaml (k8s-deploy)")
+	cmd.Flags().BoolVar(&cf.noNetworkPolicy, "no-network-policy", false, "Skip NetworkPolicy creation (k8s-deploy)")
+	cmd.Flags().StringSliceVar(&cf.allowDomain, "allow-domain", nil, "Additional allowed domain for NetworkPolicy, repeatable (k8s-deploy)")
+	cmd.Flags().StringSliceVar(&cf.allowGroup, "allow-group", nil, "Domain group for NetworkPolicy, repeatable (k8s-deploy)")
+	cmd.Flags().BoolVar(&cf.keepVolumes, "keep-volumes", false, "Keep PVCs when deleting (k8s-deploy)")
+	cmd.Flags().StringVar(&cf.timeout, "timeout", "", "Pod readiness timeout, e.g. 5m (k8s-deploy, default: 5m)")
 
 	return cmd
 }
@@ -367,6 +401,66 @@ func runEnvCreate(gf *GlobalFlags, name string, cf *createFlags, cmd *cobra.Comm
 					return fmt.Errorf("invalid credential format %q, expected KEY=VALUE", c)
 				}
 				ce.Credentials[parts[0]] = parts[1]
+			}
+		}
+	}
+
+	// Set k8s-deploy-specific options.
+	if ke, ok := e.(*env.K8sDeployEnvironment); ok {
+		ke.Auth = env.AuthMode(cf.auth)
+		ke.Namespace = cf.namespace
+		ke.Kubeconfig = cf.kubeconfig
+		ke.Context = cf.k8sContext
+		ke.StorageSize = cf.storageSize
+		ke.StorageClass = cf.storageClass
+		ke.ExistingSecret = cf.existingSecret
+		ke.SecretStore = cf.secretStore
+		ke.SecretStoreRef = cf.secretStoreRef
+		ke.SecretPath = cf.secretPath
+		ke.BuildDir = cf.buildDir
+		ke.NoNetworkPolicy = cf.noNetworkPolicy
+		ke.AllowDomains = cf.allowDomain
+		ke.AllowGroups = cf.allowGroup
+		ke.KeepVolumes = cf.keepVolumes
+
+		if cf.timeout != "" {
+			d, parseErr := time.ParseDuration(cf.timeout)
+			if parseErr != nil {
+				return fmt.Errorf("invalid timeout %q: %w", cf.timeout, parseErr)
+			}
+			ke.Timeout = d
+		}
+
+		if len(cf.credential) > 0 {
+			ke.Credentials = make(map[string]string)
+			for _, c := range cf.credential {
+				parts := splitCredential(c)
+				if parts == nil {
+					return fmt.Errorf("invalid credential format %q, expected KEY=VALUE", c)
+				}
+				ke.Credentials[parts[0]] = parts[1]
+			}
+		}
+
+		// Apply definition precedence for k8s-deploy fields.
+		if projDef != nil {
+			if !cmd.Flags().Changed("namespace") && projDef.Namespace != "" {
+				ke.Namespace = projDef.Namespace
+			}
+			if !cmd.Flags().Changed("kubeconfig") && projDef.Kubeconfig != "" {
+				ke.Kubeconfig = projDef.Kubeconfig
+			}
+			if !cmd.Flags().Changed("context") && projDef.K8sContext != "" {
+				ke.Context = projDef.K8sContext
+			}
+			if !cmd.Flags().Changed("storage-size") && projDef.StorageSize != "" {
+				ke.StorageSize = projDef.StorageSize
+			}
+			if !cmd.Flags().Changed("storage-class") && projDef.StorageClass != "" {
+				ke.StorageClass = projDef.StorageClass
+			}
+			if len(ke.AllowDomains) == 0 && len(projDef.AllowedDomains) > 0 {
+				ke.AllowDomains = projDef.AllowedDomains
 			}
 		}
 	}
@@ -623,6 +717,9 @@ func runEnvDelete(name string, force bool, keepVolumes bool) error {
 	if ce, ok := e.(*env.ContainerEnvironment); ok {
 		ce.KeepVolumes = keepVolumes
 	}
+	if ke, ok := e.(*env.K8sDeployEnvironment); ok {
+		ke.KeepVolumes = keepVolumes
+	}
 
 	if err := e.Delete(cmd_context(), force); err != nil {
 		return err
@@ -686,6 +783,7 @@ func runEnvList(gf *GlobalFlags, filterType string, showWorktrees bool) error {
 	_ = env.ReconcileContainerEnvs(store, defs)
 	_ = env.ReconcileComposeEnvs(store)
 	_ = env.ReconcileSSHEnvs(store)
+	_ = env.ReconcileK8sDeployEnvs(store)
 
 	var filter *env.ListFilter
 	if filterType != "" {
@@ -826,6 +924,9 @@ func writeEnvStructured(format string, instances []*env.EnvironmentInstance, all
 		if inst.Compose != nil {
 			storage = "host-path"
 		}
+		if inst.K8s != nil {
+			storage = "pvc"
+		}
 		entries = append(entries, envListEntry{
 			Name:         inst.Name,
 			Type:         instType,
@@ -904,6 +1005,8 @@ func writeEnvTableWithProjects(instances []*env.EnvironmentInstance, allDefs []*
 			storage = "host-path"
 		} else if inst.SSH != nil {
 			storage = "-"
+		} else if inst.K8s != nil {
+			storage = "pvc"
 		}
 		printRow(inst.Name, string(instType), string(inst.State), sourceMap[inst.Name], storage,
 			formatRelativeTime(inst.LastAttached), formatDuration(time.Since(inst.CreatedAt)))
@@ -1036,6 +1139,9 @@ func runEnvStatus(gf *GlobalFlags, name string) error {
 		}
 		if inst.SSH != nil {
 			storage = "remote"
+		}
+		if inst.K8s != nil {
+			storage = "pvc"
 		}
 	}
 
@@ -1521,6 +1627,8 @@ func resolveEnvironment(name string, store *env.FileStateStore, defs *env.Defini
 			instType = env.EnvironmentTypeCompose
 		} else if inst.SSH != nil {
 			instType = env.EnvironmentTypeSSH
+		} else if inst.K8s != nil {
+			instType = env.EnvironmentTypeK8sDeploy
 		}
 		return env.NewEnvironment(instType, name, store, defs)
 	}

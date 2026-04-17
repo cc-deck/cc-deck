@@ -66,7 +66,7 @@ A developer wants to restrict what their remote environment can reach over the n
 
 ### User Story 4 - MCP Sidecar Containers (Priority: P2)
 
-A developer has a build manifest (`cc-deck-build.yaml`) that defines MCP servers (GitHub MCP, Slack MCP, etc.) alongside the main cc-deck image. When deploying to Kubernetes, the system generates sidecar containers within the same Pod for each MCP server, sharing the loopback interface so no TLS is needed between them. Credentials for MCP servers are also handled through the same Secret mechanism.
+A developer has a build manifest (`cc-deck-image.yaml`) that defines MCP servers (GitHub MCP, Slack MCP, etc.) alongside the main cc-deck image. When deploying to Kubernetes, the system generates sidecar containers within the same Pod for each MCP server, sharing the loopback interface so no TLS is needed between them. Credentials for MCP servers are also handled through the same Secret mechanism.
 
 **Why this priority**: MCP sidecars extend the AI agent's capabilities significantly, but a basic environment without MCP servers is still functional.
 
@@ -75,7 +75,7 @@ A developer has a build manifest (`cc-deck-build.yaml`) that defines MCP servers
 **Acceptance Scenarios**:
 
 1. **Given** a build manifest with MCP server entries, **When** the user runs `cc-deck env create my-env --type k8s-deploy --build-dir ./my-project`, **Then** each MCP entry becomes a sidecar container in the same Pod sharing the network namespace (localhost communication).
-2. **Given** MCP sidecars with credential requirements, **When** the environment is created, **Then** MCP credentials are stored in Secrets and volume-mounted into the respective sidecar containers.
+2. **Given** MCP sidecars with credential requirements, **When** the environment is created, **Then** MCP credentials are stored in the credential Secret and injected into sidecar containers via `SecretKeyRef` environment variable references (sidecars use env var injection, unlike the main container which uses volume mounts per FR-005).
 3. **Given** an environment with MCP sidecars, **When** the user attaches, **Then** the MCP servers are reachable from the main container via localhost on their configured ports.
 4. **Given** a build manifest without MCP entries, **When** the environment is created, **Then** the Pod contains only the main cc-deck container (no sidecars).
 
@@ -94,7 +94,7 @@ A developer deploys to an OpenShift cluster instead of vanilla Kubernetes. The s
 1. **Given** a cluster that reports OpenShift API groups (Route, EgressFirewall), **When** the environment is created, **Then** the system generates an OpenShift Route for the Zellij web client port in addition to vanilla K8s resources.
 2. **Given** a cluster that does not report OpenShift API groups, **When** the environment is created, **Then** only vanilla Kubernetes resources are generated (no Route, no EgressFirewall).
 3. **Given** an OpenShift cluster with network filtering enabled, **When** the environment is created, **Then** both a NetworkPolicy and an EgressFirewall are generated with consistent egress rules.
-4. **Given** an OpenShift Route is created, **When** the user runs `cc-deck env status my-env`, **Then** the output includes the Route URL for web access.
+4. *(Deferred)* **Given** an OpenShift Route is created, **When** the user runs `cc-deck env status my-env`, **Then** the output includes the Route URL for web access. *(Note: Route URL display in status requires querying OpenShift Route API; deferred to a follow-up enhancement.)*
 
 ---
 
@@ -113,7 +113,7 @@ A developer wants to transfer code between their local machine and the remote en
 3. **Given** a running environment and a git repository, **When** the user runs `cc-deck env push my-env --git`, **Then** the local git repository is pushed into the environment via `ext::kubectl exec`, and the remote workspace is updated to match.
 4. **Given** an environment where the agent has made git commits, **When** the user runs `cc-deck env harvest my-env -b agent-work`, **Then** the agent's commits are fetched via `ext::kubectl exec` and placed on a local branch named `agent-work`.
 5. **Given** a harvest with `--pr`, **When** the harvest completes, **Then** a pull request is created from the harvested branch.
-6. **Given** sync exclude patterns configured in the environment definition, **When** files are pushed, **Then** excluded patterns (e.g., `node_modules`, `.git`, `target`) are not transferred.
+6. *(Deferred)* **Given** sync exclude patterns configured in the environment definition, **When** files are pushed, **Then** excluded patterns (e.g., `node_modules`, `.git`, `target`) are not transferred. *(Note: exclude pattern support is a future enhancement; not covered by current FR set or tasks.)*
 
 ---
 
@@ -188,7 +188,7 @@ A developer wants to see all their environments across types (local, Podman, com
 - **FR-013**: System MUST support git harvesting via `ext::kubectl exec` for the git-harvest sync strategy.
 - **FR-014**: System MUST connect to environments via `kubectl exec` by default, using the predictable Pod name (`cc-deck-<name>-0`).
 - **FR-015**: System MUST register the `k8s-deploy` type in the environment factory.
-- **FR-016**: System MUST update the CLI command handling to accept k8s-deploy-specific flags (`--namespace`, `--kubeconfig`, `--storage-size`, `--storage-class`, `--secret-store`, `--build-dir`, `--keep-volumes`, `--timeout`).
+- **FR-016**: System MUST update the CLI command handling to accept k8s-deploy-specific flags (`--namespace`, `--kubeconfig`, `--context`, `--storage-size`, `--storage-class`, `--existing-secret`, `--secret-store`, `--secret-store-ref`, `--secret-path`, `--build-dir`, `--no-network-policy`, `--allow-domain`, `--allow-group`, `--keep-volumes`, `--timeout`).
 - **FR-017**: System MUST reconcile state against the K8s API when listing or querying status, updating stale records.
 - **FR-018**: System MUST delete all generated K8s resources (including PVC) on environment deletion by default, and preserve user-managed resources (existing Secrets). When `--keep-volumes` is specified, the PVC is preserved.
 - **FR-019**: System MUST clean up partially created resources when creation fails partway through.

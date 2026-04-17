@@ -24,7 +24,7 @@ type EnvironmentDefinition struct {
 	Ports       []string        `yaml:"ports,omitempty"`
 	Credentials []string        `yaml:"credentials,omitempty"`
 	Mounts         []string          `yaml:"mounts,omitempty"`          // Bind mounts as "src:dst[:ro]" (container/compose only)
-	AllowedDomains []string          `yaml:"allowed-domains,omitempty"` // Domain groups for proxy sidecar (compose only)
+	AllowedDomains []string          `yaml:"allowed-domains,omitempty"` // Domain groups for network filtering
 	ProjectDir     string            `yaml:"project-dir,omitempty"`     // Project directory (compose only)
 	Env            map[string]string `yaml:"env,omitempty"`             // Arbitrary environment variables
 	Host           string            `yaml:"host,omitempty"`            // SSH target (user@host)
@@ -33,6 +33,13 @@ type EnvironmentDefinition struct {
 	JumpHost       string            `yaml:"jump-host,omitempty"`       // Bastion/jump host
 	SSHConfig      string            `yaml:"ssh-config,omitempty"`      // Custom SSH config file
 	Workspace      string            `yaml:"workspace,omitempty"`       // Remote workspace directory
+
+	// k8s-deploy fields
+	Namespace    string `yaml:"namespace,omitempty"`     // K8s namespace
+	Kubeconfig   string `yaml:"kubeconfig,omitempty"`    // Path to kubeconfig
+	K8sContext   string `yaml:"context,omitempty"`       // Kubeconfig context name
+	StorageSize  string `yaml:"storage-size,omitempty"`  // PVC size (default: 10Gi)
+	StorageClass string `yaml:"storage-class,omitempty"` // K8s StorageClass name
 }
 
 // DefinitionFile is the top-level structure of the environment definitions file.
