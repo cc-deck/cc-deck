@@ -500,6 +500,8 @@ cc-deck env create mydev --type local
 cc-deck env create --type compose --image quay.io/cc-deck/cc-deck-demo:latest
 cc-deck env create --variant auth     # separate container instance
 cc-deck env create mydev --type container --port 8080:80
+cc-deck env create mydev --type ssh --host user@dev.example.com --repo https://github.com/org/repo.git
+cc-deck env create mydev --type ssh --repo https://github.com/org/repo.git --branch develop
 ----
 
 [cols="1,1,3"]
@@ -641,6 +643,16 @@ cc-deck env create mydev --type container --port 8080:80
 | `--timeout`
 |
 | Pod readiness timeout, e.g. `5m` (k8s-deploy, default: `5m`)
+
+| `--repo`
+|
+| Git repository URL to clone into workspace, repeatable (ssh, container, compose, k8s-deploy).
+When run inside a git repo, the current project is auto-detected and included.
+
+| `--branch`
+|
+| Branch for the most recent `--repo` flag, repeatable.
+Requires a preceding `--repo`.
 |===
 
 ==== env attach

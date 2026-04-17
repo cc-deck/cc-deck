@@ -1,0 +1,145 @@
+= Workspace Repository Provisioning
+
+When you create a remote environment, your workspace starts empty.
+You would normally need to SSH in and manually clone every repository before doing any real work.
+cc-deck eliminates this step by cloning git repositories into the workspace automatically during `env create`.
+
+This feature works across all remote environment types: SSH, container, compose, and k8s-deploy.
+Up to four repositories are cloned in parallel, and the operation is fully idempotent.
+Re-running `env create` will skip repos that already exist and only clone the new ones.
+
+== Declaring Repos in the Definition
+
+Add a `repos` field to your environment definition to declare which repositories should be cloned.
+
+[source,yaml]
+----
+name: my-dev
+type: ssh
+host: user@dev.example.com
+workspace: ~/workspace
+repos:
+  - url: "https://github.com/org/main-project.git"
+    branch: develop
+  - url: "git@github.com:org/shared-lib.git"
+    target: lib
+----
+
+Each entry supports three fields:
+
+[cols="1,1,3"]
+|===
+| Field | Required | Description
+
+| `url`
+| yes
+| Git remote URL in HTTPS or SSH format
+
+| `branch`
+| no
+| Branch to check out after cloning (defaults to the repository's default branch)
+
+| `target`
+| no
+| Directory name under the workspace (defaults to the repository name derived from the URL)
+|===
+
+When `target` is not set, the directory name is extracted from the URL in the same way `git clone` does it.
+For example, `https://github.com/org/my-project.git` produces a directory named `my-project`.
+
+== Auto-Detection of the Current Git Repo
+
+When you run `cc-deck env create` from inside a git repository, the tool automatically detects the `origin` remote and includes it in the clone list.
+You do not need to configure anything for this to work.
+
+If your local repository has additional remotes (such as `upstream` or a fork), those are added as named remotes on the cloned copy after cloning completes.
+The auto-detected repository becomes the Zellij session working directory, so you land in the right place when you attach.
+
+If the auto-detected URL matches an explicit `repos` entry, only one clone occurs.
+Deduplication compares normalized URLs, so `https://github.com/org/repo.git` and `git@github.com:org/repo.git` are recognized as the same repository.
+
+== CLI Flags for Ad-Hoc Repos
+
+Use `--repo` and `--branch` to clone repositories without editing the definition file.
+This is useful for one-off setups or for adding repos that only matter for a specific session.
+
+[source,bash]
+----
+cc-deck env create mydev --type ssh --host user@host \
+  --repo https://github.com/org/repo.git \
+  --repo https://github.com/org/other.git --branch develop
+----
+
+The `--branch` flag applies to the most recent `--repo` flag.
+Using `--branch` without a preceding `--repo` produces a validation error.
+
+CLI repos are merged with definition repos and auto-detected repos.
+Duplicates are removed by normalized URL, and the first occurrence wins.
+CLI repos are not persisted to the definition file.
+
+== Credential Transport
+
+The system uses the active Profile's `git_credential_type` and `git_credential_secret` fields for authentication.
+No separate credential configuration is needed for repository cloning.
+
+=== SSH Agent Forwarding
+
+For SSH environments where the active Profile has `git_credential_type: ssh`, the SSH client enables agent forwarding with the `-A` flag.
+Git operations on the remote host can then use your local SSH keys transparently.
+
+This method is only available for SSH environments.
+Container, compose, and k8s-deploy environments do not support SSH agent forwarding.
+
+=== Token-Based Authentication
+
+For all remote environment types, token-based authentication works by injecting the token into the HTTPS clone URL.
+The active Profile's `git_credential_secret` field names an environment variable that holds the token value.
+
+After a successful clone, cc-deck rewrites the remote origin URL to remove the embedded token.
+The token never persists in `.git/config` or any other file on the remote.
+
+[NOTE]
+====
+If no git credentials are configured in the active Profile, cloning proceeds without authentication.
+Private repositories will fail with a warning, but environment creation continues normally.
+====
+
+== Behavioral Properties
+
+Idempotency::
+If a repo's target directory already exists in the workspace, the clone is skipped with a log message.
+No update or pull is attempted.
+
+Non-fatal failures::
+A failed clone is logged as a warning.
+Environment creation continues with the remaining repos, and you can still attach to the environment and work with the repos that succeeded.
+
+Parallel cloning::
+Up to four repos are cloned concurrently to reduce overall provisioning time.
+
+Local environments::
+The `repos` field is not supported for local environments.
+If repos are configured, a warning is logged and the field is ignored, since local environments already have direct filesystem access.
+
+== Supported Environment Types
+
+[cols="1,2,1"]
+|===
+| Type | Execution Mechanism | Credential Support
+
+| SSH
+| Commands executed over `ssh`
+| SSH agent forwarding, token
+
+| Container
+| Commands executed via `podman exec`
+| Token only
+
+| Compose
+| Commands executed via `podman exec` on the session container
+| Token only
+
+| K8s Deploy
+| Commands executed via `kubectl exec`
+| Token only
+|===
