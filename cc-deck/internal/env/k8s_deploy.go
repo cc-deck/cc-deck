@@ -251,7 +251,10 @@ func (e *K8sDeployEnvironment) Attach(ctx context.Context) error {
 		if startErr := e.Start(ctx); startErr != nil {
 			return fmt.Errorf("auto-starting environment: %w", startErr)
 		}
-		inst.State = EnvironmentStateRunning
+		inst, err = e.store.FindInstanceByName(e.name)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Update LastAttached timestamp.
@@ -446,7 +449,7 @@ func (e *K8sDeployEnvironment) Exec(ctx context.Context, cmd []string) error {
 		return err
 	}
 	if inst.State != EnvironmentStateRunning {
-		return fmt.Errorf("environment is not running (state: %s)", inst.State)
+		return fmt.Errorf("environment is not running (state: %s); start it with: cc-deck env start %s", inst.State, e.name)
 	}
 
 	return k8sExec(ctx, e.resolveNamespace(inst), k8sPodName(e.name), e.kubeconfigArgs(inst), cmd, false)
@@ -459,7 +462,7 @@ func (e *K8sDeployEnvironment) Push(ctx context.Context, opts SyncOpts) error {
 		return err
 	}
 	if inst.State != EnvironmentStateRunning {
-		return fmt.Errorf("environment is not running (state: %s)", inst.State)
+		return fmt.Errorf("environment is not running (state: %s); start it with: cc-deck env start %s", inst.State, e.name)
 	}
 
 	return k8sPush(ctx, e.resolveNamespace(inst), k8sPodName(e.name), e.kubeconfigArgs(inst), opts)
@@ -472,7 +475,7 @@ func (e *K8sDeployEnvironment) Pull(ctx context.Context, opts SyncOpts) error {
 		return err
 	}
 	if inst.State != EnvironmentStateRunning {
-		return fmt.Errorf("environment is not running (state: %s)", inst.State)
+		return fmt.Errorf("environment is not running (state: %s); start it with: cc-deck env start %s", inst.State, e.name)
 	}
 
 	return k8sPull(ctx, e.resolveNamespace(inst), k8sPodName(e.name), e.kubeconfigArgs(inst), opts)
@@ -485,7 +488,7 @@ func (e *K8sDeployEnvironment) Harvest(ctx context.Context, opts HarvestOpts) er
 		return err
 	}
 	if inst.State != EnvironmentStateRunning {
-		return fmt.Errorf("environment is not running (state: %s)", inst.State)
+		return fmt.Errorf("environment is not running (state: %s); start it with: cc-deck env start %s", inst.State, e.name)
 	}
 
 	return k8sHarvest(ctx, e.resolveNamespace(inst), k8sPodName(e.name), e.kubeconfigArgs(inst), opts)
@@ -730,6 +733,9 @@ func k8sExec(ctx context.Context, ns, podName string, kubeconfigArgs, cmd []stri
 // ReconcileK8sDeployEnvs updates the state of all k8s-deploy instances
 // by checking their actual K8s API state.
 func ReconcileK8sDeployEnvs(store *FileStateStore) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
 	instances, err := store.ListInstances(nil)
 	if err != nil {
 		return err
@@ -742,12 +748,14 @@ func ReconcileK8sDeployEnvs(store *FileStateStore) error {
 
 		client, err := NewK8sClient(inst.K8s.Kubeconfig, inst.K8s.Profile)
 		if err != nil {
+			log.Printf("WARNING: reconcile %s: creating client: %v", inst.Name, err)
 			continue
 		}
 
 		resName := k8sResourceName(inst.Name)
-		newState, err := client.ReconcileState(context.Background(), inst.K8s.Namespace, resName)
+		newState, err := client.ReconcileState(ctx, inst.K8s.Namespace, resName)
 		if err != nil {
+			log.Printf("WARNING: reconcile %s: checking state: %v", inst.Name, err)
 			continue
 		}
 
