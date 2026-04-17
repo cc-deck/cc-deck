@@ -47,6 +47,11 @@ type K8sDeployEnvironment struct {
 
 	// Auth
 	Auth AuthMode
+
+	// Repo cloning
+	Repos           []RepoEntry
+	ExtraRemotes    map[string]string
+	AutoDetectedURL string
 }
 
 const (
@@ -216,25 +221,17 @@ func (e *K8sDeployEnvironment) Create(ctx context.Context, opts CreateOpts) erro
 	}
 
 	// Clone repos into workspace if defined.
-	// Load definition to get repos (since e doesn't carry the full definition).
-	var repoDef *EnvironmentDefinition
-	if e.defs != nil {
-		repoDef, _ = e.defs.FindByName(e.name)
-	}
-	if repoDef != nil && len(repoDef.Repos) > 0 {
+	if len(e.Repos) > 0 {
 		creds := loadActiveGitCredentials()
 		workspace := k8sWorkspacePath
-		if repoDef.Workspace != "" {
-			workspace = repoDef.Workspace
-		}
 		ns := e.Namespace
 		podName := k8sPodName(e.name)
 		kubeconfigArgs := e.kubeconfigArgs(&EnvironmentInstance{K8s: &K8sFields{Kubeconfig: e.Kubeconfig, Profile: e.Context}})
 		k8sRunner := func(ctx2 context.Context, cmd string) (string, error) {
 			return k8sExecOutput(ctx2, ns, podName, kubeconfigArgs, cmd)
 		}
-		fmt.Fprintf(os.Stderr, "Cloning %d repo(s) into %s...\n", len(repoDef.Repos), workspace)
-		cloneRepos(ctx, k8sRunner, repoDef.Repos, workspace, creds, repoDef.ExtraRemotes, repoDef.AutoDetectedURL)
+		fmt.Fprintf(os.Stderr, "Cloning %d repo(s) into %s...\n", len(e.Repos), workspace)
+		cloneRepos(ctx, k8sRunner, e.Repos, workspace, creds, e.ExtraRemotes, e.AutoDetectedURL)
 	}
 
 	// Write environment definition.
