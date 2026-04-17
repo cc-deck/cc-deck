@@ -5,7 +5,18 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 )
+
+// validateSyncPath checks that a path is clean and absolute (for remote) or valid (for local).
+func validateSyncPath(p string) error {
+	cleaned := filepath.Clean(p)
+	if strings.Contains(cleaned, "..") {
+		return fmt.Errorf("path %q contains directory traversal", p)
+	}
+	return nil
+}
 
 // k8sPush transfers local files into the K8s Pod via tar-over-exec.
 func k8sPush(ctx context.Context, ns, podName string, kubeconfigArgs []string, opts SyncOpts) error {
@@ -13,10 +24,16 @@ func k8sPush(ctx context.Context, ns, podName string, kubeconfigArgs []string, o
 	if localPath == "" {
 		return fmt.Errorf("local path is required for push")
 	}
+	if err := validateSyncPath(localPath); err != nil {
+		return err
+	}
 
 	remotePath := opts.RemotePath
 	if remotePath == "" {
 		remotePath = k8sWorkspacePath
+	}
+	if err := validateSyncPath(remotePath); err != nil {
+		return err
 	}
 
 	if opts.UseGit {
@@ -26,7 +43,7 @@ func k8sPush(ctx context.Context, ns, podName string, kubeconfigArgs []string, o
 	// Tar local files and pipe via kubectl exec.
 	tarCmd := exec.CommandContext(ctx, "tar", "cf", "-", "-C", localPath, ".")
 	kubectlArgs := append(kubeconfigArgs, "exec", "-i", "-n", ns, podName, "--",
-		"tar", "xf", "-", "-C", remotePath)
+		"tar", "xf", "-", "--no-absolute-names", "-C", remotePath)
 	extractCmd := exec.CommandContext(ctx, "kubectl", kubectlArgs...)
 
 	pipe, err := tarCmd.StdoutPipe()
@@ -60,17 +77,23 @@ func k8sPull(ctx context.Context, ns, podName string, kubeconfigArgs []string, o
 	if remotePath == "" {
 		return fmt.Errorf("remote path is required for pull")
 	}
+	if err := validateSyncPath(remotePath); err != nil {
+		return err
+	}
 
 	localPath := opts.LocalPath
 	if localPath == "" {
 		localPath = "."
+	}
+	if err := validateSyncPath(localPath); err != nil {
+		return err
 	}
 
 	// Tar remote files via kubectl exec and extract locally.
 	kubectlArgs := append(kubeconfigArgs, "exec", "-i", "-n", ns, podName, "--",
 		"tar", "cf", "-", "-C", remotePath, ".")
 	tarCmd := exec.CommandContext(ctx, "kubectl", kubectlArgs...)
-	extractCmd := exec.CommandContext(ctx, "tar", "xf", "-", "-C", localPath)
+	extractCmd := exec.CommandContext(ctx, "tar", "xf", "-", "--no-absolute-names", "-C", localPath)
 
 	pipe, err := tarCmd.StdoutPipe()
 	if err != nil {
