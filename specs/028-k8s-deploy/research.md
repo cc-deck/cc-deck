@@ -82,11 +82,11 @@ labels:
 
 ### 7. OpenShift Route Target
 
-**Decision**: Generate a Route only when a web-accessible port is exposed. For the initial implementation, this targets the Zellij web UI (port 8080 if configured in the pod). Routes are optional and only created when OpenShift API groups are detected AND a web port is specified.
+**Decision**: Generate a Route when OpenShift API groups are detected. The Route targets the headless Service's placeholder port, providing a stable URL for potential web access.
 
-**Rationale**: Not all environments need web access. Generating Routes unconditionally would create unused resources and potential security exposure.
+**Rationale**: OpenShift Routes are low-cost resources that provide web accessibility when needed. Generating them automatically aligns with the spec's goal of transparent OpenShift compatibility without user flags.
 
-**Implementation**: Detect OpenShift via API discovery (`route.openshift.io/v1`). If detected and `--web-port` is specified (or the manifest defines one), generate a Route targeting that port on the headless Service.
+**Implementation**: Detect OpenShift via API discovery (`route.openshift.io/v1`). If detected, generate a Route targeting the headless Service.
 
 ### 8. Stub Image for Integration Tests
 
