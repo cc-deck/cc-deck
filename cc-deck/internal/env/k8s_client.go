@@ -75,7 +75,10 @@ func (c *K8sClient) ValidateNamespace(ctx context.Context, namespace string) err
 // CreateStatefulSet creates a StatefulSet in the given namespace.
 func (c *K8sClient) CreateStatefulSet(ctx context.Context, ns string, sts *appsv1.StatefulSet) error {
 	_, err := c.clientset.AppsV1().StatefulSets(ns).Create(ctx, sts, metav1.CreateOptions{})
-	return err
+	if err != nil {
+		return fmt.Errorf("creating StatefulSet %s/%s: %w", ns, sts.Name, err)
+	}
+	return nil
 }
 
 // DeleteStatefulSet deletes a StatefulSet by name.
@@ -91,17 +94,23 @@ func (c *K8sClient) DeleteStatefulSet(ctx context.Context, ns, name string) erro
 func (c *K8sClient) ScaleStatefulSet(ctx context.Context, ns, name string, replicas int32) error {
 	scale, err := c.clientset.AppsV1().StatefulSets(ns).GetScale(ctx, name, metav1.GetOptions{})
 	if err != nil {
-		return err
+		return fmt.Errorf("getting scale for StatefulSet %s/%s: %w", ns, name, err)
 	}
 	scale.Spec.Replicas = replicas
 	_, err = c.clientset.AppsV1().StatefulSets(ns).UpdateScale(ctx, name, scale, metav1.UpdateOptions{})
-	return err
+	if err != nil {
+		return fmt.Errorf("scaling StatefulSet %s/%s to %d: %w", ns, name, replicas, err)
+	}
+	return nil
 }
 
 // CreateService creates a Service in the given namespace.
 func (c *K8sClient) CreateService(ctx context.Context, ns string, svc *corev1.Service) error {
 	_, err := c.clientset.CoreV1().Services(ns).Create(ctx, svc, metav1.CreateOptions{})
-	return err
+	if err != nil {
+		return fmt.Errorf("creating Service %s/%s: %w", ns, svc.Name, err)
+	}
+	return nil
 }
 
 // DeleteService deletes a Service by name.
@@ -116,7 +125,10 @@ func (c *K8sClient) DeleteService(ctx context.Context, ns, name string) error {
 // CreateConfigMap creates a ConfigMap in the given namespace.
 func (c *K8sClient) CreateConfigMap(ctx context.Context, ns string, cm *corev1.ConfigMap) error {
 	_, err := c.clientset.CoreV1().ConfigMaps(ns).Create(ctx, cm, metav1.CreateOptions{})
-	return err
+	if err != nil {
+		return fmt.Errorf("creating ConfigMap %s/%s: %w", ns, cm.Name, err)
+	}
+	return nil
 }
 
 // DeleteConfigMap deletes a ConfigMap by name.
@@ -131,7 +143,10 @@ func (c *K8sClient) DeleteConfigMap(ctx context.Context, ns, name string) error 
 // CreateSecret creates a Secret in the given namespace.
 func (c *K8sClient) CreateSecret(ctx context.Context, ns string, secret *corev1.Secret) error {
 	_, err := c.clientset.CoreV1().Secrets(ns).Create(ctx, secret, metav1.CreateOptions{})
-	return err
+	if err != nil {
+		return fmt.Errorf("creating Secret %s/%s: %w", ns, secret.Name, err)
+	}
+	return nil
 }
 
 // DeleteSecret deletes a Secret by name.
@@ -146,7 +161,10 @@ func (c *K8sClient) DeleteSecret(ctx context.Context, ns, name string) error {
 // CreateNetworkPolicy creates a NetworkPolicy in the given namespace.
 func (c *K8sClient) CreateNetworkPolicy(ctx context.Context, ns string, np *networkingv1.NetworkPolicy) error {
 	_, err := c.clientset.NetworkingV1().NetworkPolicies(ns).Create(ctx, np, metav1.CreateOptions{})
-	return err
+	if err != nil {
+		return fmt.Errorf("creating NetworkPolicy %s/%s: %w", ns, np.Name, err)
+	}
+	return nil
 }
 
 // DeleteNetworkPolicy deletes a NetworkPolicy by name.

@@ -206,12 +206,16 @@ func generateStatefulSet(name string, opts K8sResourceOpts, selectorLabels map[s
 		})
 	}
 
+	allowPrivEsc := false
 	mainContainer := corev1.Container{
 		Name:            "workspace",
 		Image:           opts.Image,
 		ImagePullPolicy: corev1.PullIfNotPresent,
 		Command:         []string{"sleep", "infinity"},
 		VolumeMounts:    volumeMounts,
+		SecurityContext: &corev1.SecurityContext{
+			AllowPrivilegeEscalation: &allowPrivEsc,
+		},
 	}
 
 	// Parse storage size.
@@ -272,8 +276,17 @@ func generateNetworkPolicy(name, ns string, labels, selectorLabels map[string]st
 	protocolUDP := corev1.ProtocolUDP
 	protocolTCP := corev1.ProtocolTCP
 
-	// DNS egress rule (always allowed).
+	// DNS egress rule: restricted to cluster DNS (10.x.x.x/8 covers standard
+	// cluster service CIDRs). This prevents DNS tunneling to external resolvers
+	// while allowing all in-cluster DNS resolution.
 	dnsRule := networkingv1.NetworkPolicyEgressRule{
+		To: []networkingv1.NetworkPolicyPeer{
+			{
+				IPBlock: &networkingv1.IPBlock{
+					CIDR: "10.0.0.0/8",
+				},
+			},
+		},
 		Ports: []networkingv1.NetworkPolicyPort{
 			{Protocol: &protocolUDP, Port: &dnsPort53UDP},
 			{Protocol: &protocolTCP, Port: &dnsPort53TCP},
