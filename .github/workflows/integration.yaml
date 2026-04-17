@@ -37,9 +37,4 @@ jobs:
 
       - name: Run integration tests
         working-directory: cc-deck
-        run: |
-          if [ -d internal/integration ]; then
-            go test -tags integration -v -timeout 5m -count=1 ./internal/integration/
-          else
-            echo "::warning::internal/integration/ not yet created (spec 016), skipping"
-          fi
+        run: go test -tags integration -v -timeout 5m -count=1 ./internal/integration/
