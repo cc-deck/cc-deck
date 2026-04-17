@@ -575,22 +575,29 @@ func runEnvCreate(gf *GlobalFlags, name string, cf *createFlags, cmd *cobra.Comm
 	}
 	allRepos = env.DeduplicateRepos(allRepos)
 
-	// Inject merged repos into the definition so the environment Create() can access them.
+	// Inject merged repos into the environment struct so Create() can access them.
 	if len(allRepos) > 0 {
-		if activeDef != nil {
-			activeDef.Repos = allRepos
-			activeDef.ExtraRemotes = extraRemotes
-			if autoDetectedRepo != nil {
-				activeDef.AutoDetectedURL = env.NormalizeURL(autoDetectedRepo.URL)
-			}
+		var autoURL string
+		if autoDetectedRepo != nil {
+			autoURL = env.NormalizeURL(autoDetectedRepo.URL)
 		}
-		// For SSH, update the stored definition with repos.
-		if envType == env.EnvironmentTypeSSH {
-			if sshDef, findErr := defs.FindByName(name); findErr == nil {
-				sshDef.Repos = allRepos
-				sshDef.ExtraRemotes = extraRemotes
-				_ = defs.Update(sshDef)
-			}
+		switch te := e.(type) {
+		case *env.SSHEnvironment:
+			te.Repos = allRepos
+			te.ExtraRemotes = extraRemotes
+			te.AutoDetectedURL = autoURL
+		case *env.ContainerEnvironment:
+			te.Repos = allRepos
+			te.ExtraRemotes = extraRemotes
+			te.AutoDetectedURL = autoURL
+		case *env.ComposeEnvironment:
+			te.Repos = allRepos
+			te.ExtraRemotes = extraRemotes
+			te.AutoDetectedURL = autoURL
+		case *env.K8sDeployEnvironment:
+			te.Repos = allRepos
+			te.ExtraRemotes = extraRemotes
+			te.AutoDetectedURL = autoURL
 		}
 	}
 
