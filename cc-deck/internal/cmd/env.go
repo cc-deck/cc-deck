@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"text/tabwriter"
@@ -121,6 +123,10 @@ type createFlags struct {
 	allowGroup     []string
 	keepVolumes    bool
 	timeout        string
+
+	// Repo cloning flags
+	repos    []string
+	branches []string
 }
 
 func newEnvCreateCmd(gf *GlobalFlags) *cobra.Command {
@@ -214,6 +220,10 @@ Environment types (--type):
 	cmd.Flags().StringSliceVar(&cf.allowGroup, "allow-group", nil, "Domain group for NetworkPolicy, repeatable (k8s-deploy)")
 	cmd.Flags().BoolVar(&cf.keepVolumes, "keep-volumes", false, "Keep PVCs when deleting (k8s-deploy)")
 	cmd.Flags().StringVar(&cf.timeout, "timeout", "", "Pod readiness timeout, e.g. 5m (k8s-deploy, default: 5m)")
+
+	// Repo cloning flags
+	cmd.Flags().StringArrayVar(&cf.repos, "repo", nil, "Git repo URL to clone into workspace, repeatable")
+	cmd.Flags().StringArrayVar(&cf.branches, "branch", nil, "Branch for the most recent --repo, repeatable")
 
 	return cmd
 }
@@ -521,6 +531,69 @@ func runEnvCreate(gf *GlobalFlags, name string, cf *createFlags, cmd *cobra.Comm
 		}
 	}
 
+	// Parse --repo/--branch flags into RepoEntries.
+	if len(cf.branches) > len(cf.repos) {
+		return fmt.Errorf("--branch requires a preceding --repo (got %d --branch but only %d --repo)", len(cf.branches), len(cf.repos))
+	}
+	var cliRepos []env.RepoEntry
+	for i, repoURL := range cf.repos {
+		entry := env.RepoEntry{URL: repoURL}
+		if i < len(cf.branches) {
+			entry.Branch = cf.branches[i]
+		}
+		cliRepos = append(cliRepos, entry)
+	}
+
+	// Auto-detect current git repo and collect extra remotes.
+	var autoDetectedRepo *env.RepoEntry
+	var extraRemotes map[string]string
+	if gitRoot, gitErr := project.FindGitRoot(cwd); gitErr == nil {
+		remotes := parseGitRemotes(cwd)
+		if originURL, ok := remotes["origin"]; ok {
+			autoDetectedRepo = &env.RepoEntry{URL: originURL}
+			// Collect non-origin remotes for post-clone configuration.
+			extraRemotes = make(map[string]string)
+			for name, url := range remotes {
+				if name != "origin" {
+					extraRemotes[name] = url
+				}
+			}
+		}
+		_ = gitRoot // Used only for detection.
+	}
+
+	// Merge repos: definition + CLI + auto-detected. Definition entries come
+	// first so they win deduplication (BR-006: explicit branch/target take
+	// precedence over auto-detected).
+	var allRepos []env.RepoEntry
+	if activeDef != nil {
+		allRepos = append(allRepos, activeDef.Repos...)
+	}
+	allRepos = append(allRepos, cliRepos...)
+	if autoDetectedRepo != nil {
+		allRepos = append(allRepos, *autoDetectedRepo)
+	}
+	allRepos = env.DeduplicateRepos(allRepos)
+
+	// Inject merged repos into the definition so the environment Create() can access them.
+	if len(allRepos) > 0 {
+		if activeDef != nil {
+			activeDef.Repos = allRepos
+			activeDef.ExtraRemotes = extraRemotes
+			if autoDetectedRepo != nil {
+				activeDef.AutoDetectedURL = env.NormalizeURL(autoDetectedRepo.URL)
+			}
+		}
+		// For SSH, update the stored definition with repos.
+		if envType == env.EnvironmentTypeSSH {
+			if sshDef, findErr := defs.FindByName(name); findErr == nil {
+				sshDef.Repos = allRepos
+				sshDef.ExtraRemotes = extraRemotes
+				_ = defs.Update(sshDef)
+			}
+		}
+	}
+
 	// Resolve image: CLI flag > project definition > config default.
 	image := cf.image
 	if image == "" && envType == env.EnvironmentTypeContainer {
@@ -543,6 +616,12 @@ func runEnvCreate(gf *GlobalFlags, name string, cf *createFlags, cmd *cobra.Comm
 	}
 	if cf.path != "" {
 		opts.Storage.HostPath = cf.path
+	}
+
+	// Warn and skip repos for local environments (FR-014).
+	if envType == env.EnvironmentTypeLocal && activeDef != nil && len(activeDef.Repos) > 0 {
+		log.Printf("WARNING: repos are not supported for local environments; ignoring %d repo(s)", len(activeDef.Repos))
+		activeDef.Repos = nil
 	}
 
 	if err := e.Create(cmd_context(), opts); err != nil {
@@ -1715,4 +1794,32 @@ func addToGroup(parent *cobra.Command, groupID string, cmds ...*cobra.Command) {
 // cmd_context returns a background context for CLI operations.
 func cmd_context() context.Context {
 	return context.Background()
+}
+
+// parseGitRemotes runs "git remote -v" in the given directory and returns
+// a map of remote names to fetch URLs.
+func parseGitRemotes(dir string) map[string]string {
+	cmd := exec.CommandContext(context.Background(), "git", "-C", dir, "remote", "-v")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+
+	remotes := make(map[string]string)
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// Format: "origin\thttps://github.com/org/repo.git (fetch)"
+		// Only use fetch entries.
+		if !strings.HasSuffix(line, "(fetch)") {
+			continue
+		}
+		parts := strings.Fields(line)
+		if len(parts) >= 2 {
+			remotes[parts[0]] = parts[1]
+		}
+	}
+	return remotes
 }
