@@ -7,4 +7,5 @@
 * xref:kubernetes.adoc[Kubernetes]
 * xref:k8s-deploy.adoc[K8s Deploy Environment]
 * xref:network-filtering.adoc[Network Filtering]
+* xref:workspace-repos.adoc[Workspace Repos]
 * xref:credentials.adoc[Credentials]

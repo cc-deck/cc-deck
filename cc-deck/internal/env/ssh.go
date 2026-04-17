@@ -110,6 +110,30 @@ func (e *SSHEnvironment) Create(ctx context.Context, _ CreateOpts) error {
 	if _, mkErr := client.Run(ctx, fmt.Sprintf("mkdir -p %q", workspace)); mkErr != nil {
 		return fmt.Errorf("creating workspace directory: %w", mkErr)
 	}
+	// Clone repos into workspace if defined.
+	if len(def.Repos) > 0 {
+		creds := loadActiveGitCredentials()
+		if creds != nil && creds.Type == "ssh" {
+			client.AgentForwarding = true
+		}
+		sshRunner := func(ctx2 context.Context, cmd string) (string, error) {
+			return client.Run(ctx2, cmd)
+		}
+		fmt.Fprintf(os.Stderr, "Cloning %d repo(s) into %s...\n", len(def.Repos), workspace)
+		cloneRepos(ctx, sshRunner, def.Repos, workspace, creds, def.ExtraRemotes, def.AutoDetectedURL)
+
+		// FR-012: Set workspace to auto-detected repo's directory so Zellij
+		// opens in the right place.
+		if def.AutoDetectedURL != "" {
+			for _, r := range def.Repos {
+				if NormalizeURL(r.URL) == def.AutoDetectedURL {
+					workspace = workspace + "/" + TargetDir(r)
+					break
+				}
+			}
+		}
+	}
+
 	inst := &EnvironmentInstance{
 		Name:      e.name,
 		Type:      EnvironmentTypeSSH,

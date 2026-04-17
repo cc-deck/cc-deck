@@ -29,6 +29,17 @@ func Exec(ctx context.Context, nameOrID string, cmd []string, interactive bool) 
 	return c.Run()
 }
 
+// ExecOutput runs a command inside a container and returns its stdout.
+func ExecOutput(ctx context.Context, nameOrID string, cmd string) (string, error) {
+	args := []string{"exec", nameOrID, "sh", "-c", cmd}
+	c := exec.CommandContext(ctx, "podman", args...)
+	out, err := c.Output()
+	if err != nil {
+		return "", fmt.Errorf("podman exec: %w", err)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
 // Cp copies files between a container and the local filesystem.
 func Cp(ctx context.Context, src, dst string) error {
 	// Resolve symlinks in local paths (e.g., /tmp -> /private/tmp on macOS)

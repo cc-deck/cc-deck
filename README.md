@@ -42,6 +42,10 @@ Capture once, then build for either target (or both) from the same manifest. Aft
 
 When deploying containerized sessions, cc-deck can restrict outbound network access to only the domains your project needs. Domain groups (python, nodejs, rust, golang, github, and more) let you describe allowed domains by ecosystem instead of listing individual hosts. A tinyproxy sidecar enforces the allowlist in Podman deployments, while NetworkPolicy and EgressFirewall resources handle Kubernetes and OpenShift.
 
+### Workspace Repository Provisioning
+
+When creating a remote environment, cc-deck can automatically clone git repositories into the workspace. Declare repos in the environment definition or pass them via `--repo` flags. Running `env create` inside a git repository auto-detects the current project and includes it in the clone list. Credentials are transported via SSH agent forwarding or token injection with post-clone cleanup, depending on the environment type. Up to four repos are cloned in parallel, and the operation is fully idempotent.
+
 ### Multi-Platform
 
 Run cc-deck locally with Zellij, in Podman containers with mounted source code, or on Kubernetes clusters with persistent StatefulSet-backed workspaces. OpenShift is detected automatically and generates Routes and EgressFirewall resources. The sidebar experience is the same everywhere.
@@ -506,3 +510,4 @@ cc-deck follows [Spec-Driven Development](CONTRIBUTING.md#spec-driven-developmen
 | [034](specs/034-unified-setup-command/) | Unified Setup Command | Single `cc-deck setup` command with shared manifest, Claude Code slash commands, and Ansible-based SSH provisioning | Planned |
 | [036](specs/036-setup-run-command/) | Setup Run Command | `cc-deck setup run` executes pre-generated build artifacts (container build or Ansible playbook) directly from the CLI | Implemented |
 | [037](specs/037-env-lifecycle-fixes/) | Environment Lifecycle Fixes | Fix type resolution for global definitions, SSH delete cleanup, SOURCE column in list, `--global`/`--local` flags | In Progress |
+| [038](specs/038-workspace-repos/) | Workspace Repos | Auto-clone git repos into remote workspaces during `env create`, with credential transport and CLI flags | In Progress |

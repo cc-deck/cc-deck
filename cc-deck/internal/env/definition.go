@@ -33,6 +33,9 @@ type EnvironmentDefinition struct {
 	JumpHost       string            `yaml:"jump-host,omitempty"`       // Bastion/jump host
 	SSHConfig      string            `yaml:"ssh-config,omitempty"`      // Custom SSH config file
 	Workspace      string            `yaml:"workspace,omitempty"`       // Remote workspace directory
+	Repos          []RepoEntry       `yaml:"repos,omitempty"`           // Git repos to clone into workspace
+	ExtraRemotes   map[string]string `yaml:"-"`                         // Transient: additional remotes for auto-detected repo
+	AutoDetectedURL string           `yaml:"-"`                         // Transient: normalized URL of auto-detected repo
 
 	// k8s-deploy fields
 	Namespace    string `yaml:"namespace,omitempty"`     // K8s namespace
