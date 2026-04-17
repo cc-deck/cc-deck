@@ -86,6 +86,16 @@ func (e *K8sDeployEnvironment) Create(ctx context.Context, opts CreateOpts) erro
 		return fmt.Errorf("kubectl not found in PATH: %w", ErrKubectlNotFound)
 	}
 
+	// Fail fast if ESO parameters are incomplete.
+	if e.SecretStore != "" {
+		if e.SecretStoreRef == "" {
+			return fmt.Errorf("--secret-store-ref is required when --secret-store is specified")
+		}
+		if e.SecretPath == "" {
+			return fmt.Errorf("--secret-path is required when --secret-store is specified")
+		}
+	}
+
 	// Fail fast if an environment with this name already exists.
 	if _, err := e.store.FindInstanceByName(e.name); err == nil {
 		return fmt.Errorf("instance %q: %w", e.name, ErrNameConflict)
@@ -131,6 +141,11 @@ func (e *K8sDeployEnvironment) Create(ctx context.Context, opts CreateOpts) erro
 	}
 	if authMode != AuthModeNone {
 		DetectAuthCredentials(authMode, creds)
+	}
+
+	// Check ESO CRD availability (parameter validation done earlier).
+	if e.SecretStore != "" && !client.HasAPIGroup("external-secrets.io/v1") {
+		return fmt.Errorf("External Secrets Operator is not installed on this cluster (external-secrets.io API group not found)")
 	}
 
 	// Resolve allowed domains for NetworkPolicy.
