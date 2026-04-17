@@ -532,7 +532,7 @@ cc-deck env create mydev --type container --port 8080:80
 
 | `--credential`
 |
-| Credential as `KEY=VALUE`, repeatable (container, compose)
+| Credential as `KEY=VALUE`, repeatable (container, compose, k8s-deploy)
 
 | `--mount`
 |
@@ -540,7 +540,7 @@ cc-deck env create mydev --type container --port 8080:80
 
 | `--auth`
 |
-| Auth mode: `auto` (default), `none`, `api`, `vertex`, `bedrock` (container, compose, ssh)
+| Auth mode: `auto` (default), `none`, `api`, `vertex`, `bedrock` (container, compose, ssh, k8s-deploy)
 
 | `--allowed-domains`
 |
@@ -581,6 +581,66 @@ cc-deck env create mydev --type container --port 8080:80
 | `--local`
 |
 | Force resolution from project-local definition (mutually exclusive with `--global`)
+
+| `--namespace`
+| `-n`
+| Kubernetes namespace (k8s-deploy)
+
+| `--kubeconfig`
+|
+| Path to kubeconfig file (k8s-deploy)
+
+| `--context`
+|
+| Kubeconfig context name (k8s-deploy)
+
+| `--storage-size`
+|
+| PVC storage size, e.g. `10Gi` (k8s-deploy, default: `10Gi`)
+
+| `--storage-class`
+|
+| Kubernetes StorageClass name (k8s-deploy)
+
+| `--existing-secret`
+|
+| Reference to pre-existing K8s Secret for credentials (k8s-deploy)
+
+| `--secret-store`
+|
+| External Secrets Operator SecretStore type (k8s-deploy)
+
+| `--secret-store-ref`
+|
+| External Secrets Operator SecretStore name (k8s-deploy)
+
+| `--secret-path`
+|
+| External Secrets Operator secret path (k8s-deploy)
+
+| `--build-dir`
+|
+| Build directory containing `cc-deck-image.yaml` for MCP sidecar generation (k8s-deploy)
+
+| `--no-network-policy`
+|
+| Skip NetworkPolicy creation (k8s-deploy)
+
+| `--allow-domain`
+|
+| Additional allowed domain for NetworkPolicy, repeatable (k8s-deploy)
+
+| `--allow-group`
+|
+| Domain group for NetworkPolicy, repeatable (k8s-deploy)
+
+| `--keep-volumes`
+|
+| Preserve PVCs when deleting (k8s-deploy)
+
+| `--timeout`
+|
+| Pod readiness timeout, e.g. `5m` (k8s-deploy, default: `5m`)
 |===
 
 ==== env attach
