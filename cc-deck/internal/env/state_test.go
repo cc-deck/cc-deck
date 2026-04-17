@@ -254,3 +254,52 @@ func TestVersionField(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 2, state.Version)
 }
+
+func TestAllProjectEnvironmentNames(t *testing.T) {
+	store := newTestStore(t)
+
+	// Resolve symlinks (macOS /var -> /private/var) to match RegisterProject behavior.
+	resolve := func(p string) string {
+		r, err := filepath.EvalSymlinks(p)
+		if err != nil {
+			return p
+		}
+		return r
+	}
+
+	projA := resolve(t.TempDir())
+	projB := resolve(t.TempDir())
+	projC := resolve(t.TempDir())
+
+	require.NoError(t, SaveProjectDefinition(projA, &EnvironmentDefinition{Name: "alpha", Type: EnvironmentTypeCompose}))
+	require.NoError(t, SaveProjectDefinition(projB, &EnvironmentDefinition{Name: "beta", Type: EnvironmentTypeCompose}))
+	require.NoError(t, SaveProjectDefinition(projC, &EnvironmentDefinition{Name: "gamma", Type: EnvironmentTypeCompose}))
+
+	require.NoError(t, store.RegisterProject(projA))
+	require.NoError(t, store.RegisterProject(projB))
+	require.NoError(t, store.RegisterProject(projC))
+
+	t.Run("all projects", func(t *testing.T) {
+		names, err := store.AllProjectEnvironmentNames("")
+		require.NoError(t, err)
+		assert.Len(t, names, 3)
+		assert.Equal(t, projA, names["alpha"])
+		assert.Equal(t, projB, names["beta"])
+		assert.Equal(t, projC, names["gamma"])
+	})
+
+	t.Run("exclude one project", func(t *testing.T) {
+		names, err := store.AllProjectEnvironmentNames(projB)
+		require.NoError(t, err)
+		assert.Len(t, names, 2)
+		_, hasBeta := names["beta"]
+		assert.False(t, hasBeta)
+	})
+
+	t.Run("missing project path skipped", func(t *testing.T) {
+		require.NoError(t, store.RegisterProject("/nonexistent/path"))
+		names, err := store.AllProjectEnvironmentNames("")
+		require.NoError(t, err)
+		assert.Len(t, names, 3)
+	})
+}

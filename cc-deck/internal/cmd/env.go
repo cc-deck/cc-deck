@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -276,6 +277,16 @@ func runEnvCreate(gf *GlobalFlags, name string, cf *createFlags, cmd *cobra.Comm
 		if globalDef, globalErr := defs.FindByName(name); globalErr == nil {
 			fmt.Fprintf(os.Stderr, "WARNING: Project-local definition shadows global definition %q (type: %s)\n",
 				globalDef.Name, globalDef.Type)
+		}
+	}
+
+	// Check for cross-project name collisions before scaffolding.
+	if projectRoot != "" {
+		canonRoot := project.CanonicalPath(projectRoot)
+		if others, lookupErr := store.AllProjectEnvironmentNames(canonRoot); lookupErr == nil {
+			if otherPath, dup := others[name]; dup {
+				return fmt.Errorf("environment %q already defined in project %s", name, otherPath)
+			}
 		}
 	}
 
@@ -617,6 +628,21 @@ func runEnvDelete(name string, force bool, keepVolumes bool) error {
 			return nil
 		}
 
+		// Search project-local definitions from the project registry.
+		if projectNames, lookupErr := store.AllProjectEnvironmentNames(""); lookupErr == nil {
+			if projPath, found := projectNames[name]; found {
+				defPath := filepath.Join(projPath, ".cc-deck", "environment.yaml")
+				if rmErr := os.Remove(defPath); rmErr != nil {
+					return fmt.Errorf("removing project definition %s: %w", defPath, rmErr)
+				}
+				statusPath := filepath.Join(projPath, ".cc-deck", "status.yaml")
+				_ = os.Remove(statusPath)
+				_ = store.UnregisterProject(projPath)
+				fmt.Fprintf(os.Stdout, "Environment %q project definition removed (from %s)\n", name, projPath)
+				return nil
+			}
+		}
+
 		return err
 	}
 
@@ -653,6 +679,7 @@ type worktreeListEntry struct {
 func newListCmdCore(gf *GlobalFlags) *cobra.Command {
 	var filterType string
 	var showWorktrees bool
+	var verbose bool
 
 	cmd := &cobra.Command{
 		Use:     "list",
@@ -663,12 +690,13 @@ Shows both global and project-local environments in a unified view.
 Project paths and MISSING status are shown for registered projects.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runEnvList(gf, filterType, showWorktrees)
+			return runEnvList(gf, filterType, showWorktrees, verbose)
 		},
 	}
 
 	cmd.Flags().StringVarP(&filterType, "type", "t", "", "Filter by environment type")
 	cmd.Flags().BoolVarP(&showWorktrees, "worktrees", "w", false, "Show git worktrees within each project")
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show additional columns (PATH)")
 
 	return cmd
 }
@@ -677,7 +705,7 @@ func newEnvListCmd(gf *GlobalFlags) *cobra.Command {
 	return newListCmdCore(gf)
 }
 
-func runEnvList(gf *GlobalFlags, filterType string, showWorktrees bool) error {
+func runEnvList(gf *GlobalFlags, filterType string, showWorktrees bool, verbose bool) error {
 	store := env.NewStateStore("")
 	defs := env.NewDefinitionStore("")
 
@@ -713,6 +741,7 @@ func runEnvList(gf *GlobalFlags, filterType string, showWorktrees bool) error {
 
 	// Collect project-local environments from the global registry (FR-006, FR-012).
 	var projectEnvs []projectListEntry
+	seenProjectNames := make(map[string]bool)
 	projects, _ := store.ListProjects()
 	for _, p := range projects {
 		if _, statErr := os.Stat(p.Path); statErr != nil {
@@ -732,10 +761,11 @@ func runEnvList(gf *GlobalFlags, filterType string, showWorktrees bool) error {
 		if filterType != "" && string(def.Type) != filterType {
 			continue
 		}
-		// Skip if already shown via global state.
-		if instanceNames[def.Name] {
+		// Skip if already shown via global state or another project.
+		if instanceNames[def.Name] || seenProjectNames[def.Name] {
 			continue
 		}
+		seenProjectNames[def.Name] = true
 		statusStore := env.NewProjectStatusStore(p.Path)
 		status, _ := statusStore.Load()
 		state := "not created"
@@ -776,7 +806,7 @@ func runEnvList(gf *GlobalFlags, filterType string, showWorktrees bool) error {
 	case "json", "yaml":
 		return writeEnvStructured(gf.Output, instances, allDefs, instanceNames, filterType, defs, projectEnvs)
 	default:
-		return writeEnvTableWithProjects(instances, allDefs, instanceNames, filterType, projectEnvs, worktrees, defs)
+		return writeEnvTableWithProjects(instances, allDefs, instanceNames, filterType, projectEnvs, worktrees, defs, verbose)
 	}
 }
 
@@ -788,6 +818,7 @@ type envListEntry struct {
 	Source       string `json:"source" yaml:"source"`
 	Storage      string `json:"storage,omitempty" yaml:"storage,omitempty"`
 	Image        string `json:"image,omitempty" yaml:"image,omitempty"`
+	Path         string `json:"path,omitempty" yaml:"path,omitempty"`
 	LastAttached string `json:"last_attached,omitempty" yaml:"last_attached,omitempty"`
 	Age          string `json:"age,omitempty" yaml:"age,omitempty"`
 }
@@ -862,6 +893,7 @@ func writeEnvStructured(format string, instances []*env.EnvironmentInstance, all
 			Type:   string(pe.Type),
 			State:  pe.Status,
 			Source: "project",
+			Path:   pe.Path,
 		})
 	}
 
@@ -876,15 +908,47 @@ func writeEnvStructured(format string, instances []*env.EnvironmentInstance, all
 }
 
 // writeEnvTableWithProjects writes the env list table with project-local entries.
-func writeEnvTableWithProjects(instances []*env.EnvironmentInstance, allDefs []*env.EnvironmentDefinition, instanceNames map[string]bool, filterType string, projectEnvs []projectListEntry, worktrees []worktreeListEntry, defs *env.DefinitionStore) error {
+func writeEnvTableWithProjects(instances []*env.EnvironmentInstance, allDefs []*env.EnvironmentDefinition, instanceNames map[string]bool, filterType string, projectEnvs []projectListEntry, worktrees []worktreeListEntry, defs *env.DefinitionStore, verbose bool) error {
 	sourceMap := buildSourceMap(defs, projectEnvs)
+
+	// Build path map from project-local entries for all environments.
+	pathMap := make(map[string]string)
+	for _, pe := range projectEnvs {
+		pathMap[pe.Name] = pe.Path
+	}
+	store := env.NewStateStore("")
+	if projNames, err := store.AllProjectEnvironmentNames(""); err == nil {
+		for name, path := range projNames {
+			if _, exists := pathMap[name]; !exists {
+				pathMap[name] = path
+			}
+		}
+	}
+	globalConfigDir := filepath.Dir(env.DefaultDefinitionPath())
+
 	tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 
-	fmt.Fprintln(tw, "NAME\tTYPE\tSTATUS\tSOURCE\tSTORAGE\tLAST ATTACHED\tAGE")
+	header := "NAME\tTYPE\tSTATUS\tSOURCE\tSTORAGE\tLAST ATTACHED\tAGE"
+	if verbose {
+		header += "\tPATH"
+	}
+	fmt.Fprintln(tw, header)
+
+	homeDir, _ := os.UserHomeDir()
+	shortenPath := func(p string) string {
+		if homeDir != "" && strings.HasPrefix(p, homeDir) {
+			return "~" + p[len(homeDir):]
+		}
+		return p
+	}
 
 	hasEntries := false
-	printRow := func(name string, envType, state, source, storage, lastAttached, age string) {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", name, envType, state, source, storage, lastAttached, age)
+	printRow := func(name string, envType, state, source, storage, lastAttached, age, path string) {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s", name, envType, state, source, storage, lastAttached, age)
+		if verbose {
+			fmt.Fprintf(tw, "\t%s", shortenPath(path))
+		}
+		fmt.Fprint(tw, "\n")
 		hasEntries = true
 	}
 
@@ -905,8 +969,12 @@ func writeEnvTableWithProjects(instances []*env.EnvironmentInstance, allDefs []*
 		} else if inst.SSH != nil {
 			storage = "-"
 		}
+		path := globalConfigDir
+		if p, ok := pathMap[inst.Name]; ok {
+			path = p
+		}
 		printRow(inst.Name, string(instType), string(inst.State), sourceMap[inst.Name], storage,
-			formatRelativeTime(inst.LastAttached), formatDuration(time.Since(inst.CreatedAt)))
+			formatRelativeTime(inst.LastAttached), formatDuration(time.Since(inst.CreatedAt)), path)
 	}
 
 	// Global definitions without instances as "not created".
@@ -924,17 +992,17 @@ func writeEnvTableWithProjects(instances []*env.EnvironmentInstance, allDefs []*
 		if d.Storage != nil {
 			storage = string(d.Storage.Type)
 		}
-		printRow(d.Name, string(d.Type), "not created", "global", storage, "never", "-")
+		printRow(d.Name, string(d.Type), "not created", "global", storage, "never", "-", globalConfigDir)
 	}
 
 	// Project-local environments (FR-012, FR-008).
 	for _, pe := range projectEnvs {
-		printRow(pe.Name, string(pe.Type), pe.Status, "project", "-", "-", "-")
+		printRow(pe.Name, string(pe.Type), pe.Status, "project", "-", "-", "-", pe.Path)
 	}
 
 	// Worktree sub-entries (FR-020).
 	for _, wt := range worktrees {
-		printRow("  "+wt.Branch, "", "", "", "", "", "")
+		printRow("  "+wt.Branch, "", "", "", "", "", "", "")
 	}
 
 	if !hasEntries {

@@ -594,7 +594,7 @@ func TestWriteEnvTableWithProjects_HasSourceNoPath(t *testing.T) {
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	err := writeEnvTableWithProjects(nil, nil, map[string]bool{}, "", projectEnvs, nil, defs)
+	err := writeEnvTableWithProjects(nil, nil, map[string]bool{}, "", projectEnvs, nil, defs, false)
 	require.NoError(t, err)
 
 	w.Close()
