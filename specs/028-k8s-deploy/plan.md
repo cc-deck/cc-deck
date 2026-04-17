@@ -27,7 +27,7 @@ Implement `K8sDeployEnvironment`, a new backend for the existing `Environment` i
 4. **NetworkPolicy IPs**: Point-in-time resolution at create time; no automatic refresh (matches compose proxy behavior)
 5. **Git harvest**: Use git's `ext::kubectl exec -i <pod> -- %S /workspace` remote helper protocol
 6. **Image pull auth**: Cluster-level concern; not cc-deck's responsibility
-7. **OpenShift Route**: Generated only when OpenShift detected AND web port specified; targets headless Service
+7. **OpenShift Route**: Generated when OpenShift detected; targets headless Service
 8. **Stub image**: Alpine + sleep infinity + fake zellij (matching existing Containerfile.stub)
 9. **K8s API**: client-go for CRUD operations; kubectl exec (via os/exec) for interactive attach and file sync
 10. **Manifest file name**: `cc-deck-image.yaml` (not `cc-deck-build.yaml`); loaded via `build.LoadManifest()`

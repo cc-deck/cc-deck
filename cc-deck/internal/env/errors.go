@@ -38,4 +38,8 @@ var (
 	// ErrSSHNotFound indicates that the ssh binary could not be
 	// located in PATH.
 	ErrSSHNotFound = errors.New("ssh binary not found in PATH")
+
+	// ErrKubectlNotFound indicates that the kubectl binary could not be
+	// located in PATH.
+	ErrKubectlNotFound = errors.New("kubectl binary not found in PATH")
 )

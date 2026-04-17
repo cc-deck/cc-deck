@@ -5,5 +5,6 @@
 * xref:compose-env.adoc[Compose Environments]
 * xref:ssh-environments.adoc[SSH Environments]
 * xref:kubernetes.adoc[Kubernetes]
+* xref:k8s-deploy.adoc[K8s Deploy Environment]
 * xref:network-filtering.adoc[Network Filtering]
 * xref:credentials.adoc[Credentials]

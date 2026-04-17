@@ -1,0 +1,239 @@
+= Kubernetes Deploy Environment
+:navtitle: K8s Deploy
+:description: Persistent Kubernetes workspaces with StatefulSet-backed storage, credential management, and network filtering.
+
+What if your Claude Code session could run on a remote Kubernetes cluster with the same persistent workspace you expect locally?
+The `k8s-deploy` environment type does exactly that.
+Each environment uses a StatefulSet with a PersistentVolumeClaim for stable storage, similar to how a local named volume preserves your work across container restarts.
+You access the workspace through `kubectl exec`, and your files, git history, and installed tools persist across sessions.
+
+== Quick Start
+
+Create a persistent environment on your cluster:
+
+[source,bash]
+----
+cc-deck env create my-project \
+  --type k8s-deploy \
+  --namespace cc-deck \
+  --credential ANTHROPIC_API_KEY=sk-ant-...
+----
+
+cc-deck creates a StatefulSet, headless Service, ConfigMap, PVC with 10Gi default, credential Secret, and NetworkPolicy in the `cc-deck` namespace.
+
+Attach to work inside it:
+
+[source,bash]
+----
+cc-deck env attach my-project
+----
+
+Stop and resume later.
+Your workspace persists because the PVC retains data across Pod restarts:
+
+[source,bash]
+----
+cc-deck env stop my-project
+cc-deck env start my-project
+cc-deck env attach my-project
+----
+
+Delete when done:
+
+[source,bash]
+----
+cc-deck env delete my-project --force
+----
+
+== Credentials
+
+cc-deck mounts all credentials at `/run/secrets/cc-deck/` as files, never as environment variables.
+
+=== Inline Credentials
+
+Pass credentials directly at creation time.
+cc-deck creates a Kubernetes Secret and mounts it into the workspace.
+
+[source,bash]
+----
+cc-deck env create my-project \
+  --type k8s-deploy \
+  --namespace cc-deck \
+  --credential ANTHROPIC_API_KEY=sk-ant-... \
+  --credential GH_TOKEN=ghp_...
+----
+
+cc-deck deletes inline Secrets when you delete the environment.
+
+=== Existing Secret
+
+Reference a pre-existing Kubernetes Secret managed by your team.
+cc-deck does not create a new Secret, and it preserves the referenced Secret when you delete the environment.
+
+[source,bash]
+----
+cc-deck env create my-project \
+  --type k8s-deploy \
+  --namespace cc-deck \
+  --existing-secret my-team-api-keys
+----
+
+=== External Secrets Operator
+
+For teams using a centralized vault, generate an ExternalSecret CR that syncs credentials from an external secret management system.
+
+[source,bash]
+----
+cc-deck env create my-project \
+  --type k8s-deploy \
+  --namespace cc-deck \
+  --secret-store vault \
+  --secret-store-ref my-vault \
+  --secret-path secret/data/cc-deck/anthropic
+----
+
+cc-deck checks for ESO CRDs before generating resources.
+If the External Secrets Operator is not installed, cc-deck reports a clear error.
+
+== Network Filtering
+
+By default, cc-deck generates a deny-all egress NetworkPolicy with allowlisted domains.
+Domain resolution uses `net.LookupHost()` at creation time, producing a point-in-time IP snapshot.
+
+=== Adding Allowed Domains
+
+You can extend the default allowlist with additional domains or domain groups.
+The `--allow-domain` and `--allow-group` flags accept the same values as compose environments:
+
+[source,bash]
+----
+cc-deck env create my-project \
+  --type k8s-deploy \
+  --namespace cc-deck \
+  --allow-domain github.com \
+  --allow-group nodejs \
+  --credential ANTHROPIC_API_KEY=sk-ant-...
+----
+
+=== Disabling Network Policy
+
+[source,bash]
+----
+cc-deck env create my-project \
+  --type k8s-deploy \
+  --namespace cc-deck \
+  --no-network-policy \
+  --credential ANTHROPIC_API_KEY=sk-ant-...
+----
+
+== MCP Sidecar Containers
+
+When you specify `--build-dir`, cc-deck reads the build manifest (`cc-deck-image.yaml`) and generates sidecar containers for each MCP server entry that has an `image` field.
+Sidecars share the Pod network namespace, so the main workspace container reaches them via `localhost`.
+
+[source,bash]
+----
+cc-deck env create my-project \
+  --type k8s-deploy \
+  --namespace cc-deck \
+  --build-dir ./my-project \
+  --credential ANTHROPIC_API_KEY=sk-ant-... \
+  --credential GH_TOKEN=ghp_...
+----
+
+== OpenShift Compatibility
+
+On OpenShift clusters, cc-deck automatically detects platform-specific APIs and generates additional resources:
+
+* **Route** (from `route.openshift.io/v1`): cc-deck creates a Route for web access, targeting the headless Service.
+* **EgressFirewall** (from `k8s.ovn.org/v1`): cc-deck creates an EgressFirewall with rules consistent with the NetworkPolicy egress configuration.
+
+You do not need any special flags.
+cc-deck detects OpenShift automatically via the Kubernetes discovery API.
+
+== File Synchronization
+
+=== Push Files
+
+Transfer local files into the environment via tar-over-exec:
+
+[source,bash]
+----
+cc-deck env push my-project ./src
+----
+
+Or push a git repository:
+
+[source,bash]
+----
+cc-deck env push my-project --git
+----
+
+=== Pull Files
+
+Transfer files from the environment to your local machine:
+
+[source,bash]
+----
+cc-deck env pull my-project /workspace/results ./local-results
+----
+
+=== Harvest Git Commits
+
+Extract the agent's git commits using the `ext::kubectl exec` remote helper:
+
+[source,bash]
+----
+cc-deck env harvest my-project -b agent-work
+cc-deck env harvest my-project -b agent-work --pr
+----
+
+== Storage Configuration
+
+The default PVC size is 10Gi.
+You can customize the storage size and StorageClass:
+
+[source,bash]
+----
+cc-deck env create my-project \
+  --type k8s-deploy \
+  --namespace cc-deck \
+  --storage-size 50Gi \
+  --storage-class fast-ssd \
+  --credential ANTHROPIC_API_KEY=sk-ant-...
+----
+
+Use `--keep-volumes` with `env delete` to preserve the PVC for potential reuse:
+
+[source,bash]
+----
+cc-deck env delete my-project --force --keep-volumes
+----
+
+== Timeouts
+
+Pod readiness timeout defaults to 5 minutes.
+For resource-constrained clusters, increase it:
+
+[source,bash]
+----
+cc-deck env create my-project \
+  --type k8s-deploy \
+  --namespace cc-deck \
+  --timeout 10m \
+  --credential ANTHROPIC_API_KEY=sk-ant-...
+----
+
+== Prerequisites
+
+* `kubectl` configured with access to a Kubernetes cluster
+* A namespace where you have permissions to create StatefulSets, Services, Secrets, and PVCs
+* A cc-deck container image accessible from the cluster
+* For ESO integration: External Secrets Operator and a SecretStore pre-configured by the cluster administrator
+* For OpenShift features: permissions to create Routes and EgressFirewalls
+
+[NOTE]
+====
+Image pull authentication is a cluster-level concern.
+The cluster administrator must configure private registry access before you create k8s-deploy environments.
+====
