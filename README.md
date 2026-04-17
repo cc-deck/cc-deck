@@ -44,7 +44,7 @@ When deploying containerized sessions, cc-deck can restrict outbound network acc
 
 ### Multi-Platform
 
-Run cc-deck locally with Zellij or in Podman containers with mounted source code. Kubernetes support (Deployments and OpenShift) is planned. The sidebar experience is the same everywhere.
+Run cc-deck locally with Zellij, in Podman containers with mounted source code, or on Kubernetes clusters with persistent StatefulSet-backed workspaces. OpenShift is detected automatically and generates Routes and EgressFirewall resources. The sidebar experience is the same everywhere.
 
 ## Install
 
@@ -499,6 +499,7 @@ cc-deck follows [Spec-Driven Development](CONTRIBUTING.md#spec-driven-developmen
 | [025](specs/025-compose-env/) | Compose Environment | Multi-container orchestration via `podman-compose`, optional network filtering | In Progress |
 | [026](specs/026-project-local-config/) | Project-Local Config | `.cc-deck/` directory with shareable definitions, implicit name resolution, workspace support | Implemented |
 | [027](specs/027-cli-restructuring/) | CLI Command Restructuring | Promote daily commands to top level, remove legacy K8s commands, organize help groups | In Progress |
+| [028](specs/028-k8s-deploy/) | K8s Deploy Environment | Persistent Kubernetes workspaces with StatefulSet, credentials, NetworkPolicy, MCP sidecars, OpenShift | Implemented |
 | [030](specs/030-single-instance-arch/) | Single Instance Architecture | Controller + sidebar plugin split for scalable multi-tab performance | Implemented |
 | [031](specs/031-single-binary-merge/) | Single Binary Merge | Merge controller + sidebar into one WASM binary with runtime mode selection | Implemented |
 | [033](specs/033-ssh-environment/) | SSH Remote Execution | Remote Zellij sessions over SSH with pre-flight bootstrap, credential forwarding, and file sync | In Progress |

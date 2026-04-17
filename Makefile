@@ -30,7 +30,7 @@ CLI_LDFLAGS = -X github.com/cc-deck/cc-deck/internal/cmd.Version=$(VERSION)+$(GI
               -X github.com/cc-deck/cc-deck/internal/cmd.ImageRegistry=$(REGISTRY)
 
 .PHONY: build build-wasm build-wasm-debug copy-wasm build-cli cross-cli \
-        test test-go test-rust test-e2e test-compose smoke lint lint-go lint-rust \
+        test test-go test-rust test-e2e test-compose test-integration smoke lint lint-go lint-rust \
         install uninstall status \
         test-image demo-image demo-image-push base-image base-image-push \
         demo-setup demo-record demo-gif demo-mp4 demo-clean \
@@ -81,6 +81,9 @@ test-e2e: build  ## Run E2E tests (builds binary, runs as subprocess)
 
 test-compose:  ## Run compose smoke tests (requires podman + podman-compose)
 	cd cc-deck && go test -run "TestComposeSmoke" -v -count=1 -timeout 300s ./internal/cmd/
+
+test-integration:  ## Run K8s integration tests (requires kind cluster named cc-deck-test)
+	cd cc-deck && go test -tags integration -v -timeout 5m -count=1 ./internal/integration/
 
 smoke: build  ## Run smoke test script against compiled binary
 	./scripts/smoke-test-env.sh

@@ -114,7 +114,15 @@ func TestNewEnvironment_Container(t *testing.T) {
 
 func TestNewEnvironment_UnimplementedType(t *testing.T) {
 	store := newTestStore(t)
-	_, err := NewEnvironment("k8s-deploy", "test", store, nil)
+	_, err := NewEnvironment("k8s-sandbox", "test", store, nil)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, ErrNotImplemented))
+}
+
+func TestNewEnvironment_K8sDeploy(t *testing.T) {
+	store := newTestStore(t)
+	e, err := NewEnvironment("k8s-deploy", "test", store, nil)
+	require.NoError(t, err)
+	assert.Equal(t, EnvironmentTypeK8sDeploy, e.Type())
+	assert.Equal(t, "test", e.Name())
 }
