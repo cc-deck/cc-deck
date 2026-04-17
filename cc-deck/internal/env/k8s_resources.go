@@ -207,10 +207,11 @@ func generateStatefulSet(name string, opts K8sResourceOpts, selectorLabels map[s
 	}
 
 	mainContainer := corev1.Container{
-		Name:         "workspace",
-		Image:        opts.Image,
-		Command:      []string{"sleep", "infinity"},
-		VolumeMounts: volumeMounts,
+		Name:            "workspace",
+		Image:           opts.Image,
+		ImagePullPolicy: corev1.PullIfNotPresent,
+		Command:         []string{"sleep", "infinity"},
+		VolumeMounts:    volumeMounts,
 	}
 
 	// Parse storage size.
