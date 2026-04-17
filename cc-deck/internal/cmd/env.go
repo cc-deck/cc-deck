@@ -348,7 +348,7 @@ func runEnvCreate(gf *GlobalFlags, name string, cf *createFlags, cmd *cobra.Comm
 			return fmt.Errorf("scaffolding project definition: %w", err)
 		}
 		projDef = scaffoldDef
-		fmt.Fprintf(os.Stderr, "Created .cc-deck/environment.yaml in %s\n", projectRoot)
+		fmt.Fprintf(os.Stderr, "Created %s/.cc-deck/environment.yaml\n", projectRoot)
 		if _, gitErr := project.FindGitRoot(projectRoot); gitErr == nil {
 			fmt.Fprintf(os.Stderr, "Commit .cc-deck/ to share the definition with your team.\n")
 		}
