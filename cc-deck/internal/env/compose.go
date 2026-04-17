@@ -37,6 +37,10 @@ type ComposeEnvironment struct {
 	AllowedDomains []string
 	ProjectDir     string
 	Gitignore      bool
+
+	Repos           []RepoEntry
+	ExtraRemotes    map[string]string
+	AutoDetectedURL string
 }
 
 // Type returns EnvironmentTypeCompose.
@@ -289,6 +293,18 @@ func (e *ComposeEnvironment) Create(ctx context.Context, opts CreateOpts) error 
 	if err := e.composeUp(ctx, runtime); err != nil {
 		e.cleanupOnFailure(ccDeckDir)
 		return fmt.Errorf("starting compose project: %w", err)
+	}
+
+	// Clone repos into workspace if defined.
+	if len(e.Repos) > 0 {
+		creds := loadActiveGitCredentials()
+		workspace := "/workspace"
+		sessionContainer := e.sessionContainerName()
+		podmanRunner := func(ctx2 context.Context, cmd string) (string, error) {
+			return podman.ExecOutput(ctx2, sessionContainer, cmd)
+		}
+		fmt.Fprintf(os.Stderr, "Cloning %d repo(s) into %s...\n", len(e.Repos), workspace)
+		cloneRepos(ctx, podmanRunner, e.Repos, workspace, creds, e.ExtraRemotes, e.AutoDetectedURL)
 	}
 
 	// Write environment definition.

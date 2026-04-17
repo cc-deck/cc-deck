@@ -68,6 +68,51 @@ func TestBuildArgs_MinimalOptions(t *testing.T) {
 	}
 }
 
+func TestBuildArgs_AgentForwarding(t *testing.T) {
+	c := NewClient("user@host", 0, "", "", "")
+	c.AgentForwarding = true
+	args := c.buildArgs("user@host", "--", "git clone")
+
+	foundA := false
+	for _, arg := range args {
+		if arg == "-A" {
+			foundA = true
+			break
+		}
+	}
+	if !foundA {
+		t.Errorf("expected -A flag when AgentForwarding is true, got %v", args)
+	}
+}
+
+func TestBuildArgs_NoAgentForwarding(t *testing.T) {
+	c := NewClient("user@host", 0, "", "", "")
+	args := c.buildArgs("user@host", "--", "git clone")
+
+	for _, arg := range args {
+		if arg == "-A" {
+			t.Errorf("unexpected -A flag when AgentForwarding is false, got %v", args)
+		}
+	}
+}
+
+func TestBuildInteractiveArgs_AgentForwarding(t *testing.T) {
+	c := NewClient("user@host", 0, "", "", "")
+	c.AgentForwarding = true
+	args := c.buildInteractiveArgs("zellij attach")
+
+	foundA := false
+	for _, arg := range args {
+		if arg == "-A" {
+			foundA = true
+			break
+		}
+	}
+	if !foundA {
+		t.Errorf("expected -A flag in interactive args when AgentForwarding is true, got %v", args)
+	}
+}
+
 func TestNormalizeArch(t *testing.T) {
 	tests := []struct {
 		input string

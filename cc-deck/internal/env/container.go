@@ -39,6 +39,10 @@ type ContainerEnvironment struct {
 	Credentials map[string]string
 	Mounts      []string // Additional bind mounts as "src:dst[:ro]"
 	KeepVolumes bool
+
+	Repos           []RepoEntry
+	ExtraRemotes    map[string]string
+	AutoDetectedURL string
 }
 
 func containerName(envName string) string {
@@ -230,6 +234,17 @@ func (e *ContainerEnvironment) Create(ctx context.Context, opts CreateOpts) erro
 	containerID, err := podman.Run(ctx, runOpts)
 	if err != nil {
 		return fmt.Errorf("creating container: %w", err)
+	}
+
+	// Clone repos into workspace if defined.
+	if len(e.Repos) > 0 {
+		creds := loadActiveGitCredentials()
+		workspace := "/workspace"
+		podmanRunner := func(ctx2 context.Context, cmd string) (string, error) {
+			return podman.ExecOutput(ctx2, cName, cmd)
+		}
+		fmt.Fprintf(os.Stderr, "Cloning %d repo(s) into %s...\n", len(e.Repos), workspace)
+		cloneRepos(ctx, podmanRunner, e.Repos, workspace, creds, e.ExtraRemotes, e.AutoDetectedURL)
 	}
 
 	// Write environment definition.
