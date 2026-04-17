@@ -546,22 +546,34 @@ func (e *K8sDeployEnvironment) cleanupOnFailure(ctx context.Context, client *K8s
 	resName := k8sResourceName(e.name)
 
 	if resources.StatefulSet != nil {
-		_ = client.DeleteStatefulSet(ctx, ns, resName)
+		if err := client.DeleteStatefulSet(ctx, ns, resName); err != nil {
+			log.Printf("WARNING: cleanup: deleting StatefulSet: %v", err)
+		}
 	}
 	if resources.Service != nil {
-		_ = client.DeleteService(ctx, ns, resName)
+		if err := client.DeleteService(ctx, ns, resName); err != nil {
+			log.Printf("WARNING: cleanup: deleting Service: %v", err)
+		}
 	}
 	if resources.ConfigMap != nil {
-		_ = client.DeleteConfigMap(ctx, ns, resName)
+		if err := client.DeleteConfigMap(ctx, ns, resName); err != nil {
+			log.Printf("WARNING: cleanup: deleting ConfigMap: %v", err)
+		}
 	}
 	if resources.NetworkPolicy != nil {
-		_ = client.DeleteNetworkPolicy(ctx, ns, resName)
+		if err := client.DeleteNetworkPolicy(ctx, ns, resName); err != nil {
+			log.Printf("WARNING: cleanup: deleting NetworkPolicy: %v", err)
+		}
 	}
 	if cred != nil && cred.Secret != nil {
-		_ = client.DeleteSecret(ctx, ns, resName+"-creds")
+		if err := client.DeleteSecret(ctx, ns, resName+"-creds"); err != nil {
+			log.Printf("WARNING: cleanup: deleting credential Secret: %v", err)
+		}
 	}
 	if cred != nil && cred.ExternalSecret != nil {
-		_ = client.DeleteExternalSecret(ctx, ns, resName+"-eso")
+		if err := client.DeleteExternalSecret(ctx, ns, resName+"-eso"); err != nil {
+			log.Printf("WARNING: cleanup: deleting ExternalSecret: %v", err)
+		}
 	}
 }
 
