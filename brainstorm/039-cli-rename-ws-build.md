@@ -124,7 +124,7 @@ Build remains an optional pre-optimization. `ws new` uses existing artifacts or 
 | `cc-deck env create <name>` | `cc-deck ws new <name>` |
 | `cc-deck env attach <name>` | `cc-deck attach <name>` (or `cc-deck ws attach <name>`) |
 | `cc-deck env list` | `cc-deck ls` (or `cc-deck ws ls`) |
-| `cc-deck env delete <name>` | `cc-deck ws kill <name>` |
+| `cc-deck env delete <name>` | `cc-deck ws delete <name>` |
 | `cc-deck env start <name>` | `cc-deck ws start <name>` |
 | `cc-deck env stop <name>` | `cc-deck ws stop <name>` |
 | `cc-deck env status <name>` | `cc-deck ws status <name>` |

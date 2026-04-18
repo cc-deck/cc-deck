@@ -10,7 +10,7 @@
 #   make test           Run all tests
 #   make dev            Start Zellij with cc-deck layout for development
 
-VERSION    ?= 0.9.1-dev
+VERSION    ?= 0.10.0-dev
 REGISTRY   ?= quay.io/cc-deck
 WASM_TARGET = wasm32-wasip1
 WASM_SRC    = cc-zellij-plugin/target/$(WASM_TARGET)/release/cc_deck.wasm

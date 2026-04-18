@@ -78,7 +78,7 @@ If the container is stopped, it is automatically started before attaching.
 ----
 cc-deck ws stop mydev       # Stop the container
 cc-deck ws start mydev      # Restart a stopped container
-cc-deck ws kill mydev     # Remove container, volumes, and secrets
+cc-deck ws delete mydev     # Remove container, volumes, and secrets
 ----
 
 Deleting a running environment requires the `--force` flag.

@@ -185,7 +185,7 @@ kubectl -n cc-deck-test exec cc-deck-test-basic-0 -- cat /workspace/testfile.txt
 ### 1m. Delete with --keep-volumes
 
 ```bash
-cc-deck ws kill test-basic --force --keep-volumes
+cc-deck ws delete test-basic --force --keep-volumes
 ```
 
 **Expected**: StatefulSet, Service, ConfigMap, Secret deleted. PVC preserved:
@@ -225,7 +225,7 @@ cc-deck ws new dup-test \
 **Expected**: First create succeeds. Second create fails with "environment with this name already exists".
 
 ```bash
-cc-deck ws kill dup-test --force
+cc-deck ws delete dup-test --force
 ```
 
 ---
@@ -264,7 +264,7 @@ kubectl -n cc-deck-test exec cc-deck-test-existing-secret-0 -- cat /run/secrets/
 ### 3d. Delete and verify Secret preserved
 
 ```bash
-cc-deck ws kill test-existing-secret --force
+cc-deck ws delete test-existing-secret --force
 kubectl -n cc-deck-test get secret my-api-keys
 ```
 
@@ -301,7 +301,7 @@ kubectl -n cc-deck-test get networkpolicy cc-deck-test-netpol -o yaml | head -30
 ### 4c. Create with --no-network-policy
 
 ```bash
-cc-deck ws kill test-netpol --force
+cc-deck ws delete test-netpol --force
 
 cc-deck ws new test-no-netpol \
   --type k8s-deploy \
@@ -317,7 +317,7 @@ kubectl -n cc-deck-test get networkpolicy cc-deck-test-no-netpol 2>&1
 **Expected**: "not found" (no NetworkPolicy created).
 
 ```bash
-cc-deck ws kill test-no-netpol --force
+cc-deck ws delete test-no-netpol --force
 ```
 
 ---
@@ -374,7 +374,7 @@ cc-deck ws exec test-sync -- echo "exec works"
 **Expected**: `exec works`
 
 ```bash
-cc-deck ws kill test-sync --force
+cc-deck ws delete test-sync --force
 ```
 
 ---
@@ -397,7 +397,7 @@ kubectl -n cc-deck-test get pvc -o jsonpath='{.items[0].spec.resources.requests.
 **Expected**: `1Gi`
 
 ```bash
-cc-deck ws kill test-storage --force
+cc-deck ws delete test-storage --force
 ```
 
 ---
@@ -437,13 +437,13 @@ cc-deck ws new test-force \
   --credential TEST=val \
   --timeout 3m
 
-cc-deck ws kill test-force 2>&1
+cc-deck ws delete test-force 2>&1
 ```
 
 **Expected**: Error "environment is running; use --force to delete"
 
 ```bash
-cc-deck ws kill test-force --force
+cc-deck ws delete test-force --force
 ```
 
 ---

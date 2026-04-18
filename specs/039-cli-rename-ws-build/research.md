@@ -71,7 +71,7 @@
 | Walkthroughs | 3 | ~120+ |
 | Legacy quickstart | 1 | ~6 |
 
-**Key renames in docs**: `cc-deck env` → `cc-deck ws`, `env create` → `ws new`, `env delete` → `ws kill`, `cc-deck setup` → `cc-deck build`, section headings ("Environment Management" → "Workspace Management").
+**Key renames in docs**: `cc-deck env` → `cc-deck ws`, `env create` → `ws new`, `env delete` → `ws delete`, `cc-deck setup` → `cc-deck build`, section headings ("Environment Management" → "Workspace Management").
 
 ### 4. Cobra Patterns Available
 
