@@ -1,12 +1,66 @@
 # Brainstorm: Multi-Agent Support for cc-deck
 
-**Date:** 2026-03-19
+**Date:** 2026-03-19 (updated 2026-04-18)
 **Status:** Brainstorm
 **Trigger:** Competitive analysis of [cmux](https://github.com/manaflow-ai/cmux) and its agent-agnostic notification approach
+**Updated:** Comparative analysis with [lince](https://github.com/RisorseArtificiali/lince), a Zellij-based multi-agent dashboard with sandboxing and voice relay
 
 ## Problem Statement
 
 cc-deck currently only works with Claude Code via its hooks system. Other AI coding agents (OpenAI Codex CLI, Google Gemini CLI, Cursor CLI) have similar lifecycle events and hook mechanisms. Supporting multiple agents would significantly broaden cc-deck's audience and strengthen its position against macOS-only competitors like cmux.
+
+## Lessons from lince (April 2026 Analysis)
+
+[lince](https://github.com/RisorseArtificiali/lince) is a parallel effort that launched the same week as cc-deck (2026-03-02). It provides a Zellij dashboard for spawning and monitoring multiple AI agents (Claude, Codex, Gemini, OpenCode, Aider) with bubblewrap sandboxing and voice relay. Comparing implementations reveals patterns we should adopt, validate, or deliberately skip.
+
+### What lince validates in our approach
+
+- **Hook-based status tracking is correct.** lince also uses Zellij pipes for status messages. Their dual-pipe design (`claude-status` for native hooks, `lince-status` for wrapped agents) confirms pipes are the right transport.
+- **Normalized event format works.** Our `HookPayload` is cleaner than their split-pipe approach, but both projects converge on the same idea: normalize agent events into a common format before the plugin consumes them.
+- **Go interface for behavioral logic.** lince's pure-config approach (TOML) cannot express hook installation, credential detection, or agent installation. Our Go `Agent` interface is more principled for these concerns.
+
+### Patterns to adopt from lince
+
+**1. Agent wrapper for hookless agents.** lince ships `lince-agent-wrapper`, a thin shell script that wraps any CLI command and sends start/stop events via Zellij pipe. This means any tool becomes a "managed session" in the sidebar with minimal status. We should build an equivalent `cc-deck-agent-wrapper` that emits our normalized `HookPayload` format. This is the fastest path to multi-agent MVP.
+
+**2. Config-driven display properties.** lince defines per-agent display metadata in TOML (label, color, pipe name) separate from behavioral logic. Our hybrid approach should be: define display properties (short label, color, indicator character) in config, keep behavioral logic (hook installation, event translation, credential transport) in Go agent adapters.
+
+**3. Event mapping tables per agent type.** lince lets each agent type define custom `event_map` entries that translate agent-specific event names to status states. This avoids hardcoding agent event vocabularies into the plugin. We should add an `EventMap map[string]string` field to our agent config, with Go adapters providing defaults that users can override.
+
+**4. Pane title matching as fallback identification.** lince matches panes to agents using `pane_title_pattern` per agent type, not just hook-reported session IDs. Belt and suspenders. Worth adding to our reconciliation logic.
+
+**5. Graceful degradation by hook richness.** Agents with native hooks (Claude) get full status (Working, Permission, tool names, subagent counts). Agents without hooks (wrapped with the agent wrapper) get only start/stop. The sidebar still works, just shows less detail. This two-tier approach avoids blocking multi-agent support on every agent having rich hooks.
+
+### Patterns we should skip
+
+**Bubblewrap sandboxing.** lince uses Linux namespaces (bubblewrap) and macOS Seatbelt (nono) to isolate agent processes. This is clever for local execution, but our Podman containers already provide stronger isolation (full container boundary, network namespace, cgroup limits). Adding bubblewrap would duplicate what Podman gives us and wouldn't help SSH or K8s environments. Skip.
+
+**Data-only agent definitions.** lince defines agents entirely in TOML config. This works for simple spawning but breaks down for hook installation, credential detection, and install scripts. Our Go interface approach is better for behavioral concerns.
+
+### Patterns worth exploring independently
+
+**Voice relay via pipe.** lince integrates VoxCode (Whisper-based voice transcription) through a simple Zellij pipe: VoxCode transcribes audio, sends text via `zellij pipe --name "voxcode-text"`, plugin receives and relays to the focused agent's terminal via `write_chars_to_pane_id()`. This is agent-agnostic and low-effort to implement. A `cc-deck:voice` pipe handler would be ~50-100 lines of Rust. Not multi-agent-specific, but a nice UX win.
+
+**Credential proxy.** lince's `agent-sandbox` includes a localhost HTTP proxy that intercepts API calls and injects credentials, so API keys never enter the agent's environment. This would strengthen our container environments where we currently pass `ANTHROPIC_API_KEY` as an env var. Worth considering as a security hardening feature for our credential transport design.
+
+**Git-push restriction.** lince blocks `git push` three ways: a wrapper script in `$PATH`, sanitized `.gitconfig` (no credential helpers), and no SSH keys in the sandbox. We could offer a simpler version: a `restrict-push: true` flag on environment definitions that installs a git wrapper blocking push operations.
+
+### Comparative stats (as of April 2026)
+
+| Metric | cc-deck | lince |
+|---|---|---|
+| Created | 2026-03-02 | 2026-03-02 |
+| Commits | 475 | 76 |
+| Contributors | 1 | 3 |
+| LOC (total) | ~36,000 | ~7,650 |
+| LOC (Rust plugin) | 13,314 | 3,427 |
+| Test functions | 429+ | 0 |
+| CI pipelines | 4 | 0 |
+| Releases | 9 | 0 |
+| Agent support | Claude Code | Claude, Codex, Gemini, OpenCode, Aider |
+| Sandboxing | Podman containers | bubblewrap / nono |
+| Voice input | No | VoxCode relay |
+| Environment types | 6 (local, compose, SSH, K8s deploy, K8s sandbox, container) | 1 (local only) |
 
 ## Design Principle: Agent as an Interface
 
@@ -121,13 +175,82 @@ Ship built-in adapters for Claude Code, Codex, and Gemini. Allow external adapte
 
 The Rust plugin stays unchanged. It already consumes a normalized `HookPayload` via the `cc-deck:hook` pipe message. The adapter logic lives entirely in the Go CLI.
 
+### Agent Wrapper for Hookless Agents
+
+Inspired by lince's `lince-agent-wrapper`, ship a `cc-deck-agent-wrapper` script that wraps any CLI command and emits start/stop events in our normalized format:
+
+```bash
+#!/bin/sh
+# cc-deck-agent-wrapper: minimal status for any CLI agent
+AGENT_ID="${CC_DECK_AGENT_ID:-$(basename "$1")-$$}"
+PANE_ID="${ZELLIJ_PANE_ID:-0}"
+
+# Emit start event
+echo '{"version":1,"agent":"'$1'","event":"Init","session_id":"'$AGENT_ID'","pane_id":'$PANE_ID'}' \
+  | cc-deck hook --raw
+
+# Run the wrapped command
+"$@"
+EXIT_CODE=$?
+
+# Emit stop event
+echo '{"version":1,"agent":"'$1'","event":"End","session_id":"'$AGENT_ID'","pane_id":'$PANE_ID'}' \
+  | cc-deck hook --raw
+
+exit $EXIT_CODE
+```
+
+This gives any agent basic sidebar presence (Init, then End) without requiring the agent to support hooks. Agents with native hooks (Claude, Codex, Gemini) bypass the wrapper and send rich events directly.
+
+### Hybrid Config + Code Architecture
+
+Following analysis of lince's pure-config approach, adopt a hybrid model:
+
+**Config-driven (user-customizable):**
+- Display properties: `short_label`, `color`, `indicator` character
+- Event mapping overrides: custom event name to status translations
+- Pane title matching pattern for identification
+- Credential env var names
+
+**Code-driven (Go interface):**
+- Hook installation/uninstallation logic
+- Event translation with semantic understanding
+- Agent binary detection and config file discovery
+- Install scripts for container images
+- Credential file path resolution
+
+```yaml
+# Example: ~/.config/cc-deck/agents.yaml
+agents:
+  claude:
+    short_label: "C"
+    color: blue
+    # event_map not needed: Go adapter handles natively
+  codex:
+    short_label: "X"
+    color: cyan
+    event_map:
+      active: Working
+      waitingOnApproval: Permission
+      waitingOnUserInput: Notification
+      idle: Idle
+  custom-agent:
+    short_label: "?"
+    color: yellow
+    wrapper: true  # Use cc-deck-agent-wrapper
+    command: ["my-agent", "--headless"]
+    pane_title_pattern: "my-agent"
+```
+
+This lets users add completely custom agents via config (with wrapper-level status), while built-in agents get full behavioral support via Go adapters.
+
 ## The Agent Interface
 
-Each supported agent implements a Go interface:
+Each supported agent implements a Go interface. The interface focuses on behavioral concerns that cannot be expressed in config alone:
 
 ```go
 type Agent interface {
-    // Identity
+    // Identity (defaults can be overridden in agents.yaml)
     Name() string           // "claude", "codex", "gemini"
     DisplayName() string    // "Claude Code", "OpenAI Codex", "Gemini CLI"
     Indicator() string      // "C", "X", "G" (for sidebar display)
@@ -140,16 +263,23 @@ type Agent interface {
     InstallHooks(paneIDExpr string) error   // write hooks to agent's config
     UninstallHooks() error                  // remove cc-deck hooks
     HooksInstalled() bool                   // check if hooks are already present
+    HasNativeHooks() bool                   // true if agent supports rich events
 
     // Event translation
     TranslateEvent(stdin []byte) (*HookPayload, error)  // agent JSON -> normalized
+    DefaultEventMap() map[string]string                  // fallback event mappings
 
     // Image build (for container environments)
     InstallScript() string          // shell commands to install the agent binary
     CredentialEnvVars() []string    // env vars needed at runtime (e.g., ANTHROPIC_API_KEY)
     ConfigPaths() []string          // paths to copy/mount for configuration
+
+    // Pane identification (belt and suspenders with hook-based detection)
+    PaneTitlePattern() string       // match pane titles for this agent type
 }
 ```
+
+Agents without a Go adapter (custom agents defined only in `agents.yaml`) use `cc-deck-agent-wrapper` and get wrapper-level status (Init/End only). The wrapper is the default, native hooks are the upgrade path.
 
 ### Agent Registry
 
@@ -265,7 +395,9 @@ This is the hardest unsolved problem for container and remote environments. Each
 
 **C. cc-deck credential broker:** A `cc-deck credentials` command that reads from the execution environment's secret store (env vars, Podman secrets, K8s Secrets) and exports them as the agent-specific env vars. Run as an entrypoint wrapper.
 
-**Decision deferred.** This intersects heavily with the execution environment abstraction (local vs Podman vs K8s). The credential transport mechanism should be designed as part of that work.
+**D. Credential proxy (inspired by lince).** A localhost HTTP proxy that intercepts API calls and injects credentials on the fly. Agent environments never see the actual API keys. The proxy rewrites `*_BASE_URL` env vars to point to `http://127.0.0.1:<port>`, then adds the real API key to outbound requests. This also enables blocking cloud metadata endpoints (169.254.169.254, metadata.google.internal) to prevent SSRF-based credential theft. Strongest security posture, but adds complexity (proxy lifecycle management, TLS handling for HTTPS endpoints).
+
+**Decision deferred.** This intersects heavily with the execution environment abstraction (local vs Podman vs K8s). The credential transport mechanism should be designed as part of that work. The credential proxy approach (D) is worth prototyping for container environments where env var exposure is the primary risk.
 
 ## Sidebar Display Changes
 
@@ -283,6 +415,16 @@ Where: `[C]` = Claude, `[X]` = Codex, `[G]` = Gemini
 
 When only one agent type is in use, hide the prefix to save space.
 
+### Two-Tier Status Display
+
+Following lince's graceful degradation pattern, the sidebar adapts to the richness of available status information:
+
+**Tier 1: Native hooks (Claude, Codex, Gemini).** Full status with activity state, tool names, subagent counts, elapsed time. This is what cc-deck shows today for Claude Code.
+
+**Tier 2: Wrapper-only agents.** Minimal status showing Init/Running/Stopped. No tool names, no subagent counts. The sidebar entry still works for navigation and smart attend, just with less detail.
+
+The visual distinction should be subtle. A wrapper-only agent simply shows fewer details, not a degraded UI.
+
 ### Configurable Sidebar Fields
 
 Possible fields (configurability is a separate feature):
@@ -299,29 +441,35 @@ The current smart attend algorithm (priority tiers: Permission > Notification > 
 
 Optional enhancement: per-agent attend priority. Deferred unless users request it.
 
-## Competitive Positioning vs cmux
+## Competitive Positioning vs cmux and lince
 
-| Capability | cc-deck (current) | cc-deck (with multi-agent) | cmux |
-|---|---|---|---|
-| Agent support | Claude Code only | Claude, Codex, Gemini, extensible | Claude Code, OpenCode |
-| Platform | Linux + macOS | Linux + macOS | macOS only |
-| Remote execution | Containers, K8s planned | Same, with per-agent install | None (Cloud VMs planned) |
-| Session states | 7 granular states | Same | Binary (attention/not) |
-| Smart attend | Priority-based round-robin | Same, works across agents | Jump to latest unread |
-| Browser integration | None | Future (MCP-based) | Built-in scriptable browser |
-| Notification protocol | Custom hooks | Custom hooks (OSC not viable) | OSC 9/99/777 + CLI |
+| Capability | cc-deck (current) | cc-deck (with multi-agent) | cmux | lince |
+|---|---|---|---|---|
+| Agent support | Claude Code only | Claude, Codex, Gemini, extensible | Claude Code, OpenCode | Claude, Codex, Gemini, OpenCode, Aider |
+| Platform | Linux + macOS | Linux + macOS | macOS only | Linux + macOS (experimental) |
+| Remote execution | Containers, SSH, K8s | Same, with per-agent install | None (Cloud VMs planned) | None (local only) |
+| Session states | 7 granular states | Same | Binary (attention/not) | 6 states (Starting, Running, Idle, WaitingForInput, PermissionRequired, Stopped) |
+| Smart attend | Priority-based round-robin | Same, works across agents | Jump to latest unread | Manual selection |
+| Sandboxing | Podman containers | Same | None | bubblewrap / nono per agent |
+| Voice input | None | Pipe-based relay (planned) | None | VoxCode / Whisper relay |
+| Environment mgmt | 6 environment types | Same | None | None |
+| Notification protocol | Custom hooks | Custom hooks (OSC not viable) | OSC 9/99/777 + CLI | Custom hooks + agent wrapper |
+| Agent wrapper | None | `cc-deck-agent-wrapper` | None | `lince-agent-wrapper` |
+| Swimlane grouping | Tab-based | Tab-based + agent type | None | Project directory |
 
 ## Dependencies and Sequencing
 
 This feature depends on the **execution environment abstraction**, which will define how cc-deck manages sessions across local, Podman, K8s Deployment, and K8s sandbox environments. The agent interface (especially `InstallScript()`, `CredentialEnvVars()`, and credential transport) must align with whatever abstraction emerges from that work.
 
 Recommended order:
-1. **Execution environment abstraction** (separate session, prerequisite)
-2. **Agent interface definition** (this feature, Go interface + registry)
-3. **Codex adapter** (first non-Claude agent, validates the interface)
-4. **Gemini adapter** (richer event model, stress-tests the interface)
-5. **Image build integration** (multi-agent manifests)
-6. **Credential transport** (after execution environments are defined)
+1. **Execution environment abstraction** (separate session, prerequisite) - DONE
+2. **Agent wrapper script** (cc-deck-agent-wrapper, enables any CLI as a managed session)
+3. **Agent interface definition** (this feature, Go interface + registry + config)
+4. **Voice relay pipe** (independent, small effort, can ship alongside any step)
+5. **Codex adapter** (first non-Claude agent, validates the interface)
+6. **Gemini adapter** (richer event model, stress-tests the interface)
+7. **Image build integration** (multi-agent manifests)
+8. **Credential transport** (after execution environments are defined, consider proxy approach)
 
 ## Open Questions
 
@@ -338,3 +486,9 @@ Recommended order:
 6. **Credential rotation in long-running containers:** If API keys expire or rotate, how do running containers pick up new credentials? This is an execution environment concern.
 
 7. **Agent-specific permissions models:** Claude Code has YOLO mode, Codex has permission levels. Should cc-deck normalize these or expose them? Probably expose as metadata.
+
+8. **Voice relay scope:** Should voice relay be agent-aware (route to specific agent types) or purely focus-based (always relay to the focused pane, regardless of agent)? Focus-based is simpler and agent-agnostic. Start there.
+
+9. **lince interoperability:** lince uses `claude-status` as its pipe name for Claude Code hooks. If a user has both lince and cc-deck installed, hook conflicts could arise. Our pipe namespace (`cc-deck:hook`) avoids this, but worth documenting.
+
+10. **Git-push restriction as environment flag:** Should `restrict-push: true` be an environment-level setting or an agent-level setting? Environment-level makes more sense (you restrict the execution context, not the agent type).
