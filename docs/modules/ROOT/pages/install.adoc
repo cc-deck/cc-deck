@@ -1,7 +1,7 @@
 = Installation
 
 Install cc-deck on your local machine.
-After installing the CLI binary, run `cc-deck plugin install` to set up the Zellij sidebar plugin and Claude Code hooks.
+After installing the CLI binary, run `cc-deck config plugin install` to set up the Zellij sidebar plugin and Claude Code hooks.
 
 == Homebrew (macOS)
 
@@ -10,7 +10,7 @@ The fastest way to install on macOS:
 [source,bash]
 ----
 brew install cc-deck/tap/cc-deck
-cc-deck plugin install
+cc-deck config plugin install
 ----
 
 Zellij is recommended but not required.
@@ -26,7 +26,7 @@ Archives are available for macOS and Linux, both arm64 and amd64.
 # Example: macOS Apple Silicon
 curl -fsSL https://github.com/cc-deck/cc-deck/releases/latest/download/cc-deck_VERSION_darwin_arm64.tar.gz | tar -xz
 sudo mv cc-deck /usr/local/bin/
-cc-deck plugin install
+cc-deck config plugin install
 ----
 
 Replace `VERSION` with the release version (e.g., `0.3.0`).
@@ -40,7 +40,7 @@ RPM and DEB packages are attached to each https://github.com/cc-deck/cc-deck/rel
 [source,bash]
 ----
 sudo dnf install ./cc-deck_VERSION_linux_amd64.rpm
-cc-deck plugin install
+cc-deck config plugin install
 ----
 
 === Debian / Ubuntu
@@ -48,7 +48,7 @@ cc-deck plugin install
 [source,bash]
 ----
 sudo apt install ./cc-deck_VERSION_linux_amd64.deb
-cc-deck plugin install
+cc-deck config plugin install
 ----
 
 Both package formats are available for amd64 and arm64.
@@ -64,7 +64,7 @@ cd cc-deck
 make install
 ----
 
-`make install` builds the WASM plugin, compiles the Go CLI, and runs `cc-deck plugin install` to set up Zellij layouts and Claude Code hooks.
+`make install` builds the WASM plugin, compiles the Go CLI, and runs `cc-deck config plugin install` to set up Zellij layouts and Claude Code hooks.
 
 === Prerequisites
 
@@ -74,7 +74,7 @@ make install
 
 == What Gets Installed
 
-The `cc-deck plugin install` command places files in your Zellij configuration directory:
+The `cc-deck config plugin install` command places files in your Zellij configuration directory:
 
 [cols="1,2"]
 |===
@@ -127,7 +127,7 @@ default_layout "cc-deck"
 
 [source,bash]
 ----
-cc-deck plugin status
+cc-deck config plugin status
 ----
 
 This shows the installed plugin version and layout configuration.

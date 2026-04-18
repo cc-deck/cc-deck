@@ -55,8 +55,8 @@ func TestProbe_AllMissing(t *testing.T) {
 	if !strings.Contains(msg, "host appears unprovisioned") {
 		t.Errorf("error should mention 'host appears unprovisioned', got: %s", msg)
 	}
-	if !strings.Contains(msg, "cc-deck setup") {
-		t.Errorf("error should mention 'cc-deck setup', got: %s", msg)
+	if !strings.Contains(msg, "cc-deck build") {
+		t.Errorf("error should mention 'cc-deck build', got: %s", msg)
 	}
 	for _, tool := range requiredTools {
 		if !strings.Contains(msg, tool) {

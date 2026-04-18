@@ -11,7 +11,7 @@ import (
 	"github.com/cc-deck/cc-deck/internal/env"
 )
 
-func TestRunEnvPrune_RemovesStaleEntry(t *testing.T) {
+func TestRunWsPrune_RemovesStaleEntry(t *testing.T) {
 	tmpDir := t.TempDir()
 	stateFile := filepath.Join(tmpDir, "state.yaml")
 	t.Setenv("CC_DECK_STATE_FILE", stateFile)
@@ -30,7 +30,7 @@ func TestRunEnvPrune_RemovesStaleEntry(t *testing.T) {
 	// Remove the fake project directory.
 	require.NoError(t, os.RemoveAll(fakeDir))
 
-	err := runEnvPrune()
+	err := runWsPrune()
 	require.NoError(t, err)
 
 	// Verify only the real project remains.
@@ -41,16 +41,16 @@ func TestRunEnvPrune_RemovesStaleEntry(t *testing.T) {
 	assert.Contains(t, projects[0].Path, filepath.Base(realDir))
 }
 
-func TestRunEnvPrune_Idempotent(t *testing.T) {
+func TestRunWsPrune_Idempotent(t *testing.T) {
 	tmpDir := t.TempDir()
 	stateFile := filepath.Join(tmpDir, "state.yaml")
 	t.Setenv("CC_DECK_STATE_FILE", stateFile)
 
 	// No projects registered.
-	err := runEnvPrune()
+	err := runWsPrune()
 	require.NoError(t, err)
 
 	// Run again, still no error.
-	err = runEnvPrune()
+	err = runWsPrune()
 	require.NoError(t, err)
 }

@@ -271,7 +271,7 @@ func (e *K8sDeployEnvironment) Attach(ctx context.Context) error {
 	// Nested Zellij detection.
 	if os.Getenv("ZELLIJ") != "" {
 		fmt.Fprintf(os.Stderr, "Already inside Zellij. Detach first (Ctrl+o d), then run:\n")
-		fmt.Fprintf(os.Stderr, "  cc-deck env attach %s\n", e.name)
+		fmt.Fprintf(os.Stderr, "  cc-deck ws attach %s\n", e.name)
 		return nil
 	}
 
@@ -483,7 +483,7 @@ func (e *K8sDeployEnvironment) Exec(ctx context.Context, cmd []string) error {
 		return err
 	}
 	if inst.State != EnvironmentStateRunning {
-		return fmt.Errorf("environment is not running (state: %s); start it with: cc-deck env start %s", inst.State, e.name)
+		return fmt.Errorf("environment is not running (state: %s); start it with: cc-deck ws start %s", inst.State, e.name)
 	}
 
 	return k8sExec(ctx, e.resolveNamespace(inst), k8sPodName(e.name), e.kubeconfigArgs(inst), cmd, false)
@@ -496,7 +496,7 @@ func (e *K8sDeployEnvironment) Push(ctx context.Context, opts SyncOpts) error {
 		return err
 	}
 	if inst.State != EnvironmentStateRunning {
-		return fmt.Errorf("environment is not running (state: %s); start it with: cc-deck env start %s", inst.State, e.name)
+		return fmt.Errorf("environment is not running (state: %s); start it with: cc-deck ws start %s", inst.State, e.name)
 	}
 
 	return k8sPush(ctx, e.resolveNamespace(inst), k8sPodName(e.name), e.kubeconfigArgs(inst), opts)
@@ -509,7 +509,7 @@ func (e *K8sDeployEnvironment) Pull(ctx context.Context, opts SyncOpts) error {
 		return err
 	}
 	if inst.State != EnvironmentStateRunning {
-		return fmt.Errorf("environment is not running (state: %s); start it with: cc-deck env start %s", inst.State, e.name)
+		return fmt.Errorf("environment is not running (state: %s); start it with: cc-deck ws start %s", inst.State, e.name)
 	}
 
 	return k8sPull(ctx, e.resolveNamespace(inst), k8sPodName(e.name), e.kubeconfigArgs(inst), opts)
@@ -522,7 +522,7 @@ func (e *K8sDeployEnvironment) Harvest(ctx context.Context, opts HarvestOpts) er
 		return err
 	}
 	if inst.State != EnvironmentStateRunning {
-		return fmt.Errorf("environment is not running (state: %s); start it with: cc-deck env start %s", inst.State, e.name)
+		return fmt.Errorf("environment is not running (state: %s); start it with: cc-deck ws start %s", inst.State, e.name)
 	}
 
 	return k8sHarvest(ctx, e.resolveNamespace(inst), k8sPodName(e.name), e.kubeconfigArgs(inst), opts)

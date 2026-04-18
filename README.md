@@ -27,16 +27,16 @@ cc-deck solves this with a real-time sidebar that shows all your sessions and in
 
 The sidebar plugin tracks every Claude Code session across tabs. It shows activity status, handles permission requests, and provides keyboard-driven navigation. Smart attend automatically cycles through sessions that need your attention, prioritizing permission requests over completed tasks over idle sessions.
 
-### Unified Setup Command
+### Build Command
 
-The `cc-deck setup` command provides a single workflow for replicating your developer environment to both container images and remote SSH machines. A shared manifest captures your local tools, shell configuration, Claude Code plugins, and MCP servers. Two Claude Code slash commands handle the workflow:
+The `cc-deck build` command provides a single workflow for replicating your developer environment to both container images and remote SSH machines. A shared manifest captures your local tools, shell configuration, Claude Code plugins, and MCP servers. Two Claude Code slash commands handle the workflow:
 
 - **`/cc-deck.capture`** discovers your local setup and writes it into the manifest
 - **`/cc-deck.build --target container`** generates a Containerfile and builds an optimized image
 - **`/cc-deck.build --target ssh`** generates Ansible playbooks and provisions a remote machine
-- **`cc-deck setup run`** executes the generated artifacts directly (container build or Ansible playbook)
+- **`cc-deck build run`** executes the generated artifacts directly (container build or Ansible playbook)
 
-Capture once, then build for either target (or both) from the same manifest. After generating artifacts, run `cc-deck setup run` to execute them without Claude Code involvement. Use `--push` to also push container images to a registry.
+Capture once, then build for either target (or both) from the same manifest. After generating artifacts, run `cc-deck build run` to execute them without Claude Code involvement. Use `--push` to also push container images to a registry.
 
 ### Network Filtering
 
@@ -44,7 +44,7 @@ When deploying containerized sessions, cc-deck can restrict outbound network acc
 
 ### Workspace Repository Provisioning
 
-When creating a remote environment, cc-deck can automatically clone git repositories into the workspace. Declare repos in the environment definition or pass them via `--repo` flags. Running `env create` inside a git repository auto-detects the current project and includes it in the clone list. Credentials are transported via SSH agent forwarding or token injection with post-clone cleanup, depending on the environment type. Up to four repos are cloned in parallel, and the operation is fully idempotent.
+When creating a remote environment, cc-deck can automatically clone git repositories into the workspace. Declare repos in the environment definition or pass them via `--repo` flags. Running `ws new` inside a git repository auto-detects the current project and includes it in the clone list. Credentials are transported via SSH agent forwarding or token injection with post-clone cleanup, depending on the environment type. Up to four repos are cloned in parallel, and the operation is fully idempotent.
 
 ### Multi-Platform
 
@@ -56,7 +56,7 @@ Run cc-deck locally with Zellij, in Podman containers with mounted source code, 
 
 ```bash
 brew install cc-deck/tap/cc-deck
-cc-deck plugin install
+cc-deck config plugin install
 ```
 
 ### Binary Download
@@ -67,7 +67,7 @@ Download the latest release from [GitHub Releases](https://github.com/cc-deck/cc
 # macOS (Apple Silicon)
 curl -fsSL https://github.com/cc-deck/cc-deck/releases/latest/download/cc-deck_$(curl -s https://api.github.com/repos/cc-deck/cc-deck/releases/latest | jq -r .tag_name | sed 's/^v//')_darwin_arm64.tar.gz | tar -xz
 sudo mv cc-deck /usr/local/bin/
-cc-deck plugin install
+cc-deck config plugin install
 ```
 
 ### Linux Packages
@@ -80,7 +80,7 @@ sudo dnf install ./cc-deck_*.rpm
 sudo apt install ./cc-deck_*.deb
 ```
 
-Download RPM and DEB packages from [GitHub Releases](https://github.com/cc-deck/cc-deck/releases). After installing, run `cc-deck plugin install` to set up the Zellij plugin and hooks.
+Download RPM and DEB packages from [GitHub Releases](https://github.com/cc-deck/cc-deck/releases). After installing, run `cc-deck config plugin install` to set up the Zellij plugin and hooks.
 
 ### Demo Image (Try Without Installing)
 
@@ -125,7 +125,7 @@ Three layout styles are installed:
 To change the default variant:
 
 ```bash
-cc-deck plugin install --layout minimal --force
+cc-deck config plugin install --layout minimal --force
 ```
 
 ## Keyboard Shortcuts
@@ -291,17 +291,17 @@ network:
     - golang
 ```
 
-Then create a compose environment with network filtering:
+Then create a compose workspace with network filtering:
 
 ```bash
-cc-deck env create my-session --type compose --allowed-domains python,github
+cc-deck ws new my-session --type compose --allowed-domains python,github
 ```
 
 The session container is placed on an internal network with all traffic routed through a tinyproxy sidecar that only allows the specified domains.
 
 ### Domain Groups
 
-Built-in groups cover common ecosystems. Run `cc-deck domains list` to see all available groups:
+Built-in groups cover common ecosystems. Run `cc-deck config domains list` to see all available groups:
 
 | Group | Covers |
 |-------|--------|
@@ -321,7 +321,7 @@ Backend domains (Anthropic or Vertex AI) are included automatically.
 Create `~/.config/cc-deck/domains.yaml` to extend or override built-in groups:
 
 ```bash
-cc-deck domains init    # Seed config with commented built-in definitions
+cc-deck config domains init    # Seed config with commented built-in definitions
 ```
 
 ```yaml
@@ -341,50 +341,50 @@ company:
 ### Create-Time Domain Overrides
 
 ```bash
-# Specify domain groups when creating a compose environment
-cc-deck env create my-session --type compose --allowed-domains rust,github
+# Specify domain groups when creating a compose workspace
+cc-deck ws new my-session --type compose --allowed-domains rust,github
 
 # Add or remove domains at runtime on a running session
-cc-deck domains add my-session rust
-cc-deck domains remove my-session docker
+cc-deck config domains add my-session rust
+cc-deck config domains remove my-session docker
 ```
 
 ### Debugging Blocked Domains
 
 ```bash
-cc-deck domains blocked my-session        # Show denied requests
-cc-deck domains add my-session pypi.org   # Add domain at runtime
-cc-deck domains show python               # Inspect a group's domains
+cc-deck config domains blocked my-session        # Show denied requests
+cc-deck config domains add my-session pypi.org   # Add domain at runtime
+cc-deck config domains show python               # Inspect a group's domains
 ```
 
-## Environment Management
+## Workspace Management
 
-The `cc-deck env` command group provides a unified interface for managing Claude Code sessions across all supported backends (local, Podman, Kubernetes).
+The `cc-deck ws` command group provides a unified interface for managing Claude Code sessions across all supported backends (local, Podman, Kubernetes).
 
 | Subcommand | Description |
 |------------|-------------|
-| `cc-deck env create` | Create a new environment (scaffolds definition if needed, then provisions) |
-| `cc-deck env attach` | Attach to a running environment |
-| `cc-deck env start` | Start a stopped environment |
-| `cc-deck env stop` | Stop a running environment |
-| `cc-deck env delete` | Delete an environment and its resources |
-| `cc-deck env list` | List all environments (global and project-local) |
-| `cc-deck env status` | Show detailed status of an environment |
-| `cc-deck env prune` | Remove stale project registry entries |
+| `cc-deck ws new` | Create a new workspace (scaffolds definition if needed, then provisions) |
+| `cc-deck ws attach` | Attach to a running workspace |
+| `cc-deck ws start` | Start a stopped workspace |
+| `cc-deck ws stop` | Stop a running workspace |
+| `cc-deck ws kill` | Delete a workspace and its resources |
+| `cc-deck ws list` | List all workspaces (global and project-local) |
+| `cc-deck ws status` | Show detailed status of a workspace |
+| `cc-deck ws prune` | Remove stale project registry entries |
 
 ### Project-Local Configuration
 
-Environment definitions can live inside the project repository in a `.cc-deck/` directory at the git root. This allows team members to clone and create matching environments without manual flag passing.
+Workspace definitions can live inside the project repository in a `.cc-deck/` directory at the git root. This allows team members to clone and create matching workspaces without manual flag passing.
 
 ```bash
 # Set up a new project (scaffolds definition + provisions)
-cc-deck env create --type compose --image quay.io/cc-deck/cc-deck-demo:latest
-git add .cc-deck/ && git commit -m "Add cc-deck environment config"
+cc-deck ws new --type compose --image quay.io/cc-deck/cc-deck-demo:latest
+git add .cc-deck/ && git commit -m "Add cc-deck workspace config"
 
 # Team member clones and creates without any flags
 git clone git@github.com:org/my-api.git && cd my-api
-cc-deck env create     # reads .cc-deck/environment.yaml
-cc-deck env attach     # no name needed inside the project
+cc-deck ws new     # reads .cc-deck/environment.yaml
+cc-deck ws attach     # no name needed inside the project
 ```
 
 The `.cc-deck/` directory separates committed artifacts from runtime state:
@@ -398,41 +398,41 @@ The `.cc-deck/` directory separates committed artifacts from runtime state:
   run/                # Gitignored: generated compose files
 ```
 
-When no environment name is provided, `cc-deck` looks for `.cc-deck/environment.yaml` at the git root, then walks up the directory tree for workspace-level definitions. This supports both single-repo projects and multi-repo workspaces. All lifecycle commands (attach, status, start, stop, delete) support this implicit resolution.
+When no workspace name is provided, `cc-deck` looks for `.cc-deck/environment.yaml` at the git root, then walks up the directory tree for workspace-level definitions. This supports both single-repo projects and multi-repo workspaces. All lifecycle commands (attach, status, start, stop, kill) support this implicit resolution.
 
-### Compose Environments
+### Compose Workspaces
 
-Compose environments use `podman-compose` for multi-container orchestration. They generate runtime artifacts in `.cc-deck/run/` within the project directory.
+Compose workspaces use `podman-compose` for multi-container orchestration. They generate runtime artifacts in `.cc-deck/run/` within the project directory.
 
 ```bash
-# Create a compose environment in the current project
-cc-deck env create --type compose
+# Create a compose workspace in the current project
+cc-deck ws new --type compose
 
 # Create with network filtering (proxy sidecar)
-cc-deck env create --type compose --allowed-domains anthropic,github
+cc-deck ws new --type compose --allowed-domains anthropic,github
 
-# Attach to the environment
-cc-deck env attach
+# Attach to the workspace
+cc-deck ws attach
 ```
 
 The project directory is bind-mounted at `/workspace` by default, providing immediate bidirectional file sync.
 
-### SSH Environments
+### SSH Workspaces
 
-SSH environments run Zellij sessions on persistent remote machines. You connect over SSH, work inside the remote Zellij session, and detach when finished. The session continues running on the remote host.
+SSH workspaces run Zellij sessions on persistent remote machines. You connect over SSH, work inside the remote Zellij session, and detach when finished. The session continues running on the remote host.
 
 ```bash
-# Create an SSH environment
-cc-deck env create remote-dev --type ssh --host user@dev.example.com
+# Create an SSH workspace
+cc-deck ws new remote-dev --type ssh --host user@dev.example.com
 
 # Attach to the remote Zellij session
 cc-deck attach remote-dev
 
 # Refresh credentials without attaching
-cc-deck env refresh-creds remote-dev
+cc-deck ws refresh-creds remote-dev
 
 # Push files to the remote workspace
-cc-deck env push remote-dev ./src
+cc-deck ws push remote-dev ./src
 ```
 
 Pre-flight checks during creation verify SSH connectivity and offer to install missing tools (Zellij, Claude Code, cc-deck) on the remote.
@@ -442,8 +442,8 @@ Pre-flight checks during creation verify SSH connectivity and offer to install m
 When the same project needs multiple isolated container instances (for example, per-worktree containers), use the `--variant` flag:
 
 ```bash
-cc-deck env create --variant auth    # container: cc-deck-my-api-auth
-cc-deck env create --variant bugfix  # container: cc-deck-my-api-bugfix
+cc-deck ws new --variant auth    # container: cc-deck-my-api-auth
+cc-deck ws new --variant bugfix  # container: cc-deck-my-api-bugfix
 ```
 
 ## Build from Source
@@ -460,7 +460,7 @@ make install
 ## Uninstall
 
 ```bash
-cc-deck plugin remove
+cc-deck config plugin remove
 ```
 
 ## Project Structure
@@ -507,7 +507,8 @@ cc-deck follows [Spec-Driven Development](CONTRIBUTING.md#spec-driven-developmen
 | [030](specs/030-single-instance-arch/) | Single Instance Architecture | Controller + sidebar plugin split for scalable multi-tab performance | Implemented |
 | [031](specs/031-single-binary-merge/) | Single Binary Merge | Merge controller + sidebar into one WASM binary with runtime mode selection | Implemented |
 | [033](specs/033-ssh-environment/) | SSH Remote Execution | Remote Zellij sessions over SSH with pre-flight bootstrap, credential forwarding, and file sync | In Progress |
-| [034](specs/034-unified-setup-command/) | Unified Setup Command | Single `cc-deck setup` command with shared manifest, Claude Code slash commands, and Ansible-based SSH provisioning | Planned |
-| [036](specs/036-setup-run-command/) | Setup Run Command | `cc-deck setup run` executes pre-generated build artifacts (container build or Ansible playbook) directly from the CLI | Implemented |
+| [034](specs/034-unified-setup-command/) | Build Command | Single `cc-deck build` command with shared manifest, Claude Code slash commands, and Ansible-based SSH provisioning | Planned |
+| [036](specs/036-setup-run-command/) | Setup Run Command | `cc-deck build run` executes pre-generated build artifacts (container build or Ansible playbook) directly from the CLI | Implemented |
 | [037](specs/037-env-lifecycle-fixes/) | Environment Lifecycle Fixes | Fix type resolution for global definitions, SSH delete cleanup, SOURCE column in list, `--global`/`--local` flags | In Progress |
-| [038](specs/038-workspace-repos/) | Workspace Repos | Auto-clone git repos into remote workspaces during `env create`, with credential transport and CLI flags | In Progress |
+| [038](specs/038-workspace-repos/) | Workspace Repos | Auto-clone git repos into remote workspaces during `ws new`, with credential transport and CLI flags | In Progress |
+| [039](specs/039-cli-rename-ws-build/) | CLI Rename: Workspace & Build | Rename `env` to `ws`, `setup` to `build`, new `config` parent, promote `attach`/`ls`/`exec` to top level | In Progress |

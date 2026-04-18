@@ -27,11 +27,11 @@ func ensureZellijStub(t *testing.T) {
 	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 }
 
-// newTestCreateCmd creates a cobra command for testing runEnvCreate.
-func newTestCreateCmd() (*cobra.Command, *createFlags) {
-	var cf createFlags
+// newTestNewCmd creates a cobra command for testing runWsNew.
+func newTestNewCmd() (*cobra.Command, *newFlags) {
+	var cf newFlags
 	cmd := &cobra.Command{
-		Use:  "create [name]",
+		Use:  "new [name]",
 		Args: cobra.MaximumNArgs(1),
 	}
 	cmd.Flags().StringVarP(&cf.envType, "type", "t", "", "")
@@ -58,7 +58,7 @@ func newTestCreateCmd() (*cobra.Command, *createFlags) {
 	return cmd, &cf
 }
 
-func TestRunEnvCreate_ResolvesNameFromDefinition(t *testing.T) {
+func TestRunWsNew_ResolvesNameFromDefinition(t *testing.T) {
 	ensureZellijStub(t)
 	tmpDir := t.TempDir()
 	require.NoError(t, exec.Command("git", "init", tmpDir).Run())
@@ -80,10 +80,10 @@ func TestRunEnvCreate_ResolvesNameFromDefinition(t *testing.T) {
 	t.Setenv("CC_DECK_STATE_FILE", stateFile)
 	t.Setenv("CC_DECK_DEFINITIONS_FILE", defFile)
 
-	cmd, cf := newTestCreateCmd()
+	cmd, cf := newTestNewCmd()
 	// No name argument, should resolve from definition.
 	// Type defaults to local from definition, which doesn't need podman.
-	err := runEnvCreate(nil, "", cf, cmd)
+	err := runWsNew(nil, "", cf, cmd)
 	require.NoError(t, err)
 
 	// Verify project was registered in global registry.
@@ -99,7 +99,7 @@ func TestRunEnvCreate_ResolvesNameFromDefinition(t *testing.T) {
 	assert.Equal(t, "cc-deck-my-test-api", status.ContainerName)
 }
 
-func TestRunEnvCreate_ScaffoldsDefinitionWhenMissing(t *testing.T) {
+func TestRunWsNew_ScaffoldsDefinitionWhenMissing(t *testing.T) {
 	ensureZellijStub(t)
 	tmpDir := t.TempDir()
 	require.NoError(t, exec.Command("git", "init", tmpDir).Run())
@@ -113,11 +113,11 @@ func TestRunEnvCreate_ScaffoldsDefinitionWhenMissing(t *testing.T) {
 	t.Setenv("CC_DECK_STATE_FILE", stateFile)
 	t.Setenv("CC_DECK_DEFINITIONS_FILE", defFile)
 
-	cmd, cf := newTestCreateCmd()
+	cmd, cf := newTestNewCmd()
 	require.NoError(t, cmd.Flags().Set("type", "local"))
 
 	// No name, no definition. Should scaffold + create.
-	err := runEnvCreate(nil, "", cf, cmd)
+	err := runWsNew(nil, "", cf, cmd)
 	require.NoError(t, err)
 
 	// Verify definition was scaffolded.
@@ -127,7 +127,7 @@ func TestRunEnvCreate_ScaffoldsDefinitionWhenMissing(t *testing.T) {
 	assert.Equal(t, env.EnvironmentTypeLocal, def.Type)
 }
 
-func TestRunEnvCreate_CLIOverrideStoredInStatusYaml(t *testing.T) {
+func TestRunWsNew_CLIOverrideStoredInStatusYaml(t *testing.T) {
 	ensureZellijStub(t)
 	tmpDir := t.TempDir()
 	require.NoError(t, exec.Command("git", "init", tmpDir).Run())
@@ -149,10 +149,10 @@ func TestRunEnvCreate_CLIOverrideStoredInStatusYaml(t *testing.T) {
 	t.Setenv("CC_DECK_STATE_FILE", stateFile)
 	t.Setenv("CC_DECK_DEFINITIONS_FILE", defFile)
 
-	cmd, cf := newTestCreateCmd()
+	cmd, cf := newTestNewCmd()
 	require.NoError(t, cmd.Flags().Set("image", "override:latest"))
 
-	err := runEnvCreate(nil, "test-override", cf, cmd)
+	err := runWsNew(nil, "test-override", cf, cmd)
 	require.NoError(t, err)
 
 	// Verify override is in status.yaml, NOT in environment.yaml.
@@ -167,7 +167,7 @@ func TestRunEnvCreate_CLIOverrideStoredInStatusYaml(t *testing.T) {
 	assert.Equal(t, "original:latest", loadedDef.Image)
 }
 
-func TestRunEnvCreate_ExplicitNameUsesGlobalDefinition(t *testing.T) {
+func TestRunWsNew_ExplicitNameUsesGlobalDefinition(t *testing.T) {
 	ensureZellijStub(t)
 	tmpDir := t.TempDir()
 	require.NoError(t, exec.Command("git", "init", tmpDir).Run())
@@ -195,9 +195,9 @@ func TestRunEnvCreate_ExplicitNameUsesGlobalDefinition(t *testing.T) {
 		Type: env.EnvironmentTypeLocal,
 	}))
 
-	cmd, cf := newTestCreateCmd()
+	cmd, cf := newTestNewCmd()
 	// Explicit name matching global def, not project-local def.
-	err := runEnvCreate(nil, "global-env", cf, cmd)
+	err := runWsNew(nil, "global-env", cf, cmd)
 	require.NoError(t, err)
 
 	// Verify instance was created with the global env name.
@@ -212,7 +212,7 @@ func TestRunEnvCreate_ExplicitNameUsesGlobalDefinition(t *testing.T) {
 	assert.Equal(t, "project-env", loadedDef.Name, "project-local definition should not be overwritten")
 }
 
-func TestRunEnvCreate_ExplicitNameNotFoundFallsToLocal(t *testing.T) {
+func TestRunWsNew_ExplicitNameNotFoundFallsToLocal(t *testing.T) {
 	ensureZellijStub(t)
 	tmpDir := t.TempDir()
 	require.NoError(t, exec.Command("git", "init", tmpDir).Run())
@@ -233,9 +233,9 @@ func TestRunEnvCreate_ExplicitNameNotFoundFallsToLocal(t *testing.T) {
 	t.Setenv("CC_DECK_STATE_FILE", stateFile)
 	t.Setenv("CC_DECK_DEFINITIONS_FILE", defFile)
 
-	cmd, cf := newTestCreateCmd()
+	cmd, cf := newTestNewCmd()
 	// Explicit name not in any store: should fall back to local type (FR-003).
-	err := runEnvCreate(nil, "unknown-env", cf, cmd)
+	err := runWsNew(nil, "unknown-env", cf, cmd)
 	require.NoError(t, err)
 
 	store := env.NewStateStore(stateFile)
@@ -244,7 +244,7 @@ func TestRunEnvCreate_ExplicitNameNotFoundFallsToLocal(t *testing.T) {
 	assert.Equal(t, env.EnvironmentTypeLocal, inst.Type)
 }
 
-func TestRunEnvCreate_ExplicitNameMatchingProjectLocalUsesIt(t *testing.T) {
+func TestRunWsNew_ExplicitNameMatchingProjectLocalUsesIt(t *testing.T) {
 	ensureZellijStub(t)
 	tmpDir := t.TempDir()
 	require.NoError(t, exec.Command("git", "init", tmpDir).Run())
@@ -265,9 +265,9 @@ func TestRunEnvCreate_ExplicitNameMatchingProjectLocalUsesIt(t *testing.T) {
 	t.Setenv("CC_DECK_STATE_FILE", stateFile)
 	t.Setenv("CC_DECK_DEFINITIONS_FILE", defFile)
 
-	cmd, cf := newTestCreateCmd()
+	cmd, cf := newTestNewCmd()
 	// Explicit name matches project-local: should use project-local (FR-004).
-	err := runEnvCreate(nil, "my-env", cf, cmd)
+	err := runWsNew(nil, "my-env", cf, cmd)
 	require.NoError(t, err)
 
 	store := env.NewStateStore(stateFile)
@@ -276,7 +276,7 @@ func TestRunEnvCreate_ExplicitNameMatchingProjectLocalUsesIt(t *testing.T) {
 	assert.Equal(t, env.EnvironmentTypeLocal, inst.Type)
 }
 
-func TestRunEnvCreate_TypeFlagOverridesGlobalDefinition(t *testing.T) {
+func TestRunWsNew_TypeFlagOverridesGlobalDefinition(t *testing.T) {
 	ensureZellijStub(t)
 	tmpDir := t.TempDir()
 	require.NoError(t, exec.Command("git", "init", tmpDir).Run())
@@ -304,10 +304,10 @@ func TestRunEnvCreate_TypeFlagOverridesGlobalDefinition(t *testing.T) {
 		Type: env.EnvironmentTypeLocal,
 	}))
 
-	cmd, cf := newTestCreateCmd()
+	cmd, cf := newTestNewCmd()
 	// --type flag should override global definition type (FR-011).
 	require.NoError(t, cmd.Flags().Set("type", "local"))
-	err := runEnvCreate(nil, "global-env", cf, cmd)
+	err := runWsNew(nil, "global-env", cf, cmd)
 	require.NoError(t, err)
 
 	store := env.NewStateStore(stateFile)
@@ -316,7 +316,7 @@ func TestRunEnvCreate_TypeFlagOverridesGlobalDefinition(t *testing.T) {
 	assert.Equal(t, env.EnvironmentTypeLocal, inst.Type)
 }
 
-func TestRunEnvCreate_GlobalFlagSelectsGlobalDefinition(t *testing.T) {
+func TestRunWsNew_GlobalFlagSelectsGlobalDefinition(t *testing.T) {
 	ensureZellijStub(t)
 	tmpDir := t.TempDir()
 	require.NoError(t, exec.Command("git", "init", tmpDir).Run())
@@ -344,9 +344,9 @@ func TestRunEnvCreate_GlobalFlagSelectsGlobalDefinition(t *testing.T) {
 		Type: env.EnvironmentTypeLocal,
 	}))
 
-	cmd, cf := newTestCreateCmd()
+	cmd, cf := newTestNewCmd()
 	require.NoError(t, cmd.Flags().Set("global", "true"))
-	err := runEnvCreate(nil, "myenv", cf, cmd)
+	err := runWsNew(nil, "myenv", cf, cmd)
 	require.NoError(t, err)
 
 	store := env.NewStateStore(stateFile)
@@ -354,7 +354,7 @@ func TestRunEnvCreate_GlobalFlagSelectsGlobalDefinition(t *testing.T) {
 	require.NoError(t, findErr)
 }
 
-func TestRunEnvCreate_LocalFlagSelectsProjectLocal(t *testing.T) {
+func TestRunWsNew_LocalFlagSelectsProjectLocal(t *testing.T) {
 	ensureZellijStub(t)
 	tmpDir := t.TempDir()
 	require.NoError(t, exec.Command("git", "init", tmpDir).Run())
@@ -374,9 +374,9 @@ func TestRunEnvCreate_LocalFlagSelectsProjectLocal(t *testing.T) {
 	t.Setenv("CC_DECK_STATE_FILE", stateFile)
 	t.Setenv("CC_DECK_DEFINITIONS_FILE", defFile)
 
-	cmd, cf := newTestCreateCmd()
+	cmd, cf := newTestNewCmd()
 	require.NoError(t, cmd.Flags().Set("local", "true"))
-	err := runEnvCreate(nil, "myenv", cf, cmd)
+	err := runWsNew(nil, "myenv", cf, cmd)
 	require.NoError(t, err)
 
 	store := env.NewStateStore(stateFile)
@@ -384,7 +384,7 @@ func TestRunEnvCreate_LocalFlagSelectsProjectLocal(t *testing.T) {
 	require.NoError(t, findErr)
 }
 
-func TestRunEnvCreate_GlobalFlagErrorsWhenNoGlobalDef(t *testing.T) {
+func TestRunWsNew_GlobalFlagErrorsWhenNoGlobalDef(t *testing.T) {
 	tmpDir := t.TempDir()
 	require.NoError(t, exec.Command("git", "init", tmpDir).Run())
 
@@ -397,14 +397,14 @@ func TestRunEnvCreate_GlobalFlagErrorsWhenNoGlobalDef(t *testing.T) {
 	t.Setenv("CC_DECK_STATE_FILE", stateFile)
 	t.Setenv("CC_DECK_DEFINITIONS_FILE", defFile)
 
-	cmd, cf := newTestCreateCmd()
+	cmd, cf := newTestNewCmd()
 	require.NoError(t, cmd.Flags().Set("global", "true"))
-	err := runEnvCreate(nil, "nonexistent", cf, cmd)
+	err := runWsNew(nil, "nonexistent", cf, cmd)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no global definition found")
 }
 
-func TestRunEnvCreate_LocalFlagErrorsWhenNoProjectDef(t *testing.T) {
+func TestRunWsNew_LocalFlagErrorsWhenNoProjectDef(t *testing.T) {
 	tmpDir := t.TempDir()
 	require.NoError(t, exec.Command("git", "init", tmpDir).Run())
 
@@ -417,14 +417,14 @@ func TestRunEnvCreate_LocalFlagErrorsWhenNoProjectDef(t *testing.T) {
 	t.Setenv("CC_DECK_STATE_FILE", stateFile)
 	t.Setenv("CC_DECK_DEFINITIONS_FILE", defFile)
 
-	cmd, cf := newTestCreateCmd()
+	cmd, cf := newTestNewCmd()
 	require.NoError(t, cmd.Flags().Set("local", "true"))
-	err := runEnvCreate(nil, "myenv", cf, cmd)
+	err := runWsNew(nil, "myenv", cf, cmd)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no project-local definition found")
 }
 
-func TestRunEnvCreate_LocalFlagErrorsOnNameMismatch(t *testing.T) {
+func TestRunWsNew_LocalFlagErrorsOnNameMismatch(t *testing.T) {
 	tmpDir := t.TempDir()
 	require.NoError(t, exec.Command("git", "init", tmpDir).Run())
 
@@ -444,16 +444,16 @@ func TestRunEnvCreate_LocalFlagErrorsOnNameMismatch(t *testing.T) {
 	t.Setenv("CC_DECK_STATE_FILE", stateFile)
 	t.Setenv("CC_DECK_DEFINITIONS_FILE", defFile)
 
-	cmd, cf := newTestCreateCmd()
+	cmd, cf := newTestNewCmd()
 	require.NoError(t, cmd.Flags().Set("local", "true"))
 	// Explicit name differs from project-local definition name.
-	err := runEnvCreate(nil, "other-name", cf, cmd)
+	err := runWsNew(nil, "other-name", cf, cmd)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "project-local definition is")
 }
 
-func TestRunEnvCreate_GlobalAndLocalMutuallyExclusive(t *testing.T) {
-	cmd, _ := newTestCreateCmd()
+func TestRunWsNew_GlobalAndLocalMutuallyExclusive(t *testing.T) {
+	cmd, _ := newTestNewCmd()
 	// Cobra validates mutual exclusion during Execute, but we can test
 	// that the flags are registered and mutually exclusive.
 	require.NoError(t, cmd.Flags().Set("global", "true"))
@@ -467,7 +467,7 @@ func TestRunEnvCreate_GlobalAndLocalMutuallyExclusive(t *testing.T) {
 	require.Error(t, execErr, "should reject mutually exclusive --global and --local")
 }
 
-func TestRunEnvCreate_GlobalWithTypeFlagOverridesType(t *testing.T) {
+func TestRunWsNew_GlobalWithTypeFlagOverridesType(t *testing.T) {
 	ensureZellijStub(t)
 	tmpDir := t.TempDir()
 	require.NoError(t, exec.Command("git", "init", tmpDir).Run())
@@ -488,10 +488,10 @@ func TestRunEnvCreate_GlobalWithTypeFlagOverridesType(t *testing.T) {
 		Type: env.EnvironmentTypeLocal,
 	}))
 
-	cmd, cf := newTestCreateCmd()
+	cmd, cf := newTestNewCmd()
 	require.NoError(t, cmd.Flags().Set("global", "true"))
 	require.NoError(t, cmd.Flags().Set("type", "local"))
-	err := runEnvCreate(nil, "global-env", cf, cmd)
+	err := runWsNew(nil, "global-env", cf, cmd)
 	require.NoError(t, err)
 
 	store := env.NewStateStore(stateFile)
@@ -500,17 +500,17 @@ func TestRunEnvCreate_GlobalWithTypeFlagOverridesType(t *testing.T) {
 	assert.Equal(t, env.EnvironmentTypeLocal, inst.Type)
 }
 
-func TestRunEnvCreate_FailsWithoutNameOutsideGitRepo(t *testing.T) {
+func TestRunWsNew_FailsWithoutNameOutsideGitRepo(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	origDir, _ := os.Getwd()
 	require.NoError(t, os.Chdir(tmpDir))
 	defer os.Chdir(origDir)
 
-	cmd, cf := newTestCreateCmd()
-	err := runEnvCreate(nil, "", cf, cmd)
+	cmd, cf := newTestNewCmd()
+	err := runWsNew(nil, "", cf, cmd)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no environment name specified")
+	assert.Contains(t, err.Error(), "no workspace name specified")
 }
 
 func TestWriteEnvStructured_IncludesSourceField(t *testing.T) {
@@ -533,7 +533,8 @@ func TestWriteEnvStructured_IncludesSourceField(t *testing.T) {
 
 	// Capture JSON output.
 	old := os.Stdout
-	r, w, _ := os.Pipe()
+	r, w, pipeErr := os.Pipe()
+	require.NoError(t, pipeErr)
 	os.Stdout = w
 
 	err := writeEnvStructured("json", instances, nil, instanceNames, "", defs, nil)
@@ -562,7 +563,8 @@ func TestWriteEnvStructured_ProjectSourceForProjectEnvs(t *testing.T) {
 
 	// Capture JSON output.
 	old := os.Stdout
-	r, w, _ := os.Pipe()
+	r, w, pipeErr := os.Pipe()
+	require.NoError(t, pipeErr)
 	os.Stdout = w
 
 	err := writeEnvStructured("json", nil, nil, map[string]bool{}, "", defs, projectEnvs)
@@ -591,7 +593,8 @@ func TestWriteEnvTableWithProjects_HasSourceNoPath(t *testing.T) {
 
 	// Capture output.
 	old := os.Stdout
-	r, w, _ := os.Pipe()
+	r, w, pipeErr := os.Pipe()
+	require.NoError(t, pipeErr)
 	os.Stdout = w
 
 	err := writeEnvTableWithProjects(nil, nil, map[string]bool{}, "", projectEnvs, nil, defs, false)

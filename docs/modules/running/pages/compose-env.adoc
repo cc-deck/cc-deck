@@ -24,7 +24,7 @@ ls
 
 [source,bash]
 ----
-cc-deck env create dev --type compose --gitignore
+cc-deck ws new dev --type compose --gitignore
 ----
 
 You will see output similar to:
@@ -51,7 +51,7 @@ The `.env` file contains any auto-detected credentials from your host.
 
 [source,bash]
 ----
-cc-deck env attach dev
+cc-deck ws attach dev
 ----
 
 This opens a Zellij session inside the container with the cc-deck sidebar plugin loaded.
@@ -73,8 +73,8 @@ If you want to restrict which domains the session container can access, delete a
 [source,bash]
 ----
 # Detach from Zellij first (Ctrl+o d)
-cc-deck env delete dev --force
-cc-deck env create dev --type compose \
+cc-deck ws kill dev --force
+cc-deck ws new dev --type compose \
   --allowed-domains anthropic,github \
   --gitignore
 ----
@@ -84,7 +84,7 @@ Attach and verify filtering works:
 
 [source,bash]
 ----
-cc-deck env attach dev
+cc-deck ws attach dev
 
 # Inside the container:
 curl -s https://api.anthropic.com -o /dev/null -w "%{http_code}"
@@ -101,16 +101,16 @@ curl -s https://example.com -o /dev/null -w "%{http_code}"
 # Detach from Zellij (Ctrl+o d)
 
 # Check status
-cc-deck env status dev
+cc-deck ws status dev
 
 # Stop to free resources
-cc-deck env stop dev
+cc-deck ws stop dev
 
 # Start again later
-cc-deck env start dev
+cc-deck ws start dev
 
 # Re-attach
-cc-deck env attach dev
+cc-deck ws attach dev
 # Your files and Zellij session state are preserved.
 ----
 
@@ -118,7 +118,7 @@ cc-deck env attach dev
 
 [source,bash]
 ----
-cc-deck env delete dev
+cc-deck ws kill dev
 # Environment "dev" deleted
 ----
 
@@ -148,7 +148,7 @@ The optional proxy sidecar enforces a domain allowlist for network security.
 [source,bash]
 ----
 cd ~/projects/my-api
-cc-deck env create mydev --type compose
+cc-deck ws new mydev --type compose
 ----
 
 This command performs several steps automatically:
@@ -179,7 +179,7 @@ When omitted, the current working directory is used.
 
 [source,bash]
 ----
-cc-deck env create mydev --type compose --path /home/user/projects/my-api
+cc-deck ws new mydev --type compose --path /home/user/projects/my-api
 ----
 
 == Network Filtering
@@ -189,7 +189,7 @@ The session container can only reach domains in the allowlist.
 
 [source,bash]
 ----
-cc-deck env create filtered --type compose --allowed-domains anthropic,github,npm
+cc-deck ws new filtered --type compose --allowed-domains anthropic,github,npm
 ----
 
 Domain groups are expanded using the built-in domain resolver.
@@ -224,16 +224,16 @@ All standard environment lifecycle commands work with compose environments.
 [source,bash]
 ----
 # Stop the environment (frees resources, preserves state)
-cc-deck env stop mydev
+cc-deck ws stop mydev
 
 # Start a stopped environment
-cc-deck env start mydev
+cc-deck ws start mydev
 
 # Delete the environment and all artifacts
-cc-deck env delete mydev
+cc-deck ws kill mydev
 
 # Force-delete a running environment
-cc-deck env delete mydev --force
+cc-deck ws kill mydev --force
 ----
 
 Stopping and starting preserves all files in the project directory (bind mount mode) and in the named volume (if used).
@@ -247,7 +247,7 @@ Use the `--gitignore` flag to add it automatically.
 
 [source,bash]
 ----
-cc-deck env create mydev --type compose --gitignore
+cc-deck ws new mydev --type compose --gitignore
 ----
 
 The `.cc-deck/` directory contains only generated artifacts.
@@ -258,7 +258,7 @@ It should not be committed to version control.
 [source,bash]
 ----
 # Create with all options
-cc-deck env create mydev --type compose \
+cc-deck ws new mydev --type compose \
   --image quay.io/cc-deck/cc-deck-demo:latest \
   --allowed-domains anthropic,github \
   --port 8080:8080 \
@@ -268,11 +268,11 @@ cc-deck env create mydev --type compose \
   --gitignore
 
 # Attach to the environment
-cc-deck env attach mydev
+cc-deck ws attach mydev
 
 # Run a command inside the session container
-cc-deck env exec mydev -- ls /workspace
+cc-deck ws exec mydev -- ls /workspace
 
 # Check status
-cc-deck env status mydev
+cc-deck ws status mydev
 ----
