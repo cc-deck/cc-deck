@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"github.com/cc-deck/cc-deck/internal/setup"
+	"github.com/cc-deck/cc-deck/internal/build"
 	"github.com/cc-deck/cc-deck/internal/cmd"
 	"github.com/cc-deck/cc-deck/internal/xdg"
 )
@@ -24,11 +24,11 @@ func newRootCmd() *cobra.Command {
 
 	rootCmd := &cobra.Command{
 		Use:   appName,
-		Short: "Manage Claude Code sessions with the Zellij sidebar plugin",
+		Short: "Manage Claude Code workspaces with the Zellij sidebar plugin",
 		Long: `cc-deck manages Claude Code + Zellij sessions through a sidebar plugin
 that tracks session status, enables keyboard navigation, and provides
-session snapshots. It also supports setting up container images and
-SSH remotes for Claude Code environments.`,
+session snapshots. It also supports building container images and
+provisioning SSH remotes for Claude Code workspaces.`,
 		SilenceUsage: true,
 	}
 
@@ -43,99 +43,36 @@ SSH remotes for Claude Code environments.`,
 		initConfig(gf)
 	})
 
-	// Command groups in display order.
 	rootCmd.AddGroup(
-		&cobra.Group{ID: "daily", Title: "Daily:"},
+		&cobra.Group{ID: "workspace", Title: "Workspace:"},
 		&cobra.Group{ID: "session", Title: "Session:"},
-		&cobra.Group{ID: "environment", Title: "Environment:"},
-		&cobra.Group{ID: "setup", Title: "Setup:"},
+		&cobra.Group{ID: "build", Title: "Build:"},
+		&cobra.Group{ID: "config", Title: "Config:"},
 	)
 
-	// Daily: promoted env subcommands.
-	addToGroup(rootCmd, "daily",
+	addToGroup(rootCmd, "workspace",
 		cmd.NewAttachCmd(gf),
 		cmd.NewListCmd(gf),
-		cmd.NewStatusCmd(gf),
-		cmd.NewStartCmd(gf),
-		cmd.NewStopCmd(gf),
-		cmd.NewLogsCmd(gf),
+		cmd.NewExecCmd(gf),
+		cmd.NewWsCmd(gf),
 	)
 
-	// Session.
 	addToGroup(rootCmd, "session",
 		cmd.NewSnapshotCmd(gf),
 	)
 
-	// Environment.
-	addToGroup(rootCmd, "environment",
-		cmd.NewEnvCmd(gf),
+	addToGroup(rootCmd, "build",
+		cmd.NewBuildCmd(gf),
 	)
 
-	// Setup.
-	addToGroup(rootCmd, "setup",
-		cmd.NewPluginCmd(gf),
-		cmd.NewProfileCmd(gf),
-		cmd.NewDomainsCmd(gf),
-		cmd.NewSetupCmd(gf),
+	addToGroup(rootCmd, "config",
+		cmd.NewConfigCmd(gf),
 	)
 
-	// Utility commands (ungrouped, appear under "Additional Commands").
 	rootCmd.AddCommand(cmd.NewHookCmd())
 	rootCmd.AddCommand(cmd.NewVersionCmd(gf))
-	rootCmd.AddCommand(newCompletionCmd())
 
 	return rootCmd
-}
-
-func newCompletionCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "completion [bash|zsh|fish]",
-		Short: "Generate shell completion scripts",
-		Long: `Generate shell completion scripts for cc-deck.
-
-To load completions:
-
-Bash:
-  $ source <(cc-deck completion bash)
-
-  # To load completions for each session, execute once:
-  # Linux:
-  $ cc-deck completion bash > /etc/bash_completion.d/cc-deck
-  # macOS:
-  $ cc-deck completion bash > $(brew --prefix)/etc/bash_completion.d/cc-deck
-
-Zsh:
-  # If shell completion is not already enabled in your environment,
-  # you will need to enable it. Execute the following once:
-  $ echo "autoload -U compinit; compinit" >> ~/.zshrc
-
-  # To load completions for each session, execute once:
-  $ cc-deck completion zsh > "${fpath[1]}/_cc-deck"
-
-  # You will need to start a new shell for this setup to take effect.
-
-Fish:
-  $ cc-deck completion fish | source
-
-  # To load completions for each session, execute once:
-  $ cc-deck completion fish > ~/.config/fish/completions/cc-deck.fish
-`,
-		DisableFlagsInUseLine: true,
-		ValidArgs:             []string{"bash", "zsh", "fish"},
-		Args:                  cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			switch args[0] {
-			case "bash":
-				return cmd.Root().GenBashCompletion(os.Stdout)
-			case "zsh":
-				return cmd.Root().GenZshCompletion(os.Stdout)
-			case "fish":
-				return cmd.Root().GenFishCompletion(os.Stdout, true)
-			default:
-				return fmt.Errorf("unsupported shell: %s", args[0])
-			}
-		},
-	}
 }
 
 func addToGroup(parent *cobra.Command, groupID string, cmds ...*cobra.Command) {
@@ -169,9 +106,9 @@ func initConfig(gf *cmd.GlobalFlags) {
 }
 
 func main() {
-	// Propagate build-time registry to the setup package
+	// Propagate build-time registry to the build package
 	if cmd.ImageRegistry != "" {
-		setup.DefaultBaseImage = cmd.ImageRegistry + "/cc-deck-base:latest"
+		build.DefaultBaseImage = cmd.ImageRegistry + "/cc-deck-base:latest"
 	}
 
 	rootCmd := newRootCmd()

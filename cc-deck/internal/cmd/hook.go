@@ -178,7 +178,7 @@ func runHook(stdin io.Reader, paneIDStr string) {
 func FormatHookUsage() string {
 	return fmt.Sprintf(`To register hooks in ~/.claude/settings.json:
 
-  cc-deck plugin install
+  cc-deck config plugin install
 
 Or manually add to settings.json:
 

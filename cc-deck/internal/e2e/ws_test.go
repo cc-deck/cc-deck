@@ -30,7 +30,6 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "Failed to create temp dir: %v\n", err)
 		os.Exit(1)
 	}
-	defer os.RemoveAll(tmpDir)
 
 	binaryPath = filepath.Join(tmpDir, "cc-deck")
 	buildCmd := exec.Command("go", "build", "-o", binaryPath, "./cmd/cc-deck")
@@ -42,21 +41,23 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
-	os.Exit(m.Run())
+	code := m.Run()
+	os.RemoveAll(tmpDir)
+	os.Exit(code)
 }
 
-// mustFindProjectRoot walks up from cwd to find the project root (contains Makefile).
 func mustFindProjectRoot() string {
-	dir, _ := os.Getwd()
+	dir, err := os.Getwd()
+	if err != nil {
+		panic(fmt.Sprintf("failed to get working directory: %v", err))
+	}
 	for {
 		if _, err := os.Stat(filepath.Join(dir, "Makefile")); err == nil {
 			return dir
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			// Fallback: assume we're inside cc-deck/internal/e2e
-			d, _ := os.Getwd()
-			return filepath.Join(d, "..", "..", "..")
+			panic("could not find project root (no Makefile found in parent directories)")
 		}
 		dir = parent
 	}
@@ -122,10 +123,10 @@ func (te *testEnv) mustRun(args ...string) (stdout, stderr string) {
 func TestE2ECreateAndList(t *testing.T) {
 	te := setup(t)
 
-	stdout, _ := te.mustRun("env", "create", "e2e-test", "--type", "local")
+	stdout, _ := te.mustRun("ws", "new", "e2e-test", "--type", "local")
 	assert.Contains(t, stdout, "created")
 
-	stdout, _ = te.mustRun("env", "list")
+	stdout, _ = te.mustRun("ws", "list")
 	assert.Contains(t, stdout, "e2e-test")
 	assert.Contains(t, stdout, "local")
 }
@@ -133,9 +134,9 @@ func TestE2ECreateAndList(t *testing.T) {
 func TestE2EListJSON(t *testing.T) {
 	te := setup(t)
 
-	te.mustRun("env", "create", "jsonenv", "--type", "local")
+	te.mustRun("ws", "new", "jsonenv", "--type", "local")
 
-	stdout, _ := te.mustRun("env", "list", "-o", "json")
+	stdout, _ := te.mustRun("ws", "list", "-o", "json")
 
 	var records []map[string]interface{}
 	require.NoError(t, json.Unmarshal([]byte(stdout), &records),
@@ -148,9 +149,9 @@ func TestE2EListJSON(t *testing.T) {
 func TestE2EListYAML(t *testing.T) {
 	te := setup(t)
 
-	te.mustRun("env", "create", "yamlenv")
+	te.mustRun("ws", "new", "yamlenv")
 
-	stdout, _ := te.mustRun("env", "list", "-o", "yaml")
+	stdout, _ := te.mustRun("ws", "list", "-o", "yaml")
 	assert.Contains(t, stdout, "name: yamlenv")
 	assert.Contains(t, stdout, "type: local")
 }
@@ -158,9 +159,9 @@ func TestE2EListYAML(t *testing.T) {
 func TestE2EStatus(t *testing.T) {
 	te := setup(t)
 
-	te.mustRun("env", "create", "statusenv")
+	te.mustRun("ws", "new", "statusenv")
 
-	stdout, _ := te.mustRun("env", "status", "statusenv")
+	stdout, _ := te.mustRun("ws", "status", "statusenv")
 	assert.Contains(t, stdout, "statusenv")
 	assert.Contains(t, stdout, "local")
 }
@@ -168,9 +169,9 @@ func TestE2EStatus(t *testing.T) {
 func TestE2EStatusJSON(t *testing.T) {
 	te := setup(t)
 
-	te.mustRun("env", "create", "statusjson")
+	te.mustRun("ws", "new", "statusjson")
 
-	stdout, _ := te.mustRun("env", "status", "statusjson", "-o", "json")
+	stdout, _ := te.mustRun("ws", "status", "statusjson", "-o", "json")
 
 	var out map[string]interface{}
 	require.NoError(t, json.Unmarshal([]byte(stdout), &out))
@@ -181,48 +182,48 @@ func TestE2EStatusJSON(t *testing.T) {
 func TestE2EDelete(t *testing.T) {
 	te := setup(t)
 
-	te.mustRun("env", "create", "delenv")
-	stdout, _ := te.mustRun("env", "delete", "delenv", "--force")
+	te.mustRun("ws", "new", "delenv")
+	stdout, _ := te.mustRun("ws", "kill", "delenv", "--force")
 	assert.Contains(t, stdout, "deleted")
 
-	stdout, _ = te.mustRun("env", "list")
-	assert.Contains(t, stdout, "No environments found")
+	stdout, _ = te.mustRun("ws", "list")
+	assert.Contains(t, stdout, "No workspaces found")
 }
 
 func TestE2EFullLifecycle(t *testing.T) {
 	te := setup(t)
 
 	// Create
-	stdout, _ := te.mustRun("env", "create", "lifecycle")
+	stdout, _ := te.mustRun("ws", "new", "lifecycle")
 	assert.Contains(t, stdout, "created")
 
 	// List
-	stdout, _ = te.mustRun("env", "list")
+	stdout, _ = te.mustRun("ws", "list")
 	assert.Contains(t, stdout, "lifecycle")
 
 	// Status
-	stdout, _ = te.mustRun("env", "status", "lifecycle")
+	stdout, _ = te.mustRun("ws", "status", "lifecycle")
 	assert.Contains(t, stdout, "lifecycle")
 
 	// Status JSON
-	stdout, _ = te.mustRun("env", "status", "lifecycle", "-o", "json")
+	stdout, _ = te.mustRun("ws", "status", "lifecycle", "-o", "json")
 	var status map[string]interface{}
 	require.NoError(t, json.Unmarshal([]byte(stdout), &status))
 	assert.Equal(t, "lifecycle", status["name"])
 
 	// Delete
-	stdout, _ = te.mustRun("env", "delete", "lifecycle", "--force")
+	stdout, _ = te.mustRun("ws", "kill", "lifecycle", "--force")
 	assert.Contains(t, stdout, "deleted")
 
 	// Gone
-	stdout, _ = te.mustRun("env", "list")
-	assert.Contains(t, stdout, "No environments found")
+	stdout, _ = te.mustRun("ws", "list")
+	assert.Contains(t, stdout, "No workspaces found")
 }
 
 func TestE2ECreateInvalidName(t *testing.T) {
 	te := setup(t)
 
-	_, stderr, err := te.run("env", "create", "INVALID")
+	_, stderr, err := te.run("ws", "new", "INVALID")
 	require.Error(t, err)
 	assert.Contains(t, stderr, "invalid")
 }
@@ -230,30 +231,30 @@ func TestE2ECreateInvalidName(t *testing.T) {
 func TestE2ECreateDuplicate(t *testing.T) {
 	te := setup(t)
 
-	te.mustRun("env", "create", "dupenv")
-	_, _, err := te.run("env", "create", "dupenv")
+	te.mustRun("ws", "new", "dupenv")
+	_, _, err := te.run("ws", "new", "dupenv")
 	require.Error(t, err)
 }
 
 func TestE2EDeleteNotFound(t *testing.T) {
 	te := setup(t)
 
-	_, _, err := te.run("env", "delete", "ghost", "--force")
+	_, _, err := te.run("ws", "kill", "ghost", "--force")
 	require.Error(t, err)
 }
 
 func TestE2EStatusNotFound(t *testing.T) {
 	te := setup(t)
 
-	_, _, err := te.run("env", "status", "ghost")
+	_, _, err := te.run("ws", "status", "ghost")
 	require.Error(t, err)
 }
 
 func TestE2EStopLocalPrintsNote(t *testing.T) {
 	te := setup(t)
 
-	te.mustRun("env", "create", "stopenv")
-	_, stderr := te.mustRun("env", "stop", "stopenv")
+	te.mustRun("ws", "new", "stopenv")
+	_, stderr := te.mustRun("ws", "stop", "stopenv")
 	assert.Contains(t, stderr, "not supported")
 }
 
@@ -261,17 +262,17 @@ func TestE2EMultipleEnvironments(t *testing.T) {
 	te := setup(t)
 
 	for _, name := range []string{"alpha", "beta", "gamma"} {
-		te.mustRun("env", "create", name)
+		te.mustRun("ws", "new", name)
 	}
 
-	stdout, _ := te.mustRun("env", "list")
+	stdout, _ := te.mustRun("ws", "list")
 	assert.Contains(t, stdout, "alpha")
 	assert.Contains(t, stdout, "beta")
 	assert.Contains(t, stdout, "gamma")
 
-	te.mustRun("env", "delete", "beta", "--force")
+	te.mustRun("ws", "kill", "beta", "--force")
 
-	stdout, _ = te.mustRun("env", "list")
+	stdout, _ = te.mustRun("ws", "list")
 	assert.Contains(t, stdout, "alpha")
 	assert.NotContains(t, stdout, "beta")
 	assert.Contains(t, stdout, "gamma")
@@ -280,12 +281,12 @@ func TestE2EMultipleEnvironments(t *testing.T) {
 func TestE2EListFilterByType(t *testing.T) {
 	te := setup(t)
 
-	te.mustRun("env", "create", "filterenv")
+	te.mustRun("ws", "new", "filterenv")
 
-	stdout, _ := te.mustRun("env", "list", "--type", "local")
+	stdout, _ := te.mustRun("ws", "list", "--type", "local")
 	assert.Contains(t, stdout, "filterenv")
 
-	stdout, _ = te.mustRun("env", "list", "--type", "container")
+	stdout, _ = te.mustRun("ws", "list", "--type", "container")
 	assert.NotContains(t, stdout, "filterenv")
 }
 
@@ -293,9 +294,9 @@ func TestE2EDefaultTypeIsLocal(t *testing.T) {
 	te := setup(t)
 
 	// Omit --type, should default to local.
-	te.mustRun("env", "create", "defaultenv")
+	te.mustRun("ws", "new", "defaultenv")
 
-	stdout, _ := te.mustRun("env", "list", "-o", "json")
+	stdout, _ := te.mustRun("ws", "list", "-o", "json")
 	var records []map[string]interface{}
 	require.NoError(t, json.Unmarshal([]byte(stdout), &records))
 	require.Len(t, records, 1)
@@ -312,17 +313,17 @@ func TestE2EVersionFlag(t *testing.T) {
 func TestE2EHelpFlag(t *testing.T) {
 	te := setup(t)
 
-	stdout, _ := te.mustRun("env", "--help")
-	assert.Contains(t, stdout, "create")
+	stdout, _ := te.mustRun("ws", "--help")
+	assert.Contains(t, stdout, "new")
 	assert.Contains(t, stdout, "list")
-	assert.Contains(t, stdout, "delete")
+	assert.Contains(t, stdout, "kill")
 	assert.Contains(t, stdout, "status")
 }
 
 func TestE2EStatePersistence(t *testing.T) {
 	te := setup(t)
 
-	te.mustRun("env", "create", "persist")
+	te.mustRun("ws", "new", "persist")
 
 	data, err := os.ReadFile(te.stateFile)
 	require.NoError(t, err, "state file should exist")

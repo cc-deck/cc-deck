@@ -1,4 +1,4 @@
-package setup
+package build
 
 import (
 	"fmt"
@@ -8,7 +8,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Manifest represents the cc-deck-setup.yaml file.
+// Manifest represents the cc-deck-build.yaml file.
 type Manifest struct {
 	Version     int              `yaml:"version"`
 	Tools       []string         `yaml:"tools,omitempty"`
@@ -109,7 +109,7 @@ type ToolConfig struct {
 	Target string `yaml:"target,omitempty"`
 }
 
-// LoadManifest reads and parses a cc-deck-setup.yaml file.
+// LoadManifest reads and parses a cc-deck-build.yaml file.
 func LoadManifest(path string) (*Manifest, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {

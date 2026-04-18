@@ -82,7 +82,7 @@ brews:
     caveats: |
       After installation, set up the Zellij plugin and hooks:
 
-        cc-deck plugin install
+        cc-deck config plugin install
 
       Then start Zellij with the cc-deck layout:
 

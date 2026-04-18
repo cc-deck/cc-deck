@@ -1,5 +1,5 @@
 #!/bin/bash
-# Smoke test for cc-deck env commands.
+# Smoke test for cc-deck ws commands.
 # Runs the compiled binary through a full lifecycle without Zellij.
 #
 # Usage:
@@ -73,7 +73,7 @@ assert_exit_code() {
 
 # --- Verify binary ---
 
-printf "\n\033[1m=== cc-deck env smoke tests ===\033[0m\n\n"
+printf "\n\033[1m=== cc-deck ws smoke tests ===\033[0m\n\n"
 
 if [ ! -x "$CC_DECK_BIN" ]; then
     echo "Binary not found at $CC_DECK_BIN"
@@ -90,40 +90,40 @@ assert_contains "$out" "create" "help mentions create"
 # --- Create ---
 
 printf "\n\033[1m2. Create environments\033[0m\n"
-out=$(run env create smoke-test --type local)
+out=$(run ws new smoke-test --type local)
 assert_contains "$out" "created" "create local env"
 
-assert_exit_code 1 "create duplicate rejects" env create smoke-test --type local
-assert_exit_code 1 "create invalid name rejects" env create INVALID --type local
-assert_exit_code 1 "create unsupported type" env create podtest --type podman
+assert_exit_code 1 "create duplicate rejects" ws new smoke-test --type local
+assert_exit_code 1 "create invalid name rejects" ws new INVALID --type local
+assert_exit_code 1 "create unsupported type" ws new podtest --type podman
 
 # --- List ---
 
 printf "\n\033[1m3. List environments\033[0m\n"
-out=$(run env list)
+out=$(run ws list)
 assert_contains "$out" "smoke-test" "list shows env"
 assert_contains "$out" "local" "list shows type"
 
-out=$(run env list -o json)
+out=$(run ws list -o json)
 assert_contains "$out" '"Name": "smoke-test"' "list JSON output"
 
-out=$(run env list --type local)
+out=$(run ws list --type local)
 assert_contains "$out" "smoke-test" "list filter local"
 
-out=$(run env list --type podman)
+out=$(run ws list --type podman)
 assert_not_contains "$out" "smoke-test" "list filter podman excludes local"
 
 # --- Status ---
 
 printf "\n\033[1m4. Status\033[0m\n"
-out=$(run env status smoke-test)
+out=$(run ws status smoke-test)
 assert_contains "$out" "smoke-test" "status shows name"
 assert_contains "$out" "local" "status shows type"
 
-out=$(run env status smoke-test -o json)
+out=$(run ws status smoke-test -o json)
 assert_contains "$out" '"name": "smoke-test"' "status JSON"
 
-assert_exit_code 1 "status not found" env status nonexistent
+assert_exit_code 1 "status not found" ws status nonexistent
 
 # --- Stop/Start ---
 
@@ -143,9 +143,9 @@ assert_exit_code 1 "start non-stopped env rejects" env start smoke-test
 # --- Multiple envs ---
 
 printf "\n\033[1m6. Multiple environments\033[0m\n"
-run env create alpha >/dev/null
-run env create beta >/dev/null
-out=$(run env list)
+run ws new alpha >/dev/null
+run ws new beta >/dev/null
+out=$(run ws list)
 assert_contains "$out" "alpha" "multi: alpha listed"
 assert_contains "$out" "beta" "multi: beta listed"
 assert_contains "$out" "smoke-test" "multi: smoke-test still listed"
@@ -153,14 +153,14 @@ assert_contains "$out" "smoke-test" "multi: smoke-test still listed"
 # --- Delete ---
 
 printf "\n\033[1m7. Delete\033[0m\n"
-out=$(run env delete beta --force)
+out=$(run ws kill beta --force)
 assert_contains "$out" "deleted" "delete beta"
 
-out=$(run env list)
+out=$(run ws list)
 assert_not_contains "$out" "beta" "beta gone from list"
 assert_contains "$out" "alpha" "alpha still listed"
 
-assert_exit_code 1 "delete not found" env delete ghost --force
+assert_exit_code 1 "delete not found" ws kill ghost --force
 
 # --- State file ---
 
@@ -176,9 +176,9 @@ fi
 # --- Cleanup cycle ---
 
 printf "\n\033[1m9. Full cleanup\033[0m\n"
-run env delete smoke-test --force >/dev/null
-run env delete alpha --force >/dev/null
-out=$(run env list)
+run ws kill smoke-test --force >/dev/null
+run ws kill alpha --force >/dev/null
+out=$(run ws list)
 assert_contains "$out" "No environments found" "all deleted"
 
 # --- Summary ---

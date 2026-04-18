@@ -115,7 +115,7 @@ Key format follows Zellij conventions: `Alt`, `Ctrl`, `Super` (Cmd on macOS) as 
 Location: `$XDG_CONFIG_HOME/cc-deck/domains.yaml` (typically `~/.config/cc-deck/domains.yaml`)
 
 This file defines custom domain groups for network filtering in containerized sessions.
-Create it with `cc-deck domains init` to get a commented template, or write it manually.
+Create it with `cc-deck config domains init` to get a commented template, or write it manually.
 
 The file is a YAML mapping where each top-level key is a group name and the value defines its domains and resolution behavior.
 
@@ -170,4 +170,4 @@ This produces a group containing all domains from `python`, `golang`, and `githu
 * Groups defined in `domains.yaml` take precedence over built-in groups of the same name.
 * If `extends: builtin` is set, the built-in domains are included as a base.
 * Circular includes are detected and reported as errors.
-* Source labels in `cc-deck domains list` reflect the resolution: `builtin`, `user` (override or new), or `extended` (extends builtin).
+* Source labels in `cc-deck config domains list` reflect the resolution: `builtin`, `user` (override or new), or `extended` (extends builtin).

@@ -58,7 +58,7 @@ export CC_DECK_DEFINITIONS_FILE=$(mktemp -d)/definitions.yaml
 ### 1a. Create environment
 
 ```bash
-cc-deck env create test-basic \
+cc-deck ws new test-basic \
   --type k8s-deploy \
   --namespace cc-deck-test \
   --image localhost/cc-deck-stub:latest \
@@ -124,7 +124,7 @@ kubectl -n cc-deck-test get pvc
 ### 1g. List environments
 
 ```bash
-cc-deck env list
+cc-deck ws list
 ```
 
 **Expected**: `test-basic` appears with type `k8s-deploy`, state `running`, storage `pvc`.
@@ -132,7 +132,7 @@ cc-deck env list
 ### 1h. Status
 
 ```bash
-cc-deck env status test-basic
+cc-deck ws status test-basic
 ```
 
 **Expected**: Shows type k8s-deploy, status running.
@@ -140,7 +140,7 @@ cc-deck env status test-basic
 ### 1i. Stop
 
 ```bash
-cc-deck env stop test-basic
+cc-deck ws stop test-basic
 ```
 
 **Expected**: "Environment "test-basic" stopped". StatefulSet scaled to 0:
@@ -161,7 +161,7 @@ kubectl -n cc-deck-test get pvc
 ### 1k. Start
 
 ```bash
-cc-deck env start test-basic
+cc-deck ws start test-basic
 ```
 
 **Expected**: "Environment "test-basic" started". Pod comes back up:
@@ -175,8 +175,8 @@ kubectl -n cc-deck-test get pod cc-deck-test-basic-0
 
 ```bash
 kubectl -n cc-deck-test exec cc-deck-test-basic-0 -- sh -c 'echo "persistence-test" > /workspace/testfile.txt'
-cc-deck env stop test-basic
-cc-deck env start test-basic
+cc-deck ws stop test-basic
+cc-deck ws start test-basic
 kubectl -n cc-deck-test exec cc-deck-test-basic-0 -- cat /workspace/testfile.txt
 ```
 
@@ -185,7 +185,7 @@ kubectl -n cc-deck-test exec cc-deck-test-basic-0 -- cat /workspace/testfile.txt
 ### 1m. Delete with --keep-volumes
 
 ```bash
-cc-deck env delete test-basic --force --keep-volumes
+cc-deck ws kill test-basic --force --keep-volumes
 ```
 
 **Expected**: StatefulSet, Service, ConfigMap, Secret deleted. PVC preserved:
@@ -208,14 +208,14 @@ kubectl -n cc-deck-test delete pvc data-cc-deck-test-basic-0
 ## Test 2: Duplicate Name Conflict
 
 ```bash
-cc-deck env create dup-test \
+cc-deck ws new dup-test \
   --type k8s-deploy \
   --namespace cc-deck-test \
   --image localhost/cc-deck-stub:latest \
   --no-network-policy \
   --timeout 3m
 
-cc-deck env create dup-test \
+cc-deck ws new dup-test \
   --type k8s-deploy \
   --namespace cc-deck-test \
   --image localhost/cc-deck-stub:latest \
@@ -225,7 +225,7 @@ cc-deck env create dup-test \
 **Expected**: First create succeeds. Second create fails with "environment with this name already exists".
 
 ```bash
-cc-deck env delete dup-test --force
+cc-deck ws kill dup-test --force
 ```
 
 ---
@@ -242,7 +242,7 @@ kubectl -n cc-deck-test create secret generic my-api-keys \
 ### 3b. Create environment with existing secret
 
 ```bash
-cc-deck env create test-existing-secret \
+cc-deck ws new test-existing-secret \
   --type k8s-deploy \
   --namespace cc-deck-test \
   --image localhost/cc-deck-stub:latest \
@@ -264,7 +264,7 @@ kubectl -n cc-deck-test exec cc-deck-test-existing-secret-0 -- cat /run/secrets/
 ### 3d. Delete and verify Secret preserved
 
 ```bash
-cc-deck env delete test-existing-secret --force
+cc-deck ws kill test-existing-secret --force
 kubectl -n cc-deck-test get secret my-api-keys
 ```
 
@@ -281,7 +281,7 @@ kubectl -n cc-deck-test delete secret my-api-keys
 ### 4a. Create with default NetworkPolicy
 
 ```bash
-cc-deck env create test-netpol \
+cc-deck ws new test-netpol \
   --type k8s-deploy \
   --namespace cc-deck-test \
   --image localhost/cc-deck-stub:latest \
@@ -301,9 +301,9 @@ kubectl -n cc-deck-test get networkpolicy cc-deck-test-netpol -o yaml | head -30
 ### 4c. Create with --no-network-policy
 
 ```bash
-cc-deck env delete test-netpol --force
+cc-deck ws kill test-netpol --force
 
-cc-deck env create test-no-netpol \
+cc-deck ws new test-no-netpol \
   --type k8s-deploy \
   --namespace cc-deck-test \
   --image localhost/cc-deck-stub:latest \
@@ -317,7 +317,7 @@ kubectl -n cc-deck-test get networkpolicy cc-deck-test-no-netpol 2>&1
 **Expected**: "not found" (no NetworkPolicy created).
 
 ```bash
-cc-deck env delete test-no-netpol --force
+cc-deck ws kill test-no-netpol --force
 ```
 
 ---
@@ -327,7 +327,7 @@ cc-deck env delete test-no-netpol --force
 ### 5a. Create environment
 
 ```bash
-cc-deck env create test-sync \
+cc-deck ws new test-sync \
   --type k8s-deploy \
   --namespace cc-deck-test \
   --image localhost/cc-deck-stub:latest \
@@ -342,7 +342,7 @@ cc-deck env create test-sync \
 mkdir -p /tmp/cc-deck-push-test
 echo "hello from local" > /tmp/cc-deck-push-test/greeting.txt
 
-cc-deck env push test-sync /tmp/cc-deck-push-test
+cc-deck ws push test-sync /tmp/cc-deck-push-test
 ```
 
 **Expected**: "Pushed to environment "test-sync""
@@ -359,7 +359,7 @@ kubectl -n cc-deck-test exec cc-deck-test-sync-0 -- cat /workspace/greeting.txt
 
 ```bash
 mkdir -p /tmp/cc-deck-pull-test
-cc-deck env pull test-sync /workspace /tmp/cc-deck-pull-test
+cc-deck ws pull test-sync /workspace /tmp/cc-deck-pull-test
 cat /tmp/cc-deck-pull-test/greeting.txt
 ```
 
@@ -368,13 +368,13 @@ cat /tmp/cc-deck-pull-test/greeting.txt
 ### 5e. Exec
 
 ```bash
-cc-deck env exec test-sync -- echo "exec works"
+cc-deck ws exec test-sync -- echo "exec works"
 ```
 
 **Expected**: `exec works`
 
 ```bash
-cc-deck env delete test-sync --force
+cc-deck ws kill test-sync --force
 ```
 
 ---
@@ -382,7 +382,7 @@ cc-deck env delete test-sync --force
 ## Test 6: Custom Storage (US1 variant)
 
 ```bash
-cc-deck env create test-storage \
+cc-deck ws new test-storage \
   --type k8s-deploy \
   --namespace cc-deck-test \
   --image localhost/cc-deck-stub:latest \
@@ -397,7 +397,7 @@ kubectl -n cc-deck-test get pvc -o jsonpath='{.items[0].spec.resources.requests.
 **Expected**: `1Gi`
 
 ```bash
-cc-deck env delete test-storage --force
+cc-deck ws kill test-storage --force
 ```
 
 ---
@@ -407,7 +407,7 @@ cc-deck env delete test-storage --force
 ### 7a. Invalid namespace
 
 ```bash
-cc-deck env create test-bad-ns \
+cc-deck ws new test-bad-ns \
   --type k8s-deploy \
   --namespace nonexistent-namespace \
   --image localhost/cc-deck-stub:latest \
@@ -419,7 +419,7 @@ cc-deck env create test-bad-ns \
 ### 7b. Invalid name
 
 ```bash
-cc-deck env create INVALID_NAME \
+cc-deck ws new INVALID_NAME \
   --type k8s-deploy \
   --namespace cc-deck-test 2>&1
 ```
@@ -429,7 +429,7 @@ cc-deck env create INVALID_NAME \
 ### 7c. Delete non-running without --force
 
 ```bash
-cc-deck env create test-force \
+cc-deck ws new test-force \
   --type k8s-deploy \
   --namespace cc-deck-test \
   --image localhost/cc-deck-stub:latest \
@@ -437,13 +437,13 @@ cc-deck env create test-force \
   --credential TEST=val \
   --timeout 3m
 
-cc-deck env delete test-force 2>&1
+cc-deck ws kill test-force 2>&1
 ```
 
 **Expected**: Error "environment is running; use --force to delete"
 
 ```bash
-cc-deck env delete test-force --force
+cc-deck ws kill test-force --force
 ```
 
 ---

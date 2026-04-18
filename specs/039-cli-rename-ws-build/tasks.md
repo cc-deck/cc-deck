@@ -27,10 +27,10 @@
 
 **CRITICAL**: These renames affect all user stories. Complete this phase first.
 
-- [ ] T001 Rename `cc-deck/internal/cmd/env.go` to `cc-deck/internal/cmd/ws.go` and update package references: `NewEnvCmd` → `NewWsCmd`, `newEnvCreateCmd` → `newWsNewCmd`, `newEnvDeleteCmd` → `newWsKillCmd`, `newEnvAttachCmd` → `newWsAttachCmd`, `newEnvListCmd` → `newWsListCmd`, `newEnvStatusCmd` → `newWsStatusCmd`, `newEnvStartCmd` → `newWsStartCmd`, `newEnvStopCmd` → `newWsStopCmd`, `newEnvLogsCmd` → `newWsLogsCmd`, `newEnvExecCmd` → `newWsExecCmd`, `newEnvPushCmd` → `newWsPushCmd`, `newEnvPullCmd` → `newWsPullCmd`, `newEnvHarvestCmd` → `newWsHarvestCmd`, `newEnvPruneCmd` → `newWsPruneCmd`, `newEnvRefreshCredsCmd` → `newWsRefreshCredsCmd`. Update all `*CmdCore` function names similarly. Update the `Use` field to `"ws"`, add `Aliases: []string{"workspace"}`. Update subcommand group titles from environment-centric to workspace-centric.
-- [ ] T002 Rename `cc-deck/internal/cmd/env_promote.go` to `cc-deck/internal/cmd/ws_promote.go` and update exported function names: `NewAttachCmd`, `NewListCmd` stay. Remove exports for `NewStatusCmd`, `NewStartCmd`, `NewStopCmd`, `NewLogsCmd`. Extract `newExecCmdCore` from `newWsExecCmd` (following the attach/list CmdCore pattern) and add new exported `NewExecCmd`.
-- [ ] T003 Rename `cc-deck/internal/cmd/setup.go` to `cc-deck/internal/cmd/build.go` and update: `NewSetupCmd` → `NewBuildCmd`, `Use` field to `"build"`, update all help text and error messages referencing "setup".
-- [ ] T004 Rename directory `cc-deck/internal/setup/` to `cc-deck/internal/build/` and update: all import paths referencing `internal/setup` across the codebase, manifest filename constant from `cc-deck-setup.yaml` to `cc-deck-build.yaml`, package declaration from `setup` to `build`.
+- [X] T001 Rename `cc-deck/internal/cmd/env.go` to `cc-deck/internal/cmd/ws.go` and update package references: `NewEnvCmd` → `NewWsCmd`, `newEnvCreateCmd` → `newWsNewCmd`, `newEnvDeleteCmd` → `newWsKillCmd`, `newEnvAttachCmd` → `newWsAttachCmd`, `newEnvListCmd` → `newWsListCmd`, `newEnvStatusCmd` → `newWsStatusCmd`, `newEnvStartCmd` → `newWsStartCmd`, `newEnvStopCmd` → `newWsStopCmd`, `newEnvLogsCmd` → `newWsLogsCmd`, `newEnvExecCmd` → `newWsExecCmd`, `newEnvPushCmd` → `newWsPushCmd`, `newEnvPullCmd` → `newWsPullCmd`, `newEnvHarvestCmd` → `newWsHarvestCmd`, `newEnvPruneCmd` → `newWsPruneCmd`, `newEnvRefreshCredsCmd` → `newWsRefreshCredsCmd`. Update all `*CmdCore` function names similarly. Update the `Use` field to `"ws"`, add `Aliases: []string{"workspace"}`. Update subcommand group titles from environment-centric to workspace-centric.
+- [X] T002 Rename `cc-deck/internal/cmd/env_promote.go` to `cc-deck/internal/cmd/ws_promote.go` and update exported function names: `NewAttachCmd`, `NewListCmd` stay. Remove exports for `NewStatusCmd`, `NewStartCmd`, `NewStopCmd`, `NewLogsCmd`. Extract `newExecCmdCore` from `newWsExecCmd` (following the attach/list CmdCore pattern) and add new exported `NewExecCmd`.
+- [X] T003 Rename `cc-deck/internal/cmd/setup.go` to `cc-deck/internal/cmd/build.go` and update: `NewSetupCmd` → `NewBuildCmd`, `Use` field to `"build"`, update all help text and error messages referencing "setup".
+- [X] T004 Rename directory `cc-deck/internal/setup/` to `cc-deck/internal/build/` and update: all import paths referencing `internal/setup` across the codebase, package declaration from `setup` to `build`. This covers ALL files in the directory: `init.go`, `manifest.go`, `runtime.go`, `embed.go` (update template path `"templates/cc-deck-setup.yaml.tmpl"` to `"templates/cc-deck-build.yaml.tmpl"`), `init_test.go`, `manifest_test.go`. Rename template file `templates/cc-deck-setup.yaml.tmpl` to `templates/cc-deck-build.yaml.tmpl`. Update manifest filename string from `cc-deck-setup.yaml` to `cc-deck-build.yaml` in all Go source files. Update embedded command docs `commands/cc-deck.build.md` (~15 refs) and `commands/cc-deck.capture.md` (~3 refs) replacing `cc-deck-setup.yaml` with `cc-deck-build.yaml`. Update shell scripts `scripts/validate-manifest.sh` (~2 refs) and `scripts/update-manifest.sh` (~3 refs) replacing `cc-deck-setup.yaml` with `cc-deck-build.yaml`.
 
 **Checkpoint**: All source files renamed. Code does not compile yet (main.go still references old names).
 
@@ -42,8 +42,8 @@
 
 **Independent Test**: Run `cc-deck ws new mydev`, `cc-deck ws list`, `cc-deck ws kill mydev --force` and verify identical behavior to former env commands.
 
-- [ ] T005 [US1] Update subcommand `Use` fields in `cc-deck/internal/cmd/ws.go`: change `"create [name]"` to `"new [name]"`, `"delete [name]"` to `"kill [name]"`. Ensure `list` subcommand retains `Aliases: []string{"ls"}`. Update the ws parent command's Long description to reference "workspaces" instead of "environments". Update all help text strings within ws.go that reference old command names (e.g., `"Use 'cc-deck env create' to get started."` → `"Use 'cc-deck ws new' to get started."`).
-- [ ] T006 [US1] Update internal function names in `cc-deck/internal/cmd/ws.go` for create/delete: `createFlags` struct and `runEnvCreate` function to `newFlags`/`runWsNew`, `runEnvDelete` to `runWsKill`. Update `cmd_context` and `resolveEnvironmentName` references if they appear in help text (keep function names since they reference internal env package).
+- [X] T005 [US1] Update subcommand `Use` fields in `cc-deck/internal/cmd/ws.go`: change `"create [name]"` to `"new [name]"`, `"delete [name]"` to `"kill [name]"`. Ensure `list` subcommand retains `Aliases: []string{"ls"}`. Update the ws parent command's Long description to reference "workspaces" instead of "environments". Update all help text strings within ws.go that reference old command names (e.g., `"Use 'cc-deck env create' to get started."` → `"Use 'cc-deck ws new' to get started."`).
+- [X] T006 [US1] Update internal function names in `cc-deck/internal/cmd/ws.go` for create/delete: `createFlags` struct and `runEnvCreate` function to `newFlags`/`runWsNew`, `runEnvDelete` to `runWsKill`. Update `cmd_context` and `resolveEnvironmentName` references if they appear in help text (keep function names since they reference internal env package).
 
 **Checkpoint**: `ws` command tree works with all renamed subcommands and workspace alias.
 
@@ -55,8 +55,8 @@
 
 **Independent Test**: Run `cc-deck build init` in a project directory and verify manifest is created as `cc-deck-build.yaml`.
 
-- [ ] T007 [US2] Update help text and error messages in `cc-deck/internal/cmd/build.go` to reference "build" instead of "setup". Update the parent command Short/Long descriptions.
-- [ ] T008 [US2] Update all references to `cc-deck-setup.yaml` manifest filename to `cc-deck-build.yaml` in `cc-deck/internal/build/init.go` and `cc-deck/internal/build/manifest.go`. Update any user-facing messages referencing "setup" to say "build".
+- [X] T007 [US2] Update help text and error messages in `cc-deck/internal/cmd/build.go` to reference "build" instead of "setup". Update the parent command Short/Long descriptions.
+- [X] T008 [US2] Update help text and user-facing messages in `cc-deck/internal/cmd/build.go` referencing "setup" to say "build". Note: manifest filename updates in `internal/build/` are handled by T004.
 
 **Checkpoint**: Build commands work with new names and manifest filename.
 
@@ -68,8 +68,8 @@
 
 **Independent Test**: Run `cc-deck config plugin status` and verify identical behavior to former `cc-deck plugin status`.
 
-- [ ] T009 [US3] Create `cc-deck/internal/cmd/config.go` with `NewConfigCmd` function. The config parent command (`Use: "config"`, `Short: "System configuration"`) registers `NewPluginCmd`, `NewProfileCmd`, `NewDomainsCmd` as subcommands.
-- [ ] T010 [US3] Move `newCompletionCmd` from `cc-deck/cmd/cc-deck/main.go` to `cc-deck/internal/cmd/config.go` as exported `NewCompletionCmd`. Register it as a subcommand of `config`. Remove the old `newCompletionCmd` from main.go.
+- [X] T009 [US3] Create `cc-deck/internal/cmd/config.go` with `NewConfigCmd` function. The config parent command (`Use: "config"`, `Short: "System configuration"`) registers `NewPluginCmd`, `NewProfileCmd`, `NewDomainsCmd` as subcommands.
+- [X] T010 [US3] Move `newCompletionCmd` from `cc-deck/cmd/cc-deck/main.go` to `cc-deck/internal/cmd/config.go` as exported `NewCompletionCmd`. Register it as a subcommand of `config`. Remove the old `newCompletionCmd` from main.go.
 
 **Checkpoint**: All config subcommands accessible under `cc-deck config`.
 
@@ -81,8 +81,8 @@
 
 **Independent Test**: Run `cc-deck ls`, `cc-deck attach mydev`, `cc-deck exec mydev -- echo hi` at top level. Run `cc-deck --help` and verify hook is absent.
 
-- [ ] T011 [US4] Update `cc-deck/cmd/cc-deck/main.go`: Replace group definitions with new groups (`workspace`, `session`, `build`, `config`). Register promoted commands in workspace group: `NewAttachCmd`, `NewListCmd` (which already has `ls` alias), `NewExecCmd` (new export from T002). Register `NewWsCmd` in workspace group. Register `NewSnapshotCmd` in session group. Register `NewBuildCmd` in build group. Register `NewConfigCmd` in config group.
-- [ ] T012 [US4] [US5] Remove demoted commands from top-level registration in `cc-deck/cmd/cc-deck/main.go`: remove `NewStatusCmd`, `NewStartCmd`, `NewStopCmd`, `NewLogsCmd` from the daily/workspace group (they remain as ws subcommands only). Verify `hook` command is registered via `rootCmd.AddCommand(cmd.NewHookCmd())` without a group (already `Hidden: true` in hook.go). Remove the old completion command registration.
+- [X] T011 [US4] Update `cc-deck/cmd/cc-deck/main.go`: Replace group definitions with new groups (`workspace`, `session`, `build`, `config`). Register promoted commands in workspace group: `NewAttachCmd`, `NewListCmd` (which already has `ls` alias), `NewExecCmd` (new export from T002). Register `NewWsCmd` in workspace group. Register `NewSnapshotCmd` in session group. Register `NewBuildCmd` in build group. Register `NewConfigCmd` in config group.
+- [X] T012 [US4] [US5] Remove demoted commands from top-level registration in `cc-deck/cmd/cc-deck/main.go`: remove `NewStatusCmd`, `NewStartCmd`, `NewStopCmd`, `NewLogsCmd` from the daily/workspace group (they remain as ws subcommands only). Verify `hook` command is registered via `rootCmd.AddCommand(cmd.NewHookCmd())` without a group (already `Hidden: true` in hook.go). Remove the old completion command registration.
 
 **Checkpoint**: `make lint` passes. The full CLI structure matches contracts/cli-commands.md.
 
@@ -92,16 +92,17 @@
 
 **Purpose**: Rename test files and update all command string references so `make test` passes.
 
-- [ ] T013 [P] Rename `cc-deck/internal/cmd/env_promote_test.go` to `cc-deck/internal/cmd/ws_promote_test.go` and update: constructor references (`NewEnvCmd` → `NewWsCmd`, `NewSetupCmd` → `NewBuildCmd`), group IDs (`"environment"` → `"workspace"`, `"setup"` split into `"build"` and `"config"`), command name assertions (`"env"` → `"ws"`, `"create"` → `"new"`, `"delete"` → `"kill"`), `envOnly` list, promoted commands list (reduce to attach/ls/exec), setup commands list (plugin/profile/domains move to config).
-- [ ] T014 [P] Rename `cc-deck/internal/cmd/env_integration_test.go` to `cc-deck/internal/cmd/ws_integration_test.go` and update: all `run(t, gf, "env", ...)` calls to `run(t, gf, "ws", ...)`, `"create"` → `"new"`, `"delete"` → `"kill"`, `buildRootCmd()` to use `NewWsCmd`, test function names from `TestEnv*` to `TestWs*`.
-- [ ] T015 [P] Rename `cc-deck/internal/cmd/env_create_test.go` to `cc-deck/internal/cmd/ws_new_test.go` and update: `runEnvCreate` → `runWsNew`, `createFlags` → `newFlags`, `newTestCreateCmd` → `newTestNewCmd`, test function names from `TestRunEnvCreate*` to `TestRunWsNew*`.
-- [ ] T016 [P] Rename `cc-deck/internal/cmd/env_prune_test.go` to `cc-deck/internal/cmd/ws_prune_test.go` and update: `runEnvPrune` → `runWsPrune`, test function names.
-- [ ] T017 [P] Rename `cc-deck/internal/cmd/env_resolve_test.go` to `cc-deck/internal/cmd/ws_resolve_test.go` and update function references.
-- [ ] T018 [P] Rename `cc-deck/internal/cmd/setup_test.go` to `cc-deck/internal/cmd/build_test.go` and update function references.
-- [ ] T019 [P] Update `cc-deck/internal/cmd/compose_smoke_test.go` (keep filename): replace all `"env"` → `"ws"`, `"create"` → `"new"`, `"delete"` → `"kill"` in `ccd()` call arguments.
-- [ ] T020 [P] Rename `cc-deck/internal/e2e/env_test.go` to `cc-deck/internal/e2e/ws_test.go` and update: all `te.mustRun("env", ...)` → `te.mustRun("ws", ...)`, `"create"` → `"new"`, `"delete"` → `"kill"`, test function names.
-- [ ] T021 [P] Update `cc-deck/internal/build/init_test.go` and `cc-deck/internal/build/manifest_test.go`: replace `"cc-deck-setup.yaml"` → `"cc-deck-build.yaml"` in all string references.
-- [ ] T022 Run `make test` and `make lint` to verify all tests pass and no lint errors exist. Fix any remaining references to old names found by the compiler or linter.
+- [X] T013 [P] Rename `cc-deck/internal/cmd/env_promote_test.go` to `cc-deck/internal/cmd/ws_promote_test.go` and update: constructor references (`NewEnvCmd` → `NewWsCmd`, `NewSetupCmd` → `NewBuildCmd`), group IDs (`"environment"` → `"workspace"`, `"setup"` split into `"build"` and `"config"`), command name assertions (`"env"` → `"ws"`, `"create"` → `"new"`, `"delete"` → `"kill"`), `envOnly` list, promoted commands list (reduce to attach/ls/exec), setup commands list (plugin/profile/domains move to config).
+- [X] T014 [P] Rename `cc-deck/internal/cmd/env_integration_test.go` to `cc-deck/internal/cmd/ws_integration_test.go` and update: all `run(t, gf, "env", ...)` calls to `run(t, gf, "ws", ...)`, `"create"` → `"new"`, `"delete"` → `"kill"`, `buildRootCmd()` to use `NewWsCmd`, test function names from `TestEnv*` to `TestWs*`.
+- [X] T015 [P] Rename `cc-deck/internal/cmd/env_create_test.go` to `cc-deck/internal/cmd/ws_new_test.go` and update: `runEnvCreate` → `runWsNew`, `createFlags` → `newFlags`, `newTestCreateCmd` → `newTestNewCmd`, test function names from `TestRunEnvCreate*` to `TestRunWsNew*`.
+- [X] T016 [P] Rename `cc-deck/internal/cmd/env_prune_test.go` to `cc-deck/internal/cmd/ws_prune_test.go` and update: `runEnvPrune` → `runWsPrune`, test function names.
+- [X] T017 [P] Rename `cc-deck/internal/cmd/env_resolve_test.go` to `cc-deck/internal/cmd/ws_resolve_test.go` and update function references.
+- [X] T018 [P] Rename `cc-deck/internal/cmd/setup_test.go` to `cc-deck/internal/cmd/build_test.go` and update function references.
+- [X] T019 [P] Update `cc-deck/internal/cmd/compose_smoke_test.go` (keep filename): replace all `"env"` → `"ws"`, `"create"` → `"new"`, `"delete"` → `"kill"` in `ccd()` call arguments.
+- [X] T020 [P] Rename `cc-deck/internal/e2e/env_test.go` to `cc-deck/internal/e2e/ws_test.go` and update: all `te.mustRun("env", ...)` → `te.mustRun("ws", ...)`, `"create"` → `"new"`, `"delete"` → `"kill"`, test function names.
+- [X] T021 [P] Update `cc-deck/internal/build/init_test.go` and `cc-deck/internal/build/manifest_test.go`: replace `"cc-deck-setup.yaml"` -> `"cc-deck-build.yaml"` in all string references. Note: if T004 already updated these during the directory rename, verify and skip.
+- [X] T021b [P] Update `cc-deck/tests/domain-smoke-test.sh`: replace `cc-deck-setup.yaml` -> `cc-deck-build.yaml` (1 occurrence at line 69).
+- [X] T022 Run `make test` and `make lint` to verify all tests pass and no lint errors exist. Fix any remaining references to old names found by the compiler or linter.
 
 **Checkpoint**: `make test` and `make lint` pass cleanly.
 
@@ -111,13 +112,13 @@
 
 **Purpose**: Update all documentation to reflect new command names. Use prose plugin for content per constitution Principle XII.
 
-- [ ] T023 [P] Update `docs/modules/reference/pages/cli.adoc`: rename all command references (~79 occurrences), update section headings (`=== env` → `=== ws`, `=== setup` → `=== build`), add new `=== config` section, update promoted commands list, update examples.
-- [ ] T024 [P] Update `README.md`: rename command references (~28 occurrences), update section headings ("Environment Management" → "Workspace Management", "Unified Setup Command" → "Build Command"), update spec table with 039 entry per constitution Principle X.
-- [ ] T025 [P] Rename `docs/modules/using/pages/setup.adoc` to `docs/modules/using/pages/build.adoc` and update all content (~24 occurrences). Update `docs/modules/using/nav.adoc` to reference new filename.
-- [ ] T026 [P] Update `docs/modules/running/pages/container-env.adoc` (~18 refs), `compose-env.adoc` (~35 refs), `k8s-deploy.adoc` (~25 refs), `ssh-environments.adoc` (~14 refs), `workspace-repos.adoc` (~4 refs): replace all `cc-deck env` → `cc-deck ws`, `env create` → `ws new`, `env delete` → `ws kill`, `cc-deck setup` → `cc-deck build`.
-- [ ] T027 [P] Update `docs/modules/ROOT/pages/index.adoc` and `docs/modules/ROOT/pages/first-session.adoc`: replace command references.
-- [ ] T028 [P] Update `docs/walkthroughs/024-container-env.md`, `025-compose-env.md`, `018-build-image.md`: replace all `ccd env` → `ccd ws`, `env create` → `ws new`, `env delete` → `ws kill`.
-- [ ] T029 Assess `docs/quickstart-k8s.md` (legacy): decide whether to update references or mark as deprecated. Update if still relevant.
+- [X] T023 [P] Update `docs/modules/reference/pages/cli.adoc`: rename all command references (~79 occurrences), update section headings (`=== env` → `=== ws`, `=== setup` → `=== build`), add new `=== config` section, update promoted commands list, update examples.
+- [X] T024 [P] Update `README.md`: rename command references (~28 occurrences), update section headings ("Environment Management" -> "Workspace Management", "Unified Setup Command" -> "Build Command"), update spec table with 039 entry per constitution Principle X. Add a migration note that `cc-deck-setup.yaml` has been renamed to `cc-deck-build.yaml` for users with existing build manifests.
+- [X] T025 [P] Rename `docs/modules/using/pages/setup.adoc` to `docs/modules/using/pages/build.adoc` and update all content (~24 occurrences). Update `docs/modules/using/nav.adoc` to reference new filename.
+- [X] T026 [P] Update `docs/modules/running/pages/container-env.adoc` (~18 refs), `compose-env.adoc` (~35 refs), `k8s-deploy.adoc` (~25 refs), `ssh-environments.adoc` (~14 refs), `workspace-repos.adoc` (~4 refs): replace all `cc-deck env` → `cc-deck ws`, `env create` → `ws new`, `env delete` → `ws kill`, `cc-deck setup` → `cc-deck build`.
+- [X] T027 [P] Update `docs/modules/ROOT/pages/index.adoc` and `docs/modules/ROOT/pages/first-session.adoc`: replace command references.
+- [X] T028 [P] Update `docs/walkthroughs/024-container-env.md`, `025-compose-env.md`, `018-build-image.md`: replace all `ccd env` → `ccd ws`, `env create` → `ws new`, `env delete` → `ws kill`.
+- [X] T029 Assess `docs/quickstart-k8s.md` (legacy): decide whether to update references or mark as deprecated. Update if still relevant.
 
 **Checkpoint**: All documentation reflects new command structure.
 

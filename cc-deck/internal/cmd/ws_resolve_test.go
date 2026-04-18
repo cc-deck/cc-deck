@@ -52,7 +52,7 @@ func TestResolveEnvironmentName_FailsWithoutConfig(t *testing.T) {
 	store := env.NewStateStore(filepath.Join(tmpDir, "state.yaml"))
 	_, _, err := resolveEnvironmentName(nil, store)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no environment name specified")
+	assert.Contains(t, err.Error(), "no workspace name specified")
 }
 
 func TestResolveEnvironmentName_ExplicitNameTakesPrecedence(t *testing.T) {

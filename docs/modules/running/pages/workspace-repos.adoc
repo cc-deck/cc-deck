@@ -2,11 +2,11 @@
 
 When you create a remote environment, your workspace starts empty.
 You would normally need to SSH in and manually clone every repository before doing any real work.
-cc-deck eliminates this step by cloning git repositories into the workspace automatically during `env create`.
+cc-deck eliminates this step by cloning git repositories into the workspace automatically during `ws new`.
 
 This feature works across all remote environment types: SSH, container, compose, and k8s-deploy.
 Up to four repositories are cloned in parallel, and the operation is fully idempotent.
-Re-running `env create` will skip repos that already exist and only clone the new ones.
+Re-running `ws new` will skip repos that already exist and only clone the new ones.
 
 == Declaring Repos in the Definition
 
@@ -49,7 +49,7 @@ For example, `https://github.com/org/my-project.git` produces a directory named 
 
 == Auto-Detection of the Current Git Repo
 
-When you run `cc-deck env create` from inside a git repository, the tool automatically detects the `origin` remote and includes it in the clone list.
+When you run `cc-deck ws new` from inside a git repository, the tool automatically detects the `origin` remote and includes it in the clone list.
 You do not need to configure anything for this to work.
 
 If your local repository has additional remotes (such as `upstream` or a fork), those are added as named remotes on the cloned copy after cloning completes.
@@ -65,7 +65,7 @@ This is useful for one-off setups or for adding repos that only matter for a spe
 
 [source,bash]
 ----
-cc-deck env create mydev --type ssh --host user@host \
+cc-deck ws new mydev --type ssh --host user@host \
   --repo https://github.com/org/repo.git \
   --repo https://github.com/org/other.git --branch develop
 ----
