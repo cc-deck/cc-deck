@@ -38,9 +38,9 @@
 
 ## Phase 3: User Story 1 - Daily workspace operations (Priority: P1)
 
-**Goal**: `cc-deck ws new`, `ws kill`, `ws list` (alias `ls`), `ws attach`, and `workspace` alias all work.
+**Goal**: `cc-deck ws new`, `ws delete`, `ws list` (alias `ls`), `ws attach`, and `workspace` alias all work.
 
-**Independent Test**: Run `cc-deck ws new mydev`, `cc-deck ws list`, `cc-deck ws kill mydev --force` and verify identical behavior to former env commands.
+**Independent Test**: Run `cc-deck ws new mydev`, `cc-deck ws list`, `cc-deck ws delete mydev --force` and verify identical behavior to former env commands.
 
 - [X] T005 [US1] Update subcommand `Use` fields in `cc-deck/internal/cmd/ws.go`: change `"create [name]"` to `"new [name]"`, `"delete [name]"` to `"kill [name]"`. Ensure `list` subcommand retains `Aliases: []string{"ls"}`. Update the ws parent command's Long description to reference "workspaces" instead of "environments". Update all help text strings within ws.go that reference old command names (e.g., `"Use 'cc-deck env create' to get started."` → `"Use 'cc-deck ws new' to get started."`).
 - [X] T006 [US1] Update internal function names in `cc-deck/internal/cmd/ws.go` for create/delete: `createFlags` struct and `runEnvCreate` function to `newFlags`/`runWsNew`, `runEnvDelete` to `runWsKill`. Update `cmd_context` and `resolveEnvironmentName` references if they appear in help text (keep function names since they reference internal env package).
@@ -115,9 +115,9 @@
 - [X] T023 [P] Update `docs/modules/reference/pages/cli.adoc`: rename all command references (~79 occurrences), update section headings (`=== env` → `=== ws`, `=== setup` → `=== build`), add new `=== config` section, update promoted commands list, update examples.
 - [X] T024 [P] Update `README.md`: rename command references (~28 occurrences), update section headings ("Environment Management" -> "Workspace Management", "Unified Setup Command" -> "Build Command"), update spec table with 039 entry per constitution Principle X. Add a migration note that `cc-deck-setup.yaml` has been renamed to `cc-deck-build.yaml` for users with existing build manifests.
 - [X] T025 [P] Rename `docs/modules/using/pages/setup.adoc` to `docs/modules/using/pages/build.adoc` and update all content (~24 occurrences). Update `docs/modules/using/nav.adoc` to reference new filename.
-- [X] T026 [P] Update `docs/modules/running/pages/container-env.adoc` (~18 refs), `compose-env.adoc` (~35 refs), `k8s-deploy.adoc` (~25 refs), `ssh-environments.adoc` (~14 refs), `workspace-repos.adoc` (~4 refs): replace all `cc-deck env` → `cc-deck ws`, `env create` → `ws new`, `env delete` → `ws kill`, `cc-deck setup` → `cc-deck build`.
+- [X] T026 [P] Update `docs/modules/running/pages/container-env.adoc` (~18 refs), `compose-env.adoc` (~35 refs), `k8s-deploy.adoc` (~25 refs), `ssh-environments.adoc` (~14 refs), `workspace-repos.adoc` (~4 refs): replace all `cc-deck env` → `cc-deck ws`, `env create` → `ws new`, `env delete` → `ws delete`, `cc-deck setup` → `cc-deck build`.
 - [X] T027 [P] Update `docs/modules/ROOT/pages/index.adoc` and `docs/modules/ROOT/pages/first-session.adoc`: replace command references.
-- [X] T028 [P] Update `docs/walkthroughs/024-container-env.md`, `025-compose-env.md`, `018-build-image.md`: replace all `ccd env` → `ccd ws`, `env create` → `ws new`, `env delete` → `ws kill`.
+- [X] T028 [P] Update `docs/walkthroughs/024-container-env.md`, `025-compose-env.md`, `018-build-image.md`: replace all `ccd env` → `ccd ws`, `env create` → `ws new`, `env delete` → `ws delete`.
 - [X] T029 Assess `docs/quickstart-k8s.md` (legacy): decide whether to update references or mark as deprecated. Update if still relevant.
 
 **Checkpoint**: All documentation reflects new command structure.
@@ -170,7 +170,7 @@ Phase 8 (after Phase 6):
 1. Complete Phase 2: Core file renames
 2. Complete Phase 3: ws command with new/kill/ls subcommands
 3. **STOP and VALIDATE**: `make lint` passes, ws subcommands resolve correctly
-4. The CLI works with `cc-deck ws new`, `cc-deck ws kill`, etc.
+4. The CLI works with `cc-deck ws new`, `cc-deck ws delete`, etc.
 
 ### Incremental Delivery
 

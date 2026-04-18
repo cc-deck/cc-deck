@@ -76,7 +76,7 @@ func TestComposeSmokeFullLifecycle(t *testing.T) {
 
 	// Cleanup on exit.
 	defer func() {
-		ccd(t, bin, envVars, "ws", "kill", "smoke-full", "--force")
+		ccd(t, bin, envVars, "ws", "delete", "smoke-full", "--force")
 	}()
 
 	// 1. Create
@@ -147,7 +147,7 @@ func TestComposeSmokeFullLifecycle(t *testing.T) {
 	assert.Contains(t, out, "compose")
 
 	// 12. Delete
-	out, err = ccd(t, bin, envVars, "ws", "kill", "smoke-full", "--force")
+	out, err = ccd(t, bin, envVars, "ws", "delete", "smoke-full", "--force")
 	require.NoError(t, err, "delete failed: %s", out)
 	assert.Contains(t, out, "deleted")
 
@@ -165,7 +165,7 @@ func TestComposeSmokeNetworkFiltering(t *testing.T) {
 	envVars, projectDir := setupComposeSmokeEnv(t)
 
 	defer func() {
-		ccd(t, bin, envVars, "ws", "kill", "smoke-filter", "--force")
+		ccd(t, bin, envVars, "ws", "delete", "smoke-filter", "--force")
 	}()
 
 	// Create with allowed domains.
@@ -210,7 +210,7 @@ func TestComposeSmokeGitignore(t *testing.T) {
 	envVars, projectDir := setupComposeSmokeEnv(t)
 
 	defer func() {
-		ccd(t, bin, envVars, "ws", "kill", "smoke-gitignore", "--force")
+		ccd(t, bin, envVars, "ws", "delete", "smoke-gitignore", "--force")
 	}()
 
 	// Initialize git repo.
@@ -238,7 +238,7 @@ func TestComposeSmokeDeleteRefusesRunning(t *testing.T) {
 	envVars, projectDir := setupComposeSmokeEnv(t)
 
 	defer func() {
-		ccd(t, bin, envVars, "ws", "kill", "smoke-nodelete", "--force")
+		ccd(t, bin, envVars, "ws", "delete", "smoke-nodelete", "--force")
 	}()
 
 	_, err := ccd(t, bin, envVars, "ws", "new", "smoke-nodelete",
@@ -248,7 +248,7 @@ func TestComposeSmokeDeleteRefusesRunning(t *testing.T) {
 	require.NoError(t, err)
 
 	// Delete without --force should fail.
-	out, err := ccd(t, bin, envVars, "ws", "kill", "smoke-nodelete")
+	out, err := ccd(t, bin, envVars, "ws", "delete", "smoke-nodelete")
 	assert.Error(t, err, "delete without --force should fail")
 	assert.Contains(t, out, "running")
 }
@@ -259,7 +259,7 @@ func TestComposeSmokeBindMountSync(t *testing.T) {
 	envVars, projectDir := setupComposeSmokeEnv(t)
 
 	defer func() {
-		ccd(t, bin, envVars, "ws", "kill", "smoke-sync", "--force")
+		ccd(t, bin, envVars, "ws", "delete", "smoke-sync", "--force")
 	}()
 
 	_, err := ccd(t, bin, envVars, "ws", "new", "smoke-sync",
@@ -312,7 +312,7 @@ func TestComposeSmokeWritePermissionsNonRoot(t *testing.T) {
 	image := nonRootTestImage(t)
 
 	defer func() {
-		ccd(t, bin, envVars, "ws", "kill", "smoke-perms", "--force")
+		ccd(t, bin, envVars, "ws", "delete", "smoke-perms", "--force")
 	}()
 
 	_, err := ccd(t, bin, envVars, "ws", "new", "smoke-perms",
@@ -346,7 +346,7 @@ func TestComposeSmokeNamedVolume(t *testing.T) {
 	envVars, projectDir := setupComposeSmokeEnv(t)
 
 	defer func() {
-		ccd(t, bin, envVars, "ws", "kill", "smoke-vol", "--force")
+		ccd(t, bin, envVars, "ws", "delete", "smoke-vol", "--force")
 	}()
 
 	// Create with named-volume storage.
@@ -398,7 +398,7 @@ func TestComposeSmokeRecreateAfterDelete(t *testing.T) {
 	envVars, projectDir := setupComposeSmokeEnv(t)
 
 	defer func() {
-		ccd(t, bin, envVars, "ws", "kill", "smoke-recreate", "--force")
+		ccd(t, bin, envVars, "ws", "delete", "smoke-recreate", "--force")
 	}()
 
 	// First create.
@@ -415,7 +415,7 @@ func TestComposeSmokeRecreateAfterDelete(t *testing.T) {
 	assert.Equal(t, "running", strings.TrimSpace(string(podOut)))
 
 	// Delete.
-	_, err = ccd(t, bin, envVars, "ws", "kill", "smoke-recreate", "--force")
+	_, err = ccd(t, bin, envVars, "ws", "delete", "smoke-recreate", "--force")
 	require.NoError(t, err)
 
 	// Second create should succeed (no stale resource conflicts).
@@ -439,7 +439,7 @@ func TestComposeSmokeDuplicateNameFailsFast(t *testing.T) {
 	envVars, projectDir := setupComposeSmokeEnv(t)
 
 	defer func() {
-		ccd(t, bin, envVars, "ws", "kill", "smoke-dup", "--force")
+		ccd(t, bin, envVars, "ws", "delete", "smoke-dup", "--force")
 	}()
 
 	// First create should succeed.

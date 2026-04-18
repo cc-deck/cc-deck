@@ -158,7 +158,7 @@ Update all documentation to use new command names. Per constitution Principle XI
 **Rename patterns**:
 - `cc-deck env` → `cc-deck ws`
 - `env create` → `ws new`
-- `env delete` → `ws kill`
+- `env delete` → `ws delete`
 - `env list` → `ws list` (or `ws ls`)
 - `cc-deck setup` → `cc-deck build`
 - Section headings: "Environment Management" → "Workspace Management", "Setup Command" → "Build Command"

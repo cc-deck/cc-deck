@@ -233,7 +233,7 @@ func TestWsDelete(t *testing.T) {
 	require.NoError(t, err)
 
 	// Delete with --force (zellij stub returns no sessions, but force is clean).
-	stdout, _, err := run(t, gf, "ws", "kill", "deltest", "--force")
+	stdout, _, err := run(t, gf, "ws", "delete", "deltest", "--force")
 	require.NoError(t, err)
 	assert.Contains(t, stdout, `"deltest" deleted`)
 }
@@ -242,7 +242,7 @@ func TestWsDeleteNotFound(t *testing.T) {
 	setupTestWs(t)
 	gf := &cmd.GlobalFlags{Output: "text"}
 
-	_, _, err := run(t, gf, "ws", "kill", "ghost", "--force")
+	_, _, err := run(t, gf, "ws", "delete", "ghost", "--force")
 	require.Error(t, err)
 }
 
@@ -322,7 +322,7 @@ func TestWsFullLifecycle(t *testing.T) {
 	assert.Contains(t, stdout, "lifecycle")
 
 	// 4. Delete
-	stdout, _, err = run(t, gf, "ws", "kill", "lifecycle", "--force")
+	stdout, _, err = run(t, gf, "ws", "delete", "lifecycle", "--force")
 	require.NoError(t, err)
 	assert.Contains(t, stdout, "deleted")
 }
@@ -344,7 +344,7 @@ func TestWsMultipleEnvironments(t *testing.T) {
 	}
 
 	// Delete one and verify
-	_, _, err = run(t, gf, "ws", "kill", "beta", "--force")
+	_, _, err = run(t, gf, "ws", "delete", "beta", "--force")
 	require.NoError(t, err)
 
 	stdout, _, err = run(t, gf, "ws", "list")

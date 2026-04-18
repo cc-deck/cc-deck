@@ -367,7 +367,7 @@ The `cc-deck ws` command group provides a unified interface for managing Claude 
 | `cc-deck ws attach` | Attach to a running workspace |
 | `cc-deck ws start` | Start a stopped workspace |
 | `cc-deck ws stop` | Stop a running workspace |
-| `cc-deck ws kill` | Delete a workspace and its resources |
+| `cc-deck ws delete` | Delete a workspace and its resources |
 | `cc-deck ws list` | List all workspaces (global and project-local) |
 | `cc-deck ws status` | Show detailed status of a workspace |
 | `cc-deck ws prune` | Remove stale project registry entries |

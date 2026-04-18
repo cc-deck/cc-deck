@@ -650,16 +650,16 @@ cc-deck ws attach --branch feature   # land in a specific worktree
 | Attach and land in a specific worktree directory inside the container
 |===
 
-==== ws kill
+==== ws delete
 
 Delete a workspace and its resources.
 For project-local workspaces, removes runtime state (`status.yaml`, `run/`) but preserves the committed definition (`environment.yaml`).
 
 [source,bash]
 ----
-cc-deck ws kill mydev
-cc-deck ws kill                    # resolves from project config
-cc-deck ws kill --force --keep-volumes
+cc-deck ws delete mydev
+cc-deck ws delete                    # resolves from project config
+cc-deck ws delete --force --keep-volumes
 ----
 
 [cols="1,1,3"]

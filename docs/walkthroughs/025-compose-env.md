@@ -108,7 +108,7 @@ podman exec cc-deck-test-path cat /workspace/README.md
 ls /tmp/other-project/.cc-deck/compose.yaml
 # Expected: file exists
 
-ccd ws kill test-path --force
+ccd ws delete test-path --force
 rm -rf /tmp/other-project
 ```
 
@@ -125,7 +125,7 @@ podman volume ls --filter name=cc-deck-test-volume
 grep -A 1 'external' .cc-deck/compose.yaml
 # Expected: external: true (volume is pre-created by cc-deck)
 
-ccd ws kill test-volume --force
+ccd ws delete test-volume --force
 ```
 
 ### 1g. Create with port mapping
@@ -134,7 +134,7 @@ ccd ws kill test-volume --force
 ccd ws new test-ports --type compose --image fedora:latest --port 8080:8080
 grep 'ports' .cc-deck/compose.yaml
 # Expected: - 8080:8080
-ccd ws kill test-ports --force
+ccd ws delete test-ports --force
 ```
 
 ## 2. Stop and Start (US3)
@@ -221,7 +221,7 @@ cat .cc-deck/env
 podman exec cc-deck-test-creds env | grep ANTHROPIC_API_KEY
 # Expected: ANTHROPIC_API_KEY=sk-ant-test-compose
 
-ccd ws kill test-creds --force
+ccd ws delete test-creds --force
 unset ANTHROPIC_API_KEY
 ```
 
@@ -236,7 +236,7 @@ cat .cc-deck/env | grep MY_SECRET
 podman exec cc-deck-test-explicit env | grep MY_SECRET
 # Expected: MY_SECRET=super-secret-value
 
-ccd ws kill test-explicit --force
+ccd ws delete test-explicit --force
 ```
 
 ### 4c. File-based credential (Vertex ADC) via volume mount
@@ -274,7 +274,7 @@ echo '{"type":"updated"}' > /tmp/test-cred-dir/adc.json
 podman exec cc-deck-test-vertex cat /run/secrets/google-application-credentials
 # Expected: {"type":"updated"} (live file, not a stale copy)
 
-ccd ws kill test-vertex --force
+ccd ws delete test-vertex --force
 unset CLAUDE_CODE_USE_VERTEX ANTHROPIC_VERTEX_PROJECT_ID CLOUD_ML_REGION GOOGLE_APPLICATION_CREDENTIALS
 rm -rf /tmp/test-cred-dir
 ```
@@ -290,7 +290,7 @@ ccd ws new test-both --type compose --image fedora:latest
 cat .cc-deck/env
 # Expected: contains BOTH Vertex vars AND ANTHROPIC_API_KEY
 #           (API key is always included as fallback)
-ccd ws kill test-both --force
+ccd ws delete test-both --force
 unset CLAUDE_CODE_USE_VERTEX ANTHROPIC_VERTEX_PROJECT_ID CLOUD_ML_REGION ANTHROPIC_API_KEY
 ```
 
@@ -301,7 +301,7 @@ export ANTHROPIC_API_KEY=sk-ant-should-be-ignored
 ccd ws new test-noauth --type compose --image fedora:latest --auth none
 cat .cc-deck/env
 # Expected: empty (no credentials injected)
-ccd ws kill test-noauth --force
+ccd ws delete test-noauth --force
 unset ANTHROPIC_API_KEY
 ```
 
@@ -345,7 +345,7 @@ podman ps --filter name=cc-deck-test-filter-proxy --format '{{.Names}}'
 cat ~/.local/state/cc-deck/state.yaml | grep proxy_name
 # Expected: proxy_name: cc-deck-test-filter-proxy
 
-ccd ws kill test-filter --force
+ccd ws delete test-filter --force
 ```
 
 ### 5b. Create without domains (no proxy)
@@ -356,7 +356,7 @@ ls .cc-deck/proxy/ 2>/dev/null
 # Expected: No such file or directory (no proxy dir)
 grep 'proxy' .cc-deck/compose.yaml
 # Expected: no matches (no proxy service)
-ccd ws kill test-nofilter --force
+ccd ws delete test-nofilter --force
 ```
 
 ### 5c. Domain group expansion with literal domains
@@ -366,7 +366,7 @@ ccd ws new test-literal --type compose --image fedora:latest \
   --allowed-domains anthropic,custom.example.com
 cat .cc-deck/proxy/whitelist
 # Expected: patterns for anthropic domains AND custom.example.com
-ccd ws kill test-literal --force
+ccd ws delete test-literal --force
 ```
 
 ## 6. Gitignore Handling (US5)
@@ -385,7 +385,7 @@ ccd ws new test-gitignore --type compose --image fedora:latest 2>&1 | grep -i gi
 # Expected: WARNING: Add '.cc-deck/' to your .gitignore ...
 #           Use --gitignore to add it automatically.
 
-ccd ws kill test-gitignore --force
+ccd ws delete test-gitignore --force
 ```
 
 ### 6b. Auto-add with --gitignore
@@ -398,7 +398,7 @@ ccd ws new test-autogit --type compose --image fedora:latest --gitignore
 cat .gitignore
 # Expected: contains .cc-deck/
 
-ccd ws kill test-autogit --force
+ccd ws delete test-autogit --force
 ```
 
 ### 6c. No duplicate when already present
@@ -408,7 +408,7 @@ echo ".cc-deck/" >> .gitignore
 ccd ws new test-nodup --type compose --image fedora:latest --gitignore
 grep -c '.cc-deck/' .gitignore
 # Expected: 1 (not duplicated)
-ccd ws kill test-nodup --force
+ccd ws delete test-nodup --force
 ```
 
 ## 7. Exec and File Transfer (US1)
@@ -485,14 +485,14 @@ ccd ws attach test-compose
 ### 9a. Delete refuses running env
 
 ```bash
-ccd ws kill test-compose
+ccd ws delete test-compose
 # Expected: error "environment is running; use --force to delete"
 ```
 
 ### 9b. Delete with --force
 
 ```bash
-ccd ws kill test-compose --force
+ccd ws delete test-compose --force
 # Expected: "Environment deleted"
 
 # Verify container removed
@@ -526,7 +526,7 @@ grep 'session:' .cc-deck/compose.yaml
 # Old stale file may still be present (MkdirAll preserves existing dir)
 # but compose.yaml is regenerated
 
-ccd ws kill test-regen --force
+ccd ws delete test-regen --force
 ```
 
 ## 11. Runtime Detection (FR-015)
@@ -535,7 +535,7 @@ ccd ws kill test-regen --force
 # Verify podman-compose is detected
 ccd ws new test-runtime --type compose --image fedora:latest
 # Expected: succeeds (runtime detected)
-ccd ws kill test-runtime --force
+ccd ws delete test-runtime --force
 
 # Simulate no compose runtime
 PATH=/usr/bin ccd ws new test-nocompose --type compose 2>&1
@@ -563,7 +563,7 @@ ccd ws new test-badpath --type compose --path /nonexistent/path
 ```bash
 # Remove all test environments
 for name in test-compose test-creds test-explicit test-vertex test-both test-noauth test-filter test-nofilter test-literal test-gitignore test-autogit test-nodup test-regen test-runtime; do
-  ccd ws kill "$name" --force 2>/dev/null
+  ccd ws delete "$name" --force 2>/dev/null
 done
 
 # Remove test project

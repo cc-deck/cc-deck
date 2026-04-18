@@ -153,14 +153,14 @@ assert_contains "$out" "smoke-test" "multi: smoke-test still listed"
 # --- Delete ---
 
 printf "\n\033[1m7. Delete\033[0m\n"
-out=$(run ws kill beta --force)
+out=$(run ws delete beta --force)
 assert_contains "$out" "deleted" "delete beta"
 
 out=$(run ws list)
 assert_not_contains "$out" "beta" "beta gone from list"
 assert_contains "$out" "alpha" "alpha still listed"
 
-assert_exit_code 1 "delete not found" ws kill ghost --force
+assert_exit_code 1 "delete not found" ws delete ghost --force
 
 # --- State file ---
 
@@ -176,8 +176,8 @@ fi
 # --- Cleanup cycle ---
 
 printf "\n\033[1m9. Full cleanup\033[0m\n"
-run ws kill smoke-test --force >/dev/null
-run ws kill alpha --force >/dev/null
+run ws delete smoke-test --force >/dev/null
+run ws delete alpha --force >/dev/null
 out=$(run ws list)
 assert_contains "$out" "No environments found" "all deleted"
 

@@ -42,7 +42,7 @@ Delete when done:
 
 [source,bash]
 ----
-cc-deck ws kill my-project --force
+cc-deck ws delete my-project --force
 ----
 
 == Credentials
@@ -203,11 +203,11 @@ cc-deck ws new my-project \
   --credential ANTHROPIC_API_KEY=sk-ant-...
 ----
 
-Use `--keep-volumes` with `ws kill` to preserve the PVC for potential reuse:
+Use `--keep-volumes` with `ws delete` to preserve the PVC for potential reuse:
 
 [source,bash]
 ----
-cc-deck ws kill my-project --force --keep-volumes
+cc-deck ws delete my-project --force --keep-volumes
 ----
 
 == Timeouts
