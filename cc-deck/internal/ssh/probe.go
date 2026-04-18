@@ -18,7 +18,7 @@ var requiredTools = []string{"zellij", "cc-deck", "claude"}
 // where user-local directories like ~/.local/bin are not on the default PATH.
 const probePathPrefix = "PATH=$HOME/.local/bin:$PATH"
 
-// Probe checks whether an SSH host has been provisioned by cc-deck setup.
+// Probe checks whether an SSH host has been provisioned by cc-deck build.
 // It verifies that zellij, cc-deck, and claude are all present on the remote host.
 func Probe(ctx context.Context, runner Runner) error {
 	var missing []string
@@ -30,7 +30,7 @@ func Probe(ctx context.Context, runner Runner) error {
 	}
 	if len(missing) > 0 {
 		return fmt.Errorf("host appears unprovisioned (missing tools: %s)\n"+
-			"Run 'cc-deck setup' to provision the host first",
+			"Run 'cc-deck build' to provision the host first",
 			strings.Join(missing, ", "))
 	}
 	return nil

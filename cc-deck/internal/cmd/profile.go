@@ -128,7 +128,7 @@ func runProfileList(gf *GlobalFlags) error {
 
 	names := cfg.ListProfiles()
 	if len(names) == 0 {
-		fmt.Fprintln(os.Stdout, "No profiles configured. Run 'cc-deck profile add <name>' to create one.")
+		fmt.Fprintln(os.Stdout, "No profiles configured. Run 'cc-deck config profile add <name>' to create one.")
 		return nil
 	}
 

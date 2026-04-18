@@ -13,34 +13,33 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/cc-deck/cc-deck/internal/project"
-	"github.com/cc-deck/cc-deck/internal/setup"
+	"github.com/cc-deck/cc-deck/internal/build"
 	"github.com/cc-deck/cc-deck/internal/ssh"
 )
 
-// NewSetupCmd creates the setup parent command with subcommands.
-func NewSetupCmd(flags *GlobalFlags) *cobra.Command {
+func NewBuildCmd(flags *GlobalFlags) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "setup",
-		Short: "Setup profile lifecycle",
-		Long:  "Commands for initializing, verifying, and diffing cc-deck setup profiles.",
+		Use:   "build",
+		Short: "Prepare images and provision hosts",
+		Long:  "Commands for initializing, verifying, and diffing cc-deck build profiles.",
 	}
 
-	cmd.AddCommand(newSetupInitCmd(flags))
-	cmd.AddCommand(newSetupRunCmd(flags))
-	cmd.AddCommand(newSetupVerifyCmd(flags))
-	cmd.AddCommand(newSetupDiffCmd(flags))
+	cmd.AddCommand(newBuildInitCmd(flags))
+	cmd.AddCommand(newBuildRunCmd(flags))
+	cmd.AddCommand(newBuildVerifyCmd(flags))
+	cmd.AddCommand(newBuildDiffCmd(flags))
 
 	return cmd
 }
 
-func newSetupInitCmd(_ *GlobalFlags) *cobra.Command {
+func newBuildInitCmd(_ *GlobalFlags) *cobra.Command {
 	var force bool
 	var target string
 
 	cmd := &cobra.Command{
 		Use:   "init [dir]",
-		Short: "Initialize a setup directory",
-		Long: `Scaffold a new setup directory with a cc-deck-setup.yaml manifest
+		Short: "Initialize a build directory",
+		Long: `Scaffold a new build directory with a cc-deck-build.yaml manifest
 and Claude Code commands for AI-driven environment configuration.
 
 When no directory is specified, defaults to .cc-deck/setup/.
@@ -55,7 +54,7 @@ After initialization, start Claude Code from the project directory and use:
   /cc-deck.build         - Build container image or provision SSH target`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			dir, projectRoot := resolveSetupDirAndRoot(args)
+			dir, projectRoot := resolveBuildDirAndRoot(args)
 
 			var targets []string
 			if target != "" {
@@ -66,32 +65,40 @@ After initialization, start Claude Code from the project directory and use:
 					}
 					targets = append(targets, t)
 				}
+			} else {
+				targets = []string{"container", "ssh"}
 			}
 
-			if err := setup.InitSetupDir(dir, projectRoot, force, targets); err != nil {
+			if err := build.InitSetupDir(dir, projectRoot, force, targets); err != nil {
 				return err
 			}
-			fmt.Printf("Setup directory initialized: %s\n\n", dir)
-			fmt.Printf("  Manifest:  %s/cc-deck-setup.yaml\n", dir)
+			fmt.Printf("Build directory initialized: %s\n\n", dir)
+			fmt.Printf("  Manifest:  %s/cc-deck-build.yaml\n", dir)
 			fmt.Printf("  Commands:  %s/.claude/commands/cc-deck.*.md\n", projectRoot)
 			fmt.Println()
 			fmt.Println("Next steps:")
 			fmt.Printf("  cd %s\n", projectRoot)
 			fmt.Println("  claude                        # Open in Claude Code")
 			fmt.Println("  /cc-deck.capture              # Discover tools and settings")
-			fmt.Println("  /cc-deck.build --target container  # Build container image")
-			fmt.Println("  /cc-deck.build --target ssh        # Provision SSH target")
+			for _, t := range targets {
+				switch t {
+				case "container":
+					fmt.Println("  /cc-deck.build --target container  # Build container image")
+				case "ssh":
+					fmt.Println("  /cc-deck.build --target ssh        # Provision SSH target")
+				}
+			}
 			return nil
 		},
 	}
 
-	cmd.Flags().BoolVarP(&force, "force", "f", false, "Overwrite existing setup directory")
-	cmd.Flags().StringVar(&target, "target", "", "Comma-separated targets: container, ssh, or container,ssh")
+	cmd.Flags().BoolVarP(&force, "force", "f", false, "Overwrite existing build directory")
+	cmd.Flags().StringVar(&target, "target", "", "Targets to scaffold: container, ssh, or container,ssh (default: both)")
 
 	return cmd
 }
 
-func newSetupRunCmd(_ *GlobalFlags) *cobra.Command {
+func newBuildRunCmd(_ *GlobalFlags) *cobra.Command {
 	var target string
 	var push bool
 
@@ -101,7 +108,7 @@ func newSetupRunCmd(_ *GlobalFlags) *cobra.Command {
 		Long: `Execute pre-generated build artifacts (Containerfile or Ansible playbooks)
 directly from the CLI, without Claude Code involvement.
 
-Target type is auto-detected from artifacts present in the setup directory:
+Target type is auto-detected from artifacts present in the build directory:
   Containerfile only         → container build via podman/docker
   site.yml + inventory.ini   → SSH provisioning via ansible-playbook
   Both present               → use --target to select one
@@ -109,7 +116,7 @@ Target type is auto-detected from artifacts present in the setup directory:
 Use --push to push the container image after a successful build.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			dir := resolveSetupDir(args)
+			dir := resolveBuildDir(args)
 
 			detected, err := detectRunTarget(dir, target)
 			if err != nil {
@@ -170,13 +177,13 @@ func validateRunFlags(target string, push bool) error {
 }
 
 func runContainerBuild(dir string, push bool) error {
-	manifestPath := filepath.Join(dir, "cc-deck-setup.yaml")
-	m, err := setup.LoadManifest(manifestPath)
+	manifestPath := filepath.Join(dir, "cc-deck-build.yaml")
+	m, err := build.LoadManifest(manifestPath)
 	if err != nil {
 		return err
 	}
 
-	runtime, err := setup.DetectRuntime()
+	runtime, err := build.DetectRuntime()
 	if err != nil {
 		return err
 	}
@@ -256,7 +263,7 @@ func exitError(err error) error {
 	return err
 }
 
-func newSetupVerifyCmd(_ *GlobalFlags) *cobra.Command {
+func newBuildVerifyCmd(_ *GlobalFlags) *cobra.Command {
 	var target string
 
 	cmd := &cobra.Command{
@@ -268,7 +275,7 @@ For container targets, runs checks inside the built image via podman.
 For SSH targets, runs checks on the remote host via SSH.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			dir := resolveSetupDir(args)
+			dir := resolveBuildDir(args)
 			switch target {
 			case "container":
 				return runContainerVerify(dir)
@@ -289,13 +296,13 @@ For SSH targets, runs checks on the remote host via SSH.`,
 }
 
 func runContainerVerify(dir string) error {
-	manifestPath := filepath.Join(dir, "cc-deck-setup.yaml")
-	m, err := setup.LoadManifest(manifestPath)
+	manifestPath := filepath.Join(dir, "cc-deck-build.yaml")
+	m, err := build.LoadManifest(manifestPath)
 	if err != nil {
 		return err
 	}
 
-	runtime, err := setup.DetectRuntime()
+	runtime, err := build.DetectRuntime()
 	if err != nil {
 		return err
 	}
@@ -317,8 +324,8 @@ func runContainerVerify(dir string) error {
 }
 
 func runSSHVerify(dir string) error {
-	manifestPath := filepath.Join(dir, "cc-deck-setup.yaml")
-	m, err := setup.LoadManifest(manifestPath)
+	manifestPath := filepath.Join(dir, "cc-deck-build.yaml")
+	m, err := build.LoadManifest(manifestPath)
 	if err != nil {
 		return err
 	}
@@ -348,7 +355,7 @@ func runSSHVerify(dir string) error {
 }
 
 // runChecks executes tool checks using the provided command runner.
-func runChecks(m *setup.Manifest, run func(command string) (string, error)) error {
+func runChecks(m *build.Manifest, run func(command string) (string, error)) error {
 	type check struct {
 		name    string
 		command string
@@ -409,7 +416,7 @@ func runChecks(m *setup.Manifest, run func(command string) (string, error)) erro
 	return nil
 }
 
-func newSetupDiffCmd(_ *GlobalFlags) *cobra.Command {
+func newBuildDiffCmd(_ *GlobalFlags) *cobra.Command {
 	var target string
 
 	cmd := &cobra.Command{
@@ -422,7 +429,7 @@ For SSH targets, compares against Ansible role task files.
 If --target is omitted, auto-detects from existing artifacts.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			dir := resolveSetupDir(args)
+			dir := resolveBuildDir(args)
 			return runDiff(dir, target)
 		},
 	}
@@ -432,16 +439,16 @@ If --target is omitted, auto-detects from existing artifacts.`,
 	return cmd
 }
 
-// resolveSetupDir returns just the setup directory (for verify, diff).
-func resolveSetupDir(args []string) string {
-	dir, _ := resolveSetupDirAndRoot(args)
+// resolveBuildDir returns just the setup directory (for verify, diff).
+func resolveBuildDir(args []string) string {
+	dir, _ := resolveBuildDirAndRoot(args)
 	return dir
 }
 
-// resolveSetupDirAndRoot returns the setup directory and the project root.
+// resolveBuildDirAndRoot returns the setup directory and the project root.
 // Commands go into projectRoot/.claude/commands/, setup artifacts into
 // setupDir (.cc-deck/setup/).
-func resolveSetupDirAndRoot(args []string) (setupDir string, projectRoot string) {
+func resolveBuildDirAndRoot(args []string) (setupDir string, projectRoot string) {
 	if len(args) > 0 {
 		// Explicit dir: the project root is two levels up from .cc-deck/setup/
 		// (or the parent of the dir if it's not the conventional path).
@@ -466,8 +473,8 @@ func resolveSetupDirAndRoot(args []string) (setupDir string, projectRoot string)
 }
 
 func runDiff(dir string, target string) error {
-	manifestPath := filepath.Join(dir, "cc-deck-setup.yaml")
-	m, err := setup.LoadManifest(manifestPath)
+	manifestPath := filepath.Join(dir, "cc-deck-build.yaml")
+	m, err := build.LoadManifest(manifestPath)
 	if err != nil {
 		return err
 	}
@@ -508,7 +515,7 @@ func runDiff(dir string, target string) error {
 	}
 }
 
-func diffContainer(dir string, m *setup.Manifest) error {
+func diffContainer(dir string, m *build.Manifest) error {
 	containerfilePath := filepath.Join(dir, "Containerfile")
 	cfData, err := os.ReadFile(containerfilePath)
 	if err != nil {
@@ -571,7 +578,7 @@ func diffContainer(dir string, m *setup.Manifest) error {
 	return nil
 }
 
-func diffSSH(dir string, m *setup.Manifest) error {
+func diffSSH(dir string, m *build.Manifest) error {
 	rolesDir := filepath.Join(dir, "roles")
 	if _, err := os.Stat(rolesDir); os.IsNotExist(err) {
 		return fmt.Errorf("no roles/ directory found, run /cc-deck.build --target ssh first")
@@ -582,6 +589,9 @@ func diffSSH(dir string, m *setup.Manifest) error {
 	// Check tools role for manifest tools and github tools
 	toolsTaskFile := filepath.Join(rolesDir, "tools", "tasks", "main.yml")
 	toolsContent, toolsErr := os.ReadFile(toolsTaskFile)
+	if toolsErr != nil && !os.IsNotExist(toolsErr) {
+		fmt.Printf("WARNING: could not read %s: %v\n", toolsTaskFile, toolsErr)
+	}
 	if toolsErr == nil {
 		fmt.Println("Tools:")
 		for _, tool := range m.Tools {
@@ -612,6 +622,9 @@ func diffSSH(dir string, m *setup.Manifest) error {
 	// Check plugins
 	ccDeckTaskFile := filepath.Join(rolesDir, "cc_deck", "tasks", "main.yml")
 	ccDeckContent, ccDeckErr := os.ReadFile(ccDeckTaskFile)
+	if ccDeckErr != nil && !os.IsNotExist(ccDeckErr) {
+		fmt.Printf("WARNING: could not read %s: %v\n", ccDeckTaskFile, ccDeckErr)
+	}
 	if ccDeckErr == nil {
 		fmt.Println("\nPlugins:")
 		for _, p := range m.Plugins {

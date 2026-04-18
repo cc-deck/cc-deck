@@ -1,6 +1,6 @@
 = CLI Reference
 
-The `cc-deck` command-line tool manages the plugin, sessions, snapshots, and environment setup.
+The `cc-deck` command-line tool manages the plugin, sessions, snapshots, and workspace builds.
 
 == Global Flags
 
@@ -38,27 +38,30 @@ The `cc-deck` command-line tool manages the plugin, sessions, snapshots, and env
 Help output organizes commands into four groups by usage frequency.
 
 Daily::
-`attach`, `list` (`ls`), `status`, `start`, `stop`, `logs`.
-These commands are available both at the top level and under `env`.
+`attach`, `ls`, `exec`.
+These commands are available both at the top level and under `ws`.
 
 Session::
 `snapshot`
 
-Environment::
-`env` (full lifecycle management)
+Workspace::
+`ws` (full lifecycle management)
 
-Setup::
-`plugin`, `profile`, `domains`, `setup`
+Config::
+`config` (plugin, profile, domains, completion)
+
+Build::
+`build`
 
 == Daily Commands
 
-Six high-frequency environment commands are available directly at the top level.
-They behave identically to their `env` subcommand counterparts.
+Three high-frequency workspace commands are available directly at the top level.
+They behave identically to their `ws` subcommand counterparts.
 
 === attach
 
-Attach to a running environment.
-For container environments, this opens a Zellij session inside the container.
+Attach to a running workspace.
+For container workspaces, this opens a Zellij session inside the container.
 Stopped containers are auto-started before attaching.
 When no name is provided, resolves from `.cc-deck/environment.yaml` in the project.
 
@@ -77,17 +80,16 @@ cc-deck attach --branch feature       # land in a specific worktree
 | Attach and land in a specific worktree directory inside the container
 |===
 
-=== list
+=== ls
 
-List all environments with their current status.
+List all workspaces with their current status.
 
 [source,bash]
 ----
-cc-deck list
-cc-deck ls                            # alias
-cc-deck list --type container
-cc-deck list --worktrees
-cc-deck list -o json
+cc-deck ls
+cc-deck ls --type container
+cc-deck ls --worktrees
+cc-deck ls -o json
 ----
 
 [cols="1,1,3"]
@@ -96,54 +98,24 @@ cc-deck list -o json
 
 | `--type`
 | `-t`
-| Filter by environment type
+| Filter by workspace type
 
 | `--worktrees`
 | `-w`
 | Show git worktrees within each project
 |===
 
-=== status
+=== exec
 
-Display detailed status information for an environment.
-
-[source,bash]
-----
-cc-deck status mydev
-cc-deck status                        # resolves from project config
-cc-deck status -o json
-----
-
-=== start
-
-Start a stopped environment.
+Run a command inside a container workspace.
 
 [source,bash]
 ----
-cc-deck start mydev
-cc-deck start                         # resolves from project config
+cc-deck exec mydev -- ls /workspace
+cc-deck exec mydev -- bash
 ----
 
-=== stop
-
-Gracefully stop a running environment.
-
-[source,bash]
-----
-cc-deck stop mydev
-cc-deck stop                          # resolves from project config
-----
-
-=== logs
-
-View environment logs.
-
-[source,bash]
-----
-cc-deck logs mydev
-----
-
-== Setup Commands
+== Build Commands
 
 === version
 
@@ -165,10 +137,10 @@ Install the WASM plugin, layouts, and Claude Code hooks.
 
 [source,bash]
 ----
-cc-deck plugin install
-cc-deck plugin install --layout minimal
-cc-deck plugin install --force
-cc-deck plugin install --install-zellij
+cc-deck config plugin install
+cc-deck config plugin install --layout minimal
+cc-deck config plugin install --force
+cc-deck config plugin install --install-zellij
 ----
 
 [cols="1,3"]
@@ -194,8 +166,8 @@ Show current installation status.
 
 [source,bash]
 ----
-cc-deck plugin status
-cc-deck plugin status -o json
+cc-deck config plugin status
+cc-deck config plugin status -o json
 ----
 
 ==== plugin remove
@@ -204,8 +176,8 @@ Remove the plugin, layouts, and hooks.
 
 [source,bash]
 ----
-cc-deck plugin remove
-cc-deck plugin remove --skip-backup
+cc-deck config plugin remove
+cc-deck config plugin remove --skip-backup
 ----
 
 === snapshot
@@ -250,25 +222,25 @@ Delete a snapshot.
 cc-deck snapshot remove my-checkpoint
 ----
 
-=== setup
+=== build
 
 Unified setup lifecycle commands for provisioning container images and SSH hosts from a declarative manifest.
 The `--target` flag selects which provisioning targets to operate on.
 Valid targets are `container`, `ssh`, or both as `container,ssh`.
 
-==== setup init
+==== build init
 
 Scaffold a setup directory with manifest and AI commands.
 When no directory is specified and the project has `.cc-deck/`, defaults to `.cc-deck/setup/`.
 
 [source,bash]
 ----
-cc-deck setup init my-team-setup
-cc-deck setup init                    # defaults to .cc-deck/setup/
-cc-deck setup init my-team-setup --force
-cc-deck setup init --target container
-cc-deck setup init --target ssh
-cc-deck setup init --target container,ssh
+cc-deck build init my-team-setup
+cc-deck build init                    # defaults to .cc-deck/setup/
+cc-deck build init my-team-setup --force
+cc-deck build init --target container
+cc-deck build init --target ssh
+cc-deck build init --target container,ssh
 ----
 
 [cols="1,3"]
@@ -282,18 +254,18 @@ cc-deck setup init --target container,ssh
 | Provisioning targets to generate: `container`, `ssh`, or `container,ssh` (default: `container`)
 |===
 
-==== setup run
+==== build run
 
 Execute pre-generated build artifacts directly from the CLI.
 Auto-detects whether to run a container build (via podman or docker) or SSH provisioning (via ansible-playbook) based on the artifacts present in the setup directory.
 
 [source,bash]
 ----
-cc-deck setup run
-cc-deck setup run .cc-deck/setup/
-cc-deck setup run --target container
-cc-deck setup run --target ssh
-cc-deck setup run --push
+cc-deck build run
+cc-deck build run .cc-deck/setup/
+cc-deck build run --target container
+cc-deck build run --target ssh
+cc-deck build run --push
 ----
 
 [cols="1,3"]
@@ -309,7 +281,7 @@ cc-deck setup run --push
 
 Exit codes from the underlying build tool (podman, ansible-playbook) are passed through.
 
-==== setup verify
+==== build verify
 
 Smoke-test a provisioned target.
 For container targets, starts a container and checks tool availability, Claude Code startup, and cc-deck version.
@@ -318,8 +290,8 @@ Reports pass/fail for each check.
 
 [source,bash]
 ----
-cc-deck setup verify my-team-setup --target container
-cc-deck setup verify my-team-setup --target ssh
+cc-deck build verify my-team-setup --target container
+cc-deck build verify my-team-setup --target ssh
 ----
 
 [cols="1,3"]
@@ -330,16 +302,16 @@ cc-deck setup verify my-team-setup --target ssh
 | Target to verify: `container` or `ssh` (required)
 |===
 
-==== setup diff
+==== build diff
 
 Show manifest drift between the declared setup and the generated artifacts.
 When `--target` is omitted, auto-detects available targets in the setup directory.
 
 [source,bash]
 ----
-cc-deck setup diff my-team-setup
-cc-deck setup diff my-team-setup --target container
-cc-deck setup diff my-team-setup --target ssh
+cc-deck build diff my-team-setup
+cc-deck build diff my-team-setup --target container
+cc-deck build diff my-team-setup --target ssh
 ----
 
 [cols="1,3"]
@@ -362,7 +334,7 @@ Interactively create a new credential profile.
 
 [source,bash]
 ----
-cc-deck profile add myprofile
+cc-deck config profile add myprofile
 ----
 
 ==== profile list
@@ -371,8 +343,8 @@ List all credential profiles.
 
 [source,bash]
 ----
-cc-deck profile list
-cc-deck profile list -o json
+cc-deck config profile list
+cc-deck config profile list -o json
 ----
 
 ==== profile use
@@ -381,7 +353,7 @@ Set the default credential profile.
 
 [source,bash]
 ----
-cc-deck profile use myprofile
+cc-deck config profile use myprofile
 ----
 
 ==== profile show
@@ -390,7 +362,7 @@ Show details of a credential profile.
 
 [source,bash]
 ----
-cc-deck profile show myprofile
+cc-deck config profile show myprofile
 ----
 
 === domains
@@ -405,8 +377,8 @@ Seed `~/.config/cc-deck/domains.yaml` with commented built-in group definitions 
 
 [source,bash]
 ----
-cc-deck domains init
-cc-deck domains init --force
+cc-deck config domains init
+cc-deck config domains init --force
 ----
 
 [cols="1,3"]
@@ -424,7 +396,7 @@ Sources include `builtin` (shipped with cc-deck), `user` (defined in `domains.ya
 
 [source,bash]
 ----
-cc-deck domains list
+cc-deck config domains list
 ----
 
 ==== domains show
@@ -433,8 +405,8 @@ Display the expanded domain patterns for a specific group.
 
 [source,bash]
 ----
-cc-deck domains show python
-cc-deck domains show github
+cc-deck config domains show python
+cc-deck config domains show github
 ----
 
 ==== domains blocked
@@ -444,8 +416,8 @@ This command requires Podman and a session deployed with network filtering enabl
 
 [source,bash]
 ----
-cc-deck domains blocked my-session
-cc-deck domains blocked my-session --since 30m
+cc-deck config domains blocked my-session
+cc-deck config domains blocked my-session --since 30m
 ----
 
 [cols="1,3"]
@@ -463,8 +435,8 @@ The proxy container is restarted to apply the change.
 
 [source,bash]
 ----
-cc-deck domains add my-session pypi.org
-cc-deck domains add my-session rust
+cc-deck config domains add my-session pypi.org
+cc-deck config domains add my-session rust
 ----
 
 ==== domains remove
@@ -474,34 +446,34 @@ The proxy container is restarted to apply the change.
 
 [source,bash]
 ----
-cc-deck domains remove my-session pypi.org
-cc-deck domains remove my-session docker
+cc-deck config domains remove my-session pypi.org
+cc-deck config domains remove my-session docker
 ----
 
-== Environment Commands
+== Workspace Commands
 
-=== env
+=== ws
 
-Manage environments across all supported backends (local, container, compose).
-When run inside a project with `.cc-deck/environment.yaml`, environment names are resolved automatically.
+Manage workspaces across all supported backends (local, container, compose).
+When run inside a project with `.cc-deck/environment.yaml`, workspace names are resolved automatically.
 
-NOTE: The commands `attach`, `list`, `status`, `start`, `stop`, and `logs` are also available at the top level (see <<Daily Commands>>).
+NOTE: The commands `attach`, `ls`, and `exec` are also available at the top level (see <<Daily Commands>>).
 
-==== env create
+==== ws new
 
-Create a new environment.
+Create a new workspace.
 When run inside a project with `.cc-deck/environment.yaml`, name and settings are read from the definition.
 In a git repository without a definition, one is scaffolded from CLI flags before provisioning.
 
 [source,bash]
 ----
-cc-deck env create                    # reads from .cc-deck/environment.yaml
-cc-deck env create mydev --type local
-cc-deck env create --type compose --image quay.io/cc-deck/cc-deck-demo:latest
-cc-deck env create --variant auth     # separate container instance
-cc-deck env create mydev --type container --port 8080:80
-cc-deck env create mydev --type ssh --host user@dev.example.com --repo https://github.com/org/repo.git
-cc-deck env create mydev --type ssh --repo https://github.com/org/repo.git --branch develop
+cc-deck ws new                    # reads from .cc-deck/environment.yaml
+cc-deck ws new mydev --type local
+cc-deck ws new --type compose --image quay.io/cc-deck/cc-deck-demo:latest
+cc-deck ws new --variant auth     # separate container instance
+cc-deck ws new mydev --type container --port 8080:80
+cc-deck ws new mydev --type ssh --host user@dev.example.com --repo https://github.com/org/repo.git
+cc-deck ws new mydev --type ssh --repo https://github.com/org/repo.git --branch develop
 ----
 
 [cols="1,1,3"]
@@ -510,7 +482,7 @@ cc-deck env create mydev --type ssh --repo https://github.com/org/repo.git --bra
 
 | `--type`
 | `-t`
-| Environment type: `local`, `container`, `compose`, `ssh`, `k8s-deploy`, `k8s-sandbox`
+| Workspace type: `local`, `container`, `compose`, `ssh`, `k8s-deploy`, `k8s-sandbox`
 
 | `--image`
 |
@@ -655,18 +627,18 @@ When run inside a git repo, the current project is auto-detected and included.
 Requires a preceding `--repo`.
 |===
 
-==== env attach
+==== ws attach
 
-Attach to a running environment.
-For container environments, this opens a Zellij session inside the container.
+Attach to a running workspace.
+For container workspaces, this opens a Zellij session inside the container.
 Stopped containers are auto-started before attaching.
 When no name is provided, resolves from `.cc-deck/environment.yaml` in the project.
 
 [source,bash]
 ----
-cc-deck env attach mydev
-cc-deck env attach                    # resolves from project config
-cc-deck env attach --branch feature   # land in a specific worktree
+cc-deck ws attach mydev
+cc-deck ws attach                    # resolves from project config
+cc-deck ws attach --branch feature   # land in a specific worktree
 ----
 
 [cols="1,1,3"]
@@ -678,16 +650,16 @@ cc-deck env attach --branch feature   # land in a specific worktree
 | Attach and land in a specific worktree directory inside the container
 |===
 
-==== env delete
+==== ws kill
 
-Delete an environment and its resources.
-For project-local environments, removes runtime state (`status.yaml`, `run/`) but preserves the committed definition (`environment.yaml`).
+Delete a workspace and its resources.
+For project-local workspaces, removes runtime state (`status.yaml`, `run/`) but preserves the committed definition (`environment.yaml`).
 
 [source,bash]
 ----
-cc-deck env delete mydev
-cc-deck env delete                    # resolves from project config
-cc-deck env delete --force --keep-volumes
+cc-deck ws kill mydev
+cc-deck ws kill                    # resolves from project config
+cc-deck ws kill --force --keep-volumes
 ----
 
 [cols="1,1,3"]
@@ -696,25 +668,26 @@ cc-deck env delete --force --keep-volumes
 
 | `--force`
 | `-f`
-| Force delete a running environment
+| Force delete a running workspace
 
 | `--keep-volumes`
 |
-| Preserve data volumes when deleting container environments
+| Preserve data volumes when deleting container workspaces
 |===
 
-==== env list
+==== ws list
 
-List all environments with their current status.
-Shows both global and project-local environments in a unified view.
+List all workspaces with their current status.
+Shows both global and project-local workspaces in a unified view.
 Each entry includes a SOURCE column indicating the definition origin (`global`, `project`, or empty for orphan instances).
 
 [source,bash]
 ----
-cc-deck env list
-cc-deck env list --type container
-cc-deck env list --worktrees
-cc-deck env list -o json
+cc-deck ws list
+cc-deck ws ls                        # alias
+cc-deck ws list --type container
+cc-deck ws list --worktrees
+cc-deck ws list -o json
 ----
 
 [cols="1,1,3"]
@@ -723,114 +696,114 @@ cc-deck env list -o json
 
 | `--type`
 | `-t`
-| Filter by environment type
+| Filter by workspace type
 
 | `--worktrees`
 | `-w`
 | Show git worktrees within each project
 |===
 
-==== env status
+==== ws status
 
-Display detailed status information for an environment.
-For project-local environments, the output includes the project directory path.
-
-[source,bash]
-----
-cc-deck env status mydev
-cc-deck env status                    # resolves from project config
-cc-deck env status -o json
-----
-
-==== env start
-
-Start a stopped environment.
+Display detailed status information for a workspace.
+For project-local workspaces, the output includes the project directory path.
 
 [source,bash]
 ----
-cc-deck env start mydev
-cc-deck env start                     # resolves from project config
+cc-deck ws status mydev
+cc-deck ws status                    # resolves from project config
+cc-deck ws status -o json
 ----
 
-==== env stop
+==== ws start
 
-Gracefully stop a running environment.
+Start a stopped workspace.
 
 [source,bash]
 ----
-cc-deck env stop mydev
-cc-deck env stop                      # resolves from project config
+cc-deck ws start mydev
+cc-deck ws start                     # resolves from project config
 ----
 
-==== env logs
+==== ws stop
 
-View environment logs.
+Gracefully stop a running workspace.
 
 [source,bash]
 ----
-cc-deck env logs mydev
+cc-deck ws stop mydev
+cc-deck ws stop                      # resolves from project config
 ----
 
-==== env refresh-creds
+==== ws logs
 
-Push fresh credentials to a remote SSH environment without attaching.
+View workspace logs.
+
+[source,bash]
+----
+cc-deck ws logs mydev
+----
+
+==== ws refresh-creds
+
+Push fresh credentials to a remote SSH workspace without attaching.
 This is useful for keeping long-running sessions alive when local credentials rotate.
-Only applicable to SSH environments.
+Only applicable to SSH workspaces.
 
 [source,bash]
 ----
-cc-deck env refresh-creds remote-dev
-cc-deck env refresh-creds             # resolves from project config
+cc-deck ws refresh-creds remote-dev
+cc-deck ws refresh-creds             # resolves from project config
 ----
 
-==== env prune
+==== ws prune
 
 Remove stale entries from the global project registry.
 Entries whose directories no longer exist are removed.
 
 [source,bash]
 ----
-cc-deck env prune
+cc-deck ws prune
 ----
 
-==== env exec
+==== ws exec
 
-Run a command inside a container environment.
+Run a command inside a container workspace.
 
 [source,bash]
 ----
-cc-deck env exec mydev -- ls /workspace
-cc-deck env exec mydev -- npm install
+cc-deck ws exec mydev -- ls /workspace
+cc-deck ws exec mydev -- npm install
 ----
 
-==== env push
+==== ws push
 
-Copy local files into a container environment.
+Copy local files into a container workspace.
 
 [source,bash]
 ----
-cc-deck env push mydev ./src /workspace/src
-cc-deck env push mydev ./config.yaml
+cc-deck ws push mydev ./src /workspace/src
+cc-deck ws push mydev ./config.yaml
 ----
 
-==== env pull
+==== ws pull
 
-Copy files from a container environment to the local machine.
+Copy files from a container workspace to the local machine.
 
 [source,bash]
 ----
-cc-deck env pull mydev /workspace/output ./output
-cc-deck env pull mydev /workspace/results
+cc-deck ws pull mydev /workspace/output ./output
+cc-deck ws pull mydev /workspace/results
 ----
 
-==== env harvest
+==== ws harvest
 
-Extract work products from an environment.
-Not supported for container environments (use push/pull instead).
+Extract work products from a workspace.
+Not supported for container workspaces (use push/pull instead).
 
 [source,bash]
 ----
-cc-deck env harvest mydev
+cc-deck ws harvest mydev
 ----
 
 === hook

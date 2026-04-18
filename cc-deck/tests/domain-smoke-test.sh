@@ -66,7 +66,7 @@ if [[ ! -x "$CC_DECK" ]]; then
 fi
 
 # Prepare test manifest
-cat > "$BUILD_DIR/cc-deck-setup.yaml" <<EOF
+cat > "$BUILD_DIR/cc-deck-build.yaml" <<EOF
 version: 2
 targets:
   container:

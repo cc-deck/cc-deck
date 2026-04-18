@@ -1,7 +1,7 @@
 package env
 
 import (
-	"github.com/cc-deck/cc-deck/internal/setup"
+	"github.com/cc-deck/cc-deck/internal/build"
 	"github.com/cc-deck/cc-deck/internal/network"
 )
 
@@ -16,6 +16,6 @@ func newDomainResolver() (*network.Resolver, error) {
 }
 
 // loadBuildManifest reads a cc-deck-image.yaml manifest file.
-func loadBuildManifest(path string) (*setup.Manifest, error) {
-	return setup.LoadManifest(path)
+func loadBuildManifest(path string) (*build.Manifest, error) {
+	return build.LoadManifest(path)
 }

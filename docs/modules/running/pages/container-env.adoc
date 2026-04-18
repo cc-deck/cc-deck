@@ -7,7 +7,7 @@ Instead of manually running `podman run`, `podman stop`, and `podman rm`, the `e
 
 [source,bash]
 ----
-cc-deck env create mydev --type container --image quay.io/cc-deck/cc-deck-demo:latest
+cc-deck ws new mydev --type container --image quay.io/cc-deck/cc-deck-demo:latest
 ----
 
 This command performs several steps automatically:
@@ -37,7 +37,7 @@ If a matching environment definition exists, the command uses its image, ports, 
 
 [source,bash]
 ----
-cc-deck env create mydev --type container --storage host-path --path ~/projects/myapp
+cc-deck ws new mydev --type container --storage host-path --path ~/projects/myapp
 ----
 
 === Port Forwarding
@@ -46,7 +46,7 @@ Expose container ports to the host with repeatable `--port` flags:
 
 [source,bash]
 ----
-cc-deck env create mydev --type container --port 8080:80 --port 9090:9090
+cc-deck ws new mydev --type container --port 8080:80 --port 9090:9090
 ----
 
 Use `--all-ports` to expose all container ports automatically.
@@ -57,7 +57,7 @@ Credentials are passed as Podman secrets, not environment variables, for better 
 
 [source,bash]
 ----
-cc-deck env create mydev --type container --credential ANTHROPIC_API_KEY=sk-ant-...
+cc-deck ws new mydev --type container --credential ANTHROPIC_API_KEY=sk-ant-...
 ----
 
 If no credentials are specified explicitly, the command auto-detects `ANTHROPIC_API_KEY` from the current shell environment and reads `GOOGLE_APPLICATION_CREDENTIALS` from the file path in that variable.
@@ -66,7 +66,7 @@ If no credentials are specified explicitly, the command auto-detects `ANTHROPIC_
 
 [source,bash]
 ----
-cc-deck env attach mydev
+cc-deck ws attach mydev
 ----
 
 This opens a Zellij session inside the container using `podman exec`.
@@ -76,9 +76,9 @@ If the container is stopped, it is automatically started before attaching.
 
 [source,bash]
 ----
-cc-deck env stop mydev       # Stop the container
-cc-deck env start mydev      # Restart a stopped container
-cc-deck env delete mydev     # Remove container, volumes, and secrets
+cc-deck ws stop mydev       # Stop the container
+cc-deck ws start mydev      # Restart a stopped container
+cc-deck ws kill mydev     # Remove container, volumes, and secrets
 ----
 
 Deleting a running environment requires the `--force` flag.
@@ -90,8 +90,8 @@ Container environments support push and pull for copying files between the host 
 
 [source,bash]
 ----
-cc-deck env push mydev ./src /workspace/src
-cc-deck env pull mydev /workspace/output ./output
+cc-deck ws push mydev ./src /workspace/src
+cc-deck ws pull mydev /workspace/output ./output
 ----
 
 If no remote path is specified for push, the file is placed under `/workspace/` using the local filename.
@@ -100,10 +100,10 @@ If no remote path is specified for push, the file is placed under `/workspace/` 
 
 [source,bash]
 ----
-cc-deck env list                    # All environments
-cc-deck env list --type container   # Container environments only
-cc-deck env status mydev            # Detailed status
-cc-deck env status mydev -o json    # Machine-readable output
+cc-deck ws list                    # All environments
+cc-deck ws list --type container   # Container environments only
+cc-deck ws status mydev            # Detailed status
+cc-deck ws status mydev -o json    # Machine-readable output
 ----
 
 The list command reconciles stored state with actual container state, so the reported status always reflects reality.
