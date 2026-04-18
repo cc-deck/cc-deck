@@ -73,7 +73,7 @@ If you want to restrict which domains the session container can access, delete a
 [source,bash]
 ----
 # Detach from Zellij first (Ctrl+o d)
-cc-deck ws kill dev --force
+cc-deck ws delete dev --force
 cc-deck ws new dev --type compose \
   --allowed-domains anthropic,github \
   --gitignore
@@ -118,7 +118,7 @@ cc-deck ws attach dev
 
 [source,bash]
 ----
-cc-deck ws kill dev
+cc-deck ws delete dev
 # Environment "dev" deleted
 ----
 
@@ -230,10 +230,10 @@ cc-deck ws stop mydev
 cc-deck ws start mydev
 
 # Delete the environment and all artifacts
-cc-deck ws kill mydev
+cc-deck ws delete mydev
 
 # Force-delete a running environment
-cc-deck ws kill mydev --force
+cc-deck ws delete mydev --force
 ----
 
 Stopping and starting preserves all files in the project directory (bind mount mode) and in the named volume (if used).

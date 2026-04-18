@@ -206,14 +206,14 @@ Remove an environment from the state store:
 
 [source,bash]
 ----
-cc-deck ws kill remote-dev
+cc-deck ws delete remote-dev
 ----
 
 If the environment has a running Zellij session, deletion is refused unless you pass `--force`:
 
 [source,bash]
 ----
-cc-deck ws kill remote-dev --force
+cc-deck ws delete remote-dev --force
 ----
 
 With force, the command attempts to kill the remote Zellij session before removing the state record.

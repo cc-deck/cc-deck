@@ -183,7 +183,7 @@ func TestE2EDelete(t *testing.T) {
 	te := setup(t)
 
 	te.mustRun("ws", "new", "delenv")
-	stdout, _ := te.mustRun("ws", "kill", "delenv", "--force")
+	stdout, _ := te.mustRun("ws", "delete", "delenv", "--force")
 	assert.Contains(t, stdout, "deleted")
 
 	stdout, _ = te.mustRun("ws", "list")
@@ -212,7 +212,7 @@ func TestE2EFullLifecycle(t *testing.T) {
 	assert.Equal(t, "lifecycle", status["name"])
 
 	// Delete
-	stdout, _ = te.mustRun("ws", "kill", "lifecycle", "--force")
+	stdout, _ = te.mustRun("ws", "delete", "lifecycle", "--force")
 	assert.Contains(t, stdout, "deleted")
 
 	// Gone
@@ -239,7 +239,7 @@ func TestE2ECreateDuplicate(t *testing.T) {
 func TestE2EDeleteNotFound(t *testing.T) {
 	te := setup(t)
 
-	_, _, err := te.run("ws", "kill", "ghost", "--force")
+	_, _, err := te.run("ws", "delete", "ghost", "--force")
 	require.Error(t, err)
 }
 
@@ -270,7 +270,7 @@ func TestE2EMultipleEnvironments(t *testing.T) {
 	assert.Contains(t, stdout, "beta")
 	assert.Contains(t, stdout, "gamma")
 
-	te.mustRun("ws", "kill", "beta", "--force")
+	te.mustRun("ws", "delete", "beta", "--force")
 
 	stdout, _ = te.mustRun("ws", "list")
 	assert.Contains(t, stdout, "alpha")
@@ -316,7 +316,7 @@ func TestE2EHelpFlag(t *testing.T) {
 	stdout, _ := te.mustRun("ws", "--help")
 	assert.Contains(t, stdout, "new")
 	assert.Contains(t, stdout, "list")
-	assert.Contains(t, stdout, "kill")
+	assert.Contains(t, stdout, "delete")
 	assert.Contains(t, stdout, "status")
 }
 

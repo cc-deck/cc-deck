@@ -280,28 +280,35 @@ func (s *FileStateStore) AllProjectEnvironmentNames(excludePath string) (map[str
 // PruneStaleProjects removes entries whose paths no longer exist.
 // Returns the count of removed entries.
 func (s *FileStateStore) PruneStaleProjects() (int, error) {
+	_, count, err := s.PruneStaleProjectsVerbose()
+	return count, err
+}
+
+// PruneStaleProjectsVerbose removes entries whose paths no longer exist.
+// Returns the removed paths and count.
+func (s *FileStateStore) PruneStaleProjectsVerbose() ([]string, int, error) {
 	state, err := s.Load()
 	if err != nil {
-		return 0, err
+		return nil, 0, err
 	}
 
 	var kept []ProjectEntry
-	removed := 0
+	var removedPaths []string
 	for _, p := range state.Projects {
 		if _, err := os.Stat(p.Path); err != nil {
-			removed++
+			removedPaths = append(removedPaths, p.Path)
 			continue
 		}
 		kept = append(kept, p)
 	}
 
-	if removed == 0 {
-		return 0, nil
+	if len(removedPaths) == 0 {
+		return nil, 0, nil
 	}
 
 	state.Projects = kept
 	if err := s.Save(state); err != nil {
-		return 0, err
+		return nil, 0, err
 	}
-	return removed, nil
+	return removedPaths, len(removedPaths), nil
 }

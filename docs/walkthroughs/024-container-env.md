@@ -158,7 +158,7 @@ podman rm -f cc-deck-test-orphan
 ccd ws list
 # Expected: test-orphan shows "error"
 # Clean up stale record
-ccd ws kill test-orphan --force
+ccd ws delete test-orphan --force
 ```
 
 ## 4. File Transfer (US4)
@@ -249,7 +249,7 @@ cat ~/.config/cc-deck/environments.yaml
 # (use your editor of choice)
 
 # Delete and recreate to pick up new definition
-ccd ws kill test-fedora --force
+ccd ws delete test-fedora --force
 ccd ws new test-fedora
 # The new image from the definition should be used
 
@@ -318,7 +318,7 @@ ccd ws attach test-fedora
 ### 9a. Delete with volume removal (default)
 
 ```bash
-ccd ws kill test-basic --force
+ccd ws delete test-basic --force
 podman ps -a --filter name=cc-deck-test-basic --format '{{.Names}}'
 # Expected: empty (container removed)
 podman volume ls --filter name=cc-deck-test-basic-data --format '{{.Name}}'
@@ -328,7 +328,7 @@ podman volume ls --filter name=cc-deck-test-basic-data --format '{{.Name}}'
 ### 9b. Delete with --keep-volumes
 
 ```bash
-ccd ws kill test-fedora --force --keep-volumes
+ccd ws delete test-fedora --force --keep-volumes
 podman volume ls --filter name=cc-deck-test-fedora-data --format '{{.Name}}'
 # Expected: cc-deck-test-fedora-data (volume preserved)
 # Clean up manually
@@ -353,7 +353,7 @@ podman inspect cc-deck-test-config --format '{{.Config.Image}}'
 # Expected: fedora:latest (from config, no "using default" warning)
 
 # Clean up
-ccd ws kill test-config --force
+ccd ws delete test-config --force
 ```
 
 ## 11. Auth Auto-Detection
@@ -366,7 +366,7 @@ ccd ws new test-auth-api --type container --image fedora:latest
 # Expected: auto-detects API mode, injects ANTHROPIC_API_KEY
 podman exec cc-deck-test-auth-api env | grep ANTHROPIC_API_KEY
 # Expected: ANTHROPIC_API_KEY=sk-ant-test-walkthrough
-ccd ws kill test-auth-api --force
+ccd ws delete test-auth-api --force
 unset ANTHROPIC_API_KEY
 ```
 
@@ -382,7 +382,7 @@ ccd ws new test-auth-vertex --type container --image fedora:latest
 podman exec cc-deck-test-auth-vertex env | grep -E "VERTEX|CLOUD_ML|GOOGLE_APP"
 # Expected: CLAUDE_CODE_USE_VERTEX=1, ANTHROPIC_VERTEX_PROJECT_ID, CLOUD_ML_REGION,
 #           GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/... (if ADC file exists)
-ccd ws kill test-auth-vertex --force
+ccd ws delete test-auth-vertex --force
 unset CLAUDE_CODE_USE_VERTEX ANTHROPIC_VERTEX_PROJECT_ID CLOUD_ML_REGION
 ```
 
@@ -401,7 +401,7 @@ ccd ws new test-vertex --type container
 ccd ws attach test-vertex
 # Expected: Claude Code shows "Vertex AI" (not "API Usage Billing")
 # Detach with: Ctrl+o d
-ccd ws kill test-vertex --force
+ccd ws delete test-vertex --force
 ```
 
 ### 11c. Explicit auth mode override
@@ -411,7 +411,7 @@ export ANTHROPIC_API_KEY=sk-ant-test
 ccd ws new test-auth-none --type container --image fedora:latest --auth none
 podman exec cc-deck-test-auth-none env | grep ANTHROPIC_API_KEY
 # Expected: empty (no auth passthrough with --auth none)
-ccd ws kill test-auth-none --force
+ccd ws delete test-auth-none --force
 unset ANTHROPIC_API_KEY
 ```
 
@@ -425,7 +425,7 @@ ccd ws new test-mount --type container --image fedora:latest \
   --mount ~/cc-deck-mount-test:/mnt/test:ro
 podman exec cc-deck-test-mount cat /mnt/test/marker.txt
 # Expected: mounted
-ccd ws kill test-mount --force
+ccd ws delete test-mount --force
 rm -rf ~/cc-deck-mount-test
 ```
 
@@ -457,7 +457,7 @@ ccd ws harvest test-bind
 ```bash
 # Remove all test environments
 for name in test-bind test-cwd test-ports test-creds test-autodetect test-auth-api test-auth-vertex test-auth-none test-mount; do
-  ccd ws kill "$name" --force 2>/dev/null
+  ccd ws delete "$name" --force 2>/dev/null
 done
 
 # Remove test files

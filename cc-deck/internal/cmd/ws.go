@@ -55,7 +55,7 @@ a .cc-deck/environment.yaml file in the current project.`,
 		newWsAttachCmd(gf),
 		newWsStartCmd(gf),
 		newWsStopCmd(gf),
-		newWsKillCmd(gf),
+		newWsDeleteCmd(gf),
 		newWsRefreshCredsCmd(gf),
 	)
 
@@ -127,6 +127,9 @@ type newFlags struct {
 	// Repo cloning flags
 	repos    []string
 	branches []string
+
+	// Idempotent update
+	update bool
 }
 
 func newWsNewCmd(gf *GlobalFlags) *cobra.Command {
@@ -224,6 +227,9 @@ Workspace types (--type):
 	// Repo cloning flags
 	cmd.Flags().StringArrayVar(&cf.repos, "repo", nil, "Git repo URL to clone into workspace, repeatable")
 	cmd.Flags().StringArrayVar(&cf.branches, "branch", nil, "Branch for the most recent --repo, repeatable")
+
+	// Idempotent update
+	cmd.Flags().BoolVar(&cf.update, "update", false, "Update existing workspace instead of erroring on conflict")
 
 	return cmd
 }
@@ -635,6 +641,43 @@ func runWsNew(gf *GlobalFlags, name string, cf *newFlags, cmd *cobra.Command) er
 		activeDef.Repos = nil
 	}
 
+	// Handle --update: if workspace already exists with the same type,
+	// update its definition and instance in place instead of erroring.
+	if cf.update {
+		if existing, findErr := store.FindInstanceByName(name); findErr == nil {
+			if existing.Type != envType {
+				return fmt.Errorf("workspace %q exists as type %s, cannot update to %s", name, existing.Type, envType)
+			}
+			// Update SSH fields on the existing instance.
+			if existing.SSH != nil {
+				if cf.host != "" {
+					existing.SSH.Host = cf.host
+				}
+				if cf.sshPort != 0 {
+					existing.SSH.Port = cf.sshPort
+				}
+				if cf.identityFile != "" {
+					existing.SSH.IdentityFile = cf.identityFile
+				}
+				if cf.jumpHost != "" {
+					existing.SSH.JumpHost = cf.jumpHost
+				}
+				if cf.sshConfig != "" {
+					existing.SSH.SSHConfig = cf.sshConfig
+				}
+				if cf.workspace != "" {
+					existing.SSH.Workspace = cf.workspace
+				}
+			}
+			if err := store.UpdateInstance(existing); err != nil {
+				return fmt.Errorf("updating workspace: %w", err)
+			}
+			fmt.Fprintf(os.Stdout, "Workspace %q updated (type: %s)\n", name, envType)
+			return nil
+		}
+		// Not found: fall through to normal creation.
+	}
+
 	if err := e.Create(cmd_context(), opts); err != nil {
 		return err
 	}
@@ -760,12 +803,13 @@ func runWsAttach(name string) error {
 
 // --- delete ---
 
-func newWsKillCmd(_ *GlobalFlags) *cobra.Command {
+func newWsDeleteCmd(_ *GlobalFlags) *cobra.Command {
 	var force bool
 	var keepVolumes bool
 
 	cmd := &cobra.Command{
-		Use:   "kill [name]",
+		Use:   "delete [name]",
+		Aliases: []string{"rm"},
 		Short: "Destroy a workspace",
 		Long: `Destroy the named workspace and remove it from the state store.
 If the workspace is running, use --force to stop and destroy it.
@@ -778,7 +822,7 @@ When no name is provided, resolves from .cc-deck/environment.yaml in the project
 			if err != nil {
 				return err
 			}
-			return runWsKill(name, force, keepVolumes)
+			return runWsDelete(name, force, keepVolumes)
 		},
 	}
 
@@ -788,7 +832,7 @@ When no name is provided, resolves from .cc-deck/environment.yaml in the project
 	return cmd
 }
 
-func runWsKill(name string, force bool, keepVolumes bool) error {
+func runWsDelete(name string, force bool, keepVolumes bool) error {
 	store := env.NewStateStore("")
 	defs := env.NewDefinitionStore("")
 
@@ -927,21 +971,16 @@ func runWsList(gf *GlobalFlags, filterType string, showWorktrees bool, verbose b
 		instanceNames[inst.Name] = true
 	}
 
+	// Auto-prune stale project entries whose paths no longer exist.
+	if pruned, _ := store.PruneStaleProjects(); pruned > 0 {
+		log.Printf("Auto-pruned %d stale project(s) from registry.", pruned)
+	}
+
 	// Collect project-local environments from the global registry (FR-006, FR-012).
 	var projectEnvs []projectListEntry
 	seenProjectNames := make(map[string]bool)
 	projects, _ := store.ListProjects()
 	for _, p := range projects {
-		if _, statErr := os.Stat(p.Path); statErr != nil {
-			// Path no longer exists: MISSING (FR-008).
-			projectEnvs = append(projectEnvs, projectListEntry{
-				Name:    filepath.Base(p.Path),
-				Path:    p.Path,
-				Missing: true,
-				Status:  "MISSING",
-			})
-			continue
-		}
 		def, loadErr := env.LoadProjectDefinition(p.Path)
 		if loadErr != nil {
 			continue
@@ -1611,13 +1650,16 @@ moved or deleted.`,
 
 func runWsPrune() error {
 	store := env.NewStateStore("")
-	count, err := store.PruneStaleProjects()
+	paths, count, err := store.PruneStaleProjectsVerbose()
 	if err != nil {
 		return err
 	}
 	if count == 0 {
 		fmt.Fprintln(os.Stdout, "No stale projects found.")
 	} else {
+		for _, p := range paths {
+			fmt.Fprintf(os.Stdout, "Pruned: %s\n", p)
+		}
 		fmt.Fprintf(os.Stdout, "Removed %d stale project(s).\n", count)
 	}
 	return nil

@@ -9,7 +9,7 @@
 
 ### User Story 1 - Daily workspace operations with new command names (Priority: P1)
 
-A developer manages their Claude Code workspaces using the renamed CLI commands. They use `cc-deck ws new mydev` to create a workspace, `cc-deck attach mydev` to connect, `cc-deck ls` to list workspaces, and `cc-deck ws kill mydev` to tear down. The commands feel familiar to anyone who has used tmux or Zellij.
+A developer manages their Claude Code workspaces using the renamed CLI commands. They use `cc-deck ws new mydev` to create a workspace, `cc-deck attach mydev` to connect, `cc-deck ls` to list workspaces, and `cc-deck ws delete mydev` to tear down. The commands feel familiar to anyone who has used tmux or Zellij.
 
 **Why this priority**: The workspace commands are the primary user-facing interface. Every cc-deck user interacts with these commands daily, and the rename directly addresses the confusion between "env" and "setup."
 
@@ -20,7 +20,7 @@ A developer manages their Claude Code workspaces using the renamed CLI commands.
 1. **Given** cc-deck is installed, **When** a user runs `cc-deck ws new mydev`, **Then** a workspace named "mydev" is created with the same behavior as the former `cc-deck env create mydev`
 2. **Given** a workspace exists, **When** a user runs `cc-deck attach mydev`, **Then** the user connects to the workspace (same behavior as former `cc-deck env attach mydev`)
 3. **Given** one or more workspaces exist, **When** a user runs `cc-deck ls`, **Then** all workspaces are listed (same behavior as former `cc-deck env list`)
-4. **Given** a workspace exists, **When** a user runs `cc-deck ws kill mydev`, **Then** the workspace is destroyed (same behavior as former `cc-deck env delete mydev`)
+4. **Given** a workspace exists, **When** a user runs `cc-deck ws delete mydev`, **Then** the workspace is destroyed (same behavior as former `cc-deck env delete mydev`)
 5. **Given** cc-deck is installed, **When** a user runs `cc-deck workspace new mydev`, **Then** the command works identically to `cc-deck ws new mydev` (full alias)
 
 ---

@@ -255,7 +255,7 @@ func TestDualPath_ShellCompletionIncludesBothPaths(t *testing.T) {
 	}
 
 	// Verify ws-only commands are NOT at root.
-	wsOnly := []string{"new", "kill", "push", "pull", "harvest", "prune", "status", "start", "stop", "logs"}
+	wsOnly := []string{"new", "delete", "push", "pull", "harvest", "prune", "status", "start", "stop", "logs"}
 	for _, name := range wsOnly {
 		assert.False(t, rootCmds[name], "ws-only command %q should not be at root level", name)
 		assert.True(t, wsSubCmds[name], "ws-only command %q should be under ws", name)
