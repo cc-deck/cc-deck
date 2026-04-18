@@ -12,13 +12,13 @@ All setup artifacts live in `.cc-deck/setup/` relative to the project root (the 
 
 1. Find the project root (look for `.cc-deck/` directory or git root, walking up from the current working directory)
 2. The setup directory is `<project-root>/.cc-deck/setup/`
-3. The manifest is at `<setup-dir>/cc-deck-setup.yaml`
+3. The manifest is at `<setup-dir>/cc-deck-build.yaml`
 
-All file references in this command (manifest, config files, build directory) are relative to the setup directory unless stated otherwise.
+All file references in this command (manifest, config files) are relative to the setup directory unless stated otherwise.
 
 ## Outline
 
-Scan local repositories and host configuration, then update `<setup-dir>/cc-deck-setup.yaml` with everything needed to set up a Claude Code environment (container image or SSH remote).
+Scan local repositories and host configuration, then update `<setup-dir>/cc-deck-build.yaml` with everything needed to set up a Claude Code environment (container image or SSH remote).
 
 The command runs through sections in order. Each section presents findings and lets the user accept, edit, or skip.
 

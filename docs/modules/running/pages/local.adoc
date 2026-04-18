@@ -20,7 +20,8 @@ cd cc-deck
 make install
 ----
 
-`make install` builds the WASM plugin, compiles the Go CLI, and runs `cc-deck plugin install` to set up Zellij layouts and Claude Code hooks.
+`make install` builds the WASM plugin, compiles the Go CLI, and runs `cc-deck config plugin install`.
+This sets up Zellij layouts and Claude Code hooks.
 
 == What Gets Installed
 
@@ -67,7 +68,7 @@ Then simply running `zellij` starts with the cc-deck sidebar.
 
 == Install Options
 
-The `cc-deck plugin install` command accepts several flags:
+The `cc-deck config plugin install` command accepts several flags:
 
 `--force` / `-f`::
 Overwrite existing files without prompting.
@@ -86,7 +87,7 @@ Download and install a matching Zellij binary.
 
 [source,bash]
 ----
-cc-deck plugin status
+cc-deck config plugin status
 ----
 
 This shows the installed plugin version and layout configuration.
@@ -95,7 +96,7 @@ This shows the installed plugin version and layout configuration.
 
 [source,bash]
 ----
-cc-deck plugin remove
+cc-deck config plugin remove
 ----
 
 This removes the plugin, layouts, and hooks.

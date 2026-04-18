@@ -16,19 +16,19 @@ import (
 )
 
 // buildRootCmd constructs a CLI tree identical to the real one but limited
-// to the env subcommand. This lets us exercise the full cobra path without
+// to the ws subcommand. This lets us exercise the full cobra path without
 // pulling in Kubernetes or other heavy dependencies.
 func buildRootCmd(gf *cmd.GlobalFlags) *cobra.Command {
 	root := &cobra.Command{Use: "cc-deck", SilenceUsage: true}
 	root.PersistentFlags().StringVarP(&gf.Output, "output", "o", "text", "Output format")
-	root.AddCommand(cmd.NewEnvCmd(gf))
+	root.AddCommand(cmd.NewWsCmd(gf))
 	return root
 }
 
-// setupTestEnv creates a temp state file and puts a dummy zellij script
+// setupTestWs creates a temp state file and puts a dummy zellij script
 // on PATH so that LookPath succeeds. Each test gets its own isolated
 // state file and definitions file via environment variables.
-func setupTestEnv(t *testing.T) (stateDir string) {
+func setupTestWs(t *testing.T) (stateDir string) {
 	t.Helper()
 
 	stateDir = t.TempDir()
@@ -69,11 +69,13 @@ func run(t *testing.T, gf *cmd.GlobalFlags, args ...string) (stdout, stderr stri
 	root.SetErr(errBuf)
 	root.SetArgs(args)
 
-	// Capture os.Stdout since the env commands write directly to it.
+	// Capture os.Stdout since the ws commands write directly to it.
 	origStdout := os.Stdout
 	origStderr := os.Stderr
-	rOut, wOut, _ := os.Pipe()
-	rErr, wErr, _ := os.Pipe()
+	rOut, wOut, pipeErr := os.Pipe()
+	require.NoError(t, pipeErr, "failed to create stdout pipe")
+	rErr, wErr, pipeErr2 := os.Pipe()
+	require.NoError(t, pipeErr2, "failed to create stderr pipe")
 	os.Stdout = wOut
 	os.Stderr = wErr
 
@@ -87,6 +89,8 @@ func run(t *testing.T, gf *cmd.GlobalFlags, args ...string) (stdout, stderr stri
 	var pipedOut, pipedErr bytes.Buffer
 	pipedOut.ReadFrom(rOut)
 	pipedErr.ReadFrom(rErr)
+	rOut.Close()
+	rErr.Close()
 
 	// Combine cobra output and piped stdout.
 	combined := outBuf.String() + pipedOut.String()
@@ -97,30 +101,30 @@ func run(t *testing.T, gf *cmd.GlobalFlags, args ...string) (stdout, stderr stri
 
 // --- Integration tests ---
 
-func TestEnvCreateAndList(t *testing.T) {
-	setupTestEnv(t)
+func TestWsCreateAndList(t *testing.T) {
+	setupTestWs(t)
 	gf := &cmd.GlobalFlags{Output: "text"}
 
 	// Create an environment.
-	stdout, _, err := run(t, gf, "env", "create", "mydev", "--type", "local")
+	stdout, _, err := run(t, gf, "ws", "new", "mydev", "--type", "local")
 	require.NoError(t, err)
 	assert.Contains(t, stdout, `"mydev" created`)
 
 	// List should show it.
-	stdout, _, err = run(t, gf, "env", "list")
+	stdout, _, err = run(t, gf, "ws", "list")
 	require.NoError(t, err)
 	assert.Contains(t, stdout, "mydev")
 	assert.Contains(t, stdout, "local")
 }
 
-func TestEnvCreateAndListJSON(t *testing.T) {
-	setupTestEnv(t)
+func TestWsCreateAndListJSON(t *testing.T) {
+	setupTestWs(t)
 	gf := &cmd.GlobalFlags{Output: "json"}
 
-	_, _, err := run(t, gf, "env", "create", "jsontest", "--type", "local")
+	_, _, err := run(t, gf, "ws", "new", "jsontest", "--type", "local")
 	require.NoError(t, err)
 
-	stdout, _, err := run(t, gf, "env", "list", "-o", "json")
+	stdout, _, err := run(t, gf, "ws", "list", "-o", "json")
 	require.NoError(t, err)
 
 	var entries []map[string]interface{}
@@ -130,81 +134,81 @@ func TestEnvCreateAndListJSON(t *testing.T) {
 	assert.Equal(t, "local", entries[0]["type"])
 }
 
-func TestEnvListEmpty(t *testing.T) {
-	setupTestEnv(t)
+func TestWsListEmpty(t *testing.T) {
+	setupTestWs(t)
 	gf := &cmd.GlobalFlags{Output: "text"}
 
-	stdout, _, err := run(t, gf, "env", "list")
+	stdout, _, err := run(t, gf, "ws", "list")
 	require.NoError(t, err)
-	assert.Contains(t, stdout, "No environments found")
+	assert.Contains(t, stdout, "No workspaces found")
 }
 
-func TestEnvListFilterByType(t *testing.T) {
-	setupTestEnv(t)
+func TestWsListFilterByType(t *testing.T) {
+	setupTestWs(t)
 	gf := &cmd.GlobalFlags{Output: "text"}
 
-	_, _, err := run(t, gf, "env", "create", "localenv", "--type", "local")
+	_, _, err := run(t, gf, "ws", "new", "localenv", "--type", "local")
 	require.NoError(t, err)
 
 	// Filter for local should find it.
-	stdout, _, err := run(t, gf, "env", "list", "--type", "local")
+	stdout, _, err := run(t, gf, "ws", "list", "--type", "local")
 	require.NoError(t, err)
 	assert.Contains(t, stdout, "localenv")
 
 	// Filter for container should not find it.
-	stdout, _, err = run(t, gf, "env", "list", "--type", "container")
+	stdout, _, err = run(t, gf, "ws", "list", "--type", "container")
 	require.NoError(t, err)
 	assert.NotContains(t, stdout, "localenv")
 }
 
-func TestEnvCreateInvalidName(t *testing.T) {
-	setupTestEnv(t)
+func TestWsCreateInvalidName(t *testing.T) {
+	setupTestWs(t)
 	gf := &cmd.GlobalFlags{Output: "text"}
 
-	_, _, err := run(t, gf, "env", "create", "INVALID", "--type", "local")
+	_, _, err := run(t, gf, "ws", "new", "INVALID", "--type", "local")
 	require.Error(t, err)
 }
 
-func TestEnvCreateDuplicateName(t *testing.T) {
-	setupTestEnv(t)
+func TestWsCreateDuplicateName(t *testing.T) {
+	setupTestWs(t)
 	gf := &cmd.GlobalFlags{Output: "text"}
 
-	_, _, err := run(t, gf, "env", "create", "duptest", "--type", "local")
+	_, _, err := run(t, gf, "ws", "new", "duptest", "--type", "local")
 	require.NoError(t, err)
 
-	_, _, err = run(t, gf, "env", "create", "duptest", "--type", "local")
+	_, _, err = run(t, gf, "ws", "new", "duptest", "--type", "local")
 	require.Error(t, err)
 }
 
-func TestEnvCreateUnsupportedType(t *testing.T) {
-	setupTestEnv(t)
+func TestWsCreateUnsupportedType(t *testing.T) {
+	setupTestWs(t)
 	gf := &cmd.GlobalFlags{Output: "text"}
 
-	_, _, err := run(t, gf, "env", "create", "badtype", "--type", "k8s-sandbox")
+	_, _, err := run(t, gf, "ws", "new", "badtype", "--type", "k8s-sandbox")
 	require.Error(t, err)
 }
 
-func TestEnvStatus(t *testing.T) {
-	setupTestEnv(t)
+func TestWsStatus(t *testing.T) {
+	setupTestWs(t)
 	gf := &cmd.GlobalFlags{Output: "text"}
 
-	_, _, err := run(t, gf, "env", "create", "statustest", "--type", "local")
+	_, _, err := run(t, gf, "ws", "new", "statustest", "--type", "local")
 	require.NoError(t, err)
 
-	stdout, _, err := run(t, gf, "env", "status", "statustest")
+	stdout, _, err := run(t, gf, "ws", "status", "statustest")
 	require.NoError(t, err)
 	assert.Contains(t, stdout, "statustest")
 	assert.Contains(t, stdout, "local")
 }
 
-func TestEnvStatusJSON(t *testing.T) {
-	setupTestEnv(t)
+func TestWsStatusJSON(t *testing.T) {
+	setupTestWs(t)
 	gf := &cmd.GlobalFlags{Output: "json"}
 
-	_, _, err := run(t, gf, "env", "create", "statusjson", "--type", "local")
+	_, _, err := run(t, gf, "ws", "new", "statusjson", "--type", "local")
 	require.NoError(t, err)
 
-	stdout, _, err := run(t, gf, "env", "status", "-o", "json", "statusjson")
+	stdout, _, err := run(t, gf, "ws", "status", "-o", "json", "statusjson")
 	require.NoError(t, err)
 
 	var out map[string]interface{}
@@ -213,68 +217,68 @@ func TestEnvStatusJSON(t *testing.T) {
 	assert.Equal(t, "local", out["type"])
 }
 
-func TestEnvStatusNotFound(t *testing.T) {
-	setupTestEnv(t)
+func TestWsStatusNotFound(t *testing.T) {
+	setupTestWs(t)
 	gf := &cmd.GlobalFlags{Output: "text"}
 
-	_, _, err := run(t, gf, "env", "status", "nonexistent")
+	_, _, err := run(t, gf, "ws", "status", "nonexistent")
 	require.Error(t, err)
 }
 
-func TestEnvDelete(t *testing.T) {
-	setupTestEnv(t)
+func TestWsDelete(t *testing.T) {
+	setupTestWs(t)
 	gf := &cmd.GlobalFlags{Output: "text"}
 
-	_, _, err := run(t, gf, "env", "create", "deltest", "--type", "local")
+	_, _, err := run(t, gf, "ws", "new", "deltest", "--type", "local")
 	require.NoError(t, err)
 
 	// Delete with --force (zellij stub returns no sessions, but force is clean).
-	stdout, _, err := run(t, gf, "env", "delete", "deltest", "--force")
+	stdout, _, err := run(t, gf, "ws", "kill", "deltest", "--force")
 	require.NoError(t, err)
 	assert.Contains(t, stdout, `"deltest" deleted`)
 }
 
-func TestEnvDeleteNotFound(t *testing.T) {
-	setupTestEnv(t)
+func TestWsDeleteNotFound(t *testing.T) {
+	setupTestWs(t)
 	gf := &cmd.GlobalFlags{Output: "text"}
 
-	_, _, err := run(t, gf, "env", "delete", "ghost", "--force")
+	_, _, err := run(t, gf, "ws", "kill", "ghost", "--force")
 	require.Error(t, err)
 }
 
-func TestEnvStopLocal(t *testing.T) {
-	setupTestEnv(t)
+func TestWsStopLocal(t *testing.T) {
+	setupTestWs(t)
 	gf := &cmd.GlobalFlags{Output: "text"}
 
-	_, _, err := run(t, gf, "env", "create", "stoptest", "--type", "local")
+	_, _, err := run(t, gf, "ws", "new", "stoptest", "--type", "local")
 	require.NoError(t, err)
 
 	// Stop calls zellij kill-session; the stub zellij exits 0 but the
 	// session doesn't actually exist, so Stop reports "not running".
-	_, _, err = run(t, gf, "env", "stop", "stoptest")
+	_, _, err = run(t, gf, "ws", "stop", "stoptest")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not running")
 }
 
-func TestEnvStartLocal(t *testing.T) {
-	setupTestEnv(t)
+func TestWsStartLocal(t *testing.T) {
+	setupTestWs(t)
 	gf := &cmd.GlobalFlags{Output: "text"}
 
-	_, _, err := run(t, gf, "env", "create", "starttest", "--type", "local")
+	_, _, err := run(t, gf, "ws", "new", "starttest", "--type", "local")
 	require.NoError(t, err)
 
 	// Start should succeed (zellij stub creates session, exits 0).
-	stdout, _, err := run(t, gf, "env", "start", "starttest")
+	stdout, _, err := run(t, gf, "ws", "start", "starttest")
 	require.NoError(t, err)
 	assert.Contains(t, stdout, "started")
 }
 
-func TestEnvStubCommandsReturnError(t *testing.T) {
-	setupTestEnv(t)
+func TestWsStubCommandsReturnError(t *testing.T) {
+	setupTestWs(t)
 	gf := &cmd.GlobalFlags{Output: "text"}
 
 	// Create the environment first so resolveEnvironment succeeds.
-	_, _, err := run(t, gf, "env", "create", "stubtest", "--type", "local")
+	_, _, err := run(t, gf, "ws", "new", "stubtest", "--type", "local")
 	require.NoError(t, err)
 
 	// These commands should fail because local environments don't support them.
@@ -282,11 +286,11 @@ func TestEnvStubCommandsReturnError(t *testing.T) {
 		args    []string
 		errText string
 	}{
-		{[]string{"env", "exec", "stubtest", "--", "echo"}, "not supported"},
-		{[]string{"env", "push", "stubtest"}, "not supported"},
-		{[]string{"env", "pull", "stubtest"}, "not supported"},
-		{[]string{"env", "harvest", "stubtest"}, "not supported"},
-		{[]string{"env", "logs", "stubtest"}, "not yet implemented"},
+		{[]string{"ws", "exec", "stubtest", "--", "echo"}, "not supported"},
+		{[]string{"ws", "push", "stubtest"}, "not supported"},
+		{[]string{"ws", "pull", "stubtest"}, "not supported"},
+		{[]string{"ws", "harvest", "stubtest"}, "not supported"},
+		{[]string{"ws", "logs", "stubtest"}, "not yet implemented"},
 	}
 
 	for _, tt := range stubs {
@@ -298,67 +302,67 @@ func TestEnvStubCommandsReturnError(t *testing.T) {
 	}
 }
 
-func TestEnvFullLifecycle(t *testing.T) {
-	setupTestEnv(t)
+func TestWsFullLifecycle(t *testing.T) {
+	setupTestWs(t)
 	gf := &cmd.GlobalFlags{Output: "text"}
 
 	// 1. Create
-	stdout, _, err := run(t, gf, "env", "create", "lifecycle", "--type", "local")
+	stdout, _, err := run(t, gf, "ws", "new", "lifecycle", "--type", "local")
 	require.NoError(t, err)
 	assert.Contains(t, stdout, "created")
 
 	// 2. List shows it
-	stdout, _, err = run(t, gf, "env", "list")
+	stdout, _, err = run(t, gf, "ws", "list")
 	require.NoError(t, err)
 	assert.Contains(t, stdout, "lifecycle")
 
 	// 3. Status works
-	stdout, _, err = run(t, gf, "env", "status", "lifecycle")
+	stdout, _, err = run(t, gf, "ws", "status", "lifecycle")
 	require.NoError(t, err)
 	assert.Contains(t, stdout, "lifecycle")
 
 	// 4. Delete
-	stdout, _, err = run(t, gf, "env", "delete", "lifecycle", "--force")
+	stdout, _, err = run(t, gf, "ws", "kill", "lifecycle", "--force")
 	require.NoError(t, err)
 	assert.Contains(t, stdout, "deleted")
 }
 
-func TestEnvMultipleEnvironments(t *testing.T) {
-	setupTestEnv(t)
+func TestWsMultipleEnvironments(t *testing.T) {
+	setupTestWs(t)
 	gf := &cmd.GlobalFlags{Output: "text"}
 
 	names := []string{"alpha", "beta", "gamma"}
 	for _, name := range names {
-		_, _, err := run(t, gf, "env", "create", name, "--type", "local")
+		_, _, err := run(t, gf, "ws", "new", name, "--type", "local")
 		require.NoError(t, err)
 	}
 
-	stdout, _, err := run(t, gf, "env", "list")
+	stdout, _, err := run(t, gf, "ws", "list")
 	require.NoError(t, err)
 	for _, name := range names {
 		assert.Contains(t, stdout, name)
 	}
 
 	// Delete one and verify
-	_, _, err = run(t, gf, "env", "delete", "beta", "--force")
+	_, _, err = run(t, gf, "ws", "kill", "beta", "--force")
 	require.NoError(t, err)
 
-	stdout, _, err = run(t, gf, "env", "list")
+	stdout, _, err = run(t, gf, "ws", "list")
 	require.NoError(t, err)
 	assert.Contains(t, stdout, "alpha")
 	assert.NotContains(t, stdout, "beta")
 	assert.Contains(t, stdout, "gamma")
 }
 
-func TestEnvCreateDefaultTypeIsLocal(t *testing.T) {
-	setupTestEnv(t)
+func TestWsCreateDefaultTypeIsLocal(t *testing.T) {
+	setupTestWs(t)
 	gf := &cmd.GlobalFlags{Output: "json"}
 
 	// Create without --type flag should default to local.
-	_, _, err := run(t, gf, "env", "create", "defaulttype")
+	_, _, err := run(t, gf, "ws", "new", "defaulttype")
 	require.NoError(t, err)
 
-	stdout, _, err := run(t, gf, "env", "list", "-o", "json")
+	stdout, _, err := run(t, gf, "ws", "list", "-o", "json")
 	require.NoError(t, err)
 
 	var entries []map[string]interface{}
@@ -367,11 +371,11 @@ func TestEnvCreateDefaultTypeIsLocal(t *testing.T) {
 	assert.Equal(t, "local", entries[0]["type"])
 }
 
-func TestEnvStatePersistence(t *testing.T) {
-	stateDir := setupTestEnv(t)
+func TestWsStatePersistence(t *testing.T) {
+	stateDir := setupTestWs(t)
 	gf := &cmd.GlobalFlags{Output: "text"}
 
-	_, _, err := run(t, gf, "env", "create", "persist", "--type", "local")
+	_, _, err := run(t, gf, "ws", "new", "persist", "--type", "local")
 	require.NoError(t, err)
 
 	// Verify the state file was actually written to disk.

@@ -101,16 +101,16 @@ lint-rust:  ## Run Rust linter
 ## -- Plugin Management ------------------------------------
 
 install: build  ## Build and install plugin into Zellij
-	$(CLI_BIN) plugin install --force
+	$(CLI_BIN) config plugin install --force
 	@# Remove legacy two-binary files from previous installations
 	@rm -f $(HOME)/.config/zellij/plugins/cc_deck_controller.wasm 2>/dev/null || true
 	@rm -f $(HOME)/.config/zellij/plugins/cc_deck_sidebar.wasm 2>/dev/null || true
 
 uninstall:  ## Remove plugin from Zellij
-	$(CLI_BIN) plugin remove
+	$(CLI_BIN) config plugin remove
 
 status:  ## Show plugin installation status
-	$(CLI_BIN) plugin status
+	$(CLI_BIN) config plugin status
 
 ## -- Image Testing ----------------------------------------
 

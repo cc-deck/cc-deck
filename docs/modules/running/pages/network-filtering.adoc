@@ -91,7 +91,7 @@ When domain groups are specified in the manifest, `cc-deck deploy --compose` gen
 
 The proxy runs in allowlist mode (`FilterDefaultDeny Yes`).
 Only domains that match a whitelist entry are forwarded.
-Blocked requests are logged and can be inspected with `cc-deck domains blocked`.
+Blocked requests are logged and can be inspected with `cc-deck config domains blocked`.
 
 TIP: The session container sets both uppercase (`HTTP_PROXY`, `HTTPS_PROXY`) and lowercase (`http_proxy`, `https_proxy`) variants so that tools written in different languages all respect the proxy.
 
@@ -221,7 +221,7 @@ Use the `cc-deck domains` subcommands to inspect what groups are available and w
 
 [source,bash]
 ----
-cc-deck domains list
+cc-deck config domains list
 ----
 
 .Example output
@@ -247,7 +247,7 @@ The `SOURCE` column shows whether a group is `builtin`, `user` (defined in `doma
 
 [source,bash]
 ----
-cc-deck domains show python
+cc-deck config domains show python
 ----
 
 .Example output
@@ -266,7 +266,7 @@ To create a starter `domains.yaml` with all built-in groups as commented example
 
 [source,bash]
 ----
-cc-deck domains init
+cc-deck config domains init
 ----
 
 This writes `~/.config/cc-deck/domains.yaml` with commented definitions you can uncomment and customize.
@@ -342,7 +342,7 @@ After deploying a session with network filtering, you can inspect which outbound
 
 [source,bash]
 ----
-cc-deck domains blocked my-session
+cc-deck config domains blocked my-session
 ----
 
 .Example output
@@ -358,12 +358,12 @@ Use `--since` to adjust the time window:
 
 [source,bash]
 ----
-cc-deck domains blocked my-session --since 4h
+cc-deck config domains blocked my-session --since 4h
 ----
 
 The command reads the proxy sidecar logs from the `my-session-proxy` container and filters for denied connection entries.
 
-TIP: If a legitimate domain is being blocked, add it with `cc-deck domains add` (see below) or include it in your `domains.yaml` configuration.
+TIP: If a legitimate domain is being blocked, add it with `cc-deck config domains add` (see below) or include it in your `domains.yaml` configuration.
 
 == Live Modifications
 
@@ -374,7 +374,7 @@ These changes take effect immediately after the proxy restarts.
 
 [source,bash]
 ----
-cc-deck domains add my-session registry.example.com
+cc-deck config domains add my-session registry.example.com
 ----
 
 This appends the domain to the proxy whitelist and restarts the Tinyproxy sidecar.
@@ -383,7 +383,7 @@ This appends the domain to the proxy whitelist and restarts the Tinyproxy sideca
 
 [source,bash]
 ----
-cc-deck domains remove my-session registry.example.com
+cc-deck config domains remove my-session registry.example.com
 ----
 
 This removes the domain from the whitelist and restarts the proxy.

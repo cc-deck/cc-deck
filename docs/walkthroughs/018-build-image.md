@@ -208,8 +208,8 @@ head -5 .cc-deck/image/Containerfile
 
 ```bash
 # cc-deck self-install layer
-grep 'cc-deck plugin install' .cc-deck/image/Containerfile
-# Expected: RUN ... cc-deck plugin install --install-zellij --force --skip-backup
+grep 'cc-deck config plugin install' .cc-deck/image/Containerfile
+# Expected: RUN ... cc-deck config plugin install --install-zellij --force --skip-backup
 
 # Claude Code install layer
 grep 'claude.ai/install.sh' .cc-deck/image/Containerfile

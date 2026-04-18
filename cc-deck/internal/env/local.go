@@ -86,7 +86,7 @@ func (e *LocalEnvironment) Attach(_ context.Context) error {
 	// Inside Zellij: cannot attach from within another session.
 	if os.Getenv("ZELLIJ") != "" {
 		fmt.Fprintf(os.Stderr, "Already inside Zellij. Detach first (Ctrl+o d), then run:\n")
-		fmt.Fprintf(os.Stderr, "  cc-deck env attach %s\n", e.name)
+		fmt.Fprintf(os.Stderr, "  cc-deck ws attach %s\n", e.name)
 		return nil
 	}
 

@@ -1,4 +1,4 @@
-package setup
+package build
 
 import (
 	"os"
@@ -133,8 +133,7 @@ func TestScaffoldSSHRoles(t *testing.T) {
 	err := scaffoldSSHRoles(dir)
 	require.NoError(t, err)
 
-	// Verify all 7 roles exist with tasks and defaults
-	expectedRoles := []string{"base", "tools", "zellij", "claude", "cc_deck", "shell_config", "mcp"}
+	expectedRoles := []string{"base", "tools", "zellij", "claude", "cc_deck", "plugins", "shell_config", "mcp"}
 	for _, role := range expectedRoles {
 		tasksMain := filepath.Join(dir, "roles", role, "tasks", "main.yml")
 		assert.FileExists(t, tasksMain, "missing tasks/main.yml for role %s", role)
@@ -176,7 +175,7 @@ func TestInitSetupDir_CreatesManifest(t *testing.T) {
 	require.NoError(t, err)
 
 	// Manifest should exist
-	manifestPath := filepath.Join(setupDir, "cc-deck-setup.yaml")
+	manifestPath := filepath.Join(setupDir, "cc-deck-build.yaml")
 	assert.FileExists(t, manifestPath)
 
 	// Should be valid YAML with version 2
@@ -204,7 +203,7 @@ func TestInitSetupDir_ContainerTarget(t *testing.T) {
 	assert.DirExists(t, filepath.Join(setupDir, "build-context"))
 
 	// Manifest should have uncommented container section
-	content, err := os.ReadFile(filepath.Join(setupDir, "cc-deck-setup.yaml"))
+	content, err := os.ReadFile(filepath.Join(setupDir, "cc-deck-build.yaml"))
 	require.NoError(t, err)
 	lines := string(content)
 	assert.Contains(t, lines, "targets:")
@@ -255,7 +254,7 @@ func TestInitSetupDir_ManifestTargetsSectionCommented(t *testing.T) {
 	err := InitSetupDir(setupDir, dir, false, nil)
 	require.NoError(t, err)
 
-	content, err := os.ReadFile(filepath.Join(setupDir, "cc-deck-setup.yaml"))
+	content, err := os.ReadFile(filepath.Join(setupDir, "cc-deck-build.yaml"))
 	require.NoError(t, err)
 
 	// Without targets flag, targets section should remain commented

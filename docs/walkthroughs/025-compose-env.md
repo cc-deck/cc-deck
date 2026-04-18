@@ -26,7 +26,7 @@ cd ~/cc-deck-compose-test
 ### 1a. Create with default image (bind mount)
 
 ```bash
-ccd env create test-compose --type compose
+ccd ws new test-compose --type compose
 # Expected: WARNING about using default image, then "Environment created (type: compose)"
 
 # Verify .cc-deck/ directory was created
@@ -85,7 +85,7 @@ cat ~/.local/state/cc-deck/state.yaml | grep -A 5 'test-compose'
 ### 1d. Duplicate name rejected (fast-fail)
 
 ```bash
-ccd env create test-compose --type compose
+ccd ws new test-compose --type compose
 # Expected: error "already exists" - fails immediately before creating any resources
 # Verify no second container was started:
 podman ps --filter name=cc-deck-test-compose --format '{{.Names}}' | wc -l
@@ -97,7 +97,7 @@ podman ps --filter name=cc-deck-test-compose --format '{{.Names}}' | wc -l
 ```bash
 mkdir -p /tmp/other-project
 echo "other" > /tmp/other-project/README.md
-ccd env create test-path --type compose --path /tmp/other-project
+ccd ws new test-path --type compose --path /tmp/other-project
 # Expected: "Environment created"
 
 # Verify project dir mounted
@@ -108,14 +108,14 @@ podman exec cc-deck-test-path cat /workspace/README.md
 ls /tmp/other-project/.cc-deck/compose.yaml
 # Expected: file exists
 
-ccd env delete test-path --force
+ccd ws kill test-path --force
 rm -rf /tmp/other-project
 ```
 
 ### 1f. Create with named volume instead of bind mount
 
 ```bash
-ccd env create test-volume --type compose --image fedora:latest --storage named-volume
+ccd ws new test-volume --type compose --image fedora:latest --storage named-volume
 
 # Verify volume exists
 podman volume ls --filter name=cc-deck-test-volume
@@ -125,32 +125,32 @@ podman volume ls --filter name=cc-deck-test-volume
 grep -A 1 'external' .cc-deck/compose.yaml
 # Expected: external: true (volume is pre-created by cc-deck)
 
-ccd env delete test-volume --force
+ccd ws kill test-volume --force
 ```
 
 ### 1g. Create with port mapping
 
 ```bash
-ccd env create test-ports --type compose --image fedora:latest --port 8080:8080
+ccd ws new test-ports --type compose --image fedora:latest --port 8080:8080
 grep 'ports' .cc-deck/compose.yaml
 # Expected: - 8080:8080
-ccd env delete test-ports --force
+ccd ws kill test-ports --force
 ```
 
 ## 2. Stop and Start (US3)
 
 ```bash
 # Stop
-ccd env stop test-compose
+ccd ws stop test-compose
 podman inspect cc-deck-test-compose --format '{{.State.Status}}'
 # Expected: exited
 
 # Verify state updated
-ccd env list
+ccd ws list
 # Expected: test-compose shows "stopped"
 
 # Start
-ccd env start test-compose
+ccd ws start test-compose
 podman inspect cc-deck-test-compose --format '{{.State.Status}}'
 # Expected: running
 
@@ -164,11 +164,11 @@ podman exec cc-deck-test-compose cat /workspace/from-host.txt
 ```bash
 # Simulate missing compose files (e.g., after manual cleanup)
 mv .cc-deck .cc-deck-backup
-ccd env stop test-compose
+ccd ws stop test-compose
 # Expected: falls back to direct podman stop (no chdir error)
 podman inspect cc-deck-test-compose --format '{{.State.Status}}'
 # Expected: exited
-ccd env start test-compose
+ccd ws start test-compose
 # Expected: falls back to direct podman start
 podman inspect cc-deck-test-compose --format '{{.State.Status}}'
 # Expected: running
@@ -179,18 +179,18 @@ mv .cc-deck-backup .cc-deck
 
 ```bash
 # List all environments (compose should appear)
-ccd env list
+ccd ws list
 # Expected: test-compose with type=compose, status=running, storage=host-path
 
 # Filter by type
-ccd env list --type compose
+ccd ws list --type compose
 # Expected: only compose environments
 
 # JSON output
-ccd env list -o json | jq '.[] | select(.type == "compose")'
+ccd ws list -o json | jq '.[] | select(.type == "compose")'
 
 # Detailed status
-ccd env status test-compose
+ccd ws status test-compose
 # Expected: Environment, Type (compose), Status, Storage, Uptime, Attached fields
 ```
 
@@ -200,10 +200,10 @@ ccd env status test-compose
 # Stop container outside cc-deck
 podman stop cc-deck-test-compose
 # List should reconcile
-ccd env list
+ccd ws list
 # Expected: test-compose shows "stopped" (reconciled from podman)
 # Restart for subsequent tests
-ccd env start test-compose
+ccd ws start test-compose
 ```
 
 ## 4. Credentials (US4)
@@ -212,7 +212,7 @@ ccd env start test-compose
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-test-compose
-ccd env create test-creds --type compose --image fedora:latest
+ccd ws new test-creds --type compose --image fedora:latest
 # Verify credential in env file
 cat .cc-deck/env
 # Expected: ANTHROPIC_API_KEY=sk-ant-test-compose
@@ -221,14 +221,14 @@ cat .cc-deck/env
 podman exec cc-deck-test-creds env | grep ANTHROPIC_API_KEY
 # Expected: ANTHROPIC_API_KEY=sk-ant-test-compose
 
-ccd env delete test-creds --force
+ccd ws kill test-creds --force
 unset ANTHROPIC_API_KEY
 ```
 
 ### 4b. Explicit credential
 
 ```bash
-ccd env create test-explicit --type compose --image fedora:latest \
+ccd ws new test-explicit --type compose --image fedora:latest \
   --credential MY_SECRET=super-secret-value
 cat .cc-deck/env | grep MY_SECRET
 # Expected: MY_SECRET=super-secret-value
@@ -236,7 +236,7 @@ cat .cc-deck/env | grep MY_SECRET
 podman exec cc-deck-test-explicit env | grep MY_SECRET
 # Expected: MY_SECRET=super-secret-value
 
-ccd env delete test-explicit --force
+ccd ws kill test-explicit --force
 ```
 
 ### 4c. File-based credential (Vertex ADC) via volume mount
@@ -251,7 +251,7 @@ export ANTHROPIC_VERTEX_PROJECT_ID=my-test-project
 export CLOUD_ML_REGION=us-east5
 export GOOGLE_APPLICATION_CREDENTIALS=/tmp/test-cred-dir/adc.json
 
-ccd env create test-vertex --type compose --image fedora:latest
+ccd ws new test-vertex --type compose --image fedora:latest
 
 # Verify NO .cc-deck/secrets/ directory (files are not copied)
 ls .cc-deck/secrets/ 2>&1
@@ -274,7 +274,7 @@ echo '{"type":"updated"}' > /tmp/test-cred-dir/adc.json
 podman exec cc-deck-test-vertex cat /run/secrets/google-application-credentials
 # Expected: {"type":"updated"} (live file, not a stale copy)
 
-ccd env delete test-vertex --force
+ccd ws kill test-vertex --force
 unset CLAUDE_CODE_USE_VERTEX ANTHROPIC_VERTEX_PROJECT_ID CLOUD_ML_REGION GOOGLE_APPLICATION_CREDENTIALS
 rm -rf /tmp/test-cred-dir
 ```
@@ -286,11 +286,11 @@ export CLAUDE_CODE_USE_VERTEX=1
 export ANTHROPIC_VERTEX_PROJECT_ID=my-project
 export CLOUD_ML_REGION=europe-west1
 export ANTHROPIC_API_KEY=sk-ant-also-included
-ccd env create test-both --type compose --image fedora:latest
+ccd ws new test-both --type compose --image fedora:latest
 cat .cc-deck/env
 # Expected: contains BOTH Vertex vars AND ANTHROPIC_API_KEY
 #           (API key is always included as fallback)
-ccd env delete test-both --force
+ccd ws kill test-both --force
 unset CLAUDE_CODE_USE_VERTEX ANTHROPIC_VERTEX_PROJECT_ID CLOUD_ML_REGION ANTHROPIC_API_KEY
 ```
 
@@ -298,10 +298,10 @@ unset CLAUDE_CODE_USE_VERTEX ANTHROPIC_VERTEX_PROJECT_ID CLOUD_ML_REGION ANTHROP
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-should-be-ignored
-ccd env create test-noauth --type compose --image fedora:latest --auth none
+ccd ws new test-noauth --type compose --image fedora:latest --auth none
 cat .cc-deck/env
 # Expected: empty (no credentials injected)
-ccd env delete test-noauth --force
+ccd ws kill test-noauth --force
 unset ANTHROPIC_API_KEY
 ```
 
@@ -310,7 +310,7 @@ unset ANTHROPIC_API_KEY
 ### 5a. Create with allowed domains
 
 ```bash
-ccd env create test-filter --type compose --image fedora:latest \
+ccd ws new test-filter --type compose --image fedora:latest \
   --allowed-domains anthropic,github
 
 # Verify proxy config files generated
@@ -345,28 +345,28 @@ podman ps --filter name=cc-deck-test-filter-proxy --format '{{.Names}}'
 cat ~/.local/state/cc-deck/state.yaml | grep proxy_name
 # Expected: proxy_name: cc-deck-test-filter-proxy
 
-ccd env delete test-filter --force
+ccd ws kill test-filter --force
 ```
 
 ### 5b. Create without domains (no proxy)
 
 ```bash
-ccd env create test-nofilter --type compose --image fedora:latest
+ccd ws new test-nofilter --type compose --image fedora:latest
 ls .cc-deck/proxy/ 2>/dev/null
 # Expected: No such file or directory (no proxy dir)
 grep 'proxy' .cc-deck/compose.yaml
 # Expected: no matches (no proxy service)
-ccd env delete test-nofilter --force
+ccd ws kill test-nofilter --force
 ```
 
 ### 5c. Domain group expansion with literal domains
 
 ```bash
-ccd env create test-literal --type compose --image fedora:latest \
+ccd ws new test-literal --type compose --image fedora:latest \
   --allowed-domains anthropic,custom.example.com
 cat .cc-deck/proxy/whitelist
 # Expected: patterns for anthropic domains AND custom.example.com
-ccd env delete test-literal --force
+ccd ws kill test-literal --force
 ```
 
 ## 6. Gitignore Handling (US5)
@@ -381,11 +381,11 @@ git init 2>/dev/null
 # Remove .cc-deck/ from .gitignore if present
 grep -v '.cc-deck' .gitignore > .gitignore.tmp 2>/dev/null; mv .gitignore.tmp .gitignore 2>/dev/null || true
 
-ccd env create test-gitignore --type compose --image fedora:latest 2>&1 | grep -i gitignore
+ccd ws new test-gitignore --type compose --image fedora:latest 2>&1 | grep -i gitignore
 # Expected: WARNING: Add '.cc-deck/' to your .gitignore ...
 #           Use --gitignore to add it automatically.
 
-ccd env delete test-gitignore --force
+ccd ws kill test-gitignore --force
 ```
 
 ### 6b. Auto-add with --gitignore
@@ -394,58 +394,58 @@ ccd env delete test-gitignore --force
 # Remove .cc-deck/ from .gitignore if present
 grep -v '.cc-deck' .gitignore > .gitignore.tmp 2>/dev/null; mv .gitignore.tmp .gitignore 2>/dev/null || true
 
-ccd env create test-autogit --type compose --image fedora:latest --gitignore
+ccd ws new test-autogit --type compose --image fedora:latest --gitignore
 cat .gitignore
 # Expected: contains .cc-deck/
 
-ccd env delete test-autogit --force
+ccd ws kill test-autogit --force
 ```
 
 ### 6c. No duplicate when already present
 
 ```bash
 echo ".cc-deck/" >> .gitignore
-ccd env create test-nodup --type compose --image fedora:latest --gitignore
+ccd ws new test-nodup --type compose --image fedora:latest --gitignore
 grep -c '.cc-deck/' .gitignore
 # Expected: 1 (not duplicated)
-ccd env delete test-nodup --force
+ccd ws kill test-nodup --force
 ```
 
 ## 7. Exec and File Transfer (US1)
 
 ```bash
 # Exec command
-ccd env exec test-compose -- ls /workspace
+ccd ws exec test-compose -- ls /workspace
 # Expected: go.mod  src  from-container.txt  from-host.txt
 
-ccd env exec test-compose -- cat /etc/os-release
+ccd ws exec test-compose -- cat /etc/os-release
 # Expected: OS release info
 
 # Push files
 echo "push test" > /tmp/push-me.txt
-ccd env push test-compose /tmp/push-me.txt /workspace/pushed.txt
+ccd ws push test-compose /tmp/push-me.txt /workspace/pushed.txt
 podman exec cc-deck-test-compose cat /workspace/pushed.txt
 # Expected: push test
 
 # Pull files
 podman exec cc-deck-test-compose bash -c 'echo "pull test" > /workspace/pull-me.txt'
-ccd env pull test-compose /workspace/pull-me.txt /tmp/pulled.txt
+ccd ws pull test-compose /workspace/pull-me.txt /tmp/pulled.txt
 cat /tmp/pulled.txt
 # Expected: pull test
 
 # Harvest not supported
-ccd env harvest test-compose
+ccd ws harvest test-compose
 # Expected: error "compose environments do not support harvest"
 ```
 
 ## 8. Attach to Zellij Session (US1)
 
-Attach requires an image with Zellij and the cc-deck plugin installed
+Attach requires an image with Zellij and the cc-deck config plugin installed
 (e.g., the demo image).
 
 ```bash
 # test-compose uses the demo image, so attach works
-ccd env attach test-compose
+ccd ws attach test-compose
 # Expected:
 #   1. Checks for existing Zellij session inside container
 #   2. If none: runs 'zellij -n cc-deck' (creates session with cc-deck layout)
@@ -455,18 +455,18 @@ ccd env attach test-compose
 # Detach with: Ctrl+o d
 
 # Verify LastAttached timestamp updated
-ccd env status test-compose
+ccd ws status test-compose
 # Expected: Attached field shows recent timestamp
 ```
 
 ### 8a. Auto-start on attach
 
 ```bash
-ccd env stop test-compose
-ccd env list
+ccd ws stop test-compose
+ccd ws list
 # Expected: test-compose shows "stopped"
 
-ccd env attach test-compose
+ccd ws attach test-compose
 # Expected: container auto-starts first, then attaches to Zellij
 # Detach with: Ctrl+o d
 ```
@@ -475,9 +475,9 @@ ccd env attach test-compose
 
 ```bash
 # If you are already inside a Zellij session on the host:
-ccd env attach test-compose
+ccd ws attach test-compose
 # Expected: "Already inside Zellij. Detach first (Ctrl+o d), then run:
-#            cc-deck env attach test-compose"
+#            cc-deck ws attach test-compose"
 ```
 
 ## 9. Delete with Cleanup (US3)
@@ -485,14 +485,14 @@ ccd env attach test-compose
 ### 9a. Delete refuses running env
 
 ```bash
-ccd env delete test-compose
+ccd ws kill test-compose
 # Expected: error "environment is running; use --force to delete"
 ```
 
 ### 9b. Delete with --force
 
 ```bash
-ccd env delete test-compose --force
+ccd ws kill test-compose --force
 # Expected: "Environment deleted"
 
 # Verify container removed
@@ -504,7 +504,7 @@ ls ~/cc-deck-compose-test/.cc-deck/ 2>&1
 # Expected: No such file or directory
 
 # Verify instance removed from state
-ccd env list | grep test-compose
+ccd ws list | grep test-compose
 # Expected: no match
 ```
 
@@ -516,7 +516,7 @@ mkdir -p ~/cc-deck-compose-test/.cc-deck
 echo "stale" > ~/cc-deck-compose-test/.cc-deck/old-file.txt
 
 cd ~/cc-deck-compose-test
-ccd env create test-regen --type compose --image fedora:latest 2>&1 | grep -i regenerat
+ccd ws new test-regen --type compose --image fedora:latest 2>&1 | grep -i regenerat
 # Expected: WARNING: regenerating compose files in .../cc-deck-compose-test/.cc-deck
 
 # Verify fresh compose.yaml was generated
@@ -526,19 +526,19 @@ grep 'session:' .cc-deck/compose.yaml
 # Old stale file may still be present (MkdirAll preserves existing dir)
 # but compose.yaml is regenerated
 
-ccd env delete test-regen --force
+ccd ws kill test-regen --force
 ```
 
 ## 11. Runtime Detection (FR-015)
 
 ```bash
 # Verify podman-compose is detected
-ccd env create test-runtime --type compose --image fedora:latest
+ccd ws new test-runtime --type compose --image fedora:latest
 # Expected: succeeds (runtime detected)
-ccd env delete test-runtime --force
+ccd ws kill test-runtime --force
 
 # Simulate no compose runtime
-PATH=/usr/bin ccd env create test-nocompose --type compose 2>&1
+PATH=/usr/bin ccd ws new test-nocompose --type compose 2>&1
 # Expected: error "compose runtime not available" or "compose runtime not found"
 ```
 
@@ -547,14 +547,14 @@ PATH=/usr/bin ccd env create test-nocompose --type compose 2>&1
 ### Invalid name
 
 ```bash
-ccd env create "INVALID!" --type compose
+ccd ws new "INVALID!" --type compose
 # Expected: error about invalid environment name
 ```
 
 ### Non-existent path
 
 ```bash
-ccd env create test-badpath --type compose --path /nonexistent/path
+ccd ws new test-badpath --type compose --path /nonexistent/path
 # Expected: error creating .cc-deck directory
 ```
 
@@ -563,7 +563,7 @@ ccd env create test-badpath --type compose --path /nonexistent/path
 ```bash
 # Remove all test environments
 for name in test-compose test-creds test-explicit test-vertex test-both test-noauth test-filter test-nofilter test-literal test-gitignore test-autogit test-nodup test-regen test-runtime; do
-  ccd env delete "$name" --force 2>/dev/null
+  ccd ws kill "$name" --force 2>/dev/null
 done
 
 # Remove test project
