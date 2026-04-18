@@ -4,7 +4,10 @@
     "superpowers": true,
     "deep-review": true,
     "teams": true,
-    "worktrees": false
+    "worktrees": true
+  },
+  "worktrees_config": {
+    "base_path": ".."
   },
   "external_tools": {
     "enabled": true,
