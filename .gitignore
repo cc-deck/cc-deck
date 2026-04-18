@@ -37,4 +37,5 @@ dist/
 # Claude Code local settings (any level)
 **/.claude/
 # spex: generated/local files
-**/.specify/
+**/.specify/**
+!**/.specify/feature.json
