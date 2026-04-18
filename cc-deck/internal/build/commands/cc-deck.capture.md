@@ -16,27 +16,53 @@ All setup artifacts live in `.cc-deck/setup/` relative to the project root (the 
 
 All file references in this command (manifest, config files) are relative to the setup directory unless stated otherwise.
 
-## Outline
+## Interaction Model
 
-Scan local repositories and host configuration, then update `<setup-dir>/cc-deck-build.yaml` with everything needed to set up a Claude Code environment (container image or SSH remote).
+This command runs as a **step-by-step wizard**. There are 9 steps total.
 
-The command runs through sections in order. Each section presents findings and lets the user accept, edit, or skip.
+**Rules:**
+- Present ONE step at a time
+- Show a progress header: `## Step N/9: Title`
+- After presenting each step's findings, use `AskUserQuestion` to collect the user's decision
+- Never present the next step until the user has responded to the current one
+- Use `AskUserQuestion` for ALL user interactions (never ask inline text questions)
+
+**AskUserQuestion patterns:**
+
+For **short choice lists** (2-4 options), use `AskUserQuestion` directly with the options.
+
+For **long toggle lists** (tools, configs, plugins, MCP servers with more than 4 items), first show the detected items as a text list, then use `AskUserQuestion` with these standard options:
+
+```
+options:
+  - label: "Accept all"
+    description: "Include all items shown above"
+  - label: "Exclude some"
+    description: "Tell me which items to remove from the list"
+  - label: "None"
+    description: "Skip this section entirely"
+```
+
+If the user selects "Exclude some", ask in a follow-up text message which items to remove (by number or name). If the list has 4 or fewer items, use `AskUserQuestion` with `multiSelect: true` directly instead of the accept/exclude pattern.
 
 ---
 
-## Part 1: Repository Analysis
+## Preparation (silent)
 
-### Step 1.1: Identify repositories
+Before presenting Step 1, silently perform all analysis:
+- Identify repositories (from user input or current directory scan)
+- Analyze build files, CI configs, tool version files, container files
+- Deduplicate and resolve version conflicts
+- Detect network domain groups
+- Detect tool configuration files
 
-If the user provided paths in the input, use those. Otherwise look for git repositories in the current directory and its immediate children. If none found, ask:
+Then present Step 1 with the results.
 
-"Which repositories should I analyze? Provide paths to local checkouts (one per line or comma-separated)."
+---
 
-Validate that each path exists and contains source code.
+## Step 1/9: Detected Tools
 
-### Step 1.2: Analyze each repository
-
-For each repository, examine these files (if present):
+Analyze each repository for these files (if present):
 
 **Build files**: `go.mod`, `package.json`, `Cargo.toml`, `pyproject.toml`, `Gemfile`, `pom.xml`, `build.gradle`, `build.gradle.kts`, `settings.gradle`, `Makefile`, `CMakeLists.txt`
 
@@ -54,30 +80,108 @@ For each file found, extract:
 - System-level dependencies (compilers, libraries)
 - Runtime requirements
 
-### Step 1.3: Deduplicate and resolve conflicts
+Merge findings across all repositories, deduplicate, resolve version conflicts (pick highest compatible version).
 
-- Merge findings across all repositories
-- Deduplicate identical tools
-- For version conflicts (e.g., Go 1.22 vs Go 1.23), suggest the highest compatible version
-- Group tools by category (compilers, package managers, system tools)
-
-### Step 1.4: Present findings for review
-
-Show the user a summary table:
+**Present** the detected tools as a numbered text list:
 
 ```
-Tool                  | Version    | Source
----------------------|------------|------------------
-Go compiler          | >= 1.23    | repo1/go.mod
-Python               | >= 3.12    | repo2/pyproject.toml
-protoc               | >= 25.0    | repo1/.github/workflows/ci.yml
+## Step 1/9: Detected Tools
+
+Scanned N repositories.
+
+  1. Rust stable (edition 2021)         (from repo1/Cargo.toml)
+  2. wasm32-wasip1 target               (from repo1/Makefile)
+  3. Go >= 1.25                         (from repo2/go.mod)
+  4. Node.js >= 18.17.1                 (from repo3/package.json)
+  5. npm (bundled with Node)            (from repo3/package.json)
+  6. Make (system)                      (from multiple Makefiles)
 ```
 
-Ask: "Which tools should I add to the manifest? You can accept all, reject specific ones, or modify versions."
+Then use `AskUserQuestion`:
 
-### Step 1.5: Detect network domain groups
+```json
+{
+  "questions": [{
+    "question": "Which detected tools should be added to the manifest?",
+    "header": "Tools",
+    "multiSelect": false,
+    "options": [
+      {"label": "Accept all", "description": "Include all 6 detected tools as shown"},
+      {"label": "Exclude some", "description": "I'll tell you which tools to remove"},
+      {"label": "None", "description": "Don't add any tools to the manifest"}
+    ]
+  }]
+}
+```
 
-Based on the ecosystem files found in Step 1.2, determine which network domain groups to add to the manifest's `network.allowed_domains` section:
+If user selects "Exclude some", ask which items to remove by number or name, then confirm.
+
+**STOP. Wait for user response before proceeding.**
+
+---
+
+## Step 2/9: cc-deck Companion Tools
+
+Present optional tools from the cc-deck ecosystem and community that enhance the development environment. These are not detected from repositories but offered as curated recommendations.
+
+**Tool catalog** (update this list as the ecosystem grows):
+
+| Tool | Source | Description |
+|------|--------|-------------|
+| cc-session | `github.com/cc-deck/cc-session` | Terminal session recorder and replayer for Claude Code sessions |
+| cc-setup | `github.com/cc-deck/cc-setup` | Environment bootstrapper, manages MCP servers and credentials |
+| abtop | `github.com/graykode/abtop` | AI-powered terminal system monitor with natural language queries |
+
+**Present** the catalog as text, then use `AskUserQuestion` with `multiSelect: true`:
+
+```
+## Step 2/9: cc-deck Companion Tools
+
+Optional tools that integrate with your cc-deck environment:
+```
+
+```json
+{
+  "questions": [{
+    "question": "Which companion tools should be included?",
+    "header": "Companion",
+    "multiSelect": true,
+    "options": [
+      {"label": "cc-session", "description": "Terminal session recorder/replayer for Claude Code (github.com/cc-deck/cc-session)"},
+      {"label": "cc-setup", "description": "Environment bootstrapper, manages MCP servers and credentials (github.com/cc-deck/cc-setup)"},
+      {"label": "abtop", "description": "AI-powered terminal system monitor with natural language queries (github.com/graykode/abtop)"}
+    ]
+  }]
+}
+```
+
+**STOP. Wait for user response before proceeding.**
+
+**Action**: For each selected companion tool, add it to the manifest's `github_tools` section with the install metadata:
+
+```yaml
+github_tools:
+  - name: cc-session
+    repo: cc-deck/cc-session
+    asset_pattern: "cc-session-{arch}-unknown-linux-gnu.tar.xz"
+    install_path: /usr/local/bin/cc-session
+  - name: cc-setup
+    repo: cc-deck/cc-setup
+    asset_pattern: "cc-setup-{arch}-unknown-linux-gnu.tar.xz"
+    install_path: /usr/local/bin/cc-setup
+  - name: abtop
+    repo: graykode/abtop
+    asset_pattern: "abtop-{arch}-unknown-linux-gnu.tar.gz"
+    install_path: /usr/local/bin/abtop
+```
+
+The `{arch}` placeholder is resolved during build to the target architecture (e.g., `x86_64`, `aarch64`).
+
+---
+
+## Step 3/9: Network Domain Groups
+
+Based on the ecosystem files found in Step 1, determine which network domain groups to add to the manifest's `network.allowed_domains` section:
 
 | Ecosystem file | Domain group |
 |----------------|-------------|
@@ -88,22 +192,37 @@ Based on the ecosystem files found in Step 1.2, determine which network domain g
 
 Always include `github` if a `.git` directory or `.github/` directory is found.
 
-Present the detected domain groups to the user alongside the tool findings:
+**Present** the detected groups as text, then use `AskUserQuestion`.
 
+Since domain groups are typically 4 or fewer, use `multiSelect: true` directly:
+
+```json
+{
+  "questions": [{
+    "question": "Which network domain groups should be allowed in the container?",
+    "header": "Domains",
+    "multiSelect": true,
+    "options": [
+      {"label": "golang", "description": "Go module proxy, sum database (from go.mod)"},
+      {"label": "rust", "description": "crates.io, docs.rs (from Cargo.toml)"},
+      {"label": "nodejs", "description": "npm registry (from package.json)"},
+      {"label": "github", "description": "GitHub API, raw content (from .git/)"}
+    ]
+  }]
+}
 ```
-Network domain groups detected:
-  golang   (from go.mod)
-  python   (from pyproject.toml)
-  github   (from .github/)
-```
 
-Ask: "Should I add these domain groups to the manifest's network.allowed_domains?"
+If more than 4 groups are detected, fall back to the accept/exclude pattern.
 
-### Step 1.6: Detect tool configuration files
+**STOP. Wait for user response before proceeding.**
 
-For each tool accepted in Step 1.4 (and any tools already in the manifest), check whether a corresponding config file exists locally under `~/.config/`.
+---
 
-**Skip list**: `zellij` (handled separately in Section B), `git` (global gitconfig is not XDG by default).
+## Step 4/9: Tool Configuration Files
+
+For each tool accepted in Steps 1-2 (and any tools already in the manifest), check whether a corresponding config file exists locally under `~/.config/`.
+
+**Skip list**: `zellij` (handled separately in Step 6), `git` (global gitconfig is not XDG by default).
 
 **Name aliases** (tool binary name differs from config directory):
 
@@ -123,21 +242,23 @@ For all other tools, the config directory name matches the tool name.
 
 Stop at the first match. If multiple files are found in step 4, prefer `config.*` over others, then pick the largest file. Record the full path of the discovered config file.
 
-**Present** the findings:
+**Present** the findings as a numbered text list showing which tools have configs and which don't:
 
 ```
-Tool configuration files detected:
-  [x] starship  ~/.config/starship.toml (42 lines)
-  [x] helix     ~/.config/helix/config.toml (78 lines)
-  [x] k9s       ~/.config/k9s/config.yaml (15 lines)
-  [ ] ripgrep   (no config found)
+## Step 4/9: Tool Configuration Files
 
-Include selected tool configs? [y/edit/skip]
+  1. starship   ~/.config/starship.toml (42 lines)
+  2. helix      ~/.config/helix/config.toml (78 lines)
+  3. k9s        ~/.config/k9s/config.yaml (15 lines)
+  4. ripgrep    (no config found)
+  5. bat        (no config found)
 ```
 
-Pre-select all tools that have a config file. Let the user toggle selections.
+Then use `AskUserQuestion`. If 4 or fewer tools have configs, use `multiSelect: true` with only the tools that have configs. If more than 4, use the accept/exclude pattern.
 
-**Action**: For each accepted tool config:
+**STOP. Wait for user response before proceeding.**
+
+**Action** (after user confirms): For each accepted tool config:
 1. Copy the config file to the setup directory with a descriptive name (e.g., `starship.toml`, `helix-config.toml`)
 2. Add an entry to `settings.tool_configs` in the manifest, always including `target` with the path relative to `~/.config/` on the target machine:
 
@@ -156,29 +277,32 @@ The `source` field is relative to the setup directory. The `target` field is rel
 
 ---
 
-## Part 2: Host Configuration
+## Step 5/9: Shell Configuration
 
-### Section A: Shell Configuration
+**Step 4a: Ask which shell to use**
 
-**Step A.1: Ask which shell to use**
+Use `AskUserQuestion`:
 
+```json
+{
+  "questions": [{
+    "question": "Which shell should the container use?",
+    "header": "Shell",
+    "multiSelect": false,
+    "options": [
+      {"label": "zsh (Recommended)", "description": "Includes starship prompt, fzf, zoxide out of the box"},
+      {"label": "bash", "description": "Standard bash shell"},
+      {"label": "Base image default", "description": "Keep whatever the base image provides (zsh)"}
+    ]
+  }]
+}
 ```
-Which shell should the container use?
-  1. zsh (default, includes starship prompt, fzf, zoxide)
-  2. bash
-  3. Keep base image default (zsh)
-```
 
-Record the choice. This determines:
-- Which startup file to analyze (`.zshrc` or `.bashrc`)
-- The `default_shell` setting in Zellij's `config.kdl`
-- Whether to set `chsh` in the Containerfile
+**STOP. Wait for user response.**
 
-**Step A.2: Analyze the shell config file**
+**Step 4b: Analyze and present curated config**
 
-Based on the chosen shell, read the corresponding config file:
-- **zsh**: `~/.zshrc`
-- **bash**: `~/.bashrc`
+Based on the chosen shell, read the corresponding config file (`~/.zshrc` or `~/.bashrc`).
 
 **Curate a container-ready config**: Generate a new startup file for the container by analyzing the local one. The base image already provides starship, zoxide, fzf, bat, lsd, git-delta (for zsh), so do not duplicate those.
 
@@ -200,44 +324,53 @@ Based on the chosen shell, read the corresponding config file:
 - Desktop app integrations: iTerm2 shell integration, VS Code shell integration
 - Duplicate of base image defaults (for zsh): starship init, zoxide init, fzf source, bat/lsd aliases
 
-**Present**:
+**Present** the curated config as text:
+
 ```
-Zsh Configuration:
-  Analyzed: ~/.zshrc (85 lines)
+## Step 5/9: Shell Configuration
 
-  Proposed curated .zshrc for container:
-  ---
-  # Custom aliases
-  alias k='kubectl'
-  alias kx='kubectx'
-  alias tf='terraform'
+Analyzed: ~/.zshrc (85 lines)
 
-  # Environment
-  export EDITOR="hx"
-  export GOPATH="$HOME/go"
-  export PATH="$HOME/go/bin:$PATH"
+Proposed curated .zshrc for container:
+---
+# Custom aliases
+alias k='kubectl'
+alias kx='kubectx'
 
-  # Git aliases
-  alias gs='git status'
-  alias gd='git diff'
+# Environment
+export EDITOR="hx"
+export GOPATH="$HOME/go"
+export PATH="$HOME/go/bin:$PATH"
 
-  # Custom functions
-  mkcd() { mkdir -p "$1" && cd "$1" }
-  ---
+# Git aliases
+alias gs='git status'
+---
 
-  Stripped (macOS/local-specific):
-    - 3 Homebrew path entries
-    - 2 pbcopy/pbpaste aliases
-    - 1 iTerm2 shell integration block
-    - 5 lines already in base image .zshrc
-
-  Accept proposed .zshrc? [y/edit/skip]
-    y    = use the proposed curated .zshrc
-    edit = open for manual editing before saving
-    skip = don't include custom zsh config
+Stripped (macOS/local-specific):
+  - 3 Homebrew path entries
+  - 2 pbcopy/pbpaste aliases
+  - 1 iTerm2 shell integration block
+  - 5 lines already in base image .zshrc
 ```
 
-Let the user review and edit before accepting. If they choose "edit", show the content and let them modify it.
+Then use `AskUserQuestion`:
+
+```json
+{
+  "questions": [{
+    "question": "Accept the proposed shell configuration?",
+    "header": "Shell RC",
+    "multiSelect": false,
+    "options": [
+      {"label": "Accept", "description": "Use the curated shell config as shown above"},
+      {"label": "Edit", "description": "I'll make changes to the proposed config"},
+      {"label": "Skip", "description": "Don't include custom shell configuration"}
+    ]
+  }]
+}
+```
+
+**STOP. Wait for user response before proceeding.**
 
 **Action**: Write the curated config to the build directory and update manifest:
 
@@ -270,7 +403,7 @@ The Zellij `config.kdl` `default_shell` is set to match the chosen shell.
 
 ---
 
-### Section B: Zellij Configuration
+## Step 6/9: Zellij Configuration
 
 **Scan**: Check `~/.config/zellij/` for:
 - `config.kdl` (main config with keybindings, theme, etc.)
@@ -284,18 +417,29 @@ The Zellij `config.kdl` `default_shell` is set to match the chosen shell.
 - `layouts/cc-deck-clean.kdl`
 - `layouts/cc-deck-personal.kdl`
 
-**Present**:
-```
-Zellij Configuration:
-  Found: ~/.config/zellij/config.kdl (keybindings, options, theme)
-  Found: ~/.config/zellij/themes/catppuccin.kdl
+**Present** findings as text, then use `AskUserQuestion` with `multiSelect: true` (typically 2-4 items):
 
-  Excluded (managed by cc-deck):
-    plugins/cc_deck.wasm, layouts/cc-deck*.kdl
-
-  Include config.kdl? [y/n]
-  Include themes? [y/n]
 ```
+## Step 6/9: Zellij Configuration
+
+  Excluded (managed by cc-deck): plugins/cc_deck.wasm, layouts/cc-deck*.kdl
+```
+
+```json
+{
+  "questions": [{
+    "question": "Which Zellij config files should be included?",
+    "header": "Zellij",
+    "multiSelect": true,
+    "options": [
+      {"label": "config.kdl", "description": "Main config: keybindings, options, theme (570 lines)"},
+      {"label": "themes/claude-dark.kdl", "description": "Custom theme file"}
+    ]
+  }]
+}
+```
+
+**STOP. Wait for user response before proceeding.**
 
 **Action**: Copy selected files to the build directory. If the user's `config.kdl` does not contain `default_shell`, append `default_shell "zsh"` to ensure Zellij panes start with zsh (required for starship prompt and shell integrations).
 
@@ -307,22 +451,30 @@ settings:
 
 ---
 
-### Section C: Claude Configuration
+## Step 7/9: Claude Configuration
 
 **Scan** `~/.claude/` for:
 - `CLAUDE.md` (global user instructions)
 - `settings.json` (user preferences, hooks)
 - `todos/` directory (persistent todos)
 
-**Present**:
-```
-Claude Configuration:
-  Found: ~/.claude/CLAUDE.md (180 lines)
-  Found: ~/.claude/settings.json (model preferences, hooks, permissions)
+Use `AskUserQuestion` with `multiSelect: true`:
 
-  Include CLAUDE.md? [y/n]
-  Include settings.json? [y/n] (will merge with cc-deck hooks, not overwrite)
+```json
+{
+  "questions": [{
+    "question": "Which Claude configuration files should be included?",
+    "header": "Claude",
+    "multiSelect": true,
+    "options": [
+      {"label": "CLAUDE.md", "description": "Global user instructions (180 lines)"},
+      {"label": "settings.json", "description": "Model preferences, hooks, permissions (will merge with cc-deck hooks, not overwrite)"}
+    ]
+  }]
+}
 ```
+
+**STOP. Wait for user response before proceeding.**
 
 **Action**: Copy selected files and update manifest:
 ```yaml
@@ -335,7 +487,7 @@ For `settings.json`, extract only portable preferences (model, theme, permission
 
 ---
 
-### Section D: Claude Code Plugins
+## Step 8/9: Claude Code Plugins
 
 **Scan**: Discover installed plugins and their marketplace sources:
 1. Run `claude plugins list` to get all installed plugins
@@ -347,19 +499,50 @@ For each installed plugin, determine the marketplace source type:
 - **GitHub-based marketplace** (custom GitHub repo): record `source: "github:<owner>/<repo>"` and `marketplace: <marketplace-name>`
 - **Directory-based marketplace** (local development path): record `source: directory`
 
-**Present**:
-```
-Claude Code Plugins:
-  [x] sdd (marketplace, official)
-  [x] cc-rosa (github:cc-deck/cc-rosa-rhoai, marketplace: cc-rosa-dev-marketplace)
-  [ ] prose (directory, local dev - cannot install remotely)
-  [x] copyedit (github:org/cc-copyedit, marketplace: cc-rhuss-marketplace)
+**Present** as a categorized text list:
 
-  Toggle with numbers, 'a' for all, 'n' for none, Enter to confirm:
-  Note: directory-based plugins cannot be installed on remote targets.
+```
+## Step 8/9: Claude Code Plugins
+
+  Marketplace plugins:
+    1. superpowers (official)
+    2. gopls-lsp (official)
+    3. rust-analyzer-lsp (official)
+
+  GitHub plugins:
+    4. copyedit (github:org/cc-copyedit)
+    5. cc-rosa (github:cc-deck/cc-rosa-rhoai)
+
+  Local plugins (cannot install remotely):
+    6. prose (directory, local dev)
+    7. blog (directory, local dev)
+
+  Disabled:
+    8. hugo (directory)
+    9. playwright (marketplace)
 ```
 
-Show all discovered plugins with checkboxes. Pre-select all that are currently active. Mark directory-based plugins with a note that they will be skipped on remote targets.
+Then use `AskUserQuestion`:
+
+```json
+{
+  "questions": [{
+    "question": "Which Claude Code plugins should be included in the manifest?",
+    "header": "Plugins",
+    "multiSelect": false,
+    "options": [
+      {"label": "All active", "description": "Include all currently enabled plugins (items 1-7)"},
+      {"label": "Marketplace only", "description": "Only include marketplace and GitHub plugins (skip local directory plugins)"},
+      {"label": "Customize", "description": "I'll tell you exactly which plugins to include or exclude"},
+      {"label": "None", "description": "Don't include any plugins"}
+    ]
+  }]
+}
+```
+
+If user selects "Customize", ask which items to include/exclude by number or name.
+
+**STOP. Wait for user response before proceeding.**
 
 **Action**: Update the manifest plugins section:
 ```yaml
@@ -378,27 +561,49 @@ Directory-based plugins are included in the manifest with `source: directory` so
 
 ---
 
-### Section E: MCP Servers
+## Step 9/9: MCP Servers
 
 **Scan** MCP configuration from multiple sources:
 1. `~/.config/cc-setup/mcp.json` (cc-setup cached MCP configs)
 2. `~/.claude/settings.json` (Claude Code MCP settings under `mcpServers`)
 3. Project-level `.claude/settings.json` if present
 
-**Present**:
+**Present** as a categorized text list:
+
 ```
-MCP Servers:
-  From cc-setup cache (~/.config/cc-setup/mcp.json):
-    [x] github-mcp (ghcr.io/modelcontextprotocol/github-mcp:latest, sse, port 8000)
-    [ ] filesystem-mcp (stdio)
-    [x] postgres-mcp (ghcr.io/org/postgres-mcp:latest, sse, port 9000)
+## Step 9/9: MCP Servers
+
+  From cc-setup cache:
+    1. github-mcp (container, ghcr.io/..., sse, port 8000)
+    2. filesystem-mcp (stdio)
 
   From Claude settings:
-    [x] playwright (npx @anthropic-ai/mcp-playwright)
-    [ ] memory (npx @anthropic-ai/mcp-memory)
-
-  Toggle with numbers, 'a' for all, 'n' for none, Enter to confirm:
+    3. playwright (npx @playwright/mcp@latest, stdio)
+    4. readwise (http, mcp-readwise.int-tichny.org)
+    5. google-private (http, mcp-google-private.int-tichny.org)
+    6. slack-redhat (sse, mcp-slack.int-tichny.org)
 ```
+
+Then use `AskUserQuestion`:
+
+```json
+{
+  "questions": [{
+    "question": "Which MCP servers should be included?",
+    "header": "MCP",
+    "multiSelect": false,
+    "options": [
+      {"label": "Accept all", "description": "Include all 6 MCP servers shown above"},
+      {"label": "Exclude some", "description": "I'll tell you which MCP servers to remove"},
+      {"label": "None", "description": "Don't include any MCP servers"}
+    ]
+  }]
+}
+```
+
+If user selects "Exclude some", ask which items to remove by number or name.
+
+**STOP. Wait for user response before proceeding.**
 
 **Action**: For selected MCP servers:
 
@@ -430,25 +635,43 @@ MCP Servers:
 
 ---
 
-## Part 3: Summary and Manifest Update
+## Summary and Manifest Update
 
-### Step 3.1: Show summary
+After all 9 steps are complete, show a final text summary:
 
 ```
-Capture summary:
+## Capture Complete
 
-  Tools:    Rust stable >= 1.80, wasm32-wasip1 target (from cc-session/Cargo.toml)
-  Network:  rust, github
-  Shell:    zsh (42 custom lines)
-  Zellij:   config.kdl + themes/catppuccin.kdl
-  Claude:   CLAUDE.md + settings (merged)
-  Plugins:  sdd, cc-rosa, copyedit (3 selected)
-  MCP:      github-mcp, playwright (2 selected)
-
-Write to manifest? [y/n/edit]
+  Tools:       Rust stable, wasm32-wasip1, Go >= 1.25, Make (4 selected)
+  Network:     golang, rust, github (3 groups)
+  Tool configs: starship, helix (2 selected)
+  Shell:       zsh (42 custom lines)
+  Zellij:      config.kdl + themes/claude-dark.kdl
+  Claude:      CLAUDE.md + settings (merged)
+  Plugins:     superpowers, gopls-lsp, copyedit (3 selected)
+  MCP:         playwright, readwise (2 selected)
 ```
 
-### Step 3.2: Write files and update manifest
+Then use `AskUserQuestion`:
+
+```json
+{
+  "questions": [{
+    "question": "Write these selections to the manifest?",
+    "header": "Confirm",
+    "multiSelect": false,
+    "options": [
+      {"label": "Write manifest", "description": "Save all selections to cc-deck-build.yaml and copy config files"},
+      {"label": "Go back", "description": "Review or change selections for a specific step"},
+      {"label": "Cancel", "description": "Discard all selections without writing"}
+    ]
+  }]
+}
+```
+
+**STOP. Wait for user confirmation.**
+
+Then perform the write:
 
 1. Update `tools` section with accepted tool entries (as free-form text)
 2. Update `sources` section with repository provenance (URL, ref, path, detected_tools, detected_from)
@@ -459,7 +682,9 @@ Write to manifest? [y/n/edit]
 7. Copy selected config files to the build directory
 8. Report what was written
 
-### Key Rules
+---
+
+## Key Rules
 
 - Never modify tools or settings the user explicitly rejected
 - Keep tool descriptions human-readable (e.g., "Rust stable >= 1.80", not "rustc-1.80.0")
@@ -470,5 +695,5 @@ Write to manifest? [y/n/edit]
 - Exclude cc-deck managed files from Zellij config (layouts, plugin)
 - For MCP auth, only store env var NAMES, never actual credentials
 - Show file sizes and line counts to help users decide what to include
-- If a file or directory does not exist, silently skip that section (do not error)
+- If a file or directory does not exist, silently skip that step (do not error, adjust step count accordingly)
 - Re-running this command should show current selections and allow modifications
