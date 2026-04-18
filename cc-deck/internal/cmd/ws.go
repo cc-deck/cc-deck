@@ -21,15 +21,15 @@ import (
 	sshPkg "github.com/cc-deck/cc-deck/internal/ssh"
 )
 
-// NewEnvCmd creates the env parent command with all subcommands.
-func NewEnvCmd(gf *GlobalFlags) *cobra.Command {
-	envCmd := &cobra.Command{
-		Use:   "env",
-		Short: "Manage environments",
-		Long: `Environments are isolated workspaces where Claude Code sessions run.
-Each environment has its own filesystem, tools, and configuration.
+func NewWsCmd(gf *GlobalFlags) *cobra.Command {
+	wsCmd := &cobra.Command{
+		Use:     "ws",
+		Aliases: []string{"workspace"},
+		Short:   "Manage workspaces",
+		Long: `Workspaces are isolated environments where Claude Code sessions run.
+Each workspace has its own filesystem, tools, and configuration.
 
-Use --type to select the runtime backend when creating an environment:
+Use --type to select the runtime backend when creating a workspace:
 
   local       Zellij session on the host machine (default)
   container   Single container managed by podman
@@ -38,11 +38,11 @@ Use --type to select the runtime backend when creating an environment:
   k8s-deploy  Persistent Kubernetes environment with StatefulSet
   k8s-sandbox Ephemeral Kubernetes pod (planned)
 
-Most commands accept an environment name, or auto-detect it from
+Most commands accept a workspace name, or auto-detect it from
 a .cc-deck/environment.yaml file in the current project.`,
 	}
 
-	envCmd.AddGroup(
+	wsCmd.AddGroup(
 		&cobra.Group{ID: "lifecycle", Title: "Lifecycle:"},
 		&cobra.Group{ID: "info", Title: "Info:"},
 		&cobra.Group{ID: "data", Title: "Data Transfer:"},
@@ -50,41 +50,41 @@ a .cc-deck/environment.yaml file in the current project.`,
 	)
 
 	// Lifecycle: create → attach → start → stop → delete
-	addToGroup(envCmd, "lifecycle",
-		newEnvCreateCmd(gf),
-		newEnvAttachCmd(gf),
-		newEnvStartCmd(gf),
-		newEnvStopCmd(gf),
-		newEnvDeleteCmd(gf),
-		newEnvRefreshCredsCmd(gf),
+	addToGroup(wsCmd, "lifecycle",
+		newWsNewCmd(gf),
+		newWsAttachCmd(gf),
+		newWsStartCmd(gf),
+		newWsStopCmd(gf),
+		newWsKillCmd(gf),
+		newWsRefreshCredsCmd(gf),
 	)
 
 	// Info
-	addToGroup(envCmd, "info",
-		newEnvListCmd(gf),
-		newEnvStatusCmd(gf),
-		newEnvLogsCmd(gf),
+	addToGroup(wsCmd, "info",
+		newWsListCmd(gf),
+		newWsStatusCmd(gf),
+		newWsLogsCmd(gf),
 	)
 
 	// Data transfer
-	addToGroup(envCmd, "data",
-		newEnvExecCmd(gf),
-		newEnvPushCmd(gf),
-		newEnvPullCmd(gf),
-		newEnvHarvestCmd(gf),
+	addToGroup(wsCmd, "data",
+		newWsExecCmd(gf),
+		newWsPushCmd(gf),
+		newWsPullCmd(gf),
+		newWsHarvestCmd(gf),
 	)
 
 	// Maintenance
-	addToGroup(envCmd, "maintenance",
-		newEnvPruneCmd(),
+	addToGroup(wsCmd, "maintenance",
+		newWsPruneCmd(),
 	)
 
-	return envCmd
+	return wsCmd
 }
 
 // --- create ---
 
-type createFlags struct {
+type newFlags struct {
 	envType        string
 	image          string
 	ports          []string
@@ -129,14 +129,14 @@ type createFlags struct {
 	branches []string
 }
 
-func newEnvCreateCmd(gf *GlobalFlags) *cobra.Command {
-	var cf createFlags
+func newWsNewCmd(gf *GlobalFlags) *cobra.Command {
+	var cf newFlags
 
 	cmd := &cobra.Command{
-		Use:   "create [name]",
-		Short: "Create a new environment",
+		Use:   "new [name]",
+		Short: "Create a new workspace",
 		Long: `Provision a new workspace for Claude Code sessions. Pick a --type to
-control where the environment runs: locally in Zellij, inside a
+control where the workspace runs: locally in Zellij, inside a
 container, or as a multi-container compose stack.
 
 When run inside a git repository that contains .cc-deck/environment.yaml,
@@ -144,41 +144,41 @@ the name, type, and settings are loaded from that file automatically.
 CLI flags override definition values. In a git repo without a definition,
 one is scaffolded for you so your team can share it via version control.
 
-Environment types (--type):
+Workspace types (--type):
   local       Zellij session on the host machine (default)
   container   Single container managed by podman
   compose     Multi-container setup via podman-compose
   ssh         Remote machine over SSH
   k8s-deploy  Persistent Kubernetes environment with StatefulSet
   k8s-sandbox Ephemeral Kubernetes pod (planned)`,
-		Example: `  # Create a local Zellij environment
-  cc-deck env create my-project
+		Example: `  # Create a local Zellij workspace
+  cc-deck ws new my-project
 
-  # Create a container environment with a custom image
-  cc-deck env create my-project --type container --image quay.io/cc-deck/cc-deck-demo
+  # Create a container workspace with a custom image
+  cc-deck ws new my-project --type container --image quay.io/cc-deck/cc-deck-demo
 
   # Create a container with port forwarding and Vertex AI auth
-  cc-deck env create api-dev --type container --port 8080:8080 --auth vertex
+  cc-deck ws new api-dev --type container --port 8080:8080 --auth vertex
 
-  # Create a compose environment with network filtering
-  cc-deck env create my-app --type compose --allowed-domains python,github
+  # Create a compose workspace with network filtering
+  cc-deck ws new my-app --type compose --allowed-domains python,github
 
-  # Create an SSH environment on a remote machine
-  cc-deck env create remote-dev --type ssh --host user@dev.example.com
+  # Create an SSH workspace on a remote machine
+  cc-deck ws new remote-dev --type ssh --host user@dev.example.com
 
   # Create from a project definition (auto-detected in cwd)
-  cd ~/projects/my-app && cc-deck env create`,
+  cd ~/projects/my-app && cc-deck ws new`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := ""
 			if len(args) > 0 {
 				name = args[0]
 			}
-			return runEnvCreate(gf, name, &cf, cmd)
+			return runWsNew(gf, name, &cf, cmd)
 		},
 	}
 
-	cmd.Flags().StringVarP(&cf.envType, "type", "t", "", "Environment type (local, container, compose, k8s-deploy, k8s-sandbox)")
+	cmd.Flags().StringVarP(&cf.envType, "type", "t", "", "Workspace type (local, container, compose, k8s-deploy, k8s-sandbox)")
 	cmd.Flags().StringVar(&cf.image, "image", "", "Container image to use")
 	cmd.Flags().StringSliceVar(&cf.ports, "port", nil, "Port mapping (host:container), repeatable")
 	cmd.Flags().BoolVar(&cf.allPorts, "all-ports", false, "Expose all container ports")
@@ -228,13 +228,17 @@ Environment types (--type):
 	return cmd
 }
 
-func runEnvCreate(gf *GlobalFlags, name string, cf *createFlags, cmd *cobra.Command) error {
+func runWsNew(gf *GlobalFlags, name string, cf *newFlags, cmd *cobra.Command) error {
 	store := env.NewStateStore("")
 	defs := env.NewDefinitionStore("")
 
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("getting current directory: %w", err)
+	}
+
+	if strings.Contains(cwd, "/.cc-deck/") {
+		return fmt.Errorf("refusing to create workspace inside a .cc-deck/ directory (%s)", cwd)
 	}
 
 	// Try to find project-local definition.
@@ -254,16 +258,16 @@ func runEnvCreate(gf *GlobalFlags, name string, cf *createFlags, cmd *cobra.Comm
 		projectRoot = cwd
 	}
 
-	// Resolve environment name.
+	// Resolve workspace name.
 	if name == "" {
 		if projDef != nil {
 			name = projDef.Name
-			fmt.Fprintf(os.Stderr, "Using environment %q from %s/.cc-deck/\n", name, projectRoot)
+			fmt.Fprintf(os.Stderr, "Using workspace %q from %s/.cc-deck/\n", name, projectRoot)
 		} else if projectRoot != "" {
 			// In a git repo with no definition: scaffold from CLI flags.
 			name = project.ProjectName(projectRoot)
 		} else {
-			return fmt.Errorf("no environment name specified and no .cc-deck/environment.yaml found in project hierarchy")
+			return fmt.Errorf("no workspace name specified and no .cc-deck/environment.yaml found in project hierarchy")
 		}
 	}
 
@@ -285,7 +289,7 @@ func runEnvCreate(gf *GlobalFlags, name string, cf *createFlags, cmd *cobra.Comm
 		projDef = nil
 	} else if cf.local {
 		if projDef == nil {
-			return fmt.Errorf("no project-local definition found (no .cc-deck/environment.yaml)")
+			return fmt.Errorf("no project-local definition found (missing .cc-deck/environment.yaml)")
 		}
 		if name != projDef.Name {
 			return fmt.Errorf("project-local definition is %q, not %q; use --global or omit --local", projDef.Name, name)
@@ -329,7 +333,7 @@ func runEnvCreate(gf *GlobalFlags, name string, cf *createFlags, cmd *cobra.Comm
 		canonRoot := project.CanonicalPath(projectRoot)
 		if others, lookupErr := store.AllProjectEnvironmentNames(canonRoot); lookupErr == nil {
 			if otherPath, dup := others[name]; dup {
-				return fmt.Errorf("environment %q already defined in project %s", name, otherPath)
+				return fmt.Errorf("workspace %q already defined in project %s", name, otherPath)
 			}
 		}
 	}
@@ -627,7 +631,7 @@ func runEnvCreate(gf *GlobalFlags, name string, cf *createFlags, cmd *cobra.Comm
 
 	// Warn and skip repos for local environments (FR-014).
 	if envType == env.EnvironmentTypeLocal && activeDef != nil && len(activeDef.Repos) > 0 {
-		log.Printf("WARNING: repos are not supported for local environments; ignoring %d repo(s)", len(activeDef.Repos))
+		log.Printf("WARNING: repos are not supported for local workspaces; ignoring %d repo(s)", len(activeDef.Repos))
 		activeDef.Repos = nil
 	}
 
@@ -668,12 +672,12 @@ func runEnvCreate(gf *GlobalFlags, name string, cf *createFlags, cmd *cobra.Comm
 		}
 	}
 
-	fmt.Fprintf(os.Stdout, "Environment %q created (type: %s)\n", name, envType)
+	fmt.Fprintf(os.Stdout, "Workspace %q created (type: %s)\n", name, envType)
 	return nil
 }
 
 // collectOverrides returns CLI flag values that differ from the project definition.
-func collectOverrides(cmd *cobra.Command, cf *createFlags, projDef *env.EnvironmentDefinition) map[string]string {
+func collectOverrides(cmd *cobra.Command, cf *newFlags, projDef *env.EnvironmentDefinition) map[string]string {
 	if projDef == nil {
 		return nil
 	}
@@ -715,8 +719,8 @@ func newAttachCmdCore(_ *GlobalFlags) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "attach [name]",
-		Short: "Attach to an environment",
-		Long: `Open an interactive session for the named environment.
+		Short: "Attach to a workspace",
+		Long: `Open an interactive session for the named workspace.
 When no name is provided, resolves from .cc-deck/environment.yaml in the project.
 Use --branch to land in a specific worktree directory inside the container.`,
 		Args: cobra.MaximumNArgs(1),
@@ -729,7 +733,7 @@ Use --branch to land in a specific worktree directory inside the container.`,
 			if branch != "" {
 				fmt.Fprintf(os.Stderr, "NOTE: --branch %q requested (worktree attach not yet wired to container exec)\n", branch)
 			}
-			return runEnvAttach(name)
+			return runWsAttach(name)
 		},
 	}
 
@@ -738,11 +742,11 @@ Use --branch to land in a specific worktree directory inside the container.`,
 	return cmd
 }
 
-func newEnvAttachCmd(gf *GlobalFlags) *cobra.Command {
+func newWsAttachCmd(gf *GlobalFlags) *cobra.Command {
 	return newAttachCmdCore(gf)
 }
 
-func runEnvAttach(name string) error {
+func runWsAttach(name string) error {
 	store := env.NewStateStore("")
 	defs := env.NewDefinitionStore("")
 
@@ -756,16 +760,16 @@ func runEnvAttach(name string) error {
 
 // --- delete ---
 
-func newEnvDeleteCmd(_ *GlobalFlags) *cobra.Command {
+func newWsKillCmd(_ *GlobalFlags) *cobra.Command {
 	var force bool
 	var keepVolumes bool
 
 	cmd := &cobra.Command{
-		Use:   "delete [name]",
-		Short: "Delete an environment",
-		Long: `Delete the named environment and remove it from the state store.
-If the environment is running, use --force to stop and delete it.
-For container environments, use --keep-volumes to preserve data volumes.
+		Use:   "kill [name]",
+		Short: "Destroy a workspace",
+		Long: `Destroy the named workspace and remove it from the state store.
+If the workspace is running, use --force to stop and destroy it.
+For container workspaces, use --keep-volumes to preserve data volumes.
 When no name is provided, resolves from .cc-deck/environment.yaml in the project.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -774,17 +778,17 @@ When no name is provided, resolves from .cc-deck/environment.yaml in the project
 			if err != nil {
 				return err
 			}
-			return runEnvDelete(name, force, keepVolumes)
+			return runWsKill(name, force, keepVolumes)
 		},
 	}
 
-	cmd.Flags().BoolVarP(&force, "force", "f", false, "Force delete a running environment")
-	cmd.Flags().BoolVar(&keepVolumes, "keep-volumes", false, "Keep data volumes when deleting container environments")
+	cmd.Flags().BoolVarP(&force, "force", "f", false, "Force delete a running workspace")
+	cmd.Flags().BoolVar(&keepVolumes, "keep-volumes", false, "Keep data volumes when deleting container workspaces")
 
 	return cmd
 }
 
-func runEnvDelete(name string, force bool, keepVolumes bool) error {
+func runWsKill(name string, force bool, keepVolumes bool) error {
 	store := env.NewStateStore("")
 	defs := env.NewDefinitionStore("")
 
@@ -797,14 +801,14 @@ func runEnvDelete(name string, force bool, keepVolumes bool) error {
 		cleaned := env.CleanupOrphanedContainer(cmd_context(), name, keepVolumes)
 		if cleaned {
 			_ = defs.Remove(name)
-			fmt.Fprintf(os.Stdout, "Environment %q cleaned up (orphaned resources removed)\n", name)
+			fmt.Fprintf(os.Stdout, "Workspace %q cleaned up (orphaned resources removed)\n", name)
 			return nil
 		}
 
 		// No container resources either. If a definition exists, remove it
-		// (stale "not created" entry visible in env list).
+		// (stale "not created" entry visible in ws list).
 		if defErr := defs.Remove(name); defErr == nil {
-			fmt.Fprintf(os.Stdout, "Environment %q definition removed\n", name)
+			fmt.Fprintf(os.Stdout, "Workspace %q definition removed\n", name)
 			return nil
 		}
 
@@ -818,7 +822,7 @@ func runEnvDelete(name string, force bool, keepVolumes bool) error {
 				statusPath := filepath.Join(projPath, ".cc-deck", "status.yaml")
 				_ = os.Remove(statusPath)
 				_ = store.UnregisterProject(projPath)
-				fmt.Fprintf(os.Stdout, "Environment %q project definition removed (from %s)\n", name, projPath)
+				fmt.Fprintf(os.Stdout, "Workspace %q project definition removed (from %s)\n", name, projPath)
 				return nil
 			}
 		}
@@ -837,7 +841,7 @@ func runEnvDelete(name string, force bool, keepVolumes bool) error {
 		return err
 	}
 
-	fmt.Fprintf(os.Stdout, "Environment %q deleted\n", name)
+	fmt.Fprintf(os.Stdout, "Workspace %q deleted\n", name)
 	return nil
 }
 
@@ -867,28 +871,28 @@ func newListCmdCore(gf *GlobalFlags) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "list",
 		Aliases: []string{"ls"},
-		Short:   "List environments",
-		Long: `List all cc-deck environments with their current status.
-Shows both global and project-local environments in a unified view.
+		Short:   "List workspaces",
+		Long: `List all cc-deck workspaces with their current status.
+Shows both global and project-local workspaces in a unified view.
 Project paths and MISSING status are shown for registered projects.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runEnvList(gf, filterType, showWorktrees, verbose)
+			return runWsList(gf, filterType, showWorktrees, verbose)
 		},
 	}
 
-	cmd.Flags().StringVarP(&filterType, "type", "t", "", "Filter by environment type")
+	cmd.Flags().StringVarP(&filterType, "type", "t", "", "Filter by workspace type")
 	cmd.Flags().BoolVarP(&showWorktrees, "worktrees", "w", false, "Show git worktrees within each project")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show additional columns (PATH)")
 
 	return cmd
 }
 
-func newEnvListCmd(gf *GlobalFlags) *cobra.Command {
+func newWsListCmd(gf *GlobalFlags) *cobra.Command {
 	return newListCmdCore(gf)
 }
 
-func runEnvList(gf *GlobalFlags, filterType string, showWorktrees bool, verbose bool) error {
+func runWsList(gf *GlobalFlags, filterType string, showWorktrees bool, verbose bool) error {
 	store := env.NewStateStore("")
 	defs := env.NewDefinitionStore("")
 
@@ -1094,7 +1098,7 @@ func writeEnvStructured(format string, instances []*env.EnvironmentInstance, all
 	}
 }
 
-// writeEnvTableWithProjects writes the env list table with project-local entries.
+// writeEnvTableWithProjects writes the ws list table with project-local entries.
 func writeEnvTableWithProjects(instances []*env.EnvironmentInstance, allDefs []*env.EnvironmentDefinition, instanceNames map[string]bool, filterType string, projectEnvs []projectListEntry, worktrees []worktreeListEntry, defs *env.DefinitionStore, verbose bool) error {
 	sourceMap := buildSourceMap(defs, projectEnvs)
 
@@ -1196,7 +1200,7 @@ func writeEnvTableWithProjects(instances []*env.EnvironmentInstance, allDefs []*
 
 	if !hasEntries {
 		_ = tw.Flush()
-		fmt.Println("No environments found. Use 'cc-deck env create' to get started.")
+		fmt.Println("No workspaces found. Use 'cc-deck ws new' to get started.")
 		return nil
 	}
 
@@ -1229,8 +1233,8 @@ func formatDuration(d time.Duration) string {
 func newStatusCmdCore(gf *GlobalFlags) *cobra.Command {
 	return &cobra.Command{
 		Use:   "status [name]",
-		Short: "Show environment status",
-		Long: `Display detailed status information for the named environment.
+		Short: "Show workspace status",
+		Long: `Display detailed status information for the named workspace.
 When no name is provided, resolves from .cc-deck/environment.yaml in the project.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -1244,7 +1248,7 @@ When no name is provided, resolves from .cc-deck/environment.yaml in the project
 	}
 }
 
-func newEnvStatusCmd(gf *GlobalFlags) *cobra.Command {
+func newWsStatusCmd(gf *GlobalFlags) *cobra.Command {
 	return newStatusCmdCore(gf)
 }
 
@@ -1351,7 +1355,7 @@ func runEnvStatus(gf *GlobalFlags, name string) error {
 
 func writeEnvStatusText(name string, envType env.EnvironmentType, status *env.EnvironmentStatus, storage, uptime, lastAttached, image, projectPath string) error {
 	tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
-	fmt.Fprintf(tw, "Environment:\t%s\n", name)
+	fmt.Fprintf(tw, "Workspace:\t%s\n", name)
 	fmt.Fprintf(tw, "Type:\t%s\n", envType)
 	fmt.Fprintf(tw, "Status:\t%s\n", status.State)
 	fmt.Fprintf(tw, "Storage:\t%s\n", storage)
@@ -1397,8 +1401,8 @@ func writeEnvStatusText(name string, envType env.EnvironmentType, status *env.En
 func newStartCmdCore(_ *GlobalFlags) *cobra.Command {
 	return &cobra.Command{
 		Use:   "start [name]",
-		Short: "Start a stopped environment",
-		Long: `Bring a stopped environment back to a running state.
+		Short: "Start a stopped workspace",
+		Long: `Bring a stopped workspace back to a running state.
 When no name is provided, resolves from .cc-deck/environment.yaml in the project.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -1407,16 +1411,16 @@ When no name is provided, resolves from .cc-deck/environment.yaml in the project
 			if err != nil {
 				return err
 			}
-			return runEnvStart(name)
+			return runWsStart(name)
 		},
 	}
 }
 
-func newEnvStartCmd(gf *GlobalFlags) *cobra.Command {
+func newWsStartCmd(gf *GlobalFlags) *cobra.Command {
 	return newStartCmdCore(gf)
 }
 
-func runEnvStart(name string) error {
+func runWsStart(name string) error {
 	store := env.NewStateStore("")
 	defs := env.NewDefinitionStore("")
 
@@ -1429,7 +1433,7 @@ func runEnvStart(name string) error {
 		return err
 	}
 
-	fmt.Fprintf(os.Stdout, "Environment %q started\n", name)
+	fmt.Fprintf(os.Stdout, "Workspace %q started\n", name)
 	return nil
 }
 
@@ -1438,8 +1442,8 @@ func runEnvStart(name string) error {
 func newStopCmdCore(_ *GlobalFlags) *cobra.Command {
 	return &cobra.Command{
 		Use:   "stop [name]",
-		Short: "Stop a running environment",
-		Long: `Gracefully stop a running environment.
+		Short: "Stop a running workspace",
+		Long: `Gracefully stop a running workspace.
 When no name is provided, resolves from .cc-deck/environment.yaml in the project.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -1448,16 +1452,16 @@ When no name is provided, resolves from .cc-deck/environment.yaml in the project
 			if err != nil {
 				return err
 			}
-			return runEnvStop(name)
+			return runWsStop(name)
 		},
 	}
 }
 
-func newEnvStopCmd(gf *GlobalFlags) *cobra.Command {
+func newWsStopCmd(gf *GlobalFlags) *cobra.Command {
 	return newStopCmdCore(gf)
 }
 
-func runEnvStop(name string) error {
+func runWsStop(name string) error {
 	store := env.NewStateStore("")
 	defs := env.NewDefinitionStore("")
 
@@ -1470,24 +1474,28 @@ func runEnvStop(name string) error {
 		return err
 	}
 
-	fmt.Fprintf(os.Stdout, "Environment %q stopped\n", name)
+	fmt.Fprintf(os.Stdout, "Workspace %q stopped\n", name)
 	return nil
 }
 
 // --- exec ---
 
-func newEnvExecCmd(_ *GlobalFlags) *cobra.Command {
+func newExecCmdCore(_ *GlobalFlags) *cobra.Command {
 	return &cobra.Command{
 		Use:   "exec <name> -- <cmd...>",
-		Short: "Run a command inside an environment",
+		Short: "Run a command inside a workspace",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runEnvExec(args[0], args[1:])
+			return runWsExec(args[0], args[1:])
 		},
 	}
 }
 
-func runEnvExec(name string, cmdArgs []string) error {
+func newWsExecCmd(gf *GlobalFlags) *cobra.Command {
+	return newExecCmdCore(gf)
+}
+
+func runWsExec(name string, cmdArgs []string) error {
 	store := env.NewStateStore("")
 	defs := env.NewDefinitionStore("")
 
@@ -1497,7 +1505,7 @@ func runEnvExec(name string, cmdArgs []string) error {
 	}
 
 	if len(cmdArgs) == 0 {
-		return fmt.Errorf("no command specified; use: cc-deck env exec %s -- <cmd>", name)
+		return fmt.Errorf("no command specified; use: cc-deck ws exec %s -- <cmd>", name)
 	}
 
 	return e.Exec(cmd_context(), cmdArgs)
@@ -1505,10 +1513,10 @@ func runEnvExec(name string, cmdArgs []string) error {
 
 // --- push ---
 
-func newEnvPushCmd(_ *GlobalFlags) *cobra.Command {
+func newWsPushCmd(_ *GlobalFlags) *cobra.Command {
 	return &cobra.Command{
 		Use:   "push <name> <local-path> [remote-path]",
-		Short: "Push local files into an environment",
+		Short: "Push local files into a workspace",
 		Args:  cobra.RangeArgs(1, 3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			localPath := ""
@@ -1540,16 +1548,16 @@ func runEnvPush(name, localPath, remotePath string) error {
 		return err
 	}
 
-	fmt.Fprintf(os.Stdout, "Pushed to environment %q\n", name)
+	fmt.Fprintf(os.Stdout, "Pushed to workspace %q\n", name)
 	return nil
 }
 
 // --- pull ---
 
-func newEnvPullCmd(_ *GlobalFlags) *cobra.Command {
+func newWsPullCmd(_ *GlobalFlags) *cobra.Command {
 	return &cobra.Command{
 		Use:   "pull <name> <remote-path> [local-path]",
-		Short: "Pull files from an environment",
+		Short: "Pull files from a workspace",
 		Args:  cobra.RangeArgs(1, 3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			remotePath := ""
@@ -1581,13 +1589,13 @@ func runEnvPull(name, remotePath, localPath string) error {
 		return err
 	}
 
-	fmt.Fprintf(os.Stdout, "Pulled from environment %q\n", name)
+	fmt.Fprintf(os.Stdout, "Pulled from workspace %q\n", name)
 	return nil
 }
 
 // --- prune ---
 
-func newEnvPruneCmd() *cobra.Command {
+func newWsPruneCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "prune",
 		Short: "Remove stale project registry entries",
@@ -1596,12 +1604,12 @@ no longer exist. This cleans up entries for projects that have been
 moved or deleted.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runEnvPrune()
+			return runWsPrune()
 		},
 	}
 }
 
-func runEnvPrune() error {
+func runWsPrune() error {
 	store := env.NewStateStore("")
 	count, err := store.PruneStaleProjects()
 	if err != nil {
@@ -1617,10 +1625,10 @@ func runEnvPrune() error {
 
 // --- harvest ---
 
-func newEnvHarvestCmd(_ *GlobalFlags) *cobra.Command {
+func newWsHarvestCmd(_ *GlobalFlags) *cobra.Command {
 	return &cobra.Command{
 		Use:   "harvest <name>",
-		Short: "Extract work products from an environment",
+		Short: "Extract work products from a workspace",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runEnvHarvest(args[0])
@@ -1645,7 +1653,7 @@ func runEnvHarvest(name string) error {
 func newLogsCmdCore(_ *GlobalFlags) *cobra.Command {
 	return &cobra.Command{
 		Use:   "logs <name>",
-		Short: "View environment logs",
+		Short: "View workspace logs",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("logs: not yet implemented")
@@ -1653,17 +1661,17 @@ func newLogsCmdCore(_ *GlobalFlags) *cobra.Command {
 	}
 }
 
-func newEnvLogsCmd(gf *GlobalFlags) *cobra.Command {
+func newWsLogsCmd(gf *GlobalFlags) *cobra.Command {
 	return newLogsCmdCore(gf)
 }
 
 // --- refresh-creds ---
 
-func newEnvRefreshCredsCmd(_ *GlobalFlags) *cobra.Command {
+func newWsRefreshCredsCmd(_ *GlobalFlags) *cobra.Command {
 	return &cobra.Command{
 		Use:   "refresh-creds [name]",
-		Short: "Push fresh credentials to a remote SSH environment",
-		Long: `Refresh the credential file on a remote SSH environment without
+		Short: "Push fresh credentials to a remote SSH workspace",
+		Long: `Refresh the credential file on a remote SSH workspace without
 attaching. This is useful for keeping long-running sessions alive
 when local credentials rotate.
 
@@ -1700,7 +1708,7 @@ func runEnvRefreshCreds(name string) error {
 	}
 
 	if def.Auth == "none" {
-		fmt.Fprintf(os.Stdout, "Credential management is disabled for environment %q (auth=none)\n", name)
+		fmt.Fprintf(os.Stdout, "Credential management is disabled for workspace %q (auth=none)\n", name)
 		return nil
 	}
 
@@ -1710,7 +1718,7 @@ func runEnvRefreshCreds(name string) error {
 	}
 
 	if inst.SSH == nil {
-		return fmt.Errorf("SSH fields missing for environment %q", name)
+		return fmt.Errorf("SSH fields missing for workspace %q", name)
 	}
 
 	client := sshPkg.NewClient(inst.SSH.Host, inst.SSH.Port, inst.SSH.IdentityFile, inst.SSH.JumpHost, inst.SSH.SSHConfig)
@@ -1721,7 +1729,7 @@ func runEnvRefreshCreds(name string) error {
 	}
 
 	if len(creds) == 0 {
-		fmt.Fprintf(os.Stdout, "No credentials found to refresh for environment %q\n", name)
+		fmt.Fprintf(os.Stdout, "No credentials found to refresh for workspace %q\n", name)
 		return nil
 	}
 
@@ -1729,7 +1737,7 @@ func runEnvRefreshCreds(name string) error {
 		return fmt.Errorf("writing credentials: %w", err)
 	}
 
-	fmt.Fprintf(os.Stdout, "Credentials refreshed for environment %q\n", name)
+	fmt.Fprintf(os.Stdout, "Credentials refreshed for workspace %q\n", name)
 	return nil
 }
 
@@ -1749,7 +1757,7 @@ func resolveEnvironmentName(args []string, store *env.FileStateStore) (name stri
 
 	root, findErr := project.FindProjectConfig(cwd)
 	if findErr != nil {
-		return "", "", fmt.Errorf("no environment name specified and no .cc-deck/environment.yaml found in project hierarchy")
+		return "", "", fmt.Errorf("no workspace name specified and no .cc-deck/environment.yaml found in project hierarchy")
 	}
 
 	def, loadErr := env.LoadProjectDefinition(root)
@@ -1757,7 +1765,7 @@ func resolveEnvironmentName(args []string, store *env.FileStateStore) (name stri
 		return "", "", fmt.Errorf("loading project definition from %s: %w", root, loadErr)
 	}
 
-	fmt.Fprintf(os.Stderr, "Using environment %q from %s/.cc-deck/\n", def.Name, root)
+	fmt.Fprintf(os.Stderr, "Using workspace %q from %s/.cc-deck/\n", def.Name, root)
 
 	// Auto-register project on walk-based discovery (FR-007).
 	if regErr := store.RegisterProject(root); regErr != nil {
@@ -1787,7 +1795,19 @@ func resolveEnvironment(name string, store *env.FileStateStore, defs *env.Defini
 		return env.NewEnvironment(instType, name, store, defs)
 	}
 
-	return nil, fmt.Errorf("environment %q not found", name)
+	// Search project definitions from the global registry so that
+	// workspaces visible in "ws list" are also resolvable here.
+	if projects, err := store.ListProjects(); err == nil {
+		for _, p := range projects {
+			def, loadErr := env.LoadProjectDefinition(p.Path)
+			if loadErr != nil || def.Name != name {
+				continue
+			}
+			return env.NewEnvironment(def.Type, name, store, defs)
+		}
+	}
+
+	return nil, fmt.Errorf("workspace %q not found", name)
 }
 
 // addToGroup registers commands under a named group for help output.

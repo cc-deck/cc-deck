@@ -12,31 +12,35 @@ All setup artifacts live in `.cc-deck/setup/` relative to the project root (the 
 
 1. Find the project root (look for `.cc-deck/` directory or git root, walking up from the current working directory)
 2. The setup directory is `<project-root>/.cc-deck/setup/`
-3. The manifest is at `<setup-dir>/cc-deck-setup.yaml`
+3. The manifest is at `<setup-dir>/cc-deck-build.yaml`
 
 All file references in this command (manifest, Containerfile, build-context/, Ansible artifacts) are relative to the setup directory unless stated otherwise.
 
 ## Outline
 
-Build a target environment from the `cc-deck-setup.yaml` manifest. Requires `--target container` or `--target ssh` in the arguments. Optionally accepts `--push` (container only).
+Build a target environment from the `cc-deck-build.yaml` manifest. Requires `--target container` or `--target ssh` in the arguments. Optionally accepts `--push` (container only).
 
 ### Step 0: Target dispatch
 
 Parse `$ARGUMENTS` for the `--target` flag.
 
+Read `<setup-dir>/cc-deck-build.yaml` and validate it has `version >= 1`.
+
+Determine which targets are configured in the manifest:
+- `targets.container` is configured if it has a `name` field
+- `targets.ssh` is configured if it has a `host` field
+
 | Condition | Action |
 |-----------|--------|
 | `--target container` | Go to **Section A: Container Build** |
 | `--target ssh` | Go to **Section B: SSH Provisioning** |
-| `--target` not provided | Error: "Specify --target container or --target ssh" |
+| `--target` not provided, only container configured | Auto-select container, go to **Section A** |
+| `--target` not provided, only ssh configured | Auto-select ssh, go to **Section B** |
+| `--target` not provided, both configured | Error: "Both container and ssh targets are configured. Specify --target container or --target ssh" |
+| `--target` not provided, neither configured | Error: "No targets configured in manifest. Add a targets.container or targets.ssh section." |
 | `--push` with `--target ssh` | Error: "--push is only valid with --target container" |
 
-Read `<setup-dir>/cc-deck-setup.yaml` and validate it has `version >= 1`. Check that the relevant target section exists in the manifest:
-
-- For `--target container`: `targets.container` must be present with a `name` field
-- For `--target ssh`: `targets.ssh` must be present with a `host` field
-
-If the target section is missing, error: "No [target] section in manifest. Run `cc-deck setup init --target [target]` or add it manually."
+If the selected target section is missing from the manifest, error: "No [target] section in manifest. Run `cc-deck build init --target [target]` or add it manually."
 
 ---
 
@@ -44,7 +48,7 @@ If the target section is missing, error: "No [target] section in manifest. Run `
 
 ### A1: Read and validate
 
-Read `cc-deck-setup.yaml`. Extract from `targets.container`:
+Read `cc-deck-build.yaml`. Extract from `targets.container`:
 - `name` (required)
 - `tag` (default: `latest`)
 - `base` (default: `quay.io/cc-deck/cc-deck-base:latest`)
@@ -109,7 +113,7 @@ RUN chmod +x /usr/local/bin/cc-deck && \
     mkdir -p /home/dev/.claude /home/dev/.cache/zellij && \
     HOME=/home/dev \
     ZELLIJ_CONFIG_DIR=/home/dev/.config/zellij \
-    cc-deck plugin install --install-zellij --force --skip-backup && \
+    cc-deck config plugin install --install-zellij --force --skip-backup && \
     chown -R dev:dev /home/dev/.config/zellij /home/dev/.cache/zellij /home/dev/.claude && \
     rm -rf /root/.claude /root/.cache/zellij
 
@@ -188,7 +192,7 @@ COPY --chown=dev:dev build-context/starship.toml /home/dev/.config/starship.toml
 COPY --chown=dev:dev build-context/helix-config.toml /home/dev/.config/helix/config.toml
 ```
 
-**Merge strategy for settings.json**: Read the existing `/home/dev/.claude/settings.json` (created by cc-deck plugin install with hooks), merge in user preferences from the specified file, write the merged result to `build-context/settings.json`. Never overwrite cc-deck hooks.
+**Merge strategy for settings.json**: Read the existing `/home/dev/.claude/settings.json` (created by cc-deck config plugin install with hooks), merge in user preferences from the specified file, write the merged result to `build-context/settings.json`. Never overwrite cc-deck hooks.
 
 ### A3: Check for existing Containerfile
 
@@ -293,7 +297,7 @@ Fill in the actual `IMAGE_NAME` and `IMAGE_TAG` from the manifest. Make the scri
 
 If `--push` was specified in the arguments:
 
-1. Check that `targets.container.registry` is set in the manifest. If not, error: "No registry configured. Add `registry` to `targets.container` in cc-deck-setup.yaml."
+1. Check that `targets.container.registry` is set in the manifest. If not, error: "No registry configured. Add `registry` to `targets.container` in cc-deck-build.yaml."
 2. Tag the image with the full registry reference: `<registry>/<name>:<tag>`
 3. Push the image:
    ```bash
@@ -318,7 +322,7 @@ On success, show:
 
 ### B1: Read and validate
 
-Read `cc-deck-setup.yaml`. Extract from `targets.ssh`:
+Read `cc-deck-build.yaml`. Extract from `targets.ssh`:
 - `host` (required)
 - `port` (default: 22)
 - `identity_file` (optional)
@@ -438,7 +442,7 @@ Generate task content for each role from the manifest data. Each role is idempot
 **cc_deck role** (`roles/cc_deck/tasks/main.yml`):
 - Download cc-deck release binary from GitHub Releases (using the version from `cc_deck_version`)
 - Install to `/usr/local/bin/cc-deck`
-- Run `cc-deck plugin install` as the target user (installs WASM plugin, layout files, controller config, Claude Code hooks)
+- Run `cc-deck config plugin install` as the target user (installs WASM plugin, layout files, controller config, Claude Code hooks)
 
 **plugins role** (`roles/plugins/tasks/main.yml`):
 - Install Claude Code plugins from the manifest `plugins` section using the `claude` CLI as the target user
@@ -539,7 +543,7 @@ After a successful run, generate a `README.md` in the setup directory with stand
 ```markdown
 # SSH Provisioning - Standalone Usage
 
-This directory contains Ansible playbooks generated by `cc-deck setup`.
+This directory contains Ansible playbooks generated by `cc-deck build`.
 
 ## Re-run the playbook
 
@@ -570,7 +574,7 @@ On success, show:
 
 ## Key Rules (both targets)
 
-- Never modify `cc-deck-setup.yaml` (the manifest is the source of truth)
+- Never modify `cc-deck-build.yaml` (the manifest is the source of truth)
 - All generated files include a "GENERATED BY cc-deck.build" header
 - The self-correction loop pattern is the same for both targets: run, read error, fix artifact, retry, up to 3 attempts
 - **Container-specific**: Never omit the 3 mandatory layers. Always use `build-context/cc-deck-linux-${TARGETARCH}` as COPY source.

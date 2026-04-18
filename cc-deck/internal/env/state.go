@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/cc-deck/cc-deck/internal/xdg"
@@ -192,6 +193,10 @@ func (s *FileStateStore) RegisterProject(path string) error {
 	resolved, err := filepath.EvalSymlinks(path)
 	if err != nil {
 		resolved = path
+	}
+
+	if strings.Contains(resolved, "/.cc-deck/") {
+		return fmt.Errorf("refusing to register project inside a .cc-deck/ directory: %s", resolved)
 	}
 
 	state, err := s.Load()

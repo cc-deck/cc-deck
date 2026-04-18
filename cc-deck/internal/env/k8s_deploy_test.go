@@ -179,7 +179,7 @@ func TestK8sDeployEnvironment_NotRunningErrorIsActionable(t *testing.T) {
 	e := &K8sDeployEnvironment{name: "stopped-env", store: store}
 	err := e.Exec(t.Context(), []string{"ls"})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "cc-deck env start")
+	assert.Contains(t, err.Error(), "cc-deck ws start")
 }
 
 func TestK8sDeployEnvironment_ESOValidation(t *testing.T) {

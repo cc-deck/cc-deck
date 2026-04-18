@@ -110,3 +110,8 @@ When implementing a new backend for an existing interface (e.g., new Environment
 - Container runtime: Use `podman` exclusively (never Docker)
 
 <!-- MANUAL ADDITIONS END -->
+
+<!-- SPECKIT START -->
+For additional context about technologies to be used, project structure,
+shell commands, and other important information, read the current plan
+<!-- SPECKIT END -->

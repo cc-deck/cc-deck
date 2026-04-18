@@ -53,7 +53,7 @@ RUN dnf install -y golang && dnf clean all
 
 # Install cc-deck (self-embeds from build context)
 COPY cc-deck /usr/local/bin/cc-deck
-RUN cc-deck plugin install --install-zellij --force
+RUN cc-deck config plugin install --install-zellij --force
 
 # Install Claude Code
 RUN npm install -g @anthropic-ai/claude-code

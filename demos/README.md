@@ -94,7 +94,7 @@ demos/
 
 **Claude Code does not start**: Verify `ANTHROPIC_API_KEY` is set and Claude Code is installed.
 
-**Pipe commands have no effect**: Ensure you are running inside a Zellij session with the cc-deck plugin loaded (`zellij --layout cc-deck`).
+**Pipe commands have no effect**: Ensure you are running inside a Zellij session with the cc-deck config plugin loaded (`zellij --layout cc-deck`).
 
 **Recording is empty**: The demo script must run inside an active Zellij session. Start Zellij first, then run the script from a pane within the session.
 
