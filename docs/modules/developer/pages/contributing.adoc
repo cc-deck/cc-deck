@@ -69,7 +69,7 @@ After modifying the Go CLI:
 [source,bash]
 ----
 make build-cli
-cc-deck plugin status  # verify your changes
+cc-deck config plugin status  # verify your changes
 ----
 
 == Reporting Issues

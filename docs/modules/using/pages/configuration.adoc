@@ -26,7 +26,7 @@ The `--layout` flag during install sets which one becomes the default `cc-deck.k
 
 [source,bash]
 ----
-cc-deck plugin install --layout minimal
+cc-deck config plugin install --layout minimal
 ----
 
 You can always try a different variant without changing the default:
@@ -44,7 +44,7 @@ The three global shortcuts (`Alt+s` for navigation, `Alt+a` for attend, `Alt+w` 
 
 === Using the Personal Layout
 
-The recommended approach is to create a personal layout file that is never overwritten by `cc-deck plugin install`:
+The recommended approach is to create a personal layout file that is never overwritten by `cc-deck config plugin install`:
 
 1. Copy the default layout:
 +
@@ -71,7 +71,7 @@ plugin location="file:~/.config/zellij/plugins/cc_deck.wasm" {
 default_layout "cc-deck-personal"
 ----
 
-The personal layout is never modified by `cc-deck plugin install`, so your custom keybindings are preserved across updates.
+The personal layout is never modified by `cc-deck config plugin install`, so your custom keybindings are preserved across updates.
 
 == Ghostty Integration
 
@@ -174,19 +174,19 @@ The plugin is installed via the cc-deck CLI:
 [source,bash]
 ----
 # Install with defaults (standard layout)
-cc-deck plugin install
+cc-deck config plugin install
 
 # Install with minimal layout as default
-cc-deck plugin install --layout minimal
+cc-deck config plugin install --layout minimal
 
 # Force overwrite without prompts
-cc-deck plugin install --force
+cc-deck config plugin install --force
 
 # Check installation status
-cc-deck plugin status
+cc-deck config plugin status
 
 # Remove the plugin, layouts, and hooks
-cc-deck plugin remove
+cc-deck config plugin remove
 ----
 
 When layout files have local changes, the installer shows a colored diff and offers three options: overwrite, skip, or backup and overwrite.

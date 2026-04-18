@@ -64,7 +64,7 @@ NOTE: The `auth`, `credentials`, and `env` fields from the standard environment 
 
 [source,bash]
 ----
-cc-deck env create remote-dev
+cc-deck ws new remote-dev
 ----
 
 The create command runs a series of pre-flight checks that verify the remote host is ready:
@@ -82,7 +82,7 @@ You can also create SSH environments directly from CLI flags without a definitio
 
 [source,bash]
 ----
-cc-deck env create my-remote --type ssh --host user@host.example.com --workspace ~/projects
+cc-deck ws new my-remote --type ssh --host user@host.example.com --workspace ~/projects
 ----
 
 == Attaching and Detaching
@@ -130,7 +130,7 @@ When local credentials rotate, push fresh credentials to the remote without open
 
 [source,bash]
 ----
-cc-deck env refresh-creds remote-dev
+cc-deck ws refresh-creds remote-dev
 ----
 
 This updates the credential file on the remote host without disrupting any running Zellij session or Claude Code process.
@@ -141,14 +141,14 @@ Push local files to the remote workspace:
 
 [source,bash]
 ----
-cc-deck env push remote-dev ./src
+cc-deck ws push remote-dev ./src
 ----
 
 Pull files from the remote:
 
 [source,bash]
 ----
-cc-deck env pull remote-dev ./output ./local-output
+cc-deck ws pull remote-dev ./output ./local-output
 ----
 
 File synchronization uses `rsync` over SSH for efficient incremental transfers.
@@ -160,7 +160,7 @@ Run commands on the remote host without attaching to the full Zellij session:
 
 [source,bash]
 ----
-cc-deck env exec remote-dev -- make test
+cc-deck ws exec remote-dev -- make test
 ----
 
 Commands execute in the configured workspace directory.
@@ -172,7 +172,7 @@ Retrieve git commits from the remote repository and bring them into your local c
 
 [source,bash]
 ----
-cc-deck env harvest remote-dev
+cc-deck ws harvest remote-dev
 ----
 
 The harvest command adds a temporary git remote pointing to the remote workspace via SSH, runs `git fetch`, and then removes the temporary remote.
@@ -181,7 +181,7 @@ To also create a pull request from the fetched branch:
 
 [source,bash]
 ----
-cc-deck env harvest remote-dev --branch feature/remote-work --create-pr
+cc-deck ws harvest remote-dev --branch feature/remote-work --create-pr
 ----
 
 This requires the `gh` CLI to be available locally.
@@ -206,14 +206,14 @@ Remove an environment from the state store:
 
 [source,bash]
 ----
-cc-deck env delete remote-dev
+cc-deck ws kill remote-dev
 ----
 
 If the environment has a running Zellij session, deletion is refused unless you pass `--force`:
 
 [source,bash]
 ----
-cc-deck env delete remote-dev --force
+cc-deck ws kill remote-dev --force
 ----
 
 With force, the command attempts to kill the remote Zellij session before removing the state record.

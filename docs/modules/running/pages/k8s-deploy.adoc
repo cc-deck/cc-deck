@@ -13,7 +13,7 @@ Create a persistent environment on your cluster:
 
 [source,bash]
 ----
-cc-deck env create my-project \
+cc-deck ws new my-project \
   --type k8s-deploy \
   --namespace cc-deck \
   --credential ANTHROPIC_API_KEY=sk-ant-...
@@ -25,7 +25,7 @@ Attach to work inside it:
 
 [source,bash]
 ----
-cc-deck env attach my-project
+cc-deck ws attach my-project
 ----
 
 Stop and resume later.
@@ -33,16 +33,16 @@ Your workspace persists because the PVC retains data across Pod restarts:
 
 [source,bash]
 ----
-cc-deck env stop my-project
-cc-deck env start my-project
-cc-deck env attach my-project
+cc-deck ws stop my-project
+cc-deck ws start my-project
+cc-deck ws attach my-project
 ----
 
 Delete when done:
 
 [source,bash]
 ----
-cc-deck env delete my-project --force
+cc-deck ws kill my-project --force
 ----
 
 == Credentials
@@ -56,7 +56,7 @@ cc-deck creates a Kubernetes Secret and mounts it into the workspace.
 
 [source,bash]
 ----
-cc-deck env create my-project \
+cc-deck ws new my-project \
   --type k8s-deploy \
   --namespace cc-deck \
   --credential ANTHROPIC_API_KEY=sk-ant-... \
@@ -72,7 +72,7 @@ cc-deck does not create a new Secret, and it preserves the referenced Secret whe
 
 [source,bash]
 ----
-cc-deck env create my-project \
+cc-deck ws new my-project \
   --type k8s-deploy \
   --namespace cc-deck \
   --existing-secret my-team-api-keys
@@ -84,7 +84,7 @@ For teams using a centralized vault, generate an ExternalSecret CR that syncs cr
 
 [source,bash]
 ----
-cc-deck env create my-project \
+cc-deck ws new my-project \
   --type k8s-deploy \
   --namespace cc-deck \
   --secret-store vault \
@@ -107,7 +107,7 @@ The `--allow-domain` and `--allow-group` flags accept the same values as compose
 
 [source,bash]
 ----
-cc-deck env create my-project \
+cc-deck ws new my-project \
   --type k8s-deploy \
   --namespace cc-deck \
   --allow-domain github.com \
@@ -119,7 +119,7 @@ cc-deck env create my-project \
 
 [source,bash]
 ----
-cc-deck env create my-project \
+cc-deck ws new my-project \
   --type k8s-deploy \
   --namespace cc-deck \
   --no-network-policy \
@@ -133,7 +133,7 @@ Sidecars share the Pod network namespace, so the main workspace container reache
 
 [source,bash]
 ----
-cc-deck env create my-project \
+cc-deck ws new my-project \
   --type k8s-deploy \
   --namespace cc-deck \
   --build-dir ./my-project \
@@ -159,14 +159,14 @@ Transfer local files into the environment via tar-over-exec:
 
 [source,bash]
 ----
-cc-deck env push my-project ./src
+cc-deck ws push my-project ./src
 ----
 
 Or push a git repository:
 
 [source,bash]
 ----
-cc-deck env push my-project --git
+cc-deck ws push my-project --git
 ----
 
 === Pull Files
@@ -175,7 +175,7 @@ Transfer files from the environment to your local machine:
 
 [source,bash]
 ----
-cc-deck env pull my-project /workspace/results ./local-results
+cc-deck ws pull my-project /workspace/results ./local-results
 ----
 
 === Harvest Git Commits
@@ -184,8 +184,8 @@ Extract the agent's git commits using the `ext::kubectl exec` remote helper:
 
 [source,bash]
 ----
-cc-deck env harvest my-project -b agent-work
-cc-deck env harvest my-project -b agent-work --pr
+cc-deck ws harvest my-project -b agent-work
+cc-deck ws harvest my-project -b agent-work --pr
 ----
 
 == Storage Configuration
@@ -195,7 +195,7 @@ You can customize the storage size and StorageClass:
 
 [source,bash]
 ----
-cc-deck env create my-project \
+cc-deck ws new my-project \
   --type k8s-deploy \
   --namespace cc-deck \
   --storage-size 50Gi \
@@ -203,11 +203,11 @@ cc-deck env create my-project \
   --credential ANTHROPIC_API_KEY=sk-ant-...
 ----
 
-Use `--keep-volumes` with `env delete` to preserve the PVC for potential reuse:
+Use `--keep-volumes` with `ws kill` to preserve the PVC for potential reuse:
 
 [source,bash]
 ----
-cc-deck env delete my-project --force --keep-volumes
+cc-deck ws kill my-project --force --keep-volumes
 ----
 
 == Timeouts
@@ -217,7 +217,7 @@ For resource-constrained clusters, increase it:
 
 [source,bash]
 ----
-cc-deck env create my-project \
+cc-deck ws new my-project \
   --type k8s-deploy \
   --namespace cc-deck \
   --timeout 10m \

@@ -1,16 +1,16 @@
 #!/bin/bash
-# Safely update a section of cc-deck-setup.yaml.
+# Safely update a section of cc-deck-build.yaml.
 # Usage: update-manifest.sh <section> <yaml-fragment> [manifest-path]
 #
 # Example:
-#   update-manifest.sh tools '"Go compiler >= 1.23"' cc-deck-setup.yaml
-#   update-manifest.sh sources '{"url":"https://...","ref":"main"}' cc-deck-setup.yaml
+#   update-manifest.sh tools '"Go compiler >= 1.23"' cc-deck-build.yaml
+#   update-manifest.sh sources '{"url":"https://...","ref":"main"}' cc-deck-build.yaml
 
 set -euo pipefail
 
 SECTION="${1:?Usage: update-manifest.sh <section> <yaml-fragment> [manifest-path]}"
 FRAGMENT="${2:?Usage: update-manifest.sh <section> <yaml-fragment> [manifest-path]}"
-MANIFEST="${3:-cc-deck-setup.yaml}"
+MANIFEST="${3:-cc-deck-build.yaml}"
 
 if [ ! -f "$MANIFEST" ]; then
   echo "Error: manifest not found: $MANIFEST"

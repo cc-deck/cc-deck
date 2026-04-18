@@ -43,7 +43,7 @@ Profiles store credential references and backend settings locally.
 
 ```bash
 # Interactive setup
-cc-deck profile add my-profile
+cc-deck config profile add my-profile
 
 # Or create config manually at ~/.config/cc-deck/config.yaml
 ```
@@ -79,8 +79,8 @@ profiles:
 Set the default profile:
 
 ```bash
-cc-deck profile use my-profile
-cc-deck profile list
+cc-deck config profile use my-profile
+cc-deck config profile list
 ```
 
 ## 4. Deploy a Session
