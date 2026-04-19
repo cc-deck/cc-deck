@@ -12,7 +12,7 @@ All setup artifacts live in `.cc-deck/setup/` relative to the project root (the 
 
 1. Find the project root (look for `.cc-deck/` directory or git root, walking up from the current working directory)
 2. The setup directory is `<project-root>/.cc-deck/setup/`
-3. The manifest is at `<setup-dir>/cc-deck-build.yaml`
+3. The manifest is at `<setup-dir>/build.yaml`
 
 All file references in this command (manifest, config files) are relative to the setup directory unless stated otherwise.
 
@@ -260,17 +260,17 @@ Then use `AskUserQuestion`. If 4 or fewer tools have configs, use `multiSelect: 
 **STOP. Wait for user response before proceeding.**
 
 **Action** (after user confirms): For each accepted tool config:
-1. Copy the config file to the setup directory with a descriptive name (e.g., `starship.toml`, `helix-config.toml`)
+1. Copy the config file to `<setup-dir>/config/` with a descriptive name (e.g., `starship.toml`, `helix-config.toml`)
 2. Add an entry to `settings.tool_configs` in the manifest, always including `target` with the path relative to `~/.config/` on the target machine:
 
 ```yaml
 settings:
   tool_configs:
     - tool: starship
-      source: ./starship.toml
+      source: ./config/starship.toml
       target: starship.toml
     - tool: helix
-      source: ./helix-config.toml
+      source: ./config/helix-config.toml
       target: helix/config.toml
 ```
 
@@ -384,13 +384,13 @@ Then use `AskUserQuestion`:
 
 **STOP. Wait for user response before proceeding.**
 
-**Action**: Write the curated config to the build directory and update manifest:
+**Action**: Write the curated config to `<setup-dir>/config/` and update manifest:
 
 For **zsh**:
 ```yaml
 settings:
   shell: zsh
-  shell_rc: ./zshrc
+  shell_rc: ./config/zshrc
 ```
 The Containerfile appends the curated content to the base image's `.zshrc` (do not replace it):
 ```dockerfile
@@ -402,7 +402,7 @@ For **bash**:
 ```yaml
 settings:
   shell: bash
-  shell_rc: ./bashrc
+  shell_rc: ./config/bashrc
 ```
 The Containerfile sets bash as the default shell and appends the curated config:
 ```dockerfile
@@ -473,7 +473,7 @@ If the user selected a theme file, ask about a remote background color for visua
 
 **STOP. Wait for user response before proceeding.**
 
-**Action**: Copy selected files to the build directory. If the user's `config.kdl` does not contain `default_shell`, append `default_shell "zsh"` to ensure Zellij panes start with zsh (required for starship prompt and shell integrations).
+**Action**: Copy selected files to `<setup-dir>/config/`. If the user's `config.kdl` does not contain `default_shell`, append `default_shell "zsh"` to ensure Zellij panes start with zsh (required for starship prompt and shell integrations).
 
 If the user chose a remote background color, add it to the manifest:
 ```yaml
@@ -517,11 +517,11 @@ Use `AskUserQuestion` with `multiSelect: true`:
 **Action**: Copy selected files and update manifest:
 ```yaml
 settings:
-  claude_md: ./CLAUDE.md
-  claude_settings: ./claude-settings.json
+  claude_md: ./config/CLAUDE.md
+  claude_settings: ./config/claude-settings.json
 ```
 
-For `settings.json`, extract only portable preferences (model, theme, permissions) and omit machine-specific paths. Save as `claude-settings.json` in the build directory.
+For `settings.json`, extract only portable preferences (model, theme, permissions) and omit machine-specific paths. Save as `claude-settings.json` in `<setup-dir>/config/`.
 
 ---
 
@@ -669,7 +669,7 @@ If user selects "Exclude some", ask which items to remove by number or name.
   }
   ```
 
-- **cc-setup cache**: If the user selects MCP servers from cc-setup, copy the relevant entries from `~/.config/cc-setup/mcp.json` to the build directory as `cc-setup-mcp.json`. The Containerfile will place it at `/home/dev/.config/cc-setup/mcp.json`.
+- **cc-setup cache**: If the user selects MCP servers from cc-setup, copy the relevant entries from `~/.config/cc-setup/mcp.json` to `<setup-dir>/config/` as `cc-setup-mcp.json`. The Containerfile will place it at `/home/dev/.config/cc-setup/mcp.json`.
 
 ---
 
@@ -699,7 +699,7 @@ Then use `AskUserQuestion`:
     "header": "Confirm",
     "multiSelect": false,
     "options": [
-      {"label": "Write manifest", "description": "Save all selections to cc-deck-build.yaml and copy config files"},
+      {"label": "Write manifest", "description": "Save all selections to build.yaml and copy config files to <setup-dir>/config/"},
       {"label": "Go back", "description": "Review or change selections for a specific step"},
       {"label": "Cancel", "description": "Discard all selections without writing"}
     ]
@@ -722,7 +722,7 @@ Then perform the write:
 4. Update `settings` section with shell, Zellij, Claude selections
 5. Update `plugins` section with selected plugins
 6. Update `mcp` section with selected MCP servers
-7. Copy selected config files to the build directory
+7. Copy selected config files to `<setup-dir>/config/`
 8. Report what was written
 
 ---

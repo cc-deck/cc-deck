@@ -175,7 +175,7 @@ func TestInitSetupDir_CreatesManifest(t *testing.T) {
 	require.NoError(t, err)
 
 	// Manifest should exist
-	manifestPath := filepath.Join(setupDir, "cc-deck-build.yaml")
+	manifestPath := filepath.Join(setupDir, "build.yaml")
 	assert.FileExists(t, manifestPath)
 
 	// Should be valid YAML with version 2
@@ -199,18 +199,18 @@ func TestInitSetupDir_ContainerTarget(t *testing.T) {
 	err := InitSetupDir(setupDir, dir, false, []string{"container"})
 	require.NoError(t, err)
 
-	// build-context directory should exist
-	assert.DirExists(t, filepath.Join(setupDir, "build-context"))
+	// container/context directory should exist
+	assert.DirExists(t, filepath.Join(setupDir, "container", "context"))
 
 	// Manifest should have uncommented container section
-	content, err := os.ReadFile(filepath.Join(setupDir, "cc-deck-build.yaml"))
+	content, err := os.ReadFile(filepath.Join(setupDir, "build.yaml"))
 	require.NoError(t, err)
 	lines := string(content)
 	assert.Contains(t, lines, "targets:")
 	assert.Contains(t, lines, "  container:")
 
 	// SSH roles should NOT exist
-	assert.NoDirExists(t, filepath.Join(setupDir, "roles"))
+	assert.NoDirExists(t, filepath.Join(setupDir, "ssh", "roles"))
 }
 
 func TestInitSetupDir_SSHTarget(t *testing.T) {
@@ -220,13 +220,13 @@ func TestInitSetupDir_SSHTarget(t *testing.T) {
 	err := InitSetupDir(setupDir, dir, false, []string{"ssh"})
 	require.NoError(t, err)
 
-	// Ansible roles should exist
-	assert.DirExists(t, filepath.Join(setupDir, "roles", "base", "tasks"))
-	assert.FileExists(t, filepath.Join(setupDir, "site.yml"))
-	assert.FileExists(t, filepath.Join(setupDir, "inventory.ini"))
+	// Ansible roles should exist under ssh/
+	assert.DirExists(t, filepath.Join(setupDir, "ssh", "roles", "base", "tasks"))
+	assert.FileExists(t, filepath.Join(setupDir, "ssh", "site.yml"))
+	assert.FileExists(t, filepath.Join(setupDir, "ssh", "inventory.ini"))
 
-	// build-context should NOT exist
-	assert.NoDirExists(t, filepath.Join(setupDir, "build-context"))
+	// container/context should NOT exist
+	assert.NoDirExists(t, filepath.Join(setupDir, "container", "context"))
 }
 
 func TestInitSetupDir_ForceOverwrite(t *testing.T) {
@@ -254,7 +254,7 @@ func TestInitSetupDir_ManifestTargetsSectionCommented(t *testing.T) {
 	err := InitSetupDir(setupDir, dir, false, nil)
 	require.NoError(t, err)
 
-	content, err := os.ReadFile(filepath.Join(setupDir, "cc-deck-build.yaml"))
+	content, err := os.ReadFile(filepath.Join(setupDir, "build.yaml"))
 	require.NoError(t, err)
 
 	// Without targets flag, targets section should remain commented

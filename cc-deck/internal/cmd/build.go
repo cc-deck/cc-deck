@@ -39,7 +39,7 @@ func newBuildInitCmd(_ *GlobalFlags) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "init [dir]",
 		Short: "Initialize a build directory",
-		Long: `Scaffold a new build directory with a cc-deck-build.yaml manifest
+		Long: `Scaffold a new build directory with a build.yaml manifest
 and Claude Code commands for AI-driven environment configuration.
 
 When no directory is specified, defaults to .cc-deck/setup/.
@@ -73,7 +73,7 @@ After initialization, start Claude Code from the project directory and use:
 				return err
 			}
 			fmt.Printf("Build directory initialized: %s\n\n", dir)
-			fmt.Printf("  Manifest:  %s/cc-deck-build.yaml\n", dir)
+			fmt.Printf("  Manifest:  %s/build.yaml\n", dir)
 			fmt.Printf("  Commands:  %s/.claude/commands/cc-deck.*.md\n", projectRoot)
 			fmt.Println()
 			fmt.Println("Next steps:")
@@ -153,7 +153,7 @@ func detectRunTarget(dir string, explicit string) (string, error) {
 		return explicit, nil
 	}
 
-	hasContainerfile := fileExists(filepath.Join(dir, "Containerfile"))
+	hasContainerfile := fileExists(filepath.Join(dir, "container", "Containerfile"))
 	hasSSH := fileExists(filepath.Join(dir, "site.yml")) && fileExists(filepath.Join(dir, "inventory.ini"))
 
 	switch {
@@ -177,7 +177,7 @@ func validateRunFlags(target string, push bool) error {
 }
 
 func runContainerBuild(dir string, push bool) error {
-	manifestPath := filepath.Join(dir, "cc-deck-build.yaml")
+	manifestPath := filepath.Join(dir, "build.yaml")
 	m, err := build.LoadManifest(manifestPath)
 	if err != nil {
 		return err
@@ -195,7 +195,7 @@ func runContainerBuild(dir string, push bool) error {
 
 	fmt.Printf("Building image: %s\n", imageRef)
 
-	buildCmd := exec.Command(runtime, "build", "-t", imageRef, "-f", "Containerfile", ".")
+	buildCmd := exec.Command(runtime, "build", "-t", imageRef, "-f", "container/Containerfile", ".")
 	buildCmd.Dir = dir
 	buildCmd.Stdout = os.Stdout
 	buildCmd.Stderr = os.Stderr
@@ -296,7 +296,7 @@ For SSH targets, runs checks on the remote host via SSH.`,
 }
 
 func runContainerVerify(dir string) error {
-	manifestPath := filepath.Join(dir, "cc-deck-build.yaml")
+	manifestPath := filepath.Join(dir, "build.yaml")
 	m, err := build.LoadManifest(manifestPath)
 	if err != nil {
 		return err
@@ -324,7 +324,7 @@ func runContainerVerify(dir string) error {
 }
 
 func runSSHVerify(dir string) error {
-	manifestPath := filepath.Join(dir, "cc-deck-build.yaml")
+	manifestPath := filepath.Join(dir, "build.yaml")
 	m, err := build.LoadManifest(manifestPath)
 	if err != nil {
 		return err
@@ -473,7 +473,7 @@ func resolveBuildDirAndRoot(args []string) (setupDir string, projectRoot string)
 }
 
 func runDiff(dir string, target string) error {
-	manifestPath := filepath.Join(dir, "cc-deck-build.yaml")
+	manifestPath := filepath.Join(dir, "build.yaml")
 	m, err := build.LoadManifest(manifestPath)
 	if err != nil {
 		return err
@@ -481,7 +481,7 @@ func runDiff(dir string, target string) error {
 
 	// Auto-detect target if not specified
 	if target == "" {
-		hasContainerfile := fileExists(filepath.Join(dir, "Containerfile"))
+		hasContainerfile := fileExists(filepath.Join(dir, "container", "Containerfile"))
 		hasRoles := fileExists(filepath.Join(dir, "roles"))
 		switch {
 		case hasContainerfile && hasRoles:
@@ -516,7 +516,7 @@ func runDiff(dir string, target string) error {
 }
 
 func diffContainer(dir string, m *build.Manifest) error {
-	containerfilePath := filepath.Join(dir, "Containerfile")
+	containerfilePath := filepath.Join(dir, "container", "Containerfile")
 	cfData, err := os.ReadFile(containerfilePath)
 	if err != nil {
 		if os.IsNotExist(err) {
