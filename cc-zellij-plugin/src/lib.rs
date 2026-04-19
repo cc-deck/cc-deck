@@ -57,6 +57,7 @@ pub enum ActionType {
     WorkingPrev,
     Navigate,
     NewSession,
+    Refresh,
 }
 
 /// A user-initiated action sent from a sidebar to the controller.

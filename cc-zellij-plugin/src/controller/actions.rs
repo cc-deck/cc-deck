@@ -21,6 +21,7 @@ pub fn handle_action(state: &mut ControllerState, msg: ActionMessage) {
         ActionType::WorkingPrev => handle_working_prev(state),
         ActionType::Navigate => handle_navigate(state, msg.pane_id, msg.tab_index),
         ActionType::NewSession => handle_new_session(state),
+        ActionType::Refresh => handle_refresh(state),
     }
 }
 
@@ -216,6 +217,15 @@ fn handle_navigate(
         switch_tab_to_wasm(tab_idx);
         focus_terminal_pane_wasm(pid);
     }
+}
+
+/// Force refresh: restore persisted sessions and broadcast.
+fn handle_refresh(state: &mut ControllerState) {
+    let restored = ControllerState::restore_sessions();
+    if !restored.is_empty() {
+        state.merge_sessions(restored);
+    }
+    state.mark_render_dirty();
 }
 
 /// Create a new session tab.

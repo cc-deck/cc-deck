@@ -443,6 +443,7 @@ fn render_help_overlay(rows: usize, cols: usize) -> Vec<ClickRegion> {
         " \x1b[1md\x1b[0m      Delete",
         " \x1b[1mp\x1b[0m      Pause/unpause",
         " \x1b[1mn\x1b[0m      New tab",
+        " \x1b[1mR\x1b[0m      Refresh sidebar",
         " \x1b[1m/\x1b[0m      Search",
         " \x1b[1m?\x1b[0m      This help",
     ];
