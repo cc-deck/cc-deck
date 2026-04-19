@@ -368,19 +368,16 @@ func runChecks(m *build.Manifest, run func(command string) (string, error)) erro
 	}
 
 	for _, tool := range m.Tools {
-		parts := strings.Fields(tool)
-		if len(parts) > 0 {
-			name := strings.ToLower(parts[0])
-			switch {
-			case strings.Contains(name, "go"):
-				checks = append(checks, check{"Go compiler", "go version"})
-			case strings.Contains(name, "python"):
-				checks = append(checks, check{"Python", "python3 --version"})
-			case strings.Contains(name, "node"):
-				checks = append(checks, check{"Node.js", "node --version"})
-			case strings.Contains(name, "rust"):
-				checks = append(checks, check{"Rust", "rustc --version"})
-			}
+		name := strings.ToLower(tool.Name)
+		switch {
+		case strings.Contains(name, "go"):
+			checks = append(checks, check{"Go compiler", "go version"})
+		case strings.Contains(name, "python"):
+			checks = append(checks, check{"Python", "python3 --version"})
+		case strings.Contains(name, "node"):
+			checks = append(checks, check{"Node.js", "node --version"})
+		case strings.Contains(name, "rust"):
+			checks = append(checks, check{"Rust", "rustc --version"})
 		}
 	}
 
@@ -529,8 +526,8 @@ func diffContainer(dir string, m *build.Manifest) error {
 	hasChanges := false
 
 	fmt.Println("Tools:")
-	for _, tool := range m.Tools {
-		toolLower := strings.ToLower(tool)
+	for _, tool := range m.PackageTools() {
+		toolLower := strings.ToLower(tool.Name)
 		words := strings.Fields(toolLower)
 		found := false
 		for _, w := range words {
@@ -540,7 +537,7 @@ func diffContainer(dir string, m *build.Manifest) error {
 			}
 		}
 		if !found {
-			fmt.Printf("  + %s (in manifest, not in Containerfile)\n", tool)
+			fmt.Printf("  + %s (in manifest, not in Containerfile)\n", tool.Name)
 			hasChanges = true
 		}
 	}
@@ -561,10 +558,10 @@ func diffContainer(dir string, m *build.Manifest) error {
 		}
 	}
 
-	fmt.Println("\nGitHub Tools:")
-	for _, gt := range m.GithubTools {
+	fmt.Println("\nGitHub Release Tools:")
+	for _, gt := range m.GithubReleaseTools() {
 		if !strings.Contains(cfContent, gt.Repo) {
-			fmt.Printf("  + %s (%s) (in manifest, not in Containerfile)\n", gt.Binary, gt.Repo)
+			fmt.Printf("  + %s (%s) (in manifest, not in Containerfile)\n", gt.Name, gt.Repo)
 			hasChanges = true
 		}
 	}
@@ -594,8 +591,8 @@ func diffSSH(dir string, m *build.Manifest) error {
 	}
 	if toolsErr == nil {
 		fmt.Println("Tools:")
-		for _, tool := range m.Tools {
-			toolLower := strings.ToLower(tool)
+		for _, tool := range m.PackageTools() {
+			toolLower := strings.ToLower(tool.Name)
 			words := strings.Fields(toolLower)
 			found := false
 			for _, w := range words {
@@ -605,15 +602,15 @@ func diffSSH(dir string, m *build.Manifest) error {
 				}
 			}
 			if !found {
-				fmt.Printf("  + %s (in manifest, not in roles/tools)\n", tool)
+				fmt.Printf("  + %s (in manifest, not in roles/tools)\n", tool.Name)
 				hasChanges = true
 			}
 		}
 
-		fmt.Println("\nGitHub Tools:")
-		for _, gt := range m.GithubTools {
+		fmt.Println("\nGitHub Release Tools:")
+		for _, gt := range m.GithubReleaseTools() {
 			if !strings.Contains(string(toolsContent), gt.Repo) {
-				fmt.Printf("  + %s (%s) (in manifest, not in roles/tools)\n", gt.Binary, gt.Repo)
+				fmt.Printf("  + %s (%s) (in manifest, not in roles/tools)\n", gt.Name, gt.Repo)
 				hasChanges = true
 			}
 		}

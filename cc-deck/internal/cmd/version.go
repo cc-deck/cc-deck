@@ -36,9 +36,13 @@ func NewVersionCmd(globalFlags *GlobalFlags) *cobra.Command {
 }
 
 func printVersion(w io.Writer, format string) error {
+	commit := Commit
+	if len(commit) > 12 {
+		commit = commit[:12]
+	}
 	info := versionInfo{
 		Version: Version,
-		Commit:  Commit,
+		Commit:  commit,
 		Date:    Date,
 	}
 

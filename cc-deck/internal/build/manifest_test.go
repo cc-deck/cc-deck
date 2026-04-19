@@ -19,7 +19,7 @@ targets:
     base: quay.io/cc-deck/cc-deck-base:latest
     registry: quay.io/cc-deck
 tools:
-  - "Go 1.25"
+  - name: "Go 1.25"
 `
 	dir := t.TempDir()
 	path := filepath.Join(dir, "build.yaml")
@@ -35,7 +35,8 @@ tools:
 	assert.Equal(t, "quay.io/cc-deck/cc-deck-base:latest", m.Targets.Container.Base)
 	assert.Equal(t, "quay.io/cc-deck", m.Targets.Container.Registry)
 	assert.Nil(t, m.Targets.SSH)
-	assert.Equal(t, []string{"Go 1.25"}, m.Tools)
+	require.Len(t, m.Tools, 1)
+	assert.Equal(t, "Go 1.25", m.Tools[0].Name)
 }
 
 func TestLoadManifest_WithSSHTarget(t *testing.T) {
@@ -95,7 +96,7 @@ func TestLoadManifest_WithoutTargets(t *testing.T) {
 	content := `
 version: 2
 tools:
-  - ripgrep
+  - name: ripgrep
 `
 	dir := t.TempDir()
 	path := filepath.Join(dir, "build.yaml")
@@ -226,20 +227,28 @@ func TestManifest_Validate(t *testing.T) {
 			wantErr: "mcp[0].name is required",
 		},
 		{
-			name: "github_tools invalid repo format",
+			name: "tool missing name",
 			m: &Manifest{
 				Version: 2,
-				GithubTools: []GithubTool{{Repo: "invalid", Binary: "test"}},
+				Tools:   []ToolEntry{{Install: "package"}},
 			},
-			wantErr: "github_tools[0].repo must be in owner/repo format",
+			wantErr: "tools[0].name is required",
 		},
 		{
-			name: "valid with plugins and github_tools",
+			name: "github-release tool invalid repo format",
 			m: &Manifest{
-				Version:     2,
-				Plugins:     []PluginEntry{{Name: "test", Source: "marketplace"}},
-				GithubTools: []GithubTool{{Repo: "org/tool", Binary: "tool"}},
-				MCP:         []MCPEntry{{Name: "mcp-test", Image: "test:latest"}},
+				Version: 2,
+				Tools:   []ToolEntry{{Name: "test", Install: "github-release", Repo: "invalid"}},
+			},
+			wantErr: "tools[0].repo must be in owner/repo format",
+		},
+		{
+			name: "valid with plugins and github-release tools",
+			m: &Manifest{
+				Version: 2,
+				Tools:   []ToolEntry{{Name: "tool", Install: "github-release", Repo: "org/tool"}},
+				Plugins: []PluginEntry{{Name: "test", Source: "marketplace"}},
+				MCP:     []MCPEntry{{Name: "mcp-test", Image: "test:latest"}},
 			},
 		},
 		{

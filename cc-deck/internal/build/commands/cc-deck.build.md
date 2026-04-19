@@ -60,10 +60,9 @@ Generate a complete Containerfile from the manifest. Follow these rules:
 
 **Base image**: Use the `targets.container.base` field from the manifest. The base image is Fedora and already includes common developer tools (git, jq, zsh, nodejs, npm, python3, uv, ripgrep, bat, lsd, starship, etc.), so do NOT reinstall packages that the base image already provides. The base image does NOT include Zellij, cc-deck, or Claude Code. Those are installed in the user image layers below.
 
-**Tool resolution**: For each entry in the `tools` section, determine the concrete install command:
-- The base image is Fedora. Use `dnf install` for packages in Fedora repos
-- Use `dnf install -y` for packages in Fedora repos
-- For tools not in Fedora repos, use GitHub release downloads or language-specific installers
+**Tool resolution**: Tools are read from the unified `tools` section and dispatched by `install` field:
+- `install: package` (or omitted): resolved to `dnf install -y` commands for Fedora repos, or language-specific installers for tools not in Fedora repos
+- `install: github-release`: downloaded from GitHub Releases using the `repo`, `asset_pattern`, and `install_path` fields
 - Use `${TARGETARCH}` for multi-arch GitHub release downloads
 
 **Layer structure** (ordered for cache efficiency).
@@ -84,14 +83,14 @@ RUN id dev >/dev/null 2>&1 || useradd -m -s /bin/zsh dev
 RUN chsh -s /bin/zsh dev 2>/dev/null || usermod -s /bin/zsh dev
 RUN touch /home/dev/.zshrc && chown dev:dev /home/dev/.zshrc
 
-# Layer: Additional system packages (only what the base image doesn't have)
+# Layer: Additional system packages (PackageTools() - tools where install is package or omitted)
 RUN dnf install -y <packages not in base image> && dnf clean all
 
 # Layer: Language-specific tools (changes occasionally)
 RUN <language tool installs>
 
-# Layer: GitHub tools (from manifest github_tools section)
-RUN <curl downloads for each github_tool>
+# Layer: GitHub tools (GithubReleaseTools() - tools where install is github-release)
+RUN <curl downloads for each github-release tool>
 
 # ============================================================
 # MANDATORY: cc-deck + Zellij + cc-session + cc-setup + Claude Code (DO NOT OMIT)
@@ -381,11 +380,9 @@ target_user: <targets.ssh.user>
 workspace: <targets.ssh.workspace>
 shell: <settings.shell or "zsh">
 tools:
-  <manifest tools list>
+  <manifest tools list (unified format with name, install, repo, asset_pattern, install_path fields)>
 plugins:
   <manifest plugins list>
-github_tools:
-  <manifest github_tools list>
 tool_configs:
   <list from settings.tool_configs, each with tool, source, and dest_path resolved from the XDG mapping>
 ```
@@ -431,10 +428,8 @@ Generate task content for each role from the manifest data. Each role is idempot
 - Create workspace directory
 
 **tools role** (`roles/tools/tasks/main.yml`):
-- Map tool descriptions from `tools` to package names
-- Install via `dnf install -y`
-- For `github_tools`: download release binaries with architecture mapping
-  - Map `aarch64` and `x86_64` to the appropriate asset pattern
+- For tools where `install` is `package` (or omitted): map tool descriptions to package names and install via `dnf install -y`
+- For tools where `install` is `github-release`: download release binaries from GitHub using `repo`, `asset_pattern`, and `install_path` fields, with architecture mapping (`aarch64`, `x86_64`)
 
 **zellij role** (`roles/zellij/tasks/main.yml`):
 - Download Zellij release binary for target architecture
@@ -613,7 +608,7 @@ After SSH provisioning succeeds, automatically register the provisioned host as 
      --update
    ```
    Only include optional flags whose values are set in the manifest (not commented out).
-   For `--repo` flags: include one `--repo <url>` for each entry in the `sources` section that has a `url` field.
+   For `--repo` flags: include one `--repo <url>` for each entry in the `sources` section that has both a `url` field and `clone: true`.
 
 4. **Report** the registration:
    ```

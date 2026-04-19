@@ -303,7 +303,7 @@ func (e *SSHEnvironment) Status(ctx context.Context) (*EnvironmentStatus, error)
 		status.State = EnvironmentStateError
 		status.Message = fmt.Sprintf("host unreachable: %v", err)
 	} else {
-		status.State = EnvironmentStateStopped
+		status.State = EnvironmentStateAvailable
 	}
 
 	return status, nil
@@ -498,7 +498,7 @@ func ReconcileSSHEnvs(store *FileStateStore) error {
 			if found {
 				newState = EnvironmentStateRunning
 			} else {
-				newState = EnvironmentStateStopped
+				newState = EnvironmentStateAvailable
 			}
 		}
 
