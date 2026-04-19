@@ -4,16 +4,22 @@
 #   /cc-deck.capture  - discover tools and settings from your local environment
 #   /cc-deck.build    - build container image or provision SSH target
 
-version: 2
+version: 3
 
-# Tool dependencies (free-form text, resolved during build).
-# Add manually or discover automatically with /cc-deck.capture
+# Tool dependencies (resolved during build).
+# Add manually or discover automatically with /cc-deck.capture.
+# Each entry requires a name. Use install: "package" (default) for package
+# manager installs, or install: "github-release" for GitHub release binaries.
 # tools:
-#   - "Go compiler >= 1.22"
-#   - "Python 3.12 with uv package manager"
-#   - "Node.js 22 LTS"
-#   - "protoc and buf CLI"
-#   - "Rust stable toolchain"
+#   - name: "Go compiler >= 1.22"
+#   - name: "Python 3.12 with uv package manager"
+#   - name: "Node.js 22 LTS"
+#   - name: cc-deck
+#     install: github-release
+#     repo: cc-deck/cc-deck
+#   - name: cc-session
+#     install: github-release
+#     repo: cc-deck/cc-session
 
 # Repositories analyzed for tool discovery (provenance tracking).
 # Populated by /cc-deck.capture
@@ -46,13 +52,6 @@ version: 2
 #       type: token
 #       env_vars: [GITHUB_TOKEN]
 #     description: GitHub API access for issue and PR management
-
-# Additional tools from GitHub releases.
-# github_tools:
-#   - repo: cc-deck/cc-setup
-#     binary: cc-setup
-#   - repo: cc-deck/cc-session
-#     binary: cc-session
 
 # User configuration to apply to the target.
 # Populated by /cc-deck.capture

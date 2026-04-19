@@ -18,11 +18,12 @@ const (
 type EnvironmentState string
 
 const (
-	EnvironmentStateRunning  EnvironmentState = "running"
-	EnvironmentStateStopped  EnvironmentState = "stopped"
-	EnvironmentStateCreating EnvironmentState = "creating"
-	EnvironmentStateError    EnvironmentState = "error"
-	EnvironmentStateUnknown  EnvironmentState = "unknown"
+	EnvironmentStateRunning   EnvironmentState = "running"
+	EnvironmentStateStopped   EnvironmentState = "stopped"
+	EnvironmentStateAvailable EnvironmentState = "available"
+	EnvironmentStateCreating  EnvironmentState = "creating"
+	EnvironmentStateError     EnvironmentState = "error"
+	EnvironmentStateUnknown   EnvironmentState = "unknown"
 )
 
 // StorageType identifies the storage backend for an environment.

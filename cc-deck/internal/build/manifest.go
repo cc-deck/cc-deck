@@ -11,14 +11,22 @@ import (
 // Manifest represents the build.yaml file.
 type Manifest struct {
 	Version     int              `yaml:"version"`
-	Tools       []string         `yaml:"tools,omitempty"`
+	Tools       []ToolEntry      `yaml:"tools,omitempty"`
 	Sources     []SourceEntry    `yaml:"sources,omitempty"`
 	Plugins     []PluginEntry    `yaml:"plugins,omitempty"`
 	MCP         []MCPEntry       `yaml:"mcp,omitempty"`
-	GithubTools []GithubTool     `yaml:"github_tools,omitempty"`
 	Settings    *SettingsConfig  `yaml:"settings,omitempty"`
 	Network     *NetworkConfig   `yaml:"network,omitempty"`
 	Targets     *TargetsConfig   `yaml:"targets,omitempty"`
+}
+
+// ToolEntry describes a tool to install, either via package manager or GitHub release.
+type ToolEntry struct {
+	Name         string `yaml:"name"`
+	Install      string `yaml:"install,omitempty"`
+	Repo         string `yaml:"repo,omitempty"`
+	AssetPattern string `yaml:"asset_pattern,omitempty"`
+	InstallPath  string `yaml:"install_path,omitempty"`
 }
 
 // TargetsConfig holds per-target configuration.
@@ -54,6 +62,7 @@ type NetworkConfig struct {
 type SourceEntry struct {
 	URL           string   `yaml:"url"`
 	Ref           string   `yaml:"ref,omitempty"`
+	Clone         bool     `yaml:"clone,omitempty"`
 	Path          string   `yaml:"path,omitempty"`
 	DetectedTools []string `yaml:"detected_tools,omitempty"`
 	DetectedFrom  []string `yaml:"detected_from,omitempty"`
@@ -82,11 +91,26 @@ type MCPAuth struct {
 	EnvVars []string `yaml:"env_vars,omitempty"`
 }
 
-// GithubTool describes a tool to download from GitHub releases.
-type GithubTool struct {
-	Repo         string `yaml:"repo"`
-	Binary       string `yaml:"binary"`
-	AssetPattern string `yaml:"asset_pattern,omitempty"`
+// PackageTools returns tools that should be installed via package manager.
+func (m *Manifest) PackageTools() []ToolEntry {
+	var result []ToolEntry
+	for _, t := range m.Tools {
+		if t.Install == "" || t.Install == "package" {
+			result = append(result, t)
+		}
+	}
+	return result
+}
+
+// GithubReleaseTools returns tools that should be installed from GitHub releases.
+func (m *Manifest) GithubReleaseTools() []ToolEntry {
+	var result []ToolEntry
+	for _, t := range m.Tools {
+		if t.Install == "github-release" {
+			result = append(result, t)
+		}
+	}
+	return result
 }
 
 // SettingsConfig describes user configuration to apply to the target.
@@ -140,9 +164,14 @@ func (m *Manifest) Validate() error {
 			return fmt.Errorf("mcp[%d].name is required", i)
 		}
 	}
-	for i, gt := range m.GithubTools {
-		if gt.Repo == "" || !strings.Contains(gt.Repo, "/") {
-			return fmt.Errorf("github_tools[%d].repo must be in owner/repo format", i)
+	for i, t := range m.Tools {
+		if t.Name == "" {
+			return fmt.Errorf("tools[%d].name is required", i)
+		}
+		if t.Install == "github-release" {
+			if t.Repo == "" || !strings.Contains(t.Repo, "/") {
+				return fmt.Errorf("tools[%d].repo must be in owner/repo format", i)
+			}
 		}
 	}
 	if m.Settings != nil {
