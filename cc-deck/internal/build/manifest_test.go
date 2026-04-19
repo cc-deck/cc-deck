@@ -22,7 +22,7 @@ tools:
   - "Go 1.25"
 `
 	dir := t.TempDir()
-	path := filepath.Join(dir, "cc-deck-build.yaml")
+	path := filepath.Join(dir, "build.yaml")
 	require.NoError(t, os.WriteFile(path, []byte(content), 0644))
 
 	m, err := LoadManifest(path)
@@ -51,7 +51,7 @@ targets:
     workspace: ~/workspace
 `
 	dir := t.TempDir()
-	path := filepath.Join(dir, "cc-deck-build.yaml")
+	path := filepath.Join(dir, "build.yaml")
 	require.NoError(t, os.WriteFile(path, []byte(content), 0644))
 
 	m, err := LoadManifest(path)
@@ -78,7 +78,7 @@ targets:
     host: dev@marovo
 `
 	dir := t.TempDir()
-	path := filepath.Join(dir, "cc-deck-build.yaml")
+	path := filepath.Join(dir, "build.yaml")
 	require.NoError(t, os.WriteFile(path, []byte(content), 0644))
 
 	m, err := LoadManifest(path)
@@ -98,7 +98,7 @@ tools:
   - ripgrep
 `
 	dir := t.TempDir()
-	path := filepath.Join(dir, "cc-deck-build.yaml")
+	path := filepath.Join(dir, "build.yaml")
 	require.NoError(t, os.WriteFile(path, []byte(content), 0644))
 
 	m, err := LoadManifest(path)
@@ -119,7 +119,7 @@ network:
     - custom.example.com
 `
 	dir := t.TempDir()
-	path := filepath.Join(dir, "cc-deck-build.yaml")
+	path := filepath.Join(dir, "build.yaml")
 	require.NoError(t, os.WriteFile(path, []byte(content), 0644))
 
 	m, err := LoadManifest(path)

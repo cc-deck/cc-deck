@@ -13,7 +13,8 @@ import (
 
 func TestDetectRunTarget_ContainerfileOnly(t *testing.T) {
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "Containerfile"), []byte("FROM fedora\n"), 0o644))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "container"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "container", "Containerfile"), []byte("FROM fedora\n"), 0o644))
 
 	target, err := detectRunTarget(dir, "")
 	require.NoError(t, err)
@@ -32,7 +33,8 @@ func TestDetectRunTarget_SSHOnly(t *testing.T) {
 
 func TestDetectRunTarget_BothPresent_Error(t *testing.T) {
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "Containerfile"), []byte("FROM fedora\n"), 0o644))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "container"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "container", "Containerfile"), []byte("FROM fedora\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "site.yml"), []byte("---\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "inventory.ini"), []byte("[all]\n"), 0o644))
 
