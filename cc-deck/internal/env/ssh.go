@@ -176,6 +176,7 @@ func (e *SSHEnvironment) Attach(ctx context.Context) error {
 	}
 
 	client := e.newSSHClient(def)
+	client.AgentForwarding = true
 
 	// Write credentials to remote before attaching (unless auth=none).
 	if def.Auth != "none" {
@@ -252,6 +253,19 @@ func (e *SSHEnvironment) Delete(ctx context.Context, force bool) error {
 	}
 
 	return nil
+}
+
+// KillRemoteSession kills the Zellij session on the remote host (best-effort).
+func (e *SSHEnvironment) KillRemoteSession(ctx context.Context) {
+	inst, err := e.store.FindInstanceByName(e.name)
+	if err != nil || inst.SSH == nil {
+		return
+	}
+	client := ssh.NewClient(inst.SSH.Host, inst.SSH.Port, inst.SSH.IdentityFile, inst.SSH.JumpHost, inst.SSH.SSHConfig)
+	killCmd := fmt.Sprintf("zellij delete-session %q -f", e.sshSessionName())
+	if _, err := client.Run(ctx, killCmd); err != nil {
+		log.Printf("WARNING: could not kill remote session: %v", err)
+	}
 }
 
 // Start is not supported for SSH environments.

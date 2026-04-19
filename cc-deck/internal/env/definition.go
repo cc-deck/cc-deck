@@ -220,10 +220,10 @@ func (s *DefinitionStore) List(filter *ListFilter) ([]*EnvironmentDefinition, er
 	return result, nil
 }
 
-const projectDefinitionFile = ".cc-deck/environment.yaml"
+const projectDefinitionFile = ".cc-deck/workspace.yaml"
 
-// LoadProjectDefinition reads the environment definition from
-// .cc-deck/environment.yaml in the given project root.
+// LoadProjectDefinition reads the workspace definition from
+// .cc-deck/workspace.yaml in the given project root.
 // Returns a bare EnvironmentDefinition (not wrapped in DefinitionFile).
 func LoadProjectDefinition(projectRoot string) (*EnvironmentDefinition, error) {
 	path := filepath.Join(projectRoot, projectDefinitionFile)
@@ -243,8 +243,8 @@ func LoadProjectDefinition(projectRoot string) (*EnvironmentDefinition, error) {
 	return &def, nil
 }
 
-// SaveProjectDefinition writes an environment definition to
-// .cc-deck/environment.yaml, creating the directory and .gitignore if needed.
+// SaveProjectDefinition writes a workspace definition to
+// .cc-deck/workspace.yaml, creating the directory and .gitignore if needed.
 func SaveProjectDefinition(projectRoot string, def *EnvironmentDefinition) error {
 	dir := filepath.Join(projectRoot, ".cc-deck")
 	if err := os.MkdirAll(dir, 0o755); err != nil {

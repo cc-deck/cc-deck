@@ -53,7 +53,7 @@ func TestFindProjectConfig_Found(t *testing.T) {
 
 	ccDeckDir := filepath.Join(dir, ".cc-deck")
 	require.NoError(t, os.MkdirAll(ccDeckDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(ccDeckDir, "environment.yaml"), []byte("name: test\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(ccDeckDir, "workspace.yaml"), []byte("name: test\n"), 0o644))
 
 	root, err := FindProjectConfig(dir)
 	require.NoError(t, err)
@@ -83,7 +83,7 @@ func TestFindProjectConfig_FromSubdirectory(t *testing.T) {
 
 	ccDeckDir := filepath.Join(dir, ".cc-deck")
 	require.NoError(t, os.MkdirAll(ccDeckDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(ccDeckDir, "environment.yaml"), []byte("name: test\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(ccDeckDir, "workspace.yaml"), []byte("name: test\n"), 0o644))
 
 	sub := filepath.Join(dir, "src", "pkg")
 	require.NoError(t, os.MkdirAll(sub, 0o755))
@@ -100,7 +100,7 @@ func createWorkspaceConfig(t *testing.T, dir string) {
 	ccDeckDir := filepath.Join(dir, ".cc-deck")
 	require.NoError(t, os.MkdirAll(ccDeckDir, 0o755))
 	require.NoError(t, os.WriteFile(
-		filepath.Join(ccDeckDir, "environment.yaml"),
+		filepath.Join(ccDeckDir, "workspace.yaml"),
 		[]byte("name: workspace-test\ntype: compose\n"), 0o644))
 }
 
@@ -134,7 +134,7 @@ func TestFindWorkspaceRoot_NotFound(t *testing.T) {
 }
 
 func TestFindProjectConfig_WorkspaceWithoutGit(t *testing.T) {
-	// Workspace directory (no .git/) with .cc-deck/environment.yaml.
+	// Workspace directory (no .git/) with .cc-deck/workspace.yaml.
 	dir := t.TempDir()
 	createWorkspaceConfig(t, dir)
 
@@ -162,7 +162,7 @@ func TestFindProjectConfig_GitRepoInsideWorkspace(t *testing.T) {
 }
 
 func TestFindProjectConfig_GitRepoWithOwnConfig(t *testing.T) {
-	// Both workspace and git repo have .cc-deck/environment.yaml.
+	// Both workspace and git repo have .cc-deck/workspace.yaml.
 	// The git repo's own config should win (strategy 1).
 	workspace := t.TempDir()
 	createWorkspaceConfig(t, workspace)
