@@ -127,6 +127,7 @@ impl PluginConfig {
             }
         }
 
+
         if let Some(v) = config.get("perf") {
             result.perf_enabled = v == "true" || v == "1";
         }

@@ -152,9 +152,10 @@ For each setting, copy the source file to `build-context/` during Step A4, then 
 |---|---|---|---|
 | `settings.shell` | `zsh` or `bash` | Sets `default_shell` in config.kdl and `chsh` | Default: `zsh` |
 | `settings.shell_rc` | The specified path | Appended to shell rc file (`.zshrc` or `.bashrc`) | Curated additions (base image rc preserved) |
-| `settings.zellij_config: current` | `~/.config/zellij/config.kdl` | `/home/dev/.config/zellij/config.kdl` | Only config, not layouts/plugins (managed by cc-deck) |
-| `settings.zellij_config: <path>` | The specified path | `/home/dev/.config/zellij/config.kdl` | Custom config file |
+| `settings.zellij_config: current` | `~/.config/zellij/config.kdl` | `/home/dev/.config/zellij/config.kdl` | Strip controller block before copying (see below) |
+| `settings.zellij_config: <path>` | The specified path | `/home/dev/.config/zellij/config.kdl` | Strip controller block before copying (see below) |
 | `settings.zellij_config: vanilla` | (skip) | (nothing) | Use cc-deck defaults only |
+| `settings.remote_theme_bg` | Hex color (e.g., `#1a2a3a`) | Replaces `bg` in theme and config.kdl | Visual cue for remote sessions |
 | `settings.claude_md` | The specified path | `/home/dev/.claude/CLAUDE.md` | Global user instructions for Claude |
 | `settings.claude_settings` | The specified path | Merge into `/home/dev/.claude/settings.json` | Merge user preferences with existing settings |
 | `settings.hooks` | The specified path | Merge into `/home/dev/.claude/settings.json` | Merge with cc-deck hooks, do not overwrite |
@@ -163,6 +164,8 @@ For each setting, copy the source file to `build-context/` during Step A4, then 
 | `settings.tool_configs[]` | Each entry's `source` path | `/home/dev/.config/<target>` | One COPY per tool config entry |
 
 **Tool config destination**: Each `tool_configs` entry has a `target` field that specifies the path relative to `~/.config/` (e.g., `starship.toml`, `helix/config.toml`). The container destination is `/home/dev/.config/<target>`. If an entry lacks a `target` field, fall back to `/home/dev/.config/<tool>/<source-filename>`.
+
+**Zellij config.kdl sanitization**: When copying `config.kdl` to the build context, **always strip the cc-deck controller block** (the lines between `// cc-deck-controller-start` and `// cc-deck-controller-end` inclusive). This block contains absolute paths from the host machine that will be wrong on the target. The `cc-deck config plugin install` command (run later in the mandatory layers) re-injects the controller block with the correct target paths.
 
 Use `/cc-deck.capture` to interactively select what to include before building.
 
@@ -174,6 +177,7 @@ COPY --chown=dev:dev <shell_rc_file> /home/dev/.<shell>rc.custom
 RUN cat /home/dev/.<shell>rc.custom >> /home/dev/.<shell>rc && rm /home/dev/.<shell>rc.custom
 
 # Zellij user config (if settings.zellij_config is set)
+# NOTE: build-context/zellij-config.kdl must have the cc-deck controller block stripped first (see below)
 COPY --chown=dev:dev build-context/zellij-config.kdl /home/dev/.config/zellij/config.kdl
 RUN grep -q 'default_shell' /home/dev/.config/zellij/config.kdl || \
     echo 'default_shell "<chosen-shell>"' >> /home/dev/.config/zellij/config.kdl
@@ -423,6 +427,7 @@ Generate task content for each role from the manifest data. Each role is idempot
   - Grant sudo access (add to wheel group or create sudoers entry)
   - Install SSH authorized key from the `.pub` counterpart of `identity_file`
 - Set default shell to the configured shell
+- Add GitHub SSH host key to `known_hosts` (enables `git clone` over SSH without interactive host verification)
 - Create workspace directory
 
 **tools role** (`roles/tools/tasks/main.yml`):
@@ -482,10 +487,17 @@ Generate task content for each role from the manifest data. Each role is idempot
 
 **shell_config role** (`roles/shell_config/tasks/main.yml`):
 - Ensure `~/.local/bin` is on PATH by adding `export PATH="$HOME/.local/bin:$PATH"` to the shell RC file (required for `claude` which installs there)
+- Ensure `TERM` is set: add `export TERM="${TERM:-xterm-256color}"` to the shell RC file (SSH sessions through Zellij may not propagate TERM)
 - Install curated shell RC from template (if `settings.shell_rc` is set)
 - Add credential sourcing snippet: `[ -f ~/.config/cc-deck/credentials.env ] && source ~/.config/cc-deck/credentials.env`
 - Install starship config if present
 - Guard starship init with interactive shell check: `[[ $- == *i* ]] && eval "$(starship init zsh)"` (prevents OSC escape sequences in non-interactive sessions like Ansible)
+- **Zellij config.kdl**: If `settings.zellij_config` is set:
+  1. Strip the cc-deck controller block locally (use `sed` with `delegate_to: localhost` and `become: false`) before copying
+  2. Deploy the stripped config to the target
+  3. Ensure `default_shell` is set in the deployed config
+  4. Re-run `cc-deck config plugin install --force --skip-backup` as the target user to re-inject the controller block with correct paths
+  The stripping is critical because the source config contains absolute paths from the host machine (e.g., `/Users/rhuss/...`) that are wrong on the target.
 - For each entry in `settings.tool_configs`: copy the source file to `/home/<target_user>/.config/<target>` (using the `target` field from the manifest entry; fall back to `<tool>/<source-filename>` if `target` is not set). Create parent directories as needed. Example Ansible task:
   ```yaml
   - name: Deploy tool config
@@ -584,16 +596,24 @@ After SSH provisioning succeeds, automatically register the provisioned host as 
    - If `create_user` is true and `targets.ssh.user` is set, the workspace host is `<user>@<hostname>` (developers SSH as the created user, not root)
    - Otherwise, use `targets.ssh.host` as-is
 
-3. **Register the workspace** using `--update` for idempotency:
+3. **Register the workspace** using `--update` for idempotency.
+
+   **IMPORTANT**: Run from the **project root** (not from `.cc-deck/setup/`), otherwise cc-deck refuses to create a workspace inside a `.cc-deck/` directory.
+
+   **IMPORTANT**: If the workspace path contains `~`, expand it to the absolute path on the remote (e.g., `~/workspace` -> `/home/<user>/workspace`). The `~` must NOT be passed to the shell because it would expand to the local home directory.
+
    ```bash
+   cd <project-root> && \
    cc-deck ws new <name> --type ssh \
      --host <effective-host> \
      [--ssh-port <port>] \
      [--identity-file <identity_file>] \
-     [--workspace <workspace>] \
+     [--workspace <absolute-remote-path>] \
+     [--repo <url> ...] \
      --update
    ```
    Only include optional flags whose values are set in the manifest (not commented out).
+   For `--repo` flags: include one `--repo <url>` for each entry in the `sources` section that has a `url` field.
 
 4. **Report** the registration:
    ```

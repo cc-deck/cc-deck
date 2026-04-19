@@ -55,6 +55,7 @@ Before presenting Step 1, silently perform all analysis:
 - Deduplicate and resolve version conflicts
 - Detect network domain groups
 - Detect tool configuration files
+- For each repository, run `git -C <path> remote get-url origin` to capture the clone URL
 
 Then present Step 1 with the results.
 
@@ -324,6 +325,17 @@ Based on the chosen shell, read the corresponding config file (`~/.zshrc` or `~/
 - Desktop app integrations: iTerm2 shell integration, VS Code shell integration
 - Duplicate of base image defaults (for zsh): starship init, zoxide init, fzf source, bat/lsd aliases
 
+**Guard unresolved commands**: After curating, scan the proposed config for commands referenced in `alias`, `compdef`, and function bodies. Cross-reference against:
+- Tools accepted in Steps 1-2
+- Tools in the base image (git, curl, tar, zsh, bat, lsd, starship, fzf, zoxide, jq, rg)
+- Standard system commands (ls, cd, grep, etc.)
+
+For any command not in these lists, **wrap it with an availability check** rather than removing it:
+- `compdef X=Y` -> `(( $+commands[X] )) && compdef X=Y`
+- `alias foo="bar"` -> `(( $+commands[bar] )) && alias foo="bar"` (only if `bar` is the unresolved command)
+
+Show the guarded lines in the "Stripped" summary so the user sees what was wrapped.
+
 **Present** the curated config as text:
 
 ```
@@ -441,7 +453,33 @@ The Zellij `config.kdl` `default_shell` is set to match the chosen shell.
 
 **STOP. Wait for user response before proceeding.**
 
+If the user selected a theme file, ask about a remote background color for visual distinction:
+
+```json
+{
+  "questions": [{
+    "question": "Use a distinct background color for remote sessions (SSH/container)?",
+    "header": "Remote BG",
+    "multiSelect": false,
+    "options": [
+      {"label": "Dark blue (#1a2a3a)", "description": "Subtle blue tint, easy to distinguish from local"},
+      {"label": "Dark green (#1a2a1a)", "description": "Subtle green tint"},
+      {"label": "Dark purple (#2a1a2a)", "description": "Subtle purple tint"},
+      {"label": "No change", "description": "Same background as local sessions"}
+    ]
+  }]
+}
+```
+
+**STOP. Wait for user response before proceeding.**
+
 **Action**: Copy selected files to the build directory. If the user's `config.kdl` does not contain `default_shell`, append `default_shell "zsh"` to ensure Zellij panes start with zsh (required for starship prompt and shell integrations).
+
+If the user chose a remote background color, add it to the manifest:
+```yaml
+settings:
+  remote_theme_bg: "<chosen color>"
+```
 
 Update manifest:
 ```yaml
@@ -674,7 +712,12 @@ Then use `AskUserQuestion`:
 Then perform the write:
 
 1. Update `tools` section with accepted tool entries (as free-form text)
-2. Update `sources` section with repository provenance (URL, ref, path, detected_tools, detected_from)
+2. Update `sources` section with repository provenance. For each repo, include:
+   - `path`: local directory name
+   - `url`: git remote origin URL (from `git remote get-url origin`)
+   - `detected_tools`: tools found in this repo
+   - `detected_from`: files that were analyzed
+   The `url` field is used by `ws new --repo` to clone repos on remote targets.
 3. Update `network.allowed_domains` with detected domain groups
 4. Update `settings` section with shell, Zellij, Claude selections
 5. Update `plugins` section with selected plugins

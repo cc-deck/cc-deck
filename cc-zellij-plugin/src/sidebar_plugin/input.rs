@@ -408,6 +408,10 @@ fn handle_navigate_key(state: &mut SidebarState, key: KeyWithModifier) -> bool {
             }
             true
         }
+        BareKey::Char('R') => {
+            send_action(state, ActionType::Refresh, None, None, None);
+            true
+        }
         BareKey::Char('?') | BareKey::F(1) => {
             state.mode.toggle_help();
             true

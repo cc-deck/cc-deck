@@ -251,7 +251,7 @@ func (s *FileStateStore) ListProjects() ([]ProjectEntry, error) {
 }
 
 // AllProjectEnvironmentNames returns a map of environment name to project path
-// for all registered projects that have a .cc-deck/environment.yaml definition.
+// for all registered projects that have a .cc-deck/workspace.yaml definition.
 // The excludePath argument (if non-empty) is skipped, allowing callers to
 // exclude the current project when checking for cross-project collisions.
 func (s *FileStateStore) AllProjectEnvironmentNames(excludePath string) (map[string]string, error) {

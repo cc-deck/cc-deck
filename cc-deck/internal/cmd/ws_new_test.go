@@ -155,13 +155,13 @@ func TestRunWsNew_CLIOverrideStoredInStatusYaml(t *testing.T) {
 	err := runWsNew(nil, "test-override", cf, cmd)
 	require.NoError(t, err)
 
-	// Verify override is in status.yaml, NOT in environment.yaml.
+	// Verify override is in status.yaml, NOT in workspace.yaml.
 	statusStore := env.NewProjectStatusStore(tmpDir)
 	status, err := statusStore.Load()
 	require.NoError(t, err)
 	assert.Equal(t, "override:latest", status.Overrides["image"])
 
-	// environment.yaml should still have original image.
+	// workspace.yaml should still have original image.
 	loadedDef, err := env.LoadProjectDefinition(tmpDir)
 	require.NoError(t, err)
 	assert.Equal(t, "original:latest", loadedDef.Image)

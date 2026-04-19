@@ -39,7 +39,7 @@ Use --type to select the runtime backend when creating a workspace:
   k8s-sandbox Ephemeral Kubernetes pod (planned)
 
 Most commands accept a workspace name, or auto-detect it from
-a .cc-deck/environment.yaml file in the current project.`,
+a .cc-deck/workspace.yaml file in the current project.`,
 	}
 
 	wsCmd.AddGroup(
@@ -142,7 +142,7 @@ func newWsNewCmd(gf *GlobalFlags) *cobra.Command {
 control where the workspace runs: locally in Zellij, inside a
 container, or as a multi-container compose stack.
 
-When run inside a git repository that contains .cc-deck/environment.yaml,
+When run inside a git repository that contains .cc-deck/workspace.yaml,
 the name, type, and settings are loaded from that file automatically.
 CLI flags override definition values. In a git repo without a definition,
 one is scaffolded for you so your team can share it via version control.
@@ -256,7 +256,7 @@ func runWsNew(gf *GlobalFlags, name string, cf *newFlags, cmd *cobra.Command) er
 			projDef = def
 		}
 	} else if root, gitErr := project.FindGitRoot(cwd); gitErr == nil {
-		// In a git repo but no .cc-deck/environment.yaml.
+		// In a git repo but no .cc-deck/workspace.yaml.
 		projectRoot = root
 	} else if name != "" {
 		// Not in a git repo and no workspace config found, but explicit
@@ -273,7 +273,7 @@ func runWsNew(gf *GlobalFlags, name string, cf *newFlags, cmd *cobra.Command) er
 			// In a git repo with no definition: scaffold from CLI flags.
 			name = project.ProjectName(projectRoot)
 		} else {
-			return fmt.Errorf("no workspace name specified and no .cc-deck/environment.yaml found in project hierarchy")
+			return fmt.Errorf("no workspace name specified and no .cc-deck/workspace.yaml found in project hierarchy")
 		}
 	}
 
@@ -295,7 +295,7 @@ func runWsNew(gf *GlobalFlags, name string, cf *newFlags, cmd *cobra.Command) er
 		projDef = nil
 	} else if cf.local {
 		if projDef == nil {
-			return fmt.Errorf("no project-local definition found (missing .cc-deck/environment.yaml)")
+			return fmt.Errorf("no project-local definition found (missing .cc-deck/workspace.yaml)")
 		}
 		if name != projDef.Name {
 			return fmt.Errorf("project-local definition is %q, not %q; use --global or omit --local", projDef.Name, name)
@@ -358,7 +358,7 @@ func runWsNew(gf *GlobalFlags, name string, cf *newFlags, cmd *cobra.Command) er
 			return fmt.Errorf("scaffolding project definition: %w", err)
 		}
 		projDef = scaffoldDef
-		fmt.Fprintf(os.Stderr, "Created %s/.cc-deck/environment.yaml\n", projectRoot)
+		fmt.Fprintf(os.Stderr, "Created %s/.cc-deck/workspace.yaml\n", projectRoot)
 		if _, gitErr := project.FindGitRoot(projectRoot); gitErr == nil {
 			fmt.Fprintf(os.Stderr, "Commit .cc-deck/ to share the definition with your team.\n")
 		}
@@ -758,14 +758,14 @@ func splitCredential(s string) []string {
 // --- attach ---
 
 func newAttachCmdCore(_ *GlobalFlags) *cobra.Command {
-	var branch string
+	var reset bool
 
 	cmd := &cobra.Command{
 		Use:   "attach [name]",
 		Short: "Attach to a workspace",
 		Long: `Open an interactive session for the named workspace.
-When no name is provided, resolves from .cc-deck/environment.yaml in the project.
-Use --branch to land in a specific worktree directory inside the container.`,
+When no name is provided, resolves from .cc-deck/workspace.yaml in the project.
+Use --reset to kill the existing Zellij session and start fresh.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store := env.NewStateStore("")
@@ -773,20 +773,40 @@ Use --branch to land in a specific worktree directory inside the container.`,
 			if err != nil {
 				return err
 			}
-			if branch != "" {
-				fmt.Fprintf(os.Stderr, "NOTE: --branch %q requested (worktree attach not yet wired to container exec)\n", branch)
+			if reset {
+				return runWsAttachReset(name)
 			}
 			return runWsAttach(name)
 		},
 	}
 
-	cmd.Flags().StringVar(&branch, "branch", "", "Attach and land in a specific worktree directory (FR-022)")
+	cmd.Flags().BoolVar(&reset, "reset", false, "Kill existing session and start fresh")
 
 	return cmd
 }
 
 func newWsAttachCmd(gf *GlobalFlags) *cobra.Command {
 	return newAttachCmdCore(gf)
+}
+
+func runWsAttachReset(name string) error {
+	store := env.NewStateStore("")
+	defs := env.NewDefinitionStore("")
+
+	e, err := resolveEnvironment(name, store, defs)
+	if err != nil {
+		return err
+	}
+
+	if sshEnv, ok := e.(*env.SSHEnvironment); ok {
+		sshEnv.KillRemoteSession(cmd_context())
+	} else if containerEnv, ok := e.(*env.ContainerEnvironment); ok {
+		_ = containerEnv.Stop(cmd_context())
+		_ = containerEnv.Start(cmd_context())
+	}
+
+	fmt.Fprintf(os.Stderr, "Session reset. Attaching...\n")
+	return e.Attach(cmd_context())
 }
 
 func runWsAttach(name string) error {
@@ -814,7 +834,7 @@ func newWsDeleteCmd(_ *GlobalFlags) *cobra.Command {
 		Long: `Destroy the named workspace and remove it from the state store.
 If the workspace is running, use --force to stop and destroy it.
 For container workspaces, use --keep-volumes to preserve data volumes.
-When no name is provided, resolves from .cc-deck/environment.yaml in the project.`,
+When no name is provided, resolves from .cc-deck/workspace.yaml in the project.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store := env.NewStateStore("")
@@ -859,7 +879,7 @@ func runWsDelete(name string, force bool, keepVolumes bool) error {
 		// Search project-local definitions from the project registry.
 		if projectNames, lookupErr := store.AllProjectEnvironmentNames(""); lookupErr == nil {
 			if projPath, found := projectNames[name]; found {
-				defPath := filepath.Join(projPath, ".cc-deck", "environment.yaml")
+				defPath := filepath.Join(projPath, ".cc-deck", "workspace.yaml")
 				if rmErr := os.Remove(defPath); rmErr != nil {
 					return fmt.Errorf("removing project definition %s: %w", defPath, rmErr)
 				}
@@ -1274,7 +1294,7 @@ func newStatusCmdCore(gf *GlobalFlags) *cobra.Command {
 		Use:   "status [name]",
 		Short: "Show workspace status",
 		Long: `Display detailed status information for the named workspace.
-When no name is provided, resolves from .cc-deck/environment.yaml in the project.`,
+When no name is provided, resolves from .cc-deck/workspace.yaml in the project.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store := env.NewStateStore("")
@@ -1442,7 +1462,7 @@ func newStartCmdCore(_ *GlobalFlags) *cobra.Command {
 		Use:   "start [name]",
 		Short: "Start a stopped workspace",
 		Long: `Bring a stopped workspace back to a running state.
-When no name is provided, resolves from .cc-deck/environment.yaml in the project.`,
+When no name is provided, resolves from .cc-deck/workspace.yaml in the project.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store := env.NewStateStore("")
@@ -1483,7 +1503,7 @@ func newStopCmdCore(_ *GlobalFlags) *cobra.Command {
 		Use:   "stop [name]",
 		Short: "Stop a running workspace",
 		Long: `Gracefully stop a running workspace.
-When no name is provided, resolves from .cc-deck/environment.yaml in the project.`,
+When no name is provided, resolves from .cc-deck/workspace.yaml in the project.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store := env.NewStateStore("")
@@ -1784,7 +1804,7 @@ func runEnvRefreshCreds(name string) error {
 }
 
 // resolveEnvironmentName resolves an environment name from arguments or
-// project-local config. When name is empty, walks to find .cc-deck/environment.yaml
+// project-local config. When name is empty, walks to find .cc-deck/workspace.yaml
 // at the git root. Auto-registers discovered projects (FR-007). Displays
 // resolution message (FR-018). Ensures .cc-deck/.gitignore (FR-030).
 func resolveEnvironmentName(args []string, store *env.FileStateStore) (name string, projectRoot string, err error) {
@@ -1799,7 +1819,7 @@ func resolveEnvironmentName(args []string, store *env.FileStateStore) (name stri
 
 	root, findErr := project.FindProjectConfig(cwd)
 	if findErr != nil {
-		return "", "", fmt.Errorf("no workspace name specified and no .cc-deck/environment.yaml found in project hierarchy")
+		return "", "", fmt.Errorf("no workspace name specified and no .cc-deck/workspace.yaml found in project hierarchy")
 	}
 
 	def, loadErr := env.LoadProjectDefinition(root)

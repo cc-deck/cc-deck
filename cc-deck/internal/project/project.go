@@ -12,11 +12,11 @@ import (
 
 var (
 	ErrNotGitRepo        = errors.New("not inside a git repository")
-	ErrNoProjectConfig   = errors.New("no .cc-deck/environment.yaml found in project hierarchy")
-	ErrNoWorkspaceConfig = errors.New("no .cc-deck/environment.yaml found in directory hierarchy")
+	ErrNoProjectConfig   = errors.New("no .cc-deck/workspace.yaml found in project hierarchy")
+	ErrNoWorkspaceConfig = errors.New("no .cc-deck/workspace.yaml found in directory hierarchy")
 )
 
-const projectConfigPath = ".cc-deck/environment.yaml"
+const projectConfigPath = ".cc-deck/workspace.yaml"
 
 // FindGitRoot returns the git root directory for the given start path.
 // Uses `git rev-parse --show-toplevel` for reliable detection.

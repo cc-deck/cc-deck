@@ -112,6 +112,19 @@ pub fn handle_timer(state: &mut ControllerState, _elapsed: f64) {
         }
     }
 
+    // Auto-restore persisted sessions if sidebar is empty (reattach recovery).
+    if state.sessions.is_empty() {
+        let restored = ControllerState::restore_sessions();
+        if !restored.is_empty() {
+            crate::debug_log(&format!(
+                "CTRL TIMER: auto-restored {} sessions from disk",
+                restored.len()
+            ));
+            state.merge_sessions(restored);
+            state.mark_render_dirty();
+        }
+    }
+
     // Periodic stale session cleanup
     let stale = state.cleanup_stale_sessions(state.config.done_timeout);
     if stale {

@@ -22,7 +22,7 @@ env:
   FOO: bar
   BAZ: qux
 `
-	require.NoError(t, os.WriteFile(filepath.Join(ccDir, "environment.yaml"), []byte(content), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(ccDir, "workspace.yaml"), []byte(content), 0o644))
 
 	def, err := LoadProjectDefinition(dir)
 	require.NoError(t, err)
@@ -86,7 +86,7 @@ func TestSaveProjectDefinition_AtomicWrite(t *testing.T) {
 
 	require.NoError(t, SaveProjectDefinition(dir, def))
 
-	tmpPath := filepath.Join(dir, ".cc-deck", "environment.yaml.tmp")
+	tmpPath := filepath.Join(dir, ".cc-deck", "workspace.yaml.tmp")
 	_, err := os.Stat(tmpPath)
 	assert.True(t, os.IsNotExist(err), ".tmp file should not linger")
 }
