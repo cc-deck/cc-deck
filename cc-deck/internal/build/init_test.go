@@ -181,7 +181,7 @@ func TestInitSetupDir_CreatesManifest(t *testing.T) {
 	// Should be valid YAML with version 2
 	content, err := os.ReadFile(manifestPath)
 	require.NoError(t, err)
-	assert.Contains(t, string(content), "version: 2")
+	assert.Contains(t, string(content), "version: 3")
 
 	// .gitignore should exist
 	assert.FileExists(t, filepath.Join(setupDir, ".gitignore"))

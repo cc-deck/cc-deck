@@ -18,11 +18,11 @@ All file references in this command (manifest, config files) are relative to the
 
 ## Interaction Model
 
-This command runs as a **step-by-step wizard**. There are 9 steps total.
+This command runs as a **step-by-step wizard**. There are 10 steps total.
 
 **Rules:**
 - Present ONE step at a time
-- Show a progress header: `## Step N/9: Title`
+- Show a progress header: `## Step N/10: Title`
 - After presenting each step's findings, use `AskUserQuestion` to collect the user's decision
 - Never present the next step until the user has responded to the current one
 - Use `AskUserQuestion` for ALL user interactions (never ask inline text questions)
@@ -61,7 +61,7 @@ Then present Step 1 with the results.
 
 ---
 
-## Step 1/9: Detected Tools
+## Step 1/10: Detected Tools
 
 Analyze each repository for these files (if present):
 
@@ -86,7 +86,7 @@ Merge findings across all repositories, deduplicate, resolve version conflicts (
 **Present** the detected tools as a numbered text list:
 
 ```
-## Step 1/9: Detected Tools
+## Step 1/10: Detected Tools
 
 Scanned N repositories.
 
@@ -121,7 +121,7 @@ If user selects "Exclude some", ask which items to remove by number or name, the
 
 ---
 
-## Step 2/9: cc-deck Companion Tools
+## Step 2/10: cc-deck Companion Tools
 
 Present optional tools from the cc-deck ecosystem and community that enhance the development environment. These are not detected from repositories but offered as curated recommendations.
 
@@ -136,7 +136,7 @@ Present optional tools from the cc-deck ecosystem and community that enhance the
 **Present** the catalog as text, then use `AskUserQuestion` with `multiSelect: true`:
 
 ```
-## Step 2/9: cc-deck Companion Tools
+## Step 2/10: cc-deck Companion Tools
 
 Optional tools that integrate with your cc-deck environment:
 ```
@@ -158,19 +158,23 @@ Optional tools that integrate with your cc-deck environment:
 
 **STOP. Wait for user response before proceeding.**
 
-**Action**: For each selected companion tool, add it to the manifest's `github_tools` section with the install metadata:
+**Action**: For each selected companion tool, add it to the manifest's `tools` section with `install: github-release` and the install metadata:
 
 ```yaml
-github_tools:
+tools:
+  # ... package tools from Step 1 ...
   - name: cc-session
+    install: github-release
     repo: cc-deck/cc-session
     asset_pattern: "cc-session-{arch}-unknown-linux-gnu.tar.xz"
     install_path: /usr/local/bin/cc-session
   - name: cc-setup
+    install: github-release
     repo: cc-deck/cc-setup
     asset_pattern: "cc-setup-{arch}-unknown-linux-gnu.tar.xz"
     install_path: /usr/local/bin/cc-setup
   - name: abtop
+    install: github-release
     repo: graykode/abtop
     asset_pattern: "abtop-{arch}-unknown-linux-gnu.tar.gz"
     install_path: /usr/local/bin/abtop
@@ -180,7 +184,7 @@ The `{arch}` placeholder is resolved during build to the target architecture (e.
 
 ---
 
-## Step 3/9: Network Domain Groups
+## Step 3/10: Network Domain Groups
 
 Based on the ecosystem files found in Step 1, determine which network domain groups to add to the manifest's `network.allowed_domains` section:
 
@@ -219,7 +223,7 @@ If more than 4 groups are detected, fall back to the accept/exclude pattern.
 
 ---
 
-## Step 4/9: Tool Configuration Files
+## Step 4/10: Tool Configuration Files
 
 For each tool accepted in Steps 1-2 (and any tools already in the manifest), check whether a corresponding config file exists locally under `~/.config/`.
 
@@ -246,7 +250,7 @@ Stop at the first match. If multiple files are found in step 4, prefer `config.*
 **Present** the findings as a numbered text list showing which tools have configs and which don't:
 
 ```
-## Step 4/9: Tool Configuration Files
+## Step 4/10: Tool Configuration Files
 
   1. starship   ~/.config/starship.toml (42 lines)
   2. helix      ~/.config/helix/config.toml (78 lines)
@@ -278,7 +282,7 @@ The `source` field is relative to the setup directory. The `target` field is rel
 
 ---
 
-## Step 5/9: Shell Configuration
+## Step 5/10: Shell Configuration
 
 **Step 4a: Ask which shell to use**
 
@@ -339,7 +343,7 @@ Show the guarded lines in the "Stripped" summary so the user sees what was wrapp
 **Present** the curated config as text:
 
 ```
-## Step 5/9: Shell Configuration
+## Step 5/10: Shell Configuration
 
 Analyzed: ~/.zshrc (85 lines)
 
@@ -415,7 +419,7 @@ The Zellij `config.kdl` `default_shell` is set to match the chosen shell.
 
 ---
 
-## Step 6/9: Zellij Configuration
+## Step 6/10: Zellij Configuration
 
 **Scan**: Check `~/.config/zellij/` for:
 - `config.kdl` (main config with keybindings, theme, etc.)
@@ -432,7 +436,7 @@ The Zellij `config.kdl` `default_shell` is set to match the chosen shell.
 **Present** findings as text, then use `AskUserQuestion` with `multiSelect: true` (typically 2-4 items):
 
 ```
-## Step 6/9: Zellij Configuration
+## Step 6/10: Zellij Configuration
 
   Excluded (managed by cc-deck): plugins/cc_deck.wasm, layouts/cc-deck*.kdl
 ```
@@ -489,7 +493,7 @@ settings:
 
 ---
 
-## Step 7/9: Claude Configuration
+## Step 7/10: Claude Configuration
 
 **Scan** `~/.claude/` for:
 - `CLAUDE.md` (global user instructions)
@@ -525,7 +529,7 @@ For `settings.json`, extract only portable preferences (model, theme, permission
 
 ---
 
-## Step 8/9: Claude Code Plugins
+## Step 8/10: Claude Code Plugins
 
 **Scan**: Discover installed plugins and their marketplace sources:
 1. Run `claude plugins list` to get all installed plugins
@@ -540,7 +544,7 @@ For each installed plugin, determine the marketplace source type:
 **Present** as a categorized text list:
 
 ```
-## Step 8/9: Claude Code Plugins
+## Step 8/10: Claude Code Plugins
 
   Marketplace plugins:
     1. superpowers (official)
@@ -599,7 +603,7 @@ Directory-based plugins are included in the manifest with `source: directory` so
 
 ---
 
-## Step 9/9: MCP Servers
+## Step 9/10: MCP Servers
 
 **Scan** MCP configuration from multiple sources:
 1. `~/.config/cc-setup/mcp.json` (cc-setup cached MCP configs)
@@ -609,7 +613,7 @@ Directory-based plugins are included in the manifest with `source: directory` so
 **Present** as a categorized text list:
 
 ```
-## Step 9/9: MCP Servers
+## Step 9/10: MCP Servers
 
   From cc-setup cache:
     1. github-mcp (container, ghcr.io/..., sse, port 8000)
@@ -673,14 +677,77 @@ If user selects "Exclude some", ask which items to remove by number or name.
 
 ---
 
+## Step 10/10: Target Configuration
+
+Configure the build targets (SSH and/or container). This step populates the `targets` section of the manifest.
+
+```json
+{
+  "questions": [{
+    "question": "Which build targets do you want to configure?",
+    "header": "Targets",
+    "multiSelect": true,
+    "options": [
+      {"label": "SSH remote", "description": "Provision an existing remote machine via Ansible"},
+      {"label": "Container", "description": "Build a container image with podman"}
+    ]
+  }]
+}
+```
+
+**STOP. Wait for user response.**
+
+**If SSH is selected**, collect SSH configuration with `AskUserQuestion`:
+
+1. **Host**: Ask for `user@hostname` (suggest `root@<hostname>` for provisioning)
+2. **Create user**: Ask if a separate non-root user should be created for daily work. If yes, ask for username (default: output of `whoami`)
+3. **Workspace path**: Ask for remote workspace directory (default: `~/workspace`)
+4. **Repos to clone**: Show repos from Step 1 that have git remote URLs. Use multiSelect to pick which to clone on the remote.
+
+**Action**: Write to manifest:
+
+```yaml
+targets:
+  ssh:
+    host: root@marovo
+    create_user: true
+    user: roland
+    workspace: ~/workspace
+```
+
+Mark selected repos for cloning by adding `clone: true` to their source entries:
+
+```yaml
+sources:
+  - path: cc-deck
+    url: git@github.com:cc-deck/cc-deck.git
+    clone: true
+```
+
+**If Container is selected**, ask for:
+1. Image name (default: project directory name)
+2. Base image (default: `quay.io/cc-deck/cc-deck-base:latest`)
+
+Write to manifest:
+```yaml
+targets:
+  container:
+    name: <image-name>
+    base: <base-image>
+```
+
+**STOP. Wait for user response before proceeding.**
+
+---
+
 ## Summary and Manifest Update
 
-After all 9 steps are complete, show a final text summary:
+After all 10 steps are complete, show a final text summary:
 
 ```
 ## Capture Complete
 
-  Tools:       Rust stable, wasm32-wasip1, Go >= 1.25, Make (4 selected)
+  Tools:       4 package + 2 github-release (6 total)
   Network:     golang, rust, github (3 groups)
   Tool configs: starship, helix (2 selected)
   Shell:       zsh (42 custom lines)
@@ -688,6 +755,8 @@ After all 9 steps are complete, show a final text summary:
   Claude:      CLAUDE.md + settings (merged)
   Plugins:     superpowers, gopls-lsp, copyedit (3 selected)
   MCP:         playwright, readwise (2 selected)
+  Targets:     SSH (root@marovo, user: roland), Container (cc-deck)
+  Repos:       cc-deck, cc-session (2 to clone)
 ```
 
 Then use `AskUserQuestion`:
@@ -711,7 +780,7 @@ Then use `AskUserQuestion`:
 
 Then perform the write:
 
-1. Update `tools` section with accepted tool entries (as free-form text)
+1. Update `tools` section with all tool entries (package and github-release types)
 2. Update `sources` section with repository provenance. For each repo, include:
    - `path`: local directory name
    - `url`: git remote origin URL (from `git remote get-url origin`)
