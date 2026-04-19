@@ -12,19 +12,19 @@ All setup artifacts live in `.cc-deck/setup/` relative to the project root (the 
 
 1. Find the project root (look for `.cc-deck/` directory or git root, walking up from the current working directory)
 2. The setup directory is `<project-root>/.cc-deck/setup/`
-3. The manifest is at `<setup-dir>/cc-deck-build.yaml`
+3. The manifest is at `<setup-dir>/build.yaml`
 
-All file references in this command (manifest, Containerfile, build-context/, Ansible artifacts) are relative to the setup directory unless stated otherwise.
+All file references in this command (manifest, Containerfile, container/context/, Ansible artifacts) are relative to the setup directory unless stated otherwise.
 
 ## Outline
 
-Build a target environment from the `cc-deck-build.yaml` manifest. Requires `--target container` or `--target ssh` in the arguments. Optionally accepts `--push` (container only).
+Build a target environment from the `build.yaml` manifest. Requires `--target container` or `--target ssh` in the arguments. Optionally accepts `--push` (container only).
 
 ### Step 0: Target dispatch
 
 Parse `$ARGUMENTS` for the `--target` flag.
 
-Read `<setup-dir>/cc-deck-build.yaml` and validate it has `version >= 1`.
+Read `<setup-dir>/build.yaml` and validate it has `version >= 1`.
 
 Determine which targets are configured in the manifest:
 - `targets.container` is configured if it has a `name` field
@@ -48,7 +48,7 @@ If the selected target section is missing from the manifest, error: "No [target]
 
 ### A1: Read and validate
 
-Read `cc-deck-build.yaml`. Extract from `targets.container`:
+Read `build.yaml`. Extract from `targets.container`:
 - `name` (required)
 - `tag` (default: `latest`)
 - `base` (default: `quay.io/cc-deck/cc-deck-base:latest`)
@@ -108,7 +108,7 @@ RUN ARCH=$(uname -m) && \
 # MANDATORY Layer: cc-deck self-install (Zellij + plugin + layouts + hooks)
 # Single install pass with HOME=/home/dev so both Zellij config and
 # Claude hooks (~/.claude/settings.json) go to the dev user's home.
-COPY build-context/cc-deck-linux-${TARGETARCH} /usr/local/bin/cc-deck
+COPY container/context/cc-deck-linux-${TARGETARCH} /usr/local/bin/cc-deck
 RUN chmod +x /usr/local/bin/cc-deck && \
     mkdir -p /home/dev/.claude /home/dev/.cache/zellij && \
     HOME=/home/dev \
@@ -146,7 +146,7 @@ CMD ["sleep", "infinity"]
 
 **Settings handling** (read the `settings` section from the manifest):
 
-For each setting, copy the source file to `build-context/` during Step A4, then add the matching COPY instruction to the Containerfile:
+For each setting, copy the source file to `container/context/` during Step A4, then add the matching COPY instruction to the Containerfile:
 
 | Manifest field | Source | Container destination | Notes |
 |---|---|---|---|
@@ -177,30 +177,30 @@ COPY --chown=dev:dev <shell_rc_file> /home/dev/.<shell>rc.custom
 RUN cat /home/dev/.<shell>rc.custom >> /home/dev/.<shell>rc && rm /home/dev/.<shell>rc.custom
 
 # Zellij user config (if settings.zellij_config is set)
-# NOTE: build-context/zellij-config.kdl must have the cc-deck controller block stripped first (see below)
-COPY --chown=dev:dev build-context/zellij-config.kdl /home/dev/.config/zellij/config.kdl
+# NOTE: container/context/zellij-config.kdl must have the cc-deck controller block stripped first (see below)
+COPY --chown=dev:dev container/context/zellij-config.kdl /home/dev/.config/zellij/config.kdl
 RUN grep -q 'default_shell' /home/dev/.config/zellij/config.kdl || \
     echo 'default_shell "<chosen-shell>"' >> /home/dev/.config/zellij/config.kdl
 
 # Claude global instructions (if settings.claude_md is set)
-COPY --chown=dev:dev build-context/CLAUDE.md /home/dev/.claude/CLAUDE.md
+COPY --chown=dev:dev container/context/CLAUDE.md /home/dev/.claude/CLAUDE.md
 
 # Claude settings merge (if settings.claude_settings, hooks, or mcp_settings is set)
-COPY --chown=dev:dev build-context/settings.json /home/dev/.claude/settings.json
+COPY --chown=dev:dev container/context/settings.json /home/dev/.claude/settings.json
 
 # cc-setup MCP cache (if settings.cc_setup_mcp is set)
-COPY --chown=dev:dev build-context/cc-setup-mcp.json /home/dev/.config/cc-setup/mcp.json
+COPY --chown=dev:dev container/context/cc-setup-mcp.json /home/dev/.config/cc-setup/mcp.json
 
 # Tool configs (for each entry in settings.tool_configs)
-COPY --chown=dev:dev build-context/starship.toml /home/dev/.config/starship.toml
-COPY --chown=dev:dev build-context/helix-config.toml /home/dev/.config/helix/config.toml
+COPY --chown=dev:dev container/context/starship.toml /home/dev/.config/starship.toml
+COPY --chown=dev:dev container/context/helix-config.toml /home/dev/.config/helix/config.toml
 ```
 
-**Merge strategy for settings.json**: Read the existing `/home/dev/.claude/settings.json` (created by cc-deck config plugin install with hooks), merge in user preferences from the specified file, write the merged result to `build-context/settings.json`. Never overwrite cc-deck hooks.
+**Merge strategy for settings.json**: Read the existing `/home/dev/.claude/settings.json` (created by cc-deck config plugin install with hooks), merge in user preferences from the specified file, write the merged result to `container/context/settings.json`. Never overwrite cc-deck hooks.
 
 ### A3: Check for existing Containerfile
 
-If a `Containerfile` already exists:
+If a `container/Containerfile` already exists:
 
 1. Generate the new Containerfile content to a temporary variable
 2. Compare old and new content
@@ -214,22 +214,22 @@ If no Containerfile exists, write the generated one directly.
 
 ### A4: Prepare the build context
 
-1. Create `build-context/` directory
+1. Create `container/context/` directory
 2. Determine the cc-deck version by running `cc-deck version -o json` and extracting the `version` field
-3. Download Linux binaries for both architectures from GitHub Releases. Skip any architecture whose binary already exists in `build-context/`:
+3. Download Linux binaries for both architectures from GitHub Releases. Skip any architecture whose binary already exists in `container/context/`:
    ```bash
-   mkdir -p build-context
+   mkdir -p container/context
    VERSION=$(cc-deck version -o json | jq -r '.version')
    for ARCH in amd64 arm64; do
-     if [ ! -f "build-context/cc-deck-linux-${ARCH}" ]; then
+     if [ ! -f "container/context/cc-deck-linux-${ARCH}" ]; then
        curl -fsSL "https://github.com/cc-deck/cc-deck/releases/download/v${VERSION}/cc-deck_${VERSION}_linux_${ARCH}.tar.gz" \
-         | tar xz -C build-context/ cc-deck
-       mv build-context/cc-deck "build-context/cc-deck-linux-${ARCH}"
+         | tar xz -C container/context/ cc-deck
+       mv container/context/cc-deck "container/context/cc-deck-linux-${ARCH}"
      fi
    done
    ```
 4. If the download fails (e.g., version is `dev` or the release does not exist), stop and tell the user:
-   - For development builds: run `make cross-cli` from the cc-deck source repo, then copy the binaries to `build-context/`
+   - For development builds: run `make cross-cli` from the cc-deck source repo, then copy the binaries to `container/context/`
    - For released versions: check that the version tag exists at `https://github.com/cc-deck/cc-deck/releases`
 
 ### A5: Build the image
@@ -241,7 +241,7 @@ Detect the container runtime (prefer `podman`, fall back to `docker`).
 **Default platforms**: `linux/arm64,linux/amd64`. The user can override via input (e.g., "build for linux/amd64 only").
 
 ```bash
-podman build --platform linux/arm64,linux/amd64 -t <image-name>:<tag> -f Containerfile .
+podman build --platform linux/arm64,linux/amd64 -t <image-name>:<tag> -f container/Containerfile .
 ```
 
 If the user specified specific platforms in their input, use those instead of the defaults.
@@ -265,7 +265,7 @@ After 3 failed attempts, stop and present the remaining error with your analysis
 
 ### A7: Generate build.sh
 
-After a successful build, generate a `build.sh` script that lets the user rebuild the image from the command line without Claude Code:
+After a successful build, generate a `container/build.sh` script that lets the user rebuild the image from the command line without Claude Code:
 
 ```bash
 #!/bin/bash
@@ -295,13 +295,13 @@ $RUNTIME build --platform "$PLATFORMS" -t "${IMAGE_NAME}:${IMAGE_TAG}" -f Contai
 echo "Done: ${IMAGE_NAME}:${IMAGE_TAG}"
 ```
 
-Fill in the actual `IMAGE_NAME` and `IMAGE_TAG` from the manifest. Make the script executable (`chmod +x build.sh`).
+Fill in the actual `IMAGE_NAME` and `IMAGE_TAG` from the manifest. Make the script executable (`chmod +x container/build.sh`).
 
 ### A8: Push (if --push)
 
 If `--push` was specified in the arguments:
 
-1. Check that `targets.container.registry` is set in the manifest. If not, error: "No registry configured. Add `registry` to `targets.container` in cc-deck-build.yaml."
+1. Check that `targets.container.registry` is set in the manifest. If not, error: "No registry configured. Add `registry` to `targets.container` in build.yaml."
 2. Tag the image with the full registry reference: `<registry>/<name>:<tag>`
 3. Push the image:
    ```bash
@@ -317,7 +317,7 @@ On success, show:
 - Image size (`podman images <name>:<tag> --format '{{.Size}}'`)
 - Number of retry attempts (if any)
 - Summary of Containerfile fixes made (if any)
-- Note that `build.sh` was generated for CLI rebuilds
+- Note that `container/build.sh` was generated for CLI rebuilds
 - If pushed: the full registry reference
 - Usage hint: `Create a workspace: cc-deck ws new <name> --type container --image <name>:<tag>`
 
@@ -327,7 +327,7 @@ On success, show:
 
 ### B1: Read and validate
 
-Read `cc-deck-build.yaml`. Extract from `targets.ssh`:
+Read `build.yaml`. Extract from `targets.ssh`:
 - `host` (required)
 - `port` (default: 22)
 - `identity_file` (optional)
@@ -526,7 +526,7 @@ If role task files already have content (not just the skeleton from init):
 ### B5: Run Ansible playbook
 
 ```bash
-cd <setup-directory>
+cd <setup-dir>/ssh
 ansible-playbook -i inventory.ini site.yml
 ```
 
@@ -561,7 +561,7 @@ This directory contains Ansible playbooks generated by `cc-deck build`.
 ## Re-run the playbook
 
 ```bash
-cd <setup-directory>
+cd <setup-dir>/ssh
 ansible-playbook -i inventory.ini site.yml
 ```
 
@@ -625,10 +625,10 @@ After SSH provisioning succeeds, automatically register the provisioned host as 
 
 ## Key Rules (both targets)
 
-- Never modify `cc-deck-build.yaml` (the manifest is the source of truth)
+- Never modify `build.yaml` (the manifest is the source of truth)
 - All generated files include a "GENERATED BY cc-deck.build" header
 - The self-correction loop pattern is the same for both targets: run, read error, fix artifact, retry, up to 3 attempts
-- **Container-specific**: Never omit the 3 mandatory layers. Always use `build-context/cc-deck-linux-${TARGETARCH}` as COPY source.
+- **Container-specific**: Never omit the 3 mandatory layers. Always use `container/context/cc-deck-linux-${TARGETARCH}` as COPY source.
 - **SSH-specific**: All roles must be idempotent. The playbook must be runnable standalone without cc-deck or Claude Code.
 - Combine related `dnf install` calls into a single task/RUN for efficiency
 - Clean package caches after installs
