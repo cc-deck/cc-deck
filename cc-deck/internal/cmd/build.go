@@ -154,7 +154,7 @@ func detectRunTarget(dir string, explicit string) (string, error) {
 	}
 
 	hasContainerfile := fileExists(filepath.Join(dir, "container", "Containerfile"))
-	hasSSH := fileExists(filepath.Join(dir, "site.yml")) && fileExists(filepath.Join(dir, "inventory.ini"))
+	hasSSH := fileExists(filepath.Join(dir, "ssh", "site.yml")) && fileExists(filepath.Join(dir, "ssh", "inventory.ini"))
 
 	switch {
 	case hasContainerfile && hasSSH:
@@ -240,8 +240,9 @@ func runSSHProvision(dir string) error {
 
 	fmt.Println("Running Ansible playbook")
 
+	sshDir := filepath.Join(dir, "ssh")
 	cmd := exec.Command(ansiblePath, "-i", "inventory.ini", "site.yml")
-	cmd.Dir = dir
+	cmd.Dir = sshDir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
@@ -479,7 +480,7 @@ func runDiff(dir string, target string) error {
 	// Auto-detect target if not specified
 	if target == "" {
 		hasContainerfile := fileExists(filepath.Join(dir, "container", "Containerfile"))
-		hasRoles := fileExists(filepath.Join(dir, "roles"))
+		hasRoles := fileExists(filepath.Join(dir, "ssh", "roles"))
 		switch {
 		case hasContainerfile && hasRoles:
 			// Both exist, diff both
@@ -576,9 +577,9 @@ func diffContainer(dir string, m *build.Manifest) error {
 }
 
 func diffSSH(dir string, m *build.Manifest) error {
-	rolesDir := filepath.Join(dir, "roles")
+	rolesDir := filepath.Join(dir, "ssh", "roles")
 	if _, err := os.Stat(rolesDir); os.IsNotExist(err) {
-		return fmt.Errorf("no roles/ directory found, run /cc-deck.build --target ssh first")
+		return fmt.Errorf("no ssh/roles/ directory found, run /cc-deck.build --target ssh first")
 	}
 
 	hasChanges := false
