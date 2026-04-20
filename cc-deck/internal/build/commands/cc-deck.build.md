@@ -1,10 +1,12 @@
 ---
-description: Build a container image or provision an SSH remote from the manifest
+description: "Build environment: --target ssh | --target container [--push]"
 ---
 
 ## User Input
 
 $ARGUMENTS
+
+**Usage**: `/cc-deck.build --target ssh` or `/cc-deck.build --target container [--push]`
 
 ## Setup directory
 
@@ -429,6 +431,7 @@ Generate task content for each role from the manifest data. Each role is idempot
 
 **tools role** (`roles/tools/tasks/main.yml`):
 - For tools where `install` is `package` (or omitted): map tool descriptions to package names and install via `dnf install -y`
+  - **EXCEPTION: Rust with WASM targets**: If the manifest includes both a Rust tool and a WASM target (e.g., `wasm32-wasip1`), do NOT install Rust via `dnf`. System Rust packages do not include `rustup`, which is required for adding cross-compilation targets. Instead, install Rust via `rustup` (`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y`), then add the WASM target with `source ~/.cargo/env && rustup target add wasm32-wasip1`. Run both as the target user, not root.
 - For tools where `install` is `github-release`: download release binaries from GitHub using `repo`, `asset_pattern`, and `install_path` fields, with architecture mapping (`aarch64`, `x86_64`)
 
 **zellij role** (`roles/zellij/tasks/main.yml`):
@@ -443,18 +446,32 @@ Generate task content for each role from the manifest data. Each role is idempot
 **cc_deck role** (`roles/cc_deck/tasks/main.yml`):
 - Download cc-deck release binary from GitHub Releases (using the version from `cc_deck_version`)
 - Install to `/usr/local/bin/cc-deck`
-- Run `cc-deck config plugin install` as the target user (installs WASM plugin, layout files, controller config, Claude Code hooks)
+- Run `cc-deck config plugin install --force --skip-backup` as the target user (installs WASM plugin, layout files, controller config, Claude Code hooks)
+  - **IMPORTANT**: Do NOT use `--install-zellij`. Zellij is already installed by the separate zellij role. Using `--install-zellij` attempts to re-download Zellij to `/usr/local/bin/zellij`, which fails with a tar "Cannot open: File exists" error.
 
 **plugins role** (`roles/plugins/tasks/main.yml`):
 - Install Claude Code plugins from the manifest `plugins` section using the `claude` CLI as the target user
+- **IMPORTANT**: On fresh targets, the official Anthropic marketplace is NOT pre-configured. Always register it first:
+  ```bash
+  claude plugins marketplace add anthropics/claude-plugins-official
+  ```
+  This must run before any marketplace plugin installs. It is safe to run multiple times (idempotent).
 - For each plugin entry:
-  - `source: marketplace` -> run `claude plugins install <name>` (installs from official Anthropic marketplace)
+  - `source: marketplace` -> run `claude plugins install <name>@claude-plugins-official` (the `@marketplace-name` qualifier is required; bare `claude plugins install <name>` fails on fresh targets with "not found in any configured marketplace")
   - `source: "github:<owner/repo>"` -> run `claude plugins marketplace add <owner/repo>` first, then `claude plugins install <name>@<marketplace>`
   - `source: directory` -> skip with a debug message ("plugin X is a local development plugin, skipping remote install")
 - All commands run as the target user (`become_user: {{ target_user }}`)
 - Requires Claude Code to already be installed (depends on `claude` role)
 - Example Ansible task:
   ```yaml
+  - name: Add official Anthropic marketplace
+    ansible.builtin.shell: |
+      export PATH="/home/{{ target_user }}/.local/bin:$PATH"
+      claude plugins marketplace add anthropics/claude-plugins-official 2>/dev/null || true
+    args:
+      executable: /bin/bash
+    become_user: "{{ target_user }}"
+
   - name: Add custom marketplace
     ansible.builtin.shell: |
       export PATH="/home/{{ target_user }}/.local/bin:$PATH"
@@ -470,11 +487,11 @@ Generate task content for each role from the manifest data. Each role is idempot
   - name: Install plugin
     ansible.builtin.shell: |
       export PATH="/home/{{ target_user }}/.local/bin:$PATH"
-      claude plugins install {{ item.name }}
+      claude plugins install {{ item.name }}@claude-plugins-official
     args:
       executable: /bin/bash
     become_user: "{{ target_user }}"
-    when: item.source != 'directory'
+    when: item.source == 'marketplace'
     loop: "{{ plugins }}"
     loop_control:
       label: "{{ item.name }}"
@@ -493,8 +510,17 @@ Generate task content for each role from the manifest data. Each role is idempot
   3. Ensure `default_shell` is set in the deployed config
   4. Re-run `cc-deck config plugin install --force --skip-backup` as the target user to re-inject the controller block with correct paths
   The stripping is critical because the source config contains absolute paths from the host machine (e.g., `/Users/rhuss/...`) that are wrong on the target.
-- For each entry in `settings.tool_configs`: copy the source file to `/home/<target_user>/.config/<target>` (using the `target` field from the manifest entry; fall back to `<tool>/<source-filename>` if `target` is not set). Create parent directories as needed. Example Ansible task:
+- For each entry in `settings.tool_configs`: first create parent directories, then copy the source file. The directory creation task MUST come before the copy task, because destinations like `bat/config` require `/home/<user>/.config/bat/` to exist first. Example Ansible tasks (in this exact order):
   ```yaml
+  - name: Ensure tool config parent directories exist
+    ansible.builtin.file:
+      path: "/home/{{ target_user }}/.config/{{ item.target | dirname }}"
+      state: directory
+      owner: "{{ target_user }}"
+      mode: '0755'
+    loop: "{{ tool_configs }}"
+    when: item.target | dirname != ''
+
   - name: Deploy tool config
     ansible.builtin.copy:
       src: "{{ item.source }}"
@@ -608,7 +634,7 @@ After SSH provisioning succeeds, automatically register the provisioned host as 
      --update
    ```
    Only include optional flags whose values are set in the manifest (not commented out).
-   For `--repo` flags: include one `--repo <url>` for each entry in the `sources` section that has both a `url` field and `clone: true`.
+   For `--repo` flags: include one `--repo <url>` for each entry in the `sources` section that has a `url` field.
 
 4. **Report** the registration:
    ```
