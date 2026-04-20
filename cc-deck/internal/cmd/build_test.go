@@ -23,8 +23,9 @@ func TestDetectRunTarget_ContainerfileOnly(t *testing.T) {
 
 func TestDetectRunTarget_SSHOnly(t *testing.T) {
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "site.yml"), []byte("---\n"), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "inventory.ini"), []byte("[all]\n"), 0o644))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "ssh"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ssh", "site.yml"), []byte("---\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ssh", "inventory.ini"), []byte("[all]\n"), 0o644))
 
 	target, err := detectRunTarget(dir, "")
 	require.NoError(t, err)
@@ -35,8 +36,9 @@ func TestDetectRunTarget_BothPresent_Error(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "container"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "container", "Containerfile"), []byte("FROM fedora\n"), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "site.yml"), []byte("---\n"), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "inventory.ini"), []byte("[all]\n"), 0o644))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "ssh"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ssh", "site.yml"), []byte("---\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ssh", "inventory.ini"), []byte("[all]\n"), 0o644))
 
 	_, err := detectRunTarget(dir, "")
 	require.Error(t, err)
@@ -94,7 +96,8 @@ func TestDetectRunTarget_InvalidExplicit_Error(t *testing.T) {
 
 func TestDetectRunTarget_PartialSSH_SiteYmlOnly(t *testing.T) {
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "site.yml"), []byte("---\n"), 0o644))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "ssh"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ssh", "site.yml"), []byte("---\n"), 0o644))
 
 	_, err := detectRunTarget(dir, "")
 	require.Error(t, err)
@@ -103,7 +106,8 @@ func TestDetectRunTarget_PartialSSH_SiteYmlOnly(t *testing.T) {
 
 func TestDetectRunTarget_PartialSSH_InventoryOnly(t *testing.T) {
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "inventory.ini"), []byte("[all]\n"), 0o644))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "ssh"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ssh", "inventory.ini"), []byte("[all]\n"), 0o644))
 
 	_, err := detectRunTarget(dir, "")
 	require.Error(t, err)
