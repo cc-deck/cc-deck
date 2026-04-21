@@ -1,5 +1,5 @@
 ---
-description: "Capture environment: scan repos, tools, and settings into build.yaml"
+description: "Capture workspace: scan repos, tools, and settings into build.yaml"
 ---
 
 ## User Input
@@ -123,14 +123,14 @@ If user selects "Exclude some", ask which items to remove by number or name, the
 
 ## Step 2/9: cc-deck Companion Tools
 
-Present optional tools from the cc-deck ecosystem and community that enhance the development environment. These are not detected from repositories but offered as curated recommendations.
+Present optional tools from the cc-deck ecosystem and community that enhance the development workspace. These are not detected from repositories but offered as curated recommendations.
 
 **Tool catalog** (update this list as the ecosystem grows):
 
 | Tool | Source | Description |
 |------|--------|-------------|
 | cc-session | `github.com/cc-deck/cc-session` | Terminal session recorder and replayer for Claude Code sessions |
-| cc-setup | `github.com/cc-deck/cc-setup` | Environment bootstrapper, manages MCP servers and credentials |
+| cc-setup | `github.com/cc-deck/cc-setup` | Workspace bootstrapper, manages MCP servers and credentials |
 | abtop | `github.com/graykode/abtop` | AI-powered terminal system monitor with natural language queries |
 
 **Present** the catalog as text, then use `AskUserQuestion` with `multiSelect: true`:
@@ -138,7 +138,7 @@ Present optional tools from the cc-deck ecosystem and community that enhance the
 ```
 ## Step 2/9: cc-deck Companion Tools
 
-Optional tools that integrate with your cc-deck environment:
+Optional tools that integrate with your cc-deck workspace:
 ```
 
 ```json
@@ -149,7 +149,7 @@ Optional tools that integrate with your cc-deck environment:
     "multiSelect": true,
     "options": [
       {"label": "cc-session", "description": "Terminal session recorder/replayer for Claude Code (github.com/cc-deck/cc-session)"},
-      {"label": "cc-setup", "description": "Environment bootstrapper, manages MCP servers and credentials (github.com/cc-deck/cc-setup)"},
+      {"label": "cc-setup", "description": "Workspace bootstrapper, manages MCP servers and credentials (github.com/cc-deck/cc-setup)"},
       {"label": "abtop", "description": "AI-powered terminal system monitor with natural language queries (github.com/graykode/abtop)"}
     ]
   }]

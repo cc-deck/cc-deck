@@ -23,39 +23,24 @@ A developer reading or modifying the cc-deck Go codebase encounters types, const
 
 ---
 
-### User Story 2 - Config File Migration (Priority: P2)
+### User Story 2 - Config and Environment Variable Rename (Priority: P2)
 
-An existing cc-deck user who has an `environments.yaml` config file upgrades to the new version. The tool reads the existing file seamlessly. On the next write operation, the file is saved as `workspaces.yaml`. The user does not lose any workspace definitions.
+The definitions config file is renamed from `environments.yaml` to `workspaces.yaml`, and the environment variable override is renamed from `CC_DECK_DEFINITIONS_FILE` to `CC_DECK_WORKSPACES_FILE`. The top-level YAML key changes from `environments:` to `workspaces:`. No backward compatibility with the old names is provided.
 
-**Why this priority**: This is the only user-visible change. Existing installations must continue to work without manual intervention.
+**Why this priority**: This is the user-visible part of the rename. It is a straightforward name change with no migration logic.
 
-**Independent Test**: Place an `environments.yaml` file in the XDG config directory, run any `ws` command that reads definitions, confirm it loads successfully. Run a write operation, confirm `workspaces.yaml` is created and `environments.yaml` is no longer needed.
-
-**Acceptance Scenarios**:
-
-1. **Given** an existing `environments.yaml` in the config directory and no `workspaces.yaml`, **When** a `ws list` command runs, **Then** definitions are loaded from `environments.yaml`.
-2. **Given** an existing `environments.yaml` only, **When** a write operation occurs (e.g., `ws new`), **Then** the file is saved as `workspaces.yaml`.
-3. **Given** both `workspaces.yaml` and `environments.yaml` exist, **When** definitions are loaded, **Then** `workspaces.yaml` takes precedence.
-
----
-
-### User Story 3 - Environment Variable Migration (Priority: P3)
-
-A user or CI pipeline that sets `CC_DECK_DEFINITIONS_FILE` to override the definitions file path continues to work. The new variable name `CC_DECK_WORKSPACES_FILE` is also recognized, with the new name taking precedence if both are set.
-
-**Why this priority**: Fewer users rely on environment variable overrides than on the config file directly. Backward compatibility is still required but affects a smaller audience.
-
-**Independent Test**: Set `CC_DECK_DEFINITIONS_FILE` to a custom path, confirm it is honored. Set `CC_DECK_WORKSPACES_FILE` to a different path, confirm it takes precedence. Unset both, confirm the default path is used.
+**Independent Test**: Create a `workspaces.yaml` with a `workspaces:` key, run `ws list`, confirm it loads. Set `CC_DECK_WORKSPACES_FILE`, confirm it is honored. Verify the old names (`environments.yaml`, `CC_DECK_DEFINITIONS_FILE`) are no longer recognized.
 
 **Acceptance Scenarios**:
 
-1. **Given** `CC_DECK_DEFINITIONS_FILE` is set and `CC_DECK_WORKSPACES_FILE` is not, **When** definitions are loaded, **Then** the path from `CC_DECK_DEFINITIONS_FILE` is used.
-2. **Given** both `CC_DECK_DEFINITIONS_FILE` and `CC_DECK_WORKSPACES_FILE` are set, **When** definitions are loaded, **Then** `CC_DECK_WORKSPACES_FILE` takes precedence.
-3. **Given** neither variable is set, **When** definitions are loaded, **Then** the default `workspaces.yaml` path is used (with `environments.yaml` fallback).
+1. **Given** a `workspaces.yaml` in the config directory, **When** `ws list` runs, **Then** definitions are loaded successfully.
+2. **Given** only an `environments.yaml` (no `workspaces.yaml`), **When** `ws list` runs, **Then** no definitions are found.
+3. **Given** `CC_DECK_WORKSPACES_FILE` is set, **When** definitions are loaded, **Then** the path from `CC_DECK_WORKSPACES_FILE` is used.
+4. **Given** `CC_DECK_DEFINITIONS_FILE` is set (without `CC_DECK_WORKSPACES_FILE`), **When** definitions are loaded, **Then** it is ignored; the default path is used.
 
 ---
 
-### User Story 4 - Build Command Descriptions (Priority: P3)
+### User Story 3 - Build Command Descriptions (Priority: P3)
 
 A user invoking the build or capture commands sees descriptions that reference "workspace" instead of "environment," consistent with all other CLI terminology.
 
@@ -70,8 +55,7 @@ A user invoking the build or capture commands sees descriptions that reference "
 
 ### Edge Cases
 
-- What happens when `environments.yaml` exists but is corrupted or empty? Behavior should be identical to pre-rename: the existing error handling applies unchanged.
-- What happens when a user downgrades to a version that only knows `environments.yaml`? The old version will not find `workspaces.yaml` and behave as if no definitions exist. This is acceptable; downgrade is not a supported path.
+- What happens when `workspaces.yaml` is corrupted or empty? Behavior is identical to pre-rename: existing error handling applies unchanged.
 - What happens when third-party code imports `internal/env`? The `internal/` prefix means no external consumers exist (Go enforces this). The rename is safe.
 
 ## Requirements *(mandatory)*
@@ -81,13 +65,12 @@ A user invoking the build or capture commands sees descriptions that reference "
 - **FR-001**: All Go type names containing "Environment" MUST be renamed to use "Workspace" (e.g., `EnvironmentDefinition` to `WorkspaceDefinition`, `EnvironmentType` to `WorkspaceType`).
 - **FR-002**: The Go package at `internal/env/` MUST be renamed to `internal/ws/`.
 - **FR-003**: All import paths referencing `internal/env` MUST be updated to `internal/ws`.
-- **FR-004**: The definitions config file MUST be renamed from `environments.yaml` to `workspaces.yaml`.
-- **FR-005**: Loading definitions MUST check for `workspaces.yaml` first, then fall back to `environments.yaml` for backward compatibility.
-- **FR-006**: Writing definitions MUST always use the `workspaces.yaml` filename.
-- **FR-007**: The environment variable `CC_DECK_DEFINITIONS_FILE` MUST continue to be honored, with `CC_DECK_WORKSPACES_FILE` as the preferred name taking precedence when both are set.
-- **FR-008**: Build command descriptions in `cc-deck.build.md` and `cc-deck.capture.md` MUST reference "workspace" instead of "environment."
-- **FR-009**: All existing tests MUST pass after the rename with no logic changes.
-- **FR-010**: All linting checks MUST pass after the rename.
+- **FR-004**: The definitions config file MUST be renamed from `environments.yaml` to `workspaces.yaml`. The top-level YAML key MUST change from `environments:` to `workspaces:`. No backward compatibility with the old filename or key is required.
+- **FR-005**: The environment variable `CC_DECK_DEFINITIONS_FILE` MUST be renamed to `CC_DECK_WORKSPACES_FILE`. The old variable name is no longer recognized.
+- **FR-006**: Build command descriptions in `cc-deck.build.md` and `cc-deck.capture.md` MUST reference "workspace" instead of "environment."
+- **FR-007**: User-facing error and log messages that reference "environment" (e.g., "environment %q already exists") MUST be updated to say "workspace."
+- **FR-008**: All existing tests MUST pass after the rename with no logic changes beyond the terminology updates specified above.
+- **FR-009**: All linting checks MUST pass after the rename.
 
 ### Key Entities
 
@@ -101,16 +84,25 @@ A user invoking the build or capture commands sees descriptions that reference "
 ### Measurable Outcomes
 
 - **SC-001**: Zero occurrences of `Environment`-prefixed types or `internal/env` import paths remain in the Go codebase after the rename.
-- **SC-002**: `make test` passes with all existing tests succeeding unchanged (no test logic modifications).
+- **SC-002**: `make test` passes with all existing tests succeeding (test assertions updated only for renamed strings, no logic modifications).
 - **SC-003**: `make lint` passes with no warnings or errors.
-- **SC-004**: An existing `environments.yaml` file is loaded correctly without user intervention after the upgrade.
+- **SC-004**: The definitions file is `workspaces.yaml` with a `workspaces:` top-level key. The environment variable is `CC_DECK_WORKSPACES_FILE`.
 - **SC-005**: Build and capture command descriptions contain "workspace" terminology.
+- **SC-006**: No user-facing error messages reference "environment" when they mean a cc-deck workspace.
+
+## Clarifications
+
+### Session 2026-04-21
+
+- Q: After the first write creates `workspaces.yaml`, what happens to the old `environments.yaml`? → A: No backward compatibility. Old filenames, YAML keys, and environment variable names are simply not recognized. Users must adopt the new names.
 
 ## Assumptions
 
-- This is a pure mechanical rename with no behavioral or logic changes to any function.
+- This is a mechanical rename with no behavioral or logic changes to any function, aside from updating user-facing strings (error messages, command descriptions) from "environment" to "workspace."
+- No backward compatibility is provided for the old `environments.yaml` filename, the old `environments:` YAML key, or the old `CC_DECK_DEFINITIONS_FILE` environment variable. Users must adopt the new names.
 - The `internal/` package prefix guarantees no external Go modules import `internal/env`, so the package rename has no downstream consumers.
-- The backward-compatible fallback for `environments.yaml` will be removed in a future release (outside the scope of this feature).
+- YAML serialization tags in `state.yaml` (e.g., `yaml:"type"`, `yaml:"instances"`) are not renamed. Only Go identifiers change. No state file migration is required.
+- The `CC_DECK_STATE_FILE` environment variable does not contain "environment" in its name and requires no change.
 - Documentation updates (Antora docs, README, landing page) for the terminology change are out of scope and will follow separately.
 - The CLI command rename from `env` to `ws` is handled separately in spec 039 and is already complete at the CLI level.
 - The `Environment` field in `internal/compose/generate.go` refers to Docker Compose's YAML `environment:` key, not cc-deck's workspace concept. It MUST NOT be renamed.

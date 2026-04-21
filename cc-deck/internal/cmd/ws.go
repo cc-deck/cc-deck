@@ -16,7 +16,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/cc-deck/cc-deck/internal/config"
-	"github.com/cc-deck/cc-deck/internal/env"
+	"github.com/cc-deck/cc-deck/internal/ws"
 	"github.com/cc-deck/cc-deck/internal/project"
 	sshPkg "github.com/cc-deck/cc-deck/internal/ssh"
 )
@@ -26,7 +26,7 @@ func NewWsCmd(gf *GlobalFlags) *cobra.Command {
 		Use:     "ws",
 		Aliases: []string{"workspace"},
 		Short:   "Manage workspaces",
-		Long: `Workspaces are isolated environments where Claude Code sessions run.
+		Long: `Workspaces are isolated units where Claude Code sessions run.
 Each workspace has its own filesystem, tools, and configuration.
 
 Use --type to select the runtime backend when creating a workspace:
@@ -35,7 +35,7 @@ Use --type to select the runtime backend when creating a workspace:
   container   Single container managed by podman
   compose     Multi-container setup via podman-compose
   ssh         Remote machine over SSH
-  k8s-deploy  Persistent Kubernetes environment with StatefulSet
+  k8s-deploy  Persistent Kubernetes workspace with StatefulSet
   k8s-sandbox Ephemeral Kubernetes pod (planned)
 
 Most commands accept a workspace name, or auto-detect it from
@@ -85,7 +85,7 @@ a .cc-deck/workspace.yaml file in the current project.`,
 // --- create ---
 
 type newFlags struct {
-	envType        string
+	wsType         string
 	image          string
 	ports          []string
 	allPorts       bool
@@ -152,7 +152,7 @@ Workspace types (--type):
   container   Single container managed by podman
   compose     Multi-container setup via podman-compose
   ssh         Remote machine over SSH
-  k8s-deploy  Persistent Kubernetes environment with StatefulSet
+  k8s-deploy  Persistent Kubernetes workspace with StatefulSet
   k8s-sandbox Ephemeral Kubernetes pod (planned)`,
 		Example: `  # Create a local Zellij workspace
   cc-deck ws new my-project
@@ -181,7 +181,7 @@ Workspace types (--type):
 		},
 	}
 
-	cmd.Flags().StringVarP(&cf.envType, "type", "t", "", "Workspace type (local, container, compose, k8s-deploy, k8s-sandbox)")
+	cmd.Flags().StringVarP(&cf.wsType, "type", "t", "", "Workspace type (local, container, compose, k8s-deploy, k8s-sandbox)")
 	cmd.Flags().StringVar(&cf.image, "image", "", "Container image to use")
 	cmd.Flags().StringSliceVar(&cf.ports, "port", nil, "Port mapping (host:container), repeatable")
 	cmd.Flags().BoolVar(&cf.allPorts, "all-ports", false, "Expose all container ports")
@@ -235,8 +235,8 @@ Workspace types (--type):
 }
 
 func runWsNew(gf *GlobalFlags, name string, cf *newFlags, cmd *cobra.Command) error {
-	store := env.NewStateStore("")
-	defs := env.NewDefinitionStore("")
+	store := ws.NewStateStore("")
+	defs := ws.NewDefinitionStore("")
 
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -249,10 +249,10 @@ func runWsNew(gf *GlobalFlags, name string, cf *newFlags, cmd *cobra.Command) er
 
 	// Try to find project-local definition.
 	var projectRoot string
-	var projDef *env.EnvironmentDefinition
+	var projDef *ws.WorkspaceDefinition
 	if root, findErr := project.FindProjectConfig(cwd); findErr == nil {
 		projectRoot = root
-		if def, loadErr := env.LoadProjectDefinition(root); loadErr == nil {
+		if def, loadErr := ws.LoadProjectDefinition(root); loadErr == nil {
 			projDef = def
 		}
 	} else if root, gitErr := project.FindGitRoot(cwd); gitErr == nil {
@@ -277,13 +277,13 @@ func runWsNew(gf *GlobalFlags, name string, cf *newFlags, cmd *cobra.Command) er
 		}
 	}
 
-	if err := env.ValidateEnvName(name); err != nil {
+	if err := ws.ValidateWsName(name); err != nil {
 		return err
 	}
 
 	// Handle --global and --local flags (FR-012, FR-013, FR-014, FR-015).
 	var usedGlobalDef bool
-	var resolvedDef *env.EnvironmentDefinition
+	var resolvedDef *ws.WorkspaceDefinition
 
 	if cf.global {
 		globalDef, globalErr := defs.FindByName(name)
@@ -314,16 +314,16 @@ func runWsNew(gf *GlobalFlags, name string, cf *newFlags, cmd *cobra.Command) er
 
 	// Resolve type: CLI flag > resolved definition > project definition > default (T017).
 	typeChanged := cmd.Flags().Changed("type")
-	envType := env.EnvironmentType(cf.envType)
+	wsType := ws.WorkspaceType(cf.wsType)
 	if !typeChanged {
 		if resolvedDef != nil && resolvedDef.Type != "" {
-			envType = resolvedDef.Type
+			wsType = resolvedDef.Type
 		} else if projDef != nil && projDef.Type != "" {
-			envType = projDef.Type
+			wsType = projDef.Type
 		}
 	}
-	if envType == "" {
-		envType = env.EnvironmentTypeLocal
+	if wsType == "" {
+		wsType = ws.WorkspaceTypeLocal
 	}
 
 	// Project-local vs global precedence check (FR-026, T020).
@@ -337,7 +337,7 @@ func runWsNew(gf *GlobalFlags, name string, cf *newFlags, cmd *cobra.Command) er
 	// Check for cross-project name collisions before scaffolding.
 	if projectRoot != "" {
 		canonRoot := project.CanonicalPath(projectRoot)
-		if others, lookupErr := store.AllProjectEnvironmentNames(canonRoot); lookupErr == nil {
+		if others, lookupErr := store.AllProjectWorkspaceNames(canonRoot); lookupErr == nil {
 			if otherPath, dup := others[name]; dup {
 				return fmt.Errorf("workspace %q already defined in project %s", name, otherPath)
 			}
@@ -347,14 +347,14 @@ func runWsNew(gf *GlobalFlags, name string, cf *newFlags, cmd *cobra.Command) er
 	// Scaffold definition if no definition exists yet.
 	// Skip scaffolding when using a global definition (FR-002a).
 	if projDef == nil && projectRoot != "" && !usedGlobalDef {
-		scaffoldDef := &env.EnvironmentDefinition{
+		scaffoldDef := &ws.WorkspaceDefinition{
 			Name:           name,
-			Type:           envType,
+			Type:           wsType,
 			Image:          cf.image,
 			Auth:           cf.auth,
 			AllowedDomains: cf.allowedDomains,
 		}
-		if err := env.SaveProjectDefinition(projectRoot, scaffoldDef); err != nil {
+		if err := ws.SaveProjectDefinition(projectRoot, scaffoldDef); err != nil {
 			return fmt.Errorf("scaffolding project definition: %w", err)
 		}
 		projDef = scaffoldDef
@@ -412,14 +412,14 @@ func runWsNew(gf *GlobalFlags, name string, cf *newFlags, cmd *cobra.Command) er
 		}
 	}
 
-	e, err := env.NewEnvironment(envType, name, store, defs)
+	e, err := ws.NewWorkspace(wsType, name, store, defs)
 	if err != nil {
 		return err
 	}
 
 	// Set container-specific options.
-	if ce, ok := e.(*env.ContainerEnvironment); ok {
-		ce.Auth = env.AuthMode(cf.auth)
+	if ce, ok := e.(*ws.ContainerWorkspace); ok {
+		ce.Auth = ws.AuthMode(cf.auth)
 		ce.Ports = cf.ports
 		ce.AllPorts = cf.allPorts
 		ce.Mounts = cf.mount
@@ -437,8 +437,8 @@ func runWsNew(gf *GlobalFlags, name string, cf *newFlags, cmd *cobra.Command) er
 	}
 
 	// Set k8s-deploy-specific options.
-	if ke, ok := e.(*env.K8sDeployEnvironment); ok {
-		ke.Auth = env.AuthMode(cf.auth)
+	if ke, ok := e.(*ws.K8sDeployWorkspace); ok {
+		ke.Auth = ws.AuthMode(cf.auth)
 		ke.Namespace = cf.namespace
 		ke.Kubeconfig = cf.kubeconfig
 		ke.Context = cf.k8sContext
@@ -497,8 +497,8 @@ func runWsNew(gf *GlobalFlags, name string, cf *newFlags, cmd *cobra.Command) er
 	}
 
 	// Set compose-specific options.
-	if ce, ok := e.(*env.ComposeEnvironment); ok {
-		ce.Auth = env.AuthMode(cf.auth)
+	if ce, ok := e.(*ws.ComposeWorkspace); ok {
+		ce.Auth = ws.AuthMode(cf.auth)
 		ce.Ports = cf.ports
 		ce.AllPorts = cf.allPorts
 		ce.Mounts = cf.mount
@@ -518,12 +518,12 @@ func runWsNew(gf *GlobalFlags, name string, cf *newFlags, cmd *cobra.Command) er
 		}
 	}
 
-	// For SSH environments, ensure the definition has SSH fields populated
-	// so SSHEnvironment.Create() can load them.
-	if envType == env.EnvironmentTypeSSH {
-		sshDef := &env.EnvironmentDefinition{
+	// For SSH workspaces, ensure the definition has SSH fields populated
+	// so SSHWorkspace.Create() can load them.
+	if wsType == ws.WorkspaceTypeSSH {
+		sshDef := &ws.WorkspaceDefinition{
 			Name:         name,
-			Type:         env.EnvironmentTypeSSH,
+			Type:         ws.WorkspaceTypeSSH,
 			Auth:         cf.auth,
 			Host:         cf.host,
 			Port:         cf.sshPort,
@@ -545,9 +545,9 @@ func runWsNew(gf *GlobalFlags, name string, cf *newFlags, cmd *cobra.Command) er
 	if len(cf.branches) > len(cf.repos) {
 		return fmt.Errorf("--branch requires a preceding --repo (got %d --branch but only %d --repo)", len(cf.branches), len(cf.repos))
 	}
-	var cliRepos []env.RepoEntry
+	var cliRepos []ws.RepoEntry
 	for i, repoURL := range cf.repos {
-		entry := env.RepoEntry{URL: repoURL}
+		entry := ws.RepoEntry{URL: repoURL}
 		if i < len(cf.branches) {
 			entry.Branch = cf.branches[i]
 		}
@@ -555,12 +555,12 @@ func runWsNew(gf *GlobalFlags, name string, cf *newFlags, cmd *cobra.Command) er
 	}
 
 	// Auto-detect current git repo and collect extra remotes.
-	var autoDetectedRepo *env.RepoEntry
+	var autoDetectedRepo *ws.RepoEntry
 	var extraRemotes map[string]string
 	if gitRoot, gitErr := project.FindGitRoot(cwd); gitErr == nil {
 		remotes := parseGitRemotes(cwd)
 		if originURL, ok := remotes["origin"]; ok {
-			autoDetectedRepo = &env.RepoEntry{URL: originURL}
+			autoDetectedRepo = &ws.RepoEntry{URL: originURL}
 			// Collect non-origin remotes for post-clone configuration.
 			extraRemotes = make(map[string]string)
 			for name, url := range remotes {
@@ -575,7 +575,7 @@ func runWsNew(gf *GlobalFlags, name string, cf *newFlags, cmd *cobra.Command) er
 	// Merge repos: definition + CLI + auto-detected. Definition entries come
 	// first so they win deduplication (BR-006: explicit branch/target take
 	// precedence over auto-detected).
-	var allRepos []env.RepoEntry
+	var allRepos []ws.RepoEntry
 	if activeDef != nil {
 		allRepos = append(allRepos, activeDef.Repos...)
 	}
@@ -583,28 +583,28 @@ func runWsNew(gf *GlobalFlags, name string, cf *newFlags, cmd *cobra.Command) er
 	if autoDetectedRepo != nil {
 		allRepos = append(allRepos, *autoDetectedRepo)
 	}
-	allRepos = env.DeduplicateRepos(allRepos)
+	allRepos = ws.DeduplicateRepos(allRepos)
 
-	// Inject merged repos into the environment struct so Create() can access them.
+	// Inject merged repos into the workspace struct so Create() can access them.
 	if len(allRepos) > 0 {
 		var autoURL string
 		if autoDetectedRepo != nil {
-			autoURL = env.NormalizeURL(autoDetectedRepo.URL)
+			autoURL = ws.NormalizeURL(autoDetectedRepo.URL)
 		}
 		switch te := e.(type) {
-		case *env.SSHEnvironment:
+		case *ws.SSHWorkspace:
 			te.Repos = allRepos
 			te.ExtraRemotes = extraRemotes
 			te.AutoDetectedURL = autoURL
-		case *env.ContainerEnvironment:
+		case *ws.ContainerWorkspace:
 			te.Repos = allRepos
 			te.ExtraRemotes = extraRemotes
 			te.AutoDetectedURL = autoURL
-		case *env.ComposeEnvironment:
+		case *ws.ComposeWorkspace:
 			te.Repos = allRepos
 			te.ExtraRemotes = extraRemotes
 			te.AutoDetectedURL = autoURL
-		case *env.K8sDeployEnvironment:
+		case *ws.K8sDeployWorkspace:
 			te.Repos = allRepos
 			te.ExtraRemotes = extraRemotes
 			te.AutoDetectedURL = autoURL
@@ -613,30 +613,30 @@ func runWsNew(gf *GlobalFlags, name string, cf *newFlags, cmd *cobra.Command) er
 
 	// Resolve image: CLI flag > project definition > config default.
 	image := cf.image
-	if image == "" && envType == env.EnvironmentTypeContainer {
+	if image == "" && wsType == ws.WorkspaceTypeContainer {
 		if cfg, loadErr := config.Load(""); loadErr == nil && cfg.Defaults.Container.Image != "" {
 			image = cfg.Defaults.Container.Image
 		}
 	}
 
-	opts := env.CreateOpts{
+	opts := ws.CreateOpts{
 		Image: image,
 	}
 	if cf.storage != "" {
-		opts.Storage.Type = env.StorageType(cf.storage)
-	} else if envType == env.EnvironmentTypeCompose {
-		opts.Storage.Type = env.StorageTypeHostPath
+		opts.Storage.Type = ws.StorageType(cf.storage)
+	} else if wsType == ws.WorkspaceTypeCompose {
+		opts.Storage.Type = ws.StorageTypeHostPath
 	} else {
 		if cfg, loadErr := config.Load(""); loadErr == nil && cfg.Defaults.Container.Storage != "" {
-			opts.Storage.Type = env.StorageType(cfg.Defaults.Container.Storage)
+			opts.Storage.Type = ws.StorageType(cfg.Defaults.Container.Storage)
 		}
 	}
 	if cf.path != "" {
 		opts.Storage.HostPath = cf.path
 	}
 
-	// Warn and skip repos for local environments (FR-014).
-	if envType == env.EnvironmentTypeLocal && activeDef != nil && len(activeDef.Repos) > 0 {
+	// Warn and skip repos for local workspaces (FR-014).
+	if wsType == ws.WorkspaceTypeLocal && activeDef != nil && len(activeDef.Repos) > 0 {
 		log.Printf("WARNING: repos are not supported for local workspaces; ignoring %d repo(s)", len(activeDef.Repos))
 		activeDef.Repos = nil
 	}
@@ -645,8 +645,8 @@ func runWsNew(gf *GlobalFlags, name string, cf *newFlags, cmd *cobra.Command) er
 	// update its definition and instance in place instead of erroring.
 	if cf.update {
 		if existing, findErr := store.FindInstanceByName(name); findErr == nil {
-			if existing.Type != envType {
-				return fmt.Errorf("workspace %q exists as type %s, cannot update to %s", name, existing.Type, envType)
+			if existing.Type != wsType {
+				return fmt.Errorf("workspace %q exists as type %s, cannot update to %s", name, existing.Type, wsType)
 			}
 			// Update SSH fields on the existing instance.
 			if existing.SSH != nil {
@@ -672,7 +672,7 @@ func runWsNew(gf *GlobalFlags, name string, cf *newFlags, cmd *cobra.Command) er
 			if err := store.UpdateInstance(existing); err != nil {
 				return fmt.Errorf("updating workspace: %w", err)
 			}
-			fmt.Fprintf(os.Stdout, "Workspace %q updated (type: %s)\n", name, envType)
+			fmt.Fprintf(os.Stdout, "Workspace %q updated (type: %s)\n", name, wsType)
 			return nil
 		}
 		// Not found: fall through to normal creation.
@@ -689,14 +689,14 @@ func runWsNew(gf *GlobalFlags, name string, cf *newFlags, cmd *cobra.Command) er
 		}
 
 		// Ensure .cc-deck/.gitignore exists (FR-030).
-		_ = env.EnsureCCDeckGitignore(projectRoot)
+		_ = ws.EnsureCCDeckGitignore(projectRoot)
 
 		// Store CLI overrides and variant in status.yaml (FR-019, FR-010).
 		overrides := collectOverrides(cmd, cf, projDef)
 		{
-			statusStore := env.NewProjectStatusStore(projectRoot)
+			statusStore := ws.NewProjectStatusStore(projectRoot)
 			status, _ := statusStore.Load()
-			status.State = env.EnvironmentStateStopped
+			status.State = ws.WorkspaceStateStopped
 			containerName := "cc-deck-" + name
 			if cf.variant != "" {
 				containerName += "-" + cf.variant
@@ -715,12 +715,12 @@ func runWsNew(gf *GlobalFlags, name string, cf *newFlags, cmd *cobra.Command) er
 		}
 	}
 
-	fmt.Fprintf(os.Stdout, "Workspace %q created (type: %s)\n", name, envType)
+	fmt.Fprintf(os.Stdout, "Workspace %q created (type: %s)\n", name, wsType)
 	return nil
 }
 
 // collectOverrides returns CLI flag values that differ from the project definition.
-func collectOverrides(cmd *cobra.Command, cf *newFlags, projDef *env.EnvironmentDefinition) map[string]string {
+func collectOverrides(cmd *cobra.Command, cf *newFlags, projDef *ws.WorkspaceDefinition) map[string]string {
 	if projDef == nil {
 		return nil
 	}
@@ -731,8 +731,8 @@ func collectOverrides(cmd *cobra.Command, cf *newFlags, projDef *env.Environment
 	if cmd.Flags().Changed("auth") && cf.auth != projDef.Auth {
 		overrides["auth"] = cf.auth
 	}
-	if cmd.Flags().Changed("type") && string(env.EnvironmentType(cf.envType)) != string(projDef.Type) {
-		overrides["type"] = cf.envType
+	if cmd.Flags().Changed("type") && string(ws.WorkspaceType(cf.wsType)) != string(projDef.Type) {
+		overrides["type"] = cf.wsType
 	}
 	if len(overrides) == 0 {
 		return nil
@@ -768,8 +768,8 @@ When no name is provided, resolves from .cc-deck/workspace.yaml in the project.
 Use --reset to kill the existing Zellij session and start fresh.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			store := env.NewStateStore("")
-			name, _, err := resolveEnvironmentName(args, store)
+			store := ws.NewStateStore("")
+			name, _, err := resolveWorkspaceName(args, store)
 			if err != nil {
 				return err
 			}
@@ -790,19 +790,19 @@ func newWsAttachCmd(gf *GlobalFlags) *cobra.Command {
 }
 
 func runWsAttachReset(name string) error {
-	store := env.NewStateStore("")
-	defs := env.NewDefinitionStore("")
+	store := ws.NewStateStore("")
+	defs := ws.NewDefinitionStore("")
 
-	e, err := resolveEnvironment(name, store, defs)
+	e, err := resolveWorkspace(name, store, defs)
 	if err != nil {
 		return err
 	}
 
-	if sshEnv, ok := e.(*env.SSHEnvironment); ok {
-		sshEnv.KillRemoteSession(cmd_context())
-	} else if containerEnv, ok := e.(*env.ContainerEnvironment); ok {
-		_ = containerEnv.Stop(cmd_context())
-		_ = containerEnv.Start(cmd_context())
+	if sshWs, ok := e.(*ws.SSHWorkspace); ok {
+		sshWs.KillRemoteSession(cmd_context())
+	} else if containerWs, ok := e.(*ws.ContainerWorkspace); ok {
+		_ = containerWs.Stop(cmd_context())
+		_ = containerWs.Start(cmd_context())
 	}
 
 	fmt.Fprintf(os.Stderr, "Session reset. Attaching...\n")
@@ -810,10 +810,10 @@ func runWsAttachReset(name string) error {
 }
 
 func runWsAttach(name string) error {
-	store := env.NewStateStore("")
-	defs := env.NewDefinitionStore("")
+	store := ws.NewStateStore("")
+	defs := ws.NewDefinitionStore("")
 
-	e, err := resolveEnvironment(name, store, defs)
+	e, err := resolveWorkspace(name, store, defs)
 	if err != nil {
 		return err
 	}
@@ -837,8 +837,8 @@ For container workspaces, use --keep-volumes to preserve data volumes.
 When no name is provided, resolves from .cc-deck/workspace.yaml in the project.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			store := env.NewStateStore("")
-			name, _, err := resolveEnvironmentName(args, store)
+			store := ws.NewStateStore("")
+			name, _, err := resolveWorkspaceName(args, store)
 			if err != nil {
 				return err
 			}
@@ -853,16 +853,16 @@ When no name is provided, resolves from .cc-deck/workspace.yaml in the project.`
 }
 
 func runWsDelete(name string, force bool, keepVolumes bool) error {
-	store := env.NewStateStore("")
-	defs := env.NewDefinitionStore("")
+	store := ws.NewStateStore("")
+	defs := ws.NewDefinitionStore("")
 
-	e, err := resolveEnvironment(name, store, defs)
+	e, err := resolveWorkspace(name, store, defs)
 	if err != nil {
 		// No state record found. Try to clean up orphaned podman resources
 		// (container/volume) that match the naming convention. This handles
 		// the case where state was lost (e.g., XDG path migration) but
 		// podman resources still exist.
-		cleaned := env.CleanupOrphanedContainer(cmd_context(), name, keepVolumes)
+		cleaned := ws.CleanupOrphanedContainer(cmd_context(), name, keepVolumes)
 		if cleaned {
 			_ = defs.Remove(name)
 			fmt.Fprintf(os.Stdout, "Workspace %q cleaned up (orphaned resources removed)\n", name)
@@ -877,7 +877,7 @@ func runWsDelete(name string, force bool, keepVolumes bool) error {
 		}
 
 		// Search project-local definitions from the project registry.
-		if projectNames, lookupErr := store.AllProjectEnvironmentNames(""); lookupErr == nil {
+		if projectNames, lookupErr := store.AllProjectWorkspaceNames(""); lookupErr == nil {
 			if projPath, found := projectNames[name]; found {
 				defPath := filepath.Join(projPath, ".cc-deck", "workspace.yaml")
 				if rmErr := os.Remove(defPath); rmErr != nil {
@@ -894,10 +894,10 @@ func runWsDelete(name string, force bool, keepVolumes bool) error {
 		return err
 	}
 
-	if ce, ok := e.(*env.ContainerEnvironment); ok {
+	if ce, ok := e.(*ws.ContainerWorkspace); ok {
 		ce.KeepVolumes = keepVolumes
 	}
-	if ke, ok := e.(*env.K8sDeployEnvironment); ok {
+	if ke, ok := e.(*ws.K8sDeployWorkspace); ok {
 		ke.KeepVolumes = keepVolumes
 	}
 
@@ -911,10 +911,10 @@ func runWsDelete(name string, force bool, keepVolumes bool) error {
 
 // --- list ---
 
-// projectListEntry represents a project-local environment in list output.
+// projectListEntry represents a project-local workspace in list output.
 type projectListEntry struct {
 	Name    string
-	Type    env.EnvironmentType
+	Type    ws.WorkspaceType
 	Status  string
 	Path    string
 	Missing bool
@@ -957,23 +957,23 @@ func newWsListCmd(gf *GlobalFlags) *cobra.Command {
 }
 
 func runWsList(gf *GlobalFlags, filterType string, showWorktrees bool, verbose bool) error {
-	store := env.NewStateStore("")
-	defs := env.NewDefinitionStore("")
+	store := ws.NewStateStore("")
+	defs := ws.NewDefinitionStore("")
 
-	// Reconcile environments with actual state.
-	_ = env.ReconcileLocalEnvs(store)
-	_ = env.ReconcileContainerEnvs(store, defs)
-	_ = env.ReconcileComposeEnvs(store)
-	_ = env.ReconcileSSHEnvs(store)
-	_ = env.ReconcileK8sDeployEnvs(store)
+	// Reconcile workspaces with actual state.
+	_ = ws.ReconcileLocalWorkspaces(store)
+	_ = ws.ReconcileContainerWorkspaces(store, defs)
+	_ = ws.ReconcileComposeWorkspaces(store)
+	_ = ws.ReconcileSSHWorkspaces(store)
+	_ = ws.ReconcileK8sDeployWorkspaces(store)
 
-	var filter *env.ListFilter
+	var filter *ws.ListFilter
 	if filterType != "" {
-		t := env.EnvironmentType(filterType)
-		filter = &env.ListFilter{Type: &t}
+		t := ws.WorkspaceType(filterType)
+		filter = &ws.ListFilter{Type: &t}
 	}
 
-	// List all environment instances.
+	// List all workspace instances.
 	instances, err := store.ListInstances(filter)
 	if err != nil {
 		return err
@@ -996,12 +996,12 @@ func runWsList(gf *GlobalFlags, filterType string, showWorktrees bool, verbose b
 		log.Printf("Auto-pruned %d stale project(s) from registry.", pruned)
 	}
 
-	// Collect project-local environments from the global registry (FR-006, FR-012).
-	var projectEnvs []projectListEntry
+	// Collect project-local workspaces from the global registry (FR-006, FR-012).
+	var projectWs []projectListEntry
 	seenProjectNames := make(map[string]bool)
 	projects, _ := store.ListProjects()
 	for _, p := range projects {
-		def, loadErr := env.LoadProjectDefinition(p.Path)
+		def, loadErr := ws.LoadProjectDefinition(p.Path)
 		if loadErr != nil {
 			continue
 		}
@@ -1013,13 +1013,13 @@ func runWsList(gf *GlobalFlags, filterType string, showWorktrees bool, verbose b
 			continue
 		}
 		seenProjectNames[def.Name] = true
-		statusStore := env.NewProjectStatusStore(p.Path)
+		statusStore := ws.NewProjectStatusStore(p.Path)
 		status, _ := statusStore.Load()
 		state := "not created"
 		if status.State != "" {
 			state = string(status.State)
 		}
-		projectEnvs = append(projectEnvs, projectListEntry{
+		projectWs = append(projectWs, projectListEntry{
 			Name:   def.Name,
 			Type:   def.Type,
 			Status: state,
@@ -1051,14 +1051,14 @@ func runWsList(gf *GlobalFlags, filterType string, showWorktrees bool, verbose b
 
 	switch gf.Output {
 	case "json", "yaml":
-		return writeEnvStructured(gf.Output, instances, allDefs, instanceNames, filterType, defs, projectEnvs)
+		return writeWsStructured(gf.Output, instances, allDefs, instanceNames, filterType, defs, projectWs)
 	default:
-		return writeEnvTableWithProjects(instances, allDefs, instanceNames, filterType, projectEnvs, worktrees, defs, verbose)
+		return writeWsTableWithProjects(instances, allDefs, instanceNames, filterType, projectWs, worktrees, defs, verbose)
 	}
 }
 
-// envListEntry is a unified representation for JSON/YAML output.
-type envListEntry struct {
+// wsListEntry is a unified representation for JSON/YAML output.
+type wsListEntry struct {
 	Name         string `json:"name" yaml:"name"`
 	Type         string `json:"type" yaml:"type"`
 	State        string `json:"state" yaml:"state"`
@@ -1070,9 +1070,9 @@ type envListEntry struct {
 	Age          string `json:"age,omitempty" yaml:"age,omitempty"`
 }
 
-// buildSourceMap pre-computes the source origin for each environment name.
+// buildSourceMap pre-computes the source origin for each workspace name.
 // Project-local entries take precedence over global definitions.
-func buildSourceMap(defs *env.DefinitionStore, projectEnvs []projectListEntry) map[string]string {
+func buildSourceMap(defs *ws.DefinitionStore, projectWs []projectListEntry) map[string]string {
 	sourceMap := make(map[string]string)
 	// Load global definitions once.
 	if allGlobal, err := defs.List(nil); err == nil {
@@ -1081,15 +1081,15 @@ func buildSourceMap(defs *env.DefinitionStore, projectEnvs []projectListEntry) m
 		}
 	}
 	// Project-local entries override global.
-	for _, pe := range projectEnvs {
+	for _, pe := range projectWs {
 		sourceMap[pe.Name] = "project"
 	}
 	return sourceMap
 }
 
-func writeEnvStructured(format string, instances []*env.EnvironmentInstance, allDefs []*env.EnvironmentDefinition, instanceNames map[string]bool, filterType string, defs *env.DefinitionStore, projectEnvs []projectListEntry) error {
-	sourceMap := buildSourceMap(defs, projectEnvs)
-	var entries []envListEntry
+func writeWsStructured(format string, instances []*ws.WorkspaceInstance, allDefs []*ws.WorkspaceDefinition, instanceNames map[string]bool, filterType string, defs *ws.DefinitionStore, projectWs []projectListEntry) error {
+	sourceMap := buildSourceMap(defs, projectWs)
+	var entries []wsListEntry
 
 	for _, inst := range instances {
 		image := ""
@@ -1107,7 +1107,7 @@ func writeEnvStructured(format string, instances []*env.EnvironmentInstance, all
 		if inst.K8s != nil {
 			storage = "pvc"
 		}
-		entries = append(entries, envListEntry{
+		entries = append(entries, wsListEntry{
 			Name:         inst.Name,
 			Type:         instType,
 			State:        string(inst.State),
@@ -1127,7 +1127,7 @@ func writeEnvStructured(format string, instances []*env.EnvironmentInstance, all
 		if filterType != "" && string(def.Type) != filterType {
 			continue
 		}
-		entries = append(entries, envListEntry{
+		entries = append(entries, wsListEntry{
 			Name:    def.Name,
 			Type:    string(def.Type),
 			State:   "not created",
@@ -1137,8 +1137,8 @@ func writeEnvStructured(format string, instances []*env.EnvironmentInstance, all
 	}
 
 	// Add project-local entries that are not yet in entries.
-	for _, pe := range projectEnvs {
-		entries = append(entries, envListEntry{
+	for _, pe := range projectWs {
+		entries = append(entries, wsListEntry{
 			Name:   pe.Name,
 			Type:   string(pe.Type),
 			State:  pe.Status,
@@ -1157,24 +1157,24 @@ func writeEnvStructured(format string, instances []*env.EnvironmentInstance, all
 	}
 }
 
-// writeEnvTableWithProjects writes the ws list table with project-local entries.
-func writeEnvTableWithProjects(instances []*env.EnvironmentInstance, allDefs []*env.EnvironmentDefinition, instanceNames map[string]bool, filterType string, projectEnvs []projectListEntry, worktrees []worktreeListEntry, defs *env.DefinitionStore, verbose bool) error {
-	sourceMap := buildSourceMap(defs, projectEnvs)
+// writeWsTableWithProjects writes the ws list table with project-local entries.
+func writeWsTableWithProjects(instances []*ws.WorkspaceInstance, allDefs []*ws.WorkspaceDefinition, instanceNames map[string]bool, filterType string, projectWs []projectListEntry, worktrees []worktreeListEntry, defs *ws.DefinitionStore, verbose bool) error {
+	sourceMap := buildSourceMap(defs, projectWs)
 
-	// Build path map from project-local entries for all environments.
+	// Build path map from project-local entries for all workspaces.
 	pathMap := make(map[string]string)
-	for _, pe := range projectEnvs {
+	for _, pe := range projectWs {
 		pathMap[pe.Name] = pe.Path
 	}
-	store := env.NewStateStore("")
-	if projNames, err := store.AllProjectEnvironmentNames(""); err == nil {
+	store := ws.NewStateStore("")
+	if projNames, err := store.AllProjectWorkspaceNames(""); err == nil {
 		for name, path := range projNames {
 			if _, exists := pathMap[name]; !exists {
 				pathMap[name] = path
 			}
 		}
 	}
-	globalConfigDir := filepath.Dir(env.DefaultDefinitionPath())
+	globalConfigDir := filepath.Dir(ws.DefaultDefinitionPath())
 
 	tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 
@@ -1193,8 +1193,8 @@ func writeEnvTableWithProjects(instances []*env.EnvironmentInstance, allDefs []*
 	}
 
 	hasEntries := false
-	printRow := func(name string, envType, state, source, storage, lastAttached, age, path string) {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s", name, envType, state, source, storage, lastAttached, age)
+	printRow := func(name string, wsType, state, source, storage, lastAttached, age, path string) {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s", name, wsType, state, source, storage, lastAttached, age)
 		if verbose {
 			fmt.Fprintf(tw, "\t%s", shortenPath(path))
 		}
@@ -1202,17 +1202,17 @@ func writeEnvTableWithProjects(instances []*env.EnvironmentInstance, allDefs []*
 		hasEntries = true
 	}
 
-	// Global environment instances.
+	// Global workspace instances.
 	for _, inst := range instances {
 		instType := inst.Type
 		if instType == "" {
-			instType = env.EnvironmentTypeContainer
+			instType = ws.WorkspaceTypeContainer
 		}
 		if filterType != "" && filterType != string(instType) {
 			continue
 		}
 		storage := "named-volume"
-		if inst.Type == env.EnvironmentTypeLocal {
+		if inst.Type == ws.WorkspaceTypeLocal {
 			storage = "host"
 		} else if inst.Compose != nil {
 			storage = "host-path"
@@ -1234,7 +1234,7 @@ func writeEnvTableWithProjects(instances []*env.EnvironmentInstance, allDefs []*
 		if instanceNames[d.Name] {
 			continue
 		}
-		if d.Type == env.EnvironmentTypeLocal {
+		if d.Type == ws.WorkspaceTypeLocal {
 			continue
 		}
 		if filterType != "" && filterType != string(d.Type) {
@@ -1247,8 +1247,8 @@ func writeEnvTableWithProjects(instances []*env.EnvironmentInstance, allDefs []*
 		printRow(d.Name, string(d.Type), "not created", "global", storage, "never", "-", globalConfigDir)
 	}
 
-	// Project-local environments (FR-012, FR-008).
-	for _, pe := range projectEnvs {
+	// Project-local workspaces (FR-012, FR-008).
+	for _, pe := range projectWs {
 		printRow(pe.Name, string(pe.Type), pe.Status, "project", "-", "-", "-", pe.Path)
 	}
 
@@ -1297,12 +1297,12 @@ func newStatusCmdCore(gf *GlobalFlags) *cobra.Command {
 When no name is provided, resolves from .cc-deck/workspace.yaml in the project.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			store := env.NewStateStore("")
-			name, _, err := resolveEnvironmentName(args, store)
+			store := ws.NewStateStore("")
+			name, _, err := resolveWorkspaceName(args, store)
 			if err != nil {
 				return err
 			}
-			return runEnvStatus(gf, name)
+			return runWsStatus(gf, name)
 		},
 	}
 }
@@ -1311,24 +1311,24 @@ func newWsStatusCmd(gf *GlobalFlags) *cobra.Command {
 	return newStatusCmdCore(gf)
 }
 
-// envStatusOutput is used for JSON/YAML marshaling of status information.
-type envStatusOutput struct {
+// wsStatusOutput is used for JSON/YAML marshaling of status information.
+type wsStatusOutput struct {
 	Name         string               `json:"name" yaml:"name"`
-	Type         env.EnvironmentType  `json:"type" yaml:"type"`
-	State        env.EnvironmentState `json:"state" yaml:"state"`
+	Type         ws.WorkspaceType  `json:"type" yaml:"type"`
+	State        ws.WorkspaceState `json:"state" yaml:"state"`
 	Storage      string               `json:"storage" yaml:"storage"`
 	Uptime       string               `json:"uptime" yaml:"uptime"`
 	LastAttached string               `json:"last_attached" yaml:"last_attached"`
-	Sessions     []env.SessionInfo    `json:"sessions,omitempty" yaml:"sessions,omitempty"`
+	Sessions     []ws.SessionInfo    `json:"sessions,omitempty" yaml:"sessions,omitempty"`
 	Image        string               `json:"image,omitempty" yaml:"image,omitempty"`
 	ProjectPath  string               `json:"project_path,omitempty" yaml:"project_path,omitempty"`
 }
 
-func runEnvStatus(gf *GlobalFlags, name string) error {
-	store := env.NewStateStore("")
-	defs := env.NewDefinitionStore("")
+func runWsStatus(gf *GlobalFlags, name string) error {
+	store := ws.NewStateStore("")
+	defs := ws.NewDefinitionStore("")
 
-	e, err := resolveEnvironment(name, store, defs)
+	e, err := resolveWorkspace(name, store, defs)
 	if err != nil {
 		return err
 	}
@@ -1338,14 +1338,14 @@ func runEnvStatus(gf *GlobalFlags, name string) error {
 		return err
 	}
 
-	envType := e.Type()
+	wsType := e.Type()
 	storage := "-"
 	lastAttached := "never"
 	image := ""
 
 	if inst, findErr := store.FindInstanceByName(name); findErr == nil {
 		lastAttached = formatRelativeTime(inst.LastAttached)
-		if inst.Type == env.EnvironmentTypeLocal {
+		if inst.Type == ws.WorkspaceTypeLocal {
 			storage = "host"
 		} else if inst.Container != nil {
 			storage = "named-volume"
@@ -1368,7 +1368,7 @@ func runEnvStatus(gf *GlobalFlags, name string) error {
 	var projectPath string
 	projects, _ := store.ListProjects()
 	for _, p := range projects {
-		def, loadErr := env.LoadProjectDefinition(p.Path)
+		def, loadErr := ws.LoadProjectDefinition(p.Path)
 		if loadErr != nil {
 			continue
 		}
@@ -1380,9 +1380,9 @@ func runEnvStatus(gf *GlobalFlags, name string) error {
 
 	switch gf.Output {
 	case "json":
-		out := envStatusOutput{
+		out := wsStatusOutput{
 			Name:         name,
-			Type:         envType,
+			Type:         wsType,
 			State:        status.State,
 			Storage:      storage,
 			Uptime:       uptime,
@@ -1395,9 +1395,9 @@ func runEnvStatus(gf *GlobalFlags, name string) error {
 		enc.SetIndent("", "  ")
 		return enc.Encode(out)
 	case "yaml":
-		out := envStatusOutput{
+		out := wsStatusOutput{
 			Name:         name,
-			Type:         envType,
+			Type:         wsType,
 			State:        status.State,
 			Storage:      storage,
 			Uptime:       uptime,
@@ -1408,14 +1408,14 @@ func runEnvStatus(gf *GlobalFlags, name string) error {
 		}
 		return yaml.NewEncoder(os.Stdout).Encode(out)
 	default:
-		return writeEnvStatusText(name, envType, status, storage, uptime, lastAttached, image, projectPath)
+		return writeWsStatusText(name, wsType, status, storage, uptime, lastAttached, image, projectPath)
 	}
 }
 
-func writeEnvStatusText(name string, envType env.EnvironmentType, status *env.EnvironmentStatus, storage, uptime, lastAttached, image, projectPath string) error {
+func writeWsStatusText(name string, wsType ws.WorkspaceType, status *ws.WorkspaceStatus, storage, uptime, lastAttached, image, projectPath string) error {
 	tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
 	fmt.Fprintf(tw, "Workspace:\t%s\n", name)
-	fmt.Fprintf(tw, "Type:\t%s\n", envType)
+	fmt.Fprintf(tw, "Type:\t%s\n", wsType)
 	fmt.Fprintf(tw, "Status:\t%s\n", status.State)
 	fmt.Fprintf(tw, "Storage:\t%s\n", storage)
 	fmt.Fprintf(tw, "Uptime:\t%s\n", uptime)
@@ -1430,7 +1430,7 @@ func writeEnvStatusText(name string, envType env.EnvironmentType, status *env.En
 		return err
 	}
 
-	if status.State == env.EnvironmentStateRunning && len(status.Sessions) > 0 {
+	if status.State == ws.WorkspaceStateRunning && len(status.Sessions) > 0 {
 		fmt.Println()
 		fmt.Println("Agent Sessions:")
 		stw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
@@ -1465,8 +1465,8 @@ func newStartCmdCore(_ *GlobalFlags) *cobra.Command {
 When no name is provided, resolves from .cc-deck/workspace.yaml in the project.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			store := env.NewStateStore("")
-			name, _, err := resolveEnvironmentName(args, store)
+			store := ws.NewStateStore("")
+			name, _, err := resolveWorkspaceName(args, store)
 			if err != nil {
 				return err
 			}
@@ -1480,10 +1480,10 @@ func newWsStartCmd(gf *GlobalFlags) *cobra.Command {
 }
 
 func runWsStart(name string) error {
-	store := env.NewStateStore("")
-	defs := env.NewDefinitionStore("")
+	store := ws.NewStateStore("")
+	defs := ws.NewDefinitionStore("")
 
-	e, err := resolveEnvironment(name, store, defs)
+	e, err := resolveWorkspace(name, store, defs)
 	if err != nil {
 		return err
 	}
@@ -1506,8 +1506,8 @@ func newStopCmdCore(_ *GlobalFlags) *cobra.Command {
 When no name is provided, resolves from .cc-deck/workspace.yaml in the project.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			store := env.NewStateStore("")
-			name, _, err := resolveEnvironmentName(args, store)
+			store := ws.NewStateStore("")
+			name, _, err := resolveWorkspaceName(args, store)
 			if err != nil {
 				return err
 			}
@@ -1521,10 +1521,10 @@ func newWsStopCmd(gf *GlobalFlags) *cobra.Command {
 }
 
 func runWsStop(name string) error {
-	store := env.NewStateStore("")
-	defs := env.NewDefinitionStore("")
+	store := ws.NewStateStore("")
+	defs := ws.NewDefinitionStore("")
 
-	e, err := resolveEnvironment(name, store, defs)
+	e, err := resolveWorkspace(name, store, defs)
 	if err != nil {
 		return err
 	}
@@ -1555,10 +1555,10 @@ func newWsExecCmd(gf *GlobalFlags) *cobra.Command {
 }
 
 func runWsExec(name string, cmdArgs []string) error {
-	store := env.NewStateStore("")
-	defs := env.NewDefinitionStore("")
+	store := ws.NewStateStore("")
+	defs := ws.NewDefinitionStore("")
 
-	e, err := resolveEnvironment(name, store, defs)
+	e, err := resolveWorkspace(name, store, defs)
 	if err != nil {
 		return err
 	}
@@ -1586,21 +1586,21 @@ func newWsPushCmd(_ *GlobalFlags) *cobra.Command {
 			if len(args) > 2 {
 				remotePath = args[2]
 			}
-			return runEnvPush(args[0], localPath, remotePath)
+			return runWsPush(args[0], localPath, remotePath)
 		},
 	}
 }
 
-func runEnvPush(name, localPath, remotePath string) error {
-	store := env.NewStateStore("")
-	defs := env.NewDefinitionStore("")
+func runWsPush(name, localPath, remotePath string) error {
+	store := ws.NewStateStore("")
+	defs := ws.NewDefinitionStore("")
 
-	e, err := resolveEnvironment(name, store, defs)
+	e, err := resolveWorkspace(name, store, defs)
 	if err != nil {
 		return err
 	}
 
-	if err := e.Push(cmd_context(), env.SyncOpts{
+	if err := e.Push(cmd_context(), ws.SyncOpts{
 		LocalPath:  localPath,
 		RemotePath: remotePath,
 	}); err != nil {
@@ -1627,21 +1627,21 @@ func newWsPullCmd(_ *GlobalFlags) *cobra.Command {
 			if len(args) > 2 {
 				localPath = args[2]
 			}
-			return runEnvPull(args[0], remotePath, localPath)
+			return runWsPull(args[0], remotePath, localPath)
 		},
 	}
 }
 
-func runEnvPull(name, remotePath, localPath string) error {
-	store := env.NewStateStore("")
-	defs := env.NewDefinitionStore("")
+func runWsPull(name, remotePath, localPath string) error {
+	store := ws.NewStateStore("")
+	defs := ws.NewDefinitionStore("")
 
-	e, err := resolveEnvironment(name, store, defs)
+	e, err := resolveWorkspace(name, store, defs)
 	if err != nil {
 		return err
 	}
 
-	if err := e.Pull(cmd_context(), env.SyncOpts{
+	if err := e.Pull(cmd_context(), ws.SyncOpts{
 		LocalPath:  localPath,
 		RemotePath: remotePath,
 	}); err != nil {
@@ -1669,7 +1669,7 @@ moved or deleted.`,
 }
 
 func runWsPrune() error {
-	store := env.NewStateStore("")
+	store := ws.NewStateStore("")
 	paths, count, err := store.PruneStaleProjectsVerbose()
 	if err != nil {
 		return err
@@ -1693,21 +1693,21 @@ func newWsHarvestCmd(_ *GlobalFlags) *cobra.Command {
 		Short: "Extract work products from a workspace",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runEnvHarvest(args[0])
+			return runWsHarvest(args[0])
 		},
 	}
 }
 
-func runEnvHarvest(name string) error {
-	store := env.NewStateStore("")
-	defs := env.NewDefinitionStore("")
+func runWsHarvest(name string) error {
+	store := ws.NewStateStore("")
+	defs := ws.NewDefinitionStore("")
 
-	e, err := resolveEnvironment(name, store, defs)
+	e, err := resolveWorkspace(name, store, defs)
 	if err != nil {
 		return err
 	}
 
-	return e.Harvest(cmd_context(), env.HarvestOpts{})
+	return e.Harvest(cmd_context(), ws.HarvestOpts{})
 }
 
 // --- logs ---
@@ -1737,31 +1737,31 @@ func newWsRefreshCredsCmd(_ *GlobalFlags) *cobra.Command {
 attaching. This is useful for keeping long-running sessions alive
 when local credentials rotate.
 
-Only applicable to SSH environments. For auth=none, reports that
+Only applicable to SSH workspaces. For auth=none, reports that
 credential management is disabled.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			store := env.NewStateStore("")
-			name, _, err := resolveEnvironmentName(args, store)
+			store := ws.NewStateStore("")
+			name, _, err := resolveWorkspaceName(args, store)
 			if err != nil {
 				return err
 			}
-			return runEnvRefreshCreds(name)
+			return runWsRefreshCreds(name)
 		},
 	}
 }
 
-func runEnvRefreshCreds(name string) error {
-	store := env.NewStateStore("")
-	defs := env.NewDefinitionStore("")
+func runWsRefreshCreds(name string) error {
+	store := ws.NewStateStore("")
+	defs := ws.NewDefinitionStore("")
 
-	e, err := resolveEnvironment(name, store, defs)
+	e, err := resolveWorkspace(name, store, defs)
 	if err != nil {
 		return err
 	}
 
-	if e.Type() != env.EnvironmentTypeSSH {
-		return fmt.Errorf("refresh-creds is only supported for SSH environments (got: %s)", e.Type())
+	if e.Type() != ws.WorkspaceTypeSSH {
+		return fmt.Errorf("refresh-creds is only supported for SSH workspaces (got: %s)", e.Type())
 	}
 
 	def, err := defs.FindByName(name)
@@ -1803,11 +1803,11 @@ func runEnvRefreshCreds(name string) error {
 	return nil
 }
 
-// resolveEnvironmentName resolves an environment name from arguments or
+// resolveWorkspaceName resolves a workspace name from arguments or
 // project-local config. When name is empty, walks to find .cc-deck/workspace.yaml
 // at the git root. Auto-registers discovered projects (FR-007). Displays
 // resolution message (FR-018). Ensures .cc-deck/.gitignore (FR-030).
-func resolveEnvironmentName(args []string, store *env.FileStateStore) (name string, projectRoot string, err error) {
+func resolveWorkspaceName(args []string, store *ws.FileStateStore) (name string, projectRoot string, err error) {
 	if len(args) > 0 && args[0] != "" {
 		return args[0], "", nil
 	}
@@ -1822,7 +1822,7 @@ func resolveEnvironmentName(args []string, store *env.FileStateStore) (name stri
 		return "", "", fmt.Errorf("no workspace name specified and no .cc-deck/workspace.yaml found in project hierarchy")
 	}
 
-	def, loadErr := env.LoadProjectDefinition(root)
+	def, loadErr := ws.LoadProjectDefinition(root)
 	if loadErr != nil {
 		return "", "", fmt.Errorf("loading project definition from %s: %w", root, loadErr)
 	}
@@ -1835,37 +1835,37 @@ func resolveEnvironmentName(args []string, store *env.FileStateStore) (name stri
 	}
 
 	// Self-heal .gitignore (FR-030).
-	_ = env.EnsureCCDeckGitignore(root)
+	_ = ws.EnsureCCDeckGitignore(root)
 
 	return def.Name, root, nil
 }
 
-// resolveEnvironment finds an environment by name and returns the appropriate
-// Environment implementation.
-func resolveEnvironment(name string, store *env.FileStateStore, defs *env.DefinitionStore) (env.Environment, error) {
+// resolveWorkspace finds a workspace by name and returns the appropriate
+// Workspace implementation.
+func resolveWorkspace(name string, store *ws.FileStateStore, defs *ws.DefinitionStore) (ws.Workspace, error) {
 	if inst, err := store.FindInstanceByName(name); err == nil {
-		instType := env.EnvironmentTypeContainer
+		instType := ws.WorkspaceTypeContainer
 		if inst.Type != "" {
 			instType = inst.Type
 		} else if inst.Compose != nil {
-			instType = env.EnvironmentTypeCompose
+			instType = ws.WorkspaceTypeCompose
 		} else if inst.SSH != nil {
-			instType = env.EnvironmentTypeSSH
+			instType = ws.WorkspaceTypeSSH
 		} else if inst.K8s != nil {
-			instType = env.EnvironmentTypeK8sDeploy
+			instType = ws.WorkspaceTypeK8sDeploy
 		}
-		return env.NewEnvironment(instType, name, store, defs)
+		return ws.NewWorkspace(instType, name, store, defs)
 	}
 
 	// Search project definitions from the global registry so that
 	// workspaces visible in "ws list" are also resolvable here.
 	if projects, err := store.ListProjects(); err == nil {
 		for _, p := range projects {
-			def, loadErr := env.LoadProjectDefinition(p.Path)
+			def, loadErr := ws.LoadProjectDefinition(p.Path)
 			if loadErr != nil || def.Name != name {
 				continue
 			}
-			return env.NewEnvironment(def.Type, name, store, defs)
+			return ws.NewWorkspace(def.Type, name, store, defs)
 		}
 	}
 

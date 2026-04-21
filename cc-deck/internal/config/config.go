@@ -23,7 +23,7 @@ type Config struct {
 	Sessions       []Session         `yaml:"sessions,omitempty"`
 }
 
-// ContainerDefaults holds default values for container environments.
+// ContainerDefaults holds default values for container workspaces.
 type ContainerDefaults struct {
 	Image   string `yaml:"image,omitempty"`
 	Storage string `yaml:"storage,omitempty"`
