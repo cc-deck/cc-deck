@@ -40,7 +40,7 @@ func newBuildInitCmd(_ *GlobalFlags) *cobra.Command {
 		Use:   "init [dir]",
 		Short: "Initialize a build directory",
 		Long: `Scaffold a new build directory with a build.yaml manifest
-and Claude Code commands for AI-driven environment configuration.
+and Claude Code commands for AI-driven workspace configuration.
 
 When no directory is specified, defaults to .cc-deck/setup/.
 

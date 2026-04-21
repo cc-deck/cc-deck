@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/cc-deck/cc-deck/internal/env"
+	"github.com/cc-deck/cc-deck/internal/ws"
 )
 
 func TestRunWsPrune_RemovesStaleEntry(t *testing.T) {
@@ -16,7 +16,7 @@ func TestRunWsPrune_RemovesStaleEntry(t *testing.T) {
 	stateFile := filepath.Join(tmpDir, "state.yaml")
 	t.Setenv("CC_DECK_STATE_FILE", stateFile)
 
-	store := env.NewStateStore(stateFile)
+	store := ws.NewStateStore(stateFile)
 
 	// Register a real project and a fake one.
 	realDir := filepath.Join(tmpDir, "real-project")

@@ -48,7 +48,7 @@ Use a temp directory to avoid polluting your real cc-deck state:
 
 ```bash
 export CC_DECK_STATE_FILE=$(mktemp -d)/state.yaml
-export CC_DECK_DEFINITIONS_FILE=$(mktemp -d)/definitions.yaml
+export CC_DECK_WORKSPACES_FILE=$(mktemp -d)/definitions.yaml
 ```
 
 ---
@@ -452,7 +452,7 @@ cc-deck ws delete test-force --force
 
 ```bash
 kind delete cluster --name cc-deck-test
-unset CC_DECK_STATE_FILE CC_DECK_DEFINITIONS_FILE
+unset CC_DECK_STATE_FILE CC_DECK_WORKSPACES_FILE
 rm -rf /tmp/cc-deck-push-test /tmp/cc-deck-pull-test /tmp/cc-deck-stub.tar
 ```
 

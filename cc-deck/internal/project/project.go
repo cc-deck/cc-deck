@@ -31,7 +31,7 @@ func FindGitRoot(startDir string) (string, error) {
 	return CanonicalPath(root), nil
 }
 
-// FindProjectConfig looks for .cc-deck/environment.yaml using two strategies:
+// FindProjectConfig looks for .cc-deck/workspace.yaml using two strategies:
 //  1. Check at the git root (fast, deterministic for single-repo projects).
 //  2. Walk up the directory tree (supports workspace directories without .git).
 //
@@ -54,7 +54,7 @@ func FindProjectConfig(startDir string) (string, error) {
 }
 
 // FindWorkspaceRoot walks up from startDir looking for a directory
-// containing .cc-deck/environment.yaml. Unlike FindProjectConfig's
+// containing .cc-deck/workspace.yaml. Unlike FindProjectConfig's
 // git-root strategy, this does not require a git repository.
 // Returns the canonical path of the directory containing .cc-deck/.
 func FindWorkspaceRoot(startDir string) (string, error) {
@@ -88,7 +88,7 @@ func CanonicalPath(path string) string {
 }
 
 // ProjectName returns the directory basename of the given path,
-// suitable for use as a default environment name.
+// suitable for use as a default workspace name.
 func ProjectName(projectRoot string) string {
 	return filepath.Base(projectRoot)
 }

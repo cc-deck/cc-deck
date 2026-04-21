@@ -9,16 +9,16 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/cc-deck/cc-deck/internal/env"
+	"github.com/cc-deck/cc-deck/internal/ws"
 )
 
-func TestResolveEnvironmentName_FromSubdirectory(t *testing.T) {
+func TestResolveWorkspaceName_FromSubdirectory(t *testing.T) {
 	tmpDir := t.TempDir()
 	require.NoError(t, exec.Command("git", "init", tmpDir).Run())
 
 	// Create project-local definition.
-	def := &env.EnvironmentDefinition{Name: "deep-project", Type: env.EnvironmentTypeLocal}
-	require.NoError(t, env.SaveProjectDefinition(tmpDir, def))
+	def := &ws.WorkspaceDefinition{Name: "deep-project", Type: ws.WorkspaceTypeLocal}
+	require.NoError(t, ws.SaveProjectDefinition(tmpDir, def))
 
 	// Create a deep subdirectory.
 	subDir := filepath.Join(tmpDir, "src", "pkg", "internal")
@@ -31,8 +31,8 @@ func TestResolveEnvironmentName_FromSubdirectory(t *testing.T) {
 	stateFile := filepath.Join(tmpDir, "test-state.yaml")
 	t.Setenv("CC_DECK_STATE_FILE", stateFile)
 
-	store := env.NewStateStore(stateFile)
-	name, _, err := resolveEnvironmentName(nil, store)
+	store := ws.NewStateStore(stateFile)
+	name, _, err := resolveWorkspaceName(nil, store)
 	require.NoError(t, err)
 	assert.Equal(t, "deep-project", name)
 
@@ -42,22 +42,22 @@ func TestResolveEnvironmentName_FromSubdirectory(t *testing.T) {
 	assert.Len(t, projects, 1)
 }
 
-func TestResolveEnvironmentName_FailsWithoutConfig(t *testing.T) {
+func TestResolveWorkspaceName_FailsWithoutConfig(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	origDir, _ := os.Getwd()
 	require.NoError(t, os.Chdir(tmpDir))
 	defer os.Chdir(origDir)
 
-	store := env.NewStateStore(filepath.Join(tmpDir, "state.yaml"))
-	_, _, err := resolveEnvironmentName(nil, store)
+	store := ws.NewStateStore(filepath.Join(tmpDir, "state.yaml"))
+	_, _, err := resolveWorkspaceName(nil, store)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no workspace name specified")
 }
 
-func TestResolveEnvironmentName_ExplicitNameTakesPrecedence(t *testing.T) {
-	store := env.NewStateStore(filepath.Join(t.TempDir(), "state.yaml"))
-	name, _, err := resolveEnvironmentName([]string{"explicit-name"}, store)
+func TestResolveWorkspaceName_ExplicitNameTakesPrecedence(t *testing.T) {
+	store := ws.NewStateStore(filepath.Join(t.TempDir(), "state.yaml"))
+	name, _, err := resolveWorkspaceName([]string{"explicit-name"}, store)
 	require.NoError(t, err)
 	assert.Equal(t, "explicit-name", name)
 }

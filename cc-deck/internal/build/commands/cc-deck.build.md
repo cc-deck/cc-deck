@@ -1,5 +1,5 @@
 ---
-description: "Build environment: --target ssh | --target container [--push]"
+description: "Build workspace: --target ssh | --target container [--push]"
 ---
 
 ## User Input
@@ -20,7 +20,7 @@ All file references in this command (manifest, Containerfile, container/context/
 
 ## Outline
 
-Build a target environment from the `build.yaml` manifest. Requires `--target container` or `--target ssh` in the arguments. Optionally accepts `--push` (container only).
+Build a target workspace from the `build.yaml` manifest. Requires `--target container` or `--target ssh` in the arguments. Optionally accepts `--push` (container only).
 
 ### Step 0: Target dispatch
 

@@ -10,7 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/cc-deck/cc-deck/internal/env"
+	"github.com/cc-deck/cc-deck/internal/ws"
 )
 
 // ensureZellijStub puts a dummy zellij binary on PATH so that
@@ -34,7 +34,7 @@ func newTestNewCmd() (*cobra.Command, *newFlags) {
 		Use:  "new [name]",
 		Args: cobra.MaximumNArgs(1),
 	}
-	cmd.Flags().StringVarP(&cf.envType, "type", "t", "", "")
+	cmd.Flags().StringVarP(&cf.wsType, "type", "t", "", "")
 	cmd.Flags().StringVar(&cf.image, "image", "", "")
 	cmd.Flags().StringVar(&cf.auth, "auth", "auto", "")
 	cmd.Flags().StringSliceVar(&cf.allowedDomains, "allowed-domains", nil, "")
@@ -64,11 +64,11 @@ func TestRunWsNew_ResolvesNameFromDefinition(t *testing.T) {
 	require.NoError(t, exec.Command("git", "init", tmpDir).Run())
 
 	// Create a project-local definition.
-	def := &env.EnvironmentDefinition{
+	def := &ws.WorkspaceDefinition{
 		Name: "my-test-api",
-		Type: env.EnvironmentTypeLocal,
+		Type: ws.WorkspaceTypeLocal,
 	}
-	require.NoError(t, env.SaveProjectDefinition(tmpDir, def))
+	require.NoError(t, ws.SaveProjectDefinition(tmpDir, def))
 
 	origDir, _ := os.Getwd()
 	require.NoError(t, os.Chdir(tmpDir))
@@ -78,7 +78,7 @@ func TestRunWsNew_ResolvesNameFromDefinition(t *testing.T) {
 	stateFile := filepath.Join(tmpDir, "test-state.yaml")
 	defFile := filepath.Join(tmpDir, "test-defs.yaml")
 	t.Setenv("CC_DECK_STATE_FILE", stateFile)
-	t.Setenv("CC_DECK_DEFINITIONS_FILE", defFile)
+	t.Setenv("CC_DECK_WORKSPACES_FILE", defFile)
 
 	cmd, cf := newTestNewCmd()
 	// No name argument, should resolve from definition.
@@ -87,13 +87,13 @@ func TestRunWsNew_ResolvesNameFromDefinition(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify project was registered in global registry.
-	store := env.NewStateStore(stateFile)
+	store := ws.NewStateStore(stateFile)
 	projects, err := store.ListProjects()
 	require.NoError(t, err)
 	assert.Len(t, projects, 1)
 
 	// Verify status.yaml was created.
-	statusStore := env.NewProjectStatusStore(tmpDir)
+	statusStore := ws.NewProjectStatusStore(tmpDir)
 	status, err := statusStore.Load()
 	require.NoError(t, err)
 	assert.Equal(t, "cc-deck-my-test-api", status.ContainerName)
@@ -111,7 +111,7 @@ func TestRunWsNew_ScaffoldsDefinitionWhenMissing(t *testing.T) {
 	stateFile := filepath.Join(tmpDir, "test-state.yaml")
 	defFile := filepath.Join(tmpDir, "test-defs.yaml")
 	t.Setenv("CC_DECK_STATE_FILE", stateFile)
-	t.Setenv("CC_DECK_DEFINITIONS_FILE", defFile)
+	t.Setenv("CC_DECK_WORKSPACES_FILE", defFile)
 
 	cmd, cf := newTestNewCmd()
 	require.NoError(t, cmd.Flags().Set("type", "local"))
@@ -121,10 +121,10 @@ func TestRunWsNew_ScaffoldsDefinitionWhenMissing(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify definition was scaffolded.
-	def, loadErr := env.LoadProjectDefinition(tmpDir)
+	def, loadErr := ws.LoadProjectDefinition(tmpDir)
 	require.NoError(t, loadErr)
 	assert.Equal(t, filepath.Base(tmpDir), def.Name)
-	assert.Equal(t, env.EnvironmentTypeLocal, def.Type)
+	assert.Equal(t, ws.WorkspaceTypeLocal, def.Type)
 }
 
 func TestRunWsNew_CLIOverrideStoredInStatusYaml(t *testing.T) {
@@ -133,12 +133,12 @@ func TestRunWsNew_CLIOverrideStoredInStatusYaml(t *testing.T) {
 	require.NoError(t, exec.Command("git", "init", tmpDir).Run())
 
 	// Create definition with image.
-	def := &env.EnvironmentDefinition{
+	def := &ws.WorkspaceDefinition{
 		Name:  "test-override",
-		Type:  env.EnvironmentTypeLocal,
+		Type:  ws.WorkspaceTypeLocal,
 		Image: "original:latest",
 	}
-	require.NoError(t, env.SaveProjectDefinition(tmpDir, def))
+	require.NoError(t, ws.SaveProjectDefinition(tmpDir, def))
 
 	origDir, _ := os.Getwd()
 	require.NoError(t, os.Chdir(tmpDir))
@@ -147,7 +147,7 @@ func TestRunWsNew_CLIOverrideStoredInStatusYaml(t *testing.T) {
 	stateFile := filepath.Join(tmpDir, "test-state.yaml")
 	defFile := filepath.Join(tmpDir, "test-defs.yaml")
 	t.Setenv("CC_DECK_STATE_FILE", stateFile)
-	t.Setenv("CC_DECK_DEFINITIONS_FILE", defFile)
+	t.Setenv("CC_DECK_WORKSPACES_FILE", defFile)
 
 	cmd, cf := newTestNewCmd()
 	require.NoError(t, cmd.Flags().Set("image", "override:latest"))
@@ -156,13 +156,13 @@ func TestRunWsNew_CLIOverrideStoredInStatusYaml(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify override is in status.yaml, NOT in workspace.yaml.
-	statusStore := env.NewProjectStatusStore(tmpDir)
+	statusStore := ws.NewProjectStatusStore(tmpDir)
 	status, err := statusStore.Load()
 	require.NoError(t, err)
 	assert.Equal(t, "override:latest", status.Overrides["image"])
 
 	// workspace.yaml should still have original image.
-	loadedDef, err := env.LoadProjectDefinition(tmpDir)
+	loadedDef, err := ws.LoadProjectDefinition(tmpDir)
 	require.NoError(t, err)
 	assert.Equal(t, "original:latest", loadedDef.Image)
 }
@@ -173,11 +173,11 @@ func TestRunWsNew_ExplicitNameUsesGlobalDefinition(t *testing.T) {
 	require.NoError(t, exec.Command("git", "init", tmpDir).Run())
 
 	// Create a project-local definition with a different name.
-	projDef := &env.EnvironmentDefinition{
+	projDef := &ws.WorkspaceDefinition{
 		Name: "project-env",
-		Type: env.EnvironmentTypeLocal,
+		Type: ws.WorkspaceTypeLocal,
 	}
-	require.NoError(t, env.SaveProjectDefinition(tmpDir, projDef))
+	require.NoError(t, ws.SaveProjectDefinition(tmpDir, projDef))
 
 	origDir, _ := os.Getwd()
 	require.NoError(t, os.Chdir(tmpDir))
@@ -186,13 +186,13 @@ func TestRunWsNew_ExplicitNameUsesGlobalDefinition(t *testing.T) {
 	stateFile := filepath.Join(tmpDir, "test-state.yaml")
 	defFile := filepath.Join(tmpDir, "test-defs.yaml")
 	t.Setenv("CC_DECK_STATE_FILE", stateFile)
-	t.Setenv("CC_DECK_DEFINITIONS_FILE", defFile)
+	t.Setenv("CC_DECK_WORKSPACES_FILE", defFile)
 
 	// Add a global definition for a different name.
-	defs := env.NewDefinitionStore(defFile)
-	require.NoError(t, defs.Add(&env.EnvironmentDefinition{
+	defs := ws.NewDefinitionStore(defFile)
+	require.NoError(t, defs.Add(&ws.WorkspaceDefinition{
 		Name: "global-env",
-		Type: env.EnvironmentTypeLocal,
+		Type: ws.WorkspaceTypeLocal,
 	}))
 
 	cmd, cf := newTestNewCmd()
@@ -201,13 +201,13 @@ func TestRunWsNew_ExplicitNameUsesGlobalDefinition(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify instance was created with the global env name.
-	store := env.NewStateStore(stateFile)
+	store := ws.NewStateStore(stateFile)
 	inst, findErr := store.FindInstanceByName("global-env")
 	require.NoError(t, findErr)
-	assert.Equal(t, env.EnvironmentTypeLocal, inst.Type)
+	assert.Equal(t, ws.WorkspaceTypeLocal, inst.Type)
 
 	// Verify no scaffolding happened (FR-002a): project definition should still be "project-env".
-	loadedDef, loadErr := env.LoadProjectDefinition(tmpDir)
+	loadedDef, loadErr := ws.LoadProjectDefinition(tmpDir)
 	require.NoError(t, loadErr)
 	assert.Equal(t, "project-env", loadedDef.Name, "project-local definition should not be overwritten")
 }
@@ -218,11 +218,11 @@ func TestRunWsNew_ExplicitNameNotFoundFallsToLocal(t *testing.T) {
 	require.NoError(t, exec.Command("git", "init", tmpDir).Run())
 
 	// Create a project-local definition with a different name.
-	projDef := &env.EnvironmentDefinition{
+	projDef := &ws.WorkspaceDefinition{
 		Name: "project-env",
-		Type: env.EnvironmentTypeLocal,
+		Type: ws.WorkspaceTypeLocal,
 	}
-	require.NoError(t, env.SaveProjectDefinition(tmpDir, projDef))
+	require.NoError(t, ws.SaveProjectDefinition(tmpDir, projDef))
 
 	origDir, _ := os.Getwd()
 	require.NoError(t, os.Chdir(tmpDir))
@@ -231,17 +231,17 @@ func TestRunWsNew_ExplicitNameNotFoundFallsToLocal(t *testing.T) {
 	stateFile := filepath.Join(tmpDir, "test-state.yaml")
 	defFile := filepath.Join(tmpDir, "test-defs.yaml")
 	t.Setenv("CC_DECK_STATE_FILE", stateFile)
-	t.Setenv("CC_DECK_DEFINITIONS_FILE", defFile)
+	t.Setenv("CC_DECK_WORKSPACES_FILE", defFile)
 
 	cmd, cf := newTestNewCmd()
 	// Explicit name not in any store: should fall back to local type (FR-003).
 	err := runWsNew(nil, "unknown-env", cf, cmd)
 	require.NoError(t, err)
 
-	store := env.NewStateStore(stateFile)
+	store := ws.NewStateStore(stateFile)
 	inst, findErr := store.FindInstanceByName("unknown-env")
 	require.NoError(t, findErr)
-	assert.Equal(t, env.EnvironmentTypeLocal, inst.Type)
+	assert.Equal(t, ws.WorkspaceTypeLocal, inst.Type)
 }
 
 func TestRunWsNew_ExplicitNameMatchingProjectLocalUsesIt(t *testing.T) {
@@ -250,11 +250,11 @@ func TestRunWsNew_ExplicitNameMatchingProjectLocalUsesIt(t *testing.T) {
 	require.NoError(t, exec.Command("git", "init", tmpDir).Run())
 
 	// Create a project-local definition.
-	projDef := &env.EnvironmentDefinition{
+	projDef := &ws.WorkspaceDefinition{
 		Name: "my-env",
-		Type: env.EnvironmentTypeLocal,
+		Type: ws.WorkspaceTypeLocal,
 	}
-	require.NoError(t, env.SaveProjectDefinition(tmpDir, projDef))
+	require.NoError(t, ws.SaveProjectDefinition(tmpDir, projDef))
 
 	origDir, _ := os.Getwd()
 	require.NoError(t, os.Chdir(tmpDir))
@@ -263,17 +263,17 @@ func TestRunWsNew_ExplicitNameMatchingProjectLocalUsesIt(t *testing.T) {
 	stateFile := filepath.Join(tmpDir, "test-state.yaml")
 	defFile := filepath.Join(tmpDir, "test-defs.yaml")
 	t.Setenv("CC_DECK_STATE_FILE", stateFile)
-	t.Setenv("CC_DECK_DEFINITIONS_FILE", defFile)
+	t.Setenv("CC_DECK_WORKSPACES_FILE", defFile)
 
 	cmd, cf := newTestNewCmd()
 	// Explicit name matches project-local: should use project-local (FR-004).
 	err := runWsNew(nil, "my-env", cf, cmd)
 	require.NoError(t, err)
 
-	store := env.NewStateStore(stateFile)
+	store := ws.NewStateStore(stateFile)
 	inst, findErr := store.FindInstanceByName("my-env")
 	require.NoError(t, findErr)
-	assert.Equal(t, env.EnvironmentTypeLocal, inst.Type)
+	assert.Equal(t, ws.WorkspaceTypeLocal, inst.Type)
 }
 
 func TestRunWsNew_TypeFlagOverridesGlobalDefinition(t *testing.T) {
@@ -282,11 +282,11 @@ func TestRunWsNew_TypeFlagOverridesGlobalDefinition(t *testing.T) {
 	require.NoError(t, exec.Command("git", "init", tmpDir).Run())
 
 	// Create a project-local definition with a different name.
-	projDef := &env.EnvironmentDefinition{
+	projDef := &ws.WorkspaceDefinition{
 		Name: "project-env",
-		Type: env.EnvironmentTypeLocal,
+		Type: ws.WorkspaceTypeLocal,
 	}
-	require.NoError(t, env.SaveProjectDefinition(tmpDir, projDef))
+	require.NoError(t, ws.SaveProjectDefinition(tmpDir, projDef))
 
 	origDir, _ := os.Getwd()
 	require.NoError(t, os.Chdir(tmpDir))
@@ -295,13 +295,13 @@ func TestRunWsNew_TypeFlagOverridesGlobalDefinition(t *testing.T) {
 	stateFile := filepath.Join(tmpDir, "test-state.yaml")
 	defFile := filepath.Join(tmpDir, "test-defs.yaml")
 	t.Setenv("CC_DECK_STATE_FILE", stateFile)
-	t.Setenv("CC_DECK_DEFINITIONS_FILE", defFile)
+	t.Setenv("CC_DECK_WORKSPACES_FILE", defFile)
 
 	// Add a global definition with a specific type.
-	defs := env.NewDefinitionStore(defFile)
-	require.NoError(t, defs.Add(&env.EnvironmentDefinition{
+	defs := ws.NewDefinitionStore(defFile)
+	require.NoError(t, defs.Add(&ws.WorkspaceDefinition{
 		Name: "global-env",
-		Type: env.EnvironmentTypeLocal,
+		Type: ws.WorkspaceTypeLocal,
 	}))
 
 	cmd, cf := newTestNewCmd()
@@ -310,10 +310,10 @@ func TestRunWsNew_TypeFlagOverridesGlobalDefinition(t *testing.T) {
 	err := runWsNew(nil, "global-env", cf, cmd)
 	require.NoError(t, err)
 
-	store := env.NewStateStore(stateFile)
+	store := ws.NewStateStore(stateFile)
 	inst, findErr := store.FindInstanceByName("global-env")
 	require.NoError(t, findErr)
-	assert.Equal(t, env.EnvironmentTypeLocal, inst.Type)
+	assert.Equal(t, ws.WorkspaceTypeLocal, inst.Type)
 }
 
 func TestRunWsNew_GlobalFlagSelectsGlobalDefinition(t *testing.T) {
@@ -322,11 +322,11 @@ func TestRunWsNew_GlobalFlagSelectsGlobalDefinition(t *testing.T) {
 	require.NoError(t, exec.Command("git", "init", tmpDir).Run())
 
 	// Create project-local definition.
-	projDef := &env.EnvironmentDefinition{
+	projDef := &ws.WorkspaceDefinition{
 		Name: "myenv",
-		Type: env.EnvironmentTypeLocal,
+		Type: ws.WorkspaceTypeLocal,
 	}
-	require.NoError(t, env.SaveProjectDefinition(tmpDir, projDef))
+	require.NoError(t, ws.SaveProjectDefinition(tmpDir, projDef))
 
 	origDir, _ := os.Getwd()
 	require.NoError(t, os.Chdir(tmpDir))
@@ -335,13 +335,13 @@ func TestRunWsNew_GlobalFlagSelectsGlobalDefinition(t *testing.T) {
 	stateFile := filepath.Join(tmpDir, "test-state.yaml")
 	defFile := filepath.Join(tmpDir, "test-defs.yaml")
 	t.Setenv("CC_DECK_STATE_FILE", stateFile)
-	t.Setenv("CC_DECK_DEFINITIONS_FILE", defFile)
+	t.Setenv("CC_DECK_WORKSPACES_FILE", defFile)
 
 	// Add a global definition with the same name.
-	defs := env.NewDefinitionStore(defFile)
-	require.NoError(t, defs.Add(&env.EnvironmentDefinition{
+	defs := ws.NewDefinitionStore(defFile)
+	require.NoError(t, defs.Add(&ws.WorkspaceDefinition{
 		Name: "myenv",
-		Type: env.EnvironmentTypeLocal,
+		Type: ws.WorkspaceTypeLocal,
 	}))
 
 	cmd, cf := newTestNewCmd()
@@ -349,7 +349,7 @@ func TestRunWsNew_GlobalFlagSelectsGlobalDefinition(t *testing.T) {
 	err := runWsNew(nil, "myenv", cf, cmd)
 	require.NoError(t, err)
 
-	store := env.NewStateStore(stateFile)
+	store := ws.NewStateStore(stateFile)
 	_, findErr := store.FindInstanceByName("myenv")
 	require.NoError(t, findErr)
 }
@@ -359,11 +359,11 @@ func TestRunWsNew_LocalFlagSelectsProjectLocal(t *testing.T) {
 	tmpDir := t.TempDir()
 	require.NoError(t, exec.Command("git", "init", tmpDir).Run())
 
-	projDef := &env.EnvironmentDefinition{
+	projDef := &ws.WorkspaceDefinition{
 		Name: "myenv",
-		Type: env.EnvironmentTypeLocal,
+		Type: ws.WorkspaceTypeLocal,
 	}
-	require.NoError(t, env.SaveProjectDefinition(tmpDir, projDef))
+	require.NoError(t, ws.SaveProjectDefinition(tmpDir, projDef))
 
 	origDir, _ := os.Getwd()
 	require.NoError(t, os.Chdir(tmpDir))
@@ -372,14 +372,14 @@ func TestRunWsNew_LocalFlagSelectsProjectLocal(t *testing.T) {
 	stateFile := filepath.Join(tmpDir, "test-state.yaml")
 	defFile := filepath.Join(tmpDir, "test-defs.yaml")
 	t.Setenv("CC_DECK_STATE_FILE", stateFile)
-	t.Setenv("CC_DECK_DEFINITIONS_FILE", defFile)
+	t.Setenv("CC_DECK_WORKSPACES_FILE", defFile)
 
 	cmd, cf := newTestNewCmd()
 	require.NoError(t, cmd.Flags().Set("local", "true"))
 	err := runWsNew(nil, "myenv", cf, cmd)
 	require.NoError(t, err)
 
-	store := env.NewStateStore(stateFile)
+	store := ws.NewStateStore(stateFile)
 	_, findErr := store.FindInstanceByName("myenv")
 	require.NoError(t, findErr)
 }
@@ -395,7 +395,7 @@ func TestRunWsNew_GlobalFlagErrorsWhenNoGlobalDef(t *testing.T) {
 	stateFile := filepath.Join(tmpDir, "test-state.yaml")
 	defFile := filepath.Join(tmpDir, "test-defs.yaml")
 	t.Setenv("CC_DECK_STATE_FILE", stateFile)
-	t.Setenv("CC_DECK_DEFINITIONS_FILE", defFile)
+	t.Setenv("CC_DECK_WORKSPACES_FILE", defFile)
 
 	cmd, cf := newTestNewCmd()
 	require.NoError(t, cmd.Flags().Set("global", "true"))
@@ -415,7 +415,7 @@ func TestRunWsNew_LocalFlagErrorsWhenNoProjectDef(t *testing.T) {
 	stateFile := filepath.Join(tmpDir, "test-state.yaml")
 	defFile := filepath.Join(tmpDir, "test-defs.yaml")
 	t.Setenv("CC_DECK_STATE_FILE", stateFile)
-	t.Setenv("CC_DECK_DEFINITIONS_FILE", defFile)
+	t.Setenv("CC_DECK_WORKSPACES_FILE", defFile)
 
 	cmd, cf := newTestNewCmd()
 	require.NoError(t, cmd.Flags().Set("local", "true"))
@@ -429,11 +429,11 @@ func TestRunWsNew_LocalFlagErrorsOnNameMismatch(t *testing.T) {
 	require.NoError(t, exec.Command("git", "init", tmpDir).Run())
 
 	// Create project-local definition with name "proj-env".
-	projDef := &env.EnvironmentDefinition{
+	projDef := &ws.WorkspaceDefinition{
 		Name: "proj-env",
-		Type: env.EnvironmentTypeLocal,
+		Type: ws.WorkspaceTypeLocal,
 	}
-	require.NoError(t, env.SaveProjectDefinition(tmpDir, projDef))
+	require.NoError(t, ws.SaveProjectDefinition(tmpDir, projDef))
 
 	origDir, _ := os.Getwd()
 	require.NoError(t, os.Chdir(tmpDir))
@@ -442,7 +442,7 @@ func TestRunWsNew_LocalFlagErrorsOnNameMismatch(t *testing.T) {
 	stateFile := filepath.Join(tmpDir, "test-state.yaml")
 	defFile := filepath.Join(tmpDir, "test-defs.yaml")
 	t.Setenv("CC_DECK_STATE_FILE", stateFile)
-	t.Setenv("CC_DECK_DEFINITIONS_FILE", defFile)
+	t.Setenv("CC_DECK_WORKSPACES_FILE", defFile)
 
 	cmd, cf := newTestNewCmd()
 	require.NoError(t, cmd.Flags().Set("local", "true"))
@@ -479,13 +479,13 @@ func TestRunWsNew_GlobalWithTypeFlagOverridesType(t *testing.T) {
 	stateFile := filepath.Join(tmpDir, "test-state.yaml")
 	defFile := filepath.Join(tmpDir, "test-defs.yaml")
 	t.Setenv("CC_DECK_STATE_FILE", stateFile)
-	t.Setenv("CC_DECK_DEFINITIONS_FILE", defFile)
+	t.Setenv("CC_DECK_WORKSPACES_FILE", defFile)
 
 	// Add a global definition.
-	defs := env.NewDefinitionStore(defFile)
-	require.NoError(t, defs.Add(&env.EnvironmentDefinition{
+	defs := ws.NewDefinitionStore(defFile)
+	require.NoError(t, defs.Add(&ws.WorkspaceDefinition{
 		Name: "global-env",
-		Type: env.EnvironmentTypeLocal,
+		Type: ws.WorkspaceTypeLocal,
 	}))
 
 	cmd, cf := newTestNewCmd()
@@ -494,10 +494,10 @@ func TestRunWsNew_GlobalWithTypeFlagOverridesType(t *testing.T) {
 	err := runWsNew(nil, "global-env", cf, cmd)
 	require.NoError(t, err)
 
-	store := env.NewStateStore(stateFile)
+	store := ws.NewStateStore(stateFile)
 	inst, findErr := store.FindInstanceByName("global-env")
 	require.NoError(t, findErr)
-	assert.Equal(t, env.EnvironmentTypeLocal, inst.Type)
+	assert.Equal(t, ws.WorkspaceTypeLocal, inst.Type)
 }
 
 func TestRunWsNew_FailsWithoutNameOutsideGitRepo(t *testing.T) {
@@ -516,18 +516,18 @@ func TestRunWsNew_FailsWithoutNameOutsideGitRepo(t *testing.T) {
 func TestWriteEnvStructured_IncludesSourceField(t *testing.T) {
 	tmpDir := t.TempDir()
 	defFile := filepath.Join(tmpDir, "test-defs.yaml")
-	t.Setenv("CC_DECK_DEFINITIONS_FILE", defFile)
+	t.Setenv("CC_DECK_WORKSPACES_FILE", defFile)
 
-	defs := env.NewDefinitionStore(defFile)
-	require.NoError(t, defs.Add(&env.EnvironmentDefinition{
+	defs := ws.NewDefinitionStore(defFile)
+	require.NoError(t, defs.Add(&ws.WorkspaceDefinition{
 		Name: "global-env",
-		Type: env.EnvironmentTypeSSH,
+		Type: ws.WorkspaceTypeSSH,
 		Host: "user@host",
 	}))
 
-	instances := []*env.EnvironmentInstance{
-		{Name: "global-env", Type: env.EnvironmentTypeSSH, State: env.EnvironmentStateRunning,
-			SSH: &env.SSHFields{Host: "user@host"}},
+	instances := []*ws.WorkspaceInstance{
+		{Name: "global-env", Type: ws.WorkspaceTypeSSH, State: ws.WorkspaceStateRunning,
+			SSH: &ws.SSHFields{Host: "user@host"}},
 	}
 	instanceNames := map[string]bool{"global-env": true}
 
@@ -537,7 +537,7 @@ func TestWriteEnvStructured_IncludesSourceField(t *testing.T) {
 	require.NoError(t, pipeErr)
 	os.Stdout = w
 
-	err := writeEnvStructured("json", instances, nil, instanceNames, "", defs, nil)
+	err := writeWsStructured("json", instances, nil, instanceNames, "", defs, nil)
 	require.NoError(t, err)
 
 	w.Close()
@@ -553,12 +553,12 @@ func TestWriteEnvStructured_IncludesSourceField(t *testing.T) {
 func TestWriteEnvStructured_ProjectSourceForProjectEnvs(t *testing.T) {
 	tmpDir := t.TempDir()
 	defFile := filepath.Join(tmpDir, "test-defs.yaml")
-	t.Setenv("CC_DECK_DEFINITIONS_FILE", defFile)
+	t.Setenv("CC_DECK_WORKSPACES_FILE", defFile)
 
-	defs := env.NewDefinitionStore(defFile)
+	defs := ws.NewDefinitionStore(defFile)
 
-	projectEnvs := []projectListEntry{
-		{Name: "proj-env", Type: env.EnvironmentTypeCompose, Status: "not created", Path: "/some/path"},
+	projectWs := []projectListEntry{
+		{Name: "proj-env", Type: ws.WorkspaceTypeCompose, Status: "not created", Path: "/some/path"},
 	}
 
 	// Capture JSON output.
@@ -567,7 +567,7 @@ func TestWriteEnvStructured_ProjectSourceForProjectEnvs(t *testing.T) {
 	require.NoError(t, pipeErr)
 	os.Stdout = w
 
-	err := writeEnvStructured("json", nil, nil, map[string]bool{}, "", defs, projectEnvs)
+	err := writeWsStructured("json", nil, nil, map[string]bool{}, "", defs, projectWs)
 	require.NoError(t, err)
 
 	w.Close()
@@ -583,12 +583,12 @@ func TestWriteEnvStructured_ProjectSourceForProjectEnvs(t *testing.T) {
 func TestWriteEnvTableWithProjects_HasSourceNoPath(t *testing.T) {
 	tmpDir := t.TempDir()
 	defFile := filepath.Join(tmpDir, "test-defs.yaml")
-	t.Setenv("CC_DECK_DEFINITIONS_FILE", defFile)
+	t.Setenv("CC_DECK_WORKSPACES_FILE", defFile)
 
-	defs := env.NewDefinitionStore(defFile)
+	defs := ws.NewDefinitionStore(defFile)
 
-	projectEnvs := []projectListEntry{
-		{Name: "proj-env", Type: env.EnvironmentTypeCompose, Status: "not created", Path: "/some/path"},
+	projectWs := []projectListEntry{
+		{Name: "proj-env", Type: ws.WorkspaceTypeCompose, Status: "not created", Path: "/some/path"},
 	}
 
 	// Capture output.
@@ -597,7 +597,7 @@ func TestWriteEnvTableWithProjects_HasSourceNoPath(t *testing.T) {
 	require.NoError(t, pipeErr)
 	os.Stdout = w
 
-	err := writeEnvTableWithProjects(nil, nil, map[string]bool{}, "", projectEnvs, nil, defs, false)
+	err := writeWsTableWithProjects(nil, nil, map[string]bool{}, "", projectWs, nil, defs, false)
 	require.NoError(t, err)
 
 	w.Close()

@@ -64,7 +64,7 @@ func setupComposeSmokeEnv(t *testing.T) (envVars map[string]string, projectDir s
 
 	envVars = map[string]string{
 		"CC_DECK_STATE_FILE":       filepath.Join(stateDir, "state.yaml"),
-		"CC_DECK_DEFINITIONS_FILE": filepath.Join(stateDir, "environments.yaml"),
+		"CC_DECK_WORKSPACES_FILE": filepath.Join(stateDir, "workspaces.yaml"),
 	}
 	return envVars, projectDir
 }
