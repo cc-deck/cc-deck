@@ -71,7 +71,7 @@ type testEnv struct {
 	env       []string
 }
 
-// setup creates an isolated environment for one test: temp state file
+// setup creates an isolated test setup for one test: temp state file
 // and a zellij stub on PATH.
 func setup(t *testing.T) *testEnv {
 	t.Helper()
@@ -258,7 +258,7 @@ func TestE2EStopLocalPrintsNote(t *testing.T) {
 	assert.Contains(t, stderr, "not supported")
 }
 
-func TestE2EMultipleEnvironments(t *testing.T) {
+func TestE2EMultipleWorkspaces(t *testing.T) {
 	te := setup(t)
 
 	for _, name := range []string{"alpha", "beta", "gamma"} {

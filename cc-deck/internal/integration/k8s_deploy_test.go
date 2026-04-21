@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/cc-deck/cc-deck/internal/env"
+	"github.com/cc-deck/cc-deck/internal/ws"
 )
 
 const (
@@ -20,81 +20,81 @@ const (
 
 func TestK8sDeployLifecycle(t *testing.T) {
 	ctx := context.Background()
-	store := env.NewStateStore(t.TempDir() + "/state.yaml")
-	defs := env.NewDefinitionStore(t.TempDir() + "/definitions.yaml")
+	store := ws.NewStateStore(t.TempDir() + "/state.yaml")
+	defs := ws.NewDefinitionStore(t.TempDir() + "/definitions.yaml")
 
-	envName := "inttest-lifecycle"
+	wsName := "inttest-lifecycle"
 
 	// Create
-	raw, err := env.NewEnvironment(env.EnvironmentTypeK8sDeploy, envName, store, defs)
+	raw, err := ws.NewWorkspace(ws.WorkspaceTypeK8sDeploy, wsName, store, defs)
 	require.NoError(t, err)
 
-	ke, ok := raw.(*env.K8sDeployEnvironment)
+	ke, ok := raw.(*ws.K8sDeployWorkspace)
 	require.True(t, ok)
 	ke.Namespace = testNamespace
 	ke.NoNetworkPolicy = true
 	ke.Timeout = 3 * time.Minute
 
-	err = ke.Create(ctx, env.CreateOpts{Image: testImage})
+	err = ke.Create(ctx, ws.CreateOpts{Image: testImage})
 	require.NoError(t, err, "Create should succeed")
 
 	// Verify instance recorded.
-	inst, err := store.FindInstanceByName(envName)
+	inst, err := store.FindInstanceByName(wsName)
 	require.NoError(t, err)
-	assert.Equal(t, env.EnvironmentStateRunning, inst.State)
+	assert.Equal(t, ws.WorkspaceStateRunning, inst.State)
 	assert.Equal(t, testNamespace, inst.K8s.Namespace)
 
 	// Stop
 	err = ke.Stop(ctx)
 	require.NoError(t, err, "Stop should succeed")
 
-	inst, _ = store.FindInstanceByName(envName)
-	assert.Equal(t, env.EnvironmentStateStopped, inst.State)
+	inst, _ = store.FindInstanceByName(wsName)
+	assert.Equal(t, ws.WorkspaceStateStopped, inst.State)
 
 	// Start
 	err = ke.Start(ctx)
 	require.NoError(t, err, "Start should succeed")
 
-	inst, _ = store.FindInstanceByName(envName)
-	assert.Equal(t, env.EnvironmentStateRunning, inst.State)
+	inst, _ = store.FindInstanceByName(wsName)
+	assert.Equal(t, ws.WorkspaceStateRunning, inst.State)
 
 	// Status
 	status, err := ke.Status(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, env.EnvironmentStateRunning, status.State)
+	assert.Equal(t, ws.WorkspaceStateRunning, status.State)
 
 	// Delete
 	err = ke.Delete(ctx, true)
 	require.NoError(t, err, "Delete should succeed")
 
-	_, err = store.FindInstanceByName(envName)
+	_, err = store.FindInstanceByName(wsName)
 	assert.Error(t, err, "Instance should be removed after delete")
 }
 
 func TestK8sDeployResourceVerification(t *testing.T) {
 	ctx := context.Background()
-	store := env.NewStateStore(t.TempDir() + "/state.yaml")
-	defs := env.NewDefinitionStore(t.TempDir() + "/definitions.yaml")
+	store := ws.NewStateStore(t.TempDir() + "/state.yaml")
+	defs := ws.NewDefinitionStore(t.TempDir() + "/definitions.yaml")
 
-	envName := "inttest-resources"
+	wsName := "inttest-resources"
 
-	raw, err := env.NewEnvironment(env.EnvironmentTypeK8sDeploy, envName, store, defs)
+	raw, err := ws.NewWorkspace(ws.WorkspaceTypeK8sDeploy, wsName, store, defs)
 	require.NoError(t, err)
 
-	ke := raw.(*env.K8sDeployEnvironment)
+	ke := raw.(*ws.K8sDeployWorkspace)
 	ke.Namespace = testNamespace
 	ke.NoNetworkPolicy = true
 	ke.Timeout = 3 * time.Minute
 	ke.Credentials = map[string]string{"TEST_KEY": "test-value"}
 
-	err = ke.Create(ctx, env.CreateOpts{Image: testImage, Storage: env.StorageConfig{Size: "1Gi"}})
+	err = ke.Create(ctx, ws.CreateOpts{Image: testImage, Storage: ws.StorageConfig{Size: "1Gi"}})
 	require.NoError(t, err)
 
 	// Verify K8s resources exist via client.
-	client, err := env.NewK8sClient("", "")
+	client, err := ws.NewK8sClient("", "")
 	require.NoError(t, err)
 
-	resName := "cc-deck-" + envName
+	resName := "cc-deck-" + wsName
 
 	// Verify StatefulSet exists.
 	_, stsErr := client.ReconcileState(ctx, testNamespace, resName)
@@ -106,30 +106,30 @@ func TestK8sDeployResourceVerification(t *testing.T) {
 
 func TestK8sDeployDuplicateConflict(t *testing.T) {
 	ctx := context.Background()
-	store := env.NewStateStore(t.TempDir() + "/state.yaml")
-	defs := env.NewDefinitionStore(t.TempDir() + "/definitions.yaml")
+	store := ws.NewStateStore(t.TempDir() + "/state.yaml")
+	defs := ws.NewDefinitionStore(t.TempDir() + "/definitions.yaml")
 
-	envName := "inttest-dup"
+	wsName := "inttest-dup"
 
 	// First create.
-	raw, err := env.NewEnvironment(env.EnvironmentTypeK8sDeploy, envName, store, defs)
+	raw, err := ws.NewWorkspace(ws.WorkspaceTypeK8sDeploy, wsName, store, defs)
 	require.NoError(t, err)
-	ke := raw.(*env.K8sDeployEnvironment)
+	ke := raw.(*ws.K8sDeployWorkspace)
 	ke.Namespace = testNamespace
 	ke.NoNetworkPolicy = true
 	ke.Timeout = 3 * time.Minute
 
-	err = ke.Create(ctx, env.CreateOpts{Image: testImage})
+	err = ke.Create(ctx, ws.CreateOpts{Image: testImage})
 	require.NoError(t, err)
 
 	// Second create with same name should fail.
-	raw2, _ := env.NewEnvironment(env.EnvironmentTypeK8sDeploy, envName, store, defs)
-	ke2 := raw2.(*env.K8sDeployEnvironment)
+	raw2, _ := ws.NewWorkspace(ws.WorkspaceTypeK8sDeploy, wsName, store, defs)
+	ke2 := raw2.(*ws.K8sDeployWorkspace)
 	ke2.Namespace = testNamespace
 
-	err = ke2.Create(ctx, env.CreateOpts{Image: testImage})
+	err = ke2.Create(ctx, ws.CreateOpts{Image: testImage})
 	assert.Error(t, err)
-	assert.ErrorIs(t, err, env.ErrNameConflict)
+	assert.ErrorIs(t, err, ws.ErrNameConflict)
 
 	// Cleanup.
 	_ = ke.Delete(ctx, true)

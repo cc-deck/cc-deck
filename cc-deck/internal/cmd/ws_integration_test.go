@@ -27,7 +27,7 @@ func buildRootCmd(gf *cmd.GlobalFlags) *cobra.Command {
 
 // setupTestWs creates a temp state file and puts a dummy zellij script
 // on PATH so that LookPath succeeds. Each test gets its own isolated
-// state file and definitions file via environment variables.
+// state file and definitions file via env vars.
 func setupTestWs(t *testing.T) (stateDir string) {
 	t.Helper()
 
@@ -36,8 +36,8 @@ func setupTestWs(t *testing.T) (stateDir string) {
 	t.Setenv("CC_DECK_STATE_FILE", stateFile)
 
 	// Isolate definition store so system definitions don't leak into tests.
-	defsFile := filepath.Join(stateDir, "environments.yaml")
-	t.Setenv("CC_DECK_DEFINITIONS_FILE", defsFile)
+	defsFile := filepath.Join(stateDir, "workspaces.yaml")
+	t.Setenv("CC_DECK_WORKSPACES_FILE", defsFile)
 
 	// Change to temp dir so project-local .cc-deck/ config isn't discovered.
 	t.Chdir(stateDir)
@@ -105,7 +105,7 @@ func TestWsCreateAndList(t *testing.T) {
 	setupTestWs(t)
 	gf := &cmd.GlobalFlags{Output: "text"}
 
-	// Create an environment.
+	// Create a workspace.
 	stdout, _, err := run(t, gf, "ws", "new", "mydev", "--type", "local")
 	require.NoError(t, err)
 	assert.Contains(t, stdout, `"mydev" created`)
@@ -277,11 +277,11 @@ func TestWsStubCommandsReturnError(t *testing.T) {
 	setupTestWs(t)
 	gf := &cmd.GlobalFlags{Output: "text"}
 
-	// Create the environment first so resolveEnvironment succeeds.
+	// Create the workspace first so resolveWorkspace succeeds.
 	_, _, err := run(t, gf, "ws", "new", "stubtest", "--type", "local")
 	require.NoError(t, err)
 
-	// These commands should fail because local environments don't support them.
+	// These commands should fail because local workspaces don't support them.
 	stubs := []struct {
 		args    []string
 		errText string
@@ -327,7 +327,7 @@ func TestWsFullLifecycle(t *testing.T) {
 	assert.Contains(t, stdout, "deleted")
 }
 
-func TestWsMultipleEnvironments(t *testing.T) {
+func TestWsMultipleWorkspaces(t *testing.T) {
 	setupTestWs(t)
 	gf := &cmd.GlobalFlags{Output: "text"}
 
