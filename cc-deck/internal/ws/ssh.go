@@ -216,6 +216,13 @@ func (e *SSHWorkspace) Attach(ctx context.Context) error {
 		}
 	}
 
+	// Set terminal background color for remote sessions if configured.
+	remoteBG := LoadRemoteBG(e.name, e.defs)
+	if remoteBG != "" {
+		client.OnAttach = func() { SetRemoteBG(remoteBG) }
+		client.OnDetachEscape = ResetBGEscape
+	}
+
 	// Replace current process with SSH to attach to the remote Zellij session.
 	attachCmd := fmt.Sprintf("zellij attach %s", sessionName)
 	return client.RunInteractive(attachCmd)
@@ -252,6 +259,33 @@ func (e *SSHWorkspace) Delete(ctx context.Context, force bool) error {
 		}
 	}
 
+	return nil
+}
+
+// SyncRepos clones missing repos on the remote workspace.
+func (e *SSHWorkspace) SyncRepos(ctx context.Context, repos []RepoEntry) error {
+	inst, err := e.store.FindInstanceByName(e.name)
+	if err != nil {
+		return err
+	}
+	if inst.SSH == nil {
+		return fmt.Errorf("workspace %q has no SSH configuration", e.name)
+	}
+
+	client := ssh.NewClient(inst.SSH.Host, inst.SSH.Port, inst.SSH.IdentityFile, inst.SSH.JumpHost, inst.SSH.SSHConfig)
+	client.AgentForwarding = true
+
+	workspace := inst.SSH.Workspace
+	if workspace == "" {
+		workspace = "~/workspace"
+	}
+
+	sshRunner := func(ctx2 context.Context, cmd string) (string, error) {
+		return client.Run(ctx2, cmd)
+	}
+
+	fmt.Fprintf(os.Stderr, "Syncing %d repo(s) to %s...\n", len(repos), workspace)
+	cloneRepos(ctx, sshRunner, repos, workspace, nil, nil, "")
 	return nil
 }
 

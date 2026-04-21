@@ -18,11 +18,11 @@ All file references in this command (manifest, config files) are relative to the
 
 ## Interaction Model
 
-This command runs as a **step-by-step wizard**. There are 9 steps total.
+This command runs as a **step-by-step wizard**. There are 10 steps total.
 
 **Rules:**
 - Present ONE step at a time
-- Show a progress header: `## Step N/9: Title`
+- Show a progress header: `## Step N/10: Title`
 - After presenting each step's findings, use `AskUserQuestion` to collect the user's decision
 - Never present the next step until the user has responded to the current one
 - Use `AskUserQuestion` for ALL user interactions (never ask inline text questions)
@@ -61,7 +61,7 @@ Then present Step 1 with the results.
 
 ---
 
-## Step 1/9: Detected Tools
+## Step 1/10: Detected Tools
 
 Analyze each repository for these files (if present):
 
@@ -86,7 +86,7 @@ Merge findings across all repositories, deduplicate, resolve version conflicts (
 **Present** the detected tools as a numbered text list:
 
 ```
-## Step 1/9: Detected Tools
+## Step 1/10: Detected Tools
 
 Scanned N repositories.
 
@@ -121,7 +121,7 @@ If user selects "Exclude some", ask which items to remove by number or name, the
 
 ---
 
-## Step 2/9: cc-deck Companion Tools
+## Step 2/10: cc-deck Companion Tools
 
 Present optional tools from the cc-deck ecosystem and community that enhance the development workspace. These are not detected from repositories but offered as curated recommendations.
 
@@ -136,7 +136,7 @@ Present optional tools from the cc-deck ecosystem and community that enhance the
 **Present** the catalog as text, then use `AskUserQuestion` with `multiSelect: true`:
 
 ```
-## Step 2/9: cc-deck Companion Tools
+## Step 2/10: cc-deck Companion Tools
 
 Optional tools that integrate with your cc-deck workspace:
 ```
@@ -171,20 +171,23 @@ tools:
   - name: cc-setup
     install: github-release
     repo: cc-deck/cc-setup
-    asset_pattern: "cc-setup-{arch}-unknown-linux-gnu.tar.xz"
+    asset_pattern: "cc-setup-{version}-linux-{goarch}.tar.gz"
     install_path: /usr/local/bin/cc-setup
   - name: abtop
     install: github-release
     repo: graykode/abtop
-    asset_pattern: "abtop-{arch}-unknown-linux-gnu.tar.gz"
+    asset_pattern: "abtop-{arch}-unknown-linux-gnu.tar.xz"
     install_path: /usr/local/bin/abtop
 ```
 
-The `{arch}` placeholder is resolved during build to the target architecture (e.g., `x86_64`, `aarch64`).
+**Asset pattern placeholders** (resolved during build):
+- `{arch}` - system architecture (`x86_64`, `aarch64`)
+- `{goarch}` - Go architecture (`amd64`, `arm64`)
+- `{version}` - latest release version (fetched from GitHub API)
 
 ---
 
-## Step 3/9: Network Domain Groups
+## Step 3/10: Network Domain Groups
 
 Based on the ecosystem files found in Step 1, determine which network domain groups to add to the manifest's `network.allowed_domains` section:
 
@@ -223,7 +226,7 @@ If more than 4 groups are detected, fall back to the accept/exclude pattern.
 
 ---
 
-## Step 4/9: Tool Configuration Files
+## Step 4/10: Tool Configuration Files
 
 For each tool accepted in Steps 1-2 (and any tools already in the manifest), check whether a corresponding config file exists locally under `~/.config/`.
 
@@ -250,7 +253,7 @@ Stop at the first match. If multiple files are found in step 4, prefer `config.*
 **Present** the findings as a numbered text list showing which tools have configs and which don't:
 
 ```
-## Step 4/9: Tool Configuration Files
+## Step 4/10: Tool Configuration Files
 
   1. starship   ~/.config/starship.toml (42 lines)
   2. helix      ~/.config/helix/config.toml (78 lines)
@@ -282,7 +285,7 @@ The `source` field is relative to the setup directory. The `target` field is rel
 
 ---
 
-## Step 5/9: Shell Configuration
+## Step 5/10: Shell Configuration
 
 **Step 4a: Ask which shell to use**
 
@@ -343,7 +346,7 @@ Show the guarded lines in the "Stripped" summary so the user sees what was wrapp
 **Present** the curated config as text:
 
 ```
-## Step 5/9: Shell Configuration
+## Step 5/10: Shell Configuration
 
 Analyzed: ~/.zshrc (85 lines)
 
@@ -388,6 +391,51 @@ Then use `AskUserQuestion`:
 
 **STOP. Wait for user response before proceeding.**
 
+After accepting the shell config, ask about a remote terminal background color. Use `preview` fields to show a visual swatch of each color (5 block characters with ANSI 24-bit background color):
+
+```json
+{
+  "questions": [{
+    "question": "Set a distinct terminal background color for remote sessions?",
+    "header": "Remote BG",
+    "multiSelect": false,
+    "options": [
+      {
+        "label": "Midnight Navy",
+        "description": "#0d1b2a - Deep blue-black, subtle and professional",
+        "preview": "\u001b[48;2;13;27;42m     \u001b[0m Midnight Navy (#0d1b2a)\n\nA deep blue-black that's barely\nnoticeable but distinct from pure\nblack terminals."
+      },
+      {
+        "label": "Forest Shadow",
+        "description": "#0a1f0a - Dark green tint, earthy feel",
+        "preview": "\u001b[48;2;10;31;10m     \u001b[0m Forest Shadow (#0a1f0a)\n\nSubtle green undertone, natural\nand easy on the eyes."
+      },
+      {
+        "label": "Plum Dark",
+        "description": "#1a0a1f - Deep purple-black, distinctive",
+        "preview": "\u001b[48;2;26;10;31m     \u001b[0m Plum Dark (#1a0a1f)\n\nRich purple-black, unmistakably\ndifferent from local sessions."
+      },
+      {
+        "label": "Slate",
+        "description": "#1a1a2e - Cool blue-grey, modern",
+        "preview": "\u001b[48;2;26;26;46m     \u001b[0m Slate (#1a1a2e)\n\nCool blue-grey with a modern,\nslightly brighter feel."
+      }
+    ]
+  }]
+}
+```
+
+The user can also select "Other" to enter a custom hex color.
+
+**STOP. Wait for user response before proceeding.**
+
+If the user chose a background color, add `set-bg`/`reset-bg` helper functions to the curated shell config (for manual use), and write the color to `.cc-deck/workspace.yaml`:
+```yaml
+remote-bg: "<chosen-color>"
+```
+
+The background is applied automatically by `cc-deck attach` before SSH connects, and reset on detach. No shell-level auto-set is needed.
+
 **Action**: Write the curated config to `<setup-dir>/config/` and update manifest:
 
 For **zsh**:
@@ -419,7 +467,7 @@ The Zellij `config.kdl` `default_shell` is set to match the chosen shell.
 
 ---
 
-## Step 6/9: Zellij Configuration
+## Step 6/10: Zellij Configuration
 
 **Scan**: Check `~/.config/zellij/` for:
 - `config.kdl` (main config with keybindings, theme, etc.)
@@ -436,7 +484,7 @@ The Zellij `config.kdl` `default_shell` is set to match the chosen shell.
 **Present** findings as text, then use `AskUserQuestion` with `multiSelect: true` (typically 2-4 items):
 
 ```
-## Step 6/9: Zellij Configuration
+## Step 6/10: Zellij Configuration
 
   Excluded (managed by cc-deck): plugins/cc_deck.wasm, layouts/cc-deck*.kdl
 ```
@@ -457,33 +505,7 @@ The Zellij `config.kdl` `default_shell` is set to match the chosen shell.
 
 **STOP. Wait for user response before proceeding.**
 
-If the user selected a theme file, ask about a remote background color for visual distinction:
-
-```json
-{
-  "questions": [{
-    "question": "Use a distinct background color for remote sessions (SSH/container)?",
-    "header": "Remote BG",
-    "multiSelect": false,
-    "options": [
-      {"label": "Dark blue (#1a2a3a)", "description": "Subtle blue tint, easy to distinguish from local"},
-      {"label": "Dark green (#1a2a1a)", "description": "Subtle green tint"},
-      {"label": "Dark purple (#2a1a2a)", "description": "Subtle purple tint"},
-      {"label": "No change", "description": "Same background as local sessions"}
-    ]
-  }]
-}
-```
-
-**STOP. Wait for user response before proceeding.**
-
 **Action**: Copy selected files to `<setup-dir>/config/`. If the user's `config.kdl` does not contain `default_shell`, append `default_shell "zsh"` to ensure Zellij panes start with zsh (required for starship prompt and shell integrations).
-
-If the user chose a remote background color, add it to the manifest:
-```yaml
-settings:
-  remote_theme_bg: "<chosen color>"
-```
 
 Update manifest:
 ```yaml
@@ -493,7 +515,7 @@ settings:
 
 ---
 
-## Step 7/9: Claude Configuration
+## Step 7/10: Claude Configuration
 
 **Scan** `~/.claude/` for:
 - `CLAUDE.md` (global user instructions)
@@ -529,7 +551,7 @@ For `settings.json`, extract only portable preferences (model, theme, permission
 
 ---
 
-## Step 8/9: Claude Code Plugins
+## Step 8/10: Claude Code Plugins
 
 **Scan**: Discover installed plugins and their marketplace sources:
 1. Run `claude plugins list` to get all installed plugins
@@ -544,7 +566,7 @@ For each installed plugin, determine the marketplace source type:
 **Present** as a categorized text list:
 
 ```
-## Step 8/9: Claude Code Plugins
+## Step 8/10: Claude Code Plugins
 
   Marketplace plugins:
     1. superpowers (official)
@@ -603,7 +625,7 @@ Directory-based plugins are included in the manifest with `source: directory` so
 
 ---
 
-## Step 9/9: MCP Servers
+## Step 9/10: MCP Servers
 
 **Scan** MCP configuration from multiple sources:
 1. `~/.config/cc-setup/mcp.json` (cc-setup cached MCP configs)
@@ -613,7 +635,7 @@ Directory-based plugins are included in the manifest with `source: directory` so
 **Present** as a categorized text list:
 
 ```
-## Step 9/9: MCP Servers
+## Step 9/10: MCP Servers
 
   From cc-setup cache:
     1. github-mcp (container, ghcr.io/..., sse, port 8000)
@@ -677,9 +699,80 @@ If user selects "Exclude some", ask which items to remove by number or name.
 
 ---
 
+## Step 10/10: Target Configuration
+
+Configure the build targets (SSH and/or container). This step populates the `targets` section of the manifest.
+
+```json
+{
+  "questions": [{
+    "question": "Which build targets do you want to configure?",
+    "header": "Targets",
+    "multiSelect": true,
+    "options": [
+      {"label": "SSH remote", "description": "Provision an existing remote machine via Ansible"},
+      {"label": "Container", "description": "Build a container image with podman"}
+    ]
+  }]
+}
+```
+
+**STOP. Wait for user response.**
+
+**If SSH is selected**, collect SSH configuration with `AskUserQuestion`:
+
+1. **Host**: Ask for `user@hostname` (suggest `root@<hostname>` for provisioning)
+2. **Create user**: Ask if a separate non-root user should be created for daily work. If yes, ask for username (default: output of `whoami`)
+3. **Workspace path**: Ask for remote workspace directory (default: `~/workspace`)
+4. **Repos to clone**: Show repos from Step 1 that have git remote URLs. Use multiSelect to pick which to clone on the remote.
+
+**Action**: Write to manifest:
+
+```yaml
+targets:
+  ssh:
+    host: root@marovo
+    create_user: true
+    user: roland
+    workspace: ~/workspace
+```
+
+Mark selected repos for cloning by adding `clone: true` to their source entries:
+
+```yaml
+sources:
+  - path: cc-deck
+    url: git@github.com:cc-deck/cc-deck.git
+    clone: true
+```
+
+Also write repos to `.cc-deck/workspace.yaml`:
+
+```yaml
+repos:
+  - url: git@github.com:cc-deck/cc-deck.git
+  - url: git@github.com:cc-deck/cc-session.git
+```
+
+**If Container is selected**, ask for:
+1. Image name (default: project directory name)
+2. Base image (default: `quay.io/cc-deck/cc-deck-base:latest`)
+
+Write to manifest:
+```yaml
+targets:
+  container:
+    name: <image-name>
+    base: <base-image>
+```
+
+**STOP. Wait for user response before proceeding.**
+
+---
+
 ## Summary and Manifest Update
 
-After all 9 steps are complete, show a final text summary:
+After all 10 steps are complete, show a final text summary:
 
 ```
 ## Capture Complete
@@ -692,6 +785,8 @@ After all 9 steps are complete, show a final text summary:
   Claude:      CLAUDE.md + settings (merged)
   Plugins:     superpowers, gopls-lsp, copyedit (3 selected)
   MCP:         playwright, readwise (2 selected)
+  Targets:     SSH (root@marovo, user: roland), Container (cc-deck)
+  Repos:       cc-deck, cc-session (2 to clone)
 ```
 
 Then use `AskUserQuestion`:
@@ -727,7 +822,8 @@ Then perform the write:
 5. Update `plugins` section with selected plugins
 6. Update `mcp` section with selected MCP servers
 7. Copy selected config files to `<setup-dir>/config/`
-8. Report what was written
+8. Write repos to `.cc-deck/workspace.yaml` if target is SSH
+9. Report what was written
 
 ---
 

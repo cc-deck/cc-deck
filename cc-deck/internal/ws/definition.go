@@ -34,6 +34,7 @@ type WorkspaceDefinition struct {
 	SSHConfig      string            `yaml:"ssh-config,omitempty"`      // Custom SSH config file
 	Workspace      string            `yaml:"workspace,omitempty"`       // Remote workspace directory
 	Repos          []RepoEntry       `yaml:"repos,omitempty"`           // Git repos to clone into workspace
+	RemoteBG       string            `yaml:"remote-bg,omitempty"`       // Terminal background color for remote sessions
 	ExtraRemotes   map[string]string `yaml:"-"`                         // Transient: additional remotes for auto-detected repo
 	AutoDetectedURL string           `yaml:"-"`                         // Transient: normalized URL of auto-detected repo
 
