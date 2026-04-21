@@ -123,6 +123,7 @@ type SettingsConfig struct {
 	Hooks          string       `yaml:"hooks,omitempty"`
 	MCPSettings    string       `yaml:"mcp_settings,omitempty"`
 	CCSetupMCP     string       `yaml:"cc_setup_mcp,omitempty"`
+	RemoteBG       string       `yaml:"remote_bg,omitempty"`
 	ToolConfigs    []ToolConfig `yaml:"tool_configs,omitempty"`
 }
 

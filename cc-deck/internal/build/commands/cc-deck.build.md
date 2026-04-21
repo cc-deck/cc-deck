@@ -64,8 +64,8 @@ Generate a complete Containerfile from the manifest. Follow these rules:
 
 **Tool resolution**: Tools are read from the unified `tools` section and dispatched by `install` field:
 - `install: package` (or omitted): resolved to `dnf install -y` commands for Fedora repos, or language-specific installers for tools not in Fedora repos
-- `install: github-release`: downloaded from GitHub Releases using the `repo`, `asset_pattern`, and `install_path` fields
-- Use `${TARGETARCH}` for multi-arch GitHub release downloads
+- `install: github-release`: downloaded from GitHub Releases using the `repo`, `asset_pattern`, and `install_path` fields. Asset pattern placeholders: `{arch}` (x86_64/aarch64), `{goarch}` (amd64/arm64), `{version}` (latest release tag from GitHub API)
+- Use `${TARGETARCH}` for multi-arch GitHub release downloads in Containerfile layers
 
 **Layer structure** (ordered for cache efficiency).
 
@@ -156,7 +156,7 @@ For each setting, copy the source file to `container/context/` during Step A4, t
 | `settings.zellij_config: current` | `~/.config/zellij/config.kdl` | `/home/dev/.config/zellij/config.kdl` | Strip controller block before copying (see below) |
 | `settings.zellij_config: <path>` | The specified path | `/home/dev/.config/zellij/config.kdl` | Strip controller block before copying (see below) |
 | `settings.zellij_config: vanilla` | (skip) | (nothing) | Use cc-deck defaults only |
-| `settings.remote_theme_bg` | Hex color (e.g., `#1a2a3a`) | Replaces `bg` in theme and config.kdl | Visual cue for remote sessions |
+| `settings.remote_bg` | Hex color (e.g., `#0d1b2a`) | Added as `set-bg` call in shell RC | Terminal background for remote sessions |
 | `settings.claude_md` | The specified path | `/home/dev/.claude/CLAUDE.md` | Global user instructions for Claude |
 | `settings.claude_settings` | The specified path | Merge into `/home/dev/.claude/settings.json` | Merge user preferences with existing settings |
 | `settings.hooks` | The specified path | Merge into `/home/dev/.claude/settings.json` | Merge with cc-deck hooks, do not overwrite |
@@ -180,7 +180,7 @@ RUN cat /home/dev/.<shell>rc.custom >> /home/dev/.<shell>rc && rm /home/dev/.<sh
 # Zellij user config (if settings.zellij_config is set)
 # NOTE: container/context/zellij-config.kdl must have the cc-deck controller block stripped first (see below)
 COPY --chown=dev:dev container/context/zellij-config.kdl /home/dev/.config/zellij/config.kdl
-RUN grep -q 'default_shell' /home/dev/.config/zellij/config.kdl || \
+RUN grep -qE '^default_shell' /home/dev/.config/zellij/config.kdl || \
     echo 'default_shell "<chosen-shell>"' >> /home/dev/.config/zellij/config.kdl
 
 # Claude global instructions (if settings.claude_md is set)
@@ -195,6 +195,12 @@ COPY --chown=dev:dev container/context/cc-setup-mcp.json /home/dev/.config/cc-se
 # Tool configs (for each entry in settings.tool_configs)
 COPY --chown=dev:dev container/context/starship.toml /home/dev/.config/starship.toml
 COPY --chown=dev:dev container/context/helix-config.toml /home/dev/.config/helix/config.toml
+
+# Re-inject cc-deck controller and hooks after config copies overwrite them.
+# Only needed when zellij_config or claude_settings are deployed above.
+USER dev
+RUN cc-deck config plugin install --force --skip-backup
+USER root
 ```
 
 **Merge strategy for settings.json**: Read the existing `/home/dev/.claude/settings.json` (created by cc-deck config plugin install with hooks), merge in user preferences from the specified file, write the merged result to `container/context/settings.json`. Never overwrite cc-deck hooks.
@@ -427,11 +433,13 @@ Generate task content for each role from the manifest data. Each role is idempot
   - Install SSH authorized key from the `.pub` counterpart of `identity_file`
 - Set default shell to the configured shell
 - Add GitHub SSH host key to `known_hosts` (enables `git clone` over SSH without interactive host verification)
+- If running from Ghostty terminal (`$TERM_PROGRAM == ghostty`), export and install `xterm-ghostty` terminfo on the remote (via `infocmp -x xterm-ghostty` locally, then `tic -x -` on remote)
+- Set timezone to match the local machine. Detect via `readlink /etc/localtime` (macOS/Linux) or `$TZ` env var. Add `timezone` variable to `group_vars/all.yml` and use `community.general.timezone` module in the base role.
 - Create workspace directory
 
 **tools role** (`roles/tools/tasks/main.yml`):
 - For tools where `install` is `package` (or omitted): map tool descriptions to package names and install via `dnf install -y`
-- For tools where `install` is `github-release`: download release binaries from GitHub using `repo`, `asset_pattern`, and `install_path` fields, with architecture mapping (`aarch64`, `x86_64`)
+- For tools where `install` is `github-release`: download release binaries from GitHub using `repo`, `asset_pattern`, and `install_path` fields. Resolve `{arch}` to system architecture, `{goarch}` to Go convention (amd64/arm64), `{version}` to latest release tag via GitHub API. Use `curl -fsSL` with error checking and `|| true` fallback.
 
 **zellij role** (`roles/zellij/tasks/main.yml`):
 - Download Zellij release binary for target architecture
@@ -485,7 +493,7 @@ Generate task content for each role from the manifest data. Each role is idempot
 **shell_config role** (`roles/shell_config/tasks/main.yml`):
 - Ensure `~/.local/bin` is on PATH by adding `export PATH="$HOME/.local/bin:$PATH"` to the shell RC file (required for `claude` which installs there)
 - Ensure `TERM` is set: add `export TERM="${TERM:-xterm-256color}"` to the shell RC file (SSH sessions through Zellij may not propagate TERM)
-- Install curated shell RC from template (if `settings.shell_rc` is set)
+- Deploy curated shell RC as `~/.zshrc.custom` (if `settings.shell_rc` is set), then add `[ -f ~/.zshrc.custom ] && source ~/.zshrc.custom` to `~/.zshrc` via `lineinfile` (idempotent, does not inline the content)
 - Add credential sourcing snippet: `[ -f ~/.config/cc-deck/credentials.env ] && source ~/.config/cc-deck/credentials.env`
 - Install starship config if present
 - Guard starship init with interactive shell check: `[[ $- == *i* ]] && eval "$(starship init zsh)"` (prevents OSC escape sequences in non-interactive sessions like Ansible)
@@ -494,6 +502,8 @@ Generate task content for each role from the manifest data. Each role is idempot
   2. Deploy the stripped config to the target
   3. Ensure `default_shell` is set in the deployed config
   The stripping is critical because the source config contains absolute paths from the host machine (e.g., `/Users/rhuss/...`) that are wrong on the target.
+- **Zellij env block**: Add an `env` block to config.kdl with PATH (including `~/.local/bin` and `~/.cargo/bin`) and `TERM=xterm-256color`. This ensures all Zellij panes have correct PATH regardless of shell initialization.
+- If `settings.remote_bg` is set, the curated shell RC (`.zshrc.custom`) should include `set-bg`/`reset-bg` functions and auto-set the background on interactive shell start with `trap reset-bg EXIT` for cleanup.
 - **IMPORTANT ordering**: `cc-deck config plugin install` must run as the **last task** in the shell_config role, AFTER the Claude settings merge. This ensures hooks are not overwritten by the settings merge. The plugin install re-injects the controller block in config.kdl AND registers hooks in settings.json.
 - For each entry in `settings.tool_configs`: copy the source file to `/home/<target_user>/.config/<target>` (using the `target` field from the manifest entry; fall back to `<tool>/<source-filename>` if `target` is not set). Create parent directories as needed. Example Ansible task:
   ```yaml
@@ -521,6 +531,8 @@ If role task files already have content (not just the skeleton from init):
    - **"Stop"**: abort the build entirely
 
 ### B5: Run Ansible playbook
+
+Ansible playbooks are in the `ssh/` subdirectory: `cd <setup-dir>/ssh && ansible-playbook -i inventory.ini site.yml`
 
 ```bash
 cd <setup-dir>/ssh
@@ -611,6 +623,8 @@ After SSH provisioning succeeds, automatically register the provisioned host as 
    ```
    Only include optional flags whose values are set in the manifest (not commented out).
    For `--repo` flags: include one `--repo <url>` for each entry in the `sources` section that has a `url` field.
+
+   Also write the cloned repos to `.cc-deck/workspace.yaml` so `cc-deck ws update --sync-repos` can sync them later.
 
 4. **Report** the registration:
    ```

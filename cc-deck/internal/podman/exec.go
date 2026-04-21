@@ -29,6 +29,26 @@ func Exec(ctx context.Context, nameOrID string, cmd []string, interactive bool) 
 	return c.Run()
 }
 
+// ExecWithCleanup runs an interactive command inside a container using
+// exec.Command (not syscall.Exec) so cleanup can run after exit.
+// If cleanupEscape is non-empty, it's printed to stdout after the command exits.
+func ExecWithCleanup(_ context.Context, nameOrID string, cmd []string, cleanupEscape string) error {
+	binary, err := exec.LookPath("podman")
+	if err != nil {
+		return ErrPodmanNotFound
+	}
+	args := append([]string{"exec", "-it", nameOrID}, cmd...)
+	c := exec.Command(binary, args...)
+	c.Stdin = os.Stdin
+	c.Stdout = os.Stdout
+	c.Stderr = os.Stderr
+	_ = c.Run()
+	if cleanupEscape != "" {
+		fmt.Fprint(os.Stdout, cleanupEscape)
+	}
+	return nil
+}
+
 // ExecOutput runs a command inside a container and returns its stdout.
 func ExecOutput(ctx context.Context, nameOrID string, cmd string) (string, error) {
 	args := []string{"exec", nameOrID, "sh", "-c", cmd}
