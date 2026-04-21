@@ -300,6 +300,12 @@ func (e *K8sDeployWorkspace) Attach(ctx context.Context) error {
 	podName := k8sPodName(e.name)
 	kubeconfigArgs := e.kubeconfigArgs(inst)
 
+	// Set terminal background color for remote sessions if configured.
+	remoteBG := LoadRemoteBG(e.name, e.defs)
+	if remoteBG != "" {
+		SetRemoteBG(remoteBG)
+	}
+
 	// Check for existing Zellij session, attach or create.
 	args := append(kubeconfigArgs, "exec", "-it", "-n", ns, podName, "--", "zellij")
 	if k8sHasZellijSession(ctx, ns, podName, kubeconfigArgs) {
@@ -312,7 +318,12 @@ func (e *K8sDeployWorkspace) Attach(ctx context.Context) error {
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	err = cmd.Run()
+
+	if remoteBG != "" {
+		fmt.Fprint(os.Stdout, ResetBGEscape)
+	}
+	return err
 }
 
 // Start scales the StatefulSet to 1 replica and waits for Pod readiness.

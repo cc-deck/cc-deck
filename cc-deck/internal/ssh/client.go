@@ -17,7 +17,10 @@ type Client struct {
 	IdentityFile    string
 	JumpHost        string
 	SSHConfig       string
-	AgentForwarding bool
+	AgentForwarding  bool
+	OnAttach         func()
+	OnDetach         func()
+	OnDetachEscape   string
 }
 
 // NewClient creates a new SSH client with the given connection parameters.
@@ -85,18 +88,30 @@ func (c *Client) Run(ctx context.Context, cmd string) (string, error) {
 	return strings.TrimSpace(stdout.String()), nil
 }
 
-// RunInteractive replaces the current process with an interactive SSH session
-// running the given command on the remote host. This function does not return
-// on success (the process is replaced via syscall.Exec).
+// RunInteractive runs an interactive SSH session with the given command.
+// If OnDetachEscape is set, uses exec.Command (not syscall.Exec) so the
+// escape sequence can be emitted locally after SSH disconnects.
 func (c *Client) RunInteractive(cmd string) error {
 	sshBin, err := exec.LookPath("ssh")
 	if err != nil {
 		return fmt.Errorf("ssh binary not found: %w", err)
 	}
 
-	// Build args using the common builder, but add -t for pseudo-terminal
-	// and omit BatchMode (interactive session needs user input).
 	args := c.buildInteractiveArgs(cmd)
+
+	if c.OnAttach != nil {
+		c.OnAttach()
+	}
+
+	if c.OnDetachEscape != "" {
+		sshCmd := exec.Command(sshBin, args[1:]...)
+		sshCmd.Stdin = os.Stdin
+		sshCmd.Stdout = os.Stdout
+		sshCmd.Stderr = os.Stderr
+		_ = sshCmd.Run()
+		fmt.Fprint(os.Stdout, c.OnDetachEscape)
+		return nil
+	}
 
 	return syscall.Exec(sshBin, args, os.Environ())
 }

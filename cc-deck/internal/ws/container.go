@@ -318,15 +318,21 @@ func (e *ContainerWorkspace) Attach(ctx context.Context) error {
 
 	cName := containerName(e.name)
 
+	// Set terminal background color for remote sessions if configured.
+	remoteBG := LoadRemoteBG(e.name, e.defs)
+	if remoteBG != "" {
+		SetRemoteBG(remoteBG)
+	}
+
 	// If any Zellij session exists inside the container, attach to it.
 	// Otherwise, create a new session using the cc-deck layout (sidebar plugin).
 	// Uses -n (--new-session-with-layout) which reliably starts with the layout.
 	if ContainerHasZellijSession(ctx, cName) {
-		return podman.Exec(ctx, cName, []string{"zellij", "attach"}, true)
+		return podman.ExecWithCleanup(ctx, cName, []string{"zellij", "attach"}, ResetBGEscape)
 	}
-	return podman.Exec(ctx, cName, []string{
+	return podman.ExecWithCleanup(ctx, cName, []string{
 		"zellij", "-n", "cc-deck",
-	}, true)
+	}, ResetBGEscape)
 }
 
 

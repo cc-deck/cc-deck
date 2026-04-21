@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"gopkg.in/yaml.v3"
 
 	"github.com/cc-deck/cc-deck/internal/config"
@@ -52,6 +54,7 @@ a .cc-deck/workspace.yaml file in the current project.`,
 	// Lifecycle: create → attach → start → stop → delete
 	addToGroup(wsCmd, "lifecycle",
 		newWsNewCmd(gf),
+		newWsUpdateCmd(gf),
 		newWsAttachCmd(gf),
 		newWsStartCmd(gf),
 		newWsStopCmd(gf),
@@ -182,54 +185,63 @@ Workspace types (--type):
 	}
 
 	cmd.Flags().StringVarP(&cf.wsType, "type", "t", "", "Workspace type (local, container, compose, k8s-deploy, k8s-sandbox)")
-	cmd.Flags().StringVar(&cf.image, "image", "", "Container image to use")
-	cmd.Flags().StringSliceVar(&cf.ports, "port", nil, "Port mapping (host:container), repeatable")
-	cmd.Flags().BoolVar(&cf.allPorts, "all-ports", false, "Expose all container ports")
-	cmd.Flags().StringVar(&cf.storage, "storage", "", "Storage type: named-volume, host-path, empty-dir")
-	cmd.Flags().StringVar(&cf.path, "path", "", "Project directory (compose: defaults to cwd)")
-	cmd.Flags().StringSliceVar(&cf.credential, "credential", nil, "Credential as KEY=VALUE, repeatable")
-	cmd.Flags().StringSliceVar(&cf.mount, "mount", nil, "Bind mount as src:dst[:ro], repeatable")
 	cmd.Flags().StringVar(&cf.auth, "auth", "auto", "Auth mode: auto, none, api, vertex, bedrock")
-	cmd.Flags().StringSliceVar(&cf.allowedDomains, "allowed-domains", nil, "Domain groups for network filtering (compose only), repeatable")
-	cmd.Flags().BoolVar(&cf.gitignore, "gitignore", false, "Auto-add .cc-deck/ to .gitignore (compose only, deprecated)")
-	cmd.Flags().StringVar(&cf.variant, "variant", "", "Variant name for multiple instances from the same definition")
-
-	// SSH-specific flags
-	cmd.Flags().StringVar(&cf.host, "host", "", "SSH target host (user@host, SSH only)")
-	cmd.Flags().IntVar(&cf.sshPort, "ssh-port", 0, "SSH port (SSH only)")
-	cmd.Flags().StringVar(&cf.identityFile, "identity-file", "", "Path to SSH private key (SSH only)")
-	cmd.Flags().StringVar(&cf.jumpHost, "jump-host", "", "SSH jump/bastion host (SSH only)")
-	cmd.Flags().StringVar(&cf.sshConfig, "ssh-config", "", "Custom SSH config file path (SSH only)")
-	cmd.Flags().StringVar(&cf.workspace, "workspace", "", "Remote workspace directory (SSH only, default: ~/workspace)")
-
-	// Definition resolution flags
+	cmd.Flags().StringSliceVar(&cf.credential, "credential", nil, "Credential as KEY=VALUE, repeatable")
+	cmd.Flags().StringArrayVar(&cf.repos, "repo", nil, "Git repo URL to clone into workspace, repeatable")
+	cmd.Flags().StringArrayVar(&cf.branches, "branch", nil, "Branch for corresponding --repo, repeatable")
+	cmd.Flags().StringVar(&cf.variant, "variant", "", "Variant name for multiple instances from same definition")
+	cmd.Flags().BoolVar(&cf.update, "update", false, "Update existing workspace (deprecated: use ws update)")
+	_ = cmd.Flags().MarkDeprecated("update", "use 'cc-deck ws update' instead")
 	cmd.Flags().BoolVar(&cf.global, "global", false, "Force resolution from global definition store")
 	cmd.Flags().BoolVar(&cf.local, "local", false, "Force resolution from project-local definition")
 	cmd.MarkFlagsMutuallyExclusive("global", "local")
 
-	// k8s-deploy flags
-	cmd.Flags().StringVarP(&cf.namespace, "namespace", "n", "", "Kubernetes namespace (k8s-deploy)")
-	cmd.Flags().StringVar(&cf.kubeconfig, "kubeconfig", "", "Path to kubeconfig file (k8s-deploy)")
-	cmd.Flags().StringVar(&cf.k8sContext, "context", "", "Kubeconfig context name (k8s-deploy)")
-	cmd.Flags().StringVar(&cf.storageSize, "storage-size", "", "PVC storage size, e.g. 10Gi (k8s-deploy, default: 10Gi)")
-	cmd.Flags().StringVar(&cf.storageClass, "storage-class", "", "Kubernetes StorageClass name (k8s-deploy)")
-	cmd.Flags().StringVar(&cf.existingSecret, "existing-secret", "", "Reference to pre-existing K8s Secret (k8s-deploy)")
-	cmd.Flags().StringVar(&cf.secretStore, "secret-store", "", "ESO SecretStore type (k8s-deploy)")
-	cmd.Flags().StringVar(&cf.secretStoreRef, "secret-store-ref", "", "ESO SecretStore name (k8s-deploy)")
-	cmd.Flags().StringVar(&cf.secretPath, "secret-path", "", "ESO secret path (k8s-deploy)")
-	cmd.Flags().StringVar(&cf.buildDir, "build-dir", "", "Build directory containing cc-deck-image.yaml (k8s-deploy)")
-	cmd.Flags().BoolVar(&cf.noNetworkPolicy, "no-network-policy", false, "Skip NetworkPolicy creation (k8s-deploy)")
-	cmd.Flags().StringSliceVar(&cf.allowDomain, "allow-domain", nil, "Additional allowed domain for NetworkPolicy, repeatable (k8s-deploy)")
-	cmd.Flags().StringSliceVar(&cf.allowGroup, "allow-group", nil, "Domain group for NetworkPolicy, repeatable (k8s-deploy)")
-	cmd.Flags().BoolVar(&cf.keepVolumes, "keep-volumes", false, "Keep PVCs when deleting (k8s-deploy)")
-	cmd.Flags().StringVar(&cf.timeout, "timeout", "", "Pod readiness timeout, e.g. 5m (k8s-deploy, default: 5m)")
+	// Container/compose flags
+	cmd.Flags().StringVar(&cf.image, "image", "", "Container image (container, compose)")
+	cmd.Flags().StringSliceVar(&cf.ports, "port", nil, "Port mapping host:container (container, compose)")
+	cmd.Flags().BoolVar(&cf.allPorts, "all-ports", false, "Expose all container ports (container)")
+	cmd.Flags().StringVar(&cf.storage, "storage", "", "Storage type: named-volume, host-path, empty-dir")
+	cmd.Flags().StringSliceVar(&cf.mount, "mount", nil, "Bind mount src:dst[:ro] (container, compose)")
+	cmd.Flags().StringVar(&cf.path, "path", "", "Project directory (compose)")
+	cmd.Flags().StringSliceVar(&cf.allowedDomains, "allowed-domains", nil, "Domain groups for network filtering (compose)")
 
-	// Repo cloning flags
-	cmd.Flags().StringArrayVar(&cf.repos, "repo", nil, "Git repo URL to clone into workspace, repeatable")
-	cmd.Flags().StringArrayVar(&cf.branches, "branch", nil, "Branch for the most recent --repo, repeatable")
+	// SSH flags
+	cmd.Flags().StringVar(&cf.host, "host", "", "SSH target host (user@host)")
+	cmd.Flags().IntVar(&cf.sshPort, "ssh-port", 0, "SSH port (default: 22)")
+	cmd.Flags().StringVar(&cf.identityFile, "identity-file", "", "Path to SSH private key")
+	cmd.Flags().StringVar(&cf.jumpHost, "jump-host", "", "SSH jump/bastion host")
+	cmd.Flags().StringVar(&cf.sshConfig, "ssh-config", "", "Custom SSH config file path")
+	cmd.Flags().StringVar(&cf.workspace, "workspace", "", "Remote workspace directory (default: ~/workspace)")
 
-	// Idempotent update
-	cmd.Flags().BoolVar(&cf.update, "update", false, "Update existing workspace instead of erroring on conflict")
+	// Kubernetes flags
+	cmd.Flags().StringVarP(&cf.namespace, "namespace", "n", "", "Kubernetes namespace")
+	cmd.Flags().StringVar(&cf.kubeconfig, "kubeconfig", "", "Path to kubeconfig file")
+	cmd.Flags().StringVar(&cf.k8sContext, "context", "", "Kubeconfig context name")
+	cmd.Flags().StringVar(&cf.storageSize, "storage-size", "", "PVC size, e.g. 10Gi (default: 10Gi)")
+	cmd.Flags().StringVar(&cf.storageClass, "storage-class", "", "Kubernetes StorageClass name")
+	cmd.Flags().StringVar(&cf.existingSecret, "existing-secret", "", "Pre-existing K8s Secret name")
+	cmd.Flags().StringVar(&cf.secretStore, "secret-store", "", "ESO SecretStore type")
+	cmd.Flags().StringVar(&cf.secretStoreRef, "secret-store-ref", "", "ESO SecretStore name")
+	cmd.Flags().StringVar(&cf.secretPath, "secret-path", "", "ESO secret path")
+	cmd.Flags().StringVar(&cf.buildDir, "build-dir", "", "Build directory with cc-deck-image.yaml")
+	cmd.Flags().BoolVar(&cf.noNetworkPolicy, "no-network-policy", false, "Skip NetworkPolicy creation")
+	cmd.Flags().StringSliceVar(&cf.allowDomain, "allow-domain", nil, "Allowed domain for NetworkPolicy")
+	cmd.Flags().StringSliceVar(&cf.allowGroup, "allow-group", nil, "Domain group for NetworkPolicy")
+	cmd.Flags().BoolVar(&cf.keepVolumes, "keep-volumes", false, "Keep PVCs when deleting")
+	cmd.Flags().StringVar(&cf.timeout, "timeout", "", "Pod readiness timeout, e.g. 5m (default: 5m)")
+
+	// Deprecated
+	cmd.Flags().BoolVar(&cf.gitignore, "gitignore", false, "")
+	_ = cmd.Flags().MarkHidden("gitignore")
+
+	// Group flags by annotation for custom help display
+	annotateFlags(cmd, "Container/Compose", "image", "port", "all-ports", "storage", "mount", "path", "allowed-domains")
+	annotateFlags(cmd, "SSH", "host", "ssh-port", "identity-file", "jump-host", "ssh-config", "workspace")
+	annotateFlags(cmd, "Kubernetes", "namespace", "kubeconfig", "context", "storage-size", "storage-class",
+		"existing-secret", "secret-store", "secret-store-ref", "secret-path", "build-dir",
+		"no-network-policy", "allow-domain", "allow-group", "keep-volumes", "timeout")
+
+	cmd.SetHelpFunc(groupedHelp)
 
 	return cmd
 }
@@ -819,6 +831,85 @@ func runWsAttach(name string) error {
 	}
 
 	return e.Attach(cmd_context())
+}
+
+// --- update ---
+
+func newWsUpdateCmd(_ *GlobalFlags) *cobra.Command {
+	var syncRepos bool
+
+	cmd := &cobra.Command{
+		Use:   "update [name]",
+		Short: "Update workspace settings or sync repos",
+		Long: `Update an existing workspace or sync repos from the workspace definition.
+
+When --sync-repos is set, reads repos from .cc-deck/workspace.yaml
+and clones any that don't exist on the remote. Already-cloned repos
+are skipped (idempotent).`,
+		Example: `  # Sync repos defined in workspace.yaml to the remote
+  cc-deck ws update marovo --sync-repos
+
+  # Auto-resolve workspace name from project config
+  cc-deck ws update --sync-repos`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			store := ws.NewStateStore("")
+			name, _, err := resolveWorkspaceName(args, store)
+			if err != nil {
+				return err
+			}
+			return runWsUpdate(name, syncRepos)
+		},
+	}
+
+	cmd.Flags().BoolVar(&syncRepos, "sync-repos", false, "Clone missing repos from workspace definition")
+
+	return cmd
+}
+
+func runWsUpdate(name string, syncRepos bool) error {
+	store := ws.NewStateStore("")
+	defs := ws.NewDefinitionStore("")
+
+	inst, err := store.FindInstanceByName(name)
+	if err != nil {
+		return fmt.Errorf("workspace %q not found; create it first with ws new", name)
+	}
+
+	if syncRepos {
+		// Load repos from project-local or global definition.
+		var repos []ws.RepoEntry
+		cwd, _ := os.Getwd()
+		if root, findErr := project.FindProjectConfig(cwd); findErr == nil {
+			if def, loadErr := ws.LoadProjectDefinition(root); loadErr == nil {
+				repos = def.Repos
+			}
+		}
+		if len(repos) == 0 {
+			if globalDef, globalErr := defs.FindByName(name); globalErr == nil {
+				repos = globalDef.Repos
+			}
+		}
+		if len(repos) == 0 {
+			return fmt.Errorf("no repos defined in workspace definition for %q", name)
+		}
+
+		e, resolveErr := resolveWorkspace(name, store, defs)
+		if resolveErr != nil {
+			return resolveErr
+		}
+
+		if sshEnv, ok := e.(*ws.SSHWorkspace); ok {
+			return sshEnv.SyncRepos(cmd_context(), repos)
+		}
+
+		// For container/compose/k8s, repos are cloned via exec
+		return fmt.Errorf("--sync-repos is currently supported for SSH workspaces only")
+	}
+
+	fmt.Fprintf(os.Stdout, "Workspace %q (type: %s, state: %s)\n", inst.Name, inst.Type, inst.State)
+	fmt.Fprintln(os.Stdout, "Use --sync-repos to sync repositories from workspace definition.")
+	return nil
 }
 
 // --- delete ---
@@ -1911,4 +2002,86 @@ func parseGitRemotes(dir string) map[string]string {
 		}
 	}
 	return remotes
+}
+
+// --- Grouped flag help ---
+
+const flagGroupAnnotation = "cc-deck-group"
+
+func annotateFlags(cmd *cobra.Command, group string, names ...string) {
+	for _, name := range names {
+		f := cmd.Flags().Lookup(name)
+		if f != nil {
+			if f.Annotations == nil {
+				f.Annotations = make(map[string][]string)
+			}
+			f.Annotations[flagGroupAnnotation] = []string{group}
+		}
+	}
+}
+
+func groupedHelp(cmd *cobra.Command, _ []string) {
+	w := cmd.OutOrStdout()
+	if cmd.Long != "" {
+		fmt.Fprintln(w, cmd.Long)
+	}
+
+	fmt.Fprintf(w, "\nUsage:\n  %s\n", cmd.UseLine())
+
+	if cmd.HasExample() {
+		fmt.Fprintf(w, "\nExamples:\n%s\n", cmd.Example)
+	}
+
+	// General flags (no group annotation)
+	fmt.Fprintf(w, "\nGeneral Flags:\n")
+	cmd.Flags().VisitAll(func(f *pflag.Flag) {
+		if f.Hidden {
+			return
+		}
+		if _, ok := f.Annotations[flagGroupAnnotation]; ok {
+			return
+		}
+		printFlag(w, f)
+	})
+
+	// Grouped flags
+	for _, group := range []string{"Container/Compose", "SSH", "Kubernetes"} {
+		fmt.Fprintf(w, "\n%s Flags:\n", group)
+		cmd.Flags().VisitAll(func(f *pflag.Flag) {
+			if f.Hidden {
+				return
+			}
+			groups, ok := f.Annotations[flagGroupAnnotation]
+			if !ok || len(groups) == 0 || groups[0] != group {
+				return
+			}
+			printFlag(w, f)
+		})
+	}
+}
+
+func printFlag(w io.Writer, f *pflag.Flag) {
+	name := ""
+	if f.Shorthand != "" {
+		name = fmt.Sprintf("  -%s, --%s", f.Shorthand, f.Name)
+	} else {
+		name = fmt.Sprintf("      --%s", f.Name)
+	}
+	typeName := f.Value.Type()
+	if typeName == "string" {
+		name += " string"
+	} else if typeName == "int" {
+		name += " int"
+	} else if typeName == "stringSlice" || typeName == "stringArray" {
+		name += " strings"
+	}
+	padding := 36 - len(name)
+	if padding < 2 {
+		padding = 2
+	}
+	fmt.Fprintf(w, "%s%s%s", name, strings.Repeat(" ", padding), f.Usage)
+	if f.DefValue != "" && f.DefValue != "false" && f.DefValue != "0" && f.DefValue != "[]" {
+		fmt.Fprintf(w, " (default %q)", f.DefValue)
+	}
+	fmt.Fprintln(w)
 }
