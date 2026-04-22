@@ -181,7 +181,7 @@ func (c *podmanDataChannel) PushBytes(ctx context.Context, data []byte, remotePa
 		return newChannelError("data", "push", c.name, "remote path is required", nil)
 	}
 	cmd := exec.CommandContext(ctx, "podman", "exec", "-i", c.containerName(), "sh", "-c",
-		fmt.Sprintf("cat > %q", remotePath))
+		fmt.Sprintf("cat > %s", shellQuote(remotePath)))
 	cmd.Stdin = bytes.NewReader(data)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return newChannelError("data", "push", c.name,
@@ -211,7 +211,7 @@ func (c *k8sDataChannel) PushBytes(ctx context.Context, data []byte, remotePath 
 		return newChannelError("data", "push", c.name, "remote path is required", nil)
 	}
 	args := append(append([]string(nil), c.kubeconfigArgs...), "exec", "-i", "-n", c.ns, c.podName, "--", "sh", "-c",
-		fmt.Sprintf("cat > %q", remotePath))
+		fmt.Sprintf("cat > %s", shellQuote(remotePath)))
 	cmd := exec.CommandContext(ctx, "kubectl", args...)
 	cmd.Stdin = bytes.NewReader(data)
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -269,7 +269,7 @@ func (c *sshDataChannel) PushBytes(ctx context.Context, data []byte, remotePath 
 		return newChannelError("data", "push", c.name, "remote path is required", nil)
 	}
 	client := c.clientFn()
-	remoteCmd := fmt.Sprintf("cat > %q", remotePath)
+	remoteCmd := fmt.Sprintf("cat > %s", shellQuote(remotePath))
 	sshBin, err := exec.LookPath("ssh")
 	if err != nil {
 		return newChannelError("data", "push", c.name, "ssh binary not found", err)
