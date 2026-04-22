@@ -237,9 +237,11 @@ func (e *K8sDeployWorkspace) Create(ctx context.Context, opts CreateOpts) error 
 	// Write workspace definition.
 	if e.defs != nil {
 		wsDef := &WorkspaceDefinition{
-			Name:  e.name,
-			Type:  WorkspaceTypeK8sDeploy,
-			Image: image,
+			Name: e.name,
+			Type: WorkspaceTypeK8sDeploy,
+			WorkspaceSpec: WorkspaceSpec{
+				Image: image,
+			},
 		}
 		if def, findErr := e.defs.FindByName(e.name); findErr == nil {
 			_ = e.defs.Update(def)

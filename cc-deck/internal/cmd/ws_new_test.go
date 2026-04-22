@@ -255,7 +255,7 @@ variants:
 	cmd, cf := newTestNewCmd()
 	err := runWsNew(nil, "", cf, cmd)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "template has no variant")
+	assert.Contains(t, err.Error(), "template defines multiple variants")
 }
 
 func TestWriteWsStructured_IncludesProjectField(t *testing.T) {
@@ -306,4 +306,47 @@ func TestWriteWsTable_HasProjectColumn(t *testing.T) {
 
 	assert.Contains(t, output, "PROJECT")
 	assert.NotContains(t, output, "SOURCE")
+}
+
+func TestRunWsNew_DifferentTypeAutoSuffix(t *testing.T) {
+	ensureZellijStub(t)
+	tmpDir := t.TempDir()
+	require.NoError(t, exec.Command("git", "init", tmpDir).Run())
+
+	origDir, _ := os.Getwd()
+	require.NoError(t, os.Chdir(tmpDir))
+	defer os.Chdir(origDir)
+
+	stateFile := filepath.Join(tmpDir, "test-state.yaml")
+	defFile := filepath.Join(tmpDir, "test-defs.yaml")
+	t.Setenv("CC_DECK_STATE_FILE", stateFile)
+	t.Setenv("CC_DECK_WORKSPACES_FILE", defFile)
+
+	// Create "my-ws" as local.
+	cmd1, cf1 := newTestNewCmd()
+	require.NoError(t, runWsNew(nil, "my-ws", cf1, cmd1))
+
+	// Create "my-ws" as container -> should auto-suffix to "my-ws-container".
+	binDir := filepath.Join(t.TempDir(), "bin")
+	require.NoError(t, os.MkdirAll(binDir, 0o755))
+	stub := filepath.Join(binDir, "podman")
+	require.NoError(t, os.WriteFile(stub, []byte("#!/bin/sh\nexit 0\n"), 0o755))
+	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+
+	cmd2, cf2 := newTestNewCmd()
+	require.NoError(t, cmd2.Flags().Set("type", "container"))
+	require.NoError(t, cmd2.Flags().Set("image", "test:latest"))
+	err := runWsNew(nil, "my-ws", cf2, cmd2)
+	require.NoError(t, err)
+
+	defs := ws.NewDefinitionStore(defFile)
+	found, findErr := defs.FindByName("my-ws-container")
+	require.NoError(t, findErr)
+	assert.Equal(t, ws.WorkspaceTypeContainer, found.Type)
+}
+
+func TestWsPrune_IsNoOp(t *testing.T) {
+	cmd := newWsPruneCmd()
+	err := cmd.RunE(cmd, nil)
+	require.NoError(t, err)
 }

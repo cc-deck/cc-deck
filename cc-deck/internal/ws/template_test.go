@@ -60,7 +60,7 @@ func TestLoadTemplate_InvalidYAML(t *testing.T) {
 
 func TestValidateTemplate_MissingName(t *testing.T) {
 	tmpl := &WorkspaceTemplate{
-		Variants: map[string]TemplateVariant{"ssh": {}},
+		Variants: map[string]WorkspaceSpec{"ssh": {}},
 	}
 	err := ValidateTemplate(tmpl)
 	require.Error(t, err)
@@ -70,7 +70,7 @@ func TestValidateTemplate_MissingName(t *testing.T) {
 func TestValidateTemplate_NoVariants(t *testing.T) {
 	tmpl := &WorkspaceTemplate{
 		Name:     "test",
-		Variants: map[string]TemplateVariant{},
+		Variants: map[string]WorkspaceSpec{},
 	}
 	err := ValidateTemplate(tmpl)
 	require.Error(t, err)
@@ -80,7 +80,7 @@ func TestValidateTemplate_NoVariants(t *testing.T) {
 func TestValidateTemplate_UnknownType(t *testing.T) {
 	tmpl := &WorkspaceTemplate{
 		Name: "test",
-		Variants: map[string]TemplateVariant{
+		Variants: map[string]WorkspaceSpec{
 			"bogus": {},
 		},
 	}
@@ -92,7 +92,7 @@ func TestValidateTemplate_UnknownType(t *testing.T) {
 func TestValidateTemplate_ValidTypes(t *testing.T) {
 	tmpl := &WorkspaceTemplate{
 		Name: "test",
-		Variants: map[string]TemplateVariant{
+		Variants: map[string]WorkspaceSpec{
 			"ssh":        {},
 			"container":  {},
 			"compose":    {},
@@ -173,8 +173,23 @@ func TestPromptForPlaceholders_WithDefaults(t *testing.T) {
 	assert.Equal(t, "marovo", answers["host"])
 }
 
+func TestResolvePlaceholders_SanitizesNewlines(t *testing.T) {
+	data := []byte(`host: "{{user}}@marovo"`)
+	answers := map[string]string{"user": "roland\"\nimage: \"evil:latest"}
+	result := ResolvePlaceholders(data, answers)
+	assert.NotContains(t, string(result), "\n")
+	assert.Contains(t, string(result), "roland")
+}
+
+func TestSanitizePlaceholderValue(t *testing.T) {
+	assert.Equal(t, "hello world", sanitizePlaceholderValue("hello\nworld"))
+	assert.Equal(t, "clean", sanitizePlaceholderValue("clean"))
+	assert.Equal(t, "no cr", sanitizePlaceholderValue("no\r cr"))
+	assert.Equal(t, "both  gone", sanitizePlaceholderValue("both\r\n gone"))
+}
+
 func TestVariantToDefinition(t *testing.T) {
-	v := &TemplateVariant{
+	v := &WorkspaceSpec{
 		Image: "test:latest",
 		Host:  "user@host",
 		Repos: []RepoEntry{{URL: "https://github.com/org/repo.git"}},

@@ -104,7 +104,9 @@ func TestSSHWorkspace_DeleteRemovesDefinition(t *testing.T) {
 	require.NoError(t, defs.Add(&WorkspaceDefinition{
 		Name: "ssh-env",
 		Type: WorkspaceTypeSSH,
-		Host: "user@host",
+		WorkspaceSpec: WorkspaceSpec{
+			Host: "user@host",
+		},
 	}))
 	require.NoError(t, store.AddInstance(&WorkspaceInstance{
 		Name:  "ssh-env",
@@ -190,7 +192,7 @@ func TestWorkspacePath(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		def := &WorkspaceDefinition{Workspace: tt.workspace}
+		def := &WorkspaceDefinition{WorkspaceSpec: WorkspaceSpec{Workspace: tt.workspace}}
 		got := workspacePath(def)
 		if got != tt.want {
 			t.Errorf("workspacePath(%q) = %q, want %q", tt.workspace, got, tt.want)

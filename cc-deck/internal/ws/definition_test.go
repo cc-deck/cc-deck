@@ -183,10 +183,12 @@ func TestDefinitionCRUD_FullCycle(t *testing.T) {
 
 	// Create
 	def := &WorkspaceDefinition{
-		Name:  "lifecycle",
-		Type:  WorkspaceTypeContainer,
-		Image: "my-image:latest",
-		Ports: []string{"8080:8080"},
+		Name: "lifecycle",
+		Type: WorkspaceTypeContainer,
+		WorkspaceSpec: WorkspaceSpec{
+			Image: "my-image:latest",
+			Ports: []string{"8080:8080"},
+		},
 	}
 	require.NoError(t, store.Add(def))
 
@@ -298,6 +300,31 @@ func TestAddWithCollisionHandling_DifferentTypeAutoSuffix(t *testing.T) {
 	found, err := store.FindByName("my-ws-ssh")
 	require.NoError(t, err)
 	assert.Equal(t, WorkspaceTypeSSH, found.Type)
+}
+
+func TestAddWithCollisionHandling_DoesNotMutateInputOnCollision(t *testing.T) {
+	store := newTestDefinitionStore(t)
+	require.NoError(t, store.Add(makeDef("my-ws", WorkspaceTypeContainer)))
+
+	def := makeDef("my-ws", WorkspaceTypeSSH)
+	originalName := def.Name
+
+	name, err := store.AddWithCollisionHandling(def)
+	require.NoError(t, err)
+	assert.Equal(t, "my-ws-ssh", name)
+	assert.Equal(t, "my-ws-ssh", def.Name, "def.Name should be updated to final name after save")
+	_ = originalName
+}
+
+func TestAddWithCollisionHandling_ValidatesAutoSuffixedName(t *testing.T) {
+	store := newTestDefinitionStore(t)
+	longName := "a234567890123456789012345678901234567890"
+	require.NoError(t, store.Add(makeDef(longName, WorkspaceTypeContainer)))
+
+	def := makeDef(longName, WorkspaceTypeSSH)
+	_, err := store.AddWithCollisionHandling(def)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "auto-suffixed name")
 }
 
 func TestDefinitionSave_CreatesDirectories(t *testing.T) {

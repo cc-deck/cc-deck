@@ -23,36 +23,11 @@ type Placeholder struct {
 }
 
 // WorkspaceTemplate is a git-committable template for workspace creation.
+// Variant bodies use WorkspaceSpec fields (the same fields as WorkspaceDefinition
+// minus name and type, which are derived from the template structure).
 type WorkspaceTemplate struct {
 	Name     string                     `yaml:"name"`
-	Variants map[string]TemplateVariant `yaml:"variants"`
-}
-
-// TemplateVariant holds the workspace definition fields for a specific type.
-// Fields may contain {{placeholder}} or {{placeholder:default}} strings.
-type TemplateVariant struct {
-	Image          string            `yaml:"image,omitempty"`
-	Auth           string            `yaml:"auth,omitempty"`
-	Storage        *StorageConfig    `yaml:"storage,omitempty"`
-	Ports          []string          `yaml:"ports,omitempty"`
-	Credentials    []string          `yaml:"credentials,omitempty"`
-	Mounts         []string          `yaml:"mounts,omitempty"`
-	AllowedDomains []string          `yaml:"allowed-domains,omitempty"`
-	ProjectDir     string            `yaml:"project-dir,omitempty"`
-	Env            map[string]string `yaml:"env,omitempty"`
-	Host           string            `yaml:"host,omitempty"`
-	Port           int               `yaml:"port,omitempty"`
-	IdentityFile   string            `yaml:"identity-file,omitempty"`
-	JumpHost       string            `yaml:"jump-host,omitempty"`
-	SSHConfig      string            `yaml:"ssh-config,omitempty"`
-	Workspace      string            `yaml:"workspace,omitempty"`
-	Repos          []RepoEntry       `yaml:"repos,omitempty"`
-	RemoteBG       string            `yaml:"remote-bg,omitempty"`
-	Namespace      string            `yaml:"namespace,omitempty"`
-	Kubeconfig     string            `yaml:"kubeconfig,omitempty"`
-	K8sContext     string            `yaml:"context,omitempty"`
-	StorageSize    string            `yaml:"storage-size,omitempty"`
-	StorageClass   string            `yaml:"storage-class,omitempty"`
+	Variants map[string]WorkspaceSpec   `yaml:"variants"`
 }
 
 // LoadTemplate reads .cc-deck/workspace-template.yaml from the given project root.
@@ -133,13 +108,19 @@ func ResolvePlaceholders(data []byte, answers map[string]string) []byte {
 		sub := placeholderRegex.FindSubmatch(match)
 		name := string(sub[1])
 		if val, ok := answers[name]; ok {
-			return []byte(val)
+			return []byte(sanitizePlaceholderValue(val))
 		}
 		if len(sub) > 2 && len(sub[2]) > 0 {
 			return sub[2]
 		}
 		return match
 	})
+}
+
+func sanitizePlaceholderValue(s string) string {
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.ReplaceAll(s, "\r", "")
+	return s
 }
 
 // PromptForPlaceholders interactively prompts the user for placeholder values.
@@ -167,34 +148,12 @@ func PromptForPlaceholders(placeholders []Placeholder, reader *bufio.Reader) (ma
 	return answers, nil
 }
 
-// VariantToDefinition converts a TemplateVariant into a WorkspaceDefinition
-// with the given name and type.
-func VariantToDefinition(name string, wsType WorkspaceType, v *TemplateVariant) *WorkspaceDefinition {
-	def := &WorkspaceDefinition{
-		Name:           name,
-		Type:           wsType,
-		Image:          v.Image,
-		Auth:           v.Auth,
-		Storage:        v.Storage,
-		Ports:          v.Ports,
-		Credentials:    v.Credentials,
-		Mounts:         v.Mounts,
-		AllowedDomains: v.AllowedDomains,
-		ProjectDir:     v.ProjectDir,
-		Env:            v.Env,
-		Host:           v.Host,
-		Port:           v.Port,
-		IdentityFile:   v.IdentityFile,
-		JumpHost:       v.JumpHost,
-		SSHConfig:      v.SSHConfig,
-		Workspace:      v.Workspace,
-		Repos:          v.Repos,
-		RemoteBG:       v.RemoteBG,
-		Namespace:      v.Namespace,
-		Kubeconfig:     v.Kubeconfig,
-		K8sContext:     v.K8sContext,
-		StorageSize:    v.StorageSize,
-		StorageClass:   v.StorageClass,
+// VariantToDefinition converts a WorkspaceSpec (template variant) into a
+// WorkspaceDefinition with the given name and type.
+func VariantToDefinition(name string, wsType WorkspaceType, v *WorkspaceSpec) *WorkspaceDefinition {
+	return &WorkspaceDefinition{
+		Name:          name,
+		Type:          wsType,
+		WorkspaceSpec: *v,
 	}
-	return def
 }
