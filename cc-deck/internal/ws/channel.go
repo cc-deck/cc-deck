@@ -67,6 +67,13 @@ func gitExec(ctx context.Context, args ...string) error {
 	return cmd.Run()
 }
 
+// shellQuote wraps a string in single quotes with proper escaping for
+// safe use in sh -c commands. Single quotes within the string are
+// escaped as '\'' (end quote, escaped quote, start quote).
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
+}
+
 // currentBranch returns the name of the current git branch.
 func currentBranch(ctx context.Context) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--abbrev-ref", "HEAD")
