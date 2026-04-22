@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/cc-deck/cc-deck/internal/xdg"
 	"gopkg.in/yaml.v3"
@@ -203,6 +204,80 @@ func (s *DefinitionStore) Remove(name string) error {
 	return fmt.Errorf("workspace definition %q: %w", name, ErrNotFound)
 }
 
+// FindByProjectDir returns all definitions whose ProjectDir is an ancestor of
+// (or equal to) the given path. Uses canonical paths for comparison.
+func (s *DefinitionStore) FindByProjectDir(path string) ([]*WorkspaceDefinition, error) {
+	defs, err := s.Load()
+	if err != nil {
+		return nil, err
+	}
+
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("resolving path: %w", err)
+	}
+	resolved, err := filepath.EvalSymlinks(absPath)
+	if err != nil {
+		resolved = absPath
+	}
+
+	var result []*WorkspaceDefinition
+	for i := range defs.Workspaces {
+		projDir := defs.Workspaces[i].ProjectDir
+		if projDir == "" {
+			continue
+		}
+		absProjDir, absErr := filepath.Abs(projDir)
+		if absErr != nil {
+			continue
+		}
+		resolvedProj, evalErr := filepath.EvalSymlinks(absProjDir)
+		if evalErr != nil {
+			resolvedProj = absProjDir
+		}
+
+		if resolved == resolvedProj || strings.HasPrefix(resolved+"/", resolvedProj+"/") {
+			result = append(result, &defs.Workspaces[i])
+		}
+	}
+
+	return result, nil
+}
+
+// AddWithCollisionHandling adds a workspace definition with collision handling.
+// If a definition with the same name and same type exists, returns an error.
+// If a definition with the same name but different type exists, auto-suffixes
+// the name with the type (e.g., "foo" -> "foo-ssh"). Returns the final name used.
+func (s *DefinitionStore) AddWithCollisionHandling(def *WorkspaceDefinition) (string, error) {
+	defs, err := s.Load()
+	if err != nil {
+		return "", err
+	}
+
+	for _, d := range defs.Workspaces {
+		if d.Name == def.Name {
+			if d.Type == def.Type {
+				return "", fmt.Errorf("workspace %q already exists (type: %s); delete it first", def.Name, d.Type)
+			}
+			def.Name = def.Name + "-" + string(def.Type)
+			break
+		}
+	}
+
+	// Check for collision again after renaming.
+	for _, d := range defs.Workspaces {
+		if d.Name == def.Name {
+			return "", fmt.Errorf("workspace %q: %w", def.Name, ErrNameConflict)
+		}
+	}
+
+	defs.Workspaces = append(defs.Workspaces, *def)
+	if err := s.Save(defs); err != nil {
+		return "", err
+	}
+	return def.Name, nil
+}
+
 // List returns all workspace definitions, optionally filtered by type.
 func (s *DefinitionStore) List(filter *ListFilter) ([]*WorkspaceDefinition, error) {
 	defs, err := s.Load()
@@ -221,56 +296,3 @@ func (s *DefinitionStore) List(filter *ListFilter) ([]*WorkspaceDefinition, erro
 	return result, nil
 }
 
-const projectDefinitionFile = ".cc-deck/workspace.yaml"
-
-// LoadProjectDefinition reads the workspace definition from
-// .cc-deck/workspace.yaml in the given project root.
-// Returns a bare WorkspaceDefinition (not wrapped in DefinitionFile).
-func LoadProjectDefinition(projectRoot string) (*WorkspaceDefinition, error) {
-	path := filepath.Join(projectRoot, projectDefinitionFile)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("project definition %q: %w", path, ErrNotFound)
-		}
-		return nil, fmt.Errorf("reading project definition: %w", err)
-	}
-
-	var def WorkspaceDefinition
-	if err := yaml.Unmarshal(data, &def); err != nil {
-		return nil, fmt.Errorf("parsing project definition: %w", err)
-	}
-
-	return &def, nil
-}
-
-// SaveProjectDefinition writes a workspace definition to
-// .cc-deck/workspace.yaml, creating the directory and .gitignore if needed.
-func SaveProjectDefinition(projectRoot string, def *WorkspaceDefinition) error {
-	dir := filepath.Join(projectRoot, ".cc-deck")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("creating .cc-deck directory: %w", err)
-	}
-
-	if err := EnsureCCDeckGitignore(projectRoot); err != nil {
-		return fmt.Errorf("ensuring .gitignore: %w", err)
-	}
-
-	data, err := yaml.Marshal(def)
-	if err != nil {
-		return fmt.Errorf("marshaling project definition: %w", err)
-	}
-
-	path := filepath.Join(projectRoot, projectDefinitionFile)
-	tmpPath := path + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0o644); err != nil {
-		return fmt.Errorf("writing temporary project definition: %w", err)
-	}
-
-	if err := os.Rename(tmpPath, path); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("renaming project definition: %w", err)
-	}
-
-	return nil
-}

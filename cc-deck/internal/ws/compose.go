@@ -284,7 +284,7 @@ func (e *ComposeWorkspace) Create(ctx context.Context, opts CreateOpts) error {
 		}
 	}
 
-	// Ensure .cc-deck/.gitignore exists with status.yaml and run/ entries (FR-016, FR-030).
+	// Ensure .cc-deck/.gitignore exists with run/ entry.
 	if err := EnsureCCDeckGitignore(projDir); err != nil {
 		log.Printf("WARNING: could not ensure .cc-deck/.gitignore: %v", err)
 	}
@@ -481,12 +481,6 @@ func (e *ComposeWorkspace) Delete(ctx context.Context, force bool) error {
 	if runDir != "" {
 		if err := os.RemoveAll(runDir); err != nil {
 			log.Printf("WARNING: removing %s: %v", runDir, err)
-		}
-	}
-	if projDir != "" {
-		statusFile := filepath.Join(projDir, ccDeckDir, "status.yaml")
-		if err := os.Remove(statusFile); err != nil && !os.IsNotExist(err) {
-			log.Printf("WARNING: removing %s: %v", statusFile, err)
 		}
 	}
 

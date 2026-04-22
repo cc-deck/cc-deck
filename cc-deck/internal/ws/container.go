@@ -247,25 +247,35 @@ func (e *ContainerWorkspace) Create(ctx context.Context, opts CreateOpts) error 
 		cloneRepos(ctx, podmanRunner, e.Repos, workspace, creds, e.ExtraRemotes, e.AutoDetectedURL)
 	}
 
-	// Write workspace definition.
+	// Update workspace definition with resolved runtime values.
 	if e.defs != nil {
-		wsDef := &WorkspaceDefinition{
-			Name:        e.name,
-			Type:        WorkspaceTypeContainer,
-			Image:       image,
-			Ports:       ports,
-			Credentials: credentialKeys,
-			Mounts:      e.Mounts,
-		}
-		if storageType != "" {
-			wsDef.Storage = &StorageConfig{
-				Type:     storageType,
-				HostPath: opts.Storage.HostPath,
-			}
-		}
 		if def != nil {
-			_ = e.defs.Update(wsDef)
+			def.Image = image
+			def.Ports = ports
+			def.Credentials = credentialKeys
+			def.Mounts = e.Mounts
+			if storageType != "" {
+				def.Storage = &StorageConfig{
+					Type:     storageType,
+					HostPath: opts.Storage.HostPath,
+				}
+			}
+			_ = e.defs.Update(def)
 		} else {
+			wsDef := &WorkspaceDefinition{
+				Name:        e.name,
+				Type:        WorkspaceTypeContainer,
+				Image:       image,
+				Ports:       ports,
+				Credentials: credentialKeys,
+				Mounts:      e.Mounts,
+			}
+			if storageType != "" {
+				wsDef.Storage = &StorageConfig{
+					Type:     storageType,
+					HostPath: opts.Storage.HostPath,
+				}
+			}
 			_ = e.defs.Add(wsDef)
 		}
 	}

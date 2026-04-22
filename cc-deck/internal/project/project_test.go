@@ -10,12 +10,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// initGitRepo creates a bare git init in dir for testing.
 func initGitRepo(t *testing.T, dir string) {
 	t.Helper()
 	cmd := exec.Command("git", "init", dir)
 	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null")
 	require.NoError(t, cmd.Run())
+}
+
+func createCCDeckDir(t *testing.T, dir string) {
+	t.Helper()
+	ccDeckDir := filepath.Join(dir, ".cc-deck")
+	require.NoError(t, os.MkdirAll(ccDeckDir, 0o755))
 }
 
 func TestFindGitRoot_InGitRepo(t *testing.T) {
@@ -24,7 +29,6 @@ func TestFindGitRoot_InGitRepo(t *testing.T) {
 
 	root, err := FindGitRoot(dir)
 	require.NoError(t, err)
-	// Compare canonical paths since TempDir may involve symlinks.
 	assert.Equal(t, CanonicalPath(dir), root)
 }
 
@@ -47,66 +51,49 @@ func TestFindGitRoot_NotGitRepo(t *testing.T) {
 	assert.ErrorIs(t, err, ErrNotGitRepo)
 }
 
-func TestFindProjectConfig_Found(t *testing.T) {
+func TestFindProjectRoot_Found(t *testing.T) {
 	dir := t.TempDir()
 	initGitRepo(t, dir)
+	createCCDeckDir(t, dir)
 
-	ccDeckDir := filepath.Join(dir, ".cc-deck")
-	require.NoError(t, os.MkdirAll(ccDeckDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(ccDeckDir, "workspace.yaml"), []byte("name: test\n"), 0o644))
-
-	root, err := FindProjectConfig(dir)
+	root, err := FindProjectRoot(dir)
 	require.NoError(t, err)
 	assert.Equal(t, CanonicalPath(dir), root)
 }
 
-func TestFindProjectConfig_NotFound(t *testing.T) {
+func TestFindProjectRoot_NotFound(t *testing.T) {
 	dir := t.TempDir()
 	initGitRepo(t, dir)
 
-	_, err := FindProjectConfig(dir)
+	_, err := FindProjectRoot(dir)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrNoProjectConfig)
+	assert.ErrorIs(t, err, ErrNoProjectRoot)
 }
 
-func TestFindProjectConfig_NotGitRepo(t *testing.T) {
+func TestFindProjectRoot_NotGitRepo(t *testing.T) {
 	dir := t.TempDir()
 
-	_, err := FindProjectConfig(dir)
+	_, err := FindProjectRoot(dir)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrNoProjectConfig)
+	assert.ErrorIs(t, err, ErrNoProjectRoot)
 }
 
-func TestFindProjectConfig_FromSubdirectory(t *testing.T) {
+func TestFindProjectRoot_FromSubdirectory(t *testing.T) {
 	dir := t.TempDir()
 	initGitRepo(t, dir)
-
-	ccDeckDir := filepath.Join(dir, ".cc-deck")
-	require.NoError(t, os.MkdirAll(ccDeckDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(ccDeckDir, "workspace.yaml"), []byte("name: test\n"), 0o644))
+	createCCDeckDir(t, dir)
 
 	sub := filepath.Join(dir, "src", "pkg")
 	require.NoError(t, os.MkdirAll(sub, 0o755))
 
-	root, err := FindProjectConfig(sub)
+	root, err := FindProjectRoot(sub)
 	require.NoError(t, err)
 	assert.Equal(t, CanonicalPath(dir), root)
 }
 
-// --- Workspace detection tests ---
-
-func createWorkspaceConfig(t *testing.T, dir string) {
-	t.Helper()
-	ccDeckDir := filepath.Join(dir, ".cc-deck")
-	require.NoError(t, os.MkdirAll(ccDeckDir, 0o755))
-	require.NoError(t, os.WriteFile(
-		filepath.Join(ccDeckDir, "workspace.yaml"),
-		[]byte("name: workspace-test\ntype: compose\n"), 0o644))
-}
-
 func TestFindWorkspaceRoot_Found(t *testing.T) {
 	dir := t.TempDir()
-	createWorkspaceConfig(t, dir)
+	createCCDeckDir(t, dir)
 
 	root, err := FindWorkspaceRoot(dir)
 	require.NoError(t, err)
@@ -115,7 +102,7 @@ func TestFindWorkspaceRoot_Found(t *testing.T) {
 
 func TestFindWorkspaceRoot_FromSubdirectory(t *testing.T) {
 	dir := t.TempDir()
-	createWorkspaceConfig(t, dir)
+	createCCDeckDir(t, dir)
 
 	sub := filepath.Join(dir, "repo-a", "src", "pkg")
 	require.NoError(t, os.MkdirAll(sub, 0o755))
@@ -130,49 +117,44 @@ func TestFindWorkspaceRoot_NotFound(t *testing.T) {
 
 	_, err := FindWorkspaceRoot(dir)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrNoWorkspaceConfig)
+	assert.ErrorIs(t, err, ErrNoWorkspaceRoot)
 }
 
-func TestFindProjectConfig_WorkspaceWithoutGit(t *testing.T) {
-	// Workspace directory (no .git/) with .cc-deck/workspace.yaml.
+func TestFindProjectRoot_WorkspaceWithoutGit(t *testing.T) {
 	dir := t.TempDir()
-	createWorkspaceConfig(t, dir)
+	createCCDeckDir(t, dir)
 
 	sub := filepath.Join(dir, "some-subdir")
 	require.NoError(t, os.MkdirAll(sub, 0o755))
 
-	root, err := FindProjectConfig(sub)
+	root, err := FindProjectRoot(sub)
 	require.NoError(t, err)
 	assert.Equal(t, CanonicalPath(dir), root)
 }
 
-func TestFindProjectConfig_GitRepoInsideWorkspace(t *testing.T) {
-	// Workspace has .cc-deck/, child git repo does not.
-	// Should find the workspace config via walk-up.
+func TestFindProjectRoot_GitRepoInsideWorkspace(t *testing.T) {
 	workspace := t.TempDir()
-	createWorkspaceConfig(t, workspace)
+	createCCDeckDir(t, workspace)
 
 	gitRepo := filepath.Join(workspace, "repo-a")
 	require.NoError(t, os.MkdirAll(gitRepo, 0o755))
 	initGitRepo(t, gitRepo)
 
-	root, err := FindProjectConfig(gitRepo)
+	root, err := FindProjectRoot(gitRepo)
 	require.NoError(t, err)
 	assert.Equal(t, CanonicalPath(workspace), root)
 }
 
-func TestFindProjectConfig_GitRepoWithOwnConfig(t *testing.T) {
-	// Both workspace and git repo have .cc-deck/workspace.yaml.
-	// The git repo's own config should win (strategy 1).
+func TestFindProjectRoot_GitRepoWithOwnCCDeck(t *testing.T) {
 	workspace := t.TempDir()
-	createWorkspaceConfig(t, workspace)
+	createCCDeckDir(t, workspace)
 
 	gitRepo := filepath.Join(workspace, "repo-b")
 	require.NoError(t, os.MkdirAll(gitRepo, 0o755))
 	initGitRepo(t, gitRepo)
-	createWorkspaceConfig(t, gitRepo)
+	createCCDeckDir(t, gitRepo)
 
-	root, err := FindProjectConfig(gitRepo)
+	root, err := FindProjectRoot(gitRepo)
 	require.NoError(t, err)
 	assert.Equal(t, CanonicalPath(gitRepo), root,
 		"git repo with own .cc-deck/ should take precedence over workspace")
@@ -181,7 +163,6 @@ func TestFindProjectConfig_GitRepoWithOwnConfig(t *testing.T) {
 func TestCanonicalPath_RegularPath(t *testing.T) {
 	dir := t.TempDir()
 	result := CanonicalPath(dir)
-	// Should be idempotent.
 	assert.Equal(t, result, CanonicalPath(result))
 }
 
