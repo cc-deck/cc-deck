@@ -274,8 +274,7 @@ func (c *sshDataChannel) PushBytes(ctx context.Context, data []byte, remotePath 
 	if err != nil {
 		return newChannelError("data", "push", c.name, "ssh binary not found", err)
 	}
-	args := sshArgs(client)
-	args = append(args, client.Host, "--", remoteCmd)
+	args := client.BuildArgs(client.Host, "--", remoteCmd)
 	cmd := exec.CommandContext(ctx, sshBin, args...)
 	cmd.Stdin = bytes.NewReader(data)
 	if out, runErr := cmd.CombinedOutput(); runErr != nil {
@@ -283,22 +282,4 @@ func (c *sshDataChannel) PushBytes(ctx context.Context, data []byte, remotePath 
 			fmt.Sprintf("SSH push bytes to %q: %s", remotePath, strings.TrimSpace(string(out))), runErr)
 	}
 	return nil
-}
-
-func sshArgs(c *ssh.Client) []string {
-	var args []string
-	if c.SSHConfig != "" {
-		args = append(args, "-F", c.SSHConfig)
-	}
-	if c.Port != 0 {
-		args = append(args, "-p", fmt.Sprintf("%d", c.Port))
-	}
-	if c.IdentityFile != "" {
-		args = append(args, "-i", c.IdentityFile)
-	}
-	if c.JumpHost != "" {
-		args = append(args, "-J", c.JumpHost)
-	}
-	args = append(args, "-o", "StrictHostKeyChecking=accept-new", "-o", "BatchMode=yes")
-	return args
 }
