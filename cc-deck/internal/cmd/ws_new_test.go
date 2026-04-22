@@ -288,13 +288,17 @@ func TestWriteWsStructured_IncludesProjectField(t *testing.T) {
 
 func TestWriteWsTable_HasProjectColumn(t *testing.T) {
 	projectMap := map[string]string{"proj-ws": "my-project"}
+	instances := []*ws.WorkspaceInstance{
+		{Name: "proj-ws", Type: ws.WorkspaceTypeLocal, State: ws.WorkspaceStateRunning},
+	}
+	instanceNames := map[string]bool{"proj-ws": true}
 
 	old := os.Stdout
 	r, w, pipeErr := os.Pipe()
 	require.NoError(t, pipeErr)
 	os.Stdout = w
 
-	err := writeWsTableWithProjects(nil, nil, map[string]bool{}, "", projectMap, false)
+	err := writeWsTableWithProjects(instances, nil, instanceNames, "", projectMap, false)
 	require.NoError(t, err)
 
 	w.Close()
@@ -305,7 +309,28 @@ func TestWriteWsTable_HasProjectColumn(t *testing.T) {
 	output := string(buf[:n])
 
 	assert.Contains(t, output, "PROJECT")
+	assert.Contains(t, output, "my-project")
 	assert.NotContains(t, output, "SOURCE")
+}
+
+func TestWriteWsTable_EmptyShowsNoHeader(t *testing.T) {
+	old := os.Stdout
+	r, w, pipeErr := os.Pipe()
+	require.NoError(t, pipeErr)
+	os.Stdout = w
+
+	err := writeWsTableWithProjects(nil, nil, map[string]bool{}, "", map[string]string{}, false)
+	require.NoError(t, err)
+
+	w.Close()
+	os.Stdout = old
+
+	buf := make([]byte, 4096)
+	n, _ := r.Read(buf)
+	output := string(buf[:n])
+
+	assert.NotContains(t, output, "NAME")
+	assert.Contains(t, output, "No workspaces found")
 }
 
 func TestRunWsNew_DifferentTypeAutoSuffix(t *testing.T) {
