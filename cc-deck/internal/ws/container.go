@@ -552,6 +552,14 @@ func (e *ContainerWorkspace) Pull(ctx context.Context, opts SyncOpts) error {
 
 // Harvest extracts git commits from the container via GitChannel.
 func (e *ContainerWorkspace) Harvest(ctx context.Context, opts HarvestOpts) error {
+	inst, findErr := e.store.FindInstanceByName(e.name)
+	if findErr != nil {
+		return findErr
+	}
+	if inst.State != WorkspaceStateRunning {
+		return fmt.Errorf("container is not running (state: %s)", inst.State)
+	}
+
 	ch, err := e.GitChannel(ctx)
 	if err != nil {
 		return err

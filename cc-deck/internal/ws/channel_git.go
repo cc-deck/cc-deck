@@ -101,9 +101,9 @@ func (c *sshGitChannel) Push(ctx context.Context) error {
 	return gitPush(ctx, c.name, c.remoteURL())
 }
 
-func createPR(ctx context.Context, branch, remoteName string) error {
+func createPR(ctx context.Context, branch, _ string) error {
 	if branch == "" {
-		branch = remoteName + "/main"
+		branch = "main"
 	}
 	if err := gitExec(ctx, "push", "-u", "origin", branch); err != nil {
 		return fmt.Errorf("pushing branch: %w", err)
