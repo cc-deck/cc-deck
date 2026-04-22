@@ -472,6 +472,26 @@ func (e *ContainerWorkspace) Exec(ctx context.Context, cmd []string) error {
 	return podman.Exec(ctx, containerName(e.name), cmd, false)
 }
 
+// ExecOutput runs a command inside the container and returns stdout.
+func (e *ContainerWorkspace) ExecOutput(ctx context.Context, cmd []string) (string, error) {
+	return podman.ExecOutput(ctx, containerName(e.name), strings.Join(cmd, " "))
+}
+
+// PipeChannel returns the pipe channel for this workspace.
+func (e *ContainerWorkspace) PipeChannel(_ context.Context) (PipeChannel, error) {
+	return nil, fmt.Errorf("container workspaces pipe channel: %w", ErrNotSupported)
+}
+
+// DataChannel returns the data channel for this workspace.
+func (e *ContainerWorkspace) DataChannel(_ context.Context) (DataChannel, error) {
+	return nil, fmt.Errorf("container workspaces data channel: %w", ErrNotSupported)
+}
+
+// GitChannel returns the git channel for this workspace.
+func (e *ContainerWorkspace) GitChannel(_ context.Context) (GitChannel, error) {
+	return nil, fmt.Errorf("container workspaces git channel: %w", ErrNotSupported)
+}
+
 // Push copies local files into the container.
 func (e *ContainerWorkspace) Push(ctx context.Context, opts SyncOpts) error {
 	inst, err := e.store.FindInstanceByName(e.name)

@@ -502,6 +502,30 @@ func (e *K8sDeployWorkspace) Exec(ctx context.Context, cmd []string) error {
 	return k8sExec(ctx, e.resolveNamespace(inst), k8sPodName(e.name), e.kubeconfigArgs(inst), cmd, false)
 }
 
+// ExecOutput runs a command inside the K8s Pod and returns stdout.
+func (e *K8sDeployWorkspace) ExecOutput(ctx context.Context, cmd []string) (string, error) {
+	inst, err := e.store.FindInstanceByName(e.name)
+	if err != nil {
+		return "", err
+	}
+	return k8sExecOutput(ctx, e.resolveNamespace(inst), k8sPodName(e.name), e.kubeconfigArgs(inst), strings.Join(cmd, " "))
+}
+
+// PipeChannel returns the pipe channel for this workspace.
+func (e *K8sDeployWorkspace) PipeChannel(_ context.Context) (PipeChannel, error) {
+	return nil, fmt.Errorf("k8s-deploy workspaces pipe channel: %w", ErrNotSupported)
+}
+
+// DataChannel returns the data channel for this workspace.
+func (e *K8sDeployWorkspace) DataChannel(_ context.Context) (DataChannel, error) {
+	return nil, fmt.Errorf("k8s-deploy workspaces data channel: %w", ErrNotSupported)
+}
+
+// GitChannel returns the git channel for this workspace.
+func (e *K8sDeployWorkspace) GitChannel(_ context.Context) (GitChannel, error) {
+	return nil, fmt.Errorf("k8s-deploy workspaces git channel: %w", ErrNotSupported)
+}
+
 // Push synchronizes local files into the K8s Pod via tar-over-exec.
 func (e *K8sDeployWorkspace) Push(ctx context.Context, opts SyncOpts) error {
 	inst, err := e.store.FindInstanceByName(e.name)
