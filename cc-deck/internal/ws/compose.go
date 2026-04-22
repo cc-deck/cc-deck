@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cc-deck/cc-deck/internal/compose"
@@ -42,9 +43,12 @@ type ComposeWorkspace struct {
 	ExtraRemotes    map[string]string
 	AutoDetectedURL string
 
-	pipeCh PipeChannel
-	dataCh DataChannel
-	gitCh  GitChannel
+	pipeOnce sync.Once
+	pipeCh   PipeChannel
+	dataOnce sync.Once
+	dataCh   DataChannel
+	gitOnce  sync.Once
+	gitCh    GitChannel
 }
 
 // Type returns WorkspaceTypeCompose.
@@ -553,32 +557,32 @@ func (e *ComposeWorkspace) ExecOutput(ctx context.Context, cmd []string) (string
 
 // PipeChannel returns the pipe channel for this workspace.
 func (e *ComposeWorkspace) PipeChannel(_ context.Context) (PipeChannel, error) {
-	if e.pipeCh == nil {
+	e.pipeOnce.Do(func() {
 		e.pipeCh = &execPipeChannel{name: e.name, execFn: e.Exec}
-	}
+	})
 	return e.pipeCh, nil
 }
 
 // DataChannel returns the data channel for this workspace.
 func (e *ComposeWorkspace) DataChannel(_ context.Context) (DataChannel, error) {
-	if e.dataCh == nil {
+	e.dataOnce.Do(func() {
 		e.dataCh = &podmanDataChannel{
 			name:          e.name,
 			containerName: func() string { return e.sessionContainerName() },
 		}
-	}
+	})
 	return e.dataCh, nil
 }
 
 // GitChannel returns the git channel for this workspace.
 func (e *ComposeWorkspace) GitChannel(_ context.Context) (GitChannel, error) {
-	if e.gitCh == nil {
+	e.gitOnce.Do(func() {
 		e.gitCh = &podmanGitChannel{
 			name:          e.name,
 			containerName: func() string { return e.sessionContainerName() },
 			workspacePath: "/workspace",
 		}
-	}
+	})
 	return e.gitCh, nil
 }
 

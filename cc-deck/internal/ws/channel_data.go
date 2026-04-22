@@ -23,9 +23,15 @@ func (c *localDataChannel) Push(_ context.Context, opts SyncOpts) error {
 	if opts.LocalPath == "" {
 		return newChannelError("data", "push", c.name, "local path is required", nil)
 	}
+	if err := validateSyncPath(opts.LocalPath); err != nil {
+		return newChannelError("data", "push", c.name, err.Error(), err)
+	}
 	remotePath := opts.RemotePath
 	if remotePath == "" {
 		remotePath = "./" + baseNameFromPath(opts.LocalPath)
+	}
+	if err := validateSyncPath(remotePath); err != nil {
+		return newChannelError("data", "push", c.name, err.Error(), err)
 	}
 	if err := copyPath(opts.LocalPath, remotePath); err != nil {
 		return newChannelError("data", "push", c.name,
@@ -38,9 +44,15 @@ func (c *localDataChannel) Pull(_ context.Context, opts SyncOpts) error {
 	if opts.RemotePath == "" {
 		return newChannelError("data", "pull", c.name, "remote path is required", nil)
 	}
+	if err := validateSyncPath(opts.RemotePath); err != nil {
+		return newChannelError("data", "pull", c.name, err.Error(), err)
+	}
 	localPath := opts.LocalPath
 	if localPath == "" {
 		localPath = "."
+	}
+	if err := validateSyncPath(localPath); err != nil {
+		return newChannelError("data", "pull", c.name, err.Error(), err)
 	}
 	if err := copyPath(opts.RemotePath, localPath); err != nil {
 		return newChannelError("data", "pull", c.name,
@@ -52,6 +64,9 @@ func (c *localDataChannel) Pull(_ context.Context, opts SyncOpts) error {
 func (c *localDataChannel) PushBytes(_ context.Context, data []byte, remotePath string) error {
 	if remotePath == "" {
 		return newChannelError("data", "push", c.name, "remote path is required", nil)
+	}
+	if err := validateSyncPath(remotePath); err != nil {
+		return newChannelError("data", "push", c.name, err.Error(), err)
 	}
 	dir := filepath.Dir(remotePath)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -97,10 +112,12 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer out.Close()
 
-	_, err = io.Copy(out, in)
-	return err
+	if _, err = io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	return out.Close()
 }
 
 func copyDir(src, dst string) error {
@@ -164,7 +181,7 @@ func (c *podmanDataChannel) PushBytes(ctx context.Context, data []byte, remotePa
 		return newChannelError("data", "push", c.name, "remote path is required", nil)
 	}
 	cmd := exec.CommandContext(ctx, "podman", "exec", "-i", c.containerName(), "sh", "-c",
-		fmt.Sprintf("cat > %s", remotePath))
+		fmt.Sprintf("cat > %q", remotePath))
 	cmd.Stdin = bytes.NewReader(data)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return newChannelError("data", "push", c.name,
@@ -193,8 +210,8 @@ func (c *k8sDataChannel) PushBytes(ctx context.Context, data []byte, remotePath 
 	if remotePath == "" {
 		return newChannelError("data", "push", c.name, "remote path is required", nil)
 	}
-	args := append(c.kubeconfigArgs, "exec", "-i", "-n", c.ns, c.podName, "--", "sh", "-c",
-		fmt.Sprintf("cat > %s", remotePath))
+	args := append(append([]string(nil), c.kubeconfigArgs...), "exec", "-i", "-n", c.ns, c.podName, "--", "sh", "-c",
+		fmt.Sprintf("cat > %q", remotePath))
 	cmd := exec.CommandContext(ctx, "kubectl", args...)
 	cmd.Stdin = bytes.NewReader(data)
 	if out, err := cmd.CombinedOutput(); err != nil {
