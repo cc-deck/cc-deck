@@ -79,7 +79,10 @@ func TestLocalDataChannel_PushBytes_EmptyData(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	info, _ := os.Stat(dstFile)
+	info, err := os.Stat(dstFile)
+	if err != nil {
+		t.Fatalf("failed to stat file: %v", err)
+	}
 	if info.Size() != 0 {
 		t.Errorf("file size = %d, want 0", info.Size())
 	}
