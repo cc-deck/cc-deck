@@ -49,7 +49,7 @@ func k8sPush(ctx context.Context, ns, podName string, kubeconfigArgs []string, o
 
 	// Tar local files and pipe via kubectl exec.
 	tarCmd := exec.CommandContext(ctx, "tar", "cf", "-", "-C", localPath, ".")
-	kubectlArgs := append(kubeconfigArgs, "exec", "-i", "-n", ns, podName, "--",
+	kubectlArgs := append(append([]string(nil), kubeconfigArgs...), "exec", "-i", "-n", ns, podName, "--",
 		"tar", "xf", "-", "--no-absolute-names", "-C", remotePath)
 	extractCmd := exec.CommandContext(ctx, "kubectl", kubectlArgs...)
 
@@ -97,7 +97,7 @@ func k8sPull(ctx context.Context, ns, podName string, kubeconfigArgs []string, o
 	}
 
 	// Tar remote files via kubectl exec and extract locally.
-	kubectlArgs := append(kubeconfigArgs, "exec", "-i", "-n", ns, podName, "--",
+	kubectlArgs := append(append([]string(nil), kubeconfigArgs...), "exec", "-i", "-n", ns, podName, "--",
 		"tar", "cf", "-", "-C", remotePath, ".")
 	tarCmd := exec.CommandContext(ctx, "kubectl", kubectlArgs...)
 	extractCmd := exec.CommandContext(ctx, "tar", "xf", "-", "--no-absolute-names", "-C", localPath)
