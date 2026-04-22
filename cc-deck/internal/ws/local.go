@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -26,8 +27,10 @@ type LocalWorkspace struct {
 	name  string
 	store *FileStateStore
 
-	pipeCh PipeChannel
-	dataCh DataChannel
+	pipeOnce sync.Once
+	pipeCh   PipeChannel
+	dataOnce sync.Once
+	dataCh   DataChannel
 }
 
 // Type returns WorkspaceTypeLocal.
@@ -213,17 +216,17 @@ func (e *LocalWorkspace) ExecOutput(_ context.Context, _ []string) (string, erro
 
 // PipeChannel returns the pipe channel for this workspace.
 func (e *LocalWorkspace) PipeChannel(_ context.Context) (PipeChannel, error) {
-	if e.pipeCh == nil {
+	e.pipeOnce.Do(func() {
 		e.pipeCh = &localPipeChannel{name: e.name}
-	}
+	})
 	return e.pipeCh, nil
 }
 
 // DataChannel returns the data channel for this workspace.
 func (e *LocalWorkspace) DataChannel(_ context.Context) (DataChannel, error) {
-	if e.dataCh == nil {
+	e.dataOnce.Do(func() {
 		e.dataCh = &localDataChannel{name: e.name}
-	}
+	})
 	return e.dataCh, nil
 }
 

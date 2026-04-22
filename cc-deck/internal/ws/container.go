@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cc-deck/cc-deck/internal/podman"
@@ -44,9 +45,12 @@ type ContainerWorkspace struct {
 	ExtraRemotes    map[string]string
 	AutoDetectedURL string
 
-	pipeCh PipeChannel
-	dataCh DataChannel
-	gitCh  GitChannel
+	pipeOnce sync.Once
+	pipeCh   PipeChannel
+	dataOnce sync.Once
+	dataCh   DataChannel
+	gitOnce  sync.Once
+	gitCh    GitChannel
 }
 
 func containerName(wsName string) string {
@@ -483,32 +487,32 @@ func (e *ContainerWorkspace) ExecOutput(ctx context.Context, cmd []string) (stri
 
 // PipeChannel returns the pipe channel for this workspace.
 func (e *ContainerWorkspace) PipeChannel(_ context.Context) (PipeChannel, error) {
-	if e.pipeCh == nil {
+	e.pipeOnce.Do(func() {
 		e.pipeCh = &execPipeChannel{name: e.name, execFn: e.Exec}
-	}
+	})
 	return e.pipeCh, nil
 }
 
 // DataChannel returns the data channel for this workspace.
 func (e *ContainerWorkspace) DataChannel(_ context.Context) (DataChannel, error) {
-	if e.dataCh == nil {
+	e.dataOnce.Do(func() {
 		e.dataCh = &podmanDataChannel{
 			name:          e.name,
 			containerName: func() string { return containerName(e.name) },
 		}
-	}
+	})
 	return e.dataCh, nil
 }
 
 // GitChannel returns the git channel for this workspace.
 func (e *ContainerWorkspace) GitChannel(_ context.Context) (GitChannel, error) {
-	if e.gitCh == nil {
+	e.gitOnce.Do(func() {
 		e.gitCh = &podmanGitChannel{
 			name:          e.name,
 			containerName: func() string { return containerName(e.name) },
 			workspacePath: "/workspace",
 		}
-	}
+	})
 	return e.gitCh, nil
 }
 

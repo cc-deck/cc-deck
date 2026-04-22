@@ -7,32 +7,25 @@ import (
 	"os/exec"
 )
 
-// podmanGitChannel synchronizes git commits via ext::podman exec.
-type podmanGitChannel struct {
-	name          string
-	containerName func() string
-	workspacePath string
-}
-
-func (c *podmanGitChannel) Fetch(ctx context.Context, opts HarvestOpts) error {
-	remoteName := "cc-deck-" + c.name
-	remoteURL := buildExtPodmanURL(c.containerName(), c.workspacePath)
+// gitFetch is the shared Fetch implementation for all GitChannel types.
+func gitFetch(ctx context.Context, name, remoteURL string, opts HarvestOpts) error {
+	remoteName := "cc-deck-" + name
 
 	return withTemporaryRemote(ctx, remoteName, remoteURL, func() error {
 		if err := gitExec(ctx, "fetch", remoteName); err != nil {
-			return newChannelError("git", "fetch", c.name, "fetching from remote", err)
+			return newChannelError("git", "fetch", name, "fetching from remote", err)
 		}
 
 		if opts.Branch != "" {
 			if err := gitExec(ctx, "checkout", "-b", opts.Branch, remoteName+"/"+opts.Branch); err != nil {
 				if err2 := gitExec(ctx, "checkout", "-b", opts.Branch, "FETCH_HEAD"); err2 != nil {
-					return newChannelError("git", "fetch", c.name,
-						fmt.Sprintf("creating local branch %q", opts.Branch), err)
+					return newChannelError("git", "fetch", name,
+						fmt.Sprintf("creating local branch %q", opts.Branch), err2)
 				}
 			}
 		}
 
-		fmt.Fprintf(os.Stdout, "Harvested commits from %s\n", c.name)
+		fmt.Fprintf(os.Stdout, "Harvested commits from %s\n", name)
 
 		if opts.CreatePR {
 			return createPR(ctx, opts.Branch, remoteName)
@@ -41,20 +34,35 @@ func (c *podmanGitChannel) Fetch(ctx context.Context, opts HarvestOpts) error {
 	})
 }
 
-func (c *podmanGitChannel) Push(ctx context.Context) error {
-	remoteName := "cc-deck-" + c.name
-	remoteURL := buildExtPodmanURL(c.containerName(), c.workspacePath)
+// gitPush is the shared Push implementation for all GitChannel types.
+func gitPush(ctx context.Context, name, remoteURL string) error {
+	remoteName := "cc-deck-" + name
 
 	return withTemporaryRemote(ctx, remoteName, remoteURL, func() error {
 		branch, err := currentBranch(ctx)
 		if err != nil {
-			return newChannelError("git", "push", c.name, "detecting branch", err)
+			return newChannelError("git", "push", name, "detecting branch", err)
 		}
 		if err := gitExec(ctx, "push", remoteName, branch); err != nil {
-			return newChannelError("git", "push", c.name, "pushing to remote", err)
+			return newChannelError("git", "push", name, "pushing to remote", err)
 		}
 		return nil
 	})
+}
+
+// podmanGitChannel synchronizes git commits via ext::podman exec.
+type podmanGitChannel struct {
+	name          string
+	containerName func() string
+	workspacePath string
+}
+
+func (c *podmanGitChannel) Fetch(ctx context.Context, opts HarvestOpts) error {
+	return gitFetch(ctx, c.name, buildExtPodmanURL(c.containerName(), c.workspacePath), opts)
+}
+
+func (c *podmanGitChannel) Push(ctx context.Context) error {
+	return gitPush(ctx, c.name, buildExtPodmanURL(c.containerName(), c.workspacePath))
 }
 
 // k8sGitChannel synchronizes git commits via ext::kubectl exec.
@@ -67,46 +75,11 @@ type k8sGitChannel struct {
 }
 
 func (c *k8sGitChannel) Fetch(ctx context.Context, opts HarvestOpts) error {
-	remoteName := "cc-deck-" + c.name
-	remoteURL := buildExtKubectlURL(c.ns, c.podName, c.workspacePath, c.kubeconfigArgs)
-
-	return withTemporaryRemote(ctx, remoteName, remoteURL, func() error {
-		if err := gitExec(ctx, "fetch", remoteName); err != nil {
-			return newChannelError("git", "fetch", c.name, "fetching from remote", err)
-		}
-
-		if opts.Branch != "" {
-			if err := gitExec(ctx, "checkout", "-b", opts.Branch, remoteName+"/"+opts.Branch); err != nil {
-				if err2 := gitExec(ctx, "checkout", "-b", opts.Branch, "FETCH_HEAD"); err2 != nil {
-					return newChannelError("git", "fetch", c.name,
-						fmt.Sprintf("creating local branch %q", opts.Branch), err)
-				}
-			}
-		}
-
-		fmt.Fprintf(os.Stdout, "Harvested commits from %s\n", c.name)
-
-		if opts.CreatePR {
-			return createPR(ctx, opts.Branch, remoteName)
-		}
-		return nil
-	})
+	return gitFetch(ctx, c.name, buildExtKubectlURL(c.ns, c.podName, c.workspacePath, c.kubeconfigArgs), opts)
 }
 
 func (c *k8sGitChannel) Push(ctx context.Context) error {
-	remoteName := "cc-deck-" + c.name
-	remoteURL := buildExtKubectlURL(c.ns, c.podName, c.workspacePath, c.kubeconfigArgs)
-
-	return withTemporaryRemote(ctx, remoteName, remoteURL, func() error {
-		branch, err := currentBranch(ctx)
-		if err != nil {
-			return newChannelError("git", "push", c.name, "detecting branch", err)
-		}
-		if err := gitExec(ctx, "push", remoteName, branch); err != nil {
-			return newChannelError("git", "push", c.name, "pushing to remote", err)
-		}
-		return nil
-	})
+	return gitPush(ctx, c.name, buildExtKubectlURL(c.ns, c.podName, c.workspacePath, c.kubeconfigArgs))
 }
 
 // sshGitChannel synchronizes git commits via ssh:// URL.
@@ -116,38 +89,16 @@ type sshGitChannel struct {
 	workspace string
 }
 
+func (c *sshGitChannel) remoteURL() string {
+	return fmt.Sprintf("ssh://%s%s", c.host, c.workspace)
+}
+
 func (c *sshGitChannel) Fetch(ctx context.Context, opts HarvestOpts) error {
-	remoteName := "cc-deck-" + c.name
-	remoteURL := fmt.Sprintf("ssh://%s%s", c.host, c.workspace)
-
-	return withTemporaryRemote(ctx, remoteName, remoteURL, func() error {
-		if err := gitExec(ctx, "fetch", remoteName); err != nil {
-			return newChannelError("git", "fetch", c.name, "fetching from remote", err)
-		}
-
-		fmt.Fprintf(os.Stdout, "Harvested commits from %s\n", c.name)
-
-		if opts.CreatePR {
-			return createPR(ctx, opts.Branch, remoteName)
-		}
-		return nil
-	})
+	return gitFetch(ctx, c.name, c.remoteURL(), opts)
 }
 
 func (c *sshGitChannel) Push(ctx context.Context) error {
-	remoteName := "cc-deck-" + c.name
-	remoteURL := fmt.Sprintf("ssh://%s%s", c.host, c.workspace)
-
-	return withTemporaryRemote(ctx, remoteName, remoteURL, func() error {
-		branch, err := currentBranch(ctx)
-		if err != nil {
-			return newChannelError("git", "push", c.name, "detecting branch", err)
-		}
-		if err := gitExec(ctx, "push", remoteName, branch); err != nil {
-			return newChannelError("git", "push", c.name, "pushing to remote", err)
-		}
-		return nil
-	})
+	return gitPush(ctx, c.name, c.remoteURL())
 }
 
 func createPR(ctx context.Context, branch, remoteName string) error {
