@@ -210,12 +210,12 @@ func (e *LocalWorkspace) ExecOutput(_ context.Context, _ []string) (string, erro
 
 // PipeChannel returns the pipe channel for this workspace.
 func (e *LocalWorkspace) PipeChannel(_ context.Context) (PipeChannel, error) {
-	return nil, fmt.Errorf("local workspaces pipe channel: %w", ErrNotSupported)
+	return &localPipeChannel{name: e.name}, nil
 }
 
 // DataChannel returns the data channel for this workspace.
 func (e *LocalWorkspace) DataChannel(_ context.Context) (DataChannel, error) {
-	return nil, fmt.Errorf("local workspaces data channel: %w", ErrNotSupported)
+	return &localDataChannel{name: e.name}, nil
 }
 
 // GitChannel is not supported for local workspaces.
@@ -223,14 +223,22 @@ func (e *LocalWorkspace) GitChannel(_ context.Context) (GitChannel, error) {
 	return nil, fmt.Errorf("local workspaces git channel: %w", ErrNotSupported)
 }
 
-// Push is not supported for local workspaces.
-func (e *LocalWorkspace) Push(_ context.Context, _ SyncOpts) error {
-	return fmt.Errorf("local workspaces: %w", ErrNotSupported)
+// Push copies local files to the target path via DataChannel.
+func (e *LocalWorkspace) Push(ctx context.Context, opts SyncOpts) error {
+	ch, err := e.DataChannel(ctx)
+	if err != nil {
+		return err
+	}
+	return ch.Push(ctx, opts)
 }
 
-// Pull is not supported for local workspaces.
-func (e *LocalWorkspace) Pull(_ context.Context, _ SyncOpts) error {
-	return fmt.Errorf("local workspaces: %w", ErrNotSupported)
+// Pull copies files from the source path to the target via DataChannel.
+func (e *LocalWorkspace) Pull(ctx context.Context, opts SyncOpts) error {
+	ch, err := e.DataChannel(ctx)
+	if err != nil {
+		return err
+	}
+	return ch.Pull(ctx, opts)
 }
 
 // Harvest is not supported for local workspaces.
