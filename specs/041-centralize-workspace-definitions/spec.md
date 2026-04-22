@@ -38,6 +38,7 @@ A developer has multiple workspaces and runs `cc-deck ws attach` without specify
 2. **Given** multiple workspace instances exist and workspace "marovo" was most recently attached, **When** user runs `cc-deck ws attach` without arguments, **Then** the system selects "marovo" and prints `Using workspace "marovo"`.
 3. **Given** multiple workspace instances exist and none have been attached yet, **When** user runs `cc-deck ws attach` without arguments, **Then** the system returns an error: `no workspace specified; run 'cc-deck ws list' to see available workspaces`.
 4. **Given** no workspace instances exist, **When** user runs `cc-deck ws attach`, **Then** the system returns an error: `no workspaces found; create one with 'cc-deck ws new'`.
+5. **Given** the same default resolution rules apply to all workspace subcommands (`ws stop`, `ws delete`, `ws start`, `ws status`, `ws update`, `ws refresh-creds`), **When** user runs `cc-deck ws delete` without arguments and only one workspace exists, **Then** the system uses that workspace and prints `Using workspace "X"` before proceeding with deletion.
 
 ---
 
@@ -84,7 +85,7 @@ After the central store and templates are working, the project-local definition 
 **Acceptance Scenarios**:
 
 1. **Given** the codebase after cleanup, **When** user runs `cc-deck ws new --global`, **Then** the command returns an error for the unrecognized flag.
-2. **Given** the codebase after cleanup, **When** searching for `LoadProjectDefinition`, `SaveProjectDefinition`, `AllProjectWorkspaceNames`, `ListProjects`, `RegisterProject`, or `ProjectEntry`, **Then** none of these symbols exist in the codebase.
+2. **Given** the codebase after cleanup, **When** searching for `LoadProjectDefinition`, `SaveProjectDefinition`, `AllProjectWorkspaceNames`, `ListProjects`, `RegisterProject`, `ProjectEntry`, `ProjectStatusStore`, or `ProjectStatusFile`, **Then** none of these symbols exist in the codebase.
 3. **Given** a project directory with `.cc-deck/setup/build.yaml`, **When** user runs `cc-deck build`, **Then** the build command still finds the project root correctly using `FindProjectRoot`.
 
 ---
@@ -96,6 +97,15 @@ After the central store and templates are working, the project-local definition 
 - What happens when the central `workspaces.yaml` file does not exist yet? The first `ws new` creates it with `version: 1`.
 - What happens when `ws attach` is called with no workspaces and no arguments? Clear error: `no workspaces found; create one with 'cc-deck ws new'`.
 - What happens when a workspace's `project-dir` points to a directory that no longer exists? The PROJECT column still shows the basename. The workspace remains functional (project-dir is informational, not operational).
+- What happens when a template field value needs literal `{{...}}`? This is not supported. The `{{placeholder}}` syntax is intentionally simple; literal double-braces in configuration values are not a realistic use case for workspace definitions.
+
+## Clarifications
+
+### Session 2026-04-22
+
+- Q: Does FR-006 `project-dir` matching require exact path equality, or should a workspace match when cwd is a subdirectory of `project-dir`? → A: Ancestor match (workspace matches if cwd is at or below project-dir).
+- Q: Can template placeholders specify default values (e.g., `{{ssh_user:roland}}`)? → A: Yes, `{{name:default}}` syntax supported; prompt shows default, Enter accepts it.
+- Q: When `ws new` is run with a template present and explicit CLI flags, how do they interact? → A: Template variant is loaded first, then explicit flags override individual fields (flags take precedence).
 
 ## Requirements *(mandatory)*
 
@@ -103,13 +113,13 @@ After the central store and templates are working, the project-local definition 
 
 - **FR-001**: System MUST store all workspace definitions in a single central file at `~/.config/cc-deck/workspaces.yaml`
 - **FR-002**: System MUST support `.cc-deck/workspace-template.yaml` as a git-committable template format with type-keyed variants
-- **FR-003**: Templates MUST support `{{placeholder}}` syntax on any string field, with interactive prompting during `ws new`
-- **FR-004**: Templates MUST support all `WorkspaceDefinition` fields (repos, remote-bg, credentials, allowed-domains, mounts, ports, storage, namespace, identity-file, jump-host, etc.)
+- **FR-003**: Templates MUST support `{{placeholder}}` syntax on any string field, with interactive prompting during `ws new`. Placeholders MAY include a default value using `{{name:default}}` syntax (e.g., `{{ssh_user:roland}}`); the prompt displays the default and pressing Enter accepts it.
+- **FR-004**: Templates MUST support all `WorkspaceDefinition` fields (repos, remote-bg, credentials, allowed-domains, mounts, ports, storage, namespace, identity-file, jump-host, etc.). When a template is present and `ws new` is invoked with explicit CLI flags, the template variant is loaded first and then explicit flags override individual fields (flags take precedence over template values).
 - **FR-005**: When `ws new` is called without a workspace name and a template exists, the system MUST use the template's `name` field as default; if no template, use the directory basename
-- **FR-006**: When `ws attach` (or other ws subcommands) is called without a name: if one workspace exists use it; if multiple exist use the most recently attached; if no recent attachment exists and multiple workspaces exist, return an error
+- **FR-006**: When `ws attach` (or other ws subcommands) is called without a name, resolve in two phases: (1) filter workspaces whose `project-dir` is an ancestor of (or equal to) the current working directory; if exactly one match use it, if multiple matches use the most recently attached among them; (2) if no project-dir matches, fall back to the global pool: if one workspace exists use it, if multiple exist use the most recently attached, if no recent attachment exists and multiple workspaces exist, return an error. This two-phase approach ensures project context is respected when available, even when the user is deep in a subdirectory.
 - **FR-007**: System MUST print `Using workspace "X"` to stderr when auto-resolving the workspace name
-- **FR-008**: Name collision handling: same name + same type MUST error; same name + different type MUST auto-suffix with the type name (e.g., `foo-ssh`)
-- **FR-009**: When a user provides an explicit name, it MUST be used as-is without auto-suffixing
+- **FR-008**: Name collision handling: same name + same type MUST error; same name + different type MUST auto-suffix with the type name (e.g., `foo-ssh`). Auto-suffixing applies regardless of whether the name came from a template, directory basename, or explicit argument.
+- **FR-009**: When a user provides an explicit name argument to override a template's default name (e.g., `cc-deck ws new my-custom-name --type container`), the explicit name MUST replace the template name. This does not bypass collision handling (FR-008); if the explicit name collides with an existing workspace of a different type, auto-suffixing still applies.
 - **FR-010**: The `ws list` output MUST show a PROJECT column derived from `filepath.Base(definition.ProjectDir)`, replacing the current SOURCE column
 - **FR-011**: The `ws update --sync-repos` command MUST read repos from the central definition store (not project-local files)
 - **FR-012**: The project registry (`Projects` section in state.yaml) MUST be removed; project association MUST be stored in the definition's `project-dir` field
@@ -117,11 +127,25 @@ After the central store and templates are working, the project-local definition 
 - **FR-014**: `FindProjectConfig` MUST be renamed to `FindProjectRoot` and MUST look for the `.cc-deck/` directory (not a specific file); used by the build command only
 - **FR-015**: The following functions MUST be removed: `LoadProjectDefinition`, `SaveProjectDefinition`, `AllProjectWorkspaceNames`, `ListProjects`, `RegisterProject`
 - **FR-016**: The `ProjectEntry` type MUST be removed from types.go
+- **FR-017**: The `ProjectStatusStore` and `ProjectStatusFile` MUST be removed. With centralized definitions, CLI overrides are unnecessary (users edit the central definition directly) and runtime state fields (`State`, `ContainerName`, `CreatedAt`, `LastAttached`) are already tracked in `WorkspaceInstance` within state.yaml.
+- **FR-018**: The `.cc-deck/status.yaml` file MUST no longer be created or read. Existing status files are ignored (no migration needed).
 
 ### Key Entities
 
 - **WorkspaceDefinition**: The declarative, user-editable description of a workspace. Stored centrally in `workspaces.yaml`. Contains all configuration fields (type, image, host, repos, etc.) plus a `project-dir` field for project association.
-- **WorkspaceTemplate**: A git-committable template file (`.cc-deck/workspace-template.yaml`) containing a name and type-keyed variants with `{{placeholder}}` support. Used as input to `ws new` but not stored.
+- **WorkspaceTemplate**: A git-committable template file (`.cc-deck/workspace-template.yaml`) containing a name and type-keyed variants with `{{placeholder}}` support. Used as input to `ws new` but not stored. The `name` field is required. Each variant key is a workspace type (`ssh`, `container`, `compose`, `k8s`), and variant bodies use the same fields as `WorkspaceDefinition` (minus `name` and `type`, which are derived from the template structure). Example:
+  ```yaml
+  name: my-project
+  variants:
+    ssh:
+      host: "{{ssh_user:roland}}@marovo"
+      repos:
+        - url: https://github.com/org/repo.git
+    container:
+      image: quay.io/cc-deck/cc-deck-demo
+      storage:
+        type: named-volume
+  ```
 - **WorkspaceInstance**: The runtime state for a workspace. Stored in `state.yaml`. Contains status, timestamps, and type-specific runtime fields. Unchanged by this feature.
 - **DefinitionStore**: Manages reading/writing workspace definitions from the central file. Extended with `FindByProjectDir` and `AddWithCollisionHandling` methods.
 
@@ -134,11 +158,11 @@ After the central store and templates are working, the project-local definition 
 - **SC-003**: `ws attach` without arguments selects the correct workspace (most recent or sole) in 100% of test cases
 - **SC-004**: The `ws list` PROJECT column correctly shows the project name for project-associated workspaces and "-" for standalone ones
 - **SC-005**: All tests pass (`make test`) and linter is clean (`make lint`) after implementation
-- **SC-006**: The removed code paths (project-local definitions, project registry, `--global`/`--local` flags) have zero remaining references in the codebase
+- **SC-006**: The removed code paths (project-local definitions, project registry, `--global`/`--local` flags, `ProjectStatusStore`, `ProjectStatusFile`) have zero remaining references in the codebase
 
 ## Assumptions
 
-- The existing `WorkspaceDefinition` struct is sufficient for all template fields; no new definition fields are needed
+- The existing `WorkspaceDefinition` struct is sufficient for all template fields; no new definition fields are needed. The existing `project-dir` field (currently used for compose project directory only) is repurposed as a general project association field for all workspace types. Compose-specific behavior that derives paths from `project-dir` must be preserved.
 - Users are willing to recreate workspaces that were previously defined only in project-local files (no automated migration)
 - The `.cc-deck/` directory will continue to exist in project roots for build/setup purposes, even though it is no longer used as a workspace marker
 - The build command (`cc-deck build`) reads exclusively from `.cc-deck/setup/build.yaml` and is unaffected by this change
