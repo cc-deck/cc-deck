@@ -3,6 +3,7 @@ package ws
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -57,6 +58,13 @@ func buildExtKubectlURL(ns, podName, workspacePath string, kubeconfigArgs []stri
 // over podman exec.
 func buildExtPodmanURL(containerName, workspacePath string) string {
 	return fmt.Sprintf("ext::podman exec -i %s -- %%S %s", containerName, workspacePath)
+}
+
+func gitExec(ctx context.Context, args ...string) error {
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }
 
 // currentBranch returns the name of the current git branch.
