@@ -25,6 +25,9 @@ const (
 type LocalWorkspace struct {
 	name  string
 	store *FileStateStore
+
+	pipeCh PipeChannel
+	dataCh DataChannel
 }
 
 // Type returns WorkspaceTypeLocal.
@@ -210,12 +213,18 @@ func (e *LocalWorkspace) ExecOutput(_ context.Context, _ []string) (string, erro
 
 // PipeChannel returns the pipe channel for this workspace.
 func (e *LocalWorkspace) PipeChannel(_ context.Context) (PipeChannel, error) {
-	return &localPipeChannel{name: e.name}, nil
+	if e.pipeCh == nil {
+		e.pipeCh = &localPipeChannel{name: e.name}
+	}
+	return e.pipeCh, nil
 }
 
 // DataChannel returns the data channel for this workspace.
 func (e *LocalWorkspace) DataChannel(_ context.Context) (DataChannel, error) {
-	return &localDataChannel{name: e.name}, nil
+	if e.dataCh == nil {
+		e.dataCh = &localDataChannel{name: e.name}
+	}
+	return e.dataCh, nil
 }
 
 // GitChannel is not supported for local workspaces.

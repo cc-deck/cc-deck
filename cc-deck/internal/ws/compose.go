@@ -41,6 +41,10 @@ type ComposeWorkspace struct {
 	Repos           []RepoEntry
 	ExtraRemotes    map[string]string
 	AutoDetectedURL string
+
+	pipeCh PipeChannel
+	dataCh DataChannel
+	gitCh  GitChannel
 }
 
 // Type returns WorkspaceTypeCompose.
@@ -549,27 +553,33 @@ func (e *ComposeWorkspace) ExecOutput(ctx context.Context, cmd []string) (string
 
 // PipeChannel returns the pipe channel for this workspace.
 func (e *ComposeWorkspace) PipeChannel(_ context.Context) (PipeChannel, error) {
-	return &execPipeChannel{
-		name:   e.name,
-		execFn: e.Exec,
-	}, nil
+	if e.pipeCh == nil {
+		e.pipeCh = &execPipeChannel{name: e.name, execFn: e.Exec}
+	}
+	return e.pipeCh, nil
 }
 
 // DataChannel returns the data channel for this workspace.
 func (e *ComposeWorkspace) DataChannel(_ context.Context) (DataChannel, error) {
-	return &podmanDataChannel{
-		name:          e.name,
-		containerName: func() string { return e.sessionContainerName() },
-	}, nil
+	if e.dataCh == nil {
+		e.dataCh = &podmanDataChannel{
+			name:          e.name,
+			containerName: func() string { return e.sessionContainerName() },
+		}
+	}
+	return e.dataCh, nil
 }
 
 // GitChannel returns the git channel for this workspace.
 func (e *ComposeWorkspace) GitChannel(_ context.Context) (GitChannel, error) {
-	return &podmanGitChannel{
-		name:          e.name,
-		containerName: func() string { return e.sessionContainerName() },
-		workspacePath: "/workspace",
-	}, nil
+	if e.gitCh == nil {
+		e.gitCh = &podmanGitChannel{
+			name:          e.name,
+			containerName: func() string { return e.sessionContainerName() },
+			workspacePath: "/workspace",
+		}
+	}
+	return e.gitCh, nil
 }
 
 // Push copies local files into the session container via DataChannel.
