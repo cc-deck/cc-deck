@@ -15,7 +15,7 @@
 
 **Purpose**: No new project setup needed. Project structure exists. This phase validates the starting point.
 
-- [ ] T001 Verify `make test` and `make lint` pass on current branch before any changes
+- [X] T001 Verify `make test` and `make lint` pass on current branch before any changes
 
 ---
 
@@ -25,19 +25,19 @@
 
 **CRITICAL**: No user story work can begin until this phase is complete.
 
-- [ ] T002 [P] Create channel interfaces (PipeChannel, DataChannel, GitChannel) in `cc-deck/internal/ws/channel.go`
-- [ ] T003 [P] Create shared git remote lifecycle helper `withTemporaryRemote()` in `cc-deck/internal/ws/channel.go`
-- [ ] T004 [P] Add ChannelError struct with Error(), Unwrap(), constructor in `cc-deck/internal/ws/errors.go`
-- [ ] T005 [P] Add unit tests for ChannelError (Error, Unwrap, errors.Is, errors.As) in `cc-deck/internal/ws/errors_test.go`
-- [ ] T006 Add ExecOutput method to Workspace interface in `cc-deck/internal/ws/interface.go`
-- [ ] T007 [P] Implement ExecOutput for ContainerWorkspace (wrapping podman.ExecOutput) in `cc-deck/internal/ws/container.go`
-- [ ] T008 [P] Implement ExecOutput for ComposeWorkspace (wrapping podman.ExecOutput) in `cc-deck/internal/ws/compose.go`
-- [ ] T009 [P] Implement ExecOutput for SSHWorkspace (wrapping client.Run) in `cc-deck/internal/ws/ssh.go`
-- [ ] T010 [P] Implement ExecOutput for K8sDeployWorkspace (wrapping k8sExecOutput) in `cc-deck/internal/ws/k8s_deploy.go`
-- [ ] T011 [P] Implement ExecOutput for LocalWorkspace (return ErrNotSupported) in `cc-deck/internal/ws/local.go`
-- [ ] T012 Add PipeChannel, DataChannel, GitChannel accessor signatures to Workspace interface in `cc-deck/internal/ws/interface.go`
-- [ ] T013 [P] Add stub channel accessors (return ErrNotSupported) to all five workspace types in `cc-deck/internal/ws/container.go`, `compose.go`, `ssh.go`, `k8s_deploy.go`, `local.go`
-- [ ] T014 Verify `make test` and `make lint` pass with all foundation changes
+- [X] T002 [P] Create channel interfaces (PipeChannel, DataChannel, GitChannel) in `cc-deck/internal/ws/channel.go`
+- [X] T003 [P] Create shared git remote lifecycle helper `withTemporaryRemote()` in `cc-deck/internal/ws/channel.go`
+- [X] T004 [P] Add ChannelError struct with Error(), Unwrap(), constructor in `cc-deck/internal/ws/errors.go`
+- [X] T005 [P] Add unit tests for ChannelError (Error, Unwrap, errors.Is, errors.As) in `cc-deck/internal/ws/errors_test.go`
+- [X] T006 Add ExecOutput method to Workspace interface in `cc-deck/internal/ws/interface.go`
+- [X] T007 [P] Implement ExecOutput for ContainerWorkspace (wrapping podman.ExecOutput) in `cc-deck/internal/ws/container.go`
+- [X] T008 [P] Implement ExecOutput for ComposeWorkspace (wrapping podman.ExecOutput) in `cc-deck/internal/ws/compose.go`
+- [X] T009 [P] Implement ExecOutput for SSHWorkspace (wrapping client.Run) in `cc-deck/internal/ws/ssh.go`
+- [X] T010 [P] Implement ExecOutput for K8sDeployWorkspace (wrapping k8sExecOutput) in `cc-deck/internal/ws/k8s_deploy.go`
+- [X] T011 [P] Implement ExecOutput for LocalWorkspace (return ErrNotSupported) in `cc-deck/internal/ws/local.go`
+- [X] T012 Add PipeChannel, DataChannel, GitChannel accessor signatures to Workspace interface in `cc-deck/internal/ws/interface.go`
+- [X] T013 [P] Add stub channel accessors (return ErrNotSupported) to all five workspace types in `cc-deck/internal/ws/container.go`, `compose.go`, `ssh.go`, `k8s_deploy.go`, `local.go`
+- [X] T014 Verify `make test` and `make lint` pass with all foundation changes
 
 **Checkpoint**: Foundation ready. Channel interfaces defined, ChannelError works, ExecOutput available, all stubs compile. No behavior changes yet.
 

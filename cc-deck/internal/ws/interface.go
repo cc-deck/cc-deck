@@ -37,6 +37,9 @@ type Workspace interface {
 	// Exec runs a command inside the workspace.
 	Exec(ctx context.Context, cmd []string) error
 
+	// ExecOutput runs a command inside the workspace and returns stdout.
+	ExecOutput(ctx context.Context, cmd []string) (string, error)
+
 	// Push synchronizes local files into the workspace.
 	Push(ctx context.Context, opts SyncOpts) error
 
@@ -45,6 +48,15 @@ type Workspace interface {
 
 	// Harvest extracts work products (e.g., git commits) from the workspace.
 	Harvest(ctx context.Context, opts HarvestOpts) error
+
+	// PipeChannel returns the pipe channel for this workspace.
+	PipeChannel(ctx context.Context) (PipeChannel, error)
+
+	// DataChannel returns the data channel for this workspace.
+	DataChannel(ctx context.Context) (DataChannel, error)
+
+	// GitChannel returns the git channel for this workspace.
+	GitChannel(ctx context.Context) (GitChannel, error)
 }
 
 // CreateOpts holds options for creating a new workspace.
