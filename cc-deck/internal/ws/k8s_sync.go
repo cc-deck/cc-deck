@@ -37,7 +37,14 @@ func k8sPush(ctx context.Context, ns, podName string, kubeconfigArgs []string, o
 	}
 
 	if opts.UseGit {
-		return k8sGitPush(ctx, ns, podName, kubeconfigArgs)
+		ch := &k8sGitChannel{
+			name:           podName,
+			ns:             ns,
+			podName:        podName,
+			kubeconfigArgs: kubeconfigArgs,
+			workspacePath:  k8sWorkspacePath,
+		}
+		return ch.Push(ctx)
 	}
 
 	// Tar local files and pipe via kubectl exec.
@@ -114,131 +121,6 @@ func k8sPull(ctx context.Context, ns, podName string, kubeconfigArgs []string, o
 	}
 	if err := extractCmd.Wait(); err != nil {
 		return fmt.Errorf("tar extract: %w", err)
-	}
-
-	return nil
-}
-
-// k8sHarvest extracts git commits from the K8s Pod via ext::kubectl exec.
-func k8sHarvest(ctx context.Context, ns, podName string, kubeconfigArgs []string, opts HarvestOpts) error {
-	if opts.Branch == "" {
-		return fmt.Errorf("--branch is required for harvest")
-	}
-
-	// Build the ext:: remote URL for git.
-	kubeconfigStr := ""
-	contextStr := ""
-	for i := 0; i < len(kubeconfigArgs)-1; i += 2 {
-		switch kubeconfigArgs[i] {
-		case "--kubeconfig":
-			kubeconfigStr = kubeconfigArgs[i+1]
-		case "--context":
-			contextStr = kubeconfigArgs[i+1]
-		}
-	}
-
-	remoteHelper := fmt.Sprintf("ext::kubectl")
-	var extraArgs []string
-	if kubeconfigStr != "" {
-		extraArgs = append(extraArgs, "--kubeconfig", kubeconfigStr)
-	}
-	if contextStr != "" {
-		extraArgs = append(extraArgs, "--context", contextStr)
-	}
-	extraArgs = append(extraArgs, "exec", "-i", "-n", ns, podName, "--", "%S", k8sWorkspacePath)
-
-	remoteURL := remoteHelper
-	for _, arg := range extraArgs {
-		remoteURL += " " + arg
-	}
-
-	remoteName := "k8s-" + podName
-
-	// Add remote (remove first if exists).
-	_ = gitExec(ctx, "remote", "remove", remoteName)
-	if err := gitExec(ctx, "remote", "add", remoteName, remoteURL); err != nil {
-		return fmt.Errorf("adding git remote: %w", err)
-	}
-	defer func() { _ = gitExec(ctx, "remote", "remove", remoteName) }()
-
-	// Fetch from remote.
-	if err := gitExec(ctx, "fetch", remoteName); err != nil {
-		return fmt.Errorf("fetching from remote: %w", err)
-	}
-
-	// Create local branch.
-	if err := gitExec(ctx, "checkout", "-b", opts.Branch, remoteName+"/"+opts.Branch); err != nil {
-		// Try without the remote prefix (if the branch name doesn't exist on remote).
-		if err2 := gitExec(ctx, "checkout", "-b", opts.Branch, "FETCH_HEAD"); err2 != nil {
-			return fmt.Errorf("creating local branch: %w", err)
-		}
-	}
-
-	// Create PR if requested.
-	if opts.CreatePR {
-		if err := gitExec(ctx, "push", "-u", "origin", opts.Branch); err != nil {
-			return fmt.Errorf("pushing branch: %w", err)
-		}
-		prCmd := exec.CommandContext(ctx, "gh", "pr", "create", "--fill")
-		prCmd.Stdout = os.Stdout
-		prCmd.Stderr = os.Stderr
-		if err := prCmd.Run(); err != nil {
-			return fmt.Errorf("creating PR: %w", err)
-		}
-	}
-
-	return nil
-}
-
-// k8sGitPush pushes a local git repository into the K8s Pod via ext::kubectl exec.
-func k8sGitPush(ctx context.Context, ns, podName string, kubeconfigArgs []string) error {
-	kubeconfigStr := ""
-	contextStr := ""
-	for i := 0; i < len(kubeconfigArgs)-1; i += 2 {
-		switch kubeconfigArgs[i] {
-		case "--kubeconfig":
-			kubeconfigStr = kubeconfigArgs[i+1]
-		case "--context":
-			contextStr = kubeconfigArgs[i+1]
-		}
-	}
-
-	remoteHelper := "ext::kubectl"
-	var extraArgs []string
-	if kubeconfigStr != "" {
-		extraArgs = append(extraArgs, "--kubeconfig", kubeconfigStr)
-	}
-	if contextStr != "" {
-		extraArgs = append(extraArgs, "--context", contextStr)
-	}
-	extraArgs = append(extraArgs, "exec", "-i", "-n", ns, podName, "--", "%S", k8sWorkspacePath)
-
-	remoteURL := remoteHelper
-	for _, arg := range extraArgs {
-		remoteURL += " " + arg
-	}
-
-	remoteName := "k8s-" + podName
-
-	_ = gitExec(ctx, "remote", "remove", remoteName)
-	if err := gitExec(ctx, "remote", "add", remoteName, remoteURL); err != nil {
-		return fmt.Errorf("adding git remote: %w", err)
-	}
-	defer func() { _ = gitExec(ctx, "remote", "remove", remoteName) }()
-
-	// Get current branch.
-	branchCmd := exec.CommandContext(ctx, "git", "rev-parse", "--abbrev-ref", "HEAD")
-	branchOut, err := branchCmd.Output()
-	if err != nil {
-		return fmt.Errorf("detecting current branch: %w", err)
-	}
-	branch := string(branchOut)
-	if len(branch) > 0 && branch[len(branch)-1] == '\n' {
-		branch = branch[:len(branch)-1]
-	}
-
-	if err := gitExec(ctx, "push", remoteName, branch); err != nil {
-		return fmt.Errorf("pushing to remote: %w", err)
 	}
 
 	return nil

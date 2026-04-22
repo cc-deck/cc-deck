@@ -18,12 +18,6 @@ func TestK8sPull_RequiresRemotePath(t *testing.T) {
 	assert.Contains(t, err.Error(), "remote path is required")
 }
 
-func TestK8sHarvest_RequiresBranch(t *testing.T) {
-	err := k8sHarvest(t.Context(), "default", "pod-0", nil, HarvestOpts{})
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "--branch is required")
-}
-
 func TestValidateSyncPath(t *testing.T) {
 	tests := []struct {
 		name    string
