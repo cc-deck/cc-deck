@@ -70,10 +70,10 @@ func (s *FileStateStore) Load() (*StateFile, error) {
 
 // Save writes the state file atomically by writing to a temporary file
 // first, then renaming it into place. Parent directories are created as
-// needed with mode 0o755.
+// needed with mode 0o700. Files are written with mode 0o600.
 func (s *FileStateStore) Save(state *StateFile) error {
 	dir := filepath.Dir(s.path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("creating state directory: %w", err)
 	}
 
@@ -82,13 +82,25 @@ func (s *FileStateStore) Save(state *StateFile) error {
 		return fmt.Errorf("marshaling state: %w", err)
 	}
 
-	tmpPath := s.path + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0o644); err != nil {
-		return fmt.Errorf("writing temporary state file: %w", err)
+	tmpFile, err := os.CreateTemp(dir, filepath.Base(s.path)+".*.tmp")
+	if err != nil {
+		return fmt.Errorf("creating temporary state file: %w", err)
 	}
+	tmpPath := tmpFile.Name()
+
+	if _, writeErr := tmpFile.Write(data); writeErr != nil {
+		tmpFile.Close()
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("writing temporary state file: %w", writeErr)
+	}
+	if err := tmpFile.Chmod(0o600); err != nil {
+		tmpFile.Close()
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("setting file permissions: %w", err)
+	}
+	tmpFile.Close()
 
 	if err := os.Rename(tmpPath, s.path); err != nil {
-		// Clean up the temporary file on rename failure.
 		_ = os.Remove(tmpPath)
 		return fmt.Errorf("renaming state file: %w", err)
 	}

@@ -10,7 +10,7 @@ import (
 var requiredGitignoreEntries = []string{"run/"}
 
 // EnsureCCDeckGitignore idempotently creates or updates .cc-deck/.gitignore
-// with the required entries (status.yaml and run/).
+// with the required entries (run/).
 func EnsureCCDeckGitignore(projectRoot string) error {
 	dir := filepath.Join(projectRoot, ".cc-deck")
 	if err := os.MkdirAll(dir, 0o755); err != nil {

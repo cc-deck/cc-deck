@@ -15,36 +15,41 @@ const (
 	definitionFileName = "workspaces.yaml"
 )
 
+// WorkspaceSpec contains the shared configuration fields for workspace definitions
+// and templates. Both WorkspaceDefinition (via embedding) and WorkspaceTemplate
+// variants use this type, ensuring fields stay in sync.
+type WorkspaceSpec struct {
+	Image          string            `yaml:"image,omitempty"`
+	Auth           string            `yaml:"auth,omitempty"`
+	Storage        *StorageConfig    `yaml:"storage,omitempty"`
+	Ports          []string          `yaml:"ports,omitempty"`
+	Credentials    []string          `yaml:"credentials,omitempty"`
+	Mounts         []string          `yaml:"mounts,omitempty"`
+	AllowedDomains []string          `yaml:"allowed-domains,omitempty"`
+	ProjectDir     string            `yaml:"project-dir,omitempty"`
+	Env            map[string]string `yaml:"env,omitempty"`
+	Host           string            `yaml:"host,omitempty"`
+	Port           int               `yaml:"port,omitempty"`
+	IdentityFile   string            `yaml:"identity-file,omitempty"`
+	JumpHost       string            `yaml:"jump-host,omitempty"`
+	SSHConfig      string            `yaml:"ssh-config,omitempty"`
+	Workspace      string            `yaml:"workspace,omitempty"`
+	Repos          []RepoEntry       `yaml:"repos,omitempty"`
+	RemoteBG       string            `yaml:"remote-bg,omitempty"`
+	Namespace      string            `yaml:"namespace,omitempty"`
+	Kubeconfig     string            `yaml:"kubeconfig,omitempty"`
+	K8sContext     string            `yaml:"context,omitempty"`
+	StorageSize    string            `yaml:"storage-size,omitempty"`
+	StorageClass   string            `yaml:"storage-class,omitempty"`
+}
+
 // WorkspaceDefinition is the declarative, user-editable description of a workspace.
 type WorkspaceDefinition struct {
-	Name        string          `yaml:"name"`
-	Type        WorkspaceType `yaml:"type"`
-	Image       string          `yaml:"image,omitempty"`
-	Auth        string          `yaml:"auth,omitempty"` // Auth mode: auto (default), none, api, vertex, bedrock
-	Storage     *StorageConfig  `yaml:"storage,omitempty"`
-	Ports       []string        `yaml:"ports,omitempty"`
-	Credentials []string        `yaml:"credentials,omitempty"`
-	Mounts         []string          `yaml:"mounts,omitempty"`          // Bind mounts as "src:dst[:ro]" (container/compose only)
-	AllowedDomains []string          `yaml:"allowed-domains,omitempty"` // Domain groups for network filtering
-	ProjectDir     string            `yaml:"project-dir,omitempty"`     // Project directory (compose only)
-	Env            map[string]string `yaml:"env,omitempty"`             // Arbitrary environment variables
-	Host           string            `yaml:"host,omitempty"`            // SSH target (user@host)
-	Port           int               `yaml:"port,omitempty"`            // SSH port
-	IdentityFile   string            `yaml:"identity-file,omitempty"`   // Path to SSH private key
-	JumpHost       string            `yaml:"jump-host,omitempty"`       // Bastion/jump host
-	SSHConfig      string            `yaml:"ssh-config,omitempty"`      // Custom SSH config file
-	Workspace      string            `yaml:"workspace,omitempty"`       // Remote workspace directory
-	Repos          []RepoEntry       `yaml:"repos,omitempty"`           // Git repos to clone into workspace
-	RemoteBG       string            `yaml:"remote-bg,omitempty"`       // Terminal background color for remote sessions
-	ExtraRemotes   map[string]string `yaml:"-"`                         // Transient: additional remotes for auto-detected repo
-	AutoDetectedURL string           `yaml:"-"`                         // Transient: normalized URL of auto-detected repo
-
-	// k8s-deploy fields
-	Namespace    string `yaml:"namespace,omitempty"`     // K8s namespace
-	Kubeconfig   string `yaml:"kubeconfig,omitempty"`    // Path to kubeconfig
-	K8sContext   string `yaml:"context,omitempty"`       // Kubeconfig context name
-	StorageSize  string `yaml:"storage-size,omitempty"`  // PVC size (default: 10Gi)
-	StorageClass string `yaml:"storage-class,omitempty"` // K8s StorageClass name
+	Name            string            `yaml:"name"`
+	Type            WorkspaceType     `yaml:"type"`
+	WorkspaceSpec   `yaml:",inline"`
+	ExtraRemotes    map[string]string `yaml:"-"`
+	AutoDetectedURL string            `yaml:"-"`
 }
 
 // DefinitionFile is the top-level structure of the workspace definitions file.
@@ -108,10 +113,10 @@ func (s *DefinitionStore) Load() (*DefinitionFile, error) {
 
 // Save writes the definitions file atomically by writing to a temporary file
 // first, then renaming it into place. Parent directories are created as
-// needed with mode 0o755.
+// needed with mode 0o700. Files are written with mode 0o600.
 func (s *DefinitionStore) Save(defs *DefinitionFile) error {
 	dir := filepath.Dir(s.path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("creating definitions directory: %w", err)
 	}
 
@@ -120,10 +125,23 @@ func (s *DefinitionStore) Save(defs *DefinitionFile) error {
 		return fmt.Errorf("marshaling definitions: %w", err)
 	}
 
-	tmpPath := s.path + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0o644); err != nil {
-		return fmt.Errorf("writing temporary definitions file: %w", err)
+	tmpFile, err := os.CreateTemp(dir, filepath.Base(s.path)+".*.tmp")
+	if err != nil {
+		return fmt.Errorf("creating temporary definitions file: %w", err)
 	}
+	tmpPath := tmpFile.Name()
+
+	if _, writeErr := tmpFile.Write(data); writeErr != nil {
+		tmpFile.Close()
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("writing temporary definitions file: %w", writeErr)
+	}
+	if err := tmpFile.Chmod(0o600); err != nil {
+		tmpFile.Close()
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("setting file permissions: %w", err)
+	}
+	tmpFile.Close()
 
 	if err := os.Rename(tmpPath, s.path); err != nil {
 		_ = os.Remove(tmpPath)
@@ -254,28 +272,37 @@ func (s *DefinitionStore) AddWithCollisionHandling(def *WorkspaceDefinition) (st
 		return "", err
 	}
 
+	finalName := def.Name
 	for _, d := range defs.Workspaces {
-		if d.Name == def.Name {
+		if d.Name == finalName {
 			if d.Type == def.Type {
-				return "", fmt.Errorf("workspace %q already exists (type: %s); delete it first", def.Name, d.Type)
+				return "", fmt.Errorf("workspace %q already exists (type: %s); delete it first", finalName, d.Type)
 			}
-			def.Name = def.Name + "-" + string(def.Type)
+			finalName = finalName + "-" + string(def.Type)
 			break
 		}
 	}
 
-	// Check for collision again after renaming.
-	for _, d := range defs.Workspaces {
-		if d.Name == def.Name {
-			return "", fmt.Errorf("workspace %q: %w", def.Name, ErrNameConflict)
+	if finalName != def.Name {
+		if err := ValidateWsName(finalName); err != nil {
+			return "", fmt.Errorf("auto-suffixed name %q is invalid: %w", finalName, err)
 		}
 	}
 
-	defs.Workspaces = append(defs.Workspaces, *def)
+	for _, d := range defs.Workspaces {
+		if d.Name == finalName {
+			return "", fmt.Errorf("workspace %q: %w", finalName, ErrNameConflict)
+		}
+	}
+
+	saved := *def
+	saved.Name = finalName
+	defs.Workspaces = append(defs.Workspaces, saved)
 	if err := s.Save(defs); err != nil {
 		return "", err
 	}
-	return def.Name, nil
+	def.Name = finalName
+	return finalName, nil
 }
 
 // List returns all workspace definitions, optionally filtered by type.

@@ -310,14 +310,16 @@ func (e *ComposeWorkspace) Create(ctx context.Context, opts CreateOpts) error {
 	// Write workspace definition.
 	if e.defs != nil {
 		wsDef := &WorkspaceDefinition{
-			Name:           e.name,
-			Type:           WorkspaceTypeCompose,
-			Image:          image,
-			Ports:          ports,
-			Credentials:    credentialKeys,
-			Mounts:         e.Mounts,
-			AllowedDomains: allowedDomains,
-			ProjectDir:     projDir,
+			Name: e.name,
+			Type: WorkspaceTypeCompose,
+			WorkspaceSpec: WorkspaceSpec{
+				Image:          image,
+				Ports:          ports,
+				Credentials:    credentialKeys,
+				Mounts:         e.Mounts,
+				AllowedDomains: allowedDomains,
+				ProjectDir:     projDir,
+			},
 		}
 		if storageType != "" {
 			wsDef.Storage = &StorageConfig{
