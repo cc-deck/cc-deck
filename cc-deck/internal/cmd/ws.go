@@ -976,6 +976,16 @@ func buildProjectMap(allDefs []*ws.WorkspaceDefinition) map[string]string {
 	return projectMap
 }
 
+func buildProjectPathMap(allDefs []*ws.WorkspaceDefinition) map[string]string {
+	pathMap := make(map[string]string)
+	for _, d := range allDefs {
+		if d.ProjectDir != "" {
+			pathMap[d.Name] = d.ProjectDir
+		}
+	}
+	return pathMap
+}
+
 func writeWsStructured(format string, instances []*ws.WorkspaceInstance, allDefs []*ws.WorkspaceDefinition, instanceNames map[string]bool, filterType string, projectMap map[string]string) error {
 	var entries []wsListEntry
 
@@ -1046,14 +1056,15 @@ func writeWsStructured(format string, instances []*ws.WorkspaceInstance, allDefs
 func writeWsTableWithProjects(instances []*ws.WorkspaceInstance, allDefs []*ws.WorkspaceDefinition, instanceNames map[string]bool, filterType string, projectMap map[string]string, verbose bool) error {
 	tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 
-	header := "NAME\tTYPE\tSTATUS\tPROJECT\tSTORAGE\tLAST ATTACHED\tAGE"
-	fmt.Fprintln(tw, header)
-
-	hasEntries := false
-	printRow := func(name string, wsType, state, proj, storage, lastAttached, age string) {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", name, wsType, state, proj, storage, lastAttached, age)
-		hasEntries = true
+	var pathMap map[string]string
+	if verbose {
+		pathMap = buildProjectPathMap(allDefs)
 	}
+
+	type row struct {
+		name, wsType, state, proj, storage, lastAttached, age, path string
+	}
+	var rows []row
 
 	for _, inst := range instances {
 		instType := inst.Type
@@ -1077,11 +1088,14 @@ func writeWsTableWithProjects(instances []*ws.WorkspaceInstance, allDefs []*ws.W
 		if proj == "" {
 			proj = "-"
 		}
-		printRow(inst.Name, string(instType), string(inst.State), proj, storage,
-			formatRelativeTime(inst.LastAttached), formatDuration(time.Since(inst.CreatedAt)))
+		r := row{inst.Name, string(instType), string(inst.State), proj, storage,
+			formatRelativeTime(inst.LastAttached), formatDuration(time.Since(inst.CreatedAt)), ""}
+		if verbose && pathMap[inst.Name] != "" {
+			r.path = pathMap[inst.Name]
+		}
+		rows = append(rows, r)
 	}
 
-	// Definitions without instances as "not created".
 	for _, d := range allDefs {
 		if instanceNames[d.Name] {
 			continue
@@ -1100,13 +1114,30 @@ func writeWsTableWithProjects(instances []*ws.WorkspaceInstance, allDefs []*ws.W
 		if proj == "" {
 			proj = "-"
 		}
-		printRow(d.Name, string(d.Type), "not created", proj, storage, "never", "-")
+		r := row{d.Name, string(d.Type), "not created", proj, storage, "never", "-", ""}
+		if verbose && pathMap[d.Name] != "" {
+			r.path = pathMap[d.Name]
+		}
+		rows = append(rows, r)
 	}
 
-	if !hasEntries {
-		_ = tw.Flush()
+	if len(rows) == 0 {
 		fmt.Println("No workspaces found. Use 'cc-deck ws new' to get started.")
 		return nil
+	}
+
+	if verbose {
+		fmt.Fprintln(tw, "NAME\tTYPE\tSTATUS\tPROJECT\tSTORAGE\tLAST ATTACHED\tAGE\tPROJECT PATH")
+		for _, r := range rows {
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				r.name, r.wsType, r.state, r.proj, r.storage, r.lastAttached, r.age, r.path)
+		}
+	} else {
+		fmt.Fprintln(tw, "NAME\tTYPE\tSTATUS\tPROJECT\tSTORAGE\tLAST ATTACHED\tAGE")
+		for _, r := range rows {
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				r.name, r.wsType, r.state, r.proj, r.storage, r.lastAttached, r.age)
+		}
 	}
 
 	return tw.Flush()
