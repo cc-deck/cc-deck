@@ -287,7 +287,27 @@ The `source` field is relative to the setup directory. The `target` field is rel
 
 ## Step 5/10: Shell Configuration
 
-**Step 4a: Ask which shell to use**
+**Step 5a: Extract git config**
+
+Silently extract the git identity from the local machine:
+
+```bash
+git config --global user.name
+git config --global user.email
+```
+
+If both values are present, add them to the manifest's `settings.git_config` section:
+
+```yaml
+settings:
+  git_config:
+    user.name: "Roland Huß"
+    user.email: "roland@example.com"
+```
+
+Show a brief confirmation in the step output (e.g., `Git identity: Roland Huß <roland@example.com>`). If neither is set, skip silently.
+
+**Step 5b: Ask which shell to use**
 
 Use `AskUserQuestion`:
 
@@ -308,7 +328,7 @@ Use `AskUserQuestion`:
 
 **STOP. Wait for user response.**
 
-**Step 4b: Analyze and present curated config**
+**Step 5c: Analyze and present curated config**
 
 Based on the chosen shell, read the corresponding config file (`~/.zshrc` or `~/.bashrc`).
 
