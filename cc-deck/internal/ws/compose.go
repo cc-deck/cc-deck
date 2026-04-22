@@ -542,6 +542,26 @@ func (e *ComposeWorkspace) Exec(ctx context.Context, cmd []string) error {
 	return podman.Exec(ctx, e.sessionContainerName(), cmd, false)
 }
 
+// ExecOutput runs a command inside the session container and returns stdout.
+func (e *ComposeWorkspace) ExecOutput(ctx context.Context, cmd []string) (string, error) {
+	return podman.ExecOutput(ctx, e.sessionContainerName(), strings.Join(cmd, " "))
+}
+
+// PipeChannel returns the pipe channel for this workspace.
+func (e *ComposeWorkspace) PipeChannel(_ context.Context) (PipeChannel, error) {
+	return nil, fmt.Errorf("compose workspaces pipe channel: %w", ErrNotSupported)
+}
+
+// DataChannel returns the data channel for this workspace.
+func (e *ComposeWorkspace) DataChannel(_ context.Context) (DataChannel, error) {
+	return nil, fmt.Errorf("compose workspaces data channel: %w", ErrNotSupported)
+}
+
+// GitChannel returns the git channel for this workspace.
+func (e *ComposeWorkspace) GitChannel(_ context.Context) (GitChannel, error) {
+	return nil, fmt.Errorf("compose workspaces git channel: %w", ErrNotSupported)
+}
+
 // Push copies local files into the session container.
 func (e *ComposeWorkspace) Push(ctx context.Context, opts SyncOpts) error {
 	inst, err := e.store.FindInstanceByName(e.name)

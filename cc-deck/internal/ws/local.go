@@ -203,6 +203,26 @@ func (e *LocalWorkspace) Exec(_ context.Context, _ []string) error {
 	return fmt.Errorf("local workspaces: %w", ErrNotSupported)
 }
 
+// ExecOutput is not supported for local workspaces.
+func (e *LocalWorkspace) ExecOutput(_ context.Context, _ []string) (string, error) {
+	return "", fmt.Errorf("local workspaces: %w", ErrNotSupported)
+}
+
+// PipeChannel returns the pipe channel for this workspace.
+func (e *LocalWorkspace) PipeChannel(_ context.Context) (PipeChannel, error) {
+	return nil, fmt.Errorf("local workspaces pipe channel: %w", ErrNotSupported)
+}
+
+// DataChannel returns the data channel for this workspace.
+func (e *LocalWorkspace) DataChannel(_ context.Context) (DataChannel, error) {
+	return nil, fmt.Errorf("local workspaces data channel: %w", ErrNotSupported)
+}
+
+// GitChannel is not supported for local workspaces.
+func (e *LocalWorkspace) GitChannel(_ context.Context) (GitChannel, error) {
+	return nil, fmt.Errorf("local workspaces git channel: %w", ErrNotSupported)
+}
+
 // Push is not supported for local workspaces.
 func (e *LocalWorkspace) Push(_ context.Context, _ SyncOpts) error {
 	return fmt.Errorf("local workspaces: %w", ErrNotSupported)

@@ -368,6 +368,38 @@ func (e *SSHWorkspace) Exec(ctx context.Context, cmd []string) error {
 	return nil
 }
 
+// ExecOutput runs a command on the remote and returns stdout.
+func (e *SSHWorkspace) ExecOutput(ctx context.Context, cmd []string) (string, error) {
+	def, err := e.loadDefinition()
+	if err != nil {
+		return "", err
+	}
+
+	client := e.newSSHClient(def)
+	workspace, wsErr := resolveWorkspaceRemote(ctx, client, workspacePath(def))
+	if wsErr != nil {
+		return "", wsErr
+	}
+
+	remoteCmd := fmt.Sprintf("cd %q && %s", workspace, strings.Join(cmd, " "))
+	return client.Run(ctx, remoteCmd)
+}
+
+// PipeChannel returns the pipe channel for this workspace.
+func (e *SSHWorkspace) PipeChannel(_ context.Context) (PipeChannel, error) {
+	return nil, fmt.Errorf("SSH workspaces pipe channel: %w", ErrNotSupported)
+}
+
+// DataChannel returns the data channel for this workspace.
+func (e *SSHWorkspace) DataChannel(_ context.Context) (DataChannel, error) {
+	return nil, fmt.Errorf("SSH workspaces data channel: %w", ErrNotSupported)
+}
+
+// GitChannel returns the git channel for this workspace.
+func (e *SSHWorkspace) GitChannel(_ context.Context) (GitChannel, error) {
+	return nil, fmt.Errorf("SSH workspaces git channel: %w", ErrNotSupported)
+}
+
 // Push synchronizes local files to the remote workspace.
 func (e *SSHWorkspace) Push(ctx context.Context, opts SyncOpts) error {
 	def, err := e.loadDefinition()
