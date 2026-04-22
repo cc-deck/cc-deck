@@ -34,9 +34,9 @@ func NewClient(host string, port int, identityFile, jumpHost, sshConfig string) 
 	}
 }
 
-// buildArgs constructs the SSH command-line arguments from client configuration.
+// BuildArgs constructs the SSH command-line arguments from client configuration.
 // Extra arguments are appended after the standard options.
-func (c *Client) buildArgs(extraArgs ...string) []string {
+func (c *Client) BuildArgs(extraArgs ...string) []string {
 	var args []string
 
 	if c.SSHConfig != "" {
@@ -74,7 +74,7 @@ func (c *Client) Run(ctx context.Context, cmd string) (string, error) {
 		return "", fmt.Errorf("ssh binary not found: %w", err)
 	}
 
-	args := c.buildArgs(c.Host, "--", cmd)
+	args := c.BuildArgs(c.Host, "--", cmd)
 	command := exec.CommandContext(ctx, sshBin, args...)
 
 	var stdout, stderr bytes.Buffer

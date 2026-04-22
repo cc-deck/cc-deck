@@ -125,10 +125,3 @@ func k8sPull(ctx context.Context, ns, podName string, kubeconfigArgs []string, o
 
 	return nil
 }
-
-func gitExec(ctx context.Context, args ...string) error {
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
-}
