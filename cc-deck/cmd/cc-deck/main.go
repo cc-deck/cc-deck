@@ -117,9 +117,10 @@ func main() {
 	if err := rootCmd.Execute(); err != nil {
 		var chErr *ws.ChannelError
 		if errors.As(err, &chErr) {
-			fmt.Fprintf(os.Stderr, "Error: %s\n", chErr.Summary)
-			if chErr.Err != nil {
-				fmt.Fprintf(os.Stderr, "  Cause: %v\n", chErr.Err)
+			verbose, _ := rootCmd.PersistentFlags().GetBool("verbose")
+			if verbose && chErr.Err != nil {
+				fmt.Fprintf(os.Stderr, "Channel: %s, Op: %s, Workspace: %s\n", chErr.Channel, chErr.Op, chErr.Workspace)
+				fmt.Fprintf(os.Stderr, "Cause: %v\n", chErr.Err)
 			}
 		}
 		os.Exit(1)
