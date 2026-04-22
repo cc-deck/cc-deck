@@ -281,14 +281,16 @@ func TestWsStubCommandsReturnError(t *testing.T) {
 	_, _, err := run(t, gf, "ws", "new", "stubtest", "--type", "local")
 	require.NoError(t, err)
 
-	// These commands should fail because local workspaces don't support them.
+	// These commands should fail for local workspaces. Push/pull now work
+	// via DataChannel but still require paths. Harvest goes through
+	// GitChannel which returns ErrNotSupported for local workspaces.
 	stubs := []struct {
 		args    []string
 		errText string
 	}{
 		{[]string{"ws", "exec", "stubtest", "--", "echo"}, "not supported"},
-		{[]string{"ws", "push", "stubtest"}, "not supported"},
-		{[]string{"ws", "pull", "stubtest"}, "not supported"},
+		{[]string{"ws", "push", "stubtest"}, "local path is required"},
+		{[]string{"ws", "pull", "stubtest"}, "remote path is required"},
 		{[]string{"ws", "harvest", "stubtest"}, "not supported"},
 		{[]string{"ws", "logs", "stubtest"}, "not yet implemented"},
 	}

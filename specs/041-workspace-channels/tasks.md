@@ -129,14 +129,14 @@
 
 **Purpose**: CLI error display, harvest CLI flags, documentation updates.
 
-- [ ] T058 Add ChannelError-aware error formatting in `cc-deck/cmd/cc-deck/main.go` (verbose shows full chain, default shows summary)
-- [ ] T059 Expose --branch and --create-pr flags on ws harvest CLI command in `cc-deck/internal/cmd/ws.go`
-- [ ] T060 Update ws push/ws pull CLI help text to mention local workspace support in `cc-deck/internal/cmd/ws.go`
-- [ ] T061 Update README.md: add spec 041 to Feature Specifications table, document channel architecture
-- [ ] T062 [P] Update CLI reference in `docs/modules/reference/pages/cli.adoc`: add harvest flags, note local push/pull support
-- [ ] T063 [P] Update architecture documentation with channel abstraction description
-- [ ] T064 Run `make test` and `make lint` final verification
-- [ ] T065 Run quickstart.md validation (verify consumer code patterns work)
+- [X] T058 Add ChannelError-aware error formatting in `cc-deck/cmd/cc-deck/main.go` (verbose shows full chain, default shows summary)
+- [X] T059 Expose --branch and --create-pr flags on ws harvest CLI command in `cc-deck/internal/cmd/ws.go`
+- [X] T060 Update ws push/ws pull CLI help text to mention local workspace support in `cc-deck/internal/cmd/ws.go`
+- [X] T061 Update README.md: add spec 041 to Feature Specifications table, document channel architecture
+- [X] T062 [P] Update CLI reference in `docs/modules/reference/pages/cli.adoc`: add harvest flags, note local push/pull support
+- [X] T063 [P] Update architecture documentation with channel abstraction description
+- [X] T064 Run `make test` and `make lint` final verification
+- [X] T065 Run quickstart.md validation (verify consumer code patterns work)
 
 ---
 
