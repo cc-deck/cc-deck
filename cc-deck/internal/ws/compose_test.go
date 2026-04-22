@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -140,11 +141,11 @@ func TestComposeCreate_ProxyFiles(t *testing.T) {
 
 // --- T018: Lifecycle state transition tests ---
 
-func TestComposeWorkspace_HarvestError(t *testing.T) {
+func TestComposeWorkspace_GitChannelReturnsChannel(t *testing.T) {
 	e := &ComposeWorkspace{name: "test"}
-	err := e.Harvest(nil, HarvestOpts{})
-	assert.Error(t, err)
-	assert.ErrorIs(t, err, ErrNotSupported)
+	ch, err := e.GitChannel(context.Background())
+	assert.NoError(t, err)
+	assert.NotNil(t, ch)
 }
 
 func TestComposeWorkspace_CleanupOnFailure(t *testing.T) {
