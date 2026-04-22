@@ -78,6 +78,7 @@ type SyncOpts struct {
 type HarvestOpts struct {
 	Branch   string `yaml:"branch,omitempty"`
 	CreatePR bool   `yaml:"create_pr,omitempty"`
+	Path     string `yaml:"path,omitempty"`
 }
 
 // WorkspaceStatus represents the runtime status of a workspace.

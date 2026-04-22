@@ -1549,6 +1549,7 @@ centrally and do not accumulate stale entries.`,
 func newWsHarvestCmd(_ *GlobalFlags) *cobra.Command {
 	var branch string
 	var createPR bool
+	var repoPath string
 
 	cmd := &cobra.Command{
 		Use:   "harvest <name>",
@@ -1557,20 +1558,23 @@ func newWsHarvestCmd(_ *GlobalFlags) *cobra.Command {
 Works with SSH, K8s, container, and compose workspace types.
 
 The --branch flag creates a local branch from the fetched commits.
-The --create-pr flag pushes the branch and creates a GitHub PR.`,
+The --create-pr flag pushes the branch and creates a GitHub PR.
+The --path flag specifies a subdirectory within the workspace (useful
+when the workspace contains multiple repos).`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runWsHarvest(args[0], branch, createPR)
+			return runWsHarvest(args[0], branch, repoPath, createPR)
 		},
 	}
 
 	cmd.Flags().StringVar(&branch, "branch", "", "Create a local branch with this name from fetched commits")
 	cmd.Flags().BoolVar(&createPR, "create-pr", false, "Push branch and create a GitHub pull request")
+	cmd.Flags().StringVar(&repoPath, "path", "", "Subdirectory within workspace (e.g., repo name)")
 
 	return cmd
 }
 
-func runWsHarvest(name, branch string, createPR bool) error {
+func runWsHarvest(name, branch, repoPath string, createPR bool) error {
 	store := ws.NewStateStore("")
 	defs := ws.NewDefinitionStore("")
 
@@ -1582,6 +1586,7 @@ func runWsHarvest(name, branch string, createPR bool) error {
 	return e.Harvest(cmd_context(), ws.HarvestOpts{
 		Branch:   branch,
 		CreatePR: createPR,
+		Path:     repoPath,
 	})
 }
 
