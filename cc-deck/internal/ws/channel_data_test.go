@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/cc-deck/cc-deck/internal/ssh"
 )
 
 func TestLocalDataChannel_Push(t *testing.T) {
@@ -218,5 +220,62 @@ func TestK8sDataChannel_PushBytes_EmptyRemotePath(t *testing.T) {
 	err := ch.PushBytes(context.Background(), []byte("data"), "")
 	if err == nil {
 		t.Fatal("expected error for empty remote path")
+	}
+}
+
+func TestSshDataChannel_Push_EmptyLocalPath(t *testing.T) {
+	ch := &sshDataChannel{
+		name:     "test",
+		clientFn: func() *ssh.Client { return ssh.NewClient("host", 0, "", "", "") },
+		workspace: func(_ context.Context) (string, error) {
+			return "/workspace", nil
+		},
+	}
+	err := ch.Push(context.Background(), SyncOpts{})
+	if err == nil {
+		t.Fatal("expected error for empty local path")
+	}
+	var chErr *ChannelError
+	if !errors.As(err, &chErr) {
+		t.Fatalf("expected ChannelError, got %T", err)
+	}
+	if chErr.Op != "push" {
+		t.Errorf("Op = %q, want %q", chErr.Op, "push")
+	}
+}
+
+func TestSshDataChannel_Pull_EmptyRemotePath(t *testing.T) {
+	ch := &sshDataChannel{
+		name:     "test",
+		clientFn: func() *ssh.Client { return ssh.NewClient("host", 0, "", "", "") },
+		workspace: func(_ context.Context) (string, error) {
+			return "/workspace", nil
+		},
+	}
+	err := ch.Pull(context.Background(), SyncOpts{})
+	if err == nil {
+		t.Fatal("expected error for empty remote path")
+	}
+	var chErr *ChannelError
+	if !errors.As(err, &chErr) {
+		t.Fatalf("expected ChannelError, got %T", err)
+	}
+	if chErr.Op != "pull" {
+		t.Errorf("Op = %q, want %q", chErr.Op, "pull")
+	}
+}
+
+func TestSshDataChannel_PushBytes_EmptyRemotePath(t *testing.T) {
+	ch := &sshDataChannel{
+		name:     "test",
+		clientFn: func() *ssh.Client { return ssh.NewClient("host", 0, "", "", "") },
+	}
+	err := ch.PushBytes(context.Background(), []byte("data"), "")
+	if err == nil {
+		t.Fatal("expected error for empty remote path")
+	}
+	var chErr *ChannelError
+	if !errors.As(err, &chErr) {
+		t.Fatalf("expected ChannelError, got %T", err)
 	}
 }
