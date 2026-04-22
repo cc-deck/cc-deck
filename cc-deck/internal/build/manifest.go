@@ -115,16 +115,17 @@ func (m *Manifest) GithubReleaseTools() []ToolEntry {
 
 // SettingsConfig describes user configuration to apply to the target.
 type SettingsConfig struct {
-	Shell          string       `yaml:"shell,omitempty"`
-	ShellRC        string       `yaml:"shell_rc,omitempty"`
-	ZellijConfig   string       `yaml:"zellij_config,omitempty"`
-	ClaudeMD       string       `yaml:"claude_md,omitempty"`
-	ClaudeSettings string       `yaml:"claude_settings,omitempty"`
-	Hooks          string       `yaml:"hooks,omitempty"`
-	MCPSettings    string       `yaml:"mcp_settings,omitempty"`
-	CCSetupMCP     string       `yaml:"cc_setup_mcp,omitempty"`
-	RemoteBG       string       `yaml:"remote_bg,omitempty"`
-	ToolConfigs    []ToolConfig `yaml:"tool_configs,omitempty"`
+	Shell          string            `yaml:"shell,omitempty"`
+	ShellRC        string            `yaml:"shell_rc,omitempty"`
+	ZellijConfig   string            `yaml:"zellij_config,omitempty"`
+	ClaudeMD       string            `yaml:"claude_md,omitempty"`
+	ClaudeSettings string            `yaml:"claude_settings,omitempty"`
+	Hooks          string            `yaml:"hooks,omitempty"`
+	MCPSettings    string            `yaml:"mcp_settings,omitempty"`
+	CCSetupMCP     string            `yaml:"cc_setup_mcp,omitempty"`
+	RemoteBG       string            `yaml:"remote_bg,omitempty"`
+	GitConfig      map[string]string `yaml:"git_config,omitempty"`
+	ToolConfigs    []ToolConfig      `yaml:"tool_configs,omitempty"`
 }
 
 // ToolConfig describes a tool's configuration file to deploy to the target.

@@ -162,6 +162,7 @@ For each setting, copy the source file to `container/context/` during Step A4, t
 | `settings.hooks` | The specified path | Merge into `/home/dev/.claude/settings.json` | Merge with cc-deck hooks, do not overwrite |
 | `settings.mcp_settings` | The specified path | Merge into `/home/dev/.claude/settings.json` | npx-based MCP server configs |
 | `settings.cc_setup_mcp` | The specified path | `/home/dev/.config/cc-setup/mcp.json` | cc-setup MCP server cache |
+| `settings.git_config` | Map of git config keys/values | `git config --global` in RUN layer | Sets git identity (user.name, user.email) |
 | `settings.tool_configs[]` | Each entry's `source` path | `/home/dev/.config/<target>` | One COPY per tool config entry |
 
 **Tool config destination**: Each `tool_configs` entry has a `target` field that specifies the path relative to `~/.config/` (e.g., `starship.toml`, `helix/config.toml`). The container destination is `/home/dev/.config/<target>`. If an entry lacks a `target` field, fall back to `/home/dev/.config/<tool>/<source-filename>`.
@@ -173,6 +174,12 @@ Use `/cc-deck.capture` to interactively select what to include before building.
 **Containerfile COPY examples** (add these to the "User configuration" layer):
 
 ```dockerfile
+# Git identity (if settings.git_config is set)
+USER dev
+RUN git config --global user.name "Roland Huß" && \
+    git config --global user.email "roland@example.com"
+USER root
+
 # Shell config (if settings.shell_rc is set, append to base image rc file)
 COPY --chown=dev:dev <shell_rc_file> /home/dev/.<shell>rc.custom
 RUN cat /home/dev/.<shell>rc.custom >> /home/dev/.<shell>rc && rm /home/dev/.<shell>rc.custom
@@ -391,6 +398,8 @@ tools:
   <manifest tools list (unified format with name, install, repo, asset_pattern, install_path fields)>
 plugins:
   <manifest plugins list>
+git_config:
+  <map from settings.git_config, e.g. user.name: "Roland Huß", user.email: "roland@example.com">
 tool_configs:
   <list from settings.tool_configs, each with tool, source, and dest_path resolved from the XDG mapping>
 ```
@@ -491,6 +500,17 @@ Generate task content for each role from the manifest data. Each role is idempot
   ```
 
 **shell_config role** (`roles/shell_config/tasks/main.yml`):
+- If `git_config` is defined in `group_vars/all.yml`, set each key via `git config --global` as the target user:
+  ```yaml
+  - name: Set git config
+    ansible.builtin.command:
+      cmd: "git config --global {{ item.key }} '{{ item.value }}'"
+    become_user: "{{ target_user }}"
+    loop: "{{ git_config | dict2items }}"
+    loop_control:
+      label: "{{ item.key }}"
+    when: git_config is defined
+  ```
 - Ensure `~/.local/bin` is on PATH by adding `export PATH="$HOME/.local/bin:$PATH"` to the shell RC file (required for `claude` which installs there)
 - Ensure `TERM` is set: add `export TERM="${TERM:-xterm-256color}"` to the shell RC file (SSH sessions through Zellij may not propagate TERM)
 - Deploy curated shell RC as `~/.zshrc.custom` (if `settings.shell_rc` is set), then add `[ -f ~/.zshrc.custom ] && source ~/.zshrc.custom` to `~/.zshrc` via `lineinfile` (idempotent, does not inline the content)

@@ -331,6 +331,27 @@ func TestManifest_ImageRef(t *testing.T) {
 	}
 }
 
+func TestLoadManifest_WithGitConfig(t *testing.T) {
+	content := `
+version: 3
+settings:
+  git_config:
+    user.name: "Roland Huß"
+    user.email: "roland@example.com"
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "build.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(content), 0644))
+
+	m, err := LoadManifest(path)
+	require.NoError(t, err)
+
+	require.NotNil(t, m.Settings)
+	require.NotNil(t, m.Settings.GitConfig)
+	assert.Equal(t, "Roland Huß", m.Settings.GitConfig["user.name"])
+	assert.Equal(t, "roland@example.com", m.Settings.GitConfig["user.email"])
+}
+
 func TestManifest_BaseImage(t *testing.T) {
 	tests := []struct {
 		name string
