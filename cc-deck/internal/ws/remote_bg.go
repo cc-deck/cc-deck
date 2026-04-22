@@ -15,18 +15,11 @@ func SetRemoteBG(color string) {
 // ResetBGEscape returns the OSC 111 escape sequence to reset the terminal background.
 const ResetBGEscape = "\033]111\a"
 
-// LoadRemoteBG reads remote-bg from the project-local workspace definition
-// or the global definition store.
+// LoadRemoteBG reads remote-bg from the central definition store.
 func LoadRemoteBG(name string, defs *DefinitionStore) string {
-	cwd, cwdErr := os.Getwd()
-	if cwdErr == nil {
-		if projDef, projErr := LoadProjectDefinition(cwd); projErr == nil && projDef.RemoteBG != "" {
-			return projDef.RemoteBG
-		}
-	}
 	if defs != nil {
-		if globalDef, globalErr := defs.FindByName(name); globalErr == nil {
-			return globalDef.RemoteBG
+		if def, err := defs.FindByName(name); err == nil {
+			return def.RemoteBG
 		}
 	}
 	return ""

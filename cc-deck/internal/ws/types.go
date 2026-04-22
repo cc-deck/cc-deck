@@ -119,27 +119,8 @@ type WorkspaceInstance struct {
 	SSH          *SSHFields        `yaml:"ssh,omitempty"`
 }
 
-// ProjectEntry is a global registry entry for a project directory
-// stored in state.yaml under the projects section.
-type ProjectEntry struct {
-	Path     string    `yaml:"path"`
-	LastSeen time.Time `yaml:"last_seen"`
-}
-
-// ProjectStatusFile holds per-project runtime state stored at
-// .cc-deck/status.yaml (gitignored).
-type ProjectStatusFile struct {
-	Variant       string            `yaml:"variant,omitempty"`
-	State         WorkspaceState  `yaml:"state"`
-	ContainerName string            `yaml:"container_name"`
-	CreatedAt     time.Time         `yaml:"created_at"`
-	LastAttached  *time.Time        `yaml:"last_attached,omitempty"`
-	Overrides     map[string]string `yaml:"overrides,omitempty"`
-}
-
 // StateFile is the top-level structure of the workspace state file.
 type StateFile struct {
-	Version   int                   `yaml:"version"`
+	Version   int                 `yaml:"version"`
 	Instances []WorkspaceInstance `yaml:"instances,omitempty"`
-	Projects  []ProjectEntry       `yaml:"projects,omitempty"`
 }

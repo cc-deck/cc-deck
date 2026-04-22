@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-var requiredGitignoreEntries = []string{"status.yaml", "run/"}
+var requiredGitignoreEntries = []string{"run/"}
 
 // EnsureCCDeckGitignore idempotently creates or updates .cc-deck/.gitignore
 // with the required entries (status.yaml and run/).

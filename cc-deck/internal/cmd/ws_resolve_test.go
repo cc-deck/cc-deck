@@ -2,9 +2,9 @@ package cmd
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -12,47 +12,103 @@ import (
 	"github.com/cc-deck/cc-deck/internal/ws"
 )
 
-func TestResolveWorkspaceName_FromSubdirectory(t *testing.T) {
+func TestResolveWorkspaceName_SingleWorkspace(t *testing.T) {
 	tmpDir := t.TempDir()
-	require.NoError(t, exec.Command("git", "init", tmpDir).Run())
-
-	// Create project-local definition.
-	def := &ws.WorkspaceDefinition{Name: "deep-project", Type: ws.WorkspaceTypeLocal}
-	require.NoError(t, ws.SaveProjectDefinition(tmpDir, def))
-
-	// Create a deep subdirectory.
-	subDir := filepath.Join(tmpDir, "src", "pkg", "internal")
-	require.NoError(t, os.MkdirAll(subDir, 0o755))
-
-	origDir, _ := os.Getwd()
-	require.NoError(t, os.Chdir(subDir))
-	defer os.Chdir(origDir)
 
 	stateFile := filepath.Join(tmpDir, "test-state.yaml")
+	defFile := filepath.Join(tmpDir, "test-defs.yaml")
 	t.Setenv("CC_DECK_STATE_FILE", stateFile)
+	t.Setenv("CC_DECK_WORKSPACES_FILE", defFile)
+
+	defs := ws.NewDefinitionStore(defFile)
+	require.NoError(t, defs.Add(&ws.WorkspaceDefinition{
+		Name: "only-ws",
+		Type: ws.WorkspaceTypeLocal,
+	}))
 
 	store := ws.NewStateStore(stateFile)
 	name, _, err := resolveWorkspaceName(nil, store)
 	require.NoError(t, err)
-	assert.Equal(t, "deep-project", name)
-
-	// Verify project was auto-registered.
-	projects, err := store.ListProjects()
-	require.NoError(t, err)
-	assert.Len(t, projects, 1)
+	assert.Equal(t, "only-ws", name)
 }
 
-func TestResolveWorkspaceName_FailsWithoutConfig(t *testing.T) {
+func TestResolveWorkspaceName_ProjectDirMatch(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	origDir, _ := os.Getwd()
 	require.NoError(t, os.Chdir(tmpDir))
 	defer os.Chdir(origDir)
 
-	store := ws.NewStateStore(filepath.Join(tmpDir, "state.yaml"))
+	stateFile := filepath.Join(tmpDir, "test-state.yaml")
+	defFile := filepath.Join(tmpDir, "test-defs.yaml")
+	t.Setenv("CC_DECK_STATE_FILE", stateFile)
+	t.Setenv("CC_DECK_WORKSPACES_FILE", defFile)
+
+	resolved, _ := filepath.EvalSymlinks(tmpDir)
+	defs := ws.NewDefinitionStore(defFile)
+	require.NoError(t, defs.Add(&ws.WorkspaceDefinition{
+		Name:       "project-ws",
+		Type:       ws.WorkspaceTypeLocal,
+		ProjectDir: resolved,
+	}))
+	require.NoError(t, defs.Add(&ws.WorkspaceDefinition{
+		Name: "other-ws",
+		Type: ws.WorkspaceTypeLocal,
+	}))
+
+	store := ws.NewStateStore(stateFile)
+	name, _, err := resolveWorkspaceName(nil, store)
+	require.NoError(t, err)
+	assert.Equal(t, "project-ws", name)
+}
+
+func TestResolveWorkspaceName_RecencySelection(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	stateFile := filepath.Join(tmpDir, "test-state.yaml")
+	defFile := filepath.Join(tmpDir, "test-defs.yaml")
+	t.Setenv("CC_DECK_STATE_FILE", stateFile)
+	t.Setenv("CC_DECK_WORKSPACES_FILE", defFile)
+
+	defs := ws.NewDefinitionStore(defFile)
+	require.NoError(t, defs.Add(&ws.WorkspaceDefinition{Name: "ws-old", Type: ws.WorkspaceTypeLocal}))
+	require.NoError(t, defs.Add(&ws.WorkspaceDefinition{Name: "ws-new", Type: ws.WorkspaceTypeLocal}))
+
+	store := ws.NewStateStore(stateFile)
+	oldTime := time.Now().Add(-time.Hour)
+	newTime := time.Now()
+	require.NoError(t, store.AddInstance(&ws.WorkspaceInstance{
+		Name:         "ws-old",
+		Type:         ws.WorkspaceTypeLocal,
+		State:        ws.WorkspaceStateRunning,
+		CreatedAt:    oldTime,
+		LastAttached: &oldTime,
+	}))
+	require.NoError(t, store.AddInstance(&ws.WorkspaceInstance{
+		Name:         "ws-new",
+		Type:         ws.WorkspaceTypeLocal,
+		State:        ws.WorkspaceStateRunning,
+		CreatedAt:    newTime,
+		LastAttached: &newTime,
+	}))
+
+	name, _, err := resolveWorkspaceName(nil, store)
+	require.NoError(t, err)
+	assert.Equal(t, "ws-new", name)
+}
+
+func TestResolveWorkspaceName_FailsWithNoWorkspaces(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	stateFile := filepath.Join(tmpDir, "test-state.yaml")
+	defFile := filepath.Join(tmpDir, "test-defs.yaml")
+	t.Setenv("CC_DECK_STATE_FILE", stateFile)
+	t.Setenv("CC_DECK_WORKSPACES_FILE", defFile)
+
+	store := ws.NewStateStore(stateFile)
 	_, _, err := resolveWorkspaceName(nil, store)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no workspace name specified")
+	assert.Contains(t, err.Error(), "no workspaces found")
 }
 
 func TestResolveWorkspaceName_ExplicitNameTakesPrecedence(t *testing.T) {
