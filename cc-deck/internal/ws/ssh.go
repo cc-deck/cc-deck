@@ -387,114 +387,73 @@ func (e *SSHWorkspace) ExecOutput(ctx context.Context, cmd []string) (string, er
 
 // PipeChannel returns the pipe channel for this workspace.
 func (e *SSHWorkspace) PipeChannel(_ context.Context) (PipeChannel, error) {
-	return nil, fmt.Errorf("SSH workspaces pipe channel: %w", ErrNotSupported)
+	return &execPipeChannel{
+		name:   e.name,
+		execFn: e.Exec,
+	}, nil
 }
 
 // DataChannel returns the data channel for this workspace.
 func (e *SSHWorkspace) DataChannel(_ context.Context) (DataChannel, error) {
-	return nil, fmt.Errorf("SSH workspaces data channel: %w", ErrNotSupported)
+	def, err := e.loadDefinition()
+	if err != nil {
+		return nil, err
+	}
+	client := e.newSSHClient(def)
+	return &sshDataChannel{
+		name:     e.name,
+		clientFn: func() *ssh.Client { return client },
+		workspace: func(ctx context.Context) (string, error) {
+			return resolveWorkspaceRemote(ctx, client, workspacePath(def))
+		},
+	}, nil
 }
 
 // GitChannel returns the git channel for this workspace.
 func (e *SSHWorkspace) GitChannel(_ context.Context) (GitChannel, error) {
-	return nil, fmt.Errorf("SSH workspaces git channel: %w", ErrNotSupported)
-}
-
-// Push synchronizes local files to the remote workspace.
-func (e *SSHWorkspace) Push(ctx context.Context, opts SyncOpts) error {
-	def, err := e.loadDefinition()
-	if err != nil {
-		return err
-	}
-
-	if opts.LocalPath == "" {
-		return fmt.Errorf("local path is required for push")
-	}
-
-	client := e.newSSHClient(def)
-	remotePath := opts.RemotePath
-	if remotePath == "" {
-		resolved, wsErr := resolveWorkspaceRemote(ctx, client, workspacePath(def))
-		if wsErr != nil {
-			return wsErr
-		}
-		remotePath = resolved
-	}
-
-	return client.Rsync(ctx, opts.LocalPath, def.Host+":"+remotePath, opts.Excludes, true)
-}
-
-// Pull synchronizes files from the remote workspace to local storage.
-func (e *SSHWorkspace) Pull(ctx context.Context, opts SyncOpts) error {
-	def, err := e.loadDefinition()
-	if err != nil {
-		return err
-	}
-
-	if opts.RemotePath == "" {
-		return fmt.Errorf("remote path is required for pull")
-	}
-
-	client := e.newSSHClient(def)
-	localPath := opts.LocalPath
-	if localPath == "" {
-		localPath = "."
-	}
-
-	return client.Rsync(ctx, def.Host+":"+opts.RemotePath, localPath, opts.Excludes, false)
-}
-
-// Harvest retrieves git commits from the remote repository.
-func (e *SSHWorkspace) Harvest(ctx context.Context, opts HarvestOpts) error {
 	inst, err := e.store.FindInstanceByName(e.name)
 	if err != nil {
-		return err
+		return nil, err
 	}
-
 	if inst.SSH == nil {
-		return fmt.Errorf("SSH fields missing for workspace %q", e.name)
+		return nil, fmt.Errorf("SSH fields missing for workspace %q", e.name)
 	}
-
 	workspace := inst.SSH.Workspace
 	if workspace == "" {
 		workspace = defaultSSHWorkspace
 	}
+	return &sshGitChannel{
+		name:      e.name,
+		host:      inst.SSH.Host,
+		workspace: workspace,
+	}, nil
+}
 
-	remoteName := "cc-deck-" + e.name
-	remoteURL := fmt.Sprintf("ssh://%s%s", inst.SSH.Host, workspace)
-
-	// Add temporary remote.
-	addCmd := exec.CommandContext(ctx, "git", "remote", "add", remoteName, remoteURL)
-	if out, err := addCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("adding temporary remote: %s: %w", strings.TrimSpace(string(out)), err)
+// Push synchronizes local files to the remote workspace via DataChannel.
+func (e *SSHWorkspace) Push(ctx context.Context, opts SyncOpts) error {
+	ch, err := e.DataChannel(ctx)
+	if err != nil {
+		return err
 	}
+	return ch.Push(ctx, opts)
+}
 
-	// Fetch from remote.
-	fetchCmd := exec.CommandContext(ctx, "git", "fetch", remoteName)
-	if out, err := fetchCmd.CombinedOutput(); err != nil {
-		_ = exec.CommandContext(ctx, "git", "remote", "remove", remoteName).Run()
-		return fmt.Errorf("fetching from remote: %s: %w", strings.TrimSpace(string(out)), err)
+// Pull synchronizes files from the remote workspace to local storage via DataChannel.
+func (e *SSHWorkspace) Pull(ctx context.Context, opts SyncOpts) error {
+	ch, err := e.DataChannel(ctx)
+	if err != nil {
+		return err
 	}
+	return ch.Pull(ctx, opts)
+}
 
-	// Remove temporary remote.
-	_ = exec.CommandContext(ctx, "git", "remote", "remove", remoteName).Run()
-
-	fmt.Fprintf(os.Stdout, "Harvested commits from %s\n", e.name)
-
-	if opts.CreatePR {
-		branch := opts.Branch
-		if branch == "" {
-			branch = fmt.Sprintf("%s/main", remoteName)
-		}
-		prCmd := exec.CommandContext(ctx, "gh", "pr", "create", "--head", branch, "--fill")
-		prCmd.Stdout = os.Stdout
-		prCmd.Stderr = os.Stderr
-		if err := prCmd.Run(); err != nil {
-			return fmt.Errorf("creating PR: %w", err)
-		}
+// Harvest retrieves git commits from the remote repository via GitChannel.
+func (e *SSHWorkspace) Harvest(ctx context.Context, opts HarvestOpts) error {
+	ch, err := e.GitChannel(ctx)
+	if err != nil {
+		return err
 	}
-
-	return nil
+	return ch.Fetch(ctx, opts)
 }
 
 // loadDefinition loads the workspace definition from the definition store.
