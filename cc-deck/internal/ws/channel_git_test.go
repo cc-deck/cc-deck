@@ -40,6 +40,13 @@ func TestBuildExtKubectlURL(t *testing.T) {
 	}
 }
 
+func TestBuildExtKubectlURL_OddLengthArgs(t *testing.T) {
+	got := buildExtKubectlURL("ns", "pod", "/workspace", []string{"--kubeconfig", "cfg", "--stray"})
+	if got != "ext::kubectl --kubeconfig cfg exec -i -n ns pod -- %S /workspace" {
+		t.Errorf("odd-length args: got %q", got)
+	}
+}
+
 func TestBuildExtPodmanURL(t *testing.T) {
 	got := buildExtPodmanURL("cc-deck-myws", "/workspace")
 	want := "ext::podman exec -i cc-deck-myws -- %S /workspace"

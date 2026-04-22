@@ -26,7 +26,7 @@ func TestNewClient(t *testing.T) {
 
 func TestBuildArgs_AllOptions(t *testing.T) {
 	c := NewClient("user@host", 2222, "/path/key", "bastion", "/path/config")
-	args := c.buildArgs("user@host", "--", "echo hello")
+	args := c.BuildArgs("user@host", "--", "echo hello")
 
 	expected := []string{
 		"-F", "/path/config",
@@ -50,7 +50,7 @@ func TestBuildArgs_AllOptions(t *testing.T) {
 
 func TestBuildArgs_MinimalOptions(t *testing.T) {
 	c := NewClient("user@host", 0, "", "", "")
-	args := c.buildArgs("user@host", "--", "ls")
+	args := c.BuildArgs("user@host", "--", "ls")
 
 	expected := []string{
 		"-o", "StrictHostKeyChecking=accept-new",
@@ -71,7 +71,7 @@ func TestBuildArgs_MinimalOptions(t *testing.T) {
 func TestBuildArgs_AgentForwarding(t *testing.T) {
 	c := NewClient("user@host", 0, "", "", "")
 	c.AgentForwarding = true
-	args := c.buildArgs("user@host", "--", "git clone")
+	args := c.BuildArgs("user@host", "--", "git clone")
 
 	foundA := false
 	for _, arg := range args {
@@ -87,7 +87,7 @@ func TestBuildArgs_AgentForwarding(t *testing.T) {
 
 func TestBuildArgs_NoAgentForwarding(t *testing.T) {
 	c := NewClient("user@host", 0, "", "", "")
-	args := c.buildArgs("user@host", "--", "git clone")
+	args := c.BuildArgs("user@host", "--", "git clone")
 
 	for _, arg := range args {
 		if arg == "-A" {

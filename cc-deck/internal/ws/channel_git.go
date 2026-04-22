@@ -25,7 +25,7 @@ func gitFetch(ctx context.Context, name, remoteURL string, opts HarvestOpts) err
 			}
 		}
 
-		fmt.Fprintf(os.Stdout, "Harvested commits from %s\n", name)
+		fmt.Fprintf(os.Stderr, "Harvested commits from %s\n", name)
 
 		if opts.CreatePR {
 			return createPR(ctx, opts.Branch, remoteName)
