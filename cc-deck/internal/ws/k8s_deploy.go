@@ -52,6 +52,10 @@ type K8sDeployWorkspace struct {
 	Repos           []RepoEntry
 	ExtraRemotes    map[string]string
 	AutoDetectedURL string
+
+	pipeCh PipeChannel
+	dataCh DataChannel
+	gitCh  GitChannel
 }
 
 const (
@@ -513,39 +517,45 @@ func (e *K8sDeployWorkspace) ExecOutput(ctx context.Context, cmd []string) (stri
 
 // PipeChannel returns the pipe channel for this workspace.
 func (e *K8sDeployWorkspace) PipeChannel(_ context.Context) (PipeChannel, error) {
-	return &execPipeChannel{
-		name:   e.name,
-		execFn: e.Exec,
-	}, nil
+	if e.pipeCh == nil {
+		e.pipeCh = &execPipeChannel{name: e.name, execFn: e.Exec}
+	}
+	return e.pipeCh, nil
 }
 
 // DataChannel returns the data channel for this workspace.
 func (e *K8sDeployWorkspace) DataChannel(_ context.Context) (DataChannel, error) {
-	inst, err := e.store.FindInstanceByName(e.name)
-	if err != nil {
-		return nil, err
+	if e.dataCh == nil {
+		inst, err := e.store.FindInstanceByName(e.name)
+		if err != nil {
+			return nil, err
+		}
+		e.dataCh = &k8sDataChannel{
+			name:           e.name,
+			ns:             e.resolveNamespace(inst),
+			podName:        k8sPodName(e.name),
+			kubeconfigArgs: e.kubeconfigArgs(inst),
+		}
 	}
-	return &k8sDataChannel{
-		name:           e.name,
-		ns:             e.resolveNamespace(inst),
-		podName:        k8sPodName(e.name),
-		kubeconfigArgs: e.kubeconfigArgs(inst),
-	}, nil
+	return e.dataCh, nil
 }
 
 // GitChannel returns the git channel for this workspace.
 func (e *K8sDeployWorkspace) GitChannel(_ context.Context) (GitChannel, error) {
-	inst, err := e.store.FindInstanceByName(e.name)
-	if err != nil {
-		return nil, err
+	if e.gitCh == nil {
+		inst, err := e.store.FindInstanceByName(e.name)
+		if err != nil {
+			return nil, err
+		}
+		e.gitCh = &k8sGitChannel{
+			name:           e.name,
+			ns:             e.resolveNamespace(inst),
+			podName:        k8sPodName(e.name),
+			kubeconfigArgs: e.kubeconfigArgs(inst),
+			workspacePath:  k8sWorkspacePath,
+		}
 	}
-	return &k8sGitChannel{
-		name:           e.name,
-		ns:             e.resolveNamespace(inst),
-		podName:        k8sPodName(e.name),
-		kubeconfigArgs: e.kubeconfigArgs(inst),
-		workspacePath:  k8sWorkspacePath,
-	}, nil
+	return e.gitCh, nil
 }
 
 // Push synchronizes local files into the K8s Pod via DataChannel.

@@ -26,6 +26,10 @@ type SSHWorkspace struct {
 	Repos           []RepoEntry
 	ExtraRemotes    map[string]string
 	AutoDetectedURL string
+
+	pipeCh PipeChannel
+	dataCh DataChannel
+	gitCh  GitChannel
 }
 
 // Type returns WorkspaceTypeSSH.
@@ -387,46 +391,52 @@ func (e *SSHWorkspace) ExecOutput(ctx context.Context, cmd []string) (string, er
 
 // PipeChannel returns the pipe channel for this workspace.
 func (e *SSHWorkspace) PipeChannel(_ context.Context) (PipeChannel, error) {
-	return &execPipeChannel{
-		name:   e.name,
-		execFn: e.Exec,
-	}, nil
+	if e.pipeCh == nil {
+		e.pipeCh = &execPipeChannel{name: e.name, execFn: e.Exec}
+	}
+	return e.pipeCh, nil
 }
 
 // DataChannel returns the data channel for this workspace.
 func (e *SSHWorkspace) DataChannel(_ context.Context) (DataChannel, error) {
-	def, err := e.loadDefinition()
-	if err != nil {
-		return nil, err
+	if e.dataCh == nil {
+		def, err := e.loadDefinition()
+		if err != nil {
+			return nil, err
+		}
+		client := e.newSSHClient(def)
+		e.dataCh = &sshDataChannel{
+			name:     e.name,
+			clientFn: func() *ssh.Client { return client },
+			workspace: func(ctx context.Context) (string, error) {
+				return resolveWorkspaceRemote(ctx, client, workspacePath(def))
+			},
+		}
 	}
-	client := e.newSSHClient(def)
-	return &sshDataChannel{
-		name:     e.name,
-		clientFn: func() *ssh.Client { return client },
-		workspace: func(ctx context.Context) (string, error) {
-			return resolveWorkspaceRemote(ctx, client, workspacePath(def))
-		},
-	}, nil
+	return e.dataCh, nil
 }
 
 // GitChannel returns the git channel for this workspace.
 func (e *SSHWorkspace) GitChannel(_ context.Context) (GitChannel, error) {
-	inst, err := e.store.FindInstanceByName(e.name)
-	if err != nil {
-		return nil, err
+	if e.gitCh == nil {
+		inst, err := e.store.FindInstanceByName(e.name)
+		if err != nil {
+			return nil, err
+		}
+		if inst.SSH == nil {
+			return nil, fmt.Errorf("SSH fields missing for workspace %q", e.name)
+		}
+		workspace := inst.SSH.Workspace
+		if workspace == "" {
+			workspace = defaultSSHWorkspace
+		}
+		e.gitCh = &sshGitChannel{
+			name:      e.name,
+			host:      inst.SSH.Host,
+			workspace: workspace,
+		}
 	}
-	if inst.SSH == nil {
-		return nil, fmt.Errorf("SSH fields missing for workspace %q", e.name)
-	}
-	workspace := inst.SSH.Workspace
-	if workspace == "" {
-		workspace = defaultSSHWorkspace
-	}
-	return &sshGitChannel{
-		name:      e.name,
-		host:      inst.SSH.Host,
-		workspace: workspace,
-	}, nil
+	return e.gitCh, nil
 }
 
 // Push synchronizes local files to the remote workspace via DataChannel.
