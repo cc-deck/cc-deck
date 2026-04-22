@@ -778,7 +778,8 @@ cc-deck ws exec mydev -- npm install
 
 ==== ws push
 
-Copy local files into a container workspace.
+Copy local files into a workspace.
+Works with all workspace types: local (filesystem copy), container (podman cp), SSH (rsync), and Kubernetes (tar-over-exec).
 
 [source,bash]
 ----
@@ -788,7 +789,8 @@ cc-deck ws push mydev ./config.yaml
 
 ==== ws pull
 
-Copy files from a container workspace to the local machine.
+Copy files from a workspace to the local machine.
+Works with all workspace types: local (filesystem copy), container (podman cp), SSH (rsync), and Kubernetes (tar-over-exec).
 
 [source,bash]
 ----
@@ -798,13 +800,26 @@ cc-deck ws pull mydev /workspace/results
 
 ==== ws harvest
 
-Extract work products from a workspace.
-Not supported for container workspaces (use push/pull instead).
+Fetch git commits from a remote workspace into the local repository.
+Works with SSH, Kubernetes, container, and compose workspace types.
 
 [source,bash]
 ----
 cc-deck ws harvest mydev
+cc-deck ws harvest mydev --branch feature-x
+cc-deck ws harvest mydev --branch feature-x --create-pr
 ----
+
+[cols="1,3"]
+|===
+| Flag | Description
+
+| `--branch`
+| Create a local branch with this name from fetched commits
+
+| `--create-pr`
+| Push branch and create a GitHub pull request
+|===
 
 === hook
 
