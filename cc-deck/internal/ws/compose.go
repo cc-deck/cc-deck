@@ -549,20 +549,30 @@ func (e *ComposeWorkspace) ExecOutput(ctx context.Context, cmd []string) (string
 
 // PipeChannel returns the pipe channel for this workspace.
 func (e *ComposeWorkspace) PipeChannel(_ context.Context) (PipeChannel, error) {
-	return nil, fmt.Errorf("compose workspaces pipe channel: %w", ErrNotSupported)
+	return &execPipeChannel{
+		name:   e.name,
+		execFn: e.Exec,
+	}, nil
 }
 
 // DataChannel returns the data channel for this workspace.
 func (e *ComposeWorkspace) DataChannel(_ context.Context) (DataChannel, error) {
-	return nil, fmt.Errorf("compose workspaces data channel: %w", ErrNotSupported)
+	return &podmanDataChannel{
+		name:          e.name,
+		containerName: func() string { return e.sessionContainerName() },
+	}, nil
 }
 
 // GitChannel returns the git channel for this workspace.
 func (e *ComposeWorkspace) GitChannel(_ context.Context) (GitChannel, error) {
-	return nil, fmt.Errorf("compose workspaces git channel: %w", ErrNotSupported)
+	return &podmanGitChannel{
+		name:          e.name,
+		containerName: func() string { return e.sessionContainerName() },
+		workspacePath: "/workspace",
+	}, nil
 }
 
-// Push copies local files into the session container.
+// Push copies local files into the session container via DataChannel.
 func (e *ComposeWorkspace) Push(ctx context.Context, opts SyncOpts) error {
 	inst, err := e.store.FindInstanceByName(e.name)
 	if err != nil {
@@ -572,20 +582,14 @@ func (e *ComposeWorkspace) Push(ctx context.Context, opts SyncOpts) error {
 		return fmt.Errorf("compose workspace is not running (state: %s)", inst.State)
 	}
 
-	localPath := opts.LocalPath
-	if localPath == "" {
-		return fmt.Errorf("local path is required for push")
+	ch, chErr := e.DataChannel(ctx)
+	if chErr != nil {
+		return chErr
 	}
-
-	remotePath := opts.RemotePath
-	if remotePath == "" {
-		remotePath = "/workspace/" + baseNameFromPath(localPath)
-	}
-
-	return podman.Cp(ctx, localPath, e.sessionContainerName()+":"+remotePath)
+	return ch.Push(ctx, opts)
 }
 
-// Pull copies files from the session container to local storage.
+// Pull copies files from the session container to local storage via DataChannel.
 func (e *ComposeWorkspace) Pull(ctx context.Context, opts SyncOpts) error {
 	inst, err := e.store.FindInstanceByName(e.name)
 	if err != nil {
@@ -595,22 +599,20 @@ func (e *ComposeWorkspace) Pull(ctx context.Context, opts SyncOpts) error {
 		return fmt.Errorf("compose workspace is not running (state: %s)", inst.State)
 	}
 
-	remotePath := opts.RemotePath
-	if remotePath == "" {
-		return fmt.Errorf("remote path is required for pull")
+	ch, chErr := e.DataChannel(ctx)
+	if chErr != nil {
+		return chErr
 	}
-
-	localPath := opts.LocalPath
-	if localPath == "" {
-		localPath = "."
-	}
-
-	return podman.Cp(ctx, e.sessionContainerName()+":"+remotePath, localPath)
+	return ch.Pull(ctx, opts)
 }
 
-// Harvest is not supported for compose workspaces.
-func (e *ComposeWorkspace) Harvest(_ context.Context, _ HarvestOpts) error {
-	return fmt.Errorf("compose workspaces do not support harvest; use push/pull for file transfer: %w", ErrNotSupported)
+// Harvest extracts git commits from the compose workspace via GitChannel.
+func (e *ComposeWorkspace) Harvest(ctx context.Context, opts HarvestOpts) error {
+	ch, err := e.GitChannel(ctx)
+	if err != nil {
+		return err
+	}
+	return ch.Fetch(ctx, opts)
 }
 
 // ReconcileComposeWorkspaces updates the state of all compose workspace

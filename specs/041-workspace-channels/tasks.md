@@ -51,15 +51,15 @@
 
 ### Implementation for User Story 1
 
-- [ ] T015 [P] [US1] Implement localPipeChannel (direct zellij pipe subprocess, matching hook.go pattern) in `cc-deck/internal/ws/channel_pipe.go`
-- [ ] T016 [P] [US1] Implement execPipeChannel (shared for all remote workspace types, using Exec to run zellij pipe) in `cc-deck/internal/ws/channel_pipe.go`
-- [ ] T017 [US1] Wire PipeChannel() accessor in LocalWorkspace to return localPipeChannel in `cc-deck/internal/ws/local.go`
-- [ ] T018 [P] [US1] Wire PipeChannel() accessor in ContainerWorkspace to return execPipeChannel in `cc-deck/internal/ws/container.go`
-- [ ] T019 [P] [US1] Wire PipeChannel() accessor in ComposeWorkspace to return execPipeChannel in `cc-deck/internal/ws/compose.go`
-- [ ] T020 [P] [US1] Wire PipeChannel() accessor in SSHWorkspace to return execPipeChannel in `cc-deck/internal/ws/ssh.go`
-- [ ] T021 [P] [US1] Wire PipeChannel() accessor in K8sDeployWorkspace to return execPipeChannel in `cc-deck/internal/ws/k8s_deploy.go`
-- [ ] T022 [US1] Add unit tests for localPipeChannel and execPipeChannel in `cc-deck/internal/ws/channel_pipe_test.go`
-- [ ] T023 [US1] Verify `make test` and `make lint` pass
+- [X] T015 [P] [US1] Implement localPipeChannel (direct zellij pipe subprocess, matching hook.go pattern) in `cc-deck/internal/ws/channel_pipe.go`
+- [X] T016 [P] [US1] Implement execPipeChannel (shared for all remote workspace types, using Exec to run zellij pipe) in `cc-deck/internal/ws/channel_pipe.go`
+- [X] T017 [US1] Wire PipeChannel() accessor in LocalWorkspace to return localPipeChannel in `cc-deck/internal/ws/local.go`
+- [X] T018 [P] [US1] Wire PipeChannel() accessor in ContainerWorkspace to return execPipeChannel in `cc-deck/internal/ws/container.go`
+- [X] T019 [P] [US1] Wire PipeChannel() accessor in ComposeWorkspace to return execPipeChannel in `cc-deck/internal/ws/compose.go`
+- [X] T020 [P] [US1] Wire PipeChannel() accessor in SSHWorkspace to return execPipeChannel in `cc-deck/internal/ws/ssh.go`
+- [X] T021 [P] [US1] Wire PipeChannel() accessor in K8sDeployWorkspace to return execPipeChannel in `cc-deck/internal/ws/k8s_deploy.go`
+- [X] T022 [US1] Add unit tests for localPipeChannel and execPipeChannel in `cc-deck/internal/ws/channel_pipe_test.go`
+- [X] T023 [US1] Verify `make test` and `make lint` pass
 
 **Checkpoint**: PipeChannel works for all workspace types. Text commands can be sent to remote zellij pipes.
 
@@ -73,23 +73,23 @@
 
 ### Implementation for User Story 2
 
-- [ ] T024 [P] [US2] Implement localDataChannel (filesystem copy, os.CopyFile/io.Copy) in `cc-deck/internal/ws/channel_data.go`
-- [ ] T025 [P] [US2] Implement podmanDataChannel (wrapping podman.Cp, parameterized by container name) in `cc-deck/internal/ws/channel_data.go`
-- [ ] T026 [P] [US2] Implement k8sDataChannel (wrapping tar-over-exec from k8s_sync.go, parameterized by ns/pod/kubeconfig) in `cc-deck/internal/ws/channel_data.go`
-- [ ] T027 [P] [US2] Implement sshDataChannel (wrapping client.Rsync, parameterized by SSH client/host) in `cc-deck/internal/ws/channel_data.go`
-- [ ] T028 [US2] Implement PushBytes method for all DataChannel implementations in `cc-deck/internal/ws/channel_data.go`
-- [ ] T029 [US2] Wire DataChannel() accessor in LocalWorkspace (returns localDataChannel) in `cc-deck/internal/ws/local.go`
-- [ ] T030 [P] [US2] Wire DataChannel() accessor in ContainerWorkspace (returns podmanDataChannel) in `cc-deck/internal/ws/container.go`
-- [ ] T031 [P] [US2] Wire DataChannel() accessor in ComposeWorkspace (returns podmanDataChannel) in `cc-deck/internal/ws/compose.go`
-- [ ] T032 [P] [US2] Wire DataChannel() accessor in SSHWorkspace (returns sshDataChannel) in `cc-deck/internal/ws/ssh.go`
-- [ ] T033 [P] [US2] Wire DataChannel() accessor in K8sDeployWorkspace (returns k8sDataChannel) in `cc-deck/internal/ws/k8s_deploy.go`
-- [ ] T034 [US2] Refactor ContainerWorkspace.Push() and Pull() to delegate to DataChannel in `cc-deck/internal/ws/container.go`
-- [ ] T035 [US2] Refactor ComposeWorkspace.Push() and Pull() to delegate to DataChannel in `cc-deck/internal/ws/compose.go`
-- [ ] T036 [US2] Refactor SSHWorkspace.Push() and Pull() to delegate to DataChannel in `cc-deck/internal/ws/ssh.go`
-- [ ] T037 [US2] Refactor K8sDeployWorkspace.Push() and Pull() to delegate to DataChannel in `cc-deck/internal/ws/k8s_deploy.go`
-- [ ] T038 [US2] Replace LocalWorkspace.Push() and Pull() stubs with DataChannel delegation (new functionality) in `cc-deck/internal/ws/local.go`
-- [ ] T039 [US2] Add unit tests for all DataChannel implementations in `cc-deck/internal/ws/channel_data_test.go`
-- [ ] T040 [US2] Verify `make test` and `make lint` pass. Verify existing ws push/ws pull behavior unchanged for remote types.
+- [X] T024 [P] [US2] Implement localDataChannel (filesystem copy, os.CopyFile/io.Copy) in `cc-deck/internal/ws/channel_data.go`
+- [X] T025 [P] [US2] Implement podmanDataChannel (wrapping podman.Cp, parameterized by container name) in `cc-deck/internal/ws/channel_data.go`
+- [X] T026 [P] [US2] Implement k8sDataChannel (wrapping tar-over-exec from k8s_sync.go, parameterized by ns/pod/kubeconfig) in `cc-deck/internal/ws/channel_data.go`
+- [X] T027 [P] [US2] Implement sshDataChannel (wrapping client.Rsync, parameterized by SSH client/host) in `cc-deck/internal/ws/channel_data.go`
+- [X] T028 [US2] Implement PushBytes method for all DataChannel implementations in `cc-deck/internal/ws/channel_data.go`
+- [X] T029 [US2] Wire DataChannel() accessor in LocalWorkspace (returns localDataChannel) in `cc-deck/internal/ws/local.go`
+- [X] T030 [P] [US2] Wire DataChannel() accessor in ContainerWorkspace (returns podmanDataChannel) in `cc-deck/internal/ws/container.go`
+- [X] T031 [P] [US2] Wire DataChannel() accessor in ComposeWorkspace (returns podmanDataChannel) in `cc-deck/internal/ws/compose.go`
+- [X] T032 [P] [US2] Wire DataChannel() accessor in SSHWorkspace (returns sshDataChannel) in `cc-deck/internal/ws/ssh.go`
+- [X] T033 [P] [US2] Wire DataChannel() accessor in K8sDeployWorkspace (returns k8sDataChannel) in `cc-deck/internal/ws/k8s_deploy.go`
+- [X] T034 [US2] Refactor ContainerWorkspace.Push() and Pull() to delegate to DataChannel in `cc-deck/internal/ws/container.go`
+- [X] T035 [US2] Refactor ComposeWorkspace.Push() and Pull() to delegate to DataChannel in `cc-deck/internal/ws/compose.go`
+- [X] T036 [US2] Refactor SSHWorkspace.Push() and Pull() to delegate to DataChannel in `cc-deck/internal/ws/ssh.go`
+- [X] T037 [US2] Refactor K8sDeployWorkspace.Push() and Pull() to delegate to DataChannel in `cc-deck/internal/ws/k8s_deploy.go`
+- [X] T038 [US2] Replace LocalWorkspace.Push() and Pull() stubs with DataChannel delegation (new functionality) in `cc-deck/internal/ws/local.go`
+- [X] T039 [US2] Add unit tests for all DataChannel implementations in `cc-deck/internal/ws/channel_data_test.go`
+- [X] T040 [US2] Verify `make test` and `make lint` pass. Verify existing ws push/ws pull behavior unchanged for remote types.
 
 **Checkpoint**: DataChannel works for all workspace types. Existing ws push/pull commands produce identical behavior. Local workspaces gain new Push/Pull capability.
 
@@ -103,23 +103,23 @@
 
 ### Implementation for User Story 3
 
-- [ ] T041 [P] [US3] Extract gitExec helper from k8s_sync.go into `cc-deck/internal/ws/channel_git.go`
-- [ ] T042 [US3] Implement podmanGitChannel (ext::podman exec URL construction, new functionality) in `cc-deck/internal/ws/channel_git.go`
-- [ ] T043 [P] [US3] Implement k8sGitChannel (ext::kubectl exec URL, extracted from k8s_sync.go) in `cc-deck/internal/ws/channel_git.go`
-- [ ] T044 [P] [US3] Implement sshGitChannel (ssh:// URL, extracted from ssh.go Harvest) in `cc-deck/internal/ws/channel_git.go`
-- [ ] T045 [US3] Wire GitChannel() accessor in ContainerWorkspace (returns podmanGitChannel) in `cc-deck/internal/ws/container.go`
-- [ ] T046 [P] [US3] Wire GitChannel() accessor in ComposeWorkspace (returns podmanGitChannel) in `cc-deck/internal/ws/compose.go`
-- [ ] T047 [P] [US3] Wire GitChannel() accessor in SSHWorkspace (returns sshGitChannel) in `cc-deck/internal/ws/ssh.go`
-- [ ] T048 [P] [US3] Wire GitChannel() accessor in K8sDeployWorkspace (returns k8sGitChannel) in `cc-deck/internal/ws/k8s_deploy.go`
-- [ ] T049 [US3] Wire GitChannel() accessor in LocalWorkspace (return ErrNotSupported) in `cc-deck/internal/ws/local.go`
-- [ ] T050 [US3] Refactor SSHWorkspace.Harvest() to delegate to GitChannel in `cc-deck/internal/ws/ssh.go`
-- [ ] T051 [US3] Refactor K8sDeployWorkspace.Harvest() to delegate to GitChannel in `cc-deck/internal/ws/k8s_deploy.go`
-- [ ] T052 [US3] Replace ContainerWorkspace.Harvest() stub with GitChannel delegation (new) in `cc-deck/internal/ws/container.go`
-- [ ] T053 [US3] Replace ComposeWorkspace.Harvest() stub with GitChannel delegation (new) in `cc-deck/internal/ws/compose.go`
-- [ ] T054 [US3] Migrate k8sGitPush (UseGit=true path in k8sPush) to k8sGitChannel.Push in `cc-deck/internal/ws/channel_git.go` and `cc-deck/internal/ws/k8s_deploy.go`
-- [ ] T055 [US3] Clean up k8s_sync.go: remove migrated git code (k8sHarvest, k8sGitPush, gitExec), keep k8sPush/k8sPull if still used in `cc-deck/internal/ws/k8s_sync.go`
-- [ ] T056 [US3] Add unit tests for git remote lifecycle helper and GitChannel implementations in `cc-deck/internal/ws/channel_git_test.go`
-- [ ] T057 [US3] Verify `make test` and `make lint` pass. Verify existing ws harvest behavior unchanged for SSH and K8s.
+- [X] T041 [P] [US3] Extract gitExec helper from k8s_sync.go into `cc-deck/internal/ws/channel_git.go`
+- [X] T042 [US3] Implement podmanGitChannel (ext::podman exec URL construction, new functionality) in `cc-deck/internal/ws/channel_git.go`
+- [X] T043 [P] [US3] Implement k8sGitChannel (ext::kubectl exec URL, extracted from k8s_sync.go) in `cc-deck/internal/ws/channel_git.go`
+- [X] T044 [P] [US3] Implement sshGitChannel (ssh:// URL, extracted from ssh.go Harvest) in `cc-deck/internal/ws/channel_git.go`
+- [X] T045 [US3] Wire GitChannel() accessor in ContainerWorkspace (returns podmanGitChannel) in `cc-deck/internal/ws/container.go`
+- [X] T046 [P] [US3] Wire GitChannel() accessor in ComposeWorkspace (returns podmanGitChannel) in `cc-deck/internal/ws/compose.go`
+- [X] T047 [P] [US3] Wire GitChannel() accessor in SSHWorkspace (returns sshGitChannel) in `cc-deck/internal/ws/ssh.go`
+- [X] T048 [P] [US3] Wire GitChannel() accessor in K8sDeployWorkspace (returns k8sGitChannel) in `cc-deck/internal/ws/k8s_deploy.go`
+- [X] T049 [US3] Wire GitChannel() accessor in LocalWorkspace (return ErrNotSupported) in `cc-deck/internal/ws/local.go`
+- [X] T050 [US3] Refactor SSHWorkspace.Harvest() to delegate to GitChannel in `cc-deck/internal/ws/ssh.go`
+- [X] T051 [US3] Refactor K8sDeployWorkspace.Harvest() to delegate to GitChannel in `cc-deck/internal/ws/k8s_deploy.go`
+- [X] T052 [US3] Replace ContainerWorkspace.Harvest() stub with GitChannel delegation (new) in `cc-deck/internal/ws/container.go`
+- [X] T053 [US3] Replace ComposeWorkspace.Harvest() stub with GitChannel delegation (new) in `cc-deck/internal/ws/compose.go`
+- [X] T054 [US3] Migrate k8sGitPush (UseGit=true path in k8sPush) to k8sGitChannel.Push in `cc-deck/internal/ws/channel_git.go` and `cc-deck/internal/ws/k8s_deploy.go`
+- [X] T055 [US3] Clean up k8s_sync.go: remove migrated git code (k8sHarvest, k8sGitPush, gitExec), keep k8sPush/k8sPull if still used in `cc-deck/internal/ws/k8s_sync.go`
+- [X] T056 [US3] Add unit tests for git remote lifecycle helper and GitChannel implementations in `cc-deck/internal/ws/channel_git_test.go`
+- [X] T057 [US3] Verify `make test` and `make lint` pass. Verify existing ws harvest behavior unchanged for SSH and K8s.
 
 **Checkpoint**: GitChannel works for all applicable workspace types. Existing ws harvest produces identical behavior. Container/compose workspaces gain new Harvest capability.
 

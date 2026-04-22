@@ -114,13 +114,11 @@ func TestContainerWorkspace_CreateRequiresPodman(t *testing.T) {
 	}
 }
 
-func TestContainerWorkspace_HarvestReturnsNotSupported(t *testing.T) {
-	store := newTestStore(t)
-	env := &ContainerWorkspace{name: "test", store: store}
-
-	err := env.Harvest(context.Background(), HarvestOpts{})
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, ErrNotSupported))
+func TestContainerWorkspace_GitChannelReturnsChannel(t *testing.T) {
+	env := &ContainerWorkspace{name: "test"}
+	ch, err := env.GitChannel(context.Background())
+	assert.NoError(t, err)
+	assert.NotNil(t, ch)
 }
 
 func TestContainerWorkspace_DeleteBestEffort(t *testing.T) {
