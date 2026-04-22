@@ -34,11 +34,11 @@ type GitChannel interface {
 // withTemporaryRemote adds a named git remote, executes fn, then
 // removes the remote. Cleanup runs even if fn returns an error.
 func withTemporaryRemote(ctx context.Context, remoteName, remoteURL string, fn func() error) error {
-	_ = gitExec(ctx, "remote", "remove", remoteName)
+	_ = gitExecSilent(ctx, "remote", "remove", remoteName)
 	if err := gitExec(ctx, "remote", "add", remoteName, remoteURL); err != nil {
 		return fmt.Errorf("adding git remote %q: %w", remoteName, err)
 	}
-	defer func() { _ = gitExec(ctx, "remote", "remove", remoteName) }()
+	defer func() { _ = gitExecSilent(ctx, "remote", "remove", remoteName) }()
 
 	return fn()
 }
@@ -65,6 +65,10 @@ func gitExec(ctx context.Context, args ...string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+func gitExecSilent(ctx context.Context, args ...string) error {
+	return exec.CommandContext(ctx, "git", args...).Run()
 }
 
 // shellQuote wraps a string in single quotes with proper escaping for
