@@ -43,6 +43,10 @@ type ContainerWorkspace struct {
 	Repos           []RepoEntry
 	ExtraRemotes    map[string]string
 	AutoDetectedURL string
+
+	pipeCh PipeChannel
+	dataCh DataChannel
+	gitCh  GitChannel
 }
 
 func containerName(wsName string) string {
@@ -479,27 +483,33 @@ func (e *ContainerWorkspace) ExecOutput(ctx context.Context, cmd []string) (stri
 
 // PipeChannel returns the pipe channel for this workspace.
 func (e *ContainerWorkspace) PipeChannel(_ context.Context) (PipeChannel, error) {
-	return &execPipeChannel{
-		name:   e.name,
-		execFn: e.Exec,
-	}, nil
+	if e.pipeCh == nil {
+		e.pipeCh = &execPipeChannel{name: e.name, execFn: e.Exec}
+	}
+	return e.pipeCh, nil
 }
 
 // DataChannel returns the data channel for this workspace.
 func (e *ContainerWorkspace) DataChannel(_ context.Context) (DataChannel, error) {
-	return &podmanDataChannel{
-		name:          e.name,
-		containerName: func() string { return containerName(e.name) },
-	}, nil
+	if e.dataCh == nil {
+		e.dataCh = &podmanDataChannel{
+			name:          e.name,
+			containerName: func() string { return containerName(e.name) },
+		}
+	}
+	return e.dataCh, nil
 }
 
 // GitChannel returns the git channel for this workspace.
 func (e *ContainerWorkspace) GitChannel(_ context.Context) (GitChannel, error) {
-	return &podmanGitChannel{
-		name:          e.name,
-		containerName: func() string { return containerName(e.name) },
-		workspacePath: "/workspace",
-	}, nil
+	if e.gitCh == nil {
+		e.gitCh = &podmanGitChannel{
+			name:          e.name,
+			containerName: func() string { return containerName(e.name) },
+			workspacePath: "/workspace",
+		}
+	}
+	return e.gitCh, nil
 }
 
 // Push copies local files into the container via DataChannel.
