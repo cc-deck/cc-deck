@@ -622,6 +622,14 @@ func (e *ComposeWorkspace) Pull(ctx context.Context, opts SyncOpts) error {
 
 // Harvest extracts git commits from the compose workspace via GitChannel.
 func (e *ComposeWorkspace) Harvest(ctx context.Context, opts HarvestOpts) error {
+	inst, findErr := e.store.FindInstanceByName(e.name)
+	if findErr != nil {
+		return findErr
+	}
+	if inst.State != WorkspaceStateRunning {
+		return fmt.Errorf("compose workspace is not running (state: %s)", inst.State)
+	}
+
 	ch, err := e.GitChannel(ctx)
 	if err != nil {
 		return err
