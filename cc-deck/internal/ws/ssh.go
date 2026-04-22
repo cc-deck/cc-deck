@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cc-deck/cc-deck/internal/ssh"
@@ -27,9 +28,14 @@ type SSHWorkspace struct {
 	ExtraRemotes    map[string]string
 	AutoDetectedURL string
 
-	pipeCh PipeChannel
-	dataCh DataChannel
-	gitCh  GitChannel
+	pipeOnce sync.Once
+	pipeCh   PipeChannel
+	dataOnce sync.Once
+	dataCh   DataChannel
+	dataErr  error
+	gitOnce  sync.Once
+	gitCh    GitChannel
+	gitErr   error
 }
 
 // Type returns WorkspaceTypeSSH.
@@ -391,18 +397,19 @@ func (e *SSHWorkspace) ExecOutput(ctx context.Context, cmd []string) (string, er
 
 // PipeChannel returns the pipe channel for this workspace.
 func (e *SSHWorkspace) PipeChannel(_ context.Context) (PipeChannel, error) {
-	if e.pipeCh == nil {
+	e.pipeOnce.Do(func() {
 		e.pipeCh = &execPipeChannel{name: e.name, execFn: e.Exec}
-	}
+	})
 	return e.pipeCh, nil
 }
 
 // DataChannel returns the data channel for this workspace.
 func (e *SSHWorkspace) DataChannel(_ context.Context) (DataChannel, error) {
-	if e.dataCh == nil {
+	e.dataOnce.Do(func() {
 		def, err := e.loadDefinition()
 		if err != nil {
-			return nil, err
+			e.dataErr = err
+			return
 		}
 		client := e.newSSHClient(def)
 		e.dataCh = &sshDataChannel{
@@ -412,19 +419,21 @@ func (e *SSHWorkspace) DataChannel(_ context.Context) (DataChannel, error) {
 				return resolveWorkspaceRemote(ctx, client, workspacePath(def))
 			},
 		}
-	}
-	return e.dataCh, nil
+	})
+	return e.dataCh, e.dataErr
 }
 
 // GitChannel returns the git channel for this workspace.
 func (e *SSHWorkspace) GitChannel(_ context.Context) (GitChannel, error) {
-	if e.gitCh == nil {
+	e.gitOnce.Do(func() {
 		inst, err := e.store.FindInstanceByName(e.name)
 		if err != nil {
-			return nil, err
+			e.gitErr = err
+			return
 		}
 		if inst.SSH == nil {
-			return nil, fmt.Errorf("SSH fields missing for workspace %q", e.name)
+			e.gitErr = fmt.Errorf("SSH fields missing for workspace %q", e.name)
+			return
 		}
 		workspace := inst.SSH.Workspace
 		if workspace == "" {
@@ -435,8 +444,8 @@ func (e *SSHWorkspace) GitChannel(_ context.Context) (GitChannel, error) {
 			host:      inst.SSH.Host,
 			workspace: workspace,
 		}
-	}
-	return e.gitCh, nil
+	})
+	return e.gitCh, e.gitErr
 }
 
 // Push synchronizes local files to the remote workspace via DataChannel.
