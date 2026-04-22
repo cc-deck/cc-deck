@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 )
 
 // gitFetch is the shared Fetch implementation for all GitChannel types.
@@ -58,7 +59,11 @@ type podmanGitChannel struct {
 }
 
 func (c *podmanGitChannel) Fetch(ctx context.Context, opts HarvestOpts) error {
-	return gitFetch(ctx, c.name, buildExtPodmanURL(c.containerName(), c.workspacePath), opts)
+	wsPath := c.workspacePath
+	if opts.Path != "" {
+		wsPath = path.Join(wsPath, opts.Path)
+	}
+	return gitFetch(ctx, c.name, buildExtPodmanURL(c.containerName(), wsPath), opts)
 }
 
 func (c *podmanGitChannel) Push(ctx context.Context) error {
@@ -75,7 +80,11 @@ type k8sGitChannel struct {
 }
 
 func (c *k8sGitChannel) Fetch(ctx context.Context, opts HarvestOpts) error {
-	return gitFetch(ctx, c.name, buildExtKubectlURL(c.ns, c.podName, c.workspacePath, c.kubeconfigArgs), opts)
+	wsPath := c.workspacePath
+	if opts.Path != "" {
+		wsPath = path.Join(wsPath, opts.Path)
+	}
+	return gitFetch(ctx, c.name, buildExtKubectlURL(c.ns, c.podName, wsPath, c.kubeconfigArgs), opts)
 }
 
 func (c *k8sGitChannel) Push(ctx context.Context) error {
@@ -89,16 +98,20 @@ type sshGitChannel struct {
 	workspace string
 }
 
-func (c *sshGitChannel) remoteURL() string {
-	return fmt.Sprintf("ssh://%s%s", c.host, c.workspace)
+func (c *sshGitChannel) remoteURL(subpath string) string {
+	wsPath := c.workspace
+	if subpath != "" {
+		wsPath = path.Join(wsPath, subpath)
+	}
+	return fmt.Sprintf("ssh://%s%s", c.host, wsPath)
 }
 
 func (c *sshGitChannel) Fetch(ctx context.Context, opts HarvestOpts) error {
-	return gitFetch(ctx, c.name, c.remoteURL(), opts)
+	return gitFetch(ctx, c.name, c.remoteURL(opts.Path), opts)
 }
 
 func (c *sshGitChannel) Push(ctx context.Context) error {
-	return gitPush(ctx, c.name, c.remoteURL())
+	return gitPush(ctx, c.name, c.remoteURL(""))
 }
 
 func createPR(ctx context.Context, branch, _ string) error {
