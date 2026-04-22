@@ -461,7 +461,7 @@ func resolveBuildDirAndRoot(args []string) (setupDir string, projectRoot string)
 	if err != nil {
 		return filepath.Join(".", ".cc-deck", "setup"), "."
 	}
-	if root, findErr := project.FindProjectConfig(cwd); findErr == nil {
+	if root, findErr := project.FindProjectRoot(cwd); findErr == nil {
 		return filepath.Join(root, ".cc-deck", "setup"), root
 	}
 	if root, gitErr := project.FindGitRoot(cwd); gitErr == nil {

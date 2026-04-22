@@ -221,6 +221,85 @@ func TestDefinitionEnvVarOverride(t *testing.T) {
 	assert.Equal(t, customPath, path)
 }
 
+func TestFindByProjectDir_ExactMatch(t *testing.T) {
+	store := newTestDefinitionStore(t)
+	def := makeDef("proj-ws", WorkspaceTypeContainer)
+	projDir := t.TempDir()
+	resolved, _ := filepath.EvalSymlinks(projDir)
+	def.ProjectDir = resolved
+	require.NoError(t, store.Add(def))
+
+	results, err := store.FindByProjectDir(projDir)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, "proj-ws", results[0].Name)
+}
+
+func TestFindByProjectDir_SubdirectoryMatch(t *testing.T) {
+	store := newTestDefinitionStore(t)
+	def := makeDef("proj-ws", WorkspaceTypeContainer)
+	projDir := t.TempDir()
+	resolved, _ := filepath.EvalSymlinks(projDir)
+	def.ProjectDir = resolved
+	require.NoError(t, store.Add(def))
+
+	subDir := filepath.Join(projDir, "src", "pkg")
+	require.NoError(t, os.MkdirAll(subDir, 0o755))
+
+	results, err := store.FindByProjectDir(subDir)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, "proj-ws", results[0].Name)
+}
+
+func TestFindByProjectDir_NoMatch(t *testing.T) {
+	store := newTestDefinitionStore(t)
+	def := makeDef("proj-ws", WorkspaceTypeContainer)
+	def.ProjectDir = "/some/other/path"
+	require.NoError(t, store.Add(def))
+
+	results, err := store.FindByProjectDir(t.TempDir())
+	require.NoError(t, err)
+	assert.Empty(t, results)
+}
+
+func TestAddWithCollisionHandling_NoCollision(t *testing.T) {
+	store := newTestDefinitionStore(t)
+	def := makeDef("my-ws", WorkspaceTypeContainer)
+
+	name, err := store.AddWithCollisionHandling(def)
+	require.NoError(t, err)
+	assert.Equal(t, "my-ws", name)
+
+	found, err := store.FindByName("my-ws")
+	require.NoError(t, err)
+	assert.Equal(t, WorkspaceTypeContainer, found.Type)
+}
+
+func TestAddWithCollisionHandling_SameTypeCollision(t *testing.T) {
+	store := newTestDefinitionStore(t)
+	require.NoError(t, store.Add(makeDef("my-ws", WorkspaceTypeContainer)))
+
+	def := makeDef("my-ws", WorkspaceTypeContainer)
+	_, err := store.AddWithCollisionHandling(def)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "already exists (type: container)")
+}
+
+func TestAddWithCollisionHandling_DifferentTypeAutoSuffix(t *testing.T) {
+	store := newTestDefinitionStore(t)
+	require.NoError(t, store.Add(makeDef("my-ws", WorkspaceTypeContainer)))
+
+	def := makeDef("my-ws", WorkspaceTypeSSH)
+	name, err := store.AddWithCollisionHandling(def)
+	require.NoError(t, err)
+	assert.Equal(t, "my-ws-ssh", name)
+
+	found, err := store.FindByName("my-ws-ssh")
+	require.NoError(t, err)
+	assert.Equal(t, WorkspaceTypeSSH, found.Type)
+}
+
 func TestDefinitionSave_CreatesDirectories(t *testing.T) {
 	dir := t.TempDir()
 	store := NewDefinitionStore(filepath.Join(dir, "nested", "deep", "workspaces.yaml"))

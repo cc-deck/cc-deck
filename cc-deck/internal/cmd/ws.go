@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -100,8 +101,6 @@ type newFlags struct {
 	allowedDomains []string
 	gitignore      bool
 	variant        string
-	global         bool
-	local          bool
 	// SSH-specific flags
 	host         string
 	sshPort      int
@@ -145,10 +144,13 @@ func newWsNewCmd(gf *GlobalFlags) *cobra.Command {
 control where the workspace runs: locally in Zellij, inside a
 container, or as a multi-container compose stack.
 
-When run inside a git repository that contains .cc-deck/workspace.yaml,
-the name, type, and settings are loaded from that file automatically.
-CLI flags override definition values. In a git repo without a definition,
-one is scaffolded for you so your team can share it via version control.
+When a .cc-deck/workspace-template.yaml file exists in the project,
+the template's name, type, and settings are used as defaults. CLI
+flags override template values. Use --type to select which template
+variant to use when multiple variants are defined.
+
+All workspace definitions are stored centrally in the global
+definition store (~/.config/cc-deck/workspaces.yaml).
 
 Workspace types (--type):
   local       Zellij session on the host machine (default)
@@ -163,17 +165,11 @@ Workspace types (--type):
   # Create a container workspace with a custom image
   cc-deck ws new my-project --type container --image quay.io/cc-deck/cc-deck-demo
 
-  # Create a container with port forwarding and Vertex AI auth
-  cc-deck ws new api-dev --type container --port 8080:8080 --auth vertex
-
-  # Create a compose workspace with network filtering
-  cc-deck ws new my-app --type compose --allowed-domains python,github
+  # Create from a project template (auto-detected in cwd)
+  cd ~/projects/my-app && cc-deck ws new --type ssh
 
   # Create an SSH workspace on a remote machine
-  cc-deck ws new remote-dev --type ssh --host user@dev.example.com
-
-  # Create from a project definition (auto-detected in cwd)
-  cd ~/projects/my-app && cc-deck ws new`,
+  cc-deck ws new remote-dev --type ssh --host user@dev.example.com`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := ""
@@ -192,9 +188,6 @@ Workspace types (--type):
 	cmd.Flags().StringVar(&cf.variant, "variant", "", "Variant name for multiple instances from same definition")
 	cmd.Flags().BoolVar(&cf.update, "update", false, "Update existing workspace (deprecated: use ws update)")
 	_ = cmd.Flags().MarkDeprecated("update", "use 'cc-deck ws update' instead")
-	cmd.Flags().BoolVar(&cf.global, "global", false, "Force resolution from global definition store")
-	cmd.Flags().BoolVar(&cf.local, "local", false, "Force resolution from project-local definition")
-	cmd.MarkFlagsMutuallyExclusive("global", "local")
 
 	// Container/compose flags
 	cmd.Flags().StringVar(&cf.image, "image", "", "Container image (container, compose)")
@@ -259,33 +252,33 @@ func runWsNew(gf *GlobalFlags, name string, cf *newFlags, cmd *cobra.Command) er
 		return fmt.Errorf("refusing to create workspace inside a .cc-deck/ directory (%s)", cwd)
 	}
 
-	// Try to find project-local definition.
+	// Find project root for template loading and project-dir association.
 	var projectRoot string
-	var projDef *ws.WorkspaceDefinition
-	if root, findErr := project.FindProjectConfig(cwd); findErr == nil {
+	if root, gitErr := project.FindGitRoot(cwd); gitErr == nil {
 		projectRoot = root
-		if def, loadErr := ws.LoadProjectDefinition(root); loadErr == nil {
-			projDef = def
-		}
-	} else if root, gitErr := project.FindGitRoot(cwd); gitErr == nil {
-		// In a git repo but no .cc-deck/workspace.yaml.
-		projectRoot = root
-	} else if name != "" {
-		// Not in a git repo and no workspace config found, but explicit
-		// name provided. Use cwd as workspace root for scaffolding.
-		projectRoot = cwd
 	}
 
-	// Resolve workspace name.
+	// Try to load a workspace template.
+	var tmpl *ws.WorkspaceTemplate
+	if projectRoot != "" {
+		if loaded, loadErr := ws.LoadTemplate(projectRoot); loadErr != nil {
+			return fmt.Errorf("loading template: %w", loadErr)
+		} else if loaded != nil {
+			if validErr := ws.ValidateTemplate(loaded); validErr != nil {
+				return validErr
+			}
+			tmpl = loaded
+		}
+	}
+
+	// Resolve workspace name: explicit arg > template name > directory basename.
 	if name == "" {
-		if projDef != nil {
-			name = projDef.Name
-			fmt.Fprintf(os.Stderr, "Using workspace %q from %s/.cc-deck/\n", name, projectRoot)
+		if tmpl != nil {
+			name = tmpl.Name
 		} else if projectRoot != "" {
-			// In a git repo with no definition: scaffold from CLI flags.
 			name = project.ProjectName(projectRoot)
 		} else {
-			return fmt.Errorf("no workspace name specified and no .cc-deck/workspace.yaml found in project hierarchy")
+			return fmt.Errorf("no workspace name specified; provide a name or run from a project directory")
 		}
 	}
 
@@ -293,135 +286,91 @@ func runWsNew(gf *GlobalFlags, name string, cf *newFlags, cmd *cobra.Command) er
 		return err
 	}
 
-	// Handle --global and --local flags (FR-012, FR-013, FR-014, FR-015).
-	var usedGlobalDef bool
-	var resolvedDef *ws.WorkspaceDefinition
-
-	if cf.global {
-		globalDef, globalErr := defs.FindByName(name)
-		if globalErr != nil {
-			return fmt.Errorf("no global definition found for %q", name)
-		}
-		resolvedDef = globalDef
-		usedGlobalDef = true
-		projDef = nil
-	} else if cf.local {
-		if projDef == nil {
-			return fmt.Errorf("no project-local definition found (missing .cc-deck/workspace.yaml)")
-		}
-		if name != projDef.Name {
-			return fmt.Errorf("project-local definition is %q, not %q; use --global or omit --local", projDef.Name, name)
-		}
-		// Use project-local definition, ignore any global definitions.
-	} else if projDef != nil && name != projDef.Name {
-		// Explicit name differs from project-local definition: ignore project-local (FR-001).
-		projDef = nil
-		if globalDef, globalErr := defs.FindByName(name); globalErr == nil {
-			// Use global definition's type and settings (FR-002).
-			resolvedDef = globalDef
-			usedGlobalDef = true
-		}
-		// If not found in global store, fall through to default type (FR-003).
-	}
-
-	// Resolve type: CLI flag > resolved definition > project definition > default (T017).
+	// Resolve type and build definition from template or flags.
 	typeChanged := cmd.Flags().Changed("type")
 	wsType := ws.WorkspaceType(cf.wsType)
-	if !typeChanged {
-		if resolvedDef != nil && resolvedDef.Type != "" {
-			wsType = resolvedDef.Type
-		} else if projDef != nil && projDef.Type != "" {
-			wsType = projDef.Type
+
+	var activeDef *ws.WorkspaceDefinition
+
+	if tmpl != nil {
+		// Template-based creation.
+		variantKey := cf.wsType
+		if !typeChanged {
+			if len(tmpl.Variants) == 1 {
+				for k := range tmpl.Variants {
+					variantKey = k
+				}
+			} else {
+				keys := make([]string, 0, len(tmpl.Variants))
+				for k := range tmpl.Variants {
+					keys = append(keys, k)
+				}
+				return fmt.Errorf("template has no variant for type %q; available: %s", cf.wsType, strings.Join(keys, ", "))
+			}
 		}
+
+		variant, ok := tmpl.Variants[variantKey]
+		if !ok {
+			keys := make([]string, 0, len(tmpl.Variants))
+			for k := range tmpl.Variants {
+				keys = append(keys, k)
+			}
+			return fmt.Errorf("template has no variant for type %q; available: %s", variantKey, strings.Join(keys, ", "))
+		}
+
+		wsType = ws.WorkspaceType(variantKey)
+
+		// Extract and resolve placeholders.
+		variantData, marshalErr := yaml.Marshal(variant)
+		if marshalErr != nil {
+			return fmt.Errorf("marshaling template variant: %w", marshalErr)
+		}
+
+		placeholders := ws.ExtractPlaceholders(variantData)
+		if len(placeholders) > 0 {
+			fmt.Fprintf(os.Stderr, "Template placeholders:\n")
+			reader := bufio.NewReader(os.Stdin)
+			answers, promptErr := ws.PromptForPlaceholders(placeholders, reader)
+			if promptErr != nil {
+				return promptErr
+			}
+			variantData = ws.ResolvePlaceholders(variantData, answers)
+
+			// Re-parse variant with resolved values.
+			if unmarshalErr := yaml.Unmarshal(variantData, &variant); unmarshalErr != nil {
+				return fmt.Errorf("parsing resolved template: %w", unmarshalErr)
+			}
+		}
+
+		activeDef = ws.VariantToDefinition(name, wsType, &variant)
 	}
+
 	if wsType == "" {
 		wsType = ws.WorkspaceTypeLocal
 	}
 
-	// Project-local vs global precedence check (FR-026, T020).
-	if projDef != nil && !usedGlobalDef {
-		if globalDef, globalErr := defs.FindByName(name); globalErr == nil {
-			fmt.Fprintf(os.Stderr, "WARNING: Project-local definition shadows global definition %q (type: %s)\n",
-				globalDef.Name, globalDef.Type)
-		}
+	// Apply CLI flag overrides over template values.
+	if activeDef == nil {
+		activeDef = &ws.WorkspaceDefinition{Name: name, Type: wsType}
 	}
 
-	// Check for cross-project name collisions before scaffolding.
-	if projectRoot != "" {
-		canonRoot := project.CanonicalPath(projectRoot)
-		if others, lookupErr := store.AllProjectWorkspaceNames(canonRoot); lookupErr == nil {
-			if otherPath, dup := others[name]; dup {
-				return fmt.Errorf("workspace %q already defined in project %s", name, otherPath)
-			}
-		}
+	if cmd.Flags().Changed("type") {
+		activeDef.Type = wsType
 	}
+	applyFlagOverrides(cmd, cf, activeDef)
 
-	// Scaffold definition if no definition exists yet.
-	// Skip scaffolding when using a global definition (FR-002a).
-	if projDef == nil && projectRoot != "" && !usedGlobalDef {
-		scaffoldDef := &ws.WorkspaceDefinition{
-			Name:           name,
-			Type:           wsType,
-			Image:          cf.image,
-			Auth:           cf.auth,
-			AllowedDomains: cf.allowedDomains,
-		}
-		if err := ws.SaveProjectDefinition(projectRoot, scaffoldDef); err != nil {
-			return fmt.Errorf("scaffolding project definition: %w", err)
-		}
-		projDef = scaffoldDef
-		fmt.Fprintf(os.Stderr, "Created %s/.cc-deck/workspace.yaml\n", projectRoot)
-		if _, gitErr := project.FindGitRoot(projectRoot); gitErr == nil {
-			fmt.Fprintf(os.Stderr, "Commit .cc-deck/ to share the definition with your team.\n")
-		}
-	}
+	// Set project-dir for all workspace types.
+	activeDef.ProjectDir = project.CanonicalPath(cwd)
 
-	// Apply definition values (from resolved global or project-local def), with CLI flags taking precedence.
-	activeDef := projDef
-	if resolvedDef != nil {
-		activeDef = resolvedDef
+	// Store definition centrally with collision handling.
+	finalName, addErr := defs.AddWithCollisionHandling(activeDef)
+	if addErr != nil {
+		return addErr
 	}
-	if activeDef != nil {
-		if cf.image == "" && activeDef.Image != "" {
-			cf.image = activeDef.Image
-		}
-		if !cmd.Flags().Changed("auth") && activeDef.Auth != "" {
-			cf.auth = activeDef.Auth
-		}
-		if len(cf.allowedDomains) == 0 && len(activeDef.AllowedDomains) > 0 {
-			cf.allowedDomains = activeDef.AllowedDomains
-		}
-		if len(cf.ports) == 0 && len(activeDef.Ports) > 0 {
-			cf.ports = activeDef.Ports
-		}
-		if len(cf.mount) == 0 && len(activeDef.Mounts) > 0 {
-			cf.mount = activeDef.Mounts
-		}
-		if len(cf.credential) == 0 && len(activeDef.Credentials) > 0 {
-			cf.credential = activeDef.Credentials
-		}
-		if cf.path == "" && activeDef.ProjectDir != "" {
-			cf.path = activeDef.ProjectDir
-		}
-		// SSH-specific: inherit from definition.
-		if cf.host == "" && activeDef.Host != "" {
-			cf.host = activeDef.Host
-		}
-		if cf.sshPort == 0 && activeDef.Port != 0 {
-			cf.sshPort = activeDef.Port
-		}
-		if cf.identityFile == "" && activeDef.IdentityFile != "" {
-			cf.identityFile = activeDef.IdentityFile
-		}
-		if cf.jumpHost == "" && activeDef.JumpHost != "" {
-			cf.jumpHost = activeDef.JumpHost
-		}
-		if cf.sshConfig == "" && activeDef.SSHConfig != "" {
-			cf.sshConfig = activeDef.SSHConfig
-		}
-		if cf.workspace == "" && activeDef.Workspace != "" {
-			cf.workspace = activeDef.Workspace
-		}
+	if finalName != name {
+		fmt.Fprintf(os.Stderr, "Name collision: stored as %q\n", finalName)
+		name = finalName
+		activeDef.Name = finalName
 	}
 
 	e, err := ws.NewWorkspace(wsType, name, store, defs)
@@ -429,129 +378,8 @@ func runWsNew(gf *GlobalFlags, name string, cf *newFlags, cmd *cobra.Command) er
 		return err
 	}
 
-	// Set container-specific options.
-	if ce, ok := e.(*ws.ContainerWorkspace); ok {
-		ce.Auth = ws.AuthMode(cf.auth)
-		ce.Ports = cf.ports
-		ce.AllPorts = cf.allPorts
-		ce.Mounts = cf.mount
-
-		if len(cf.credential) > 0 {
-			ce.Credentials = make(map[string]string)
-			for _, c := range cf.credential {
-				parts := splitCredential(c)
-				if parts == nil {
-					return fmt.Errorf("invalid credential format %q, expected KEY=VALUE", c)
-				}
-				ce.Credentials[parts[0]] = parts[1]
-			}
-		}
-	}
-
-	// Set k8s-deploy-specific options.
-	if ke, ok := e.(*ws.K8sDeployWorkspace); ok {
-		ke.Auth = ws.AuthMode(cf.auth)
-		ke.Namespace = cf.namespace
-		ke.Kubeconfig = cf.kubeconfig
-		ke.Context = cf.k8sContext
-		ke.StorageSize = cf.storageSize
-		ke.StorageClass = cf.storageClass
-		ke.ExistingSecret = cf.existingSecret
-		ke.SecretStore = cf.secretStore
-		ke.SecretStoreRef = cf.secretStoreRef
-		ke.SecretPath = cf.secretPath
-		ke.BuildDir = cf.buildDir
-		ke.NoNetworkPolicy = cf.noNetworkPolicy
-		ke.AllowDomains = cf.allowDomain
-		ke.AllowGroups = cf.allowGroup
-		ke.KeepVolumes = cf.keepVolumes
-
-		if cf.timeout != "" {
-			d, parseErr := time.ParseDuration(cf.timeout)
-			if parseErr != nil {
-				return fmt.Errorf("invalid timeout %q: %w", cf.timeout, parseErr)
-			}
-			ke.Timeout = d
-		}
-
-		if len(cf.credential) > 0 {
-			ke.Credentials = make(map[string]string)
-			for _, c := range cf.credential {
-				parts := splitCredential(c)
-				if parts == nil {
-					return fmt.Errorf("invalid credential format %q, expected KEY=VALUE", c)
-				}
-				ke.Credentials[parts[0]] = parts[1]
-			}
-		}
-
-		// Apply definition precedence for k8s-deploy fields.
-		if projDef != nil {
-			if !cmd.Flags().Changed("namespace") && projDef.Namespace != "" {
-				ke.Namespace = projDef.Namespace
-			}
-			if !cmd.Flags().Changed("kubeconfig") && projDef.Kubeconfig != "" {
-				ke.Kubeconfig = projDef.Kubeconfig
-			}
-			if !cmd.Flags().Changed("context") && projDef.K8sContext != "" {
-				ke.Context = projDef.K8sContext
-			}
-			if !cmd.Flags().Changed("storage-size") && projDef.StorageSize != "" {
-				ke.StorageSize = projDef.StorageSize
-			}
-			if !cmd.Flags().Changed("storage-class") && projDef.StorageClass != "" {
-				ke.StorageClass = projDef.StorageClass
-			}
-			if len(ke.AllowDomains) == 0 && len(projDef.AllowedDomains) > 0 {
-				ke.AllowDomains = projDef.AllowedDomains
-			}
-		}
-	}
-
-	// Set compose-specific options.
-	if ce, ok := e.(*ws.ComposeWorkspace); ok {
-		ce.Auth = ws.AuthMode(cf.auth)
-		ce.Ports = cf.ports
-		ce.AllPorts = cf.allPorts
-		ce.Mounts = cf.mount
-		ce.AllowedDomains = cf.allowedDomains
-		ce.ProjectDir = cf.path
-		ce.Gitignore = cf.gitignore
-
-		if len(cf.credential) > 0 {
-			ce.Credentials = make(map[string]string)
-			for _, c := range cf.credential {
-				parts := splitCredential(c)
-				if parts == nil {
-					return fmt.Errorf("invalid credential format %q, expected KEY=VALUE", c)
-				}
-				ce.Credentials[parts[0]] = parts[1]
-			}
-		}
-	}
-
-	// For SSH workspaces, ensure the definition has SSH fields populated
-	// so SSHWorkspace.Create() can load them.
-	if wsType == ws.WorkspaceTypeSSH {
-		sshDef := &ws.WorkspaceDefinition{
-			Name:         name,
-			Type:         ws.WorkspaceTypeSSH,
-			Auth:         cf.auth,
-			Host:         cf.host,
-			Port:         cf.sshPort,
-			IdentityFile: cf.identityFile,
-			JumpHost:     cf.jumpHost,
-			SSHConfig:    cf.sshConfig,
-			Workspace:    cf.workspace,
-			Credentials:  cf.credential,
-		}
-		// Try update first (existing global definition), fall back to add.
-		if err := defs.Update(sshDef); err != nil {
-			if err := defs.Add(sshDef); err != nil {
-				return fmt.Errorf("saving SSH definition: %w", err)
-			}
-		}
-	}
+	// Set type-specific options on the workspace object.
+	setWorkspaceOptions(e, cf, cmd, activeDef)
 
 	// Parse --repo/--branch flags into RepoEntries.
 	if len(cf.branches) > len(cf.repos) {
@@ -573,31 +401,25 @@ func runWsNew(gf *GlobalFlags, name string, cf *newFlags, cmd *cobra.Command) er
 		remotes := parseGitRemotes(cwd)
 		if originURL, ok := remotes["origin"]; ok {
 			autoDetectedRepo = &ws.RepoEntry{URL: originURL}
-			// Collect non-origin remotes for post-clone configuration.
 			extraRemotes = make(map[string]string)
-			for name, url := range remotes {
-				if name != "origin" {
-					extraRemotes[name] = url
+			for rName, url := range remotes {
+				if rName != "origin" {
+					extraRemotes[rName] = url
 				}
 			}
 		}
-		_ = gitRoot // Used only for detection.
+		_ = gitRoot
 	}
 
-	// Merge repos: definition + CLI + auto-detected. Definition entries come
-	// first so they win deduplication (BR-006: explicit branch/target take
-	// precedence over auto-detected).
+	// Merge repos: definition + CLI + auto-detected.
 	var allRepos []ws.RepoEntry
-	if activeDef != nil {
-		allRepos = append(allRepos, activeDef.Repos...)
-	}
+	allRepos = append(allRepos, activeDef.Repos...)
 	allRepos = append(allRepos, cliRepos...)
 	if autoDetectedRepo != nil {
 		allRepos = append(allRepos, *autoDetectedRepo)
 	}
 	allRepos = ws.DeduplicateRepos(allRepos)
 
-	// Inject merged repos into the workspace struct so Create() can access them.
 	if len(allRepos) > 0 {
 		var autoURL string
 		if autoDetectedRepo != nil {
@@ -623,8 +445,11 @@ func runWsNew(gf *GlobalFlags, name string, cf *newFlags, cmd *cobra.Command) er
 		}
 	}
 
-	// Resolve image: CLI flag > project definition > config default.
+	// Resolve image: CLI flag > definition > config default.
 	image := cf.image
+	if image == "" && activeDef.Image != "" {
+		image = activeDef.Image
+	}
 	if image == "" && wsType == ws.WorkspaceTypeContainer {
 		if cfg, loadErr := config.Load(""); loadErr == nil && cfg.Defaults.Container.Image != "" {
 			image = cfg.Defaults.Container.Image
@@ -647,10 +472,9 @@ func runWsNew(gf *GlobalFlags, name string, cf *newFlags, cmd *cobra.Command) er
 		opts.Storage.HostPath = cf.path
 	}
 
-	// Warn and skip repos for local workspaces (FR-014).
-	if wsType == ws.WorkspaceTypeLocal && activeDef != nil && len(activeDef.Repos) > 0 {
+	// Warn and skip repos for local workspaces.
+	if wsType == ws.WorkspaceTypeLocal && len(activeDef.Repos) > 0 {
 		log.Printf("WARNING: repos are not supported for local workspaces; ignoring %d repo(s)", len(activeDef.Repos))
-		activeDef.Repos = nil
 	}
 
 	// Handle --update: if workspace already exists with the same type,
@@ -660,7 +484,6 @@ func runWsNew(gf *GlobalFlags, name string, cf *newFlags, cmd *cobra.Command) er
 			if existing.Type != wsType {
 				return fmt.Errorf("workspace %q exists as type %s, cannot update to %s", name, existing.Type, wsType)
 			}
-			// Update SSH fields on the existing instance.
 			if existing.SSH != nil {
 				if cf.host != "" {
 					existing.SSH.Host = cf.host
@@ -687,69 +510,143 @@ func runWsNew(gf *GlobalFlags, name string, cf *newFlags, cmd *cobra.Command) er
 			fmt.Fprintf(os.Stdout, "Workspace %q updated (type: %s)\n", name, wsType)
 			return nil
 		}
-		// Not found: fall through to normal creation.
 	}
 
 	if err := e.Create(cmd_context(), opts); err != nil {
 		return err
 	}
 
-	// Auto-register project in global registry (FR-007, T019).
-	if projectRoot != "" {
-		if regErr := store.RegisterProject(projectRoot); regErr != nil {
-			fmt.Fprintf(os.Stderr, "WARNING: could not register project: %v\n", regErr)
-		}
-
-		// Ensure .cc-deck/.gitignore exists (FR-030).
-		_ = ws.EnsureCCDeckGitignore(projectRoot)
-
-		// Store CLI overrides and variant in status.yaml (FR-019, FR-010).
-		overrides := collectOverrides(cmd, cf, projDef)
-		{
-			statusStore := ws.NewProjectStatusStore(projectRoot)
-			status, _ := statusStore.Load()
-			status.State = ws.WorkspaceStateStopped
-			containerName := "cc-deck-" + name
-			if cf.variant != "" {
-				containerName += "-" + cf.variant
-				status.Variant = cf.variant
-			}
-			status.ContainerName = containerName
-			if status.CreatedAt.IsZero() {
-				status.CreatedAt = time.Now()
-			}
-			if len(overrides) > 0 {
-				status.Overrides = overrides
-			}
-			if saveErr := statusStore.Save(status); saveErr != nil {
-				fmt.Fprintf(os.Stderr, "WARNING: could not save project status: %v\n", saveErr)
-			}
-		}
-	}
-
 	fmt.Fprintf(os.Stdout, "Workspace %q created (type: %s)\n", name, wsType)
 	return nil
 }
 
-// collectOverrides returns CLI flag values that differ from the project definition.
-func collectOverrides(cmd *cobra.Command, cf *newFlags, projDef *ws.WorkspaceDefinition) map[string]string {
-	if projDef == nil {
-		return nil
+// applyFlagOverrides applies explicit CLI flag values over definition defaults.
+func applyFlagOverrides(cmd *cobra.Command, cf *newFlags, def *ws.WorkspaceDefinition) {
+	if cf.image != "" {
+		def.Image = cf.image
 	}
-	overrides := make(map[string]string)
-	if cmd.Flags().Changed("image") && cf.image != projDef.Image {
-		overrides["image"] = cf.image
+	if cmd.Flags().Changed("auth") {
+		def.Auth = cf.auth
 	}
-	if cmd.Flags().Changed("auth") && cf.auth != projDef.Auth {
-		overrides["auth"] = cf.auth
+	if len(cf.allowedDomains) > 0 {
+		def.AllowedDomains = cf.allowedDomains
 	}
-	if cmd.Flags().Changed("type") && string(ws.WorkspaceType(cf.wsType)) != string(projDef.Type) {
-		overrides["type"] = cf.wsType
+	if len(cf.ports) > 0 {
+		def.Ports = cf.ports
 	}
-	if len(overrides) == 0 {
-		return nil
+	if len(cf.mount) > 0 {
+		def.Mounts = cf.mount
 	}
-	return overrides
+	if len(cf.credential) > 0 {
+		def.Credentials = cf.credential
+	}
+	if cf.host != "" {
+		def.Host = cf.host
+	}
+	if cf.sshPort != 0 {
+		def.Port = cf.sshPort
+	}
+	if cf.identityFile != "" {
+		def.IdentityFile = cf.identityFile
+	}
+	if cf.jumpHost != "" {
+		def.JumpHost = cf.jumpHost
+	}
+	if cf.sshConfig != "" {
+		def.SSHConfig = cf.sshConfig
+	}
+	if cf.workspace != "" {
+		def.Workspace = cf.workspace
+	}
+	if cf.namespace != "" {
+		def.Namespace = cf.namespace
+	}
+	if cf.kubeconfig != "" {
+		def.Kubeconfig = cf.kubeconfig
+	}
+	if cf.k8sContext != "" {
+		def.K8sContext = cf.k8sContext
+	}
+	if cf.storageSize != "" {
+		def.StorageSize = cf.storageSize
+	}
+	if cf.storageClass != "" {
+		def.StorageClass = cf.storageClass
+	}
+}
+
+// setWorkspaceOptions configures type-specific fields on a workspace object.
+func setWorkspaceOptions(e ws.Workspace, cf *newFlags, cmd *cobra.Command, def *ws.WorkspaceDefinition) {
+	if ce, ok := e.(*ws.ContainerWorkspace); ok {
+		ce.Auth = ws.AuthMode(def.Auth)
+		ce.Ports = def.Ports
+		ce.AllPorts = cf.allPorts
+		ce.Mounts = def.Mounts
+		if len(def.Credentials) > 0 {
+			ce.Credentials = make(map[string]string)
+			for _, c := range def.Credentials {
+				parts := splitCredential(c)
+				if parts != nil {
+					ce.Credentials[parts[0]] = parts[1]
+				}
+			}
+		}
+	}
+
+	if ke, ok := e.(*ws.K8sDeployWorkspace); ok {
+		ke.Auth = ws.AuthMode(def.Auth)
+		ke.Namespace = def.Namespace
+		ke.Kubeconfig = def.Kubeconfig
+		ke.Context = def.K8sContext
+		ke.StorageSize = def.StorageSize
+		ke.StorageClass = def.StorageClass
+		ke.ExistingSecret = cf.existingSecret
+		ke.SecretStore = cf.secretStore
+		ke.SecretStoreRef = cf.secretStoreRef
+		ke.SecretPath = cf.secretPath
+		ke.BuildDir = cf.buildDir
+		ke.NoNetworkPolicy = cf.noNetworkPolicy
+		ke.AllowDomains = cf.allowDomain
+		ke.AllowGroups = cf.allowGroup
+		ke.KeepVolumes = cf.keepVolumes
+		if cf.timeout != "" {
+			d, parseErr := time.ParseDuration(cf.timeout)
+			if parseErr == nil {
+				ke.Timeout = d
+			}
+		}
+		if len(def.Credentials) > 0 {
+			ke.Credentials = make(map[string]string)
+			for _, c := range def.Credentials {
+				parts := splitCredential(c)
+				if parts != nil {
+					ke.Credentials[parts[0]] = parts[1]
+				}
+			}
+		}
+		if len(ke.AllowDomains) == 0 && len(def.AllowedDomains) > 0 {
+			ke.AllowDomains = def.AllowedDomains
+		}
+	}
+
+	if ce, ok := e.(*ws.ComposeWorkspace); ok {
+		ce.Auth = ws.AuthMode(def.Auth)
+		ce.Ports = def.Ports
+		ce.AllPorts = cf.allPorts
+		ce.Mounts = def.Mounts
+		ce.AllowedDomains = def.AllowedDomains
+		ce.ProjectDir = def.ProjectDir
+		ce.Gitignore = cf.gitignore
+		if len(def.Credentials) > 0 {
+			ce.Credentials = make(map[string]string)
+			for _, c := range def.Credentials {
+				parts := splitCredential(c)
+				if parts != nil {
+					ce.Credentials[parts[0]] = parts[1]
+				}
+			}
+		}
+	}
 }
 
 // splitCredential splits a KEY=VALUE string. Returns nil if no '=' found.
@@ -877,18 +774,10 @@ func runWsUpdate(name string, syncRepos bool) error {
 	}
 
 	if syncRepos {
-		// Load repos from project-local or global definition.
+		// Load repos from central definition store.
 		var repos []ws.RepoEntry
-		cwd, _ := os.Getwd()
-		if root, findErr := project.FindProjectConfig(cwd); findErr == nil {
-			if def, loadErr := ws.LoadProjectDefinition(root); loadErr == nil {
-				repos = def.Repos
-			}
-		}
-		if len(repos) == 0 {
-			if globalDef, globalErr := defs.FindByName(name); globalErr == nil {
-				repos = globalDef.Repos
-			}
+		if globalDef, globalErr := defs.FindByName(name); globalErr == nil {
+			repos = globalDef.Repos
 		}
 		if len(repos) == 0 {
 			return fmt.Errorf("no repos defined in workspace definition for %q", name)
@@ -949,10 +838,7 @@ func runWsDelete(name string, force bool, keepVolumes bool) error {
 
 	e, err := resolveWorkspace(name, store, defs)
 	if err != nil {
-		// No state record found. Try to clean up orphaned podman resources
-		// (container/volume) that match the naming convention. This handles
-		// the case where state was lost (e.g., XDG path migration) but
-		// podman resources still exist.
+		// No state record found. Try to clean up orphaned podman resources.
 		cleaned := ws.CleanupOrphanedContainer(cmd_context(), name, keepVolumes)
 		if cleaned {
 			_ = defs.Remove(name)
@@ -960,26 +846,10 @@ func runWsDelete(name string, force bool, keepVolumes bool) error {
 			return nil
 		}
 
-		// No container resources either. If a definition exists, remove it
-		// (stale "not created" entry visible in ws list).
+		// If a definition exists, remove it.
 		if defErr := defs.Remove(name); defErr == nil {
 			fmt.Fprintf(os.Stdout, "Workspace %q definition removed\n", name)
 			return nil
-		}
-
-		// Search project-local definitions from the project registry.
-		if projectNames, lookupErr := store.AllProjectWorkspaceNames(""); lookupErr == nil {
-			if projPath, found := projectNames[name]; found {
-				defPath := filepath.Join(projPath, ".cc-deck", "workspace.yaml")
-				if rmErr := os.Remove(defPath); rmErr != nil {
-					return fmt.Errorf("removing project definition %s: %w", defPath, rmErr)
-				}
-				statusPath := filepath.Join(projPath, ".cc-deck", "status.yaml")
-				_ = os.Remove(statusPath)
-				_ = store.UnregisterProject(projPath)
-				fmt.Fprintf(os.Stdout, "Workspace %q project definition removed (from %s)\n", name, projPath)
-				return nil
-			}
 		}
 
 		return err
@@ -1002,25 +872,9 @@ func runWsDelete(name string, force bool, keepVolumes bool) error {
 
 // --- list ---
 
-// projectListEntry represents a project-local workspace in list output.
-type projectListEntry struct {
-	Name    string
-	Type    ws.WorkspaceType
-	Status  string
-	Path    string
-	Missing bool
-}
-
-// worktreeListEntry represents a git worktree sub-entry in list output.
-type worktreeListEntry struct {
-	ProjectName string
-	Path        string
-	Branch      string
-}
 
 func newListCmdCore(gf *GlobalFlags) *cobra.Command {
 	var filterType string
-	var showWorktrees bool
 	var verbose bool
 
 	cmd := &cobra.Command{
@@ -1028,17 +882,17 @@ func newListCmdCore(gf *GlobalFlags) *cobra.Command {
 		Aliases: []string{"ls"},
 		Short:   "List workspaces",
 		Long: `List all cc-deck workspaces with their current status.
-Shows both global and project-local workspaces in a unified view.
-Project paths and MISSING status are shown for registered projects.`,
+All workspace definitions are stored centrally. The PROJECT column
+shows the project directory basename for workspaces associated with
+a project, or "-" for standalone workspaces.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runWsList(gf, filterType, showWorktrees, verbose)
+			return runWsList(gf, filterType, false, verbose)
 		},
 	}
 
 	cmd.Flags().StringVarP(&filterType, "type", "t", "", "Filter by workspace type")
-	cmd.Flags().BoolVarP(&showWorktrees, "worktrees", "w", false, "Show git worktrees within each project")
-	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show additional columns (PATH)")
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show additional columns")
 
 	return cmd
 }
@@ -1082,69 +936,14 @@ func runWsList(gf *GlobalFlags, filterType string, showWorktrees bool, verbose b
 		instanceNames[inst.Name] = true
 	}
 
-	// Auto-prune stale project entries whose paths no longer exist.
-	if pruned, _ := store.PruneStaleProjects(); pruned > 0 {
-		log.Printf("Auto-pruned %d stale project(s) from registry.", pruned)
-	}
-
-	// Collect project-local workspaces from the global registry (FR-006, FR-012).
-	var projectWs []projectListEntry
-	seenProjectNames := make(map[string]bool)
-	projects, _ := store.ListProjects()
-	for _, p := range projects {
-		def, loadErr := ws.LoadProjectDefinition(p.Path)
-		if loadErr != nil {
-			continue
-		}
-		if filterType != "" && string(def.Type) != filterType {
-			continue
-		}
-		// Skip if already shown via global state or another project.
-		if instanceNames[def.Name] || seenProjectNames[def.Name] {
-			continue
-		}
-		seenProjectNames[def.Name] = true
-		statusStore := ws.NewProjectStatusStore(p.Path)
-		status, _ := statusStore.Load()
-		state := "not created"
-		if status.State != "" {
-			state = string(status.State)
-		}
-		projectWs = append(projectWs, projectListEntry{
-			Name:   def.Name,
-			Type:   def.Type,
-			Status: state,
-			Path:   p.Path,
-		})
-	}
-
-	// Collect worktree info if requested (FR-020).
-	var worktrees []worktreeListEntry
-	if showWorktrees {
-		for _, p := range projects {
-			if _, statErr := os.Stat(p.Path); statErr != nil {
-				continue
-			}
-			wts, wtErr := project.ListWorktrees(p.Path)
-			if wtErr != nil {
-				continue
-			}
-			pName := filepath.Base(p.Path)
-			for _, wt := range wts {
-				worktrees = append(worktrees, worktreeListEntry{
-					ProjectName: pName,
-					Path:        wt.Path,
-					Branch:      wt.Branch,
-				})
-			}
-		}
-	}
+	// Build project map: workspace name -> project basename from definition's ProjectDir.
+	projectMap := buildProjectMap(allDefs)
 
 	switch gf.Output {
 	case "json", "yaml":
-		return writeWsStructured(gf.Output, instances, allDefs, instanceNames, filterType, defs, projectWs)
+		return writeWsStructured(gf.Output, instances, allDefs, instanceNames, filterType, projectMap)
 	default:
-		return writeWsTableWithProjects(instances, allDefs, instanceNames, filterType, projectWs, worktrees, defs, verbose)
+		return writeWsTableWithProjects(instances, allDefs, instanceNames, filterType, projectMap, verbose)
 	}
 }
 
@@ -1153,33 +952,28 @@ type wsListEntry struct {
 	Name         string `json:"name" yaml:"name"`
 	Type         string `json:"type" yaml:"type"`
 	State        string `json:"state" yaml:"state"`
-	Source       string `json:"source" yaml:"source"`
+	Project      string `json:"project" yaml:"project"`
 	Storage      string `json:"storage,omitempty" yaml:"storage,omitempty"`
 	Image        string `json:"image,omitempty" yaml:"image,omitempty"`
-	Path         string `json:"path,omitempty" yaml:"path,omitempty"`
 	LastAttached string `json:"last_attached,omitempty" yaml:"last_attached,omitempty"`
 	Age          string `json:"age,omitempty" yaml:"age,omitempty"`
 }
 
-// buildSourceMap pre-computes the source origin for each workspace name.
-// Project-local entries take precedence over global definitions.
-func buildSourceMap(defs *ws.DefinitionStore, projectWs []projectListEntry) map[string]string {
-	sourceMap := make(map[string]string)
-	// Load global definitions once.
-	if allGlobal, err := defs.List(nil); err == nil {
-		for _, d := range allGlobal {
-			sourceMap[d.Name] = "global"
+// buildProjectMap builds a map from workspace name to project basename
+// derived from the definition's ProjectDir field.
+func buildProjectMap(allDefs []*ws.WorkspaceDefinition) map[string]string {
+	projectMap := make(map[string]string)
+	for _, d := range allDefs {
+		if d.ProjectDir != "" {
+			projectMap[d.Name] = filepath.Base(d.ProjectDir)
+		} else {
+			projectMap[d.Name] = "-"
 		}
 	}
-	// Project-local entries override global.
-	for _, pe := range projectWs {
-		sourceMap[pe.Name] = "project"
-	}
-	return sourceMap
+	return projectMap
 }
 
-func writeWsStructured(format string, instances []*ws.WorkspaceInstance, allDefs []*ws.WorkspaceDefinition, instanceNames map[string]bool, filterType string, defs *ws.DefinitionStore, projectWs []projectListEntry) error {
-	sourceMap := buildSourceMap(defs, projectWs)
+func writeWsStructured(format string, instances []*ws.WorkspaceInstance, allDefs []*ws.WorkspaceDefinition, instanceNames map[string]bool, filterType string, projectMap map[string]string) error {
 	var entries []wsListEntry
 
 	for _, inst := range instances {
@@ -1198,11 +992,15 @@ func writeWsStructured(format string, instances []*ws.WorkspaceInstance, allDefs
 		if inst.K8s != nil {
 			storage = "pvc"
 		}
+		proj := projectMap[inst.Name]
+		if proj == "" {
+			proj = "-"
+		}
 		entries = append(entries, wsListEntry{
 			Name:         inst.Name,
 			Type:         instType,
 			State:        string(inst.State),
-			Source:       sourceMap[inst.Name],
+			Project:      proj,
 			Storage:      storage,
 			Image:        image,
 			LastAttached: formatRelativeTime(inst.LastAttached),
@@ -1218,23 +1016,16 @@ func writeWsStructured(format string, instances []*ws.WorkspaceInstance, allDefs
 		if filterType != "" && string(def.Type) != filterType {
 			continue
 		}
+		proj := projectMap[def.Name]
+		if proj == "" {
+			proj = "-"
+		}
 		entries = append(entries, wsListEntry{
 			Name:    def.Name,
 			Type:    string(def.Type),
 			State:   "not created",
-			Source:  "global",
+			Project: proj,
 			Storage: "-",
-		})
-	}
-
-	// Add project-local entries that are not yet in entries.
-	for _, pe := range projectWs {
-		entries = append(entries, wsListEntry{
-			Name:   pe.Name,
-			Type:   string(pe.Type),
-			State:  pe.Status,
-			Source: "project",
-			Path:   pe.Path,
 		})
 	}
 
@@ -1248,52 +1039,19 @@ func writeWsStructured(format string, instances []*ws.WorkspaceInstance, allDefs
 	}
 }
 
-// writeWsTableWithProjects writes the ws list table with project-local entries.
-func writeWsTableWithProjects(instances []*ws.WorkspaceInstance, allDefs []*ws.WorkspaceDefinition, instanceNames map[string]bool, filterType string, projectWs []projectListEntry, worktrees []worktreeListEntry, defs *ws.DefinitionStore, verbose bool) error {
-	sourceMap := buildSourceMap(defs, projectWs)
-
-	// Build path map from project-local entries for all workspaces.
-	pathMap := make(map[string]string)
-	for _, pe := range projectWs {
-		pathMap[pe.Name] = pe.Path
-	}
-	store := ws.NewStateStore("")
-	if projNames, err := store.AllProjectWorkspaceNames(""); err == nil {
-		for name, path := range projNames {
-			if _, exists := pathMap[name]; !exists {
-				pathMap[name] = path
-			}
-		}
-	}
-	globalConfigDir := filepath.Dir(ws.DefaultDefinitionPath())
-
+// writeWsTableWithProjects writes the ws list table with PROJECT column.
+func writeWsTableWithProjects(instances []*ws.WorkspaceInstance, allDefs []*ws.WorkspaceDefinition, instanceNames map[string]bool, filterType string, projectMap map[string]string, verbose bool) error {
 	tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 
-	header := "NAME\tTYPE\tSTATUS\tSOURCE\tSTORAGE\tLAST ATTACHED\tAGE"
-	if verbose {
-		header += "\tPATH"
-	}
+	header := "NAME\tTYPE\tSTATUS\tPROJECT\tSTORAGE\tLAST ATTACHED\tAGE"
 	fmt.Fprintln(tw, header)
 
-	homeDir, _ := os.UserHomeDir()
-	shortenPath := func(p string) string {
-		if homeDir != "" && strings.HasPrefix(p, homeDir) {
-			return "~" + p[len(homeDir):]
-		}
-		return p
-	}
-
 	hasEntries := false
-	printRow := func(name string, wsType, state, source, storage, lastAttached, age, path string) {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s", name, wsType, state, source, storage, lastAttached, age)
-		if verbose {
-			fmt.Fprintf(tw, "\t%s", shortenPath(path))
-		}
-		fmt.Fprint(tw, "\n")
+	printRow := func(name string, wsType, state, proj, storage, lastAttached, age string) {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", name, wsType, state, proj, storage, lastAttached, age)
 		hasEntries = true
 	}
 
-	// Global workspace instances.
 	for _, inst := range instances {
 		instType := inst.Type
 		if instType == "" {
@@ -1312,15 +1070,15 @@ func writeWsTableWithProjects(instances []*ws.WorkspaceInstance, allDefs []*ws.W
 		} else if inst.K8s != nil {
 			storage = "pvc"
 		}
-		path := globalConfigDir
-		if p, ok := pathMap[inst.Name]; ok {
-			path = p
+		proj := projectMap[inst.Name]
+		if proj == "" {
+			proj = "-"
 		}
-		printRow(inst.Name, string(instType), string(inst.State), sourceMap[inst.Name], storage,
-			formatRelativeTime(inst.LastAttached), formatDuration(time.Since(inst.CreatedAt)), path)
+		printRow(inst.Name, string(instType), string(inst.State), proj, storage,
+			formatRelativeTime(inst.LastAttached), formatDuration(time.Since(inst.CreatedAt)))
 	}
 
-	// Global definitions without instances as "not created".
+	// Definitions without instances as "not created".
 	for _, d := range allDefs {
 		if instanceNames[d.Name] {
 			continue
@@ -1335,17 +1093,11 @@ func writeWsTableWithProjects(instances []*ws.WorkspaceInstance, allDefs []*ws.W
 		if d.Storage != nil {
 			storage = string(d.Storage.Type)
 		}
-		printRow(d.Name, string(d.Type), "not created", "global", storage, "never", "-", globalConfigDir)
-	}
-
-	// Project-local workspaces (FR-012, FR-008).
-	for _, pe := range projectWs {
-		printRow(pe.Name, string(pe.Type), pe.Status, "project", "-", "-", "-", pe.Path)
-	}
-
-	// Worktree sub-entries (FR-020).
-	for _, wt := range worktrees {
-		printRow("  "+wt.Branch, "", "", "", "", "", "", "")
+		proj := projectMap[d.Name]
+		if proj == "" {
+			proj = "-"
+		}
+		printRow(d.Name, string(d.Type), "not created", proj, storage, "never", "-")
 	}
 
 	if !hasEntries {
@@ -1455,18 +1207,10 @@ func runWsStatus(gf *GlobalFlags, name string) error {
 
 	uptime := formatDuration(time.Since(status.Since))
 
-	// Look up project path from project registry (FR-009).
+	// Look up project path from central definition store.
 	var projectPath string
-	projects, _ := store.ListProjects()
-	for _, p := range projects {
-		def, loadErr := ws.LoadProjectDefinition(p.Path)
-		if loadErr != nil {
-			continue
-		}
-		if def.Name == name {
-			projectPath = p.Path
-			break
-		}
+	if def, defErr := defs.FindByName(name); defErr == nil && def.ProjectDir != "" {
+		projectPath = def.ProjectDir
 	}
 
 	switch gf.Output {
@@ -1748,32 +1492,16 @@ func runWsPull(name, remotePath, localPath string) error {
 func newWsPruneCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "prune",
-		Short: "Remove stale project registry entries",
-		Long: `Remove entries from the global project registry whose directories
-no longer exist. This cleans up entries for projects that have been
-moved or deleted.`,
+		Short: "Remove stale workspace definitions",
+		Long: `Clean up workspace definitions whose instances no longer exist.
+This is a no-op placeholder; workspace definitions are managed
+centrally and do not accumulate stale entries.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runWsPrune()
+			fmt.Fprintln(os.Stdout, "Nothing to prune. Workspace definitions are managed centrally.")
+			return nil
 		},
 	}
-}
-
-func runWsPrune() error {
-	store := ws.NewStateStore("")
-	paths, count, err := store.PruneStaleProjectsVerbose()
-	if err != nil {
-		return err
-	}
-	if count == 0 {
-		fmt.Fprintln(os.Stdout, "No stale projects found.")
-	} else {
-		for _, p := range paths {
-			fmt.Fprintf(os.Stdout, "Pruned: %s\n", p)
-		}
-		fmt.Fprintf(os.Stdout, "Removed %d stale project(s).\n", count)
-	}
-	return nil
 }
 
 // --- harvest ---
@@ -1894,10 +1622,10 @@ func runWsRefreshCreds(name string) error {
 	return nil
 }
 
-// resolveWorkspaceName resolves a workspace name from arguments or
-// project-local config. When name is empty, walks to find .cc-deck/workspace.yaml
-// at the git root. Auto-registers discovered projects (FR-007). Displays
-// resolution message (FR-018). Ensures .cc-deck/.gitignore (FR-030).
+// resolveWorkspaceName resolves a workspace name from arguments or the
+// central definition store. Uses a two-phase lookup: (1) filter by
+// project-dir ancestor match against cwd, (2) fall back to global pool
+// with recency-based selection.
 func resolveWorkspaceName(args []string, store *ws.FileStateStore) (name string, projectRoot string, err error) {
 	if len(args) > 0 && args[0] != "" {
 		return args[0], "", nil
@@ -1908,27 +1636,56 @@ func resolveWorkspaceName(args []string, store *ws.FileStateStore) (name string,
 		return "", "", fmt.Errorf("getting current directory: %w", cwdErr)
 	}
 
-	root, findErr := project.FindProjectConfig(cwd)
-	if findErr != nil {
-		return "", "", fmt.Errorf("no workspace name specified and no .cc-deck/workspace.yaml found in project hierarchy")
+	defs := ws.NewDefinitionStore("")
+
+	// Phase 1: filter by project-dir ancestor match.
+	matches, findErr := defs.FindByProjectDir(cwd)
+	if findErr == nil && len(matches) > 0 {
+		selected := selectByRecency(matches, store)
+		if selected != "" {
+			fmt.Fprintf(os.Stderr, "Using workspace %q\n", selected)
+			return selected, "", nil
+		}
 	}
 
-	def, loadErr := ws.LoadProjectDefinition(root)
-	if loadErr != nil {
-		return "", "", fmt.Errorf("loading project definition from %s: %w", root, loadErr)
+	// Phase 2: fall back to all definitions.
+	allDefs, listErr := defs.List(nil)
+	if listErr != nil {
+		return "", "", fmt.Errorf("listing workspaces: %w", listErr)
+	}
+	if len(allDefs) == 0 {
+		return "", "", fmt.Errorf("no workspaces found; create one with 'cc-deck ws new'")
+	}
+	selected := selectByRecency(allDefs, store)
+	if selected != "" {
+		fmt.Fprintf(os.Stderr, "Using workspace %q\n", selected)
+		return selected, "", nil
 	}
 
-	fmt.Fprintf(os.Stderr, "Using workspace %q from %s/.cc-deck/\n", def.Name, root)
+	return "", "", fmt.Errorf("no workspace specified; run 'cc-deck ws list' to see available workspaces")
+}
 
-	// Auto-register project on walk-based discovery (FR-007).
-	if regErr := store.RegisterProject(root); regErr != nil {
-		fmt.Fprintf(os.Stderr, "WARNING: could not register project: %v\n", regErr)
+// selectByRecency picks a workspace from a list of definitions. If there is
+// exactly one, returns its name. If multiple, selects the most recently
+// attached. Returns empty string if no selection can be made.
+func selectByRecency(defs []*ws.WorkspaceDefinition, store *ws.FileStateStore) string {
+	if len(defs) == 1 {
+		return defs[0].Name
 	}
 
-	// Self-heal .gitignore (FR-030).
-	_ = ws.EnsureCCDeckGitignore(root)
-
-	return def.Name, root, nil
+	var bestName string
+	var bestTime *time.Time
+	for _, d := range defs {
+		inst, err := store.FindInstanceByName(d.Name)
+		if err != nil || inst.LastAttached == nil {
+			continue
+		}
+		if bestTime == nil || inst.LastAttached.After(*bestTime) {
+			bestName = d.Name
+			bestTime = inst.LastAttached
+		}
+	}
+	return bestName
 }
 
 // resolveWorkspace finds a workspace by name and returns the appropriate
@@ -1948,16 +1705,9 @@ func resolveWorkspace(name string, store *ws.FileStateStore, defs *ws.Definition
 		return ws.NewWorkspace(instType, name, store, defs)
 	}
 
-	// Search project definitions from the global registry so that
-	// workspaces visible in "ws list" are also resolvable here.
-	if projects, err := store.ListProjects(); err == nil {
-		for _, p := range projects {
-			def, loadErr := ws.LoadProjectDefinition(p.Path)
-			if loadErr != nil || def.Name != name {
-				continue
-			}
-			return ws.NewWorkspace(def.Type, name, store, defs)
-		}
+	// Check central definition store for "not created" workspaces.
+	if def, defErr := defs.FindByName(name); defErr == nil {
+		return ws.NewWorkspace(def.Type, name, store, defs)
 	}
 
 	return nil, fmt.Errorf("workspace %q not found", name)

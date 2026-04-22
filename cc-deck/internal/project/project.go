@@ -11,12 +11,10 @@ import (
 )
 
 var (
-	ErrNotGitRepo        = errors.New("not inside a git repository")
-	ErrNoProjectConfig   = errors.New("no .cc-deck/workspace.yaml found in project hierarchy")
-	ErrNoWorkspaceConfig = errors.New("no .cc-deck/workspace.yaml found in directory hierarchy")
+	ErrNotGitRepo      = errors.New("not inside a git repository")
+	ErrNoProjectRoot   = errors.New("no .cc-deck/ directory found in project hierarchy")
+	ErrNoWorkspaceRoot = errors.New("no .cc-deck/ directory found in directory hierarchy")
 )
-
-const projectConfigPath = ".cc-deck/workspace.yaml"
 
 // FindGitRoot returns the git root directory for the given start path.
 // Uses `git rev-parse --show-toplevel` for reliable detection.
@@ -31,41 +29,38 @@ func FindGitRoot(startDir string) (string, error) {
 	return CanonicalPath(root), nil
 }
 
-// FindProjectConfig looks for .cc-deck/workspace.yaml using two strategies:
+// FindProjectRoot looks for a .cc-deck/ directory using two strategies:
 //  1. Check at the git root (fast, deterministic for single-repo projects).
 //  2. Walk up the directory tree (supports workspace directories without .git).
 //
-// Returns the project or workspace root path and nil error if found.
-func FindProjectConfig(startDir string) (string, error) {
-	// Strategy 1: Check at the git root (existing behavior, fast path).
+// Returns the project root path and nil error if found.
+func FindProjectRoot(startDir string) (string, error) {
 	if root, err := FindGitRoot(startDir); err == nil {
-		configFile := filepath.Join(root, projectConfigPath)
-		if _, statErr := os.Stat(configFile); statErr == nil {
+		ccDeckDir := filepath.Join(root, ".cc-deck")
+		if info, statErr := os.Stat(ccDeckDir); statErr == nil && info.IsDir() {
 			return root, nil
 		}
 	}
 
-	// Strategy 2: Walk up for workspace detection.
 	if root, err := FindWorkspaceRoot(startDir); err == nil {
 		return root, nil
 	}
 
-	return "", ErrNoProjectConfig
+	return "", ErrNoProjectRoot
 }
 
 // FindWorkspaceRoot walks up from startDir looking for a directory
-// containing .cc-deck/workspace.yaml. Unlike FindProjectConfig's
-// git-root strategy, this does not require a git repository.
+// containing a .cc-deck/ subdirectory. Does not require a git repository.
 // Returns the canonical path of the directory containing .cc-deck/.
 func FindWorkspaceRoot(startDir string) (string, error) {
 	absDir, err := filepath.Abs(startDir)
 	if err != nil {
-		return "", ErrNoWorkspaceConfig
+		return "", ErrNoWorkspaceRoot
 	}
 	dir := absDir
 	for {
-		configFile := filepath.Join(dir, projectConfigPath)
-		if _, err := os.Stat(configFile); err == nil {
+		ccDeckDir := filepath.Join(dir, ".cc-deck")
+		if info, statErr := os.Stat(ccDeckDir); statErr == nil && info.IsDir() {
 			return CanonicalPath(dir), nil
 		}
 		parent := filepath.Dir(dir)
@@ -74,7 +69,7 @@ func FindWorkspaceRoot(startDir string) (string, error) {
 		}
 		dir = parent
 	}
-	return "", ErrNoWorkspaceConfig
+	return "", ErrNoWorkspaceRoot
 }
 
 // CanonicalPath returns the symlink-resolved absolute path.
