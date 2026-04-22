@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -41,8 +42,8 @@ Use --type to select the runtime backend when creating a workspace:
   k8s-deploy  Persistent Kubernetes workspace with StatefulSet
   k8s-sandbox Ephemeral Kubernetes pod (planned)
 
-Most commands accept a workspace name, or auto-detect it from
-a .cc-deck/workspace.yaml file in the current project.`,
+Most commands accept a workspace name, or auto-resolve by
+matching the current directory against workspace definitions.`,
 	}
 
 	wsCmd.AddGroup(
@@ -305,7 +306,8 @@ func runWsNew(gf *GlobalFlags, name string, cf *newFlags, cmd *cobra.Command) er
 				for k := range tmpl.Variants {
 					keys = append(keys, k)
 				}
-				return fmt.Errorf("template has no variant for type %q; available: %s", cf.wsType, strings.Join(keys, ", "))
+				sort.Strings(keys)
+				return fmt.Errorf("template defines multiple variants; use --type to select one: %s", strings.Join(keys, ", "))
 			}
 		}
 
@@ -513,6 +515,7 @@ func runWsNew(gf *GlobalFlags, name string, cf *newFlags, cmd *cobra.Command) er
 	}
 
 	if err := e.Create(cmd_context(), opts); err != nil {
+		_ = defs.Remove(activeDef.Name)
 		return err
 	}
 
@@ -673,7 +676,7 @@ func newAttachCmdCore(_ *GlobalFlags) *cobra.Command {
 		Use:   "attach [name]",
 		Short: "Attach to a workspace",
 		Long: `Open an interactive session for the named workspace.
-When no name is provided, resolves from .cc-deck/workspace.yaml in the project.
+When no name is provided, auto-resolves from workspace definitions in the central store.
 Use --reset to kill the existing Zellij session and start fresh.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -740,10 +743,10 @@ func newWsUpdateCmd(_ *GlobalFlags) *cobra.Command {
 		Short: "Update workspace settings or sync repos",
 		Long: `Update an existing workspace or sync repos from the workspace definition.
 
-When --sync-repos is set, reads repos from .cc-deck/workspace.yaml
+When --sync-repos is set, reads repos from the workspace definition in the central store
 and clones any that don't exist on the remote. Already-cloned repos
 are skipped (idempotent).`,
-		Example: `  # Sync repos defined in workspace.yaml to the remote
+		Example: `  # Sync repos from workspace definition to the remote
   cc-deck ws update marovo --sync-repos
 
   # Auto-resolve workspace name from project config
@@ -814,7 +817,7 @@ func newWsDeleteCmd(_ *GlobalFlags) *cobra.Command {
 		Long: `Destroy the named workspace and remove it from the state store.
 If the workspace is running, use --force to stop and destroy it.
 For container workspaces, use --keep-volumes to preserve data volumes.
-When no name is provided, resolves from .cc-deck/workspace.yaml in the project.`,
+When no name is provided, auto-resolves from workspace definitions in the central store.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store := ws.NewStateStore("")
@@ -1137,7 +1140,7 @@ func newStatusCmdCore(gf *GlobalFlags) *cobra.Command {
 		Use:   "status [name]",
 		Short: "Show workspace status",
 		Long: `Display detailed status information for the named workspace.
-When no name is provided, resolves from .cc-deck/workspace.yaml in the project.`,
+When no name is provided, auto-resolves from workspace definitions in the central store.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store := ws.NewStateStore("")
@@ -1297,7 +1300,7 @@ func newStartCmdCore(_ *GlobalFlags) *cobra.Command {
 		Use:   "start [name]",
 		Short: "Start a stopped workspace",
 		Long: `Bring a stopped workspace back to a running state.
-When no name is provided, resolves from .cc-deck/workspace.yaml in the project.`,
+When no name is provided, auto-resolves from workspace definitions in the central store.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store := ws.NewStateStore("")
@@ -1338,7 +1341,7 @@ func newStopCmdCore(_ *GlobalFlags) *cobra.Command {
 		Use:   "stop [name]",
 		Short: "Stop a running workspace",
 		Long: `Gracefully stop a running workspace.
-When no name is provided, resolves from .cc-deck/workspace.yaml in the project.`,
+When no name is provided, auto-resolves from workspace definitions in the central store.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store := ws.NewStateStore("")
@@ -1646,6 +1649,15 @@ func resolveWorkspaceName(args []string, store *ws.FileStateStore) (name string,
 			fmt.Fprintf(os.Stderr, "Using workspace %q\n", selected)
 			return selected, "", nil
 		}
+		if len(matches) > 1 {
+			names := make([]string, len(matches))
+			for i, m := range matches {
+				names[i] = m.Name
+			}
+			return "", "", fmt.Errorf("multiple workspaces match this project (%s); specify a name", strings.Join(names, ", "))
+		}
+		fmt.Fprintf(os.Stderr, "Using workspace %q\n", matches[0].Name)
+		return matches[0].Name, "", nil
 	}
 
 	// Phase 2: fall back to all definitions.

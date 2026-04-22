@@ -471,10 +471,12 @@ func TestDefinitionRoundTrip_WithRepos(t *testing.T) {
 	def := &WorkspaceDefinition{
 		Name: "test-env",
 		Type: WorkspaceTypeSSH,
-		Host: "user@host",
-		Repos: []RepoEntry{
-			{URL: "https://github.com/org/repo.git", Branch: "main", Target: "my-repo"},
-			{URL: "git@github.com:org/other.git"},
+		WorkspaceSpec: WorkspaceSpec{
+			Host: "user@host",
+			Repos: []RepoEntry{
+				{URL: "https://github.com/org/repo.git", Branch: "main", Target: "my-repo"},
+				{URL: "git@github.com:org/other.git"},
+			},
 		},
 	}
 

@@ -263,12 +263,14 @@ func (e *ContainerWorkspace) Create(ctx context.Context, opts CreateOpts) error 
 			_ = e.defs.Update(def)
 		} else {
 			wsDef := &WorkspaceDefinition{
-				Name:        e.name,
-				Type:        WorkspaceTypeContainer,
-				Image:       image,
-				Ports:       ports,
-				Credentials: credentialKeys,
-				Mounts:      e.Mounts,
+				Name: e.name,
+				Type: WorkspaceTypeContainer,
+				WorkspaceSpec: WorkspaceSpec{
+					Image:       image,
+					Ports:       ports,
+					Credentials: credentialKeys,
+					Mounts:      e.Mounts,
+				},
 			}
 			if storageType != "" {
 				wsDef.Storage = &StorageConfig{

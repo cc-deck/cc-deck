@@ -47,9 +47,11 @@ func TestResolveWorkspaceName_ProjectDirMatch(t *testing.T) {
 	resolved, _ := filepath.EvalSymlinks(tmpDir)
 	defs := ws.NewDefinitionStore(defFile)
 	require.NoError(t, defs.Add(&ws.WorkspaceDefinition{
-		Name:       "project-ws",
-		Type:       ws.WorkspaceTypeLocal,
-		ProjectDir: resolved,
+		Name: "project-ws",
+		Type: ws.WorkspaceTypeLocal,
+		WorkspaceSpec: ws.WorkspaceSpec{
+			ProjectDir: resolved,
+		},
 	}))
 	require.NoError(t, defs.Add(&ws.WorkspaceDefinition{
 		Name: "other-ws",
@@ -116,4 +118,81 @@ func TestResolveWorkspaceName_ExplicitNameTakesPrecedence(t *testing.T) {
 	name, _, err := resolveWorkspaceName([]string{"explicit-name"}, store)
 	require.NoError(t, err)
 	assert.Equal(t, "explicit-name", name)
+}
+
+func TestResolveWorkspaceName_MultipleNoRecency(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	stateFile := filepath.Join(tmpDir, "test-state.yaml")
+	defFile := filepath.Join(tmpDir, "test-defs.yaml")
+	t.Setenv("CC_DECK_STATE_FILE", stateFile)
+	t.Setenv("CC_DECK_WORKSPACES_FILE", defFile)
+
+	defs := ws.NewDefinitionStore(defFile)
+	require.NoError(t, defs.Add(&ws.WorkspaceDefinition{Name: "ws-a", Type: ws.WorkspaceTypeLocal}))
+	require.NoError(t, defs.Add(&ws.WorkspaceDefinition{Name: "ws-b", Type: ws.WorkspaceTypeLocal}))
+
+	store := ws.NewStateStore(stateFile)
+	_, _, err := resolveWorkspaceName(nil, store)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no workspace specified")
+}
+
+func TestResolveWorkspaceName_MultipleProjectDirNoRecency(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	origDir, _ := os.Getwd()
+	require.NoError(t, os.Chdir(tmpDir))
+	defer os.Chdir(origDir)
+
+	stateFile := filepath.Join(tmpDir, "test-state.yaml")
+	defFile := filepath.Join(tmpDir, "test-defs.yaml")
+	t.Setenv("CC_DECK_STATE_FILE", stateFile)
+	t.Setenv("CC_DECK_WORKSPACES_FILE", defFile)
+
+	resolved, _ := filepath.EvalSymlinks(tmpDir)
+	defs := ws.NewDefinitionStore(defFile)
+	require.NoError(t, defs.Add(&ws.WorkspaceDefinition{
+		Name: "ws-a",
+		Type: ws.WorkspaceTypeLocal,
+		WorkspaceSpec: ws.WorkspaceSpec{ProjectDir: resolved},
+	}))
+	require.NoError(t, defs.Add(&ws.WorkspaceDefinition{
+		Name: "ws-b",
+		Type: ws.WorkspaceTypeContainer,
+		WorkspaceSpec: ws.WorkspaceSpec{ProjectDir: resolved},
+	}))
+
+	store := ws.NewStateStore(stateFile)
+	_, _, err := resolveWorkspaceName(nil, store)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "multiple workspaces match this project")
+}
+
+func TestResolveWorkspaceName_SubdirectoryMatch(t *testing.T) {
+	tmpDir := t.TempDir()
+	subDir := filepath.Join(tmpDir, "src", "pkg")
+	require.NoError(t, os.MkdirAll(subDir, 0o755))
+
+	origDir, _ := os.Getwd()
+	require.NoError(t, os.Chdir(subDir))
+	defer os.Chdir(origDir)
+
+	stateFile := filepath.Join(tmpDir, "test-state.yaml")
+	defFile := filepath.Join(tmpDir, "test-defs.yaml")
+	t.Setenv("CC_DECK_STATE_FILE", stateFile)
+	t.Setenv("CC_DECK_WORKSPACES_FILE", defFile)
+
+	resolved, _ := filepath.EvalSymlinks(tmpDir)
+	defs := ws.NewDefinitionStore(defFile)
+	require.NoError(t, defs.Add(&ws.WorkspaceDefinition{
+		Name: "proj-ws",
+		Type: ws.WorkspaceTypeLocal,
+		WorkspaceSpec: ws.WorkspaceSpec{ProjectDir: resolved},
+	}))
+
+	store := ws.NewStateStore(stateFile)
+	name, _, err := resolveWorkspaceName(nil, store)
+	require.NoError(t, err)
+	assert.Equal(t, "proj-ws", name)
 }
