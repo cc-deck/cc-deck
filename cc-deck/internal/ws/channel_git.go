@@ -18,10 +18,15 @@ func gitFetch(ctx context.Context, name, remoteURL string, opts HarvestOpts) err
 		}
 
 		if opts.Branch != "" {
-			if err := gitExec(ctx, "checkout", "-b", opts.Branch, remoteName+"/"+opts.Branch); err != nil {
+			ref := remoteName + "/" + opts.Branch
+			if err := gitExec(ctx, "checkout", "-b", opts.Branch, ref); err != nil {
 				if err2 := gitExec(ctx, "checkout", "-b", opts.Branch, "FETCH_HEAD"); err2 != nil {
-					return newChannelError("git", "fetch", name,
-						fmt.Sprintf("creating local branch %q", opts.Branch), err2)
+					// Branch already exists: switch to it and update
+					if err3 := gitExec(ctx, "checkout", opts.Branch); err3 != nil {
+						return newChannelError("git", "fetch", name,
+							fmt.Sprintf("switching to branch %q", opts.Branch), err3)
+					}
+					_ = gitExec(ctx, "merge", "--ff-only", "FETCH_HEAD")
 				}
 			}
 		}
