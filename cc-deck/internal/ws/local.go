@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -25,6 +26,11 @@ const (
 type LocalWorkspace struct {
 	name  string
 	store *FileStateStore
+
+	pipeOnce sync.Once
+	pipeCh   PipeChannel
+	dataOnce sync.Once
+	dataCh   DataChannel
 }
 
 // Type returns WorkspaceTypeLocal.
@@ -203,14 +209,48 @@ func (e *LocalWorkspace) Exec(_ context.Context, _ []string) error {
 	return fmt.Errorf("local workspaces: %w", ErrNotSupported)
 }
 
-// Push is not supported for local workspaces.
-func (e *LocalWorkspace) Push(_ context.Context, _ SyncOpts) error {
-	return fmt.Errorf("local workspaces: %w", ErrNotSupported)
+// ExecOutput is not supported for local workspaces.
+func (e *LocalWorkspace) ExecOutput(_ context.Context, _ []string) (string, error) {
+	return "", fmt.Errorf("local workspaces: %w", ErrNotSupported)
 }
 
-// Pull is not supported for local workspaces.
-func (e *LocalWorkspace) Pull(_ context.Context, _ SyncOpts) error {
-	return fmt.Errorf("local workspaces: %w", ErrNotSupported)
+// PipeChannel returns the pipe channel for this workspace.
+func (e *LocalWorkspace) PipeChannel(_ context.Context) (PipeChannel, error) {
+	e.pipeOnce.Do(func() {
+		e.pipeCh = &localPipeChannel{name: e.name}
+	})
+	return e.pipeCh, nil
+}
+
+// DataChannel returns the data channel for this workspace.
+func (e *LocalWorkspace) DataChannel(_ context.Context) (DataChannel, error) {
+	e.dataOnce.Do(func() {
+		e.dataCh = &localDataChannel{name: e.name}
+	})
+	return e.dataCh, nil
+}
+
+// GitChannel is not supported for local workspaces.
+func (e *LocalWorkspace) GitChannel(_ context.Context) (GitChannel, error) {
+	return nil, fmt.Errorf("local workspaces git channel: %w", ErrNotSupported)
+}
+
+// Push copies local files to the target path via DataChannel.
+func (e *LocalWorkspace) Push(ctx context.Context, opts SyncOpts) error {
+	ch, err := e.DataChannel(ctx)
+	if err != nil {
+		return err
+	}
+	return ch.Push(ctx, opts)
+}
+
+// Pull copies files from the source path to the target via DataChannel.
+func (e *LocalWorkspace) Pull(ctx context.Context, opts SyncOpts) error {
+	ch, err := e.DataChannel(ctx)
+	if err != nil {
+		return err
+	}
+	return ch.Pull(ctx, opts)
 }
 
 // Harvest is not supported for local workspaces.

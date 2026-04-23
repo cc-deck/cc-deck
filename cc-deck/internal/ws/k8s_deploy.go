@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -52,6 +53,15 @@ type K8sDeployWorkspace struct {
 	Repos           []RepoEntry
 	ExtraRemotes    map[string]string
 	AutoDetectedURL string
+
+	pipeOnce sync.Once
+	pipeCh   PipeChannel
+	dataOnce sync.Once
+	dataCh   DataChannel
+	dataErr  error
+	gitOnce  sync.Once
+	gitCh    GitChannel
+	gitErr   error
 }
 
 const (
@@ -502,7 +512,61 @@ func (e *K8sDeployWorkspace) Exec(ctx context.Context, cmd []string) error {
 	return k8sExec(ctx, e.resolveNamespace(inst), k8sPodName(e.name), e.kubeconfigArgs(inst), cmd, false)
 }
 
-// Push synchronizes local files into the K8s Pod via tar-over-exec.
+// ExecOutput runs a command inside the K8s Pod and returns stdout.
+func (e *K8sDeployWorkspace) ExecOutput(ctx context.Context, cmd []string) (string, error) {
+	inst, err := e.store.FindInstanceByName(e.name)
+	if err != nil {
+		return "", err
+	}
+	return k8sExecOutput(ctx, e.resolveNamespace(inst), k8sPodName(e.name), e.kubeconfigArgs(inst), strings.Join(cmd, " "))
+}
+
+// PipeChannel returns the pipe channel for this workspace.
+func (e *K8sDeployWorkspace) PipeChannel(_ context.Context) (PipeChannel, error) {
+	e.pipeOnce.Do(func() {
+		e.pipeCh = &execPipeChannel{name: e.name, execFn: e.Exec}
+	})
+	return e.pipeCh, nil
+}
+
+// DataChannel returns the data channel for this workspace.
+func (e *K8sDeployWorkspace) DataChannel(_ context.Context) (DataChannel, error) {
+	e.dataOnce.Do(func() {
+		inst, err := e.store.FindInstanceByName(e.name)
+		if err != nil {
+			e.dataErr = err
+			return
+		}
+		e.dataCh = &k8sDataChannel{
+			name:           e.name,
+			ns:             e.resolveNamespace(inst),
+			podName:        k8sPodName(e.name),
+			kubeconfigArgs: append([]string(nil), e.kubeconfigArgs(inst)...),
+		}
+	})
+	return e.dataCh, e.dataErr
+}
+
+// GitChannel returns the git channel for this workspace.
+func (e *K8sDeployWorkspace) GitChannel(_ context.Context) (GitChannel, error) {
+	e.gitOnce.Do(func() {
+		inst, err := e.store.FindInstanceByName(e.name)
+		if err != nil {
+			e.gitErr = err
+			return
+		}
+		e.gitCh = &k8sGitChannel{
+			name:           e.name,
+			ns:             e.resolveNamespace(inst),
+			podName:        k8sPodName(e.name),
+			kubeconfigArgs: append([]string(nil), e.kubeconfigArgs(inst)...),
+			workspacePath:  k8sWorkspacePath,
+		}
+	})
+	return e.gitCh, e.gitErr
+}
+
+// Push synchronizes local files into the K8s Pod via DataChannel.
 func (e *K8sDeployWorkspace) Push(ctx context.Context, opts SyncOpts) error {
 	inst, err := e.store.FindInstanceByName(e.name)
 	if err != nil {
@@ -512,10 +576,14 @@ func (e *K8sDeployWorkspace) Push(ctx context.Context, opts SyncOpts) error {
 		return fmt.Errorf("workspace is not running (state: %s); start it with: cc-deck ws start %s", inst.State, e.name)
 	}
 
-	return k8sPush(ctx, e.resolveNamespace(inst), k8sPodName(e.name), e.kubeconfigArgs(inst), opts)
+	ch, chErr := e.DataChannel(ctx)
+	if chErr != nil {
+		return chErr
+	}
+	return ch.Push(ctx, opts)
 }
 
-// Pull synchronizes files from the K8s Pod to local storage via tar-over-exec.
+// Pull synchronizes files from the K8s Pod to local storage via DataChannel.
 func (e *K8sDeployWorkspace) Pull(ctx context.Context, opts SyncOpts) error {
 	inst, err := e.store.FindInstanceByName(e.name)
 	if err != nil {
@@ -525,10 +593,14 @@ func (e *K8sDeployWorkspace) Pull(ctx context.Context, opts SyncOpts) error {
 		return fmt.Errorf("workspace is not running (state: %s); start it with: cc-deck ws start %s", inst.State, e.name)
 	}
 
-	return k8sPull(ctx, e.resolveNamespace(inst), k8sPodName(e.name), e.kubeconfigArgs(inst), opts)
+	ch, chErr := e.DataChannel(ctx)
+	if chErr != nil {
+		return chErr
+	}
+	return ch.Pull(ctx, opts)
 }
 
-// Harvest extracts git commits from the K8s Pod via ext::kubectl exec.
+// Harvest extracts git commits from the K8s Pod via GitChannel.
 func (e *K8sDeployWorkspace) Harvest(ctx context.Context, opts HarvestOpts) error {
 	inst, err := e.store.FindInstanceByName(e.name)
 	if err != nil {
@@ -538,7 +610,11 @@ func (e *K8sDeployWorkspace) Harvest(ctx context.Context, opts HarvestOpts) erro
 		return fmt.Errorf("workspace is not running (state: %s); start it with: cc-deck ws start %s", inst.State, e.name)
 	}
 
-	return k8sHarvest(ctx, e.resolveNamespace(inst), k8sPodName(e.name), e.kubeconfigArgs(inst), opts)
+	ch, chErr := e.GitChannel(ctx)
+	if chErr != nil {
+		return chErr
+	}
+	return ch.Fetch(ctx, opts)
 }
 
 // applyResources creates all generated K8s resources on the cluster.
