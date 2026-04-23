@@ -19,14 +19,16 @@ func gitFetch(ctx context.Context, name, remoteURL string, opts HarvestOpts) err
 
 		if opts.Branch != "" {
 			ref := remoteName + "/" + opts.Branch
-			if err := gitExec(ctx, "checkout", "-b", opts.Branch, ref); err != nil {
-				if err2 := gitExec(ctx, "checkout", "-b", opts.Branch, "FETCH_HEAD"); err2 != nil {
-					// Branch already exists: switch to it and update
-					if err3 := gitExec(ctx, "checkout", opts.Branch); err3 != nil {
+			if err := gitExecSilent(ctx, "checkout", "-b", opts.Branch, ref); err != nil {
+				if err2 := gitExecSilent(ctx, "checkout", "-b", opts.Branch, "FETCH_HEAD"); err2 != nil {
+					if err3 := gitExecSilent(ctx, "checkout", opts.Branch); err3 != nil {
 						return newChannelError("git", "fetch", name,
 							fmt.Sprintf("switching to branch %q", opts.Branch), err3)
 					}
-					_ = gitExec(ctx, "merge", "--ff-only", "FETCH_HEAD")
+					fmt.Fprintf(os.Stderr, "Switched to existing branch %q\n", opts.Branch)
+					if mergeErr := gitExecSilent(ctx, "merge", "--ff-only", "FETCH_HEAD"); mergeErr != nil {
+						fmt.Fprintf(os.Stderr, "Branch %q is up to date\n", opts.Branch)
+					}
 				}
 			}
 		}
