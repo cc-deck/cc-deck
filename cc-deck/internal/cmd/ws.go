@@ -1445,7 +1445,10 @@ func newWsPushCmd(_ *GlobalFlags) *cobra.Command {
 	return &cobra.Command{
 		Use:   "push <name> <local-path> [remote-path]",
 		Short: "Push local files into a workspace",
-		Args:  cobra.RangeArgs(1, 3),
+		Long: `Copy local files into the named workspace. Works with all workspace
+types including local workspaces (filesystem copy), containers
+(podman cp), SSH (rsync), and Kubernetes (tar-over-exec).`,
+		Args: cobra.RangeArgs(1, 3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			localPath := ""
 			remotePath := ""
@@ -1486,7 +1489,10 @@ func newWsPullCmd(_ *GlobalFlags) *cobra.Command {
 	return &cobra.Command{
 		Use:   "pull <name> <remote-path> [local-path]",
 		Short: "Pull files from a workspace",
-		Args:  cobra.RangeArgs(1, 3),
+		Long: `Copy files from the named workspace to local storage. Works with all
+workspace types including local workspaces (filesystem copy),
+containers (podman cp), SSH (rsync), and Kubernetes (tar-over-exec).`,
+		Args: cobra.RangeArgs(1, 3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			remotePath := ""
 			localPath := ""
@@ -1541,17 +1547,34 @@ centrally and do not accumulate stale entries.`,
 // --- harvest ---
 
 func newWsHarvestCmd(_ *GlobalFlags) *cobra.Command {
-	return &cobra.Command{
+	var branch string
+	var createPR bool
+	var repoPath string
+
+	cmd := &cobra.Command{
 		Use:   "harvest <name>",
 		Short: "Extract work products from a workspace",
-		Args:  cobra.MinimumNArgs(1),
+		Long: `Fetch git commits from the remote workspace into the local repository.
+Works with SSH, K8s, container, and compose workspace types.
+
+The --branch flag creates a local branch from the fetched commits.
+The --create-pr flag pushes the branch and creates a GitHub PR.
+The --path flag specifies a subdirectory within the workspace (useful
+when the workspace contains multiple repos).`,
+		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runWsHarvest(args[0])
+			return runWsHarvest(args[0], branch, repoPath, createPR)
 		},
 	}
+
+	cmd.Flags().StringVar(&branch, "branch", "", "Create a local branch with this name from fetched commits")
+	cmd.Flags().BoolVar(&createPR, "create-pr", false, "Push branch and create a GitHub pull request")
+	cmd.Flags().StringVar(&repoPath, "path", "", "Subdirectory within workspace (e.g., repo name)")
+
+	return cmd
 }
 
-func runWsHarvest(name string) error {
+func runWsHarvest(name, branch, repoPath string, createPR bool) error {
 	store := ws.NewStateStore("")
 	defs := ws.NewDefinitionStore("")
 
@@ -1560,7 +1583,11 @@ func runWsHarvest(name string) error {
 		return err
 	}
 
-	return e.Harvest(cmd_context(), ws.HarvestOpts{})
+	return e.Harvest(cmd_context(), ws.HarvestOpts{
+		Branch:   branch,
+		CreatePR: createPR,
+		Path:     repoPath,
+	})
 }
 
 // --- logs ---

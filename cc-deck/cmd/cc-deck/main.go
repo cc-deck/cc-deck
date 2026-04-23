@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/cc-deck/cc-deck/internal/build"
 	"github.com/cc-deck/cc-deck/internal/cmd"
+	"github.com/cc-deck/cc-deck/internal/ws"
 	"github.com/cc-deck/cc-deck/internal/xdg"
 )
 
@@ -113,6 +115,14 @@ func main() {
 
 	rootCmd := newRootCmd()
 	if err := rootCmd.Execute(); err != nil {
+		var chErr *ws.ChannelError
+		if errors.As(err, &chErr) {
+			verbose, _ := rootCmd.PersistentFlags().GetBool("verbose")
+			if verbose && chErr.Err != nil {
+				fmt.Fprintf(os.Stderr, "Channel: %s, Op: %s, Workspace: %s\n", chErr.Channel, chErr.Op, chErr.Workspace)
+				fmt.Fprintf(os.Stderr, "Cause: %v\n", chErr.Err)
+			}
+		}
 		os.Exit(1)
 	}
 }

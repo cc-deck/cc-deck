@@ -1,6 +1,9 @@
 package ws
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 var (
 	// ErrNotSupported indicates that the requested operation is not
@@ -43,3 +46,30 @@ var (
 	// located in PATH.
 	ErrKubectlNotFound = errors.New("kubectl binary not found in PATH")
 )
+
+// ChannelError wraps transport-level failures with channel context.
+type ChannelError struct {
+	Channel   string
+	Op        string
+	Workspace string
+	Summary   string
+	Err       error
+}
+
+func (e *ChannelError) Error() string {
+	return e.Summary
+}
+
+func (e *ChannelError) Unwrap() error {
+	return e.Err
+}
+
+func newChannelError(channel, op, workspace, summary string, err error) *ChannelError {
+	return &ChannelError{
+		Channel:   channel,
+		Op:        op,
+		Workspace: workspace,
+		Summary:   fmt.Sprintf("%s %s failed: %s", channel, op, summary),
+		Err:       err,
+	}
+}

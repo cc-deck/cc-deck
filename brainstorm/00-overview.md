@@ -24,9 +24,11 @@ Last updated: 2026-04-08
 | 19 | 2026-03-12 | build-commands | active | - |
 | 20 | 2026-03-12 | deploy-integration | active | - |
 | 34 | 2026-04-08 | unified-setup-command | active | - |
+| 40 | 2026-04-21 | workspace-channels | active | - |
 
 ## Open Threads
 
+- Workspace channels: unified local-remote transport abstraction with three typed channels (PipeChannel, DataChannel, GitChannel). Refactors existing Push/Pull/Harvest to delegate to channels internally. Voice capture and clipboard bridge are separate future brainstorms that consume channels. Inspired by lince comparison (from #40)
 - Unified setup command: replace `cc-deck image` with `cc-deck setup`, single manifest for container images and SSH provisioning via Ansible (from #34, depends on 033, 017, 018)
 - Vertex AI Workload Identity vs service account key for GKE/OpenShift (from #02)
 - Base container image definition (from #02)
