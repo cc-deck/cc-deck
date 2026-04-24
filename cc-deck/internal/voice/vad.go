@@ -31,54 +31,55 @@ func (v *VAD) Process(frames <-chan []int16) <-chan Utterance {
 		defer close(out)
 
 		var (
-			ringBuf    = make([]int16, 0, preRollSamples)
-			utterance  []int16
-			speaking   bool
-			silenceLen int
+			ringBuf       = make([]int16, 0, preRollSamples)
+			utterance     []int16
+			speaking      bool
+			silenceSmpCnt int
 		)
 
 		for frame := range frames {
-			for _, sample := range frame {
-				if !speaking {
-					ringBuf = append(ringBuf, sample)
-					if len(ringBuf) > preRollSamples {
-						ringBuf = ringBuf[len(ringBuf)-preRollSamples:]
-					}
+			frameRMS := rmsLevel(frame)
+			frameSilent := frameRMS < v.config.Threshold
 
-					if rmsLevel(frame) >= v.config.Threshold {
-						speaking = true
-						silenceLen = 0
-						utterance = make([]int16, 0, v.sampleRate*2)
-						utterance = append(utterance, ringBuf...)
-						utterance = append(utterance, sample)
-						ringBuf = ringBuf[:0]
-					}
+			if !speaking {
+				ringBuf = append(ringBuf, frame...)
+				if len(ringBuf) > preRollSamples {
+					ringBuf = ringBuf[len(ringBuf)-preRollSamples:]
+				}
+
+				if !frameSilent {
+					speaking = true
+					silenceSmpCnt = 0
+					utterance = make([]int16, 0, v.sampleRate*2)
+					utterance = append(utterance, ringBuf...)
+					utterance = append(utterance, frame...)
+					ringBuf = ringBuf[:0]
+				}
+			} else {
+				utterance = append(utterance, frame...)
+
+				if frameSilent {
+					silenceSmpCnt += len(frame)
 				} else {
-					utterance = append(utterance, sample)
+					silenceSmpCnt = 0
+				}
 
-					if rmsLevel(frame) < v.config.Threshold {
-						silenceLen++
-					} else {
-						silenceLen = 0
+				if silenceSmpCnt >= silenceSamples || len(utterance) >= maxSamples {
+					if silenceSmpCnt < len(utterance) {
+						trimmed := utterance[:len(utterance)-silenceSmpCnt]
+						if len(trimmed) > 0 {
+							utterance = trimmed
+						}
 					}
 
-					if silenceLen >= silenceSamples || len(utterance) >= maxSamples {
-						if silenceLen < len(utterance) {
-							trimmed := utterance[:len(utterance)-silenceLen]
-							if len(trimmed) > 0 {
-								utterance = trimmed
-							}
-						}
-
-						out <- Utterance{
-							Audio:      utterance,
-							SampleRate: v.sampleRate,
-						}
-
-						utterance = nil
-						speaking = false
-						silenceLen = 0
+					out <- Utterance{
+						Audio:      utterance,
+						SampleRate: v.sampleRate,
 					}
+
+					utterance = nil
+					speaking = false
+					silenceSmpCnt = 0
 				}
 			}
 		}

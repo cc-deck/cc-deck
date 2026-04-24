@@ -67,7 +67,10 @@ func (m Model) View() string {
 
 func levelBar(level float64) string {
 	const barLen = 30
-	filled := int(level * float64(barLen) * 10) // scale up for visibility
+	filled := int(level * float64(barLen) * 10)
+	if filled < 0 {
+		filled = 0
+	}
 	if filled > barLen {
 		filled = barLen
 	}

@@ -49,6 +49,9 @@ func (s *malgoSource) Start(ctx context.Context, sampleRate int) (<-chan []int16
 
 	callbacks := malgo.DeviceCallbacks{
 		Data: func(_, inputSamples []byte, frameCount uint32) {
+			if len(inputSamples) < int(frameCount*2) {
+				return
+			}
 			samples := make([]int16, frameCount)
 			for i := uint32(0); i < frameCount; i++ {
 				lo := inputSamples[i*2]
@@ -56,6 +59,9 @@ func (s *malgoSource) Start(ctx context.Context, sampleRate int) (<-chan []int16
 				samples[i] = int16(uint16(lo) | uint16(hi)<<8)
 			}
 
+			if len(samples) == 0 {
+				return
+			}
 			var sum float64
 			for _, sample := range samples {
 				v := float64(sample) / 32768.0
