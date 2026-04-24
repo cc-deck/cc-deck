@@ -55,6 +55,12 @@ pub enum PipeAction {
     WorkingPrev,
     /// Force-refresh state: clear caches, broadcast active instance's state (cc-deck:refresh).
     Refresh,
+    /// Voice text to inject into attended pane (cc-deck:voice).
+    VoiceText(String),
+    /// Voice control long-poll connection (cc-deck:voice-control).
+    VoiceControl,
+    /// Voice toggle from F8 keybinding (cc-deck:voice-toggle).
+    VoiceToggle,
     /// Unknown message.
     Unknown,
 }
@@ -95,6 +101,9 @@ pub fn parse_pipe_message(name: &str, payload: Option<&str>) -> PipeAction {
         "cc-deck:working" => PipeAction::Working,
         "cc-deck:working-prev" => PipeAction::WorkingPrev,
         "cc-deck:refresh" => PipeAction::Refresh,
+        "cc-deck:voice" => PipeAction::VoiceText(payload.unwrap_or("").to_string()),
+        "cc-deck:voice-control" => PipeAction::VoiceControl,
+        "cc-deck:voice-toggle" => PipeAction::VoiceToggle,
         _ => PipeAction::Unknown,
     }
 }
@@ -200,5 +209,20 @@ mod tests {
     fn test_parse_malformed_hook() {
         assert!(matches!(parse_pipe_message("cc-deck:hook", Some("not json")), PipeAction::Unknown));
         assert!(matches!(parse_pipe_message("cc-deck:hook", None), PipeAction::Unknown));
+    }
+
+    #[test]
+    fn test_parse_voice_commands() {
+        match parse_pipe_message("cc-deck:voice", Some("hello world")) {
+            PipeAction::VoiceText(text) => assert_eq!(text, "hello world"),
+            _ => panic!("expected VoiceText"),
+        }
+        match parse_pipe_message("cc-deck:voice", None) {
+            PipeAction::VoiceText(text) => assert_eq!(text, ""),
+            _ => panic!("expected VoiceText with empty payload"),
+        }
+        assert!(matches!(parse_pipe_message("cc-deck:voice-control", None), PipeAction::VoiceControl));
+        assert!(matches!(parse_pipe_message("cc-deck:voice-control", Some("listen")), PipeAction::VoiceControl));
+        assert!(matches!(parse_pipe_message("cc-deck:voice-toggle", None), PipeAction::VoiceToggle));
     }
 }

@@ -15,10 +15,10 @@
 
 **Purpose**: Add dependencies and create package structure for voice relay
 
-- [ ] T001 Add charmbracelet/bubbletea, lipgloss, and bubbles dependencies to cc-deck/go.mod
-- [ ] T002 Add gen2brain/malgo dependency to cc-deck/go.mod (CGo audio capture)
-- [ ] T003 [P] Create cc-deck/internal/voice/ package directory with audio.go defining AudioSource interface, DeviceInfo struct, Utterance struct, and VADConfig struct per contracts/voice-pipeline.md
-- [ ] T004 [P] Create cc-deck/internal/voice/transcriber.go defining Transcriber interface and TranscriptionResult struct per contracts/voice-pipeline.md
+- [X] T001 Add charmbracelet/bubbletea, lipgloss, and bubbles dependencies to cc-deck/go.mod
+- [X] T002 Add gen2brain/malgo dependency to cc-deck/go.mod (CGo audio capture)
+- [X] T003 [P] Create cc-deck/internal/voice/ package directory with audio.go defining AudioSource interface, DeviceInfo struct, Utterance struct, and VADConfig struct per contracts/voice-pipeline.md
+- [X] T004 [P] Create cc-deck/internal/voice/transcriber.go defining Transcriber interface and TranscriptionResult struct per contracts/voice-pipeline.md
 
 ---
 
@@ -28,18 +28,18 @@
 
 **CRITICAL**: No user story work can begin until this phase is complete.
 
-- [ ] T005 Implement localPipeChannel.SendReceive in cc-deck/internal/ws/channel_pipe.go using exec.CommandContext with cmd.Output() per research decision 1
-- [ ] T006 Add execOutputFn field to execPipeChannel struct and implement execPipeChannel.SendReceive in cc-deck/internal/ws/channel_pipe.go per research decision 1
-- [ ] T007 Update PipeChannel factory methods in all workspace types (container.go, compose.go, ssh.go, k8s_deploy.go) to pass ExecOutput as execOutputFn when creating execPipeChannel
-- [ ] T008 Add unit tests for SendReceive in cc-deck/internal/ws/channel_pipe_test.go (local mock, exec mock, nil execOutputFn, empty pipe name, context cancellation)
-- [ ] T009 [P] Add VoiceText, VoiceControl, VoiceToggle variants to PipeAction enum in cc-zellij-plugin/src/pipe_handler.rs and extend parse_pipe_message for cc-deck:voice, cc-deck:voice-control, cc-deck:voice-toggle pipe names
-- [ ] T010 [P] Add voice_control_pipe (Option<String>), voice_buffer (Vec<String>), and voice_enabled (bool) fields to ControllerState in cc-zellij-plugin/src/controller/state.rs
-- [ ] T011 Implement VoiceText handler in cc-zellij-plugin/src/controller/mod.rs: find attended pane, check permission state, call write_chars_to_pane_id or buffer text, unblock pipe
-- [ ] T012 Implement VoiceControl handler in cc-zellij-plugin/src/controller/mod.rs: store pipe_id, set voice_enabled, DO NOT unblock pipe. Exclude VoiceControl from automatic unblock_cli_pipe_input
-- [ ] T013 Implement VoiceToggle handler in cc-zellij-plugin/src/controller/mod.rs: respond to held pipe via cli_pipe_output, unblock_cli_pipe_input, clear voice_control_pipe
-- [ ] T014 Add F8 keybinding registration for cc-deck:voice-toggle in cc-zellij-plugin/src/controller/events.rs register_keybindings KDL block
-- [ ] T015 [P] Add WASM-gated wrappers for write_chars_to_pane_id in cc-zellij-plugin/src/ (similar to existing switch_and_focus pattern in attend.rs)
-- [ ] T016 [P] Add unit tests for parse_pipe_message voice actions in cc-zellij-plugin/src/pipe_handler.rs tests module
+- [X] T005 Implement localPipeChannel.SendReceive in cc-deck/internal/ws/channel_pipe.go using exec.CommandContext with cmd.Output() per research decision 1
+- [X] T006 Add execOutputFn field to execPipeChannel struct and implement execPipeChannel.SendReceive in cc-deck/internal/ws/channel_pipe.go per research decision 1
+- [X] T007 Update PipeChannel factory methods in all workspace types (container.go, compose.go, ssh.go, k8s_deploy.go) to pass ExecOutput as execOutputFn when creating execPipeChannel
+- [X] T008 Add unit tests for SendReceive in cc-deck/internal/ws/channel_pipe_test.go (local mock, exec mock, nil execOutputFn, empty pipe name, context cancellation)
+- [X] T009 [P] Add VoiceText, VoiceControl, VoiceToggle variants to PipeAction enum in cc-zellij-plugin/src/pipe_handler.rs and extend parse_pipe_message for cc-deck:voice, cc-deck:voice-control, cc-deck:voice-toggle pipe names
+- [X] T010 [P] Add voice_control_pipe (Option<String>), voice_buffer (Vec<String>), and voice_enabled (bool) fields to ControllerState in cc-zellij-plugin/src/controller/state.rs
+- [X] T011 Implement VoiceText handler in cc-zellij-plugin/src/controller/mod.rs: find attended pane, check permission state, call write_chars_to_pane_id or buffer text, unblock pipe
+- [X] T012 Implement VoiceControl handler in cc-zellij-plugin/src/controller/mod.rs: store pipe_id, set voice_enabled, DO NOT unblock pipe. Exclude VoiceControl from automatic unblock_cli_pipe_input
+- [X] T013 Implement VoiceToggle handler in cc-zellij-plugin/src/controller/mod.rs: respond to held pipe via cli_pipe_output, unblock_cli_pipe_input, clear voice_control_pipe
+- [X] T014 Add F8 keybinding registration for cc-deck:voice-toggle in cc-zellij-plugin/src/controller/events.rs register_keybindings KDL block
+- [X] T015 [P] Add WASM-gated wrappers for write_chars_to_pane_id in cc-zellij-plugin/src/ (similar to existing switch_and_focus pattern in attend.rs)
+- [X] T016 [P] Add unit tests for parse_pipe_message voice actions in cc-zellij-plugin/src/pipe_handler.rs tests module
 
 **Checkpoint**: PipeChannel.SendReceive works across all workspace types; plugin handles voice pipe messages and F8 keybinding.
 
