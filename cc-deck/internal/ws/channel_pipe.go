@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"strings"
 )
 
 // localPipeChannel sends text to a local zellij pipe via subprocess.
@@ -23,14 +24,24 @@ func (c *localPipeChannel) Send(ctx context.Context, pipeName string, payload st
 	return nil
 }
 
-func (c *localPipeChannel) SendReceive(_ context.Context, _ string, _ string) (string, error) {
-	return "", fmt.Errorf("pipe SendReceive: %w", ErrNotSupported)
+func (c *localPipeChannel) SendReceive(ctx context.Context, pipeName string, payload string) (string, error) {
+	if pipeName == "" {
+		return "", newChannelError("pipe", "sendReceive", c.name, "pipe name is required", nil)
+	}
+	cmd := exec.CommandContext(ctx, "zellij", "pipe", "--name", pipeName, "--", payload)
+	out, err := cmd.Output()
+	if err != nil {
+		return "", newChannelError("pipe", "sendReceive", c.name,
+			fmt.Sprintf("zellij pipe to %q", pipeName), err)
+	}
+	return strings.TrimSpace(string(out)), nil
 }
 
 // execPipeChannel sends text to a remote zellij pipe via workspace Exec.
 type execPipeChannel struct {
-	name    string
-	execFn  func(ctx context.Context, cmd []string) error
+	name          string
+	execFn        func(ctx context.Context, cmd []string) error
+	execOutputFn  func(ctx context.Context, cmd []string) (string, error)
 }
 
 func (c *execPipeChannel) Send(ctx context.Context, pipeName string, payload string) error {
@@ -45,6 +56,18 @@ func (c *execPipeChannel) Send(ctx context.Context, pipeName string, payload str
 	return nil
 }
 
-func (c *execPipeChannel) SendReceive(_ context.Context, _ string, _ string) (string, error) {
-	return "", fmt.Errorf("pipe SendReceive: %w", ErrNotSupported)
+func (c *execPipeChannel) SendReceive(ctx context.Context, pipeName string, payload string) (string, error) {
+	if pipeName == "" {
+		return "", newChannelError("pipe", "sendReceive", c.name, "pipe name is required", nil)
+	}
+	if c.execOutputFn == nil {
+		return "", fmt.Errorf("pipe SendReceive: %w", ErrNotSupported)
+	}
+	cmd := []string{"zellij", "pipe", "--name", pipeName, "--", payload}
+	out, err := c.execOutputFn(ctx, cmd)
+	if err != nil {
+		return "", newChannelError("pipe", "sendReceive", c.name,
+			fmt.Sprintf("workspace %q: pipe to %q", c.name, pipeName), err)
+	}
+	return strings.TrimSpace(out), nil
 }

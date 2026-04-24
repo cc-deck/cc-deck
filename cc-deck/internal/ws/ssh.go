@@ -386,7 +386,7 @@ func (e *SSHWorkspace) ExecOutput(ctx context.Context, cmd []string) (string, er
 // PipeChannel returns the pipe channel for this workspace.
 func (e *SSHWorkspace) PipeChannel(_ context.Context) (PipeChannel, error) {
 	e.pipeOnce.Do(func() {
-		e.pipeCh = &execPipeChannel{name: e.name, execFn: e.Exec}
+		e.pipeCh = &execPipeChannel{name: e.name, execFn: e.Exec, execOutputFn: e.ExecOutput}
 	})
 	return e.pipeCh, nil
 }

@@ -171,9 +171,10 @@ impl ZellijPlugin for ControllerPlugin {
 
         // Unblock CLI pipe input so `zellij pipe` does not hang.
         // DumpState handles its own unblock after sending output.
+        // VoiceControl holds the pipe open for PTT long-poll.
         #[cfg(target_family = "wasm")]
         if let PipeSource::Cli(ref pipe_id) = pipe_message.source {
-            if !matches!(action, PipeAction::DumpState) {
+            if !matches!(action, PipeAction::DumpState | PipeAction::VoiceControl) {
                 zellij_tile::prelude::unblock_cli_pipe_input(pipe_id);
             }
         }
@@ -305,6 +306,54 @@ impl ZellijPlugin for ControllerPlugin {
                 // Help from keybinding: forward to sidebars
                 broadcast_navigate(&self.state, "forward");
             }
+            PipeAction::VoiceText(text) => {
+                if let Some(pane_id) = self.state.last_attended_pane_id {
+                    let in_permission = self.state.sessions.get(&pane_id)
+                        .map(|s| matches!(s.activity, session::Activity::Waiting(session::WaitReason::Permission)))
+                        .unwrap_or(false);
+                    if in_permission {
+                        self.state.voice_buffer.push(text);
+                        crate::debug_log(&format!(
+                            "CTRL VOICE buffered text (permission active), buffer_len={}",
+                            self.state.voice_buffer.len()
+                        ));
+                    } else {
+                        write_chars_to_pane(pane_id, &text);
+                        crate::debug_log(&format!(
+                            "CTRL VOICE injected {} chars to pane={}",
+                            text.len(), pane_id
+                        ));
+                    }
+                } else {
+                    crate::debug_log("CTRL VOICE discarded text: no attended pane");
+                }
+            }
+            PipeAction::VoiceControl => {
+                #[cfg(target_family = "wasm")]
+                if let PipeSource::Cli(ref pipe_id) = pipe_message.source {
+                    self.state.voice_control_pipe = Some(pipe_id.clone());
+                    self.state.voice_enabled = true;
+                    crate::debug_log(&format!(
+                        "CTRL VOICE-CONTROL pipe held: {}", pipe_id
+                    ));
+                }
+                #[cfg(not(target_family = "wasm"))]
+                {
+                    self.state.voice_enabled = true;
+                    crate::debug_log("CTRL VOICE-CONTROL enabled (non-wasm)");
+                }
+            }
+            PipeAction::VoiceToggle => {
+                if let Some(ref pipe_id) = self.state.voice_control_pipe.take() {
+                    cli_pipe_output_wasm(pipe_id, "toggle");
+                    unblock_cli_pipe_input_wasm(pipe_id);
+                    crate::debug_log(&format!(
+                        "CTRL VOICE-TOGGLE responded to pipe: {}", pipe_id
+                    ));
+                } else {
+                    crate::debug_log("CTRL VOICE-TOGGLE ignored: no held pipe");
+                }
+            }
             PipeAction::Unknown => {}
             _ => {
                 // NavUp, NavDown, NavSelect, etc. are sidebar-local concerns.
@@ -406,6 +455,30 @@ fn broadcast_navigate(state: &ControllerState, direction: &str) {
 
 #[cfg(not(target_family = "wasm"))]
 fn broadcast_navigate(_state: &ControllerState, _direction: &str) {}
+
+#[cfg(target_family = "wasm")]
+fn write_chars_to_pane(pane_id: u32, chars: &str) {
+    zellij_tile::prelude::write_chars_to_pane_id(chars, PaneId::Terminal(pane_id));
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn write_chars_to_pane(_pane_id: u32, _chars: &str) {}
+
+#[cfg(target_family = "wasm")]
+fn cli_pipe_output_wasm(pipe_id: &str, output: &str) {
+    zellij_tile::prelude::cli_pipe_output(pipe_id, output);
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn cli_pipe_output_wasm(_pipe_id: &str, _output: &str) {}
+
+#[cfg(target_family = "wasm")]
+fn unblock_cli_pipe_input_wasm(pipe_id: &str) {
+    zellij_tile::prelude::unblock_cli_pipe_input(pipe_id);
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn unblock_cli_pipe_input_wasm(_pipe_id: &str) {}
 
 #[cfg(test)]
 mod tests {

@@ -569,7 +569,7 @@ func (e *K8sDeployWorkspace) ExecOutput(ctx context.Context, cmd []string) (stri
 // PipeChannel returns the pipe channel for this workspace.
 func (e *K8sDeployWorkspace) PipeChannel(_ context.Context) (PipeChannel, error) {
 	e.pipeOnce.Do(func() {
-		e.pipeCh = &execPipeChannel{name: e.name, execFn: e.Exec}
+		e.pipeCh = &execPipeChannel{name: e.name, execFn: e.Exec, execOutputFn: e.ExecOutput}
 	})
 	return e.pipeCh, nil
 }
