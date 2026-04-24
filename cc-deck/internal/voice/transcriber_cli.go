@@ -39,6 +39,9 @@ func (t *cliTranscriber) Transcribe(ctx context.Context, audio []int16, sampleRa
 	)
 	out, err := cmd.Output()
 	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok && len(exitErr.Stderr) > 0 {
+			return "", fmt.Errorf("running whisper-cli: %w, stderr: %s", err, exitErr.Stderr)
+		}
 		return "", fmt.Errorf("running whisper-cli: %w", err)
 	}
 

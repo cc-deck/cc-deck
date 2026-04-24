@@ -52,7 +52,7 @@ func waitForEvent(relay *voicepkg.VoiceRelay) tea.Cmd {
 	return func() tea.Msg {
 		ev, ok := <-relay.Events()
 		if !ok {
-			return tea.Quit()
+			return tea.QuitMsg{}
 		}
 		return relayEventMsg(ev)
 	}

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"time"
 
 	"github.com/cc-deck/cc-deck/internal/xdg"
 )
@@ -133,7 +134,13 @@ func downloadModel(info ModelInfo, destPath string) error {
 
 	fmt.Printf("Downloading %s (%d MB)...\n", info.Name, info.Size/1024/1024)
 
-	resp, err := http.Get(info.URL)
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSHandshakeTimeout:   10 * time.Second,
+			ResponseHeaderTimeout: 30 * time.Second,
+		},
+	}
+	resp, err := client.Get(info.URL)
 	if err != nil {
 		return fmt.Errorf("HTTP GET: %w", err)
 	}
@@ -149,11 +156,15 @@ func downloadModel(info ModelInfo, destPath string) error {
 		return fmt.Errorf("creating temp file: %w", err)
 	}
 
-	written, err := io.Copy(f, resp.Body)
-	f.Close()
-	if err != nil {
+	written, copyErr := io.Copy(f, resp.Body)
+	closeErr := f.Close()
+	if copyErr != nil {
 		os.Remove(tmpPath)
-		return fmt.Errorf("writing model: %w", err)
+		return fmt.Errorf("writing model: %w", copyErr)
+	}
+	if closeErr != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("closing model file: %w", closeErr)
 	}
 
 	if written != info.Size {

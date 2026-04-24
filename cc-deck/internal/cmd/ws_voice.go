@@ -95,6 +95,7 @@ func runVoiceRelay(wsName, mode, modelName, deviceID string, verbose bool, port 
 	if err := relay.Start(ctx); err != nil {
 		return fmt.Errorf("starting voice relay: %w", err)
 	}
+	defer relay.Stop()
 
 	model := voicetui.New(relay, mode, wsName, verbose)
 	p := tea.NewProgram(model, tea.WithAltScreen())
