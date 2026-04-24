@@ -335,6 +335,11 @@ fn register_keybindings(state: &ControllerState) {
                 name "cc-deck:working-prev"
             }}
         }}
+        bind "F8" {{
+            MessagePluginId {id} {{
+                name "cc-deck:voice-toggle"
+            }}
+        }}
     }}
 }}"#,
         nav = state.config.navigate_key,

@@ -586,7 +586,7 @@ func (e *ComposeWorkspace) ExecOutput(ctx context.Context, cmd []string) (string
 // PipeChannel returns the pipe channel for this workspace.
 func (e *ComposeWorkspace) PipeChannel(_ context.Context) (PipeChannel, error) {
 	e.pipeOnce.Do(func() {
-		e.pipeCh = &execPipeChannel{name: e.name, execFn: e.Exec}
+		e.pipeCh = &execPipeChannel{name: e.name, execFn: e.Exec, execOutputFn: e.ExecOutput}
 	})
 	return e.pipeCh, nil
 }
