@@ -53,20 +53,20 @@
 
 ### Implementation for User Story 1
 
-- [ ] T017 [P] [US1] Implement malgo AudioSource backend in cc-deck/internal/voice/audio_malgo.go (//go:build cgo): Start with OnRecvFrames callback at 16kHz mono s16le, Stop, Level via RMS, ListDevices via malgo context
-- [ ] T018 [P] [US1] Implement ffmpeg AudioSource backend in cc-deck/internal/voice/audio_ffmpeg.go (//go:build !cgo): Start ffmpeg subprocess piping stdout, parse s16le PCM frames, Stop kills process, ListDevices returns empty
-- [ ] T019 [US1] Implement energy-based VAD in cc-deck/internal/voice/vad.go: RMS threshold 0.015, pre-roll 0.3s, silence duration 1.5s, max utterance 30s, produces Utterance structs from AudioSource channel
-- [ ] T020 [US1] Implement stopword engine in cc-deck/internal/voice/stopword.go: strip filler words ("um", "uh", "hmm", "ah", "er"), check if remaining text equals exactly "submit" or "enter", return TranscriptionResult with IsCommand flag
-- [ ] T021 [P] [US1] Implement whisper-server HTTP transcriber in cc-deck/internal/voice/transcriber_http.go: POST multipart/form-data to /inference endpoint, parse text response, respect context cancellation
-- [ ] T022 [P] [US1] Implement whisper-cli subprocess transcriber in cc-deck/internal/voice/transcriber_cli.go: write temp WAV file from PCM, invoke whisper-cli, parse stdout, clean up temp file
-- [ ] T023 [US1] Implement whisper-server lifecycle manager in cc-deck/internal/voice/server.go: auto-start whisper-server with model path and port, health check, auto-stop on Close, retry on crash (up to 3 attempts with notification)
-- [ ] T024 [US1] Implement VoiceRelay orchestrator in cc-deck/internal/voice/relay.go: connect AudioSource -> VAD -> Transcriber -> StopwordEngine -> PipeChannel.Send pipeline, manage lifecycle, track attended session via state query
-- [ ] T025 [US1] Implement Bubbletea TUI model in cc-deck/internal/tui/voice/model.go: state struct with mode, audio level, transcription history, delivery status, target session info, verbose flag
-- [ ] T026 [US1] Implement TUI view in cc-deck/internal/tui/voice/view.go: render audio level meter, mode indicator, transcription history with delivery status, target session, keyboard shortcuts
-- [ ] T027 [US1] Implement TUI update handler in cc-deck/internal/tui/voice/update.go: handle audio level ticks, transcription results, delivery confirmations, quit key, mode toggle key
-- [ ] T028 [US1] Implement cc-deck ws voice command in cc-deck/internal/cmd/ws_voice.go: cobra command with --mode, --model, --device, --verbose flags, workspace resolution, VoiceRelay + TUI startup
-- [ ] T029 [US1] Implement cc-deck ws pipe command in cc-deck/internal/cmd/ws_pipe.go: cobra command with --name and --payload flags, workspace resolution, PipeChannel.Send call
-- [ ] T030 [US1] Register ws voice and ws pipe commands in cc-deck/internal/cmd/ws.go addToGroup calls
+- [X] T017 [P] [US1] Implement malgo AudioSource backend in cc-deck/internal/voice/audio_malgo.go (//go:build cgo): Start with OnRecvFrames callback at 16kHz mono s16le, Stop, Level via RMS, ListDevices via malgo context
+- [X] T018 [P] [US1] Implement ffmpeg AudioSource backend in cc-deck/internal/voice/audio_ffmpeg.go (//go:build !cgo): Start ffmpeg subprocess piping stdout, parse s16le PCM frames, Stop kills process, ListDevices returns empty
+- [X] T019 [US1] Implement energy-based VAD in cc-deck/internal/voice/vad.go: RMS threshold 0.015, pre-roll 0.3s, silence duration 1.5s, max utterance 30s, produces Utterance structs from AudioSource channel
+- [X] T020 [US1] Implement stopword engine in cc-deck/internal/voice/stopword.go: strip filler words ("um", "uh", "hmm", "ah", "er"), check if remaining text equals exactly "submit" or "enter", return TranscriptionResult with IsCommand flag
+- [X] T021 [P] [US1] Implement whisper-server HTTP transcriber in cc-deck/internal/voice/transcriber_http.go: POST multipart/form-data to /inference endpoint, parse text response, respect context cancellation
+- [X] T022 [P] [US1] Implement whisper-cli subprocess transcriber in cc-deck/internal/voice/transcriber_cli.go: write temp WAV file from PCM, invoke whisper-cli, parse stdout, clean up temp file
+- [X] T023 [US1] Implement whisper-server lifecycle manager in cc-deck/internal/voice/server.go: auto-start whisper-server with model path and port, health check, auto-stop on Close, retry on crash (up to 3 attempts with notification)
+- [X] T024 [US1] Implement VoiceRelay orchestrator in cc-deck/internal/voice/relay.go: connect AudioSource -> VAD -> Transcriber -> StopwordEngine -> PipeChannel.Send pipeline, manage lifecycle, track attended session via state query
+- [X] T025 [US1] Implement Bubbletea TUI model in cc-deck/internal/tui/voice/model.go: state struct with mode, audio level, transcription history, delivery status, target session info, verbose flag
+- [X] T026 [US1] Implement TUI view in cc-deck/internal/tui/voice/view.go: render audio level meter, mode indicator, transcription history with delivery status, target session, keyboard shortcuts
+- [X] T027 [US1] Implement TUI update handler in cc-deck/internal/tui/voice/update.go: handle audio level ticks, transcription results, delivery confirmations, quit key, mode toggle key
+- [X] T028 [US1] Implement cc-deck ws voice command in cc-deck/internal/cmd/ws_voice.go: cobra command with --mode, --model, --device, --verbose flags, workspace resolution, VoiceRelay + TUI startup
+- [X] T029 [US1] Implement cc-deck ws pipe command in cc-deck/internal/cmd/ws_pipe.go: cobra command with --name and --payload flags, workspace resolution, PipeChannel.Send call
+- [X] T030 [US1] Register ws voice and ws pipe commands in cc-deck/internal/cmd/ws.go addToGroup calls
 
 **Checkpoint**: Full voice dictation pipeline works end-to-end. Developer speaks, text appears in attended pane. "submit"/"enter" sends newline. Works across all workspace types.
 
