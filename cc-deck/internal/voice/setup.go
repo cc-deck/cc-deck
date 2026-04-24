@@ -1,6 +1,7 @@
 package voice
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -64,6 +65,10 @@ func ModelPath(name string) string {
 
 // RunSetup checks dependencies and downloads the model.
 func RunSetup(modelName string) error {
+	return RunSetupWithContext(context.Background(), modelName)
+}
+
+func RunSetupWithContext(ctx context.Context, modelName string) error {
 	fmt.Println("Voice Relay Setup")
 	fmt.Println()
 
@@ -87,7 +92,7 @@ func RunSetup(modelName string) error {
 			stat.Size(), info.Size)
 	}
 
-	if err := downloadModel(info, modelPath); err != nil {
+	if err := downloadModel(ctx, info, modelPath); err != nil {
 		return fmt.Errorf("downloading model: %w", err)
 	}
 
@@ -127,7 +132,7 @@ func checkDependency(name string) {
 	}
 }
 
-func downloadModel(info ModelInfo, destPath string) error {
+func downloadModel(ctx context.Context, info ModelInfo, destPath string) error {
 	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
 		return fmt.Errorf("creating model directory: %w", err)
 	}
@@ -140,7 +145,11 @@ func downloadModel(info ModelInfo, destPath string) error {
 			ResponseHeaderTimeout: 30 * time.Second,
 		},
 	}
-	resp, err := client.Get(info.URL)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, info.URL, nil)
+	if err != nil {
+		return fmt.Errorf("creating request: %w", err)
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("HTTP GET: %w", err)
 	}
