@@ -16,11 +16,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.relay.Stop()
 			return m, tea.Quit
 		case "m":
-			if m.mode == "vad" {
-				m.mode = "ptt"
-			} else {
-				m.mode = "vad"
-			}
+			// PTT mode toggle disabled until Phase 5 (T033) is implemented.
 			return m, nil
 		}
 

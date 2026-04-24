@@ -193,8 +193,12 @@ func (r *VoiceRelay) handleUtterance(ctx context.Context, u Utterance) {
 }
 
 func (r *VoiceRelay) sendEvent(ev RelayEvent) {
-	select {
-	case r.events <- ev:
-	default:
+	if ev.Type == "level" {
+		select {
+		case r.events <- ev:
+		default:
+		}
+		return
 	}
+	r.events <- ev
 }

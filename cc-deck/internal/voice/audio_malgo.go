@@ -13,11 +13,12 @@ import (
 )
 
 type malgoSource struct {
-	mu      sync.Mutex
-	ctx     *malgo.AllocatedContext
-	device  *malgo.Device
-	level   atomic.Value // float64
-	stopped chan struct{}
+	mu            sync.Mutex
+	ctx           *malgo.AllocatedContext
+	device        *malgo.Device
+	level         atomic.Value // float64
+	droppedFrames atomic.Int64
+	stopped       chan struct{}
 }
 
 func NewAudioSource() AudioSource {
@@ -44,7 +45,7 @@ func (s *malgoSource) Start(ctx context.Context, sampleRate int) (<-chan []int16
 	deviceConfig.Capture.Channels = 1
 	deviceConfig.SampleRate = uint32(sampleRate)
 
-	out := make(chan []int16, 16)
+	out := make(chan []int16, 64)
 	s.stopped = make(chan struct{})
 
 	callbacks := malgo.DeviceCallbacks{
@@ -73,6 +74,7 @@ func (s *malgoSource) Start(ctx context.Context, sampleRate int) (<-chan []int16
 			select {
 			case out <- samples:
 			default:
+				s.droppedFrames.Add(1)
 			}
 		},
 	}
@@ -134,6 +136,10 @@ func (s *malgoSource) Level() float64 {
 		return 0
 	}
 	return v
+}
+
+func (s *malgoSource) DroppedFrames() int64 {
+	return s.droppedFrames.Load()
 }
 
 func (s *malgoSource) ListDevices() ([]DeviceInfo, error) {

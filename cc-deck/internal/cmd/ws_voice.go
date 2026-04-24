@@ -4,13 +4,11 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/cc-deck/cc-deck/internal/voice"
 	voicetui "github.com/cc-deck/cc-deck/internal/tui/voice"
 	"github.com/cc-deck/cc-deck/internal/ws"
-	"github.com/cc-deck/cc-deck/internal/xdg"
 	"github.com/spf13/cobra"
 )
 
@@ -58,7 +56,7 @@ VAD (voice activity detection) and PTT (push-to-talk via F8) modes.`,
 }
 
 func runVoiceRelay(wsName, mode, modelName, deviceID string, verbose bool, port int) error {
-	modelPath := filepath.Join(xdg.CacheHome, "cc-deck", "models", modelFileName(modelName))
+	modelPath := voice.ModelPath(modelName)
 	if _, err := os.Stat(modelPath); os.IsNotExist(err) {
 		return fmt.Errorf("model %q not found at %s; run: cc-deck ws voice --setup", modelName, modelPath)
 	}
@@ -124,10 +122,6 @@ func runListDevices() error {
 		fmt.Printf(" %s %s (%s)\n", marker, d.Name, d.ID)
 	}
 	return nil
-}
-
-func modelFileName(name string) string {
-	return fmt.Sprintf("ggml-%s.bin", name)
 }
 
 func runVoiceSetup(modelName string) error {
