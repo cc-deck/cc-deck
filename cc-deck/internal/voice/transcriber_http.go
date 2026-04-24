@@ -9,6 +9,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"strings"
+	"time"
 )
 
 type httpTranscriber struct {
@@ -22,7 +23,7 @@ type httpTranscriber struct {
 func NewHTTPTranscriber(endpoint string, server *WhisperServer) Transcriber {
 	return &httpTranscriber{
 		endpoint: endpoint,
-		client:   &http.Client{},
+		client:   &http.Client{Timeout: 30 * time.Second},
 		server:   server,
 	}
 }

@@ -41,15 +41,17 @@ type RelayEvent struct {
 
 // VoiceRelay orchestrates the audio -> VAD -> transcription -> pipe delivery pipeline.
 type VoiceRelay struct {
-	config     RelayConfig
-	audio      AudioSource
+	config      RelayConfig
+	audio       AudioSource
 	transcriber Transcriber
-	pipe       PipeSender
-	events     chan RelayEvent
+	pipe        PipeSender
+	events      chan RelayEvent
 
-	mu      sync.Mutex
-	running bool
-	cancel  context.CancelFunc
+	mu        sync.Mutex
+	running   bool
+	cancel    context.CancelFunc
+	closeOnce sync.Once
+	wg        sync.WaitGroup
 }
 
 // NewVoiceRelay creates a new relay connecting all pipeline stages.
@@ -92,29 +94,34 @@ func (r *VoiceRelay) Start(ctx context.Context) error {
 	vad := NewVAD(r.config.VADConfig, r.config.SampleRate)
 	utterances := vad.Process(frames)
 
+	r.wg.Add(2)
 	go r.levelPoll(relayCtx)
 	go r.processUtterances(relayCtx, utterances)
 
 	return nil
 }
 
-// Stop halts the voice relay pipeline.
+// Stop halts the voice relay pipeline and waits for goroutines to finish.
 func (r *VoiceRelay) Stop() {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	if !r.running {
+		r.mu.Unlock()
 		return
 	}
 	r.running = false
 	if r.cancel != nil {
 		r.cancel()
 	}
+	r.mu.Unlock()
+
 	_ = r.audio.Stop()
-	close(r.events)
+	r.wg.Wait()
+	_ = r.transcriber.Close()
+	r.closeOnce.Do(func() { close(r.events) })
 }
 
 func (r *VoiceRelay) levelPoll(ctx context.Context) {
+	defer r.wg.Done()
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -133,6 +140,7 @@ func (r *VoiceRelay) levelPoll(ctx context.Context) {
 }
 
 func (r *VoiceRelay) processUtterances(ctx context.Context, utterances <-chan Utterance) {
+	defer r.wg.Done()
 	for {
 		select {
 		case <-ctx.Done():

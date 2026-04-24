@@ -55,7 +55,8 @@ func ModelDir() string {
 func ModelPath(name string) string {
 	info, ok := models[name]
 	if !ok {
-		return filepath.Join(ModelDir(), fmt.Sprintf("ggml-%s.bin", name))
+		safe := filepath.Base(name)
+		return filepath.Join(ModelDir(), fmt.Sprintf("ggml-%s.bin", safe))
 	}
 	return filepath.Join(ModelDir(), info.FileName)
 }
