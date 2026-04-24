@@ -312,6 +312,10 @@ impl ZellijPlugin for ControllerPlugin {
                         .map(|s| matches!(s.activity, session::Activity::Waiting(session::WaitReason::Permission)))
                         .unwrap_or(false);
                     if in_permission {
+                        const MAX_VOICE_BUFFER: usize = 100;
+                        if self.state.voice_buffer.len() >= MAX_VOICE_BUFFER {
+                            self.state.voice_buffer.remove(0);
+                        }
                         self.state.voice_buffer.push(text);
                         crate::debug_log(&format!(
                             "CTRL VOICE buffered text (permission active), buffer_len={}",

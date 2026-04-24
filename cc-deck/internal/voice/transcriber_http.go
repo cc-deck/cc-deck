@@ -60,7 +60,7 @@ func (t *httpTranscriber) Transcribe(ctx context.Context, audio []int16, sampleR
 		return "", fmt.Errorf("whisper-server returned status %d", resp.StatusCode)
 	}
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return "", fmt.Errorf("reading response: %w", err)
 	}
