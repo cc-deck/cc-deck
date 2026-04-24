@@ -78,6 +78,8 @@ matching the current directory against workspace definitions.`,
 		newWsPushCmd(gf),
 		newWsPullCmd(gf),
 		newWsHarvestCmd(gf),
+		newWsVoiceCmd(gf),
+		newWsPipeCmd(gf),
 	)
 
 	// Maintenance
