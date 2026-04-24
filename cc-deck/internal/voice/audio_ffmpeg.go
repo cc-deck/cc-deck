@@ -14,11 +14,12 @@ import (
 )
 
 type ffmpegSource struct {
-	mu      sync.Mutex
-	cmd     *exec.Cmd
-	cancel  context.CancelFunc
-	level   atomic.Value // float64
-	stopped chan struct{}
+	mu        sync.Mutex
+	cmd       *exec.Cmd
+	cancel    context.CancelFunc
+	level     atomic.Value // float64
+	stopped   chan struct{}
+	closeOnce sync.Once
 }
 
 func NewAudioSource() AudioSource {
@@ -52,19 +53,14 @@ func (s *ffmpegSource) Start(ctx context.Context, sampleRate int) (<-chan []int1
 	s.cancel = cancel
 	s.level.Store(float64(0))
 	s.stopped = make(chan struct{})
+	s.closeOnce = sync.Once{}
 
 	out := make(chan []int16, 16)
 	frameSize := sampleRate / 50 // 20ms frames
 
 	go func() {
 		defer close(out)
-		defer func() {
-			select {
-			case <-s.stopped:
-			default:
-				close(s.stopped)
-			}
-		}()
+		defer s.closeOnce.Do(func() { close(s.stopped) })
 
 		buf := make([]int16, frameSize)
 		for {
@@ -105,12 +101,7 @@ func (s *ffmpegSource) Stop() error {
 	s.cancel()
 	_ = s.cmd.Wait()
 	s.cmd = nil
-
-	select {
-	case <-s.stopped:
-	default:
-		close(s.stopped)
-	}
+	s.closeOnce.Do(func() { close(s.stopped) })
 
 	return nil
 }

@@ -106,23 +106,29 @@ func TestVAD_MaxDuration(t *testing.T) {
 		Threshold:            0.01,
 		PreRollDuration:      0,
 		SilenceDuration:      0.5,
-		MaxUtteranceDuration: 0.3,
+		MaxUtteranceDuration: 0.5,
 	}
 	vad := NewVAD(cfg, 1000)
 
-	frames := make(chan []int16, 10)
-	go feedFrames(frames,
-		makeSpeech(500, 5000),
-		makeSilence(600),
-	)
+	// Send speech in small frames so max duration triggers between frames
+	frames := make(chan []int16, 20)
+	go func() {
+		for i := 0; i < 10; i++ {
+			frames <- makeSpeech(100, 5000)
+		}
+		for i := 0; i < 6; i++ {
+			frames <- makeSilence(100)
+		}
+		close(frames)
+	}()
 
 	utterances := collectUtterances(vad.Process(frames))
 	if len(utterances) < 1 {
 		t.Fatal("expected at least 1 utterance from max-duration split")
 	}
 	for i, u := range utterances {
-		if len(u.Audio) > 400 {
-			t.Errorf("utterance %d has %d samples, exceeds max (~300)", i, len(u.Audio))
+		if len(u.Audio) > 600 {
+			t.Errorf("utterance %d has %d samples, expected <=600 (max 500 + one frame)", i, len(u.Audio))
 		}
 	}
 }
