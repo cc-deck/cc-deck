@@ -39,3 +39,23 @@
 
 **Score**: 11/11 FRs satisfied
 **Result**: **PASS**
+
+## Deep Review Report
+
+**Tool**: CodeRabbit CLI (local)
+**Findings**: 16 total (7 major, 9 minor)
+
+### Actionable Findings
+
+1. **Migration safety (minor, fixed)**: `controller/state.rs` migration removed legacy file before confirming write success. Fixed: only remove legacy file on successful write.
+
+### Deferred (over-engineered for desktop plugin)
+
+The remaining findings concern theoretical hardening for scenarios that do not apply to a single-user desktop Zellij plugin:
+
+- PID reuse mitigation via UUID in filenames: Zellij server PIDs are long-lived, making reuse in the same `/cache/` directory effectively impossible.
+- Concurrent migration locking: Only one plugin instance starts per session. Multiple instances within the same session share a PID and do not compete.
+- Configurable cleanup thresholds: 7-day hardcoded threshold is appropriate for a plugin cache. Adding configuration to a WASM plugin increases complexity without user benefit.
+- Rolling upgrade compatibility for pipe messages: The plugin is distributed as a single binary. Mixed-version scenarios do not occur in practice.
+
+These are valid concerns for a distributed server system but not for a local terminal plugin.
