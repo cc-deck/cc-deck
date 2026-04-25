@@ -20,10 +20,36 @@ type WorkspaceState string
 const (
 	WorkspaceStateRunning   WorkspaceState = "running"
 	WorkspaceStateStopped   WorkspaceState = "stopped"
+	WorkspaceStateError     WorkspaceState = "error"
 	WorkspaceStateAvailable WorkspaceState = "available"
 	WorkspaceStateCreating  WorkspaceState = "creating"
-	WorkspaceStateError     WorkspaceState = "error"
 	WorkspaceStateUnknown   WorkspaceState = "unknown"
+)
+
+// InfraStateValue represents the infrastructure state for workspace types
+// that manage compute resources (container, compose, k8s-deploy).
+type InfraStateValue string
+
+const (
+	InfraStateRunning InfraStateValue = "running"
+	InfraStateStopped InfraStateValue = "stopped"
+	InfraStateError   InfraStateValue = "error"
+)
+
+// InfraStateString returns a safe string representation of an InfraState pointer.
+func InfraStateString(s *InfraStateValue) string {
+	if s == nil {
+		return "unknown"
+	}
+	return string(*s)
+}
+
+// SessionStateValue represents whether a Zellij session exists.
+type SessionStateValue string
+
+const (
+	SessionStateNone   SessionStateValue = "none"
+	SessionStateExists SessionStateValue = "exists"
 )
 
 // StorageType identifies the storage backend for a workspace.
@@ -108,8 +134,10 @@ type SandboxFields struct {
 // Definition details (storage, sync) live in the DefinitionStore.
 type WorkspaceInstance struct {
 	Name         string            `yaml:"name"`
-	Type         WorkspaceType   `yaml:"type"`
-	State        WorkspaceState  `yaml:"state"`
+	Type         WorkspaceType     `yaml:"type"`
+	State        WorkspaceState    `yaml:"state,omitempty"`
+	InfraState   *InfraStateValue   `yaml:"infra_state,omitempty"`
+	SessionState SessionStateValue  `yaml:"session_state"`
 	CreatedAt    time.Time         `yaml:"created_at"`
 	LastAttached *time.Time        `yaml:"last_attached,omitempty"`
 	Container    *ContainerFields  `yaml:"container,omitempty"`

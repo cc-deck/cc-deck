@@ -18,11 +18,8 @@ type Workspace interface {
 	// Create provisions a new workspace with the given options.
 	Create(ctx context.Context, opts CreateOpts) error
 
-	// Start brings a stopped workspace back to a running state.
-	Start(ctx context.Context) error
-
-	// Stop gracefully stops a running workspace.
-	Stop(ctx context.Context) error
+	// KillSession kills the Zellij session without affecting infrastructure.
+	KillSession(ctx context.Context) error
 
 	// Delete removes the workspace and its resources.
 	// If force is true, a running workspace is stopped first.
@@ -59,6 +56,13 @@ type Workspace interface {
 	GitChannel(ctx context.Context) (GitChannel, error)
 }
 
+// InfraManager is an optional capability interface for workspace types
+// that manage compute infrastructure (container, compose, k8s-deploy).
+type InfraManager interface {
+	Start(ctx context.Context) error
+	Stop(ctx context.Context) error
+}
+
 // CreateOpts holds options for creating a new workspace.
 type CreateOpts struct {
 	Image   string        `yaml:"image,omitempty"`
@@ -83,10 +87,11 @@ type HarvestOpts struct {
 
 // WorkspaceStatus represents the runtime status of a workspace.
 type WorkspaceStatus struct {
-	State    WorkspaceState `json:"state"`
-	Since    time.Time        `json:"since"`
-	Message  string           `json:"message,omitempty"`
-	Sessions []SessionInfo    `json:"sessions,omitempty"`
+	InfraState   *InfraStateValue   `json:"infra_state,omitempty"`
+	SessionState SessionStateValue  `json:"session_state"`
+	Since        *time.Time    `json:"since,omitempty"`
+	Message      string        `json:"message,omitempty"`
+	Sessions     []SessionInfo `json:"sessions,omitempty"`
 }
 
 // SessionInfo describes a Claude Code session inside a workspace.
