@@ -42,6 +42,8 @@ bd sync               # Sync with git
 ## Active Technologies
 - Go 1.25 (from go.mod) + cobra v1.10.2 (CLI), adrg/xdg v0.5.3 (XDG paths), gopkg.in/yaml.v3 (YAML), client-go v0.35.2 (K8s API) (041-workspace-channels)
 - N/A (channels are stateless transport abstractions) (041-workspace-channels)
+- Go 1.25 (from go.mod) + cobra v1.10.2 (CLI), gopkg.in/yaml.v3 (YAML), adrg/xdg replacement via internal/xdg (XDG paths) (043-workspace-lifecycle)
+- YAML state file at `~/.local/state/cc-deck/state.yaml` (043-workspace-lifecycle)
 
 ## Recent Changes
 - 041-workspace-channels: Added Go 1.25 (from go.mod) + cobra v1.10.2 (CLI), adrg/xdg v0.5.3 (XDG paths), gopkg.in/yaml.v3 (YAML), client-go v0.35.2 (K8s API)

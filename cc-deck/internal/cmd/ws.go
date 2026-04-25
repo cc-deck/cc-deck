@@ -53,11 +53,12 @@ matching the current directory against workspace definitions.`,
 		&cobra.Group{ID: "maintenance", Title: "Maintenance:"},
 	)
 
-	// Lifecycle: create → attach → start → stop → delete
+	// Lifecycle: create → attach → kill-session → start → stop → delete
 	addToGroup(wsCmd, "lifecycle",
 		newWsNewCmd(gf),
 		newWsUpdateCmd(gf),
 		newWsAttachCmd(gf),
+		newWsKillSessionCmd(gf),
 		newWsStartCmd(gf),
 		newWsStopCmd(gf),
 		newWsDeleteCmd(gf),
@@ -710,12 +711,7 @@ func runWsAttachReset(name string) error {
 		return err
 	}
 
-	if sshWs, ok := e.(*ws.SSHWorkspace); ok {
-		sshWs.KillRemoteSession(cmd_context())
-	} else if containerWs, ok := e.(*ws.ContainerWorkspace); ok {
-		_ = containerWs.Stop(cmd_context())
-		_ = containerWs.Start(cmd_context())
-	}
+	_ = e.KillSession(cmd_context())
 
 	fmt.Fprintf(os.Stderr, "Session reset. Attaching...\n")
 	return e.Attach(cmd_context())
@@ -1012,7 +1008,7 @@ func writeWsStructured(format string, instances []*ws.WorkspaceInstance, allDefs
 		entries = append(entries, wsListEntry{
 			Name:         inst.Name,
 			Type:         instType,
-			State:        string(inst.State),
+			State:        formatWorkspaceState(inst),
 			Project:      proj,
 			Storage:      storage,
 			Image:        image,
@@ -1088,7 +1084,8 @@ func writeWsTableWithProjects(instances []*ws.WorkspaceInstance, allDefs []*ws.W
 		if proj == "" {
 			proj = "-"
 		}
-		r := row{inst.Name, string(instType), string(inst.State), proj, storage,
+		stateDisplay := formatWorkspaceState(inst)
+		r := row{inst.Name, string(instType), stateDisplay, proj, storage,
 			formatRelativeTime(inst.LastAttached), formatDuration(time.Since(inst.CreatedAt)), ""}
 		if verbose && pathMap[inst.Name] != "" {
 			r.path = pathMap[inst.Name]
@@ -1143,6 +1140,21 @@ func writeWsTableWithProjects(instances []*ws.WorkspaceInstance, allDefs []*ws.W
 	return tw.Flush()
 }
 
+// formatWorkspaceState returns a display string for the two-dimensional state.
+func formatWorkspaceState(inst *ws.WorkspaceInstance) string {
+	if inst.InfraState != nil {
+		infra := string(*inst.InfraState)
+		if inst.SessionState == ws.SessionStateExists {
+			return infra + ", session: exists"
+		}
+		return infra
+	}
+	if inst.SessionState == ws.SessionStateExists {
+		return "session: exists"
+	}
+	return "no session"
+}
+
 func formatRelativeTime(t *time.Time) string {
 	if t == nil {
 		return "never"
@@ -1190,15 +1202,16 @@ func newWsStatusCmd(gf *GlobalFlags) *cobra.Command {
 
 // wsStatusOutput is used for JSON/YAML marshaling of status information.
 type wsStatusOutput struct {
-	Name         string               `json:"name" yaml:"name"`
+	Name         string            `json:"name" yaml:"name"`
 	Type         ws.WorkspaceType  `json:"type" yaml:"type"`
-	State        ws.WorkspaceState `json:"state" yaml:"state"`
-	Storage      string               `json:"storage" yaml:"storage"`
-	Uptime       string               `json:"uptime" yaml:"uptime"`
-	LastAttached string               `json:"last_attached" yaml:"last_attached"`
-	Sessions     []ws.SessionInfo    `json:"sessions,omitempty" yaml:"sessions,omitempty"`
-	Image        string               `json:"image,omitempty" yaml:"image,omitempty"`
-	ProjectPath  string               `json:"project_path,omitempty" yaml:"project_path,omitempty"`
+	InfraState   *ws.InfraStateValue   `json:"infra_state,omitempty" yaml:"infra_state,omitempty"`
+	SessionState ws.SessionStateValue  `json:"session_state" yaml:"session_state"`
+	Storage      string            `json:"storage" yaml:"storage"`
+	Uptime       string            `json:"uptime" yaml:"uptime"`
+	LastAttached string            `json:"last_attached" yaml:"last_attached"`
+	Sessions     []ws.SessionInfo  `json:"sessions,omitempty" yaml:"sessions,omitempty"`
+	Image        string            `json:"image,omitempty" yaml:"image,omitempty"`
+	ProjectPath  string            `json:"project_path,omitempty" yaml:"project_path,omitempty"`
 }
 
 func runWsStatus(gf *GlobalFlags, name string) error {
@@ -1239,7 +1252,10 @@ func runWsStatus(gf *GlobalFlags, name string) error {
 		}
 	}
 
-	uptime := formatDuration(time.Since(status.Since))
+	uptime := ""
+	if status.Since != nil {
+		uptime = formatDuration(time.Since(*status.Since))
+	}
 
 	// Look up project path from central definition store.
 	var projectPath string
@@ -1252,7 +1268,8 @@ func runWsStatus(gf *GlobalFlags, name string) error {
 		out := wsStatusOutput{
 			Name:         name,
 			Type:         wsType,
-			State:        status.State,
+			InfraState:   status.InfraState,
+			SessionState: status.SessionState,
 			Storage:      storage,
 			Uptime:       uptime,
 			LastAttached: lastAttached,
@@ -1267,7 +1284,8 @@ func runWsStatus(gf *GlobalFlags, name string) error {
 		out := wsStatusOutput{
 			Name:         name,
 			Type:         wsType,
-			State:        status.State,
+			InfraState:   status.InfraState,
+			SessionState: status.SessionState,
 			Storage:      storage,
 			Uptime:       uptime,
 			LastAttached: lastAttached,
@@ -1285,7 +1303,10 @@ func writeWsStatusText(name string, wsType ws.WorkspaceType, status *ws.Workspac
 	tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
 	fmt.Fprintf(tw, "Workspace:\t%s\n", name)
 	fmt.Fprintf(tw, "Type:\t%s\n", wsType)
-	fmt.Fprintf(tw, "Status:\t%s\n", status.State)
+	if status.InfraState != nil {
+		fmt.Fprintf(tw, "Infra:\t%s\n", *status.InfraState)
+	}
+	fmt.Fprintf(tw, "Session:\t%s\n", status.SessionState)
 	fmt.Fprintf(tw, "Storage:\t%s\n", storage)
 	fmt.Fprintf(tw, "Uptime:\t%s\n", uptime)
 	fmt.Fprintf(tw, "Attached:\t%s\n", lastAttached)
@@ -1299,7 +1320,7 @@ func writeWsStatusText(name string, wsType ws.WorkspaceType, status *ws.Workspac
 		return err
 	}
 
-	if status.State == ws.WorkspaceStateRunning && len(status.Sessions) > 0 {
+	if status.SessionState == ws.SessionStateExists && len(status.Sessions) > 0 {
 		fmt.Println()
 		fmt.Println("Agent Sessions:")
 		stw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
@@ -1321,6 +1342,45 @@ func writeWsStatusText(name string, wsType ws.WorkspaceType, status *ws.Workspac
 		}
 	}
 
+	return nil
+}
+
+// --- kill-session ---
+
+func newWsKillSessionCmd(_ *GlobalFlags) *cobra.Command {
+	return &cobra.Command{
+		Use:   "kill-session [name]",
+		Short: "Kill the Zellij session without affecting infrastructure",
+		Long: `Kill the Zellij session for the named workspace. The underlying
+infrastructure (container, pod) remains running. The next attach
+will create a fresh session with the cc-deck layout.
+
+When no name is provided, auto-resolves from workspace definitions.`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			store := ws.NewStateStore("")
+			name, _, err := resolveWorkspaceName(args, store)
+			if err != nil {
+				return err
+			}
+			return runWsKillSession(name)
+		},
+	}
+}
+
+func runWsKillSession(name string) error {
+	store := ws.NewStateStore("")
+	defs := ws.NewDefinitionStore("")
+
+	e, err := resolveWorkspace(name, store, defs)
+	if err != nil {
+		return err
+	}
+
+	if err := e.KillSession(cmd_context()); err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "Session killed for workspace %q\n", name)
 	return nil
 }
 
@@ -1357,7 +1417,13 @@ func runWsStart(name string) error {
 		return err
 	}
 
-	if err := e.Start(cmd_context()); err != nil {
+	im, ok := e.(ws.InfraManager)
+	if !ok {
+		fmt.Fprintf(os.Stderr, "%s workspaces have no infrastructure to start. Use 'cc-deck ws attach %s' to connect.\n", e.Type(), name)
+		return nil
+	}
+
+	if err := im.Start(cmd_context()); err != nil {
 		return err
 	}
 
@@ -1398,7 +1464,13 @@ func runWsStop(name string) error {
 		return err
 	}
 
-	if err := e.Stop(cmd_context()); err != nil {
+	im, ok := e.(ws.InfraManager)
+	if !ok {
+		fmt.Fprintf(os.Stderr, "%s workspaces have no infrastructure to stop. Use 'cc-deck ws kill-session %s' to end the session.\n", e.Type(), name)
+		return nil
+	}
+
+	if err := im.Stop(cmd_context()); err != nil {
 		return err
 	}
 

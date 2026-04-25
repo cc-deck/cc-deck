@@ -38,7 +38,8 @@ func TestLocalWorkspace_CreateAddsInstance(t *testing.T) {
 	inst, err := store.FindInstanceByName("test-env")
 	require.NoError(t, err)
 	assert.Equal(t, WorkspaceTypeLocal, inst.Type)
-	assert.Equal(t, WorkspaceStateRunning, inst.State)
+	assert.Equal(t, SessionStateNone, inst.SessionState)
+	assert.Nil(t, inst.InfraState)
 }
 
 func TestLocalWorkspace_CreateRejectsDuplicate(t *testing.T) {
@@ -80,9 +81,9 @@ func TestLocalWorkspace_DeleteRemovesInstance(t *testing.T) {
 
 	// Manually add an instance (bypassing Create to avoid zellij dependency).
 	inst := &WorkspaceInstance{
-		Name:  "del-env",
-		Type:  WorkspaceTypeLocal,
-		State: WorkspaceStateUnknown,
+		Name:         "del-env",
+		Type:         WorkspaceTypeLocal,
+		SessionState: SessionStateNone,
 	}
 	require.NoError(t, store.AddInstance(inst))
 

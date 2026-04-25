@@ -262,11 +262,13 @@ func (e *K8sDeployWorkspace) Create(ctx context.Context, opts CreateOpts) error 
 
 	// Write workspace instance to state store.
 	resName := k8sResourceName(e.name)
+	running := InfraStateRunning
 	inst := &WorkspaceInstance{
-		Name:      e.name,
-		Type:      WorkspaceTypeK8sDeploy,
-		State:     WorkspaceStateRunning,
-		CreatedAt: time.Now().UTC(),
+		Name:         e.name,
+		Type:         WorkspaceTypeK8sDeploy,
+		InfraState:   &running,
+		SessionState: SessionStateNone,
+		CreatedAt:    time.Now().UTC(),
 		K8s: &K8sFields{
 			Namespace:   e.Namespace,
 			StatefulSet: resName,
@@ -293,7 +295,7 @@ func (e *K8sDeployWorkspace) Attach(ctx context.Context) error {
 	}
 
 	// Auto-start if stopped.
-	if inst.State == WorkspaceStateStopped {
+	if inst.InfraState != nil && *inst.InfraState == InfraStateStopped {
 		if startErr := e.Start(ctx); startErr != nil {
 			return fmt.Errorf("auto-starting workspace: %w", startErr)
 		}
@@ -303,9 +305,10 @@ func (e *K8sDeployWorkspace) Attach(ctx context.Context) error {
 		}
 	}
 
-	// Update LastAttached timestamp.
+	// Update LastAttached timestamp and session state.
 	now := time.Now().UTC()
 	inst.LastAttached = &now
+	inst.SessionState = SessionStateExists
 	_ = e.store.UpdateInstance(inst)
 
 	ns := e.resolveNamespace(inst)
@@ -338,6 +341,29 @@ func (e *K8sDeployWorkspace) Attach(ctx context.Context) error {
 	return err
 }
 
+// KillSession kills the Zellij session inside the K8s Pod without
+// affecting the Pod or StatefulSet.
+func (e *K8sDeployWorkspace) KillSession(ctx context.Context) error {
+	inst, err := e.store.FindInstanceByName(e.name)
+	if err != nil {
+		return err
+	}
+	ns := e.resolveNamespace(inst)
+	podName := k8sPodName(e.name)
+	kubeconfigArgs := e.kubeconfigArgs(inst)
+	if !k8sHasZellijSession(ctx, ns, podName, kubeconfigArgs) {
+		return nil
+	}
+	sessionName := zellijSessionPrefix + e.name
+	cmd := []string{"zellij", "kill-session", sessionName}
+	if err := k8sExec(ctx, ns, podName, kubeconfigArgs, cmd, false); err != nil {
+		return fmt.Errorf("killing session: %w", err)
+	}
+	inst.SessionState = SessionStateNone
+	_ = e.store.UpdateInstance(inst)
+	return nil
+}
+
 // Start scales the StatefulSet to 1 replica and waits for Pod readiness.
 func (e *K8sDeployWorkspace) Start(ctx context.Context) error {
 	inst, err := e.store.FindInstanceByName(e.name)
@@ -365,12 +391,15 @@ func (e *K8sDeployWorkspace) Start(ctx context.Context) error {
 		return fmt.Errorf("waiting for Pod readiness: %w", err)
 	}
 
-	inst.State = WorkspaceStateRunning
+	running := InfraStateRunning
+	inst.InfraState = &running
 	return e.store.UpdateInstance(inst)
 }
 
-// Stop scales the StatefulSet to 0 replicas, preserving the PVC.
+// Stop kills the session and scales the StatefulSet to 0, preserving the PVC.
 func (e *K8sDeployWorkspace) Stop(ctx context.Context) error {
+	_ = e.KillSession(ctx)
+
 	inst, err := e.store.FindInstanceByName(e.name)
 	if err != nil {
 		return err
@@ -388,7 +417,9 @@ func (e *K8sDeployWorkspace) Stop(ctx context.Context) error {
 		return fmt.Errorf("scaling StatefulSet to 0: %w", err)
 	}
 
-	inst.State = WorkspaceStateStopped
+	stopped := InfraStateStopped
+	inst.InfraState = &stopped
+	inst.SessionState = SessionStateNone
 	return e.store.UpdateInstance(inst)
 }
 
@@ -399,7 +430,7 @@ func (e *K8sDeployWorkspace) Delete(ctx context.Context, force bool) error {
 		return err
 	}
 
-	if !force && inst.State == WorkspaceStateRunning {
+	if !force && inst.InfraState != nil && *inst.InfraState == InfraStateRunning {
 		return ErrRunning
 	}
 
@@ -477,7 +508,7 @@ func (e *K8sDeployWorkspace) Status(ctx context.Context) (*WorkspaceStatus, erro
 		return nil, err
 	}
 
-	state := inst.State
+	var infraState InfraStateValue = InfraStateError
 
 	// Reconcile with actual K8s state.
 	client, clientErr := NewK8sClient(e.resolveKubeconfig(inst), e.resolveContext(inst))
@@ -485,17 +516,31 @@ func (e *K8sDeployWorkspace) Status(ctx context.Context) (*WorkspaceStatus, erro
 		ns := e.resolveNamespace(inst)
 		resName := k8sResourceName(e.name)
 		if reconciled, reconcileErr := client.ReconcileState(ctx, ns, resName); reconcileErr == nil {
-			state = reconciled
-			if inst.State != state {
-				inst.State = state
-				_ = e.store.UpdateInstance(inst)
+			switch reconciled {
+			case WorkspaceStateRunning:
+				infraState = InfraStateRunning
+			case WorkspaceStateStopped:
+				infraState = InfraStateStopped
+			default:
+				infraState = InfraStateError
 			}
 		}
 	}
 
+	var sessState SessionStateValue = SessionStateNone
+	if infraState == InfraStateRunning {
+		ns := e.resolveNamespace(inst)
+		podName := k8sPodName(e.name)
+		kubeconfigArgs := e.kubeconfigArgs(inst)
+		if k8sHasZellijSession(ctx, ns, podName, kubeconfigArgs) {
+			sessState = SessionStateExists
+		}
+	}
+
 	return &WorkspaceStatus{
-		State: state,
-		Since: inst.CreatedAt,
+		InfraState:   &infraState,
+		SessionState: sessState,
+		Since:        &inst.CreatedAt,
 	}, nil
 }
 
@@ -505,8 +550,8 @@ func (e *K8sDeployWorkspace) Exec(ctx context.Context, cmd []string) error {
 	if err != nil {
 		return err
 	}
-	if inst.State != WorkspaceStateRunning {
-		return fmt.Errorf("workspace is not running (state: %s); start it with: cc-deck ws start %s", inst.State, e.name)
+	if inst.InfraState == nil || *inst.InfraState != InfraStateRunning {
+		return fmt.Errorf("workspace is not running (infra: %s); start it with: cc-deck ws start %s", InfraStateString(inst.InfraState), e.name)
 	}
 
 	return k8sExec(ctx, e.resolveNamespace(inst), k8sPodName(e.name), e.kubeconfigArgs(inst), cmd, false)
@@ -572,8 +617,8 @@ func (e *K8sDeployWorkspace) Push(ctx context.Context, opts SyncOpts) error {
 	if err != nil {
 		return err
 	}
-	if inst.State != WorkspaceStateRunning {
-		return fmt.Errorf("workspace is not running (state: %s); start it with: cc-deck ws start %s", inst.State, e.name)
+	if inst.InfraState == nil || *inst.InfraState != InfraStateRunning {
+		return fmt.Errorf("workspace is not running (infra: %s); start it with: cc-deck ws start %s", InfraStateString(inst.InfraState), e.name)
 	}
 
 	ch, chErr := e.DataChannel(ctx)
@@ -589,8 +634,8 @@ func (e *K8sDeployWorkspace) Pull(ctx context.Context, opts SyncOpts) error {
 	if err != nil {
 		return err
 	}
-	if inst.State != WorkspaceStateRunning {
-		return fmt.Errorf("workspace is not running (state: %s); start it with: cc-deck ws start %s", inst.State, e.name)
+	if inst.InfraState == nil || *inst.InfraState != InfraStateRunning {
+		return fmt.Errorf("workspace is not running (infra: %s); start it with: cc-deck ws start %s", InfraStateString(inst.InfraState), e.name)
 	}
 
 	ch, chErr := e.DataChannel(ctx)
@@ -606,8 +651,8 @@ func (e *K8sDeployWorkspace) Harvest(ctx context.Context, opts HarvestOpts) erro
 	if err != nil {
 		return err
 	}
-	if inst.State != WorkspaceStateRunning {
-		return fmt.Errorf("workspace is not running (state: %s); start it with: cc-deck ws start %s", inst.State, e.name)
+	if inst.InfraState == nil || *inst.InfraState != InfraStateRunning {
+		return fmt.Errorf("workspace is not running (infra: %s); start it with: cc-deck ws start %s", InfraStateString(inst.InfraState), e.name)
 	}
 
 	ch, chErr := e.GitChannel(ctx)
@@ -887,14 +932,41 @@ func ReconcileK8sDeployWorkspaces(store *FileStateStore) error {
 		}
 
 		resName := k8sResourceName(inst.Name)
-		newState, err := client.ReconcileState(ctx, inst.K8s.Namespace, resName)
-		if err != nil {
-			log.Printf("WARNING: reconcile %s: checking state: %v", inst.Name, err)
+		reconciled, reconcileErr := client.ReconcileState(ctx, inst.K8s.Namespace, resName)
+		if reconcileErr != nil {
+			log.Printf("WARNING: reconcile %s: checking state: %v", inst.Name, reconcileErr)
 			continue
 		}
 
-		if inst.State != newState {
-			inst.State = newState
+		var newInfra InfraStateValue
+		switch reconciled {
+		case WorkspaceStateRunning:
+			newInfra = InfraStateRunning
+		case WorkspaceStateStopped:
+			newInfra = InfraStateStopped
+		default:
+			newInfra = InfraStateError
+		}
+
+		var newSess SessionStateValue = SessionStateNone
+		if newInfra == InfraStateRunning {
+			podName := k8sPodName(inst.Name)
+			var kubeconfigArgs []string
+			if inst.K8s.Kubeconfig != "" {
+				kubeconfigArgs = append(kubeconfigArgs, "--kubeconfig", inst.K8s.Kubeconfig)
+			}
+			if inst.K8s.Profile != "" {
+				kubeconfigArgs = append(kubeconfigArgs, "--context", inst.K8s.Profile)
+			}
+			if k8sHasZellijSession(ctx, inst.K8s.Namespace, podName, kubeconfigArgs) {
+				newSess = SessionStateExists
+			}
+		}
+
+		changed := inst.InfraState == nil || *inst.InfraState != newInfra || inst.SessionState != newSess
+		if changed {
+			inst.InfraState = &newInfra
+			inst.SessionState = newSess
 			if err := store.UpdateInstance(inst); err != nil {
 				return err
 			}
