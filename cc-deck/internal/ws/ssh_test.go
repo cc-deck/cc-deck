@@ -40,13 +40,11 @@ func TestSSHWorkspace_SessionName(t *testing.T) {
 	}
 }
 
-func TestSSHWorkspace_StartStop(t *testing.T) {
-	e := &SSHWorkspace{name: "test"}
-	if err := e.Start(nil); err != ErrNotSupported {
-		t.Errorf("Start() error = %v, want ErrNotSupported", err)
-	}
-	if err := e.Stop(nil); err != ErrNotSupported {
-		t.Errorf("Stop() error = %v, want ErrNotSupported", err)
+func TestSSHWorkspace_KillSessionNoInstance(t *testing.T) {
+	store := newTestStore(t)
+	e := &SSHWorkspace{name: "test", store: store}
+	if err := e.KillSession(nil); err != nil {
+		t.Errorf("KillSession() error = %v, want nil", err)
 	}
 }
 
@@ -111,7 +109,7 @@ func TestSSHWorkspace_DeleteRemovesDefinition(t *testing.T) {
 	require.NoError(t, store.AddInstance(&WorkspaceInstance{
 		Name:  "ssh-env",
 		Type:  WorkspaceTypeSSH,
-		State: WorkspaceStateStopped,
+		SessionState: SessionStateNone,
 		SSH:   &SSHFields{Host: "user@host"},
 	}))
 
@@ -140,7 +138,7 @@ func TestSSHWorkspace_DeleteSucceedsWhenDefRemovalFails(t *testing.T) {
 	require.NoError(t, store.AddInstance(&WorkspaceInstance{
 		Name:  "ssh-env",
 		Type:  WorkspaceTypeSSH,
-		State: WorkspaceStateStopped,
+		SessionState: SessionStateNone,
 		SSH:   &SSHFields{Host: "user@host"},
 	}))
 
@@ -155,9 +153,9 @@ func TestSSHWorkspace_DeleteRefusesRunning(t *testing.T) {
 	store := NewStateStore(stateFile)
 
 	_ = store.AddInstance(&WorkspaceInstance{
-		Name:  "running-env",
-		Type:  WorkspaceTypeSSH,
-		State: WorkspaceStateRunning,
+		Name:         "running-env",
+		Type:         WorkspaceTypeSSH,
+		SessionState: SessionStateExists,
 		SSH: &SSHFields{
 			Host: "user@host",
 		},

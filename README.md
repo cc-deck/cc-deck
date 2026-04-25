@@ -364,11 +364,12 @@ The `cc-deck ws` command group provides a unified interface for managing Claude 
 | Subcommand | Description |
 |------------|-------------|
 | `cc-deck ws new` | Create a new workspace (scaffolds definition if needed, then provisions) |
-| `cc-deck ws attach` | Attach to a running workspace |
-| `cc-deck ws start` | Start a stopped workspace |
-| `cc-deck ws stop` | Stop a running workspace |
+| `cc-deck ws attach` | Attach to a workspace (auto-starts infrastructure if needed, creates session with layout) |
+| `cc-deck ws kill-session` | Kill the Zellij session without affecting infrastructure |
+| `cc-deck ws start` | Start infrastructure for container/compose/k8s workspaces |
+| `cc-deck ws stop` | Stop infrastructure (kills session first, then stops container/pod) |
 | `cc-deck ws delete` | Delete a workspace and its resources |
-| `cc-deck ws list` | List all workspaces (global and project-local) |
+| `cc-deck ws list` | List all workspaces with type-appropriate state display |
 | `cc-deck ws status` | Show detailed status of a workspace |
 | `cc-deck ws prune` | Remove stale project registry entries |
 
