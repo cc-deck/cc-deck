@@ -306,8 +306,11 @@ impl ZellijPlugin for ControllerPlugin {
                 // Help from keybinding: forward to sidebars
                 broadcast_navigate(&self.state, "forward");
             }
-            PipeAction::VoiceText(text) => {
-                if let Some(pane_id) = self.state.last_attended_pane_id {
+            PipeAction::VoiceText(text) if !text.is_empty() => {
+                let target = self.state.last_attended_pane_id
+                    .or(self.state.focused_pane_id)
+                    .or_else(|| self.state.sessions.keys().next().copied());
+                if let Some(pane_id) = target {
                     let in_permission = self.state.sessions.get(&pane_id)
                         .map(|s| matches!(s.activity, session::Activity::Waiting(session::WaitReason::Permission)))
                         .unwrap_or(false);

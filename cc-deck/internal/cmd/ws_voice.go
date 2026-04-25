@@ -3,7 +3,9 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
+	"os/exec"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/cc-deck/cc-deck/internal/voice"
@@ -56,6 +58,16 @@ VAD (voice activity detection) and PTT (push-to-talk via F8) modes.`,
 }
 
 func runVoiceRelay(wsName, mode, modelName, deviceID string, verbose bool, port int) error {
+	if verbose {
+		logFile, err := os.OpenFile("/tmp/cc-deck-voice.log", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+		if err == nil {
+			log.SetOutput(logFile)
+			log.SetFlags(log.Ltime | log.Lmicroseconds)
+			defer logFile.Close()
+		}
+		log.Printf("[voice] starting: workspace=%s mode=%s model=%s port=%d", wsName, mode, modelName, port)
+	}
+
 	modelPath := voice.ModelPath(modelName)
 	if _, err := os.Stat(modelPath); os.IsNotExist(err) {
 		return fmt.Errorf("model %q not found at %s; run: cc-deck ws voice --setup", modelName, modelPath)
@@ -74,12 +86,18 @@ func runVoiceRelay(wsName, mode, modelName, deviceID string, verbose bool, port 
 	if err != nil {
 		return fmt.Errorf("getting pipe channel: %w", err)
 	}
+	if verbose {
+		log.Printf("[voice] pipe channel type: %T", ch)
+	}
 
 	server := voice.NewWhisperServer(modelPath, port)
 	if err := server.Start(ctx); err != nil {
 		return fmt.Errorf("starting whisper-server: %w", err)
 	}
 	defer server.Stop()
+	if verbose {
+		log.Printf("[voice] whisper-server ready at %s", server.Endpoint())
+	}
 
 	transcriber := voice.NewHTTPTranscriber(server.Endpoint(), server)
 	audio := voice.NewAudioSource()
@@ -88,7 +106,14 @@ func runVoiceRelay(wsName, mode, modelName, deviceID string, verbose bool, port 
 	config.Mode = mode
 	config.Verbose = verbose
 
-	relay := voice.NewVoiceRelay(config, audio, transcriber, pipeAdapter{ch: ch})
+	var sessionName string
+	if e.Type() == ws.WorkspaceTypeLocal {
+		sessionName = "cc-deck-" + wsName
+	}
+
+	relay := voice.NewVoiceRelay(config, audio, transcriber, pipeAdapter{
+		ch: ch, sessionName: sessionName, verbose: verbose,
+	})
 
 	if err := relay.Start(ctx); err != nil {
 		return fmt.Errorf("starting voice relay: %w", err)
@@ -128,11 +153,38 @@ func runVoiceSetup(modelName string) error {
 	return voice.RunSetup(modelName)
 }
 
-// pipeAdapter wraps ws.PipeChannel to satisfy voice.PipeSender.
+// pipeAdapter injects text into the focused pane of a local workspace
+// via `zellij action write-chars`. For remote workspaces, it falls back
+// to PipeChannel.Send (plugin-side write_chars_to_pane_id).
 type pipeAdapter struct {
-	ch ws.PipeChannel
+	ch          ws.PipeChannel
+	sessionName string
+	verbose     bool
 }
 
 func (a pipeAdapter) Send(ctx context.Context, pipeName string, payload string) error {
-	return a.ch.Send(ctx, pipeName, payload)
+	if a.verbose {
+		log.Printf("[voice] pipeAdapter.Send: name=%q payload=%q (%d bytes) session=%q",
+			pipeName, payload, len(payload), a.sessionName)
+	}
+
+	var err error
+	if a.sessionName != "" {
+		cmd := exec.CommandContext(ctx, "zellij", "action", "write-chars", payload)
+		cmd.Env = append(os.Environ(), "ZELLIJ_SESSION_NAME="+a.sessionName)
+		if out, cmdErr := cmd.CombinedOutput(); cmdErr != nil {
+			err = fmt.Errorf("write-chars: %w: %s", cmdErr, string(out))
+		}
+	} else {
+		err = a.ch.Send(ctx, pipeName, payload)
+	}
+
+	if a.verbose {
+		if err != nil {
+			log.Printf("[voice] pipeAdapter.Send: ERROR %v", err)
+		} else {
+			log.Printf("[voice] pipeAdapter.Send: OK")
+		}
+	}
+	return err
 }
