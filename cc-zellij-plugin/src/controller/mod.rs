@@ -82,6 +82,11 @@ impl ZellijPlugin for ControllerPlugin {
 
                     crate::wasm_compat::set_selectable_wasm(false);
 
+                    // T021-T023: Migrate legacy state files to PID-scoped paths
+                    ControllerState::migrate_legacy_files();
+                    // T018: Clean up orphaned state files from dead Zellij sessions
+                    crate::sync::cleanup_orphaned_state_files();
+
                     // Restore persisted sessions (reattach recovery)
                     let restored = ControllerState::restore_sessions();
                     if !restored.is_empty() {
@@ -259,8 +264,7 @@ impl ZellijPlugin for ControllerPlugin {
                 hooks::process_restore_meta(&mut self.state, &payload);
             }
             PipeAction::Refresh => {
-                // Re-save current state (clears stale cache) and broadcast
-                let _ = std::fs::remove_file("/cache/sessions.json");
+                // Re-save current state (PID-scoped file is overwritten)
                 self.state.save_sessions();
                 self.state.mark_render_dirty();
                 crate::debug_log("CTRL REFRESH re-saved state and marked dirty");
