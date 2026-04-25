@@ -145,10 +145,12 @@ pub fn handle_timer(state: &mut ControllerState, _elapsed: f64) {
     // Flush coalesced render if dirty
     render_broadcast::flush_render(state);
 
-    // Git branch polling: every 60s as a fallback for in-place `git checkout`.
+    // Git branch polling and orphan cleanup: every 60s.
     let now_ms = session::unix_now_ms();
     if now_ms.saturating_sub(state.last_git_poll_ms) >= 60_000 {
         state.last_git_poll_ms = now_ms;
+        // T019: Clean up orphaned state files from dead Zellij sessions
+        crate::sync::cleanup_orphaned_state_files();
         for s in state.sessions.values() {
             if s.paused {
                 continue;

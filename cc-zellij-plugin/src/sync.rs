@@ -1,16 +1,100 @@
 // T008: Multi-instance state synchronization via pipe messages + file-based metadata sync
+// T001-T024 (044): PID-scoped state isolation so each Zellij session sees only its own sessions.
 
 use crate::session::Session;
 use crate::state::PluginState;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+// --- PID-scoped path helpers (T001) ---
+
+/// Get the Zellij server PID (stable across reattach, different for new sessions).
+#[cfg(target_family = "wasm")]
+fn current_zellij_pid() -> u32 {
+    zellij_tile::prelude::get_plugin_ids().zellij_pid
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn current_zellij_pid() -> u32 {
+    0
+}
+
+/// PID-scoped sessions file path: `/cache/sessions-{pid}.json`.
+/// Falls back to the legacy `/cache/sessions.json` when PID is 0 (native tests).
+fn sessions_path(pid: u32) -> String {
+    if pid == 0 {
+        "/cache/sessions.json".to_string()
+    } else {
+        format!("/cache/sessions-{pid}.json")
+    }
+}
+
+/// PID-scoped meta file path: `/cache/session-meta-{pid}.json`.
+/// Falls back to the legacy `/cache/session-meta.json` when PID is 0 (native tests).
+fn meta_path(pid: u32) -> String {
+    if pid == 0 {
+        "/cache/session-meta.json".to_string()
+    } else {
+        format!("/cache/session-meta-{pid}.json")
+    }
+}
+
+/// Legacy file paths (pre-044, no PID suffix).
+const LEGACY_SESSIONS_PATH: &str = "/cache/sessions.json";
+const LEGACY_META_PATH: &str = "/cache/session-meta.json";
+const LEGACY_PID_PATH: &str = "/cache/zellij_pid";
+
+/// PID-scoped pipe message name for sync broadcasts.
+fn sync_message_name(pid: u32) -> String {
+    if pid == 0 {
+        "cc-deck:sync".to_string()
+    } else {
+        format!("cc-deck:sync:{pid}")
+    }
+}
+
+/// PID-scoped pipe message name for state requests.
+fn request_message_name(pid: u32) -> String {
+    if pid == 0 {
+        "cc-deck:request".to_string()
+    } else {
+        format!("cc-deck:request:{pid}")
+    }
+}
+
+/// Extract PID from a sync/request message name.
+/// Returns Some(pid) if the name matches `cc-deck:sync:{pid}` or `cc-deck:request:{pid}`.
+/// Returns None if the name does not contain a PID suffix.
+pub fn extract_pid_from_message_name(name: &str) -> Option<u32> {
+    if let Some(suffix) = name.strip_prefix("cc-deck:sync:") {
+        suffix.parse().ok()
+    } else if let Some(suffix) = name.strip_prefix("cc-deck:request:") {
+        suffix.parse().ok()
+    } else {
+        None
+    }
+}
+
+/// Check if a pipe message name is a sync or request message (with or without PID).
+pub fn is_sync_message(name: &str) -> bool {
+    name == "cc-deck:sync" || name.starts_with("cc-deck:sync:")
+}
+
+/// Check if a pipe message name is a request message (with or without PID).
+pub fn is_request_message(name: &str) -> bool {
+    name == "cc-deck:request" || name.starts_with("cc-deck:request:")
+}
+
+// --- Broadcast and sync (T010-T012) ---
+
 /// Broadcast current session state to all plugin instances.
+/// Uses PID-scoped message name so only same-session instances process it.
 #[cfg(target_family = "wasm")]
 pub fn broadcast_state(state: &PluginState) {
     use zellij_tile::prelude::*;
+    let pid = current_zellij_pid();
     let payload = serde_json::to_string(&state.sessions).unwrap_or_default();
-    let mut msg = MessageToPlugin::new("cc-deck:sync");
+    let mut msg = MessageToPlugin::new(&sync_message_name(pid));
     msg.message_payload = Some(payload);
     pipe_message_to_plugin(msg);
 }
@@ -22,20 +106,18 @@ pub fn broadcast_state(_state: &PluginState) {
 
 /// Serialize sessions once, then broadcast via pipe AND save to disk.
 /// Avoids the double serialization of calling broadcast_state + save_sessions separately.
+/// Uses PID-scoped file paths and message names.
 #[cfg(target_family = "wasm")]
 pub fn broadcast_and_save(state: &PluginState) {
     use zellij_tile::prelude::*;
+    let pid = current_zellij_pid();
     let json = serde_json::to_string(&state.sessions).unwrap_or_default();
-    // Broadcast via pipe
-    let mut msg = MessageToPlugin::new("cc-deck:sync");
+    // Broadcast via pipe with PID-scoped name
+    let mut msg = MessageToPlugin::new(&sync_message_name(pid));
     msg.message_payload = Some(json.clone());
     pipe_message_to_plugin(msg);
-    // Save to disk (reusing same JSON)
-    let _ = std::fs::write(SESSIONS_PATH, &json);
-    let pid = current_zellij_pid();
-    if pid != 0 {
-        let _ = std::fs::write(PID_PATH, pid.to_string());
-    }
+    // Save to PID-scoped file (no separate PID file needed)
+    let _ = std::fs::write(sessions_path(pid), &json);
 }
 
 #[cfg(not(target_family = "wasm"))]
@@ -59,10 +141,12 @@ pub fn flush_if_dirty(state: &mut PluginState) {
 }
 
 /// Request state from other plugin instances (called on load).
+/// Uses PID-scoped message name so only same-session instances respond.
 #[cfg(target_family = "wasm")]
 pub fn request_state() {
     use zellij_tile::prelude::*;
-    pipe_message_to_plugin(MessageToPlugin::new("cc-deck:request"));
+    let pid = current_zellij_pid();
+    pipe_message_to_plugin(MessageToPlugin::new(&request_message_name(pid)));
 }
 
 #[cfg(not(target_family = "wasm"))]
@@ -87,68 +171,33 @@ pub fn handle_sync(state: &mut PluginState, payload: &str) -> bool {
     state.merge_sessions(incoming)
 }
 
-// --- Full session state persistence via WASI /cache/ ---
-
-const SESSIONS_PATH: &str = "/cache/sessions.json";
-const PID_PATH: &str = "/cache/zellij_pid";
-
-/// Get the Zellij server PID (stable across reattach, different for new sessions).
-#[cfg(target_family = "wasm")]
-fn current_zellij_pid() -> u32 {
-    zellij_tile::prelude::get_plugin_ids().zellij_pid
-}
-
-#[cfg(not(target_family = "wasm"))]
-fn current_zellij_pid() -> u32 {
-    0
-}
+// --- Full session state persistence via WASI /cache/ (T002, T005, T006) ---
 
 /// Persist full session state to disk for reattach recovery.
+/// Writes to the PID-scoped path.
 pub fn save_sessions(sessions: &BTreeMap<u32, Session>) {
-    if let Ok(json) = serde_json::to_string(sessions) {
-        let _ = std::fs::write(SESSIONS_PATH, json);
-    }
-    // Track which Zellij session owns this cache so we can detect
-    // stale caches from a previous session on next startup.
     let pid = current_zellij_pid();
-    if pid != 0 {
-        let _ = std::fs::write(PID_PATH, pid.to_string());
+    if let Ok(json) = serde_json::to_string(sessions) {
+        let _ = std::fs::write(sessions_path(pid), json);
     }
 }
 
 /// Restore sessions from disk (called on load/reattach).
-/// Returns an empty map if the cache belongs to a different Zellij session,
-/// preventing ghost sessions when pane IDs are reused across sessions.
+/// Reads from the PID-scoped file. No cross-session PID check needed
+/// because each PID has its own file.
 pub fn restore_sessions() -> BTreeMap<u32, Session> {
-    let current_pid = current_zellij_pid();
-    if current_pid != 0 {
-        let cached_pid = std::fs::read_to_string(PID_PATH)
-            .ok()
-            .and_then(|s| s.trim().parse::<u32>().ok())
-            .unwrap_or(0);
-        if cached_pid != 0 && cached_pid != current_pid {
-            // Cache belongs to a different Zellij session (stale).
-            // Clear it and return empty to avoid ghost sessions from
-            // coincidental pane ID collisions.
-            let _ = std::fs::remove_file(SESSIONS_PATH);
-            let _ = std::fs::remove_file(META_PATH);
-            let _ = std::fs::remove_file(PID_PATH);
-            return BTreeMap::new();
-        }
-    }
-    match std::fs::read_to_string(SESSIONS_PATH) {
+    let pid = current_zellij_pid();
+    match std::fs::read_to_string(sessions_path(pid)) {
         Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
         Err(_) => BTreeMap::new(),
     }
 }
 
-// --- File-based metadata sync via WASI /cache/ ---
+// --- File-based metadata sync via WASI /cache/ (T003, T008, T009) ---
 //
 // pipe_message_to_plugin broadcasts are unreliable in Zellij 0.43.
 // Use a shared file for metadata that only changes on user actions
 // (rename, pause toggle). Each instance reads on timer and applies.
-
-const META_PATH: &str = "/cache/session-meta.json";
 
 /// Metadata override for a single session.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -159,9 +208,10 @@ pub struct SessionMeta {
     pub meta_ts: u64,
 }
 
-/// Write session metadata overrides to the shared file.
+/// Write session metadata overrides to the PID-scoped meta file.
 /// Called after rename or pause toggle.
 pub fn write_session_meta(sessions: &BTreeMap<u32, Session>) {
+    let pid = current_zellij_pid();
     // Only write sessions that have user-modified metadata
     let meta: BTreeMap<u32, SessionMeta> = sessions
         .iter()
@@ -183,8 +233,9 @@ pub fn write_session_meta(sessions: &BTreeMap<u32, Session>) {
         return;
     }
 
+    let path = meta_path(pid);
     // Read existing file and merge (preserve entries from other instances)
-    let mut existing = read_session_meta_file();
+    let mut existing = read_session_meta_file_at(&path);
     for (id, m) in &meta {
         let dominated = existing
             .get(id)
@@ -196,16 +247,18 @@ pub fn write_session_meta(sessions: &BTreeMap<u32, Session>) {
     }
 
     if let Ok(json) = serde_json::to_string(&existing) {
-        let _ = std::fs::write(META_PATH, json);
+        let _ = std::fs::write(&path, json);
     }
 }
 
-/// Read and apply session metadata from the shared file.
+/// Read and apply session metadata from the PID-scoped meta file.
 /// Called on timer to pick up renames/pauses from other instances.
 /// Skips parsing if the file content hash matches the last read.
 /// Returns true if any session was updated.
 pub fn apply_session_meta(sessions: &mut BTreeMap<u32, Session>, last_hash: &mut u64) -> bool {
-    let content = match std::fs::read_to_string(META_PATH) {
+    let pid = current_zellij_pid();
+    let path = meta_path(pid);
+    let content = match std::fs::read_to_string(&path) {
         Ok(c) => c,
         Err(_) => return false,
     };
@@ -248,7 +301,9 @@ pub fn apply_session_meta(sessions: &mut BTreeMap<u32, Session>, last_hash: &mut
 /// Called after remove_dead_sessions() and PaneClosed to prevent stale metadata
 /// from being applied to new sessions with reused pane IDs.
 pub fn prune_session_meta(live_sessions: &BTreeMap<u32, Session>) {
-    let existing = read_session_meta_file();
+    let pid = current_zellij_pid();
+    let path = meta_path(pid);
+    let existing = read_session_meta_file_at(&path);
     if existing.is_empty() {
         return;
     }
@@ -257,16 +312,132 @@ pub fn prune_session_meta(live_sessions: &BTreeMap<u32, Session>) {
         .filter(|(id, _)| live_sessions.contains_key(id))
         .collect();
     if pruned.is_empty() {
-        let _ = std::fs::remove_file(META_PATH);
+        let _ = std::fs::remove_file(&path);
     } else if let Ok(json) = serde_json::to_string(&pruned) {
-        let _ = std::fs::write(META_PATH, json);
+        let _ = std::fs::write(&path, json);
     }
 }
 
-fn read_session_meta_file() -> BTreeMap<u32, SessionMeta> {
-    match std::fs::read_to_string(META_PATH) {
+fn read_session_meta_file_at(path: &str) -> BTreeMap<u32, SessionMeta> {
+    match std::fs::read_to_string(path) {
         Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
         Err(_) => BTreeMap::new(),
+    }
+}
+
+// --- Legacy migration (T021-T023) ---
+
+/// Migrate legacy state files (pre-044) to PID-scoped paths.
+/// Called once on plugin startup. If legacy files exist and PID-scoped
+/// files do not, rename them. Then remove the legacy PID file.
+pub fn migrate_legacy_files() {
+    let pid = current_zellij_pid();
+    if pid == 0 {
+        return; // Skip in native tests
+    }
+
+    let scoped_sessions = sessions_path(pid);
+    let scoped_meta = meta_path(pid);
+
+    // Migrate sessions.json if PID-scoped file does not exist yet
+    if std::fs::metadata(&scoped_sessions).is_err() {
+        if let Ok(content) = std::fs::read_to_string(LEGACY_SESSIONS_PATH) {
+            let _ = std::fs::write(&scoped_sessions, content);
+            let _ = std::fs::remove_file(LEGACY_SESSIONS_PATH);
+        }
+    }
+
+    // Migrate session-meta.json if PID-scoped file does not exist yet
+    if std::fs::metadata(&scoped_meta).is_err() {
+        if let Ok(content) = std::fs::read_to_string(LEGACY_META_PATH) {
+            let _ = std::fs::write(&scoped_meta, content);
+            let _ = std::fs::remove_file(LEGACY_META_PATH);
+        }
+    }
+
+    // Remove the legacy PID file (PID is now embedded in filenames)
+    let _ = std::fs::remove_file(LEGACY_PID_PATH);
+}
+
+// --- Orphan cleanup (T017) ---
+
+/// Clean up orphaned state files from killed Zellij sessions.
+/// Scans `/cache/` for `sessions-*.json` and `session-meta-*.json` files.
+/// Attempts to check process liveness via `/proc/{pid}/`. If `/proc/` is
+/// not available (WASI limitation), falls back to removing files older
+/// than 7 days based on modification time.
+pub fn cleanup_orphaned_state_files() {
+    let current_pid = current_zellij_pid();
+    if current_pid == 0 {
+        return; // Skip in native tests
+    }
+
+    let entries = match std::fs::read_dir("/cache/") {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+
+    let seven_days_secs: u64 = 7 * 24 * 60 * 60;
+    let now_secs = crate::session::unix_now();
+
+    for entry in entries.flatten() {
+        let name = match entry.file_name().into_string() {
+            Ok(n) => n,
+            Err(_) => continue,
+        };
+
+        // Match sessions-{pid}.json or session-meta-{pid}.json
+        let pid = extract_pid_from_filename(&name);
+        let pid = match pid {
+            Some(p) => p,
+            None => continue,
+        };
+
+        // Never clean up our own files
+        if pid == current_pid {
+            continue;
+        }
+
+        // Try process liveness check via /proc/
+        let proc_path = format!("/proc/{pid}");
+        let is_alive = std::fs::metadata(&proc_path).is_ok();
+
+        if is_alive {
+            continue; // Process still running, keep the file
+        }
+
+        // /proc/ check failed (either dead process or /proc/ not mounted).
+        // Use file age as fallback: only remove files older than 7 days.
+        let should_remove = match entry.metadata().and_then(|m| m.modified()) {
+            Ok(mtime) => {
+                match mtime.duration_since(std::time::UNIX_EPOCH) {
+                    Ok(d) => now_secs.saturating_sub(d.as_secs()) > seven_days_secs,
+                    Err(_) => false,
+                }
+            }
+            Err(_) => {
+                // Cannot determine file age; fall back to removing it
+                // only if /proc/ definitively shows the process is dead.
+                // Since we got here, /proc/ may not be mounted, so skip.
+                false
+            }
+        };
+
+        if should_remove {
+            let path = entry.path();
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+}
+
+/// Extract PID from a state filename like `sessions-12345.json` or `session-meta-12345.json`.
+fn extract_pid_from_filename(name: &str) -> Option<u32> {
+    if let Some(rest) = name.strip_prefix("sessions-") {
+        rest.strip_suffix(".json")?.parse().ok()
+    } else if let Some(rest) = name.strip_prefix("session-meta-") {
+        rest.strip_suffix(".json")?.parse().ok()
+    } else {
+        None
     }
 }
 
@@ -281,6 +452,92 @@ mod tests {
         s.last_event_ts = ts;
         s
     }
+
+    // --- T001: PID helper and path tests ---
+
+    #[test]
+    fn test_sessions_path_with_pid() {
+        assert_eq!(sessions_path(12345), "/cache/sessions-12345.json");
+        assert_eq!(sessions_path(1), "/cache/sessions-1.json");
+    }
+
+    #[test]
+    fn test_sessions_path_zero_pid_fallback() {
+        assert_eq!(sessions_path(0), "/cache/sessions.json");
+    }
+
+    #[test]
+    fn test_meta_path_with_pid() {
+        assert_eq!(meta_path(12345), "/cache/session-meta-12345.json");
+        assert_eq!(meta_path(1), "/cache/session-meta-1.json");
+    }
+
+    #[test]
+    fn test_meta_path_zero_pid_fallback() {
+        assert_eq!(meta_path(0), "/cache/session-meta.json");
+    }
+
+    // --- T010-T012: PID-scoped message name tests ---
+
+    #[test]
+    fn test_sync_message_name_with_pid() {
+        assert_eq!(sync_message_name(12345), "cc-deck:sync:12345");
+    }
+
+    #[test]
+    fn test_sync_message_name_zero_pid() {
+        assert_eq!(sync_message_name(0), "cc-deck:sync");
+    }
+
+    #[test]
+    fn test_request_message_name_with_pid() {
+        assert_eq!(request_message_name(12345), "cc-deck:request:12345");
+    }
+
+    #[test]
+    fn test_request_message_name_zero_pid() {
+        assert_eq!(request_message_name(0), "cc-deck:request");
+    }
+
+    #[test]
+    fn test_extract_pid_from_message_name() {
+        assert_eq!(extract_pid_from_message_name("cc-deck:sync:12345"), Some(12345));
+        assert_eq!(extract_pid_from_message_name("cc-deck:request:99"), Some(99));
+        assert_eq!(extract_pid_from_message_name("cc-deck:sync"), None);
+        assert_eq!(extract_pid_from_message_name("cc-deck:request"), None);
+        assert_eq!(extract_pid_from_message_name("cc-deck:hook"), None);
+        assert_eq!(extract_pid_from_message_name("cc-deck:sync:notanumber"), None);
+    }
+
+    #[test]
+    fn test_is_sync_message() {
+        assert!(is_sync_message("cc-deck:sync"));
+        assert!(is_sync_message("cc-deck:sync:12345"));
+        assert!(!is_sync_message("cc-deck:request"));
+        assert!(!is_sync_message("cc-deck:hook"));
+    }
+
+    #[test]
+    fn test_is_request_message() {
+        assert!(is_request_message("cc-deck:request"));
+        assert!(is_request_message("cc-deck:request:12345"));
+        assert!(!is_request_message("cc-deck:sync"));
+        assert!(!is_request_message("cc-deck:hook"));
+    }
+
+    // --- T017: Orphan cleanup filename extraction ---
+
+    #[test]
+    fn test_extract_pid_from_filename() {
+        assert_eq!(extract_pid_from_filename("sessions-12345.json"), Some(12345));
+        assert_eq!(extract_pid_from_filename("session-meta-12345.json"), Some(12345));
+        assert_eq!(extract_pid_from_filename("sessions.json"), None);
+        assert_eq!(extract_pid_from_filename("session-meta.json"), None);
+        assert_eq!(extract_pid_from_filename("debug.log"), None);
+        assert_eq!(extract_pid_from_filename("sessions-abc.json"), None);
+    }
+
+    // --- Existing sync tests ---
 
     #[test]
     fn test_handle_sync_empty_payload() {
@@ -523,5 +780,46 @@ mod tests {
         assert_eq!(restored[&1].display_name, "api");
         assert_eq!(restored[&2].display_name, "web");
         assert_eq!(restored[&1].activity, crate::session::Activity::Working);
+    }
+
+    // --- T014-T016: PID-scoped isolation tests ---
+
+    #[test]
+    fn test_pid_scoped_paths_are_unique_per_pid() {
+        // Two different PIDs produce different file paths
+        let path_a = sessions_path(100);
+        let path_b = sessions_path(200);
+        assert_ne!(path_a, path_b);
+
+        let meta_a = meta_path(100);
+        let meta_b = meta_path(200);
+        assert_ne!(meta_a, meta_b);
+    }
+
+    #[test]
+    fn test_pid_scoped_message_names_are_unique_per_pid() {
+        let sync_a = sync_message_name(100);
+        let sync_b = sync_message_name(200);
+        assert_ne!(sync_a, sync_b);
+
+        let req_a = request_message_name(100);
+        let req_b = request_message_name(200);
+        assert_ne!(req_a, req_b);
+    }
+
+    #[test]
+    fn test_foreign_pid_sync_messages_are_distinguishable() {
+        // A message from PID 100 should not match PID 200
+        let name = sync_message_name(100);
+        let extracted = extract_pid_from_message_name(&name);
+        assert_eq!(extracted, Some(100));
+        assert_ne!(extracted, Some(200));
+    }
+
+    #[test]
+    fn test_legacy_message_names_have_no_pid() {
+        // Legacy messages (PID 0) produce no-PID names
+        assert_eq!(extract_pid_from_message_name("cc-deck:sync"), None);
+        assert_eq!(extract_pid_from_message_name("cc-deck:request"), None);
     }
 }

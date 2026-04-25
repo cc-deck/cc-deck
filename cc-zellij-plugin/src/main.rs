@@ -622,6 +622,11 @@ impl ZellijPlugin for PluginState {
                 // when is_on_active_tab() has accurate data. This avoids N
                 // reconfigure() calls when many tabs are created at once.
 
+                // T021-T023: Migrate legacy state files to PID-scoped paths
+                sync::migrate_legacy_files();
+                // T018: Clean up orphaned state files from dead Zellij sessions
+                sync::cleanup_orphaned_state_files();
+
                 // Restore persisted sessions (reattach recovery)
                 let restored = sync::restore_sessions();
                 if !restored.is_empty() {
@@ -674,11 +679,29 @@ impl ZellijPlugin for PluginState {
             return false;
         }
 
+        // T013: Filter PID-scoped sync/request messages. Ignore messages
+        // from foreign Zellij sessions (different PID).
+        if sync::is_sync_message(&pipe_message.name) || sync::is_request_message(&pipe_message.name) {
+            let my_pid = {
+                #[cfg(target_family = "wasm")]
+                { zellij_tile::prelude::get_plugin_ids().zellij_pid }
+                #[cfg(not(target_family = "wasm"))]
+                { 0u32 }
+            };
+            if let Some(msg_pid) = sync::extract_pid_from_message_name(&pipe_message.name) {
+                if msg_pid != my_pid {
+                    // Foreign PID: silently ignore
+                    return false;
+                }
+            }
+            // Legacy messages without PID suffix are accepted (backward compat)
+        }
+
         // Keybinds and CLI pipes both represent direct user actions.
         // Plugin-to-plugin broadcasts (PipeSource::Plugin) are internal forwarding.
         let is_user_action = !matches!(pipe_message.source, PipeSource::Plugin(_));
         // Trace log (skip high-volume sync/request messages to avoid I/O contention)
-        if pipe_message.name != "cc-deck:sync" && pipe_message.name != "cc-deck:request" {
+        if !sync::is_sync_message(&pipe_message.name) && !sync::is_request_message(&pipe_message.name) {
             debug_log(&format!("PIPE name={} payload={} source={} sessions={}",
                 pipe_message.name,
                 pipe_message.payload.as_deref().unwrap_or("None"),
@@ -1179,9 +1202,8 @@ impl ZellijPlugin for PluginState {
                 if !self.is_on_active_tab() {
                     return false;
                 }
-                // Clear file-based caches
-                let _ = std::fs::remove_file("/cache/sessions.json");
-                let _ = std::fs::remove_file("/cache/session-meta.json");
+                // Clear file-based caches (PID-scoped paths are cleared by
+                // broadcast_and_save which overwrites the file)
                 let _ = std::fs::remove_file(SHARED_LAST_CLICK_PATH);
                 // Reset meta content hash so next apply_session_meta re-reads
                 self.last_meta_content_hash = 0;
@@ -1414,10 +1436,13 @@ impl PluginState {
                     sync::broadcast_and_save(self);
                 }
                 let meta_changed = sync::apply_session_meta(&mut self.sessions, &mut self.last_meta_content_hash);
-                // Git branch polling: only every 60s as a fallback for in-place
-                // `git checkout`. The primary path is event-driven (cwd changes).
+                // Git branch polling and orphan cleanup: every 60s.
+                // Git: fallback for in-place `git checkout`. Primary path is event-driven.
+                // T019: Orphan cleanup runs periodically to remove stale state files.
                 let now_ms = session::unix_now_ms();
                 if now_ms.saturating_sub(self.last_git_poll_ms) >= 60_000 {
+                    // T019: Clean up orphaned state files from dead Zellij sessions
+                    sync::cleanup_orphaned_state_files();
                     self.last_git_poll_ms = now_ms;
                     for session in self.sessions.values() {
                         if session.paused {
@@ -1865,8 +1890,7 @@ impl PluginState {
 
             // Force-refresh state: clear caches and broadcast
             BareKey::Char('!') => {
-                let _ = std::fs::remove_file("/cache/sessions.json");
-                let _ = std::fs::remove_file("/cache/session-meta.json");
+                // PID-scoped caches are overwritten by broadcast_and_save
                 let _ = std::fs::remove_file(SHARED_LAST_CLICK_PATH);
                 self.last_meta_content_hash = 0;
                 sync::broadcast_and_save(self);

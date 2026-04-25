@@ -11,8 +11,20 @@ use crate::session::{Activity, Session};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use zellij_tile::prelude::*;
 
-const SESSIONS_PATH: &str = "/cache/sessions.json";
-const PID_PATH: &str = "/cache/zellij_pid";
+/// PID-scoped sessions file path: `/cache/sessions-{pid}.json`.
+/// Falls back to the legacy `/cache/sessions.json` when PID is 0 (native tests).
+fn sessions_path(pid: u32) -> String {
+    if pid == 0 {
+        "/cache/sessions.json".to_string()
+    } else {
+        format!("/cache/sessions-{pid}.json")
+    }
+}
+
+/// Legacy file paths (pre-044, no PID suffix).
+const LEGACY_SESSIONS_PATH: &str = "/cache/sessions.json";
+const LEGACY_META_PATH: &str = "/cache/session-meta.json";
+const LEGACY_PID_PATH: &str = "/cache/zellij_pid";
 
 /// TTL for in-flight focus protection. After this period, manifest-derived
 /// focus is trusted again even if it differs from the action-set value.
@@ -312,35 +324,46 @@ impl ControllerState {
 
     /// Persist full session state to disk for reattach recovery.
     /// Only the controller calls this; sidebars never write.
+    /// Writes to the PID-scoped path (no separate PID file needed).
     pub fn save_sessions(&self) {
-        if let Ok(json) = serde_json::to_string(&self.sessions) {
-            let _ = std::fs::write(SESSIONS_PATH, json);
-        }
         let pid = current_zellij_pid();
-        if pid != 0 {
-            let _ = std::fs::write(PID_PATH, pid.to_string());
+        if let Ok(json) = serde_json::to_string(&self.sessions) {
+            let _ = std::fs::write(sessions_path(pid), json);
         }
     }
 
     /// Restore sessions from disk (called on load/reattach).
-    /// Returns an empty map if the cache belongs to a different Zellij session.
+    /// Reads from the PID-scoped file. No cross-session PID check needed
+    /// because each PID has its own file.
     pub fn restore_sessions() -> BTreeMap<u32, Session> {
-        let current_pid = current_zellij_pid();
-        if current_pid != 0 {
-            let cached_pid = std::fs::read_to_string(PID_PATH)
-                .ok()
-                .and_then(|s| s.trim().parse::<u32>().ok())
-                .unwrap_or(0);
-            if cached_pid != 0 && cached_pid != current_pid {
-                let _ = std::fs::remove_file(SESSIONS_PATH);
-                let _ = std::fs::remove_file(PID_PATH);
-                return BTreeMap::new();
-            }
-        }
-        match std::fs::read_to_string(SESSIONS_PATH) {
+        let pid = current_zellij_pid();
+        match std::fs::read_to_string(sessions_path(pid)) {
             Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
             Err(_) => BTreeMap::new(),
         }
+    }
+
+    /// Migrate legacy state files (pre-044) to PID-scoped paths.
+    /// Called once on controller startup.
+    pub fn migrate_legacy_files() {
+        let pid = current_zellij_pid();
+        if pid == 0 {
+            return;
+        }
+
+        let scoped_sessions = sessions_path(pid);
+
+        // Migrate sessions.json if PID-scoped file does not exist yet
+        if std::fs::metadata(&scoped_sessions).is_err() {
+            if let Ok(content) = std::fs::read_to_string(LEGACY_SESSIONS_PATH) {
+                let _ = std::fs::write(&scoped_sessions, content);
+                let _ = std::fs::remove_file(LEGACY_SESSIONS_PATH);
+            }
+        }
+
+        // Remove legacy meta and PID files (controller does not use meta file)
+        let _ = std::fs::remove_file(LEGACY_META_PATH);
+        let _ = std::fs::remove_file(LEGACY_PID_PATH);
     }
 }
 
