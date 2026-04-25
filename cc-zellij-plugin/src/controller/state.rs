@@ -353,11 +353,13 @@ impl ControllerState {
 
         let scoped_sessions = sessions_path(pid);
 
-        // Migrate sessions.json if PID-scoped file does not exist yet
+        // Migrate sessions.json if PID-scoped file does not exist yet.
+        // Only remove legacy file after successful write.
         if std::fs::metadata(&scoped_sessions).is_err() {
             if let Ok(content) = std::fs::read_to_string(LEGACY_SESSIONS_PATH) {
-                let _ = std::fs::write(&scoped_sessions, content);
-                let _ = std::fs::remove_file(LEGACY_SESSIONS_PATH);
+                if std::fs::write(&scoped_sessions, &content).is_ok() {
+                    let _ = std::fs::remove_file(LEGACY_SESSIONS_PATH);
+                }
             }
         }
 
