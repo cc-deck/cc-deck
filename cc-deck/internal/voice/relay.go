@@ -3,6 +3,7 @@ package voice
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -157,6 +158,11 @@ func (r *VoiceRelay) processUtterances(ctx context.Context, utterances <-chan Ut
 func (r *VoiceRelay) handleUtterance(ctx context.Context, u Utterance) {
 	start := time.Now()
 
+	if r.config.Verbose {
+		log.Printf("[voice] utterance: %d samples, %d Hz, duration=%s",
+			len(u.Audio), u.SampleRate, UtteranceDuration(u))
+	}
+
 	text, err := r.transcriber.Transcribe(ctx, u.Audio, u.SampleRate)
 	if err != nil {
 		r.sendEvent(RelayEvent{Type: "error", Err: fmt.Errorf("transcription: %w", err)})
@@ -164,12 +170,23 @@ func (r *VoiceRelay) handleUtterance(ctx context.Context, u Utterance) {
 	}
 
 	text = strings.TrimSpace(text)
+	if r.config.Verbose {
+		log.Printf("[voice] transcribed: %q", text)
+	}
 	if text == "" {
+		if r.config.Verbose {
+			log.Printf("[voice] empty transcription, skipping")
+		}
 		return
 	}
 
 	latency := time.Since(start)
 	result := ProcessStopwords(text)
+
+	if r.config.Verbose {
+		log.Printf("[voice] stopword: text=%q isCommand=%v action=%q latency=%s",
+			result.Text, result.IsCommand, result.CommandAction, latency)
+	}
 
 	r.sendEvent(RelayEvent{
 		Type:    "transcription",
@@ -184,11 +201,20 @@ func (r *VoiceRelay) handleUtterance(ctx context.Context, u Utterance) {
 		payload = result.Text
 	}
 
+	if r.config.Verbose {
+		log.Printf("[voice] sending to pipe cc-deck:voice, payload=%q (%d bytes)",
+			payload, len(payload))
+	}
+
 	if err := r.pipe.Send(ctx, "cc-deck:voice", payload); err != nil {
+		log.Printf("[voice] pipe send error: %v", err)
 		r.sendEvent(RelayEvent{Type: "error", Err: fmt.Errorf("delivery: %w", err)})
 		return
 	}
 
+	if r.config.Verbose {
+		log.Printf("[voice] delivered successfully")
+	}
 	r.sendEvent(RelayEvent{Type: "delivery", Text: payload})
 }
 

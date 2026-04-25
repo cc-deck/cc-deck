@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -63,6 +64,13 @@ func (t *httpTranscriber) Transcribe(ctx context.Context, audio []int16, sampleR
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return "", fmt.Errorf("reading response: %w", err)
+	}
+
+	var result struct {
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(respBody, &result); err == nil && result.Text != "" {
+		return strings.TrimSpace(result.Text), nil
 	}
 
 	return strings.TrimSpace(string(respBody)), nil
