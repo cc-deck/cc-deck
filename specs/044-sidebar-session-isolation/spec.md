@@ -70,10 +70,11 @@ When a Zellij session is fully killed (not just detached), its state files shoul
 - **FR-004**: The `restore_sessions` function MUST read only from the PID-scoped state file path.
 - **FR-005**: The `save_sessions` function MUST write only to the PID-scoped state file path.
 - **FR-006**: The `write_session_meta` and `apply_session_meta` functions MUST use the PID-scoped meta file path.
-- **FR-007**: On plugin startup, the plugin MUST scan `/cache/` for state files matching the `sessions-*.json` pattern and remove files whose PID corresponds to a process that is no longer running.
+- **FR-007**: On plugin startup and periodically (via the existing timer), the plugin MUST scan `/cache/` for state files matching the `sessions-*.json` and `session-meta-*.json` patterns and remove files whose PID corresponds to a process that is no longer running. If process liveness cannot be determined (WASI limitation), files older than 7 days MUST be removed as a fallback.
 - **FR-008**: The `request_state` function MUST include the requesting instance's PID in the request message name so that only same-PID instances respond.
 - **FR-009**: The `prune_session_meta` function MUST operate on the PID-scoped meta file path.
 - **FR-010**: No user-facing configuration MUST be required. Isolation is automatic and transparent.
+- **FR-011**: On first startup after upgrade, if the legacy `/cache/sessions.json` (without PID suffix) exists, the plugin MUST migrate it to the PID-scoped path and remove the legacy file. The same applies to `/cache/session-meta.json` and `/cache/zellij_pid`.
 
 ### Key Entities
 
@@ -94,6 +95,6 @@ When a Zellij session is fully killed (not just detached), its state files shoul
 
 - The Zellij PID is available via `get_plugin_ids().zellij_pid` in the WASM plugin API and is non-zero for all real Zellij sessions.
 - The Zellij PID remains stable for the lifetime of a Zellij server process (survives detach/reattach).
-- Process liveness can be checked from WASI by reading `/proc/{pid}/` or equivalent mechanism. If not available in WASI, cleanup is deferred to a best-effort basis.
+- Process liveness checking from WASI may not be available (`/proc/` may not be mounted). If unavailable, file age (mtime older than 7 days) is used as the fallback cleanup criterion.
 - The WASI `/cache/` directory supports listing files (needed for orphan cleanup).
 - The `pipe_message_to_plugin` API allows variable message names (not just fixed strings).
