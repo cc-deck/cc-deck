@@ -339,19 +339,19 @@ pub fn migrate_legacy_files() {
     let scoped_sessions = sessions_path(pid);
     let scoped_meta = meta_path(pid);
 
-    // Migrate sessions.json if PID-scoped file does not exist yet
     if std::fs::metadata(&scoped_sessions).is_err() {
         if let Ok(content) = std::fs::read_to_string(LEGACY_SESSIONS_PATH) {
-            let _ = std::fs::write(&scoped_sessions, content);
-            let _ = std::fs::remove_file(LEGACY_SESSIONS_PATH);
+            if std::fs::write(&scoped_sessions, &content).is_ok() {
+                let _ = std::fs::remove_file(LEGACY_SESSIONS_PATH);
+            }
         }
     }
 
-    // Migrate session-meta.json if PID-scoped file does not exist yet
     if std::fs::metadata(&scoped_meta).is_err() {
         if let Ok(content) = std::fs::read_to_string(LEGACY_META_PATH) {
-            let _ = std::fs::write(&scoped_meta, content);
-            let _ = std::fs::remove_file(LEGACY_META_PATH);
+            if std::fs::write(&scoped_meta, &content).is_ok() {
+                let _ = std::fs::remove_file(LEGACY_META_PATH);
+            }
         }
     }
 
