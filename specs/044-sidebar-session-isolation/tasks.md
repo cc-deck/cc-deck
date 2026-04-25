@@ -34,7 +34,7 @@
 
 ## Phase 5: User Story 3 - Orphan Cleanup (P2)
 
-- [ ] T017 [US3] Implement `cleanup_orphaned_state_files()` function that scans `/cache/` for `sessions-*.json` and removes files older than 7 days in cc-zellij-plugin/src/sync.rs
+- [ ] T017 [US3] Implement `cleanup_orphaned_state_files()` function that scans `/cache/` for `sessions-*.json` and `session-meta-*.json`, attempts process liveness check first, falls back to removing files older than 7 days in cc-zellij-plugin/src/sync.rs
 - [ ] T018 [US3] Call `cleanup_orphaned_state_files()` on plugin startup in cc-zellij-plugin/src/lib.rs
 - [ ] T019 [US3] Call `cleanup_orphaned_state_files()` periodically via existing timer in cc-zellij-plugin/src/lib.rs
 - [ ] T020 [US3] Add unit tests for orphan cleanup logic in cc-zellij-plugin/src/sync.rs
@@ -43,12 +43,13 @@
 
 - [ ] T021 Implement legacy file migration: rename `/cache/sessions.json` to `/cache/sessions-{pid}.json` on startup in cc-zellij-plugin/src/sync.rs
 - [ ] T022 Implement legacy meta migration: rename `/cache/session-meta.json` to `/cache/session-meta-{pid}.json` on startup in cc-zellij-plugin/src/sync.rs
-- [ ] T023 Add unit tests for legacy migration in cc-zellij-plugin/src/sync.rs
+- [ ] T023 Remove legacy `/cache/zellij_pid` file during migration in cc-zellij-plugin/src/sync.rs
+- [ ] T024 Add unit tests for legacy migration in cc-zellij-plugin/src/sync.rs
 
 ## Phase 7: Polish
 
-- [ ] T024 Run `cargo test` and `cargo clippy` to verify all changes compile and pass in cc-zellij-plugin/
-- [ ] T025 Build WASM binary and verify plugin loads correctly with `make install` in cc-zellij-plugin/
+- [ ] T025 Run `cargo test` and `cargo clippy` to verify all changes compile and pass in cc-zellij-plugin/
+- [ ] T026 Build WASM binary and verify plugin loads correctly with `make install` in cc-zellij-plugin/
 
 ## Dependencies
 
@@ -78,7 +79,7 @@ T024..T025 after all implementation tasks
 
 ## Summary
 
-- **Total tasks**: 25
+- **Total tasks**: 26
 - **US1 (isolation)**: 5 tasks
 - **US2 (reattach)**: 2 tasks
 - **US3 (cleanup)**: 4 tasks
