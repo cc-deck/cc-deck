@@ -8,7 +8,7 @@ import "fmt"
 func NewWorkspace(wsType WorkspaceType, name string, store *FileStateStore, defs *DefinitionStore) (Workspace, error) {
 	switch wsType {
 	case WorkspaceTypeLocal:
-		return &LocalWorkspace{name: name, store: store}, nil
+		return &LocalWorkspace{name: name, store: store, defs: defs}, nil
 	case WorkspaceTypeContainer:
 		return &ContainerWorkspace{name: name, store: store, defs: defs}, nil
 	case WorkspaceTypeCompose:
