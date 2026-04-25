@@ -60,7 +60,17 @@ pub enum PipeAction {
 }
 
 /// Parse a pipe message name into an action.
+/// Handles PID-scoped sync/request messages (cc-deck:sync:{pid}, cc-deck:request:{pid})
+/// as well as legacy names without PID suffix.
 pub fn parse_pipe_message(name: &str, payload: Option<&str>) -> PipeAction {
+    // Check PID-scoped sync/request messages first
+    if crate::sync::is_sync_message(name) {
+        return PipeAction::SyncState(payload.unwrap_or("").to_string());
+    }
+    if crate::sync::is_request_message(name) {
+        return PipeAction::RequestState;
+    }
+
     match name {
         "cc-deck:hook" => {
             if let Some(payload_str) = payload {
@@ -72,10 +82,6 @@ pub fn parse_pipe_message(name: &str, payload: Option<&str>) -> PipeAction {
                 PipeAction::Unknown
             }
         }
-        "cc-deck:sync" => {
-            PipeAction::SyncState(payload.unwrap_or("").to_string())
-        }
-        "cc-deck:request" => PipeAction::RequestState,
         "cc-deck:attend" => PipeAction::Attend,
         "cc-deck:rename" => PipeAction::Rename,
         "cc-deck:new" => PipeAction::NewSession,
@@ -194,6 +200,21 @@ mod tests {
     #[test]
     fn test_parse_refresh_command() {
         assert!(matches!(parse_pipe_message("cc-deck:refresh", None), PipeAction::Refresh));
+    }
+
+    #[test]
+    fn test_parse_pid_scoped_sync_message() {
+        // PID-scoped sync messages should parse as SyncState
+        let payload = r#"{"1":{"pane_id":1}}"#;
+        assert!(matches!(
+            parse_pipe_message("cc-deck:sync:12345", Some(payload)),
+            PipeAction::SyncState(_)
+        ));
+        // PID-scoped request messages should parse as RequestState
+        assert!(matches!(
+            parse_pipe_message("cc-deck:request:12345", None),
+            PipeAction::RequestState
+        ));
     }
 
     #[test]
