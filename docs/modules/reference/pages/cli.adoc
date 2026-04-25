@@ -629,10 +629,10 @@ Requires a preceding `--repo`.
 
 ==== ws attach
 
-Attach to a running workspace.
-For container workspaces, this opens a Zellij session inside the container.
-Stopped containers are auto-started before attaching.
-When no name is provided, resolves from `.cc-deck/environment.yaml` in the project.
+Attach to a workspace.
+Creates a Zellij session with the cc-deck layout if no session exists, or reattaches to an existing session.
+For infrastructure-managed workspaces (container, compose, k8s-deploy), stopped infrastructure is auto-started before session creation.
+When no name is provided, resolves from workspace definitions in the central store.
 
 [source,bash]
 ----
@@ -649,6 +649,19 @@ cc-deck ws attach --branch feature   # land in a specific worktree
 |
 | Attach and land in a specific worktree directory inside the container
 |===
+
+==== ws kill-session
+
+Kill the Zellij session without affecting infrastructure.
+The underlying container or pod remains running.
+The next `ws attach` creates a fresh session with the cc-deck layout.
+Works with all workspace types.
+
+[source,bash]
+----
+cc-deck ws kill-session mydev
+cc-deck ws kill-session              # resolves from workspace definitions
+----
 
 ==== ws delete
 
@@ -717,22 +730,28 @@ cc-deck ws status -o json
 
 ==== ws start
 
-Start a stopped workspace.
+Start infrastructure for a stopped workspace.
+Only applies to workspace types that manage infrastructure (container, compose, k8s-deploy).
+For local and SSH workspaces, prints a suggestion to use `ws attach` instead.
+Does not create a Zellij session; use `ws attach` after starting.
 
 [source,bash]
 ----
 cc-deck ws start mydev
-cc-deck ws start                     # resolves from project config
+cc-deck ws start                     # resolves from workspace definitions
 ----
 
 ==== ws stop
 
-Gracefully stop a running workspace.
+Stop infrastructure and kill the Zellij session.
+Only applies to workspace types that manage infrastructure (container, compose, k8s-deploy).
+For local and SSH workspaces, prints a suggestion to use `ws kill-session` instead.
+The session is killed first, then the infrastructure is stopped.
 
 [source,bash]
 ----
 cc-deck ws stop mydev
-cc-deck ws stop                      # resolves from project config
+cc-deck ws stop                      # resolves from workspace definitions
 ----
 
 ==== ws logs
