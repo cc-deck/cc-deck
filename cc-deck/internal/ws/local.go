@@ -3,6 +3,7 @@ package ws
 import (
 	"bufio"
 	"context"
+	"log"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -26,6 +27,7 @@ const (
 type LocalWorkspace struct {
 	name  string
 	store *FileStateStore
+	defs  *DefinitionStore
 
 	pipeOnce sync.Once
 	pipeCh   PipeChannel
@@ -61,10 +63,10 @@ func (e *LocalWorkspace) Create(_ context.Context, _ CreateOpts) error {
 	}
 
 	inst := &WorkspaceInstance{
-		Name:      e.name,
-		Type:      WorkspaceTypeLocal,
-		State:     WorkspaceStateRunning,
-		CreatedAt: time.Now().UTC(),
+		Name:         e.name,
+		Type:         WorkspaceTypeLocal,
+		SessionState: SessionStateNone,
+		CreatedAt:    time.Now().UTC(),
 	}
 
 	return e.store.AddInstance(inst)
@@ -82,10 +84,11 @@ func (e *LocalWorkspace) Attach(_ context.Context) error {
 
 	sessionName := e.zellijSessionName()
 
-	// Update last_attached timestamp.
+	// Update last_attached timestamp and session state.
 	if inst, findErr := e.store.FindInstanceByName(e.name); findErr == nil {
 		now := time.Now().UTC()
 		inst.LastAttached = &now
+		inst.SessionState = SessionStateExists
 		_ = e.store.UpdateInstance(inst)
 	}
 
@@ -97,44 +100,45 @@ func (e *LocalWorkspace) Attach(_ context.Context) error {
 	}
 
 	// If the session doesn't exist, create it in the background with the
-	// cc-deck layout. "attach --create-background" alone would use the
-	// default layout, so we explicitly create with --layout first.
+	// cc-deck layout. The two-step approach (background create, then attach)
+	// ensures the session persists as EXITED on close, unlike -n which
+	// destroys the session. We try --layout with attach -b first, then
+	// fall back to attach -b without layout.
 	if !zellijSessionExists(sessionName) {
-		create := exec.Command(zellijPath, "attach", "--create-background", sessionName, "--layout", "cc-deck")
-		if out, err := create.CombinedOutput(); err != nil {
-			// Fallback: create without layout (--layout might not be
-			// supported on attach in all Zellij versions).
-			fallback := exec.Command(zellijPath, "attach", "--create-background", sessionName)
-			if fout, ferr := fallback.CombinedOutput(); ferr != nil {
-				return fmt.Errorf("creating session: %s\n%s", ferr, string(fout))
+		create := exec.Command(zellijPath, "--layout", "cc-deck", "attach", "-b", sessionName)
+		if out, createErr := create.CombinedOutput(); createErr != nil {
+			fallback := exec.Command(zellijPath, "attach", "-b", sessionName)
+			if fout, fallbackErr := fallback.CombinedOutput(); fallbackErr != nil {
+				return fmt.Errorf("creating session: %s\n%s\nlayout attempt: %s", fallbackErr, string(fout), string(out))
 			}
-			_ = out // suppress unused warning
 		}
 	}
 
-	// Attach to the (now-existing) session.
 	return syscall.Exec(zellijPath, []string{"zellij", "attach", sessionName}, os.Environ())
 }
 
 // Delete removes the workspace from the state store and kills the Zellij
 // session if it exists. Without force, a running session causes an error.
-func (e *LocalWorkspace) Delete(_ context.Context, force bool) error {
-	sessionName := e.zellijSessionName()
-
+func (e *LocalWorkspace) Delete(ctx context.Context, force bool) error {
 	if !force {
-		// Check if the Zellij session is still running.
-		if zellijSessionExists(sessionName) {
+		if zellijSessionExists(e.zellijSessionName()) {
 			return ErrRunning
 		}
 	}
 
-	// Remove from state store.
+	if err := e.KillSession(ctx); err != nil {
+		log.Printf("WARNING: failed to kill session for %s: %v", e.name, err)
+	}
+
 	if err := e.store.RemoveInstance(e.name); err != nil {
 		return err
 	}
 
-	// Best effort: kill the Zellij session.
-	_ = exec.Command("zellij", "kill-session", sessionName).Run()
+	if e.defs != nil {
+		if err := e.defs.Remove(e.name); err != nil {
+			log.Printf("WARNING: removing definition: %v", err)
+		}
+	}
 
 	return nil
 }
@@ -148,18 +152,17 @@ func (e *LocalWorkspace) Status(_ context.Context) (*WorkspaceStatus, error) {
 	}
 
 	sessionName := e.zellijSessionName()
-	state := WorkspaceStateUnknown
+	var sessState SessionStateValue = SessionStateNone
 	if zellijSessionExists(sessionName) {
-		state = WorkspaceStateRunning
+		sessState = SessionStateExists
 	}
 
 	status := &WorkspaceStatus{
-		State: state,
-		Since: inst.CreatedAt,
+		SessionState: sessState,
+		Since:        &inst.CreatedAt,
 	}
 
-	// Best effort: read pane map for session info.
-	if state == WorkspaceStateRunning {
+	if sessState == SessionStateExists {
 		if sessions, readErr := readPaneMapSessions(); readErr == nil {
 			status.Sessions = sessions
 		}
@@ -168,37 +171,22 @@ func (e *LocalWorkspace) Status(_ context.Context) (*WorkspaceStatus, error) {
 	return status, nil
 }
 
-// Start creates the Zellij session in the background with the cc-deck
-// layout. The session can then be attached to with Attach.
-func (e *LocalWorkspace) Start(_ context.Context) error {
-	zellijPath, err := exec.LookPath("zellij")
-	if err != nil {
-		return ErrZellijNotFound
-	}
-
-	sessionName := e.zellijSessionName()
-	if zellijSessionExists(sessionName) {
-		return fmt.Errorf("session %q is already running", sessionName)
-	}
-
-	cmd := exec.Command(zellijPath, "attach", sessionName, "--create-background")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("starting session: %s\n%s", err, string(out))
-	}
-
-	return nil
-}
-
-// Stop kills the Zellij session for this workspace.
-func (e *LocalWorkspace) Stop(_ context.Context) error {
+// KillSession kills the Zellij session for this workspace without
+// affecting any infrastructure (local workspaces have none).
+func (e *LocalWorkspace) KillSession(_ context.Context) error {
 	sessionName := e.zellijSessionName()
 	if !zellijSessionExists(sessionName) {
-		return fmt.Errorf("session %q is not running", sessionName)
+		return nil
 	}
 
 	cmd := exec.Command("zellij", "kill-session", sessionName)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("stopping session: %s\n%s", err, string(out))
+		return fmt.Errorf("killing session: %s\n%s", err, string(out))
+	}
+
+	if inst, findErr := e.store.FindInstanceByName(e.name); findErr == nil {
+		inst.SessionState = SessionStateNone
+		_ = e.store.UpdateInstance(inst)
 	}
 
 	return nil
@@ -352,13 +340,13 @@ func ReconcileLocalWorkspaces(store *FileStateStore) error {
 
 	for _, inst := range instances {
 		sessionName := zellijSessionPrefix + inst.Name
-		newState := WorkspaceStateUnknown
+		var newSessionState SessionStateValue = SessionStateNone
 		if sessionSet[sessionName] {
-			newState = WorkspaceStateRunning
+			newSessionState = SessionStateExists
 		}
 
-		if inst.State != newState {
-			inst.State = newState
+		if inst.SessionState != newSessionState {
+			inst.SessionState = newSessionState
 			if err := store.UpdateInstance(inst); err != nil {
 				return err
 			}

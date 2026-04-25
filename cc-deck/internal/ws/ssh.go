@@ -149,10 +149,10 @@ func (e *SSHWorkspace) Create(ctx context.Context, _ CreateOpts) error {
 	}
 
 	inst := &WorkspaceInstance{
-		Name:      e.name,
-		Type:      WorkspaceTypeSSH,
-		State:     WorkspaceStateRunning,
-		CreatedAt: time.Now().UTC(),
+		Name:         e.name,
+		Type:         WorkspaceTypeSSH,
+		SessionState: SessionStateNone,
+		CreatedAt:    time.Now().UTC(),
 		SSH: &SSHFields{
 			Host:         def.Host,
 			Port:         def.Port,
@@ -182,6 +182,7 @@ func (e *SSHWorkspace) Attach(ctx context.Context) error {
 	now := time.Now().UTC()
 	if inst, findErr := e.store.FindInstanceByName(e.name); findErr == nil {
 		inst.LastAttached = &now
+		inst.SessionState = SessionStateExists
 		_ = e.store.UpdateInstance(inst)
 	}
 
@@ -245,18 +246,11 @@ func (e *SSHWorkspace) Delete(ctx context.Context, force bool) error {
 		return err
 	}
 
-	if !force && inst.State == WorkspaceStateRunning {
+	if !force && inst.SessionState == SessionStateExists {
 		return ErrRunning
 	}
 
-	// Best-effort: try to kill the remote Zellij session.
-	if force && inst.SSH != nil {
-		client := ssh.NewClient(inst.SSH.Host, inst.SSH.Port, inst.SSH.IdentityFile, inst.SSH.JumpHost, inst.SSH.SSHConfig)
-		killCmd := fmt.Sprintf("zellij kill-session %q", e.sshSessionName())
-		if _, err := client.Run(ctx, killCmd); err != nil {
-			log.Printf("WARNING: could not kill remote session: %v", err)
-		}
-	}
+	_ = e.KillSession(ctx)
 
 	if err := e.store.RemoveInstance(e.name); err != nil {
 		log.Printf("WARNING: removing instance from state: %v", err)
@@ -299,27 +293,24 @@ func (e *SSHWorkspace) SyncRepos(ctx context.Context, repos []RepoEntry) error {
 	return nil
 }
 
-// KillRemoteSession kills the Zellij session on the remote host (best-effort).
-func (e *SSHWorkspace) KillRemoteSession(ctx context.Context) {
+// KillSession kills the remote Zellij session without affecting the remote host.
+func (e *SSHWorkspace) KillSession(ctx context.Context) error {
 	inst, err := e.store.FindInstanceByName(e.name)
 	if err != nil || inst.SSH == nil {
-		return
+		return nil
 	}
 	client := ssh.NewClient(inst.SSH.Host, inst.SSH.Port, inst.SSH.IdentityFile, inst.SSH.JumpHost, inst.SSH.SSHConfig)
-	killCmd := fmt.Sprintf("zellij delete-session %q -f", e.sshSessionName())
-	if _, err := client.Run(ctx, killCmd); err != nil {
-		log.Printf("WARNING: could not kill remote session: %v", err)
+	sessionName := e.sshSessionName()
+	if !e.remoteHasSession(client, sessionName) {
+		return nil
 	}
-}
-
-// Start is not supported for SSH workspaces.
-func (e *SSHWorkspace) Start(_ context.Context) error {
-	return ErrNotSupported
-}
-
-// Stop is not supported for SSH workspaces.
-func (e *SSHWorkspace) Stop(_ context.Context) error {
-	return ErrNotSupported
+	killCmd := fmt.Sprintf("zellij kill-session %q", sessionName)
+	if _, err := client.Run(ctx, killCmd); err != nil {
+		return fmt.Errorf("killing remote session: %w", err)
+	}
+	inst.SessionState = SessionStateNone
+	_ = e.store.UpdateInstance(inst)
+	return nil
 }
 
 // Status queries the remote for current workspace status.
@@ -330,8 +321,8 @@ func (e *SSHWorkspace) Status(ctx context.Context) (*WorkspaceStatus, error) {
 	}
 
 	status := &WorkspaceStatus{
-		State: inst.State,
-		Since: inst.CreatedAt,
+		SessionState: SessionStateNone,
+		Since:        &inst.CreatedAt,
 	}
 
 	if inst.SSH == nil {
@@ -342,12 +333,9 @@ func (e *SSHWorkspace) Status(ctx context.Context) (*WorkspaceStatus, error) {
 	sessionName := e.sshSessionName()
 
 	if e.remoteHasSession(client, sessionName) {
-		status.State = WorkspaceStateRunning
+		status.SessionState = SessionStateExists
 	} else if err := client.Check(ctx); err != nil {
-		status.State = WorkspaceStateError
 		status.Message = fmt.Sprintf("host unreachable: %v", err)
-	} else {
-		status.State = WorkspaceStateAvailable
 	}
 
 	return status, nil
@@ -526,30 +514,22 @@ func ReconcileSSHWorkspaces(store *FileStateStore) error {
 
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 
-		var newState WorkspaceState
-		if err := client.Check(ctx); err != nil {
-			newState = WorkspaceStateError
-		} else {
+		var newSess SessionStateValue = SessionStateNone
+		if err := client.Check(ctx); err == nil {
 			out, _ := client.Run(ctx, "zellij list-sessions -n")
-			found := false
 			for _, line := range strings.Split(out, "\n") {
 				line = strings.TrimSpace(line)
 				if line == sessionName || (strings.HasPrefix(line, sessionName) && !strings.Contains(line, "(EXITED")) {
-					found = true
+					newSess = SessionStateExists
 					break
 				}
 			}
-			if found {
-				newState = WorkspaceStateRunning
-			} else {
-				newState = WorkspaceStateAvailable
-			}
 		}
 
-		cancel() // Release timeout resources after all operations complete.
+		cancel()
 
-		if inst.State != newState {
-			inst.State = newState
+		if inst.SessionState != newSess {
+			inst.SessionState = newSess
 			if err := store.UpdateInstance(inst); err != nil {
 				return err
 			}
