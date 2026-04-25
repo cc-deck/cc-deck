@@ -343,11 +343,13 @@ func (e *ComposeWorkspace) Create(ctx context.Context, opts CreateOpts) error {
 	}
 
 	// Write workspace instance to state store.
+	running := InfraStateRunning
 	inst := &WorkspaceInstance{
-		Name:      e.name,
-		Type:      WorkspaceTypeCompose,
-		State:     WorkspaceStateRunning,
-		CreatedAt: time.Now().UTC(),
+		Name:         e.name,
+		Type:         WorkspaceTypeCompose,
+		InfraState:   &running,
+		SessionState: SessionStateNone,
+		CreatedAt:    time.Now().UTC(),
 		Compose: &ComposeFields{
 			ProjectDir:    projDir,
 			ContainerName: e.sessionContainerName(),
@@ -374,16 +376,16 @@ func (e *ComposeWorkspace) Attach(ctx context.Context) error {
 	}
 
 	// Auto-start stopped workspaces.
-	if inst.State == WorkspaceStateStopped {
+	if inst.InfraState != nil && *inst.InfraState == InfraStateStopped {
 		if startErr := e.Start(ctx); startErr != nil {
 			return fmt.Errorf("auto-starting compose workspace: %w", startErr)
 		}
-		inst.State = WorkspaceStateRunning
 	}
 
-	// Update LastAttached timestamp.
+	// Update LastAttached timestamp and session state.
 	now := time.Now().UTC()
 	inst.LastAttached = &now
+	inst.SessionState = SessionStateExists
 	_ = e.store.UpdateInstance(inst)
 
 	cName := e.sessionContainerName()
@@ -396,7 +398,25 @@ func (e *ComposeWorkspace) Attach(ctx context.Context) error {
 	}, true)
 }
 
-// Start starts a stopped compose workspace.
+// KillSession kills the Zellij session inside the session container
+// without affecting the compose stack.
+func (e *ComposeWorkspace) KillSession(ctx context.Context) error {
+	cName := e.sessionContainerName()
+	if !ContainerHasZellijSession(ctx, cName) {
+		return nil
+	}
+	cmd := []string{"zellij", "kill-session", zellijSessionPrefix + e.name}
+	if err := podman.Exec(ctx, cName, cmd, false); err != nil {
+		return fmt.Errorf("killing session: %w", err)
+	}
+	if inst, findErr := e.store.FindInstanceByName(e.name); findErr == nil {
+		inst.SessionState = SessionStateNone
+		_ = e.store.UpdateInstance(inst)
+	}
+	return nil
+}
+
+// Start starts a stopped compose workspace (InfraManager implementation).
 func (e *ComposeWorkspace) Start(ctx context.Context) error {
 	inst, err := e.store.FindInstanceByName(e.name)
 	if err != nil {
@@ -407,12 +427,15 @@ func (e *ComposeWorkspace) Start(ctx context.Context) error {
 		return err
 	}
 
-	inst.State = WorkspaceStateRunning
+	running := InfraStateRunning
+	inst.InfraState = &running
 	return e.store.UpdateInstance(inst)
 }
 
-// Stop stops a running compose workspace.
+// Stop kills the session and stops the compose workspace (InfraManager implementation).
 func (e *ComposeWorkspace) Stop(ctx context.Context) error {
+	_ = e.KillSession(ctx)
+
 	inst, err := e.store.FindInstanceByName(e.name)
 	if err != nil {
 		return err
@@ -422,7 +445,9 @@ func (e *ComposeWorkspace) Stop(ctx context.Context) error {
 		return err
 	}
 
-	inst.State = WorkspaceStateStopped
+	stopped := InfraStateStopped
+	inst.InfraState = &stopped
+	inst.SessionState = SessionStateNone
 	return e.store.UpdateInstance(inst)
 }
 
@@ -517,23 +542,26 @@ func (e *ComposeWorkspace) Status(ctx context.Context) (*WorkspaceStatus, error)
 	}
 
 	cName := e.sessionContainerName()
-	state := inst.State
 
-	// Reconcile with actual container state.
+	var infraState InfraStateValue = InfraStateError
 	info, inspectErr := podman.Inspect(ctx, cName)
 	if inspectErr == nil && info != nil {
 		if info.Running {
-			state = WorkspaceStateRunning
+			infraState = InfraStateRunning
 		} else {
-			state = WorkspaceStateStopped
+			infraState = InfraStateStopped
 		}
-	} else if inspectErr == nil && info == nil {
-		state = WorkspaceStateError
+	}
+
+	var sessState SessionStateValue = SessionStateNone
+	if infraState == InfraStateRunning && ContainerHasZellijSession(ctx, cName) {
+		sessState = SessionStateExists
 	}
 
 	return &WorkspaceStatus{
-		State: state,
-		Since: inst.CreatedAt,
+		InfraState:   &infraState,
+		SessionState: sessState,
+		Since:        &inst.CreatedAt,
 	}, nil
 }
 
@@ -543,8 +571,8 @@ func (e *ComposeWorkspace) Exec(ctx context.Context, cmd []string) error {
 	if err != nil {
 		return err
 	}
-	if inst.State != WorkspaceStateRunning {
-		return fmt.Errorf("compose workspace is not running (state: %s)", inst.State)
+	if inst.InfraState == nil || *inst.InfraState != InfraStateRunning {
+		return fmt.Errorf("compose workspace is not running (infra: %s)", InfraStateString(inst.InfraState))
 	}
 
 	return podman.Exec(ctx, e.sessionContainerName(), cmd, false)
@@ -592,8 +620,8 @@ func (e *ComposeWorkspace) Push(ctx context.Context, opts SyncOpts) error {
 	if err != nil {
 		return err
 	}
-	if inst.State != WorkspaceStateRunning {
-		return fmt.Errorf("compose workspace is not running (state: %s)", inst.State)
+	if inst.InfraState == nil || *inst.InfraState != InfraStateRunning {
+		return fmt.Errorf("compose workspace is not running (infra: %s)", InfraStateString(inst.InfraState))
 	}
 
 	ch, chErr := e.DataChannel(ctx)
@@ -609,8 +637,8 @@ func (e *ComposeWorkspace) Pull(ctx context.Context, opts SyncOpts) error {
 	if err != nil {
 		return err
 	}
-	if inst.State != WorkspaceStateRunning {
-		return fmt.Errorf("compose workspace is not running (state: %s)", inst.State)
+	if inst.InfraState == nil || *inst.InfraState != InfraStateRunning {
+		return fmt.Errorf("compose workspace is not running (infra: %s)", InfraStateString(inst.InfraState))
 	}
 
 	ch, chErr := e.DataChannel(ctx)
@@ -626,8 +654,8 @@ func (e *ComposeWorkspace) Harvest(ctx context.Context, opts HarvestOpts) error 
 	if findErr != nil {
 		return findErr
 	}
-	if inst.State != WorkspaceStateRunning {
-		return fmt.Errorf("compose workspace is not running (state: %s)", inst.State)
+	if inst.InfraState == nil || *inst.InfraState != InfraStateRunning {
+		return fmt.Errorf("compose workspace is not running (infra: %s)", InfraStateString(inst.InfraState))
 	}
 
 	ch, err := e.GitChannel(ctx)
@@ -660,17 +688,24 @@ func ReconcileComposeWorkspaces(store *FileStateStore) error {
 			continue
 		}
 
-		var newState WorkspaceState
+		var newInfra InfraStateValue
 		if info == nil {
-			newState = WorkspaceStateError
+			newInfra = InfraStateError
 		} else if info.Running {
-			newState = WorkspaceStateRunning
+			newInfra = InfraStateRunning
 		} else {
-			newState = WorkspaceStateStopped
+			newInfra = InfraStateStopped
 		}
 
-		if inst.State != newState {
-			inst.State = newState
+		var newSess SessionStateValue = SessionStateNone
+		if newInfra == InfraStateRunning && ContainerHasZellijSession(context.Background(), cName) {
+			newSess = SessionStateExists
+		}
+
+		changed := inst.InfraState == nil || *inst.InfraState != newInfra || inst.SessionState != newSess
+		if changed {
+			inst.InfraState = &newInfra
+			inst.SessionState = newSess
 			if err := store.UpdateInstance(inst); err != nil {
 				return err
 			}

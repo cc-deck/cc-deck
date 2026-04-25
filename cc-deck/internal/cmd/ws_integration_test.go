@@ -253,11 +253,10 @@ func TestWsStopLocal(t *testing.T) {
 	_, _, err := run(t, gf, "ws", "new", "stoptest", "--type", "local")
 	require.NoError(t, err)
 
-	// Stop calls zellij kill-session; the stub zellij exits 0 but the
-	// session doesn't actually exist, so Stop reports "not running".
-	_, _, err = run(t, gf, "ws", "stop", "stoptest")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not running")
+	// Stop on local workspace prints a warning (local has no infrastructure).
+	_, stderr, err := run(t, gf, "ws", "stop", "stoptest")
+	require.NoError(t, err)
+	assert.Contains(t, stderr, "no infrastructure to stop")
 }
 
 func TestWsStartLocal(t *testing.T) {
@@ -267,10 +266,10 @@ func TestWsStartLocal(t *testing.T) {
 	_, _, err := run(t, gf, "ws", "new", "starttest", "--type", "local")
 	require.NoError(t, err)
 
-	// Start should succeed (zellij stub creates session, exits 0).
-	stdout, _, err := run(t, gf, "ws", "start", "starttest")
+	// Start on local workspace prints a warning (local has no infrastructure).
+	_, stderr, err := run(t, gf, "ws", "start", "starttest")
 	require.NoError(t, err)
-	assert.Contains(t, stdout, "started")
+	assert.Contains(t, stderr, "no infrastructure to start")
 }
 
 func TestWsStubCommandsReturnError(t *testing.T) {

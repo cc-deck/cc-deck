@@ -50,7 +50,7 @@ func (s *FileStateStore) Load() (*StateFile, error) {
 	data, err := os.ReadFile(s.path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return &StateFile{Version: 2}, nil
+			return &StateFile{Version: 3}, nil
 		}
 		return nil, fmt.Errorf("reading state file: %w", err)
 	}
@@ -58,14 +58,70 @@ func (s *FileStateStore) Load() (*StateFile, error) {
 	var state StateFile
 	if err := yaml.Unmarshal(data, &state); err != nil {
 		log.Printf("WARNING: corrupted state file %s: %v; returning empty state", s.path, err)
-		return &StateFile{Version: 2}, nil
+		return &StateFile{Version: 3}, nil
 	}
 
 	if state.Version == 0 {
-		state.Version = 2
+		state.Version = 3
+	}
+
+	if state.Version < 3 {
+		migrateStateV2toV3(&state)
+		if err := s.Save(&state); err != nil {
+			return nil, fmt.Errorf("saving migrated state: %w", err)
+		}
 	}
 
 	return &state, nil
+}
+
+// migrateStateV2toV3 converts the single State field to the two-dimensional
+// InfraState + SessionState model.
+func migrateStateV2toV3(state *StateFile) {
+	for i := range state.Instances {
+		inst := &state.Instances[i]
+		hasInfra := inst.Type == WorkspaceTypeContainer ||
+			inst.Type == WorkspaceTypeCompose ||
+			inst.Type == WorkspaceTypeK8sDeploy
+
+		switch inst.State {
+		case WorkspaceStateRunning, WorkspaceStateCreating:
+			if hasInfra {
+				s := InfraStateRunning
+				inst.InfraState = &s
+				inst.SessionState = SessionStateNone
+			} else {
+				inst.InfraState = nil
+				inst.SessionState = SessionStateExists
+			}
+		case WorkspaceStateStopped:
+			if hasInfra {
+				s := InfraStateStopped
+				inst.InfraState = &s
+			} else {
+				inst.InfraState = nil
+			}
+			inst.SessionState = SessionStateNone
+		case WorkspaceStateAvailable:
+			if hasInfra {
+				s := InfraStateRunning
+				inst.InfraState = &s
+			}
+			inst.SessionState = SessionStateNone
+		case WorkspaceStateError:
+			if hasInfra {
+				s := InfraStateError
+				inst.InfraState = &s
+			}
+			inst.SessionState = SessionStateNone
+		default:
+			inst.InfraState = nil
+			inst.SessionState = SessionStateNone
+		}
+
+		inst.State = ""
+	}
+	state.Version = 3
 }
 
 // Save writes the state file atomically by writing to a temporary file

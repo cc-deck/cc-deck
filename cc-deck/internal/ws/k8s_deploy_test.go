@@ -141,7 +141,7 @@ func TestK8sDeployWorkspace_Delete_KeepVolumes(t *testing.T) {
 	_ = store.AddInstance(&WorkspaceInstance{
 		Name:  "keep-vol",
 		Type:  WorkspaceTypeK8sDeploy,
-		State: WorkspaceStateStopped,
+		InfraState: infraStatePtr(InfraStateStopped), SessionState: SessionStateNone,
 		K8s:   &K8sFields{Namespace: "default"},
 	})
 
@@ -154,11 +154,13 @@ func TestK8sDeployWorkspace_Delete_KeepVolumes(t *testing.T) {
 
 func TestK8sDeployWorkspace_Delete_RunningWithoutForce(t *testing.T) {
 	store := createTempStateStore(t)
+	running := InfraStateRunning
 	_ = store.AddInstance(&WorkspaceInstance{
-		Name:  "running-env",
-		Type:  WorkspaceTypeK8sDeploy,
-		State: WorkspaceStateRunning,
-		K8s:   &K8sFields{Namespace: "default"},
+		Name:         "running-env",
+		Type:         WorkspaceTypeK8sDeploy,
+		InfraState:   &running,
+		SessionState: SessionStateNone,
+		K8s:          &K8sFields{Namespace: "default"},
 	})
 
 	e := &K8sDeployWorkspace{name: "running-env", store: store}
@@ -172,7 +174,7 @@ func TestK8sDeployWorkspace_NotRunningErrorIsActionable(t *testing.T) {
 	_ = store.AddInstance(&WorkspaceInstance{
 		Name:  "stopped-env",
 		Type:  WorkspaceTypeK8sDeploy,
-		State: WorkspaceStateStopped,
+		InfraState: infraStatePtr(InfraStateStopped), SessionState: SessionStateNone,
 		K8s:   &K8sFields{Namespace: "default"},
 	})
 
@@ -211,31 +213,37 @@ func TestReconcileK8sDeployWorkspaces_SkipsNonK8s(t *testing.T) {
 	_ = store.AddInstance(&WorkspaceInstance{
 		Name:  "local-env",
 		Type:  WorkspaceTypeLocal,
-		State: WorkspaceStateRunning,
+		InfraState: infraStatePtr(InfraStateRunning), SessionState: SessionStateNone,
 	})
 
 	err := ReconcileK8sDeployWorkspaces(store)
 	require.NoError(t, err)
 
 	inst, _ := store.FindInstanceByName("local-env")
-	assert.Equal(t, WorkspaceStateRunning, inst.State)
+	require.NotNil(t, inst.InfraState)
+	assert.Equal(t, InfraStateRunning, *inst.InfraState)
 }
 
 func TestReconcileK8sDeployWorkspaces_SkipsNilK8sFields(t *testing.T) {
 	store := createTempStateStore(t)
+	running := InfraStateRunning
 	_ = store.AddInstance(&WorkspaceInstance{
-		Name:  "broken-k8s",
-		Type:  WorkspaceTypeK8sDeploy,
-		State: WorkspaceStateRunning,
-		K8s:   nil,
+		Name:         "broken-k8s",
+		Type:         WorkspaceTypeK8sDeploy,
+		InfraState:   &running,
+		SessionState: SessionStateNone,
+		K8s:          nil,
 	})
 
 	err := ReconcileK8sDeployWorkspaces(store)
 	require.NoError(t, err)
 
 	inst, _ := store.FindInstanceByName("broken-k8s")
-	assert.Equal(t, WorkspaceStateRunning, inst.State)
+	require.NotNil(t, inst.InfraState)
+	assert.Equal(t, InfraStateRunning, *inst.InfraState)
 }
+
+func infraStatePtr(s InfraStateValue) *InfraStateValue { return &s }
 
 func createTempStateStore(t *testing.T) *FileStateStore {
 	t.Helper()
