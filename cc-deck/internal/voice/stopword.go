@@ -1,6 +1,9 @@
 package voice
 
-import "strings"
+import (
+	"strings"
+	"unicode"
+)
 
 var fillerWords = map[string]bool{
 	"um":  true,
@@ -13,6 +16,46 @@ var fillerWords = map[string]bool{
 var commandWords = map[string]string{
 	"submit": "submit",
 	"enter":  "enter",
+}
+
+// IsWhisperArtifact returns true if the text is a non-speech transcription
+// artifact from Whisper (background noise descriptions, blank audio markers,
+// music notation, or empty JSON responses).
+func IsWhisperArtifact(text string) bool {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return true
+	}
+	if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
+		return true
+	}
+	if strings.HasPrefix(trimmed, "(") && strings.HasSuffix(trimmed, ")") {
+		return true
+	}
+	if strings.HasPrefix(trimmed, "{") {
+		return true
+	}
+	lower := strings.ToLower(trimmed)
+	for _, pattern := range []string{"blank_audio", "music", "clicking", "applause", "laughter", "silence"} {
+		if strings.Contains(lower, pattern) {
+			return true
+		}
+	}
+	for _, r := range trimmed {
+		if r == '♪' || r == '♫' || r == '🎵' {
+			return true
+		}
+	}
+	stripped := strings.Map(func(r rune) rune {
+		if unicode.IsSpace(r) || unicode.IsPunct(r) || unicode.IsSymbol(r) {
+			return -1
+		}
+		return r
+	}, trimmed)
+	if stripped == "" {
+		return true
+	}
+	return false
 }
 
 // ProcessStopwords analyzes transcription text for command words.

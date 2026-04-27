@@ -8,12 +8,13 @@ import (
 // VAD segments continuous audio into discrete utterances using
 // energy-based speech detection.
 type VAD struct {
-	config     VADConfig
+	config     *VADConfig
 	sampleRate int
 }
 
 // NewVAD creates a voice activity detector with the given config.
-func NewVAD(config VADConfig, sampleRate int) *VAD {
+// The config pointer is retained so threshold changes take effect immediately.
+func NewVAD(config *VADConfig, sampleRate int) *VAD {
 	return &VAD{config: config, sampleRate: sampleRate}
 }
 
