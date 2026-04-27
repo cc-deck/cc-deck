@@ -17,6 +17,11 @@ type Model struct {
 	history     []historyEntry
 	target      string
 	verbose     bool
+	logPath     string
+	deviceName  string
+	devices     []voicepkg.DeviceInfo
+	devicePick  bool
+	deviceIdx   int
 	quitting    bool
 	err         error
 }
@@ -32,12 +37,14 @@ type relayEventMsg voicepkg.RelayEvent
 type levelTickMsg struct{}
 
 // New creates a new voice TUI model.
-func New(relay *voicepkg.VoiceRelay, mode string, target string, verbose bool) Model {
+func New(relay *voicepkg.VoiceRelay, mode string, target string, verbose bool, logPath string, deviceName string) Model {
 	return Model{
-		relay:   relay,
-		mode:    mode,
-		target:  target,
-		verbose: verbose,
+		relay:      relay,
+		mode:       mode,
+		target:     target,
+		verbose:    verbose,
+		logPath:    logPath,
+		deviceName: deviceName,
 	}
 }
 

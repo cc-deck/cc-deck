@@ -5,12 +5,13 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
+	"path/filepath"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/cc-deck/cc-deck/internal/voice"
 	voicetui "github.com/cc-deck/cc-deck/internal/tui/voice"
 	"github.com/cc-deck/cc-deck/internal/ws"
+	"github.com/cc-deck/cc-deck/internal/xdg"
 	"github.com/spf13/cobra"
 )
 
@@ -57,13 +58,21 @@ VAD (voice activity detection) and PTT (push-to-talk via F8) modes.`,
 	return cmd
 }
 
+func voiceLogPath() string {
+	return filepath.Join(xdg.StateHome, "cc-deck", "voice.log")
+}
+
 func runVoiceRelay(wsName, mode, modelName, deviceID string, verbose bool, port int) error {
+	var logPath string
 	if verbose {
-		logFile, err := os.OpenFile("/tmp/cc-deck-voice.log", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
-		if err == nil {
-			log.SetOutput(logFile)
-			log.SetFlags(log.Ltime | log.Lmicroseconds)
-			defer logFile.Close()
+		logPath = voiceLogPath()
+		if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err == nil {
+			logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+			if err == nil {
+				log.SetOutput(logFile)
+				log.SetFlags(log.Ltime | log.Lmicroseconds)
+				defer logFile.Close()
+			}
 		}
 		log.Printf("[voice] starting: workspace=%s mode=%s model=%s port=%d", wsName, mode, modelName, port)
 	}
@@ -102,17 +111,25 @@ func runVoiceRelay(wsName, mode, modelName, deviceID string, verbose bool, port 
 	transcriber := voice.NewHTTPTranscriber(server.Endpoint(), server)
 	audio := voice.NewAudioSource()
 
+	// Resolve device name for display
+	resolvedDevice := deviceID
+	if resolvedDevice == "" {
+		if devs, err := audio.ListDevices(); err == nil {
+			for _, d := range devs {
+				if d.IsDefault {
+					resolvedDevice = d.Name
+					break
+				}
+			}
+		}
+	}
+
 	config := voice.DefaultRelayConfig()
 	config.Mode = mode
 	config.Verbose = verbose
 
-	var sessionName string
-	if e.Type() == ws.WorkspaceTypeLocal {
-		sessionName = "cc-deck-" + wsName
-	}
-
-	relay := voice.NewVoiceRelay(config, audio, transcriber, pipeAdapter{
-		ch: ch, sessionName: sessionName, verbose: verbose,
+	relay := voice.NewVoiceRelay(config, audio, transcriber, &pipeAdapter{
+		ch: ch, verbose: verbose,
 	})
 
 	if err := relay.Start(ctx); err != nil {
@@ -120,7 +137,7 @@ func runVoiceRelay(wsName, mode, modelName, deviceID string, verbose bool, port 
 	}
 	defer relay.Stop()
 
-	model := voicetui.New(relay, mode, wsName, verbose)
+	model := voicetui.New(relay, mode, wsName, verbose, logPath, resolvedDevice)
 	p := tea.NewProgram(model, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("TUI error: %w", err)
@@ -153,31 +170,19 @@ func runVoiceSetup(modelName string) error {
 	return voice.RunSetup(modelName)
 }
 
-// pipeAdapter injects text into the focused pane of a local workspace
-// via `zellij action write-chars`. For remote workspaces, it falls back
-// to PipeChannel.Send (plugin-side write_chars_to_pane_id).
+// pipeAdapter sends voice text through PipeChannel to the cc-deck plugin,
+// which injects it into the attended pane via write_chars_to_pane_id.
 type pipeAdapter struct {
-	ch          ws.PipeChannel
-	sessionName string
-	verbose     bool
+	ch      ws.PipeChannel
+	verbose bool
 }
 
-func (a pipeAdapter) Send(ctx context.Context, pipeName string, payload string) error {
+func (a *pipeAdapter) Send(ctx context.Context, pipeName string, payload string) error {
 	if a.verbose {
-		log.Printf("[voice] pipeAdapter.Send: name=%q payload=%q (%d bytes) session=%q",
-			pipeName, payload, len(payload), a.sessionName)
+		log.Printf("[voice] pipeAdapter.Send: payload=%q (%d bytes)", payload, len(payload))
 	}
 
-	var err error
-	if a.sessionName != "" {
-		cmd := exec.CommandContext(ctx, "zellij", "action", "write-chars", payload)
-		cmd.Env = append(os.Environ(), "ZELLIJ_SESSION_NAME="+a.sessionName)
-		if out, cmdErr := cmd.CombinedOutput(); cmdErr != nil {
-			err = fmt.Errorf("write-chars: %w: %s", cmdErr, string(out))
-		}
-	} else {
-		err = a.ch.Send(ctx, pipeName, payload)
-	}
+	err := a.ch.Send(ctx, pipeName, payload)
 
 	if a.verbose {
 		if err != nil {

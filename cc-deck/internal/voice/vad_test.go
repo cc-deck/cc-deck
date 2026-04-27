@@ -40,7 +40,7 @@ func TestVAD_SingleUtterance(t *testing.T) {
 		SilenceDuration:      0.1,
 		MaxUtteranceDuration: 5,
 	}
-	vad := NewVAD(cfg, 1000)
+	vad := NewVAD(&cfg, 1000)
 
 	frames := make(chan []int16, 10)
 	go feedFrames(frames,
@@ -64,7 +64,7 @@ func TestVAD_TwoUtterances(t *testing.T) {
 		SilenceDuration:      0.1,
 		MaxUtteranceDuration: 5,
 	}
-	vad := NewVAD(cfg, 1000)
+	vad := NewVAD(&cfg, 1000)
 
 	frames := make(chan []int16, 20)
 	go feedFrames(frames,
@@ -87,7 +87,7 @@ func TestVAD_SilenceOnly(t *testing.T) {
 		SilenceDuration:      0.1,
 		MaxUtteranceDuration: 5,
 	}
-	vad := NewVAD(cfg, 1000)
+	vad := NewVAD(&cfg, 1000)
 
 	frames := make(chan []int16, 5)
 	go feedFrames(frames,
@@ -108,7 +108,7 @@ func TestVAD_MaxDuration(t *testing.T) {
 		SilenceDuration:      0.5,
 		MaxUtteranceDuration: 0.5,
 	}
-	vad := NewVAD(cfg, 1000)
+	vad := NewVAD(&cfg, 1000)
 
 	// Send speech in small frames so max duration triggers between frames
 	frames := make(chan []int16, 20)
@@ -140,7 +140,7 @@ func TestVAD_ChannelClosesMidUtterance(t *testing.T) {
 		SilenceDuration:      1.0,
 		MaxUtteranceDuration: 5,
 	}
-	vad := NewVAD(cfg, 1000)
+	vad := NewVAD(&cfg, 1000)
 
 	frames := make(chan []int16, 5)
 	go feedFrames(frames,
@@ -160,7 +160,7 @@ func TestVAD_PreRoll(t *testing.T) {
 		SilenceDuration:      0.1,
 		MaxUtteranceDuration: 5,
 	}
-	vad := NewVAD(cfg, 1000)
+	vad := NewVAD(&cfg, 1000)
 
 	frames := make(chan []int16, 10)
 	go feedFrames(frames,
