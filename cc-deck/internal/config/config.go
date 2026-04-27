@@ -36,6 +36,12 @@ type Defaults struct {
 	Image       string            `yaml:"image,omitempty"`
 	ImageTag    string            `yaml:"image_tag,omitempty"`
 	Container   ContainerDefaults `yaml:"container,omitempty"`
+	Voice       VoiceDefaults     `yaml:"voice,omitempty"`
+}
+
+// VoiceDefaults holds default values for the voice relay.
+type VoiceDefaults struct {
+	Threshold *int `yaml:"threshold,omitempty"`
 }
 
 // Session represents a running or previously deployed Claude Code session.

@@ -66,24 +66,20 @@ func NewVoiceRelay(config RelayConfig, audio AudioSource, transcriber Transcribe
 	}
 }
 
-// VADThreshold returns the current VAD threshold.
-func (r *VoiceRelay) VADThreshold() float64 {
+// VADThreshold returns the current VAD threshold as a 0-100 percentage
+// on a logarithmic scale.
+func (r *VoiceRelay) VADThreshold() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.config.VADConfig.Threshold
+	return ThresholdToPercent(r.config.VADConfig.Threshold)
 }
 
-// SetVADThreshold updates the VAD threshold.
-func (r *VoiceRelay) SetVADThreshold(t float64) {
+// SetVADThreshold updates the VAD threshold from a 0-100 percentage
+// on a logarithmic scale.
+func (r *VoiceRelay) SetVADThreshold(pct int) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if t < 0.001 {
-		t = 0.001
-	}
-	if t > 0.5 {
-		t = 0.5
-	}
-	r.config.VADConfig.Threshold = t
+	r.config.VADConfig.Threshold = PercentToThreshold(pct)
 }
 
 // ListDevices returns available audio input devices.
@@ -228,7 +224,7 @@ func (r *VoiceRelay) handleUtterance(ctx context.Context, u Utterance) {
 
 	var payload string
 	if result.IsCommand {
-		payload = "\n"
+		payload = "\r"
 	} else {
 		payload = result.Text
 	}

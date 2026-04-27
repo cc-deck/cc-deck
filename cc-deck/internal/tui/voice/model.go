@@ -4,10 +4,11 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/bubbles/viewport"
 	voicepkg "github.com/cc-deck/cc-deck/internal/voice"
 )
 
-const maxHistoryLen = 10
+const maxHistoryLen = 200
 
 // Model is the Bubbletea model for the voice relay TUI.
 type Model struct {
@@ -24,6 +25,11 @@ type Model struct {
 	deviceIdx   int
 	quitting    bool
 	err         error
+
+	width         int
+	height        int
+	viewport      viewport.Model
+	viewportReady bool
 }
 
 type historyEntry struct {

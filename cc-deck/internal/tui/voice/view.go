@@ -5,7 +5,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/lipgloss"
+	voicepkg "github.com/cc-deck/cc-deck/internal/voice"
 )
 
 var (
@@ -24,6 +26,9 @@ var (
 	pickerActive = lipgloss.NewStyle().Foreground(lipgloss.Color("46")).Bold(true)
 	pickerNormal = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
 	pickerDef    = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	separatorStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("238"))
+	scrollThumb    = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	scrollTrack    = lipgloss.NewStyle().Foreground(lipgloss.Color("236"))
 )
 
 var brailleFill = []rune{'⠀', '⣀', '⣤', '⣶', '⣿'}
@@ -33,6 +38,12 @@ var levelColors = []lipgloss.Color{
 	"82", "118", "154", "190",
 	"226", "220", "214", "208",
 	"202", "196",
+}
+
+func newViewport(width, height int) viewport.Model {
+	vp := viewport.New(width, height)
+	vp.SetContent("")
+	return vp
 }
 
 // View renders the TUI.
@@ -45,17 +56,36 @@ func (m Model) View() string {
 		return m.viewDevicePicker()
 	}
 
+	if !m.viewportReady {
+		return "Initializing...\n"
+	}
+
 	var b strings.Builder
 
-	// Header
-	b.WriteString(headerStyle.Render("Voice Relay"))
+	// Header (fixed top)
+	b.WriteString(m.renderHeader())
+	b.WriteString(m.renderSeparator())
+
+	// Scrollable history with scrollbar
+	b.WriteString(m.renderViewportWithScrollbar())
+
+	// Footer (fixed bottom)
+	b.WriteString(m.renderSeparator())
+	b.WriteString(m.renderFooter())
+
+	return b.String()
+}
+
+func (m Model) renderHeader() string {
+	var b strings.Builder
+
+	b.WriteString(headerStyle.Render("cc-deck Voice Relay"))
 	if m.target != "" {
 		b.WriteString("  ")
 		b.WriteString(targetStyle.Render(m.target))
 	}
 	b.WriteString("\n")
 
-	// Device + Mode line
 	b.WriteString(labelStyle.Render("Device: "))
 	if m.deviceName != "" {
 		b.WriteString(deviceStyle.Render(m.deviceName))
@@ -71,58 +101,113 @@ func (m Model) View() string {
 	b.WriteString(modeLabel)
 	b.WriteString("\n")
 
-	// Audio level meter with braille bar and threshold
-	threshold := m.relay.VADThreshold()
+	threshPct := m.relay.VADThreshold()
+	levelLog := voicepkg.RMSToLogScale(m.audioLevel)
 	b.WriteString(labelStyle.Render("Level "))
-	b.WriteString(renderBrailleBar(m.audioLevel, threshold))
+	b.WriteString(renderBrailleBar(levelLog, float64(threshPct)/100.0))
 	b.WriteString("  ")
-	b.WriteString(threshStyle.Render(fmt.Sprintf("T:%.3f", threshold)))
-	b.WriteString("\n\n")
+	b.WriteString(threshStyle.Render(fmt.Sprintf("T:%d%%", threshPct)))
+	b.WriteString("\n")
 
-	// Error
 	if m.err != nil {
 		b.WriteString(errStyle.Render(fmt.Sprintf("Error: %v", m.err)))
-		b.WriteString("\n\n")
 	}
+	b.WriteString("\n")
 
-	// Transcription history
-	if len(m.history) == 0 {
-		b.WriteString(hintStyle.Render("Listening..."))
-		b.WriteString("\n")
-	} else {
-		for _, entry := range m.history {
-			ts := tsStyle.Render(entry.at.Format("15:04:05"))
-			var icon, text string
-			switch entry.status {
-			case "delivered":
-				icon = delivStyle.Render("+")
-				text = textStyle.Render(entry.text)
-			case "error":
-				icon = errStyle.Render("!")
-				text = errStyle.Render(entry.text)
-			default:
-				icon = pendStyle.Render("~")
-				text = pendStyle.Render(entry.text)
-			}
-			if m.verbose {
-				lat := tsStyle.Render(fmt.Sprintf("(%s)", entry.latency.Round(time.Millisecond)))
-				fmt.Fprintf(&b, " %s %s %s %s\n", icon, ts, lat, text)
-			} else {
-				fmt.Fprintf(&b, " %s %s %s\n", icon, ts, text)
-			}
-		}
-	}
+	return b.String()
+}
 
-	// Log indicator
+func (m Model) renderFooter() string {
+	var b strings.Builder
+
 	if m.logPath != "" {
 		b.WriteString(tsStyle.Render(fmt.Sprintf("  log: %s", m.logPath)))
-		b.WriteString("\n")
+	}
+	b.WriteString("\n\n")
+	b.WriteString(hintStyle.Render("  q: quit  +/-: threshold  d: device  pgup/pgdn: scroll"))
+	b.WriteString("\n")
+
+	return b.String()
+}
+
+func (m Model) renderSeparator() string {
+	w := m.width
+	if w <= 0 {
+		w = 40
+	}
+	return separatorStyle.Render(strings.Repeat("─", w)) + "\n"
+}
+
+func (m Model) renderViewportWithScrollbar() string {
+	vpContent := m.viewport.View()
+	lines := strings.Split(vpContent, "\n")
+	totalContent := strings.Count(m.viewport.View(), "\n") + 1
+	vpHeight := m.viewport.Height
+
+	if totalContent <= vpHeight || vpHeight <= 0 {
+		return vpContent + "\n"
 	}
 
-	// Footer
-	b.WriteString("\n")
-	b.WriteString(hintStyle.Render("  q: quit  +/-: threshold  d: device"))
-	b.WriteString("\n")
+	thumbSize := vpHeight * vpHeight / totalContent
+	if thumbSize < 1 {
+		thumbSize = 1
+	}
+	scrollRange := totalContent - vpHeight
+	thumbPos := 0
+	if scrollRange > 0 {
+		thumbPos = m.viewport.YOffset * (vpHeight - thumbSize) / scrollRange
+	}
+	if thumbPos < 0 {
+		thumbPos = 0
+	}
+	if thumbPos+thumbSize > vpHeight {
+		thumbPos = vpHeight - thumbSize
+	}
+
+	var sb strings.Builder
+	for i := 0; i < vpHeight && i < len(lines); i++ {
+		sb.WriteString(lines[i])
+		if i >= thumbPos && i < thumbPos+thumbSize {
+			sb.WriteString(scrollThumb.Render("┃"))
+		} else {
+			sb.WriteString(scrollTrack.Render("│"))
+		}
+		sb.WriteString("\n")
+	}
+
+	return sb.String()
+}
+
+func (m Model) renderHistory() string {
+	if len(m.history) == 0 {
+		return hintStyle.Render("Listening...")
+	}
+
+	var b strings.Builder
+	for i, entry := range m.history {
+		if i > 0 {
+			b.WriteString("\n")
+		}
+		ts := tsStyle.Render(entry.at.Format("15:04:05"))
+		var icon, text string
+		switch entry.status {
+		case "delivered":
+			icon = delivStyle.Render("+")
+			text = textStyle.Render(entry.text)
+		case "error":
+			icon = errStyle.Render("!")
+			text = errStyle.Render(entry.text)
+		default:
+			icon = pendStyle.Render("~")
+			text = pendStyle.Render(entry.text)
+		}
+		if m.verbose {
+			lat := tsStyle.Render(fmt.Sprintf("(%s)", entry.latency.Round(time.Millisecond)))
+			fmt.Fprintf(&b, " %s %s %s %s", icon, ts, lat, text)
+		} else {
+			fmt.Fprintf(&b, " %s %s %s", icon, ts, text)
+		}
+	}
 
 	return b.String()
 }
@@ -157,16 +242,18 @@ func (m Model) viewDevicePicker() string {
 	return b.String()
 }
 
+// renderBrailleBar renders a level meter where both level and threshold
+// are on the same 0.0-1.0 logarithmic scale.
 func renderBrailleBar(level, threshold float64) string {
 	const barLen = 20
 
-	filled := level * float64(barLen) * 10
-	threshIdx := int(threshold * float64(barLen) * 10)
+	filled := level * float64(barLen)
+	threshIdx := int(threshold * float64(barLen))
 	if threshIdx < 0 {
 		threshIdx = 0
 	}
-	if threshIdx > barLen {
-		threshIdx = barLen
+	if threshIdx >= barLen {
+		threshIdx = barLen - 1
 	}
 
 	var sb strings.Builder
@@ -197,7 +284,7 @@ func renderBrailleBar(level, threshold float64) string {
 			if ch == brailleFill[0] {
 				ch = '⠿'
 			}
-		} else if float64(i) >= filled {
+		} else if pos >= filled {
 			style = lipgloss.NewStyle().Foreground(lipgloss.Color("236"))
 		} else {
 			style = lipgloss.NewStyle().Foreground(levelColors[colorIdx])
