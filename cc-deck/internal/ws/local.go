@@ -117,17 +117,22 @@ func (e *LocalWorkspace) Attach(_ context.Context) error {
 	return syscall.Exec(zellijPath, []string{"zellij", "attach", sessionName}, os.Environ())
 }
 
-// Delete removes the workspace from the state store and kills the Zellij
+// Delete removes the workspace from the state store and deletes the Zellij
 // session if it exists. Without force, a running session causes an error.
 func (e *LocalWorkspace) Delete(ctx context.Context, force bool) error {
-	if !force {
-		if zellijSessionExists(e.zellijSessionName()) {
-			return ErrRunning
-		}
+	sessionName := e.zellijSessionName()
+	state := ZellijSessionState(sessionName)
+
+	if state == "running" && !force {
+		return ErrRunning
 	}
 
-	if err := e.KillSession(ctx); err != nil {
-		log.Printf("WARNING: failed to kill session for %s: %v", e.name, err)
+	if err := DeleteZellijSession(sessionName, force); err != nil {
+		log.Printf("WARNING: failed to delete session for %s: %v", e.name, err)
+	}
+	if inst, findErr := e.store.FindInstanceByName(e.name); findErr == nil {
+		inst.SessionState = SessionStateNone
+		_ = e.store.UpdateInstance(inst)
 	}
 
 	if err := e.store.RemoveInstance(e.name); err != nil {
@@ -173,9 +178,11 @@ func (e *LocalWorkspace) Status(_ context.Context) (*WorkspaceStatus, error) {
 
 // KillSession kills the Zellij session for this workspace without
 // affecting any infrastructure (local workspaces have none).
+// Handles both running and exited (resurrectable) sessions.
 func (e *LocalWorkspace) KillSession(_ context.Context) error {
 	sessionName := e.zellijSessionName()
-	if !zellijSessionExists(sessionName) {
+	state := ZellijSessionState(sessionName)
+	if state == "" {
 		return nil
 	}
 
@@ -187,6 +194,27 @@ func (e *LocalWorkspace) KillSession(_ context.Context) error {
 	if inst, findErr := e.store.FindInstanceByName(e.name); findErr == nil {
 		inst.SessionState = SessionStateNone
 		_ = e.store.UpdateInstance(inst)
+	}
+
+	return nil
+}
+
+// DeleteZellijSession removes a Zellij session completely.
+// With force=true, kills a running session before deleting.
+// Returns nil if the session does not exist.
+func DeleteZellijSession(sessionName string, force bool) error {
+	state := ZellijSessionState(sessionName)
+	if state == "" {
+		return nil
+	}
+
+	args := []string{"delete-session", sessionName}
+	if force {
+		args = []string{"delete-session", "--force", sessionName}
+	}
+	cmd := exec.Command("zellij", args...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("deleting session: %s\n%s", err, string(out))
 	}
 
 	return nil
@@ -249,7 +277,7 @@ func (e *LocalWorkspace) Harvest(_ context.Context, _ HarvestOpts) error {
 // zellijSessionExists checks whether a Zellij session with the given name
 // is present in the output of "zellij list-sessions".
 func zellijSessionExists(sessionName string) bool {
-	sessions := listZellijSessions()
+	sessions := listZellijSessions(false)
 	for _, s := range sessions {
 		if s == sessionName {
 			return true
@@ -258,10 +286,36 @@ func zellijSessionExists(sessionName string) bool {
 	return false
 }
 
+// ZellijSessionName returns the Zellij session name for a workspace name.
+func ZellijSessionName(name string) string {
+	return zellijSessionPrefix + name
+}
+
+// ZellijSessionState returns "running", "exited", or "" for a session.
+func ZellijSessionState(sessionName string) string {
+	out, err := exec.Command("zellij", "list-sessions", "-n").Output()
+	if err != nil {
+		return ""
+	}
+	scanner := bufio.NewScanner(strings.NewReader(string(out)))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		fields := strings.Fields(line)
+		if len(fields) == 0 || fields[0] != sessionName {
+			continue
+		}
+		if strings.Contains(line, "(EXITED") {
+			return "exited"
+		}
+		return "running"
+	}
+	return ""
+}
+
 // listZellijSessions runs "zellij list-sessions -n" (no formatting) and
-// returns names of active (non-EXITED) sessions. Returns nil if zellij
-// is not available or the command fails.
-func listZellijSessions() []string {
+// returns session names. When includeExited is false, EXITED sessions are
+// skipped. Returns nil if zellij is not available or the command fails.
+func listZellijSessions(includeExited bool) []string {
 	out, err := exec.Command("zellij", "list-sessions", "-n").Output()
 	if err != nil {
 		return nil
@@ -271,10 +325,12 @@ func listZellijSessions() []string {
 	scanner := bufio.NewScanner(strings.NewReader(string(out)))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.Contains(line, "(EXITED") {
+		if line == "" {
 			continue
 		}
-		// Session name is the first field.
+		if !includeExited && strings.Contains(line, "(EXITED") {
+			continue
+		}
 		fields := strings.Fields(line)
 		if len(fields) > 0 {
 			sessions = append(sessions, fields[0])
@@ -332,7 +388,7 @@ func ReconcileLocalWorkspaces(store *FileStateStore) error {
 	}
 
 	// Get all running Zellij sessions once.
-	sessions := listZellijSessions()
+	sessions := listZellijSessions(false)
 	sessionSet := make(map[string]bool, len(sessions))
 	for _, s := range sessions {
 		sessionSet[s] = true

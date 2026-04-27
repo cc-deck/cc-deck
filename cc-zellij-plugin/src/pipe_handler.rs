@@ -61,6 +61,8 @@ pub enum PipeAction {
     VoiceControl,
     /// Voice toggle from F8 keybinding (cc-deck:voice-toggle).
     VoiceToggle,
+    /// Diagnostic: inject hardcoded text into focused pane (cc-deck:test-inject).
+    TestInject,
     /// Unknown message.
     Unknown,
 }
@@ -104,6 +106,7 @@ pub fn parse_pipe_message(name: &str, payload: Option<&str>) -> PipeAction {
         "cc-deck:voice" => PipeAction::VoiceText(payload.unwrap_or("").to_string()),
         "cc-deck:voice-control" => PipeAction::VoiceControl,
         "cc-deck:voice-toggle" => PipeAction::VoiceToggle,
+        "cc-deck:test-inject" => PipeAction::TestInject,
         _ => PipeAction::Unknown,
     }
 }
@@ -224,5 +227,10 @@ mod tests {
         assert!(matches!(parse_pipe_message("cc-deck:voice-control", None), PipeAction::VoiceControl));
         assert!(matches!(parse_pipe_message("cc-deck:voice-control", Some("listen")), PipeAction::VoiceControl));
         assert!(matches!(parse_pipe_message("cc-deck:voice-toggle", None), PipeAction::VoiceToggle));
+    }
+
+    #[test]
+    fn test_parse_test_inject() {
+        assert!(matches!(parse_pipe_message("cc-deck:test-inject", None), PipeAction::TestInject));
     }
 }

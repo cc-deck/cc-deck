@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/cc-deck/cc-deck/internal/session"
+	"github.com/cc-deck/cc-deck/internal/xdg"
 )
 
 // hookPayload represents the JSON structure from Claude Code hook events.
@@ -68,7 +69,9 @@ input is malformed, or any error occurs. Never disrupts Claude Code.`,
 // Claude Code strips ZELLIJ env vars from hook subprocesses, so $ZELLIJ_PANE_ID
 // is often empty. When we DO get a pane_id, we cache it keyed by session_id so
 // subsequent events for the same session can recover the pane_id.
-var paneMapFile = filepath.Join(os.TempDir(), "cc-deck-pane-map.json")
+var hookStateDir = filepath.Join(xdg.StateHome, "cc-deck")
+
+var paneMapFile = filepath.Join(hookStateDir, "pane-map.json")
 
 func loadPaneMap() map[string]uint32 {
 	data, err := os.ReadFile(paneMapFile)
@@ -83,6 +86,7 @@ func loadPaneMap() map[string]uint32 {
 }
 
 func savePaneMap(m map[string]uint32) {
+	_ = os.MkdirAll(hookStateDir, 0755)
 	data, _ := json.Marshal(m)
 	_ = os.WriteFile(paneMapFile, data, 0644)
 }
