@@ -66,6 +66,31 @@ func NewVoiceRelay(config RelayConfig, audio AudioSource, transcriber Transcribe
 	}
 }
 
+// VADThreshold returns the current VAD threshold.
+func (r *VoiceRelay) VADThreshold() float64 {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.config.VADConfig.Threshold
+}
+
+// SetVADThreshold updates the VAD threshold.
+func (r *VoiceRelay) SetVADThreshold(t float64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if t < 0.001 {
+		t = 0.001
+	}
+	if t > 0.5 {
+		t = 0.5
+	}
+	r.config.VADConfig.Threshold = t
+}
+
+// ListDevices returns available audio input devices.
+func (r *VoiceRelay) ListDevices() ([]DeviceInfo, error) {
+	return r.audio.ListDevices()
+}
+
 // Events returns the channel of relay events for TUI consumption.
 func (r *VoiceRelay) Events() <-chan RelayEvent {
 	return r.events
@@ -92,7 +117,7 @@ func (r *VoiceRelay) Start(ctx context.Context) error {
 		return fmt.Errorf("starting audio capture: %w", err)
 	}
 
-	vad := NewVAD(r.config.VADConfig, r.config.SampleRate)
+	vad := NewVAD(&r.config.VADConfig, r.config.SampleRate)
 	utterances := vad.Process(frames)
 
 	r.wg.Add(2)
@@ -180,6 +205,13 @@ func (r *VoiceRelay) handleUtterance(ctx context.Context, u Utterance) {
 		return
 	}
 
+	if IsWhisperArtifact(text) {
+		if r.config.Verbose {
+			log.Printf("[voice] filtered whisper artifact: %q", text)
+		}
+		return
+	}
+
 	latency := time.Since(start)
 	result := ProcessStopwords(text)
 
@@ -226,5 +258,8 @@ func (r *VoiceRelay) sendEvent(ev RelayEvent) {
 		}
 		return
 	}
-	r.events <- ev
+	select {
+	case r.events <- ev:
+	case <-time.After(2 * time.Second):
+	}
 }

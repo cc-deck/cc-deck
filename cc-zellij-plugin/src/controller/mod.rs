@@ -60,6 +60,7 @@ impl ZellijPlugin for ControllerPlugin {
             PermissionType::ReadCliPipes,
             PermissionType::MessageAndLaunchOtherPlugins,
             PermissionType::Reconfigure,
+            PermissionType::WriteToStdin,
         ]);
 
         crate::wasm_compat::set_timeout_wasm(self.state.config.timer_interval);
@@ -321,7 +322,7 @@ impl ZellijPlugin for ControllerPlugin {
                         }
                         self.state.voice_buffer.push(text);
                         crate::debug_log(&format!(
-                            "CTRL VOICE buffered text (permission active), buffer_len={}",
+                            "CTRL VOICE buffered (permission active), buffer_len={}",
                             self.state.voice_buffer.len()
                         ));
                     } else {
@@ -332,7 +333,7 @@ impl ZellijPlugin for ControllerPlugin {
                         ));
                     }
                 } else {
-                    crate::debug_log("CTRL VOICE discarded text: no attended pane");
+                    crate::debug_log("CTRL VOICE discarded: no target pane");
                 }
             }
             PipeAction::VoiceControl => {
