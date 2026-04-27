@@ -98,10 +98,6 @@ func EnsurePluginPermissions(cacheDir, pluginsDir string) error {
 		return err
 	}
 
-	if strings.Contains(string(content), pluginPath) {
-		return nil // Already has permissions for this plugin
-	}
-
 	entry := fmt.Sprintf(`"%s" {
     MessageAndLaunchOtherPlugins
     ChangeApplicationState
@@ -109,8 +105,31 @@ func EnsurePluginPermissions(cacheDir, pluginsDir string) error {
     RunCommands
     ReadCliPipes
     ReadApplicationState
+    WriteToStdin
 }
 `, pluginPath)
+
+	if strings.Contains(string(content), pluginPath) {
+		// Replace stale entry with current permissions
+		lines := strings.Split(string(content), "\n")
+		var filtered []string
+		skip := false
+		for _, line := range lines {
+			if strings.Contains(line, pluginPath) {
+				skip = true
+				continue
+			}
+			if skip && strings.TrimSpace(line) == "}" {
+				skip = false
+				continue
+			}
+			if skip {
+				continue
+			}
+			filtered = append(filtered, line)
+		}
+		content = []byte(strings.Join(filtered, "\n"))
+	}
 
 	if !strings.HasSuffix(string(content), "\n") && len(content) > 0 {
 		content = append(content, '\n')

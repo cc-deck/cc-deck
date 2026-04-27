@@ -206,8 +206,10 @@ dev: dev-install  ## Build debug WASM, install to Zellij plugins dir, clear cach
 dev-install: build-wasm-debug  ## Quick install: copy dev-opt WASM to Zellij plugins dir
 	mkdir -p $(ZELLIJ_PLUGINS_DIR)
 	cp $(WASM_DBG) $(ZELLIJ_PLUGINS_DIR)/cc_deck.wasm
-	@# Clear compiled WASM cache so Zellij picks up the new binary
-	rm -f $(ZELLIJ_CACHE_DIR)/0.43.1/[0-9]* 2>/dev/null || true
+	@# Clear compiled WASM caches (per-session UUID dirs) and stale permissions
+	@# so Zellij re-compiles the plugin and re-prompts for any new permissions
+	rm -rf $(ZELLIJ_CACHE_DIR)/*/file: 2>/dev/null || true
+	rm -f $(ZELLIJ_CACHE_DIR)/permissions.kdl 2>/dev/null || true
 	@echo "Installed cc_deck.wasm to $(ZELLIJ_PLUGINS_DIR)/ and cleared cache"
 
 reload: build-wasm-debug  ## Rebuild dev-opt WASM and hot-reload in running Zellij
