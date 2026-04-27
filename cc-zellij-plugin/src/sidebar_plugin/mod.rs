@@ -47,6 +47,7 @@ impl ZellijPlugin for SidebarRendererPlugin {
             PermissionType::ReadCliPipes,
             PermissionType::MessageAndLaunchOtherPlugins,
             PermissionType::Reconfigure,
+            PermissionType::WriteToStdin,
         ]);
 
         crate::debug_log("SIDEBAR LOAD complete");
@@ -104,6 +105,7 @@ impl ZellijPlugin for SidebarRendererPlugin {
                         PermissionType::ReadCliPipes,
                         PermissionType::MessageAndLaunchOtherPlugins,
                         PermissionType::Reconfigure,
+                        PermissionType::WriteToStdin,
                     ]);
                 }
 

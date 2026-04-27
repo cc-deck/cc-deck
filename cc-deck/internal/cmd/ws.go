@@ -674,13 +674,15 @@ func splitCredential(s string) []string {
 
 func newAttachCmdCore(_ *GlobalFlags) *cobra.Command {
 	var reset bool
+	var force bool
 
 	cmd := &cobra.Command{
 		Use:   "attach [name]",
 		Short: "Attach to a workspace",
 		Long: `Open an interactive session for the named workspace.
 When no name is provided, auto-resolves from workspace definitions in the central store.
-Use --reset to kill the existing Zellij session and start fresh.`,
+Use --reset to kill an exited session and start fresh.
+Use --reset --force to kill a running session and start fresh.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store := ws.NewStateStore("")
@@ -689,13 +691,14 @@ Use --reset to kill the existing Zellij session and start fresh.`,
 				return err
 			}
 			if reset {
-				return runWsAttachReset(name)
+				return runWsAttachReset(name, force)
 			}
 			return runWsAttach(name)
 		},
 	}
 
 	cmd.Flags().BoolVar(&reset, "reset", false, "Kill existing session and start fresh")
+	cmd.Flags().BoolVarP(&force, "force", "f", false, "Force reset of a running session (requires --reset)")
 
 	return cmd
 }
@@ -704,7 +707,7 @@ func newWsAttachCmd(gf *GlobalFlags) *cobra.Command {
 	return newAttachCmdCore(gf)
 }
 
-func runWsAttachReset(name string) error {
+func runWsAttachReset(name string, force bool) error {
 	store := ws.NewStateStore("")
 	defs := ws.NewDefinitionStore("")
 
@@ -713,7 +716,15 @@ func runWsAttachReset(name string) error {
 		return err
 	}
 
-	_ = e.KillSession(cmd_context())
+	sessionName := ws.ZellijSessionName(name)
+	state := ws.ZellijSessionState(sessionName)
+	if state == "running" && !force {
+		return fmt.Errorf("session %q is running; use --force to reset a running session", name)
+	}
+
+	if state != "" {
+		ws.DeleteZellijSession(sessionName, force)
+	}
 
 	fmt.Fprintf(os.Stderr, "Session reset. Attaching...\n")
 	return e.Attach(cmd_context())

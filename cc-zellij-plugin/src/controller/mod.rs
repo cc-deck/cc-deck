@@ -362,6 +362,47 @@ impl ZellijPlugin for ControllerPlugin {
                     crate::debug_log("CTRL VOICE-TOGGLE ignored: no held pipe");
                 }
             }
+            PipeAction::TestInject => {
+                // Diagnostic: inject hardcoded text into the focused pane.
+                // Compares manifest-derived pane ID with tracked state to
+                // isolate whether write_chars_to_pane_id fails due to a
+                // wrong pane ID or the API itself.
+                let manifest_focus = self.state.pane_manifest.as_ref().and_then(|m| {
+                    self.state.tabs.iter().find(|t| t.active).and_then(|tab| {
+                        m.panes.get(&tab.position).and_then(|panes| {
+                            panes.iter()
+                                .find(|p| !p.is_plugin && p.is_focused)
+                                .map(|p| p.id)
+                        })
+                    })
+                });
+                let tracked_focus = self.state.focused_pane_id;
+                let last_attended = self.state.last_attended_pane_id;
+                let target = manifest_focus
+                    .or(tracked_focus)
+                    .or(last_attended);
+
+                let debug_info = format!(
+                    "manifest_focus={:?} tracked_focus={:?} last_attended={:?} target={:?}",
+                    manifest_focus, tracked_focus, last_attended, target
+                );
+                crate::debug_log(&format!("CTRL TEST-INJECT {}", debug_info));
+
+                if let Some(pane_id) = target {
+                    write_chars_to_pane(pane_id, "VOICE_TEST ");
+                    crate::debug_log(&format!(
+                        "CTRL TEST-INJECT called write_chars_to_pane({})", pane_id
+                    ));
+                } else {
+                    crate::debug_log("CTRL TEST-INJECT: no target pane found");
+                }
+
+                #[cfg(target_family = "wasm")]
+                if let PipeSource::Cli(ref pipe_id) = pipe_message.source {
+                    cli_pipe_output_wasm(pipe_id, &debug_info);
+                    unblock_cli_pipe_input_wasm(pipe_id);
+                }
+            }
             PipeAction::Unknown => {}
             _ => {
                 // NavUp, NavDown, NavSelect, etc. are sidebar-local concerns.

@@ -37,7 +37,9 @@ fn handle_switch(state: &mut ControllerState, pane_id: Option<u32>, tab_index: O
         }
         state.focused_pane_id = Some(pid);
         state.active_tab_index = Some(tab_idx);
+        state.last_attended_pane_id = Some(pid);
         state.in_flight_focus = Some((pid, crate::session::unix_now_ms()));
+        write_last_attended(pid);
         crate::debug_log(&format!("CTRL SWITCH: pid={pid} tab={tab_idx} in_flight={pid}"));
         // Broadcast BEFORE the tab switch so pipe messages are queued in Zellij
         // ahead of the switch_tab_to command. This gives the target sidebar a
@@ -177,7 +179,9 @@ fn handle_working(state: &mut ControllerState) {
     if let Some((pane_id, tab_index)) = result {
         state.focused_pane_id = Some(pane_id);
         state.active_tab_index = Some(tab_index);
+        state.last_attended_pane_id = Some(pane_id);
         state.in_flight_focus = Some((pane_id, crate::session::unix_now_ms()));
+        write_last_attended(pane_id);
         super::render_broadcast::broadcast_render(state);
         state.render_dirty = false;
         switch_tab_to_wasm(tab_index);
@@ -191,7 +195,9 @@ fn handle_working_prev(state: &mut ControllerState) {
     if let Some((pane_id, tab_index)) = result {
         state.focused_pane_id = Some(pane_id);
         state.active_tab_index = Some(tab_index);
+        state.last_attended_pane_id = Some(pane_id);
         state.in_flight_focus = Some((pane_id, crate::session::unix_now_ms()));
+        write_last_attended(pane_id);
         super::render_broadcast::broadcast_render(state);
         state.render_dirty = false;
         switch_tab_to_wasm(tab_index);
@@ -211,7 +217,9 @@ fn handle_navigate(
     if let (Some(pid), Some(tab_idx)) = (pane_id, tab_index) {
         state.focused_pane_id = Some(pid);
         state.active_tab_index = Some(tab_idx);
+        state.last_attended_pane_id = Some(pid);
         state.in_flight_focus = Some((pid, crate::session::unix_now_ms()));
+        write_last_attended(pid);
         super::render_broadcast::broadcast_render(state);
         state.render_dirty = false;
         switch_tab_to_wasm(tab_idx);
