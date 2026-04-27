@@ -178,6 +178,62 @@ func TestVAD_PreRoll(t *testing.T) {
 	}
 }
 
+func TestThresholdPercentRoundTrip(t *testing.T) {
+	tests := []struct {
+		rms     float64
+		wantPct int
+	}{
+		{0.001, 0},
+		{0.5, 100},
+		{0.015, 44}, // default threshold lands near middle of usable range
+	}
+	for _, tt := range tests {
+		pct := ThresholdToPercent(tt.rms)
+		if pct != tt.wantPct {
+			t.Errorf("ThresholdToPercent(%f) = %d, want %d", tt.rms, pct, tt.wantPct)
+		}
+	}
+
+	for pct := 0; pct <= 100; pct += 5 {
+		rms := PercentToThreshold(pct)
+		got := ThresholdToPercent(rms)
+		if got < pct-1 || got > pct+1 {
+			t.Errorf("round-trip pct=%d -> rms=%f -> pct=%d (drift > 1)", pct, rms, got)
+		}
+	}
+}
+
+func TestThresholdPercentBoundaries(t *testing.T) {
+	if ThresholdToPercent(0) != 0 {
+		t.Error("below min should clamp to 0")
+	}
+	if ThresholdToPercent(1.0) != 100 {
+		t.Error("above max should clamp to 100")
+	}
+	if PercentToThreshold(-10) != 0.001 {
+		t.Error("negative percent should clamp to min RMS")
+	}
+	if PercentToThreshold(200) != 0.5 {
+		t.Error("over 100 percent should clamp to max RMS")
+	}
+}
+
+func TestRMSToLogScale(t *testing.T) {
+	if got := RMSToLogScale(0.001); got != 0 {
+		t.Errorf("RMSToLogScale(min) = %f, want 0", got)
+	}
+	if got := RMSToLogScale(0.5); got != 1 {
+		t.Errorf("RMSToLogScale(max) = %f, want 1", got)
+	}
+	if got := RMSToLogScale(0); got != 0 {
+		t.Errorf("RMSToLogScale(0) = %f, want 0", got)
+	}
+	mid := RMSToLogScale(0.015)
+	if mid < 0.4 || mid > 0.5 {
+		t.Errorf("RMSToLogScale(0.015) = %f, want ~0.44", mid)
+	}
+}
+
 func TestUtteranceDuration(t *testing.T) {
 	u := Utterance{Audio: make([]int16, 16000), SampleRate: 16000}
 	d := UtteranceDuration(u)

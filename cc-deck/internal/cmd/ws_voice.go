@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	tea "github.com/charmbracelet/bubbletea"
+	ccconfig "github.com/cc-deck/cc-deck/internal/config"
 	"github.com/cc-deck/cc-deck/internal/voice"
 	voicetui "github.com/cc-deck/cc-deck/internal/tui/voice"
 	"github.com/cc-deck/cc-deck/internal/ws"
@@ -24,6 +25,7 @@ func newWsVoiceCmd(_ *GlobalFlags) *cobra.Command {
 		setup       bool
 		listDevices bool
 		serverPort  int
+		threshold   int
 	)
 
 	cmd := &cobra.Command{
@@ -43,7 +45,7 @@ VAD (voice activity detection) and PTT (push-to-talk via F8) modes.`,
 			if len(args) == 0 {
 				return fmt.Errorf("workspace name required (or use --setup / --list-devices)")
 			}
-			return runVoiceRelay(args[0], mode, model, device, verbose, serverPort)
+			return runVoiceRelay(args[0], mode, model, device, verbose, serverPort, threshold)
 		},
 	}
 
@@ -54,6 +56,7 @@ VAD (voice activity detection) and PTT (push-to-talk via F8) modes.`,
 	cmd.Flags().BoolVar(&setup, "setup", false, "check dependencies and download model")
 	cmd.Flags().BoolVar(&listDevices, "list-devices", false, "list audio input devices")
 	cmd.Flags().IntVar(&serverPort, "port", 8234, "whisper-server port")
+	cmd.Flags().IntVar(&threshold, "threshold", -1, "VAD sensitivity (0-100, logarithmic); overrides config file")
 
 	return cmd
 }
@@ -62,7 +65,7 @@ func voiceLogPath() string {
 	return filepath.Join(xdg.StateHome, "cc-deck", "voice.log")
 }
 
-func runVoiceRelay(wsName, mode, modelName, deviceID string, verbose bool, port int) error {
+func runVoiceRelay(wsName, mode, modelName, deviceID string, verbose bool, port int, thresholdFlag int) error {
 	var logPath string
 	if verbose {
 		logPath = voiceLogPath()
@@ -127,6 +130,15 @@ func runVoiceRelay(wsName, mode, modelName, deviceID string, verbose bool, port 
 	config := voice.DefaultRelayConfig()
 	config.Mode = mode
 	config.Verbose = verbose
+
+	thresholdPct := voice.ThresholdToPercent(config.VADConfig.Threshold)
+	if cfg, err := ccconfig.Load(""); err == nil && cfg.Defaults.Voice.Threshold != nil {
+		thresholdPct = *cfg.Defaults.Voice.Threshold
+	}
+	if thresholdFlag >= 0 {
+		thresholdPct = thresholdFlag
+	}
+	config.VADConfig.Threshold = voice.PercentToThreshold(thresholdPct)
 
 	relay := voice.NewVoiceRelay(config, audio, transcriber, &pipeAdapter{
 		ch: ch, verbose: verbose,

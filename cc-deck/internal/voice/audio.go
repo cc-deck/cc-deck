@@ -1,6 +1,9 @@
 package voice
 
-import "context"
+import (
+	"context"
+	"math"
+)
 
 // AudioSource captures PCM audio from a local input device.
 type AudioSource interface {
@@ -51,4 +54,53 @@ func DefaultVADConfig() VADConfig {
 		SilenceDuration:      1.5,
 		MaxUtteranceDuration: 30,
 	}
+}
+
+const (
+	vadRMSMin = 0.001
+	vadRMSMax = 0.5
+)
+
+// ThresholdToPercent converts an internal RMS threshold (0.001-0.5) to a
+// 0-100 logarithmic scale. Low RMS values (where most tuning happens)
+// spread across the lower half of the scale.
+func ThresholdToPercent(rms float64) int {
+	if rms <= vadRMSMin {
+		return 0
+	}
+	if rms >= vadRMSMax {
+		return 100
+	}
+	logMin := math.Log(vadRMSMin)
+	logMax := math.Log(vadRMSMax)
+	pct := (math.Log(rms) - logMin) / (logMax - logMin) * 100
+	return int(math.Round(pct))
+}
+
+// RMSToLogScale converts an RMS level to a 0.0-1.0 logarithmic scale
+// matching the same mapping as ThresholdToPercent.
+func RMSToLogScale(rms float64) float64 {
+	if rms <= vadRMSMin {
+		return 0
+	}
+	if rms >= vadRMSMax {
+		return 1
+	}
+	logMin := math.Log(vadRMSMin)
+	logMax := math.Log(vadRMSMax)
+	return (math.Log(rms) - logMin) / (logMax - logMin)
+}
+
+// PercentToThreshold converts a 0-100 logarithmic scale value back to
+// an internal RMS threshold (0.001-0.5).
+func PercentToThreshold(pct int) float64 {
+	if pct <= 0 {
+		return vadRMSMin
+	}
+	if pct >= 100 {
+		return vadRMSMax
+	}
+	logMin := math.Log(vadRMSMin)
+	logMax := math.Log(vadRMSMax)
+	return math.Exp(logMin + float64(pct)/100*(logMax-logMin))
 }
