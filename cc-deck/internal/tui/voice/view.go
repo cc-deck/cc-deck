@@ -89,6 +89,10 @@ func (m Model) renderHeader() string {
 	if m.target != "" {
 		b.WriteString(labelStyle.Render(fmt.Sprintf("%-*s", labelWidth, "Workspace:")))
 		b.WriteString(targetStyle.Render(m.target))
+		if m.session != "" {
+			b.WriteString(labelStyle.Render("  Session: "))
+			b.WriteString(targetStyle.Render(m.session))
+		}
 		b.WriteString("\n")
 	}
 

@@ -17,6 +17,7 @@ type Model struct {
 	audioLevel  float64
 	history     []historyEntry
 	target      string
+	session     string
 	verbose     bool
 	logPath     string
 	deviceName  string
