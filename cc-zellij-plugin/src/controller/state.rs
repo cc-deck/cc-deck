@@ -72,8 +72,6 @@ pub struct ControllerState {
     pub attend_visited: HashSet<u32>,
     /// Held CLI pipe ID for PTT long-poll (voice-control).
     pub voice_control_pipe: Option<String>,
-    /// Text buffered during permission prompts.
-    pub voice_buffer: Vec<String>,
     /// Whether voice relay is currently connected.
     pub voice_enabled: bool,
     /// Events received before permissions were granted.

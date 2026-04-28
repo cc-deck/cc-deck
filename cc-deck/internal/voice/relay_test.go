@@ -312,12 +312,12 @@ func TestVoiceRelay_DeliveryErrorProducesEvent(t *testing.T) {
 
 	var hasError bool
 	for _, ev := range events {
-		if ev.Type == "error" {
+		if ev.Type == "error" && ev.Err != nil {
 			hasError = true
 		}
 	}
 	if !hasError {
-		t.Error("expected error event for delivery failure")
+		t.Error("expected error event with non-nil Err for delivery failure")
 	}
 }
 
@@ -358,4 +358,150 @@ func TestVoiceRelay_DoubleStartReturnsError(t *testing.T) {
 	if err == nil {
 		t.Error("expected error from double Start")
 	}
+}
+
+func TestParseDumpStateResponse(t *testing.T) {
+	tests := []struct {
+		name       string
+		input      string
+		wantTarget string
+	}{
+		{
+			name:       "valid JSON with attended session",
+			input:      `{"sessions":{"42":{"display_name":"claude-1"}},"attended_pane_id":42}`,
+			wantTarget: "claude-1",
+		},
+		{
+			name:       "attended pane not in sessions",
+			input:      `{"sessions":{"42":{"display_name":"claude-1"}},"attended_pane_id":99}`,
+			wantTarget: "",
+		},
+		{
+			name:       "no attended pane ID",
+			input:      `{"sessions":{"42":{"display_name":"claude-1"}}}`,
+			wantTarget: "(no session attended)",
+		},
+		{
+			name:       "null attended pane ID",
+			input:      `{"sessions":{"42":{"display_name":"claude-1"}},"attended_pane_id":null}`,
+			wantTarget: "(no session attended)",
+		},
+		{
+			name:       "empty sessions map",
+			input:      `{"sessions":{},"attended_pane_id":42}`,
+			wantTarget: "",
+		},
+		{
+			name:       "null sessions",
+			input:      `{"sessions":null}`,
+			wantTarget: "",
+		},
+		{
+			name:       "malformed JSON",
+			input:      `not json at all`,
+			wantTarget: "",
+		},
+		{
+			name:       "empty string",
+			input:      ``,
+			wantTarget: "",
+		},
+		{
+			name:       "session with empty display name",
+			input:      `{"sessions":{"10":{"display_name":""}},"attended_pane_id":10}`,
+			wantTarget: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := parseDumpStateResponse(tt.input)
+			if result.targetName != tt.wantTarget {
+				t.Errorf("targetName = %q, want %q", result.targetName, tt.wantTarget)
+			}
+		})
+	}
+}
+
+type mockPipeSendReceiver struct {
+	mockPipeSender
+	mu           sync.Mutex
+	recvResponse string
+	recvErr      error
+	recvCalled   chan struct{}
+}
+
+func (m *mockPipeSendReceiver) SendReceive(_ context.Context, _ string, _ string) (string, error) {
+	m.mu.Lock()
+	resp := m.recvResponse
+	err := m.recvErr
+	ch := m.recvCalled
+	m.mu.Unlock()
+	if ch != nil {
+		select {
+		case ch <- struct{}{}:
+		default:
+		}
+	}
+	return resp, err
+}
+
+func TestVoiceRelay_PTTRequiresSendReceiver(t *testing.T) {
+	audio := newMockAudioSource()
+	transcriber := &mockTranscriber{}
+	pipe := &mockPipeSender{}
+
+	config := DefaultRelayConfig()
+	config.Mode = "ptt"
+
+	relay := NewVoiceRelay(config, audio, transcriber, pipe)
+	err := relay.Start(context.Background())
+	if err == nil {
+		relay.Stop()
+		t.Fatal("expected error starting PTT with PipeSender (not PipeSendReceiver)")
+	}
+	if !contains(err.Error(), "PipeSendReceiver") {
+		t.Errorf("error should mention PipeSendReceiver, got: %v", err)
+	}
+}
+
+func TestVoiceRelay_ContextCancelGracefulShutdown(t *testing.T) {
+	audio := newMockAudioSource()
+	transcriber := &mockTranscriber{}
+	pipe := &mockPipeSendReceiver{
+		recvResponse: "",
+		recvErr:      fmt.Errorf("context cancelled"),
+	}
+
+	config := DefaultRelayConfig()
+	config.Mode = "vad"
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	relay := NewVoiceRelay(config, audio, transcriber, pipe)
+	if err := relay.Start(ctx); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+
+	if relay.Mode() != "vad" {
+		t.Errorf("mode = %q, want vad", relay.Mode())
+	}
+
+	cancel()
+	time.Sleep(100 * time.Millisecond)
+	relay.Stop()
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && searchString(s, substr)
+}
+
+func searchString(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }

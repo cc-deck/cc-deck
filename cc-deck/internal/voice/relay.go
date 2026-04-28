@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -58,7 +59,7 @@ type VoiceRelay struct {
 	mu          sync.Mutex
 	running     bool
 	pttActive   bool
-	paused      bool
+	parentCtx   context.Context
 	ctx         context.Context
 	cancel      context.CancelFunc
 	closeOnce   sync.Once
@@ -132,9 +133,11 @@ func (r *VoiceRelay) Start(ctx context.Context) error {
 	}
 	r.running = true
 	r.pttActive = false
+	r.parentCtx = ctx
 	relayCtx, cancel := context.WithCancel(ctx)
 	r.cancel = cancel
 	r.ctx = relayCtx
+	r.wg = sync.WaitGroup{}
 	r.mu.Unlock()
 
 	var err error
@@ -248,13 +251,19 @@ func (r *VoiceRelay) pttLoop(ctx context.Context, sr PipeSendReceiver) {
 
 func (r *VoiceRelay) collectPTTUtterance(ctx context.Context, frames <-chan []int16, sr PipeSendReceiver) {
 	var allSamples []int16
+	maxSamples := int(r.config.VADConfig.MaxUtteranceDuration) * r.config.SampleRate
 	levelTicker := time.NewTicker(50 * time.Millisecond)
 	defer levelTicker.Stop()
 
+	stopCtx, stopCancel := context.WithCancel(ctx)
+	defer stopCancel()
+
 	stopCh := make(chan struct{})
+	r.wg.Add(1)
 	go func() {
+		defer r.wg.Done()
 		defer close(stopCh)
-		_, _ = sr.SendReceive(ctx, "cc-deck:voice-control", "listen")
+		_, _ = sr.SendReceive(stopCtx, "cc-deck:voice-control", "listen")
 	}()
 
 	collecting := true
@@ -273,6 +282,9 @@ func (r *VoiceRelay) collectPTTUtterance(ctx context.Context, frames <-chan []in
 				collecting = false
 			} else {
 				allSamples = append(allSamples, f...)
+				if len(allSamples) >= maxSamples {
+					collecting = false
+				}
 			}
 		case <-levelTicker.C:
 			level := r.audio.Level()
@@ -307,6 +319,10 @@ func (r *VoiceRelay) collectPTTUtterance(ctx context.Context, frames <-chan []in
 // SwitchMode stops the current pipeline, changes mode, and restarts.
 // The events channel is preserved so callers keep receiving events.
 func (r *VoiceRelay) SwitchMode(mode string) error {
+	r.mu.Lock()
+	parentCtx := r.parentCtx
+	r.mu.Unlock()
+
 	r.stopInternal()
 
 	r.mu.Lock()
@@ -315,8 +331,10 @@ func (r *VoiceRelay) SwitchMode(mode string) error {
 	r.pttActive = false
 	r.mu.Unlock()
 
-	ctx := context.Background()
-	return r.Start(ctx)
+	if parentCtx == nil {
+		parentCtx = context.Background()
+	}
+	return r.Start(parentCtx)
 }
 
 // stopInternal halts goroutines and audio without closing the events channel.
@@ -371,13 +389,6 @@ func (r *VoiceRelay) levelPoll(ctx context.Context) {
 	}
 }
 
-// IsPaused returns whether the attended session is in a permission prompt state.
-func (r *VoiceRelay) IsPaused() bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.paused
-}
-
 func (r *VoiceRelay) statePoll(ctx context.Context, sr PipeSendReceiver) {
 	defer r.wg.Done()
 	ticker := time.NewTicker(2 * time.Second)
@@ -400,17 +411,6 @@ func (r *VoiceRelay) statePoll(ctx context.Context, sr PipeSendReceiver) {
 
 			state := parseDumpStateResponse(resp)
 
-			r.mu.Lock()
-			wasPaused := r.paused
-			r.paused = state.paused
-			r.mu.Unlock()
-
-			if state.paused && !wasPaused {
-				r.sendEvent(RelayEvent{Type: "paused", Text: "permission prompt active"})
-			} else if !state.paused && wasPaused {
-				r.sendEvent(RelayEvent{Type: "resumed"})
-			}
-
 			if state.targetName != lastTarget {
 				lastTarget = state.targetName
 				r.sendEvent(RelayEvent{Type: "target_changed", Text: state.targetName})
@@ -420,7 +420,6 @@ func (r *VoiceRelay) statePoll(ctx context.Context, sr PipeSendReceiver) {
 }
 
 type dumpStateResult struct {
-	paused     bool
 	targetName string
 }
 
@@ -447,15 +446,10 @@ func parseDumpStateResponse(stateJSON string) dumpStateResult {
 	if attendedKey != "" {
 		if raw, ok := envelope.Sessions[attendedKey]; ok {
 			var s struct {
-				DisplayName string          `json:"display_name"`
-				Activity    json.RawMessage `json:"activity"`
+				DisplayName string `json:"display_name"`
 			}
 			if json.Unmarshal(raw, &s) == nil {
 				result.targetName = s.DisplayName
-				var waiting map[string]string
-				if json.Unmarshal(s.Activity, &waiting) == nil {
-					result.paused = waiting["Waiting"] == "Permission"
-				}
 			}
 		}
 	}
@@ -497,6 +491,7 @@ func (r *VoiceRelay) handleUtterance(ctx context.Context, u Utterance) {
 	}
 
 	text = strings.Join(strings.Fields(text), " ")
+	text = sanitizeTerminalText(text)
 	if r.config.Verbose {
 		log.Printf("[voice] transcribed: %q", text)
 	}
@@ -554,6 +549,20 @@ func (r *VoiceRelay) handleUtterance(ctx context.Context, u Utterance) {
 	r.sendEvent(RelayEvent{Type: "delivery", Text: payload})
 }
 
+var termEscapeRe = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
+
+func sanitizeTerminalText(text string) string {
+	text = termEscapeRe.ReplaceAllString(text, "")
+	var b strings.Builder
+	b.Grow(len(text))
+	for _, r := range text {
+		if r == '\t' || r == ' ' || (r >= 0x20 && r != 0x7f) {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
 func (r *VoiceRelay) sendEvent(ev RelayEvent) {
 	r.mu.Lock()
 	ctx := r.ctx
@@ -563,6 +572,13 @@ func (r *VoiceRelay) sendEvent(ev RelayEvent) {
 		select {
 		case r.events <- ev:
 		default:
+		}
+		return
+	}
+	if ctx == nil {
+		select {
+		case r.events <- ev:
+		case <-time.After(2 * time.Second):
 		}
 		return
 	}

@@ -35,7 +35,6 @@ func (t *cliTranscriber) Transcribe(ctx context.Context, audio []int16, sampleRa
 		"-m", t.modelPath,
 		"-f", wavPath,
 		"--no-timestamps",
-		"--output-txt",
 	)
 	out, err := cmd.Output()
 	if err != nil {

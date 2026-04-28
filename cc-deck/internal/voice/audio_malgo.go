@@ -19,7 +19,9 @@ type malgoSource struct {
 	device        *malgo.Device
 	level         atomic.Value // float64
 	droppedFrames atomic.Int64
+	closing       atomic.Bool
 	stopped       chan struct{}
+	out           chan []int16
 }
 
 func NewAudioSource() AudioSource {
@@ -72,6 +74,9 @@ func (s *malgoSource) Start(ctx context.Context, sampleRate int) (<-chan []int16
 			rms := math.Sqrt(sum / float64(len(samples)))
 			s.level.Store(rms)
 
+			if s.closing.Load() {
+				return
+			}
 			select {
 			case out <- samples:
 			default:
@@ -95,9 +100,9 @@ func (s *malgoSource) Start(ctx context.Context, sampleRate int) (<-chan []int16
 	}
 
 	s.device = device
+	s.out = out
 
 	go func() {
-		defer close(out)
 		select {
 		case <-ctx.Done():
 			_ = s.Stop()
@@ -137,6 +142,13 @@ func (s *malgoSource) Stop() error {
 	default:
 		close(s.stopped)
 	}
+
+	s.closing.Store(true)
+	if s.out != nil {
+		close(s.out)
+		s.out = nil
+	}
+	s.closing.Store(false)
 
 	return nil
 }

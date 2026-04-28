@@ -61,10 +61,6 @@ func (s *FileStateStore) Load() (*StateFile, error) {
 		return &StateFile{Version: 3}, nil
 	}
 
-	if state.Version == 0 {
-		state.Version = 3
-	}
-
 	if state.Version < 3 {
 		migrateStateV2toV3(&state)
 		if err := s.Save(&state); err != nil {

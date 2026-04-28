@@ -97,11 +97,7 @@ func (m Model) renderHeader() string {
 	}
 
 	b.WriteString(labelStyle.Render(fmt.Sprintf("%-*s", labelWidth, "Device:")))
-	if m.deviceName != "" {
-		b.WriteString(deviceStyle.Render(m.deviceName))
-	} else {
-		b.WriteString(deviceStyle.Render("(default)"))
-	}
+	b.WriteString(deviceStyle.Render("(default)"))
 	b.WriteString("  ")
 	var modeLabel string
 	switch m.mode {
@@ -132,10 +128,7 @@ func (m Model) renderHeader() string {
 func (m Model) renderFooter() string {
 	var b strings.Builder
 
-	if m.paused {
-		b.WriteString(errStyle.Render("  Voice paused: permission prompt active"))
-		b.WriteString("\n")
-	} else if m.err != nil {
+	if m.err != nil {
 		errText := fmt.Sprintf("Error: %v", m.err)
 		w := m.width - 4
 		if w < 20 {
@@ -153,10 +146,6 @@ func (m Model) renderFooter() string {
 
 func (m Model) footerHeight() int {
 	lines := 2 // hints line + separator
-	if m.paused {
-		lines++
-		return lines
-	}
 	if m.err != nil {
 		errText := fmt.Sprintf("Error: %v", m.err)
 		w := m.width - 4
@@ -255,7 +244,7 @@ func (m Model) renderHistory() string {
 func (m Model) viewDevicePicker() string {
 	var b strings.Builder
 
-	b.WriteString(pickerTitle.Render("Select Audio Device"))
+	b.WriteString(pickerTitle.Render("Audio Devices (read-only)"))
 	b.WriteString("\n\n")
 
 	for i, dev := range m.devices {

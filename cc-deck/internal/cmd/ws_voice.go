@@ -21,7 +21,6 @@ func newWsVoiceCmd(_ *GlobalFlags) *cobra.Command {
 	var (
 		mode        string
 		model       string
-		device      string
 		verbose     bool
 		setup       bool
 		listDevices bool
@@ -46,13 +45,12 @@ VAD (voice activity detection) and PTT (push-to-talk via F8) modes.`,
 			if len(args) == 0 {
 				return fmt.Errorf("workspace name required (or use --setup / --list-devices)")
 			}
-			return runVoiceRelay(args[0], mode, model, device, verbose, serverPort, threshold)
+			return runVoiceRelay(args[0], mode, model, verbose, serverPort, threshold)
 		},
 	}
 
 	cmd.Flags().StringVar(&mode, "mode", "vad", "capture mode: vad or ptt")
 	cmd.Flags().StringVar(&model, "model", "base.en", "whisper model name")
-	cmd.Flags().StringVar(&device, "device", "", "audio input device ID")
 	cmd.Flags().BoolVar(&verbose, "verbose", false, "show diagnostic details")
 	cmd.Flags().BoolVar(&setup, "setup", false, "check dependencies and download model")
 	cmd.Flags().BoolVar(&listDevices, "list-devices", false, "list audio input devices")
@@ -66,12 +64,12 @@ func voiceLogPath() string {
 	return filepath.Join(xdg.StateHome, "cc-deck", "voice.log")
 }
 
-func runVoiceRelay(wsName, mode, modelName, deviceID string, verbose bool, port int, thresholdFlag int) error {
+func runVoiceRelay(wsName, mode, modelName string, verbose bool, port int, thresholdFlag int) error {
 	var logPath string
 	if verbose {
 		logPath = voiceLogPath()
-		if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err == nil {
-			logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+		if err := os.MkdirAll(filepath.Dir(logPath), 0o700); err == nil {
+			logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 			if err == nil {
 				log.SetOutput(logFile)
 				log.SetFlags(log.Ltime | log.Lmicroseconds)
@@ -114,19 +112,6 @@ func runVoiceRelay(wsName, mode, modelName, deviceID string, verbose bool, port 
 	transcriber := voice.NewHTTPTranscriber(server.Endpoint(), server)
 	audio := voice.NewAudioSource()
 
-	// Resolve device name for display
-	resolvedDevice := deviceID
-	if resolvedDevice == "" {
-		if devs, err := audio.ListDevices(); err == nil {
-			for _, d := range devs {
-				if d.IsDefault {
-					resolvedDevice = d.Name
-					break
-				}
-			}
-		}
-	}
-
 	config := voice.DefaultRelayConfig()
 	config.Mode = mode
 	config.Verbose = verbose
@@ -163,7 +148,7 @@ func runVoiceRelay(wsName, mode, modelName, deviceID string, verbose bool, port 
 		}
 	}()
 
-	model := voicetui.New(relay, mode, wsName, verbose, logPath, resolvedDevice)
+	model := voicetui.New(relay, mode, wsName, verbose, logPath)
 	p := tea.NewProgram(model, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("TUI error: %w", err)
