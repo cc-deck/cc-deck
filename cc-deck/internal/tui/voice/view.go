@@ -128,7 +128,10 @@ func (m Model) renderHeader() string {
 func (m Model) renderFooter() string {
 	var b strings.Builder
 
-	if m.err != nil {
+	if m.paused {
+		b.WriteString(errStyle.Render("  Voice paused: permission prompt active"))
+		b.WriteString("\n")
+	} else if m.err != nil {
 		errText := fmt.Sprintf("Error: %v", m.err)
 		w := m.width - 4
 		if w < 20 {
@@ -146,6 +149,10 @@ func (m Model) renderFooter() string {
 
 func (m Model) footerHeight() int {
 	lines := 2 // hints line + separator
+	if m.paused {
+		lines++
+		return lines
+	}
 	if m.err != nil {
 		errText := fmt.Sprintf("Error: %v", m.err)
 		w := m.width - 4

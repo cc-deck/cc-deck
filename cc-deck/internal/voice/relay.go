@@ -2,6 +2,7 @@ package voice
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -57,6 +58,7 @@ type VoiceRelay struct {
 	mu          sync.Mutex
 	running     bool
 	pttActive   bool
+	paused      bool
 	ctx         context.Context
 	cancel      context.CancelFunc
 	closeOnce   sync.Once
@@ -135,10 +137,22 @@ func (r *VoiceRelay) Start(ctx context.Context) error {
 	r.ctx = relayCtx
 	r.mu.Unlock()
 
+	var err error
 	if r.config.Mode == "ptt" {
-		return r.startPTT(relayCtx)
+		err = r.startPTT(relayCtx)
+	} else {
+		err = r.startVAD(relayCtx)
 	}
-	return r.startVAD(relayCtx)
+	if err != nil {
+		return err
+	}
+
+	if sr, ok := r.pipe.(PipeSendReceiver); ok {
+		r.wg.Add(1)
+		go r.statePoll(relayCtx, sr)
+	}
+
+	return nil
 }
 
 func (r *VoiceRelay) startVAD(ctx context.Context) error {
@@ -355,6 +369,68 @@ func (r *VoiceRelay) levelPoll(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// IsPaused returns whether the attended session is in a permission prompt state.
+func (r *VoiceRelay) IsPaused() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.paused
+}
+
+func (r *VoiceRelay) statePoll(ctx context.Context, sr PipeSendReceiver) {
+	defer r.wg.Done()
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			resp, err := sr.SendReceive(ctx, "cc-deck:dump-state", "")
+			if err != nil {
+				if ctx.Err() != nil {
+					return
+				}
+				continue
+			}
+			paused := isAttendedSessionInPermission(resp)
+			r.mu.Lock()
+			wasPaused := r.paused
+			r.paused = paused
+			r.mu.Unlock()
+
+			if paused && !wasPaused {
+				r.sendEvent(RelayEvent{Type: "paused", Text: "permission prompt active"})
+			} else if !paused && wasPaused {
+				r.sendEvent(RelayEvent{Type: "resumed"})
+			}
+		}
+	}
+}
+
+func isAttendedSessionInPermission(stateJSON string) bool {
+	var sessions map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(stateJSON), &sessions); err != nil {
+		return false
+	}
+	for _, raw := range sessions {
+		var s struct {
+			Activity json.RawMessage `json:"activity"`
+		}
+		if json.Unmarshal(raw, &s) != nil {
+			continue
+		}
+		// Serde serializes Waiting(Permission) as {"Waiting":"Permission"}
+		var waiting map[string]string
+		if json.Unmarshal(s.Activity, &waiting) == nil {
+			if waiting["Waiting"] == "Permission" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (r *VoiceRelay) processUtterances(ctx context.Context, utterances <-chan Utterance) {
