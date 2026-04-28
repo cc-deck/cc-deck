@@ -138,7 +138,7 @@ func (s *WhisperServer) Endpoint() string {
 // Healthy returns true if the server responds to health checks.
 func (s *WhisperServer) Healthy(ctx context.Context) bool {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		s.Endpoint()+"/inference", nil)
+		s.Endpoint()+"/health", nil)
 	if err != nil {
 		return false
 	}

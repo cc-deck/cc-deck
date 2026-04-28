@@ -19,7 +19,17 @@ profile: default
 
 # Verbose output
 verbose: false
+
+# Voice relay defaults
+defaults:
+  voice:
+    threshold: 45    # VAD sensitivity (0-100, logarithmic)
 ----
+
+The `defaults.voice.threshold` setting controls how sensitive voice activity detection is.
+Lower values capture quieter speech but pick up more background noise.
+A value between 30 and 50 works well for most indoor environments.
+This value can be overridden per invocation with `--threshold`.
 
 == Environment Variables
 
@@ -78,6 +88,12 @@ verbose: false
 
 | `~/.config/cc-deck/sessions/`
 | Snapshot storage
+
+| `~/.cache/cc-deck/models/`
+| Whisper model files for voice relay
+
+| `~/.local/state/cc-deck/voice.log`
+| Voice relay diagnostic log (created with `--verbose`)
 
 | `/tmp/cc-deck-pane-map.json`
 | Hook pane ID cache (ephemeral)
