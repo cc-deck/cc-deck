@@ -94,7 +94,11 @@ A feature is NOT complete until:
 2. **README.md** is updated with user-facing changes
 3. **CLI reference** (`docs/modules/reference/pages/cli.adoc`) covers new commands/flags
 4. **Antora docs** have a guide page for substantial features
-5. All documentation uses the **prose plugin** with the `cc-deck` voice profile
+5. **Configuration reference** (`docs/modules/reference/pages/configuration.adoc`) covers new config options or file locations
+6. All documentation uses the **prose plugin** with the `cc-deck` voice profile
+
+Documentation updates MUST happen as part of the same branch or commit that delivers the feature, not as a follow-up task.
+When a substantial feature is merged without documentation, treat it as a blocking issue before the next feature begins.
 
 ### Interface implementations MUST satisfy behavioral contracts
 

@@ -1,50 +1,36 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+# cc-deck Constitution
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. Every feature MUST include tests and documentation
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+A feature is NOT complete until:
+1. Tests exist for the new code (unit tests at minimum, integration tests when touching external tools)
+2. README.md is updated with user-facing changes
+3. CLI reference (`docs/modules/reference/pages/cli.adoc`) covers new commands/flags
+4. Antora docs have a guide page for substantial features
+5. Configuration reference (`docs/modules/reference/pages/configuration.adoc`) covers new config options or file locations
+6. All documentation uses the prose plugin with the `cc-deck` voice profile
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+Documentation updates MUST happen as part of the same branch or commit that delivers the feature, not as a follow-up task.
+When a substantial feature is merged without documentation, treat it as a blocking issue before the next feature begins.
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+### II. Interface implementations MUST satisfy behavioral contracts
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+When implementing a new backend for an existing interface (e.g., new Environment type):
+1. Read the existing implementation(s) to understand full behavior
+2. Cross-reference `specs/023-env-interface/contracts/environment-interface.md` for behavioral requirements
+3. If the contract lacks requirements for a behavior you see in existing code, add them before implementing
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+### III. Build and tool rules
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
-
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
-
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+- NEVER run `go build` or `cargo build` directly. Use `make install`, `make test`, `make lint`
+- XDG paths: Use `internal/xdg` package (NOT `adrg/xdg`). Paths are `~/.config/cc-deck/` and `~/.local/state/cc-deck/` on all platforms
+- Container runtime: Use `podman` exclusively (never Docker)
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+Constitution principles are enforced in CLAUDE.md and apply to ALL code changes, whether from a spec workflow or ad-hoc.
+Amendments require updating both this file and the Constitution Principles section of CLAUDE.md.
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+**Version**: 1.1 | **Ratified**: 2026-03-30 | **Last Amended**: 2026-04-28
