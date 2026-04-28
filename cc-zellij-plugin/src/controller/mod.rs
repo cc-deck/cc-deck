@@ -308,9 +308,11 @@ impl ZellijPlugin for ControllerPlugin {
                 broadcast_navigate(&self.state, "forward");
             }
             PipeAction::VoiceText(text) if !text.is_empty() => {
-                let target = self.state.last_attended_pane_id
-                    .or(self.state.focused_pane_id)
-                    .or_else(|| self.state.sessions.keys().next().copied());
+                let sessions = &self.state.sessions;
+                let is_session = |id: &u32| sessions.contains_key(id);
+                let target = self.state.last_attended_pane_id.filter(&is_session)
+                    .or(self.state.focused_pane_id.filter(&is_session))
+                    .or_else(|| sessions.keys().next().copied());
                 if let Some(pane_id) = target {
                     let in_permission = self.state.sessions.get(&pane_id)
                         .map(|s| matches!(s.activity, session::Activity::Waiting(session::WaitReason::Permission)))
