@@ -1,0 +1,269 @@
+= Voice Relay
+
+Voice relay lets you dictate into a Claude Code session instead of typing.
+It captures audio from your microphone, transcribes it locally using a Whisper model, and injects the resulting text into the attended pane of any workspace.
+All audio processing happens on your machine, so nothing leaves the local network except the transcribed text.
+
+Voice relay works with every workspace type: local Zellij sessions, Podman containers, Compose environments, SSH remotes, and Kubernetes deployments.
+The same command, the same TUI, regardless of where the session runs.
+
+== Prerequisites
+
+You need two things before voice relay can run: the whisper.cpp server binary and a Whisper model file.
+
+Install whisper.cpp via Homebrew:
+
+[source,bash]
+----
+brew install whisper-cpp
+----
+
+This provides `whisper-server`, which cc-deck starts and manages automatically.
+You do not need to run it yourself.
+
+Then run the setup command to download a model and verify dependencies:
+
+[source,bash]
+----
+cc-deck ws voice --setup
+----
+
+Setup checks for `whisper-server` in your `PATH`, downloads the default model (`base.en`, about 141 MB), and reports whether everything is ready.
+
+TIP: If you want a different model, pass `--model` during setup: `cc-deck ws voice --setup --model small.en`.
+See <<models>> for a comparison of available models.
+
+== Quick Start
+
+The fastest path from zero to voice dictation takes three commands.
+
+Create a workspace (if you do not already have one):
+
+[source,bash]
+----
+cc-deck ws new my-project --type local
+----
+
+In one terminal, attach to the workspace and start a Claude Code session:
+
+[source,bash]
+----
+cc-deck ws attach my-project
+----
+
+In a second terminal, start voice relay:
+
+[source,bash]
+----
+cc-deck ws voice my-project
+----
+
+The voice TUI opens with an audio level meter and a scrollable transcript.
+Start speaking and your words appear in the Claude Code input of the attended pane.
+
+To submit the prompt, say "submit" or "enter" as a standalone phrase.
+cc-deck recognizes these as command words and sends a newline instead of the literal text.
+
+Press `q` to quit the voice TUI and shut down the whisper server.
+
+== Capture Modes
+
+Voice relay supports two capture modes.
+You can switch between them at any time from the TUI by pressing `m`.
+
+=== VAD (Voice Activity Detection)
+
+VAD is the default mode.
+The microphone listens continuously, and cc-deck detects when you start and stop speaking based on audio energy levels.
+Each utterance is automatically segmented, transcribed, and delivered.
+
+The threshold setting controls how much ambient noise is tolerated before speech is detected.
+Lower values make detection more sensitive (quieter speech is captured), while higher values require louder input.
+Use the `+` and `-` keys in the TUI to adjust the threshold in real time.
+
+Silence of 1.5 seconds ends an utterance and triggers transcription.
+Utterances are capped at 30 seconds, which is the maximum window Whisper can process in a single pass.
+
+=== PTT (Push-to-Talk)
+
+In PTT mode, the microphone stays silent until you press kbd:[F8].
+Press kbd:[F8] once to start recording, and press it again to stop.
+The captured audio is then transcribed and delivered.
+
+PTT is useful in noisy environments or when you want precise control over what gets transcribed.
+The kbd:[F8] keybinding works from any pane in the Zellij session, not just the voice TUI.
+
+[NOTE]
+====
+PTT uses a bidirectional pipe to communicate the toggle signal.
+The kbd:[F8] press travels through the Zellij plugin to the voice relay process, so it works even when your workspace is remote.
+====
+
+[[models]]
+== Whisper Models
+
+cc-deck supports four Whisper model sizes.
+All are English-optimized except `medium`, which also handles other languages.
+
+[cols="1,1,1,1,3"]
+|===
+| Model | Size | Speed | Accuracy | Notes
+
+| `tiny.en`
+| 74 MB
+| Fastest
+| Low
+| Good for testing. Not recommended for real dictation.
+
+| `base.en`
+| 141 MB
+| Fast
+| Decent
+| The default. Reasonable accuracy for clear speech in a quiet room.
+
+| `small.en`
+| 465 MB
+| Moderate
+| Good
+| Best tradeoff on Apple Silicon. Noticeably better with technical terms.
+
+| `medium`
+| 1.5 GB
+| Slower
+| High
+| Multilingual support. Most accurate, but higher latency per utterance.
+|===
+
+TIP: On an Apple Silicon Mac, `small.en` is the recommended upgrade from the default.
+It runs comfortably in real time and handles code-related vocabulary (function names, library names, technical jargon) much better than `base.en`.
+
+To switch models:
+
+[source,bash]
+----
+cc-deck ws voice --setup --model small.en
+cc-deck ws voice my-project --model small.en
+----
+
+Models are cached at `~/.cache/cc-deck/models/` and only downloaded once.
+
+== The Voice TUI
+
+When voice relay starts, it opens a terminal interface that shows the current state of the audio pipeline.
+
+=== What You See
+
+The header displays the target workspace name, the active audio device, the current capture mode (VAD or PTT), and a real-time audio level meter.
+The level meter uses a braille-block visualization with a threshold indicator, so you can see at a glance whether your voice is loud enough to trigger detection.
+
+The main area shows a scrollable transcript history.
+Each entry includes a timestamp, delivery status icon, and the transcribed text:
+
+* `+` (green): Text was delivered to the attended pane.
+* `!` (red): Delivery failed.
+* `~` (grey): Transcription is in progress.
+
+The footer shows available keyboard shortcuts.
+
+=== Keyboard Controls
+
+[cols="1,3"]
+|===
+| Key | Action
+
+| kbd:[q]
+| Quit voice relay and stop the whisper server.
+
+| kbd:[m]
+| Toggle between VAD and PTT modes.
+
+| kbd:[+] / kbd:[-]
+| Increase or decrease VAD sensitivity by 2% per press.
+
+| kbd:[d]
+| Open the audio device picker.
+
+| kbd:[PgUp] / kbd:[PgDn]
+| Scroll through transcript history.
+|===
+
+== Configuration
+
+=== Config File
+
+The VAD threshold can be set in `~/.config/cc-deck/config.yaml` so you do not have to pass `--threshold` every time:
+
+[source,yaml]
+----
+defaults:
+  voice:
+    threshold: 45
+----
+
+The threshold uses a logarithmic scale from 0 to 100.
+A value around 30 to 50 works well for most quiet indoor environments.
+
+=== CLI Flags
+
+All voice settings can be overridden per invocation:
+
+[cols="1,1,3"]
+|===
+| Flag | Default | Description
+
+| `--mode`
+| `vad`
+| Capture mode: `vad` or `ptt`.
+
+| `--model`
+| `base.en`
+| Whisper model name.
+
+| `--port`
+| `8234`
+| Port for the local whisper-server.
+
+| `--threshold`
+| (from config)
+| VAD sensitivity (0-100, logarithmic). Overrides the config file value.
+
+| `--verbose`
+| `false`
+| Write detailed diagnostic logs to `~/.local/state/cc-deck/voice.log`.
+|===
+
+=== Diagnostic Logging
+
+Pass `--verbose` to enable per-utterance latency logging and backend health information.
+Logs are written to `~/.local/state/cc-deck/voice.log`, not to the terminal.
+This is useful when debugging transcription accuracy or delivery failures.
+
+== Troubleshooting
+
+whisper-server not found::
+Install whisper.cpp: `brew install whisper-cpp`.
+Then run `cc-deck ws voice --setup` to verify the installation.
+
+Timed out waiting for whisper-server::
+The server takes a few seconds to load the model into memory.
+Larger models (especially `medium` at 1.5 GB) need more time.
+If this persists, check whether another process is using port 8234 and try a different port with `--port`.
+
+Transcription misses quiet speech::
+Lower the VAD threshold with the `-` key in the TUI, or set a lower value in the config file.
+A threshold of 20 to 30 captures softer speech at the cost of picking up more background noise.
+
+Filler words appear in output::
+cc-deck strips common fillers (um, uh, hmm, ah, er) automatically.
+If you see them, the issue may be that the filler was part of a longer phrase rather than standalone.
+
+Text does not appear in Claude Code::
+Verify that the workspace has an active Zellij session and that a pane is attended.
+Check the transcript history in the TUI for delivery errors (the `!` indicator).
+
+== Next Steps
+
+* xref:sidebar.adoc[The Sidebar] for understanding session states and the attended pane
+* xref:attend.adoc[Smart Attend] for how cc-deck picks which pane receives voice input
+* xref:configuration.adoc[Configuration] for custom keybindings and layout variants
+* xref:reference:cli.adoc[CLI Reference] for the complete `ws voice` flag reference

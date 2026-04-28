@@ -867,8 +867,14 @@ cc-deck ws voice --list-devices
 | `--device`
 | Audio input device name (use `--list-devices` to enumerate)
 
+| `--port`
+| Whisper-server port (default: `8234`)
+
+| `--threshold`
+| VAD sensitivity (0-100, logarithmic scale). Overrides the config file value.
+
 | `--verbose`
-| Enable detailed logging to `/tmp/cc-deck-voice.log`
+| Enable detailed logging to `~/.local/state/cc-deck/voice.log`
 
 | `--setup`
 | Check dependencies and download the whisper model

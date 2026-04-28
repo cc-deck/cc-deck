@@ -4,4 +4,5 @@
 * xref:attend.adoc[Smart Attend]
 * xref:sessions.adoc[Session Management]
 * xref:configuration.adoc[Configuration]
+* xref:voice.adoc[Voice Relay]
 * xref:build.adoc[Build Command]
