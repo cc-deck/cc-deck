@@ -4,6 +4,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	voicepkg "github.com/cc-deck/cc-deck/internal/voice"
 )
 
 const (
@@ -49,6 +50,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "down", "-":
 			m.relay.SetVADThreshold(m.relay.VADThreshold() - 2)
 			return m, nil
+		case "m":
+			return m.toggleMode()
 		case "d":
 			devices, err := m.relay.ListDevices()
 			if err != nil || len(devices) == 0 {
@@ -91,6 +94,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "error":
 			m.err = msg.Err
 			m.resizeViewport()
+		case "ptt_recording":
+			m.mode = "ptt"
+		case "ptt_waiting":
+			m.mode = "ptt"
 		case "paused":
 			// TUI shows paused state via view
 		}
@@ -98,6 +105,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+func (m Model) toggleMode() (tea.Model, tea.Cmd) {
+	if m.mode == "vad" {
+		m.mode = "ptt"
+	} else {
+		m.mode = "vad"
+	}
+
+	return m, func() tea.Msg {
+		err := m.relay.SwitchMode(m.mode)
+		if err != nil {
+			return relayEventMsg(voicepkg.RelayEvent{Type: "error", Err: err})
+		}
+		return waitForEvent(m.relay)()
+	}
 }
 
 func (m *Model) resizeViewport() {

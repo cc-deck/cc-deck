@@ -14,6 +14,12 @@ type PipeSender interface {
 	Send(ctx context.Context, pipeName string, payload string) error
 }
 
+// PipeSendReceiver extends PipeSender with blocking request-response for PTT long-poll.
+type PipeSendReceiver interface {
+	PipeSender
+	SendReceive(ctx context.Context, pipeName string, payload string) (string, error)
+}
+
 // RelayConfig configures the voice relay pipeline.
 type RelayConfig struct {
 	Mode       string // "vad" or "ptt"
@@ -48,12 +54,13 @@ type VoiceRelay struct {
 	pipe        PipeSender
 	events      chan RelayEvent
 
-	mu        sync.Mutex
-	running   bool
-	ctx       context.Context
-	cancel    context.CancelFunc
-	closeOnce sync.Once
-	wg        sync.WaitGroup
+	mu          sync.Mutex
+	running     bool
+	pttActive   bool
+	ctx         context.Context
+	cancel      context.CancelFunc
+	closeOnce   sync.Once
+	wg          sync.WaitGroup
 }
 
 // NewVoiceRelay creates a new relay connecting all pipeline stages.
@@ -65,6 +72,27 @@ func NewVoiceRelay(config RelayConfig, audio AudioSource, transcriber Transcribe
 		pipe:        pipe,
 		events:      make(chan RelayEvent, 32),
 	}
+}
+
+// IsPTTActive returns whether PTT recording is currently active.
+func (r *VoiceRelay) IsPTTActive() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.pttActive
+}
+
+// Mode returns the current relay mode ("vad" or "ptt").
+func (r *VoiceRelay) Mode() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.config.Mode
+}
+
+// SetMode changes the relay mode. Takes effect on next Start or restart.
+func (r *VoiceRelay) SetMode(mode string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.config.Mode = mode
 }
 
 // VADThreshold returns the current VAD threshold as a 0-100 percentage
@@ -101,35 +129,184 @@ func (r *VoiceRelay) Start(ctx context.Context) error {
 		return fmt.Errorf("voice relay already running")
 	}
 	r.running = true
+	r.pttActive = false
 	relayCtx, cancel := context.WithCancel(ctx)
 	r.cancel = cancel
+	r.ctx = relayCtx
 	r.mu.Unlock()
 
-	frames, err := r.audio.Start(relayCtx, r.config.SampleRate)
+	if r.config.Mode == "ptt" {
+		return r.startPTT(relayCtx)
+	}
+	return r.startVAD(relayCtx)
+}
+
+func (r *VoiceRelay) startVAD(ctx context.Context) error {
+	frames, err := r.audio.Start(ctx, r.config.SampleRate)
 	if err != nil {
 		r.mu.Lock()
 		r.running = false
 		r.mu.Unlock()
-		cancel()
+		r.cancel()
 		return fmt.Errorf("starting audio capture: %w", err)
 	}
 
 	vad := NewVAD(&r.config.VADConfig, r.config.SampleRate)
 	utterances := vad.Process(frames)
 
-	r.mu.Lock()
-	r.ctx = relayCtx
-	r.mu.Unlock()
-
 	r.wg.Add(2)
-	go r.levelPoll(relayCtx)
-	go r.processUtterances(relayCtx, utterances)
+	go r.levelPoll(ctx)
+	go r.processUtterances(ctx, utterances)
 
 	return nil
 }
 
-// Stop halts the voice relay pipeline and waits for goroutines to finish.
-func (r *VoiceRelay) Stop() {
+func (r *VoiceRelay) startPTT(ctx context.Context) error {
+	sr, ok := r.pipe.(PipeSendReceiver)
+	if !ok {
+		r.mu.Lock()
+		r.running = false
+		r.mu.Unlock()
+		r.cancel()
+		return fmt.Errorf("PTT mode requires PipeSendReceiver (pipe does not support SendReceive)")
+	}
+
+	r.wg.Add(1)
+	go r.pttLoop(ctx, sr)
+
+	return nil
+}
+
+func (r *VoiceRelay) pttLoop(ctx context.Context, sr PipeSendReceiver) {
+	defer r.wg.Done()
+
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+
+		r.sendEvent(RelayEvent{Type: "ptt_waiting"})
+
+		if r.config.Verbose {
+			log.Printf("[voice] PTT: sending long-poll to cc-deck:voice-control")
+		}
+
+		resp, err := sr.SendReceive(ctx, "cc-deck:voice-control", "listen")
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			r.sendEvent(RelayEvent{Type: "error", Err: fmt.Errorf("PTT long-poll: %w", err)})
+			time.Sleep(time.Second)
+			continue
+		}
+
+		resp = strings.TrimSpace(resp)
+		if r.config.Verbose {
+			log.Printf("[voice] PTT: received response %q", resp)
+		}
+
+		if resp != "toggle" {
+			continue
+		}
+
+		r.mu.Lock()
+		r.pttActive = true
+		r.mu.Unlock()
+		r.sendEvent(RelayEvent{Type: "ptt_recording"})
+
+		if r.config.Verbose {
+			log.Printf("[voice] PTT: starting audio capture")
+		}
+
+		frames, err := r.audio.Start(ctx, r.config.SampleRate)
+		if err != nil {
+			r.mu.Lock()
+			r.pttActive = false
+			r.mu.Unlock()
+			r.sendEvent(RelayEvent{Type: "error", Err: fmt.Errorf("PTT audio start: %w", err)})
+			continue
+		}
+
+		r.collectPTTUtterance(ctx, frames, sr)
+	}
+}
+
+func (r *VoiceRelay) collectPTTUtterance(ctx context.Context, frames <-chan []int16, sr PipeSendReceiver) {
+	var allSamples []int16
+	levelTicker := time.NewTicker(50 * time.Millisecond)
+	defer levelTicker.Stop()
+
+	stopCh := make(chan struct{})
+	go func() {
+		defer close(stopCh)
+		_, _ = sr.SendReceive(ctx, "cc-deck:voice-control", "listen")
+	}()
+
+	collecting := true
+	for collecting {
+		select {
+		case <-ctx.Done():
+			_ = r.audio.Stop()
+			r.mu.Lock()
+			r.pttActive = false
+			r.mu.Unlock()
+			return
+		case <-stopCh:
+			collecting = false
+		case f, ok := <-frames:
+			if !ok {
+				collecting = false
+			} else {
+				allSamples = append(allSamples, f...)
+			}
+		case <-levelTicker.C:
+			level := r.audio.Level()
+			select {
+			case r.events <- RelayEvent{Type: "level", Level: level}:
+			default:
+			}
+		}
+	}
+
+	_ = r.audio.Stop()
+	r.mu.Lock()
+	r.pttActive = false
+	r.mu.Unlock()
+	r.sendEvent(RelayEvent{Type: "ptt_waiting"})
+
+	if len(allSamples) == 0 {
+		return
+	}
+
+	if r.config.Verbose {
+		log.Printf("[voice] PTT: collected %d samples, transcribing", len(allSamples))
+	}
+
+	u := Utterance{
+		Audio:      allSamples,
+		SampleRate: r.config.SampleRate,
+	}
+	r.handleUtterance(ctx, u)
+}
+
+// SwitchMode stops the current pipeline, changes mode, and restarts.
+// The events channel is preserved so callers keep receiving events.
+func (r *VoiceRelay) SwitchMode(mode string) error {
+	r.stopInternal()
+
+	r.mu.Lock()
+	r.config.Mode = mode
+	r.running = false
+	r.pttActive = false
+	r.mu.Unlock()
+
+	ctx := context.Background()
+	return r.Start(ctx)
+}
+
+// stopInternal halts goroutines and audio without closing the events channel.
+func (r *VoiceRelay) stopInternal() {
 	r.mu.Lock()
 	if !r.running {
 		r.mu.Unlock()
@@ -152,7 +329,11 @@ func (r *VoiceRelay) Stop() {
 	case <-done:
 	case <-time.After(3 * time.Second):
 	}
+}
 
+// Stop halts the voice relay pipeline and waits for goroutines to finish.
+func (r *VoiceRelay) Stop() {
+	r.stopInternal()
 	_ = r.transcriber.Close()
 	r.closeOnce.Do(func() { close(r.events) })
 }
@@ -205,7 +386,7 @@ func (r *VoiceRelay) handleUtterance(ctx context.Context, u Utterance) {
 		return
 	}
 
-	text = strings.TrimSpace(text)
+	text = strings.Join(strings.Fields(text), " ")
 	if r.config.Verbose {
 		log.Printf("[voice] transcribed: %q", text)
 	}
@@ -241,7 +422,7 @@ func (r *VoiceRelay) handleUtterance(ctx context.Context, u Utterance) {
 	if result.IsCommand {
 		payload = "\r"
 	} else {
-		payload = result.Text
+		payload = result.Text + " "
 	}
 
 	if r.config.Verbose {
