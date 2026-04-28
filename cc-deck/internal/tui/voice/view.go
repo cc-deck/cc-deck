@@ -25,6 +25,7 @@ var (
 	pickerTitle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("252"))
 	pickerActive = lipgloss.NewStyle().Foreground(lipgloss.Color("46")).Bold(true)
 	pickerNormal = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+	pttRecStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true).Blink(true)
 	pickerDef    = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	separatorStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("238"))
 	scrollThumb    = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
@@ -98,9 +99,16 @@ func (m Model) renderHeader() string {
 		b.WriteString(deviceStyle.Render("(default)"))
 	}
 	b.WriteString("  ")
-	modeLabel := "VAD (auto)"
-	if m.mode == "ptt" {
-		modeLabel = "PTT (F8)"
+	var modeLabel string
+	switch m.mode {
+	case "ptt":
+		if m.relay.IsPTTActive() {
+			modeLabel = pttRecStyle.Render("PTT [REC]")
+		} else {
+			modeLabel = "PTT (press F8)"
+		}
+	default:
+		modeLabel = "VAD (auto)"
 	}
 	b.WriteString(labelStyle.Render("Mode: "))
 	b.WriteString(modeLabel)
@@ -131,7 +139,7 @@ func (m Model) renderFooter() string {
 		b.WriteString(wrapped)
 	}
 	b.WriteString("\n")
-	b.WriteString(hintStyle.Render("  q: quit  +/-: threshold  d: device  pgup/pgdn: scroll"))
+	b.WriteString(hintStyle.Render("  q: quit  m: mode  +/-: threshold  d: device  pgup/pgdn: scroll"))
 
 	return b.String()
 }

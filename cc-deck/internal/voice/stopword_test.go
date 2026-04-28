@@ -2,6 +2,43 @@ package voice
 
 import "testing"
 
+func TestIsWhisperArtifact(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		artifact bool
+	}{
+		{"empty string", "", true},
+		{"whitespace only", "   ", true},
+		{"bracketed noise", "[background noise]", true},
+		{"parenthesized noise", "(wind blowing)", true},
+		{"music notation", "♪ ♪", true},
+		{"music emoji", "🎵", true},
+		{"blank audio keyword", "blank_audio", true},
+		{"music keyword", "[Music]", true},
+		{"clicking keyword", "(clicking)", true},
+		{"applause keyword", "[Applause]", true},
+		{"laughter keyword", "(Laughter)", true},
+		{"silence keyword", "[SILENCE]", true},
+		{"JSON-like response", "{}", true},
+		{"JSON object", "{\"text\": \"\"}", true},
+		{"punctuation only", "...", true},
+		{"real speech", "add error handling to the API", false},
+		{"single word", "hello", false},
+		{"command word", "submit", false},
+		{"mixed alpha and bracket", "go [do something", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := IsWhisperArtifact(tt.input)
+			if got != tt.artifact {
+				t.Errorf("IsWhisperArtifact(%q) = %v, want %v", tt.input, got, tt.artifact)
+			}
+		})
+	}
+}
+
 func TestProcessStopwords(t *testing.T) {
 	tests := []struct {
 		name      string
