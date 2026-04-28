@@ -77,16 +77,21 @@ func (m Model) View() string {
 }
 
 func (m Model) renderHeader() string {
+	const labelWidth = 12 // "Workspace:  " padded
+
 	var b strings.Builder
 
-	b.WriteString(headerStyle.Render("Voice Relay"))
-	if m.target != "" {
-		b.WriteString("  ")
-		b.WriteString(targetStyle.Render(m.target))
-	}
+	b.WriteString(headerStyle.Render("cc-deck Voice Relay"))
 	b.WriteString("\n")
+	b.WriteString(m.renderSeparator())
 
-	b.WriteString(labelStyle.Render("Device: "))
+	if m.target != "" {
+		b.WriteString(labelStyle.Render(fmt.Sprintf("%-*s", labelWidth, "Workspace:")))
+		b.WriteString(targetStyle.Render(m.target))
+		b.WriteString("\n")
+	}
+
+	b.WriteString(labelStyle.Render(fmt.Sprintf("%-*s", labelWidth, "Device:")))
 	if m.deviceName != "" {
 		b.WriteString(deviceStyle.Render(m.deviceName))
 	} else {
@@ -103,12 +108,10 @@ func (m Model) renderHeader() string {
 
 	threshPct := m.relay.VADThreshold()
 	levelLog := voicepkg.RMSToLogScale(m.audioLevel)
-	b.WriteString(labelStyle.Render("Level "))
+	b.WriteString(labelStyle.Render(fmt.Sprintf("%-*s", labelWidth, "Level:")))
 	b.WriteString(renderBrailleBar(levelLog, float64(threshPct)/100.0))
 	b.WriteString("  ")
 	b.WriteString(threshStyle.Render(fmt.Sprintf("T:%d%%", threshPct)))
-	b.WriteString("\n")
-
 	b.WriteString("\n")
 
 	return b.String()
