@@ -355,9 +355,9 @@ func (e *K8sDeployWorkspace) KillSession(ctx context.Context) error {
 		return nil
 	}
 	sessionName := zellijSessionPrefix + e.name
-	cmd := []string{"zellij", "kill-session", sessionName}
+	cmd := []string{"zellij", "delete-session", "--force", sessionName}
 	if err := k8sExec(ctx, ns, podName, kubeconfigArgs, cmd, false); err != nil {
-		return fmt.Errorf("killing session: %w", err)
+		return fmt.Errorf("deleting session: %w", err)
 	}
 	inst.SessionState = SessionStateNone
 	_ = e.store.UpdateInstance(inst)
@@ -563,7 +563,7 @@ func (e *K8sDeployWorkspace) ExecOutput(ctx context.Context, cmd []string) (stri
 	if err != nil {
 		return "", err
 	}
-	return k8sExecOutput(ctx, e.resolveNamespace(inst), k8sPodName(e.name), e.kubeconfigArgs(inst), strings.Join(cmd, " "))
+	return k8sExecOutput(ctx, e.resolveNamespace(inst), k8sPodName(e.name), e.kubeconfigArgs(inst), shellJoin(cmd))
 }
 
 // PipeChannel returns the pipe channel for this workspace.

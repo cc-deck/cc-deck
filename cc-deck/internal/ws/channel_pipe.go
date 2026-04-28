@@ -55,12 +55,20 @@ type execPipeChannel struct {
 	execOutputFn  func(ctx context.Context, cmd []string) (string, error)
 }
 
+func (c *execPipeChannel) zellijSessionName() string {
+	return zellijSessionPrefix + c.name
+}
+
+func (c *execPipeChannel) pipeCmd(pipeName string, payload string) []string {
+	sessionEnv := "ZELLIJ_SESSION_NAME=" + c.zellijSessionName()
+	return []string{"env", sessionEnv, "zellij", "pipe", "--name", pipeName, "--", payload}
+}
+
 func (c *execPipeChannel) Send(ctx context.Context, pipeName string, payload string) error {
 	if pipeName == "" {
 		return newChannelError("pipe", "send", c.name, "pipe name is required", nil)
 	}
-	cmd := []string{"zellij", "pipe", "--name", pipeName, "--", payload}
-	if err := c.execFn(ctx, cmd); err != nil {
+	if _, err := c.execOutputFn(ctx, c.pipeCmd(pipeName, payload)); err != nil {
 		return newChannelError("pipe", "send", c.name,
 			fmt.Sprintf("workspace %q: pipe to %q", c.name, pipeName), err)
 	}
@@ -74,8 +82,7 @@ func (c *execPipeChannel) SendReceive(ctx context.Context, pipeName string, payl
 	if c.execOutputFn == nil {
 		return "", fmt.Errorf("pipe SendReceive: %w", ErrNotSupported)
 	}
-	cmd := []string{"zellij", "pipe", "--name", pipeName, "--", payload}
-	out, err := c.execOutputFn(ctx, cmd)
+	out, err := c.execOutputFn(ctx, c.pipeCmd(pipeName, payload))
 	if err != nil {
 		return "", newChannelError("pipe", "sendReceive", c.name,
 			fmt.Sprintf("workspace %q: pipe to %q", c.name, pipeName), err)

@@ -8,6 +8,7 @@ import (
 	"math"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/gen2brain/malgo"
 )
@@ -115,9 +116,19 @@ func (s *malgoSource) Stop() error {
 		return nil
 	}
 
-	s.device.Uninit()
-	_ = s.ctx.Uninit()
-	s.ctx.Free()
+	done := make(chan struct{})
+	dev := s.device
+	mctx := s.ctx
+	go func() {
+		dev.Uninit()
+		_ = mctx.Uninit()
+		mctx.Free()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+	}
 	s.device = nil
 	s.ctx = nil
 

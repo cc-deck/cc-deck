@@ -50,6 +50,7 @@ type VoiceRelay struct {
 
 	mu        sync.Mutex
 	running   bool
+	ctx       context.Context
 	cancel    context.CancelFunc
 	closeOnce sync.Once
 	wg        sync.WaitGroup
@@ -116,6 +117,10 @@ func (r *VoiceRelay) Start(ctx context.Context) error {
 	vad := NewVAD(&r.config.VADConfig, r.config.SampleRate)
 	utterances := vad.Process(frames)
 
+	r.mu.Lock()
+	r.ctx = relayCtx
+	r.mu.Unlock()
+
 	r.wg.Add(2)
 	go r.levelPoll(relayCtx)
 	go r.processUtterances(relayCtx, utterances)
@@ -137,7 +142,17 @@ func (r *VoiceRelay) Stop() {
 	r.mu.Unlock()
 
 	_ = r.audio.Stop()
-	r.wg.Wait()
+
+	done := make(chan struct{})
+	go func() {
+		r.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+	}
+
 	_ = r.transcriber.Close()
 	r.closeOnce.Do(func() { close(r.events) })
 }
@@ -235,7 +250,9 @@ func (r *VoiceRelay) handleUtterance(ctx context.Context, u Utterance) {
 	}
 
 	if err := r.pipe.Send(ctx, "cc-deck:voice", payload); err != nil {
-		log.Printf("[voice] pipe send error: %v", err)
+		if r.config.Verbose {
+			log.Printf("[voice] pipe send error: %v", err)
+		}
 		r.sendEvent(RelayEvent{Type: "error", Err: fmt.Errorf("delivery: %w", err)})
 		return
 	}
@@ -247,6 +264,10 @@ func (r *VoiceRelay) handleUtterance(ctx context.Context, u Utterance) {
 }
 
 func (r *VoiceRelay) sendEvent(ev RelayEvent) {
+	r.mu.Lock()
+	ctx := r.ctx
+	r.mu.Unlock()
+
 	if ev.Type == "level" {
 		select {
 		case r.events <- ev:
@@ -256,6 +277,7 @@ func (r *VoiceRelay) sendEvent(ev RelayEvent) {
 	}
 	select {
 	case r.events <- ev:
+	case <-ctx.Done():
 	case <-time.After(2 * time.Second):
 	}
 }
