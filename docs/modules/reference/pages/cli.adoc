@@ -840,6 +840,65 @@ cc-deck ws harvest mydev --branch feature-x --create-pr
 | Push branch and create a GitHub pull request
 |===
 
+==== ws voice
+
+Start voice relay for hands-free dictation into a workspace's attended agent session.
+Captures audio from the local microphone, transcribes locally via whisper.cpp, and relays text into the attended pane.
+
+[source,bash]
+----
+cc-deck ws voice mydev
+cc-deck ws voice mydev --mode ptt
+cc-deck ws voice mydev --model small.en --verbose
+cc-deck ws voice --setup
+cc-deck ws voice --list-devices
+----
+
+[cols="1,3"]
+|===
+| Flag | Description
+
+| `--mode`
+| Audio gating mode: `vad` (voice activity detection, default) or `ptt` (push-to-talk via F8)
+
+| `--model`
+| Whisper model name: `tiny.en`, `base.en` (default), `small.en`, `medium`
+
+| `--device`
+| Audio input device name (use `--list-devices` to enumerate)
+
+| `--verbose`
+| Enable detailed logging to `/tmp/cc-deck-voice.log`
+
+| `--setup`
+| Check dependencies and download the whisper model
+
+| `--list-devices`
+| List available audio input devices and exit
+|===
+
+==== ws pipe
+
+Send a raw payload to a named Zellij pipe in a workspace.
+Useful for scripting and diagnostics.
+
+[source,bash]
+----
+cc-deck ws pipe mydev --name cc-deck:voice --payload "hello world"
+----
+
+[cols="1,3"]
+|===
+| Flag | Description
+
+| `--name`
+| Pipe name to send to (required)
+
+| `--payload`
+| Text payload to deliver
+|===
+
+
 === hook
 
 Internal command used by Claude Code hooks.

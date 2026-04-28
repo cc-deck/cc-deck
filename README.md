@@ -514,3 +514,4 @@ cc-deck follows [Spec-Driven Development](CONTRIBUTING.md#spec-driven-developmen
 | [038](specs/038-workspace-repos/) | Workspace Repos | Auto-clone git repos into remote workspaces during `ws new`, with credential transport and CLI flags | In Progress |
 | [039](specs/039-cli-rename-ws-build/) | CLI Rename: Workspace & Build | Rename `env` to `ws`, `setup` to `build`, new `config` parent, promote `attach`/`ls`/`exec` to top level | In Progress |
 | [041](specs/041-workspace-channels/) | Workspace Channels | Typed channel abstractions (Pipe, Data, Git) for unified local-to-remote transport across all workspace types | In Progress |
+| [042](specs/042-voice-relay/) | Voice Relay | Local speech-to-text dictation into remote agent sessions via whisper.cpp, VAD, PTT, and permission safety | In Progress |
