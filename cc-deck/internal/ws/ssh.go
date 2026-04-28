@@ -304,9 +304,9 @@ func (e *SSHWorkspace) KillSession(ctx context.Context) error {
 	if !e.remoteHasSession(client, sessionName) {
 		return nil
 	}
-	killCmd := fmt.Sprintf("zellij kill-session %q", sessionName)
-	if _, err := client.Run(ctx, killCmd); err != nil {
-		return fmt.Errorf("killing remote session: %w", err)
+	deleteCmd := fmt.Sprintf("zellij delete-session --force %q", sessionName)
+	if _, err := client.Run(ctx, deleteCmd); err != nil {
+		return fmt.Errorf("deleting remote session: %w", err)
 	}
 	inst.SessionState = SessionStateNone
 	_ = e.store.UpdateInstance(inst)
@@ -354,7 +354,7 @@ func (e *SSHWorkspace) Exec(ctx context.Context, cmd []string) error {
 		return wsErr
 	}
 
-	remoteCmd := fmt.Sprintf("cd %q && %s", workspace, strings.Join(cmd, " "))
+	remoteCmd := fmt.Sprintf("cd %q && %s", workspace, shellJoin(cmd))
 	out, err := client.Run(ctx, remoteCmd)
 	if err != nil {
 		return err
@@ -379,7 +379,7 @@ func (e *SSHWorkspace) ExecOutput(ctx context.Context, cmd []string) (string, er
 		return "", wsErr
 	}
 
-	remoteCmd := fmt.Sprintf("cd %q && %s", workspace, strings.Join(cmd, " "))
+	remoteCmd := fmt.Sprintf("cd %q && %s", workspace, shellJoin(cmd))
 	return client.Run(ctx, remoteCmd)
 }
 

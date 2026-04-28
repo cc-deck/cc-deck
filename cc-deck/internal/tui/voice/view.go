@@ -11,7 +11,7 @@ import (
 )
 
 var (
-	headerStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15"))
+	headerStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("252"))
 	targetStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
 	labelStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 	threshStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
@@ -22,7 +22,7 @@ var (
 	pendStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 	hintStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 	deviceStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("105"))
-	pickerTitle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15"))
+	pickerTitle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("252"))
 	pickerActive = lipgloss.NewStyle().Foreground(lipgloss.Color("46")).Bold(true)
 	pickerNormal = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
 	pickerDef    = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
@@ -79,7 +79,7 @@ func (m Model) View() string {
 func (m Model) renderHeader() string {
 	var b strings.Builder
 
-	b.WriteString(headerStyle.Render("cc-deck Voice Relay"))
+	b.WriteString(headerStyle.Render("Voice Relay"))
 	if m.target != "" {
 		b.WriteString("  ")
 		b.WriteString(targetStyle.Render(m.target))
@@ -109,9 +109,6 @@ func (m Model) renderHeader() string {
 	b.WriteString(threshStyle.Render(fmt.Sprintf("T:%d%%", threshPct)))
 	b.WriteString("\n")
 
-	if m.err != nil {
-		b.WriteString(errStyle.Render(fmt.Sprintf("Error: %v", m.err)))
-	}
 	b.WriteString("\n")
 
 	return b.String()
@@ -120,14 +117,35 @@ func (m Model) renderHeader() string {
 func (m Model) renderFooter() string {
 	var b strings.Builder
 
-	if m.logPath != "" {
-		b.WriteString(tsStyle.Render(fmt.Sprintf("  log: %s", m.logPath)))
+	if m.err != nil {
+		errText := fmt.Sprintf("Error: %v", m.err)
+		w := m.width - 4
+		if w < 20 {
+			w = 20
+		}
+		wrapped := errStyle.Width(w).Render(errText)
+		b.WriteString("  ")
+		b.WriteString(wrapped)
 	}
-	b.WriteString("\n\n")
-	b.WriteString(hintStyle.Render("  q: quit  +/-: threshold  d: device  pgup/pgdn: scroll"))
 	b.WriteString("\n")
+	b.WriteString(hintStyle.Render("  q: quit  +/-: threshold  d: device  pgup/pgdn: scroll"))
 
 	return b.String()
+}
+
+func (m Model) footerHeight() int {
+	lines := 2 // hints line + separator
+	if m.err != nil {
+		errText := fmt.Sprintf("Error: %v", m.err)
+		w := m.width - 4
+		if w < 20 {
+			w = 20
+		}
+		lines += strings.Count(errStyle.Width(w).Render(errText), "\n") + 1
+	} else {
+		lines++ // blank status line
+	}
+	return lines
 }
 
 func (m Model) renderSeparator() string {

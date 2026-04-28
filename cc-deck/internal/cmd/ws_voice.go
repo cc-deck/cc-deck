@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	ccconfig "github.com/cc-deck/cc-deck/internal/config"
@@ -106,7 +107,6 @@ func runVoiceRelay(wsName, mode, modelName, deviceID string, verbose bool, port 
 	if err := server.Start(ctx); err != nil {
 		return fmt.Errorf("starting whisper-server: %w", err)
 	}
-	defer server.Stop()
 	if verbose {
 		log.Printf("[voice] whisper-server ready at %s", server.Endpoint())
 	}
@@ -147,14 +147,27 @@ func runVoiceRelay(wsName, mode, modelName, deviceID string, verbose bool, port 
 	if err := relay.Start(ctx); err != nil {
 		return fmt.Errorf("starting voice relay: %w", err)
 	}
-	defer relay.Stop()
+	defer func() {
+		done := make(chan struct{})
+		go func() {
+			relay.Stop()
+			server.Stop()
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			if verbose {
+				log.Printf("[voice] cleanup timed out, forcing exit")
+			}
+		}
+	}()
 
 	model := voicetui.New(relay, mode, wsName, verbose, logPath, resolvedDevice)
 	p := tea.NewProgram(model, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("TUI error: %w", err)
 	}
-
 	return nil
 }
 

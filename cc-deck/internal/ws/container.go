@@ -418,9 +418,9 @@ func (e *ContainerWorkspace) KillSession(ctx context.Context) error {
 	if !ContainerHasZellijSession(ctx, cName) {
 		return nil
 	}
-	cmd := []string{"zellij", "kill-session", zellijSessionPrefix + e.name}
+	cmd := []string{"zellij", "delete-session", "--force", zellijSessionPrefix + e.name}
 	if err := podman.Exec(ctx, cName, cmd, false); err != nil {
-		return fmt.Errorf("killing session: %w", err)
+		return fmt.Errorf("deleting session: %w", err)
 	}
 	if inst, findErr := e.store.FindInstanceByName(e.name); findErr == nil {
 		inst.SessionState = SessionStateNone
@@ -509,7 +509,7 @@ func (e *ContainerWorkspace) Exec(ctx context.Context, cmd []string) error {
 
 // ExecOutput runs a command inside the container and returns stdout.
 func (e *ContainerWorkspace) ExecOutput(ctx context.Context, cmd []string) (string, error) {
-	return podman.ExecOutput(ctx, containerName(e.name), strings.Join(cmd, " "))
+	return podman.ExecOutput(ctx, containerName(e.name), shellJoin(cmd))
 }
 
 // PipeChannel returns the pipe channel for this workspace.
