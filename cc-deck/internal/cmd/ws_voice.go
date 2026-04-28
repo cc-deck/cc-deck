@@ -218,3 +218,20 @@ func (a *pipeAdapter) Send(ctx context.Context, pipeName string, payload string)
 	}
 	return err
 }
+
+func (a *pipeAdapter) SendReceive(ctx context.Context, pipeName string, payload string) (string, error) {
+	if a.verbose {
+		log.Printf("[voice] pipeAdapter.SendReceive: pipeName=%q payload=%q", pipeName, payload)
+	}
+
+	resp, err := a.ch.SendReceive(ctx, pipeName, payload)
+
+	if a.verbose {
+		if err != nil {
+			log.Printf("[voice] pipeAdapter.SendReceive: ERROR %v", err)
+		} else {
+			log.Printf("[voice] pipeAdapter.SendReceive: response=%q", resp)
+		}
+	}
+	return resp, err
+}

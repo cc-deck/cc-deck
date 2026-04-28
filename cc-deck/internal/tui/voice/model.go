@@ -41,6 +41,7 @@ type historyEntry struct {
 
 type relayEventMsg voicepkg.RelayEvent
 type levelTickMsg struct{}
+type pttStateMsg string // "recording", "waiting"
 
 // New creates a new voice TUI model.
 func New(relay *voicepkg.VoiceRelay, mode string, target string, verbose bool, logPath string, deviceName string) Model {

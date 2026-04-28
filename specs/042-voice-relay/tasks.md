@@ -82,8 +82,8 @@
 
 > **NOTE**: Stopword detection is implemented in T020 (US1). This phase adds edge case tests and refinement.
 
-- [ ] T031 [US2] Add stopword unit tests in cc-deck/internal/voice/stopword_test.go: test "submit", "enter", "please submit the form", "press enter to continue", "okay submit", "submit it", "um, submit" (filler stripping), empty string, whitespace-only
-- [ ] T032 [US2] Verify VoiceRelay sends "\n" for standalone command words and full text for non-commands in cc-deck/internal/voice/relay.go (adjust relay logic if needed)
+- [X] T031 [US2] Add stopword unit tests in cc-deck/internal/voice/stopword_test.go: test "submit", "enter", "please submit the form", "press enter to continue", "okay submit", "submit it", "um, submit" (filler stripping), empty string, whitespace-only
+- [X] T032 [US2] Verify VoiceRelay sends "\n" for standalone command words and full text for non-commands in cc-deck/internal/voice/relay.go (adjust relay logic if needed)
 
 **Checkpoint**: Stopword detection handles all edge cases from spec US2 scenarios 1-7.
 
@@ -97,9 +97,9 @@
 
 ### Implementation for User Story 3
 
-- [ ] T033 [US3] Implement PTT mode in VoiceRelay orchestrator in cc-deck/internal/voice/relay.go: SendReceive long-poll loop to cc-deck:voice-control, toggle recording on "toggle" response, re-establish long-poll
-- [ ] T034 [US3] Add PTT state to TUI model in cc-deck/internal/tui/voice/model.go and update view in view.go: show PTT recording state, "press F8 to toggle" hint, mode indicator
-- [ ] T035 [US3] Add mode switching support in TUI update handler in cc-deck/internal/tui/voice/update.go: 'm' key toggles between VAD and PTT modes, stops/starts appropriate audio gating
+- [X] T033 [US3] Implement PTT mode in VoiceRelay orchestrator in cc-deck/internal/voice/relay.go: SendReceive long-poll loop to cc-deck:voice-control, toggle recording on "toggle" response, re-establish long-poll
+- [X] T034 [US3] Add PTT state to TUI model in cc-deck/internal/tui/voice/model.go and update view in view.go: show PTT recording state, "press F8 to toggle" hint, mode indicator
+- [X] T035 [US3] Add mode switching support in TUI update handler in cc-deck/internal/tui/voice/update.go: 'm' key toggles between VAD and PTT modes, stops/starts appropriate audio gating
 
 **Checkpoint**: PTT mode works via F8 keybinding from any pane, including remote workspaces.
 
