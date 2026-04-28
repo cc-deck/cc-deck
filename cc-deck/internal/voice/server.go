@@ -110,7 +110,18 @@ func (s *WhisperServer) stopLocked() {
 	if s.cancel != nil {
 		s.cancel()
 	}
-	_ = s.cmd.Wait()
+	done := make(chan struct{})
+	go func() {
+		_ = s.cmd.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		if s.cmd.Process != nil {
+			_ = s.cmd.Process.Kill()
+		}
+	}
 	s.cmd = nil
 	s.cancel = nil
 }

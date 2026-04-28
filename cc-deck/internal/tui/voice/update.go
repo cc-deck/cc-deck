@@ -8,7 +8,6 @@ import (
 
 const (
 	headerLines = 5 // title, device+mode, level bar, blank line, separator
-	footerLines = 5 // separator, log path, blank, keybindings, trailing newline
 )
 
 // Update handles incoming messages.
@@ -21,7 +20,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		vpHeight := m.height - headerLines - footerLines
+		vpHeight := m.height - headerLines - m.footerHeight()
 		if vpHeight < 1 {
 			vpHeight = 1
 		}
@@ -43,7 +42,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "q", "ctrl+c":
 			m.quitting = true
-			m.relay.Stop()
 			return m, tea.Quit
 		case "up", "+":
 			m.relay.SetVADThreshold(m.relay.VADThreshold() + 2)
@@ -71,6 +69,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "level":
 			m.audioLevel = msg.Level
 		case "transcription":
+			m.err = nil
 			m.history = append(m.history, historyEntry{
 				text:    msg.Text,
 				latency: msg.Latency,
@@ -80,14 +79,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(m.history) > maxHistoryLen {
 				m.history = m.history[len(m.history)-maxHistoryLen:]
 			}
+			m.resizeViewport()
 			m.syncViewport()
 		case "delivery":
+			m.err = nil
 			if len(m.history) > 0 {
 				m.history[len(m.history)-1].status = "delivered"
 			}
+			m.resizeViewport()
 			m.syncViewport()
 		case "error":
 			m.err = msg.Err
+			m.resizeViewport()
 		case "paused":
 			// TUI shows paused state via view
 		}
@@ -95,6 +98,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+func (m *Model) resizeViewport() {
+	if !m.viewportReady || m.width == 0 || m.height == 0 {
+		return
+	}
+	vpHeight := m.height - headerLines - m.footerHeight()
+	if vpHeight < 1 {
+		vpHeight = 1
+	}
+	m.viewport.Height = vpHeight
 }
 
 func (m *Model) syncViewport() {
