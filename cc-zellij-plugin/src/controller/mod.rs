@@ -460,7 +460,16 @@ impl ControllerPlugin {
 
     /// Serialize session state and send it via CLI pipe output.
     fn dump_state(&self, pipe_message: &PipeMessage) {
-        let _state_json = serde_json::to_string(&self.state.sessions)
+        #[derive(serde::Serialize)]
+        struct DumpStateResponse<'a> {
+            sessions: &'a std::collections::BTreeMap<u32, crate::session::Session>,
+            attended_pane_id: Option<u32>,
+        }
+        let resp = DumpStateResponse {
+            sessions: &self.state.sessions,
+            attended_pane_id: self.state.last_attended_pane_id,
+        };
+        let _state_json = serde_json::to_string(&resp)
             .unwrap_or_else(|_| "{}".to_string());
         #[cfg(target_family = "wasm")]
         {

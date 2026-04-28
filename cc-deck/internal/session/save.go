@@ -35,9 +35,11 @@ func QueryPluginStateCtx(ctx context.Context, name string) (*Snapshot, error) {
 		return nil, err
 	}
 
-	// Parse the plugin's BTreeMap<u32, Session> JSON
-	var sessions map[string]pluginSession
-	if err := json.Unmarshal(raw, &sessions); err != nil {
+	// Parse the plugin's dump-state response. The controller wraps sessions
+	// in an envelope with attended_pane_id; try that first, fall back to
+	// the flat map format from sidebar instances.
+	sessions, err := parseDumpState(raw)
+	if err != nil {
 		return nil, fmt.Errorf("parsing plugin state: %w", err)
 	}
 
@@ -78,6 +80,22 @@ func QueryPluginStateCtx(ctx context.Context, name string) (*Snapshot, error) {
 		SavedAt:  time.Now().UTC(),
 		Sessions: entries,
 	}, nil
+}
+
+func parseDumpState(raw []byte) (map[string]pluginSession, error) {
+	// Try envelope format: {"sessions": {...}, "attended_pane_id": ...}
+	var envelope struct {
+		Sessions map[string]pluginSession `json:"sessions"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err == nil && envelope.Sessions != nil {
+		return envelope.Sessions, nil
+	}
+	// Fall back to flat map format
+	var sessions map[string]pluginSession
+	if err := json.Unmarshal(raw, &sessions); err != nil {
+		return nil, err
+	}
+	return sessions, nil
 }
 
 // queryPluginCtx runs zellij pipe to get session state JSON from the controller plugin.

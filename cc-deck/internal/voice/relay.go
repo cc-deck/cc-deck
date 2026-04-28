@@ -383,6 +383,8 @@ func (r *VoiceRelay) statePoll(ctx context.Context, sr PipeSendReceiver) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
+	var lastTarget string
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -395,42 +397,74 @@ func (r *VoiceRelay) statePoll(ctx context.Context, sr PipeSendReceiver) {
 				}
 				continue
 			}
-			paused := isAttendedSessionInPermission(resp)
+
+			state := parseDumpStateResponse(resp)
+
 			r.mu.Lock()
 			wasPaused := r.paused
-			r.paused = paused
+			r.paused = state.paused
 			r.mu.Unlock()
 
-			if paused && !wasPaused {
+			if state.paused && !wasPaused {
 				r.sendEvent(RelayEvent{Type: "paused", Text: "permission prompt active"})
-			} else if !paused && wasPaused {
+			} else if !state.paused && wasPaused {
 				r.sendEvent(RelayEvent{Type: "resumed"})
+			}
+
+			if state.targetName != lastTarget {
+				lastTarget = state.targetName
+				r.sendEvent(RelayEvent{Type: "target_changed", Text: state.targetName})
 			}
 		}
 	}
 }
 
-func isAttendedSessionInPermission(stateJSON string) bool {
-	var sessions map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(stateJSON), &sessions); err != nil {
-		return false
+type dumpStateResult struct {
+	paused     bool
+	targetName string
+}
+
+func parseDumpStateResponse(stateJSON string) dumpStateResult {
+	var envelope struct {
+		Sessions       map[string]json.RawMessage `json:"sessions"`
+		AttendedPaneID *int                       `json:"attended_pane_id"`
 	}
-	for _, raw := range sessions {
-		var s struct {
-			Activity json.RawMessage `json:"activity"`
-		}
-		if json.Unmarshal(raw, &s) != nil {
-			continue
-		}
-		// Serde serializes Waiting(Permission) as {"Waiting":"Permission"}
-		var waiting map[string]string
-		if json.Unmarshal(s.Activity, &waiting) == nil {
-			if waiting["Waiting"] == "Permission" {
-				return true
+	if err := json.Unmarshal([]byte(stateJSON), &envelope); err != nil {
+		return dumpStateResult{}
+	}
+
+	if envelope.Sessions == nil {
+		return dumpStateResult{}
+	}
+
+	attendedKey := ""
+	if envelope.AttendedPaneID != nil {
+		attendedKey = fmt.Sprintf("%d", *envelope.AttendedPaneID)
+	}
+
+	var result dumpStateResult
+
+	if attendedKey != "" {
+		if raw, ok := envelope.Sessions[attendedKey]; ok {
+			var s struct {
+				DisplayName string          `json:"display_name"`
+				Activity    json.RawMessage `json:"activity"`
+			}
+			if json.Unmarshal(raw, &s) == nil {
+				result.targetName = s.DisplayName
+				var waiting map[string]string
+				if json.Unmarshal(s.Activity, &waiting) == nil {
+					result.paused = waiting["Waiting"] == "Permission"
+				}
 			}
 		}
 	}
-	return false
+
+	if result.targetName == "" && attendedKey == "" {
+		result.targetName = "(no session attended)"
+	}
+
+	return result
 }
 
 func (r *VoiceRelay) processUtterances(ctx context.Context, utterances <-chan Utterance) {
