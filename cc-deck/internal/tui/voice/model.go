@@ -24,6 +24,7 @@ type Model struct {
 	devicePick  bool
 	deviceIdx   int
 	quitting    bool
+	paused      bool
 	err         error
 
 	width         int

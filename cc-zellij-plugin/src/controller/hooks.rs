@@ -153,6 +153,14 @@ pub fn process_hook(state: &mut ControllerState, hook: HookPayload) -> bool {
             "CTRL HOOK: pane={} left Waiting via {}",
             hook.pane_id, hook.hook_event_name,
         ));
+        if state.last_attended_pane_id == Some(hook.pane_id) && !state.voice_buffer.is_empty() {
+            let discarded = state.voice_buffer.len();
+            state.voice_buffer.clear();
+            crate::debug_log(&format!(
+                "CTRL VOICE buffer discarded {} entries (permission resolved)",
+                discarded,
+            ));
+        }
     }
     if was_waiting && !changed {
         crate::debug_log(&format!(
