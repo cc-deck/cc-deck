@@ -602,6 +602,7 @@ impl ZellijPlugin for PluginState {
             PermissionType::ReadCliPipes,
             PermissionType::MessageAndLaunchOtherPlugins,
             PermissionType::Reconfigure,
+            PermissionType::WriteToStdin,
         ]);
 
         debug_log("LOAD setting timeout");
@@ -1220,6 +1221,10 @@ impl ZellijPlugin for PluginState {
             // Working key actions: handled by controller in split architecture.
             // Legacy monolithic plugin ignores them.
             PipeAction::Working | PipeAction::WorkingPrev => false,
+
+            // Voice/diagnostic actions: handled by controller only.
+            PipeAction::VoiceText(_) | PipeAction::VoiceControl | PipeAction::VoiceToggle
+            | PipeAction::TestInject => false,
 
             PipeAction::Unknown => false,
         };

@@ -37,7 +37,9 @@ fn handle_switch(state: &mut ControllerState, pane_id: Option<u32>, tab_index: O
         }
         state.focused_pane_id = Some(pid);
         state.active_tab_index = Some(tab_idx);
+        state.last_attended_pane_id = Some(pid);
         state.in_flight_focus = Some((pid, crate::session::unix_now_ms()));
+        write_last_attended(pid);
         crate::debug_log(&format!("CTRL SWITCH: pid={pid} tab={tab_idx} in_flight={pid}"));
         // Broadcast BEFORE the tab switch so pipe messages are queued in Zellij
         // ahead of the switch_tab_to command. This gives the target sidebar a
@@ -177,7 +179,9 @@ fn handle_working(state: &mut ControllerState) {
     if let Some((pane_id, tab_index)) = result {
         state.focused_pane_id = Some(pane_id);
         state.active_tab_index = Some(tab_index);
+        state.last_attended_pane_id = Some(pane_id);
         state.in_flight_focus = Some((pane_id, crate::session::unix_now_ms()));
+        write_last_attended(pane_id);
         super::render_broadcast::broadcast_render(state);
         state.render_dirty = false;
         switch_tab_to_wasm(tab_index);
@@ -191,7 +195,9 @@ fn handle_working_prev(state: &mut ControllerState) {
     if let Some((pane_id, tab_index)) = result {
         state.focused_pane_id = Some(pane_id);
         state.active_tab_index = Some(tab_index);
+        state.last_attended_pane_id = Some(pane_id);
         state.in_flight_focus = Some((pane_id, crate::session::unix_now_ms()));
+        write_last_attended(pane_id);
         super::render_broadcast::broadcast_render(state);
         state.render_dirty = false;
         switch_tab_to_wasm(tab_index);
@@ -211,7 +217,9 @@ fn handle_navigate(
     if let (Some(pid), Some(tab_idx)) = (pane_id, tab_index) {
         state.focused_pane_id = Some(pid);
         state.active_tab_index = Some(tab_idx);
+        state.last_attended_pane_id = Some(pid);
         state.in_flight_focus = Some((pid, crate::session::unix_now_ms()));
+        write_last_attended(pid);
         super::render_broadcast::broadcast_render(state);
         state.render_dirty = false;
         switch_tab_to_wasm(tab_idx);
@@ -325,70 +333,22 @@ fn perform_attend_directed(
         return None;
     }
 
-    // Rapid-cycle detection: if the last attend was within the cycle window,
-    // keep the visited set so we skip already-seen sessions. Otherwise reset.
-    let now_ms = crate::session::unix_now_ms();
-    let in_rapid_cycle = state.config.attend_cycle_ms > 0
-        && now_ms.saturating_sub(state.last_attend_ms) < state.config.attend_cycle_ms;
+    let result = cycle_through_tiers(state, &tiers, direction);
 
-    if !in_rapid_cycle {
-        state.attend_visited.clear();
-    }
-
-    // Never cycle back to the currently focused pane.
-    if let Some(fpid) = state.focused_pane_id {
-        state.attend_visited.insert(fpid);
-    }
-
-    // Try to find a candidate, with one retry after clearing visited on wrap-around.
-    for attempt in 0..2 {
-        for candidates in &tiers {
-            let pick = match direction {
-                AttendDirection::Forward => {
-                    candidates.iter().find(|c| !state.attend_visited.contains(&c.pane_id))
-                }
-                AttendDirection::Backward => {
-                    candidates.iter().rev().find(|c| !state.attend_visited.contains(&c.pane_id))
-                }
-            };
-
-            if let Some(candidate) = pick {
-                let pane_id = candidate.pane_id;
-                let tab_index = match candidate.tab_index {
-                    Some(t) => t,
-                    None => continue,
-                };
-
-                state.attend_visited.insert(pane_id);
-                state.last_attend_ms = now_ms;
-                state.last_attended_pane_id = Some(pane_id);
-                write_last_attended(pane_id);
-
-                if candidate.is_done {
-                    if let Some(session) = state.sessions.get_mut(&pane_id) {
-                        session.done_attended = true;
-                    }
-                }
-
-                return Some((pane_id, tab_index));
+    if let Some((pane_id, _)) = result {
+        write_last_attended(pane_id);
+        let is_done = tiers.iter().flatten().any(|c| c.pane_id == pane_id && c.is_done);
+        if is_done {
+            if let Some(session) = state.sessions.get_mut(&pane_id) {
+                session.done_attended = true;
             }
         }
-
-        // First attempt exhausted all tiers. If in rapid cycle, clear and retry.
-        if attempt == 0 && in_rapid_cycle {
-            state.attend_visited.clear();
-            if let Some(fpid) = state.focused_pane_id {
-                state.attend_visited.insert(fpid);
-            }
-        } else {
-            break;
-        }
     }
 
-    None
+    result
 }
 
-/// Cycle through working sessions. Tier 1: Working, Tier 2: Waiting.
+/// Cycle through working sessions. Tier 1: Working.
 /// Uses the same rapid-cycle visited-set logic as attend.
 fn perform_working_directed(
     state: &mut ControllerState,
@@ -400,8 +360,6 @@ fn perform_working_directed(
             return None;
         }
 
-        // Working sessions only (most recent first).
-        // Waiting sessions are excluded: they need attention (Alt+a's job).
         let mut working: Vec<_> = sessions
             .iter()
             .filter(|s| !s.paused && matches!(s.activity, Activity::Working))
@@ -429,7 +387,16 @@ fn perform_working_directed(
         return None;
     }
 
-    // Reuse attend's rapid-cycle state (shared visited set and timing).
+    cycle_through_tiers(state, &tiers, direction)
+}
+
+/// Shared rapid-cycle iteration logic for directed navigation.
+/// Manages visited-set, direction-based candidate selection, and wrap-around retry.
+fn cycle_through_tiers(
+    state: &mut ControllerState,
+    tiers: &[Vec<AttendCandidate>],
+    direction: AttendDirection,
+) -> Option<(u32, usize)> {
     let now_ms = crate::session::unix_now_ms();
     let in_rapid_cycle = state.config.attend_cycle_ms > 0
         && now_ms.saturating_sub(state.last_attend_ms) < state.config.attend_cycle_ms;
@@ -443,7 +410,7 @@ fn perform_working_directed(
     }
 
     for attempt in 0..2 {
-        for candidates in &tiers {
+        for candidates in tiers {
             let pick = match direction {
                 AttendDirection::Forward => {
                     candidates.iter().find(|c| !state.attend_visited.contains(&c.pane_id))

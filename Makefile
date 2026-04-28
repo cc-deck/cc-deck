@@ -31,7 +31,7 @@ CLI_LDFLAGS = -X github.com/cc-deck/cc-deck/internal/cmd.Version=$(VERSION)+$(GI
 
 .PHONY: build build-wasm build-wasm-debug copy-wasm build-cli cross-cli \
         test test-go test-rust test-e2e test-compose test-integration smoke lint lint-go lint-rust \
-        install uninstall status \
+        deploy-ssh install uninstall status \
         test-image demo-image demo-image-push base-image base-image-push \
         demo-setup demo-record demo-gif demo-mp4 demo-clean \
         dev reload clean help
@@ -97,6 +97,22 @@ lint-go:  ## Run Go linter
 
 lint-rust:  ## Run Rust linter
 	cd cc-zellij-plugin && cargo clippy -- -D warnings
+
+## -- Remote Deploy ----------------------------------------
+
+DEPLOY_HOST   ?=
+DEPLOY_ARCH   ?= amd64
+DEPLOY_BIN    ?= cc-deck/cc-deck-linux-$(DEPLOY_ARCH)
+DEPLOY_WASM   ?= $(WASM_SRC)
+
+deploy-ssh: build-wasm cross-cli  ## Deploy cc-deck to a remote SSH host (DEPLOY_HOST=marovo)
+	@if [ -z "$(DEPLOY_HOST)" ]; then \
+		echo "Usage: make deploy-ssh DEPLOY_HOST=<hostname> [DEPLOY_ARCH=amd64|arm64]"; \
+		exit 1; \
+	fi
+	scp $(DEPLOY_WASM) $(DEPLOY_HOST):~/.config/zellij/plugins/cc_deck.wasm
+	scp $(DEPLOY_BIN)  $(DEPLOY_HOST):~/bin/cc-deck
+	@echo "Deployed to $(DEPLOY_HOST) ($(DEPLOY_ARCH)). Restart Zellij session to load new plugin."
 
 ## -- Plugin Management ------------------------------------
 
@@ -206,8 +222,10 @@ dev: dev-install  ## Build debug WASM, install to Zellij plugins dir, clear cach
 dev-install: build-wasm-debug  ## Quick install: copy dev-opt WASM to Zellij plugins dir
 	mkdir -p $(ZELLIJ_PLUGINS_DIR)
 	cp $(WASM_DBG) $(ZELLIJ_PLUGINS_DIR)/cc_deck.wasm
-	@# Clear compiled WASM cache so Zellij picks up the new binary
-	rm -f $(ZELLIJ_CACHE_DIR)/0.43.1/[0-9]* 2>/dev/null || true
+	@# Clear compiled WASM caches (per-session UUID dirs) and stale permissions
+	@# so Zellij re-compiles the plugin and re-prompts for any new permissions
+	rm -rf $(ZELLIJ_CACHE_DIR)/*/file: 2>/dev/null || true
+	rm -f $(ZELLIJ_CACHE_DIR)/permissions.kdl 2>/dev/null || true
 	@echo "Installed cc_deck.wasm to $(ZELLIJ_PLUGINS_DIR)/ and cleared cache"
 
 reload: build-wasm-debug  ## Rebuild dev-opt WASM and hot-reload in running Zellij

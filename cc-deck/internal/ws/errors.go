@@ -57,6 +57,9 @@ type ChannelError struct {
 }
 
 func (e *ChannelError) Error() string {
+	if e.Err != nil {
+		return fmt.Sprintf("%s: %v", e.Summary, e.Err)
+	}
 	return e.Summary
 }
 
