@@ -1,9 +1,9 @@
 # Brainstorm: Multi-Agent Support for cc-deck
 
-**Date:** 2026-03-19 (updated 2026-04-18)
+**Date:** 2026-03-19 (updated 2026-04-23)
 **Status:** Brainstorm
 **Trigger:** Competitive analysis of [cmux](https://github.com/manaflow-ai/cmux) and its agent-agnostic notification approach
-**Updated:** Comparative analysis with [lince](https://github.com/RisorseArtificiali/lince), a Zellij-based multi-agent dashboard with sandboxing and voice relay
+**Updated:** Comparative analysis with [lince](https://github.com/RisorseArtificiali/lince), a Zellij-based multi-agent dashboard with sandboxing
 
 ## Problem Statement
 
@@ -11,7 +11,7 @@ cc-deck currently only works with Claude Code via its hooks system. Other AI cod
 
 ## Lessons from lince (April 2026 Analysis)
 
-[lince](https://github.com/RisorseArtificiali/lince) is a parallel effort that launched the same week as cc-deck (2026-03-02). It provides a Zellij dashboard for spawning and monitoring multiple AI agents (Claude, Codex, Gemini, OpenCode, Aider) with bubblewrap sandboxing and voice relay. Comparing implementations reveals patterns we should adopt, validate, or deliberately skip.
+[lince](https://github.com/RisorseArtificiali/lince) is a parallel effort that launched the same week as cc-deck (2026-03-02). It provides a Zellij dashboard for spawning and monitoring multiple AI agents (Claude, Codex, Gemini, OpenCode, Aider) with bubblewrap sandboxing. Comparing implementations reveals patterns we should adopt, validate, or deliberately skip.
 
 ### What lince validates in our approach
 
@@ -39,11 +39,9 @@ cc-deck currently only works with Claude Code via its hooks system. Other AI cod
 
 ### Patterns worth exploring independently
 
-**Voice relay via pipe.** lince integrates VoxCode (Whisper-based voice transcription) through a simple Zellij pipe: VoxCode transcribes audio, sends text via `zellij pipe --name "voxcode-text"`, plugin receives and relays to the focused agent's terminal via `write_chars_to_pane_id()`. This is agent-agnostic and low-effort to implement. A `cc-deck:voice` pipe handler would be ~50-100 lines of Rust. Not multi-agent-specific, but a nice UX win.
-
 **Credential proxy.** lince's `agent-sandbox` includes a localhost HTTP proxy that intercepts API calls and injects credentials, so API keys never enter the agent's environment. This would strengthen our container environments where we currently pass `ANTHROPIC_API_KEY` as an env var. Worth considering as a security hardening feature for our credential transport design.
 
-**Git-push restriction.** lince blocks `git push` three ways: a wrapper script in `$PATH`, sanitized `.gitconfig` (no credential helpers), and no SSH keys in the sandbox. We could offer a simpler version: a `restrict-push: true` flag on environment definitions that installs a git wrapper blocking push operations.
+**Git-push restriction.** lince blocks `git push` three ways: a wrapper script in `$PATH`, sanitized `.gitconfig` (no credential helpers), and no SSH keys in the sandbox. We could offer a simpler version: a `restrict-push: true` flag on workspace definitions that installs a git wrapper blocking push operations.
 
 ### Comparative stats (as of April 2026)
 
@@ -59,18 +57,17 @@ cc-deck currently only works with Claude Code via its hooks system. Other AI cod
 | Releases | 9 | 0 |
 | Agent support | Claude Code | Claude, Codex, Gemini, OpenCode, Aider |
 | Sandboxing | Podman containers | bubblewrap / nono |
-| Voice input | No | VoxCode relay |
 | Environment types | 6 (local, compose, SSH, K8s deploy, K8s sandbox, container) | 1 (local only) |
 
 ## Design Principle: Agent as an Interface
 
 An "agent" in cc-deck should be a well-defined interface, not hardcoded Claude Code logic. This interface governs three concerns:
 
-1. **Hook integration** - how to install hooks into the agent's configuration, how to translate the agent's events into cc-deck's normalized state model
-2. **Installation** - how to install the agent binary itself (relevant for container images and remote environments)
-3. **Credential transport** - how to securely provide API keys and auth tokens to the agent at runtime
+1. **Hook integration**: how to install hooks into the agent's configuration, how to translate the agent's events into cc-deck's normalized state model
+2. **Installation**: how to install the agent binary itself (relevant for container images and remote environments)
+3. **Credential transport**: how to securely provide API keys and auth tokens to the agent at runtime
 
-This interface must work identically across all execution environments (local, Podman container, Kubernetes Deployment, Kubernetes sandbox). The execution environment abstraction is a separate concern and will be designed in a dedicated session. This document focuses on the agent interface itself.
+This interface must work identically across all workspace types (local, Podman container, Kubernetes, SSH). The workspace abstraction is a separate concern. This document focuses on the agent interface itself.
 
 ## Agent Hook Landscape
 
@@ -332,17 +329,18 @@ When re-running `cc-deck plugin install` (e.g., after upgrading cc-deck), all pr
 
 ## Image Build Integration
 
-The `cc-deck-build.yaml` manifest (source of truth for image builds) needs an `agents` section:
+The `build.yaml` manifest (source of truth for image builds) needs an `agents` section:
 
 ```yaml
-# cc-deck-build.yaml
-version: 1
+# build.yaml
+version: 3
 agents:
   - claude
   - codex
-image:
-  base: quay.io/cc-deck/cc-deck-base:latest
-  # ...
+targets:
+  container:
+    name: my-workspace
+    base: quay.io/cc-deck/cc-deck-base:latest
 ```
 
 ### Build Stages per Agent
@@ -389,15 +387,15 @@ This is the hardest unsolved problem for container and remote environments. Each
 
 ### Approaches Under Consideration
 
-**A. Environment variables only:** Simple, works everywhere. Each agent declares its `CredentialEnvVars()`. The execution environment is responsible for injecting them.
+**A. Environment variables only:** Simple, works everywhere. Each agent declares its `CredentialEnvVars()`. The workspace is responsible for injecting them.
 
 **B. Secret mount convention:** Define a standard mount point (`/run/secrets/cc-deck/`) where each agent's credentials are placed by name (`claude-api-key`, `codex-api-key`). Agents read from env vars that point to these files.
 
-**C. cc-deck credential broker:** A `cc-deck credentials` command that reads from the execution environment's secret store (env vars, Podman secrets, K8s Secrets) and exports them as the agent-specific env vars. Run as an entrypoint wrapper.
+**C. cc-deck credential broker:** A `cc-deck credentials` command that reads from the workspace's secret store (env vars, Podman secrets, K8s Secrets) and exports them as the agent-specific env vars. Run as an entrypoint wrapper.
 
-**D. Credential proxy (inspired by lince).** A localhost HTTP proxy that intercepts API calls and injects credentials on the fly. Agent environments never see the actual API keys. The proxy rewrites `*_BASE_URL` env vars to point to `http://127.0.0.1:<port>`, then adds the real API key to outbound requests. This also enables blocking cloud metadata endpoints (169.254.169.254, metadata.google.internal) to prevent SSRF-based credential theft. Strongest security posture, but adds complexity (proxy lifecycle management, TLS handling for HTTPS endpoints).
+**D. Credential proxy (inspired by lince).** A localhost HTTP proxy that intercepts API calls and injects credentials on the fly. Agent environments never see the actual API keys. Strongest security posture, but adds complexity.
 
-**Decision deferred.** This intersects heavily with the execution environment abstraction (local vs Podman vs K8s). The credential transport mechanism should be designed as part of that work. The credential proxy approach (D) is worth prototyping for container environments where env var exposure is the primary risk.
+**Decision deferred.** This intersects heavily with workspace credential transport. The credential proxy approach (D) is worth prototyping for container environments where env var exposure is the primary risk.
 
 ## Sidebar Display Changes
 
@@ -425,16 +423,6 @@ Following lince's graceful degradation pattern, the sidebar adapts to the richne
 
 The visual distinction should be subtle. A wrapper-only agent simply shows fewer details, not a degraded UI.
 
-### Configurable Sidebar Fields
-
-Possible fields (configurability is a separate feature):
-- Agent type indicator (new)
-- Session name (existing)
-- Activity indicator (existing)
-- Git branch (existing)
-- Working directory (existing, used for auto-naming)
-- Listening ports (new, from cmux inspiration, separate feature)
-
 ## Smart Attend Across Agents
 
 The current smart attend algorithm (priority tiers: Permission > Notification > Done > Idle, skip Working/Paused) works agent-agnostically. No changes needed for the core algorithm.
@@ -448,28 +436,30 @@ Optional enhancement: per-agent attend priority. Deferred unless users request i
 | Agent support | Claude Code only | Claude, Codex, Gemini, extensible | Claude Code, OpenCode | Claude, Codex, Gemini, OpenCode, Aider |
 | Platform | Linux + macOS | Linux + macOS | macOS only | Linux + macOS (experimental) |
 | Remote execution | Containers, SSH, K8s | Same, with per-agent install | None (Cloud VMs planned) | None (local only) |
-| Session states | 7 granular states | Same | Binary (attention/not) | 6 states (Starting, Running, Idle, WaitingForInput, PermissionRequired, Stopped) |
+| Session states | 7 granular states | Same | Binary (attention/not) | 6 states |
 | Smart attend | Priority-based round-robin | Same, works across agents | Jump to latest unread | Manual selection |
 | Sandboxing | Podman containers | Same | None | bubblewrap / nono per agent |
-| Voice input | None | Pipe-based relay (planned) | None | VoxCode / Whisper relay |
-| Environment mgmt | 6 environment types | Same | None | None |
+| Environment mgmt | 6 workspace types | Same | None | None |
 | Notification protocol | Custom hooks | Custom hooks (OSC not viable) | OSC 9/99/777 + CLI | Custom hooks + agent wrapper |
 | Agent wrapper | None | `cc-deck-agent-wrapper` | None | `lince-agent-wrapper` |
-| Swimlane grouping | Tab-based | Tab-based + agent type | None | Project directory |
 
 ## Dependencies and Sequencing
 
-This feature depends on the **execution environment abstraction**, which will define how cc-deck manages sessions across local, Podman, K8s Deployment, and K8s sandbox environments. The agent interface (especially `InstallScript()`, `CredentialEnvVars()`, and credential transport) must align with whatever abstraction emerges from that work.
+This feature depends on the **execution environment abstraction**, which defines how cc-deck manages sessions across workspace types. The agent interface (especially `InstallScript()`, `CredentialEnvVars()`, and credential transport) must align with the workspace abstraction. **Prerequisite is DONE.**
 
 Recommended order:
-1. **Execution environment abstraction** (separate session, prerequisite) - DONE
-2. **Agent wrapper script** (cc-deck-agent-wrapper, enables any CLI as a managed session)
-3. **Agent interface definition** (this feature, Go interface + registry + config)
-4. **Voice relay pipe** (independent, small effort, can ship alongside any step)
-5. **Codex adapter** (first non-Claude agent, validates the interface)
-6. **Gemini adapter** (richer event model, stress-tests the interface)
-7. **Image build integration** (multi-agent manifests)
-8. **Credential transport** (after execution environments are defined, consider proxy approach)
+1. **Agent wrapper script** (cc-deck-agent-wrapper, enables any CLI as a managed session)
+2. **Agent interface definition** (Go interface + registry + config)
+3. **Codex adapter** (first non-Claude agent, validates the interface)
+4. **Gemini adapter** (richer event model, stress-tests the interface)
+5. **Image build integration** (multi-agent manifests)
+6. **Credential transport** (consider proxy approach)
+
+## Related Brainstorms
+
+- **042 (voice-relay)**: Voice relay via PipeChannel, agent-agnostic, focus-based routing
+- **043 (clipboard-bridge)**: Clipboard image bridging via DataChannel
+- **025 (security-model)**: Credential proxy approach intersects with security model
 
 ## Open Questions
 
@@ -483,12 +473,10 @@ Recommended order:
 
 5. **Aider, Continue, other agents:** The adapter protocol should be generic enough that adding new agents is trivial. The `--raw` mode handles this.
 
-6. **Credential rotation in long-running containers:** If API keys expire or rotate, how do running containers pick up new credentials? This is an execution environment concern.
+6. **Credential rotation in long-running containers:** If API keys expire or rotate, how do running containers pick up new credentials? This is a workspace concern.
 
 7. **Agent-specific permissions models:** Claude Code has YOLO mode, Codex has permission levels. Should cc-deck normalize these or expose them? Probably expose as metadata.
 
-8. **Voice relay scope:** Should voice relay be agent-aware (route to specific agent types) or purely focus-based (always relay to the focused pane, regardless of agent)? Focus-based is simpler and agent-agnostic. Start there.
+8. **lince interoperability:** lince uses `claude-status` as its pipe name for Claude Code hooks. If a user has both lince and cc-deck installed, hook conflicts could arise. Our pipe namespace (`cc-deck:hook`) avoids this, but worth documenting.
 
-9. **lince interoperability:** lince uses `claude-status` as its pipe name for Claude Code hooks. If a user has both lince and cc-deck installed, hook conflicts could arise. Our pipe namespace (`cc-deck:hook`) avoids this, but worth documenting.
-
-10. **Git-push restriction as environment flag:** Should `restrict-push: true` be an environment-level setting or an agent-level setting? Environment-level makes more sense (you restrict the execution context, not the agent type).
+9. **Git-push restriction as workspace flag:** Should `restrict-push: true` be a workspace-level setting or an agent-level setting? Workspace-level makes more sense (you restrict the execution context, not the agent type).

@@ -60,6 +60,7 @@ impl ZellijPlugin for ControllerPlugin {
             PermissionType::ReadCliPipes,
             PermissionType::MessageAndLaunchOtherPlugins,
             PermissionType::Reconfigure,
+            PermissionType::WriteToStdin,
         ]);
 
         crate::wasm_compat::set_timeout_wasm(self.state.config.timer_interval);
@@ -176,9 +177,10 @@ impl ZellijPlugin for ControllerPlugin {
 
         // Unblock CLI pipe input so `zellij pipe` does not hang.
         // DumpState handles its own unblock after sending output.
+        // VoiceControl holds the pipe open for PTT long-poll.
         #[cfg(target_family = "wasm")]
         if let PipeSource::Cli(ref pipe_id) = pipe_message.source {
-            if !matches!(action, PipeAction::DumpState) {
+            if !matches!(action, PipeAction::DumpState | PipeAction::VoiceControl) {
                 zellij_tile::prelude::unblock_cli_pipe_input(pipe_id);
             }
         }
@@ -309,6 +311,89 @@ impl ZellijPlugin for ControllerPlugin {
                 // Help from keybinding: forward to sidebars
                 broadcast_navigate(&self.state, "forward");
             }
+            PipeAction::VoiceText(text) if !text.is_empty() => {
+                let sessions = &self.state.sessions;
+                let is_session = |id: &u32| sessions.contains_key(id);
+                let target = self.state.last_attended_pane_id.filter(&is_session)
+                    .or(self.state.focused_pane_id.filter(&is_session))
+                    .or_else(|| sessions.keys().next().copied());
+                if let Some(pane_id) = target {
+                    write_chars_to_pane(pane_id, &text);
+                    crate::debug_log(&format!(
+                        "CTRL VOICE injected {} chars to pane={}",
+                        text.len(), pane_id
+                    ));
+                } else {
+                    crate::debug_log("CTRL VOICE discarded: no target pane");
+                }
+            }
+            PipeAction::VoiceControl => {
+                #[cfg(target_family = "wasm")]
+                if let PipeSource::Cli(ref pipe_id) = pipe_message.source {
+                    self.state.voice_control_pipe = Some(pipe_id.clone());
+                    self.state.voice_enabled = true;
+                    crate::debug_log(&format!(
+                        "CTRL VOICE-CONTROL pipe held: {}", pipe_id
+                    ));
+                }
+                #[cfg(not(target_family = "wasm"))]
+                {
+                    self.state.voice_enabled = true;
+                    crate::debug_log("CTRL VOICE-CONTROL enabled (non-wasm)");
+                }
+            }
+            PipeAction::VoiceToggle => {
+                if let Some(ref pipe_id) = self.state.voice_control_pipe.take() {
+                    cli_pipe_output_wasm(pipe_id, "toggle");
+                    unblock_cli_pipe_input_wasm(pipe_id);
+                    crate::debug_log(&format!(
+                        "CTRL VOICE-TOGGLE responded to pipe: {}", pipe_id
+                    ));
+                } else {
+                    crate::debug_log("CTRL VOICE-TOGGLE ignored: no held pipe");
+                }
+            }
+            PipeAction::TestInject => {
+                // Diagnostic: inject hardcoded text into the focused pane.
+                // Compares manifest-derived pane ID with tracked state to
+                // isolate whether write_chars_to_pane_id fails due to a
+                // wrong pane ID or the API itself.
+                let manifest_focus = self.state.pane_manifest.as_ref().and_then(|m| {
+                    self.state.tabs.iter().find(|t| t.active).and_then(|tab| {
+                        m.panes.get(&tab.position).and_then(|panes| {
+                            panes.iter()
+                                .find(|p| !p.is_plugin && p.is_focused)
+                                .map(|p| p.id)
+                        })
+                    })
+                });
+                let tracked_focus = self.state.focused_pane_id;
+                let last_attended = self.state.last_attended_pane_id;
+                let target = manifest_focus
+                    .or(tracked_focus)
+                    .or(last_attended);
+
+                let debug_info = format!(
+                    "manifest_focus={:?} tracked_focus={:?} last_attended={:?} target={:?}",
+                    manifest_focus, tracked_focus, last_attended, target
+                );
+                crate::debug_log(&format!("CTRL TEST-INJECT {}", debug_info));
+
+                if let Some(pane_id) = target {
+                    write_chars_to_pane(pane_id, "VOICE_TEST ");
+                    crate::debug_log(&format!(
+                        "CTRL TEST-INJECT called write_chars_to_pane({})", pane_id
+                    ));
+                } else {
+                    crate::debug_log("CTRL TEST-INJECT: no target pane found");
+                }
+
+                #[cfg(target_family = "wasm")]
+                if let PipeSource::Cli(ref pipe_id) = pipe_message.source {
+                    cli_pipe_output_wasm(pipe_id, &debug_info);
+                    unblock_cli_pipe_input_wasm(pipe_id);
+                }
+            }
             PipeAction::Unknown => {}
             _ => {
                 // NavUp, NavDown, NavSelect, etc. are sidebar-local concerns.
@@ -364,7 +449,16 @@ impl ControllerPlugin {
 
     /// Serialize session state and send it via CLI pipe output.
     fn dump_state(&self, pipe_message: &PipeMessage) {
-        let _state_json = serde_json::to_string(&self.state.sessions)
+        #[derive(serde::Serialize)]
+        struct DumpStateResponse<'a> {
+            sessions: &'a std::collections::BTreeMap<u32, crate::session::Session>,
+            attended_pane_id: Option<u32>,
+        }
+        let resp = DumpStateResponse {
+            sessions: &self.state.sessions,
+            attended_pane_id: self.state.last_attended_pane_id,
+        };
+        let _state_json = serde_json::to_string(&resp)
             .unwrap_or_else(|_| "{}".to_string());
         #[cfg(target_family = "wasm")]
         {
@@ -410,6 +504,30 @@ fn broadcast_navigate(state: &ControllerState, direction: &str) {
 
 #[cfg(not(target_family = "wasm"))]
 fn broadcast_navigate(_state: &ControllerState, _direction: &str) {}
+
+#[cfg(target_family = "wasm")]
+fn write_chars_to_pane(pane_id: u32, chars: &str) {
+    zellij_tile::prelude::write_chars_to_pane_id(chars, PaneId::Terminal(pane_id));
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn write_chars_to_pane(_pane_id: u32, _chars: &str) {}
+
+#[cfg(target_family = "wasm")]
+fn cli_pipe_output_wasm(pipe_id: &str, output: &str) {
+    zellij_tile::prelude::cli_pipe_output(pipe_id, output);
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn cli_pipe_output_wasm(_pipe_id: &str, _output: &str) {}
+
+#[cfg(target_family = "wasm")]
+fn unblock_cli_pipe_input_wasm(pipe_id: &str) {
+    zellij_tile::prelude::unblock_cli_pipe_input(pipe_id);
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn unblock_cli_pipe_input_wasm(_pipe_id: &str) {}
 
 #[cfg(test)]
 mod tests {
