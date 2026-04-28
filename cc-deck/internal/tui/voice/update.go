@@ -99,7 +99,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ptt_waiting":
 			m.mode = "ptt"
 		case "paused":
-			// TUI shows paused state via view
+			m.paused = true
+			m.resizeViewport()
+		case "resumed":
+			m.paused = false
+			m.resizeViewport()
 		}
 		return m, waitForEvent(m.relay)
 	}

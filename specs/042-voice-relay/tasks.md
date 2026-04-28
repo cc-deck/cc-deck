@@ -113,8 +113,8 @@
 
 ### Implementation for User Story 4
 
-- [ ] T036 [US4] Implement permission-state buffer discard in cc-zellij-plugin/src/controller/mod.rs: clear voice_buffer when session transitions from Waiting(Permission) to any other state
-- [ ] T037 [US4] Add permission pause notification to TUI: query session state periodically via PipeChannel, show "Voice paused: permission prompt active" warning in cc-deck/internal/tui/voice/view.go
+- [X] T036 [US4] Implement permission-state buffer discard in cc-zellij-plugin/src/controller/mod.rs: clear voice_buffer when session transitions from Waiting(Permission) to any other state
+- [X] T037 [US4] Add permission pause notification to TUI: query session state periodically via PipeChannel, show "Voice paused: permission prompt active" warning in cc-deck/internal/tui/voice/view.go
 
 **Checkpoint**: Voice relay pauses during permission prompts, buffered text is discarded.
 
