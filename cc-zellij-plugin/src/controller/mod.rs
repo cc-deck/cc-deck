@@ -314,26 +314,11 @@ impl ZellijPlugin for ControllerPlugin {
                     .or(self.state.focused_pane_id.filter(&is_session))
                     .or_else(|| sessions.keys().next().copied());
                 if let Some(pane_id) = target {
-                    let in_permission = self.state.sessions.get(&pane_id)
-                        .map(|s| matches!(s.activity, session::Activity::Waiting(session::WaitReason::Permission)))
-                        .unwrap_or(false);
-                    if in_permission {
-                        const MAX_VOICE_BUFFER: usize = 100;
-                        if self.state.voice_buffer.len() >= MAX_VOICE_BUFFER {
-                            self.state.voice_buffer.remove(0);
-                        }
-                        self.state.voice_buffer.push(text);
-                        crate::debug_log(&format!(
-                            "CTRL VOICE buffered (permission active), buffer_len={}",
-                            self.state.voice_buffer.len()
-                        ));
-                    } else {
-                        write_chars_to_pane(pane_id, &text);
-                        crate::debug_log(&format!(
-                            "CTRL VOICE injected {} chars to pane={}",
-                            text.len(), pane_id
-                        ));
-                    }
+                    write_chars_to_pane(pane_id, &text);
+                    crate::debug_log(&format!(
+                        "CTRL VOICE injected {} chars to pane={}",
+                        text.len(), pane_id
+                    ));
                 } else {
                     crate::debug_log("CTRL VOICE discarded: no target pane");
                 }

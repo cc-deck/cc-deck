@@ -86,9 +86,9 @@ func loadPaneMap() map[string]uint32 {
 }
 
 func savePaneMap(m map[string]uint32) {
-	_ = os.MkdirAll(hookStateDir, 0755)
+	_ = os.MkdirAll(hookStateDir, 0700)
 	data, _ := json.Marshal(m)
-	_ = os.WriteFile(paneMapFile, data, 0644)
+	_ = os.WriteFile(paneMapFile, data, 0600)
 }
 
 func runHook(stdin io.Reader, paneIDStr string) {

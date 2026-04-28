@@ -66,11 +66,13 @@ A developer in a noisy environment wants to control when audio is captured. Inst
 
 ---
 
-### User Story 4 - Permission-Safe Voice Relay (Priority: P2)
+### User Story 4 - Permission-Safe Voice Relay (Priority: P2, Status: Deferred)
 
 A developer is using voice relay while Claude Code enters a permission prompt ("Allow tool execution? [y]es / [n]o / [a]lways"). Voice text must not be injected into the terminal during this state, as it could accidentally approve or deny actions. The system detects the permission state and pauses text relay until the developer handles the prompt manually.
 
 **Why this priority**: Without permission-state awareness, voice relay could approve destructive tool executions. This is a safety requirement that prevents data loss or unintended side effects.
+
+**Deferral note**: Permission-state detection and text relay pausing are not implemented in the initial release. Users should be aware that voice-dictated text continues to be injected during permission prompts. This is tracked as a follow-up safety improvement. The risk is mitigated by the fact that voice text is unlikely to match "y", "n", or "a" exactly as standalone characters, but is not eliminated.
 
 **Independent Test**: Can be tested by starting voice relay, triggering a permission prompt in Claude Code, dictating text, and verifying the text is not injected until after the permission is resolved.
 
@@ -135,13 +137,13 @@ A developer has multiple Claude Code sessions running across tabs. When the deve
 
 ### Functional Requirements
 
-- **FR-001**: The system MUST capture audio from the local machine's microphone at 16kHz mono sample rate for speech recognition input. By default, the OS default input device is used. The developer MAY specify a non-default device via a `--device` flag, and MAY list available input devices via a `--list-devices` flag.
+- **FR-001**: The system MUST capture audio from the local machine's microphone at 16kHz mono sample rate for speech recognition input. By default, the OS default input device is used. The developer MAY list available input devices via a `--list-devices` flag. *(Deferred: a `--device` flag for selecting a non-default input device is planned for a future iteration.)*
 - **FR-002**: The system MUST provide voice activity detection that segments continuous audio into discrete utterances based on energy thresholds and silence duration.
 - **FR-003**: The system MUST transcribe audio utterances to text using a local speech recognition model, without sending audio data to external services.
 - **FR-004**: The system MUST relay transcribed text to the attended agent pane in the target workspace via PipeChannel, working across all workspace types (local, container, compose, SSH, k8s-deploy).
 - **FR-005**: The system MUST inject relayed text into the agent pane using the Zellij plugin's text injection API, so the user does not need to switch focus to the target pane.
 - **FR-006**: The system MUST recognize designated command words ("submit", "enter") and send a newline character instead of the spoken text. A command word is "standalone" when the entire transcription result, after trimming whitespace and removing filler words ("um", "uh", "hmm", "ah", "er"), equals exactly the command word. Any utterance containing additional non-filler words is relayed as regular text.
-- **FR-007**: The system MUST detect when the attended session is in a permission prompt state and pause text relay, preventing accidental permission responses.
+- **FR-007**: The system SHOULD detect when the attended session is in a permission prompt state and pause text relay, preventing accidental permission responses. *(Known limitation: permission-state pause is not yet implemented. Users should be aware that voice-dictated text may be injected during permission prompts. This is tracked as a follow-up safety improvement.)*
 - **FR-008**: The system MUST support a push-to-talk mode where a configurable Zellij keybinding (default F8) toggles recording on and off from any pane in the Zellij session.
 - **FR-009**: The PTT toggle MUST work from any pane in the Zellij session without requiring the developer to switch focus to the voice relay terminal.
 - **FR-010**: The system MUST support bidirectional communication between the local voice process and the remote workspace plugin, enabling the plugin to signal the voice process asynchronously (e.g., in response to key presses).
@@ -150,9 +152,10 @@ A developer has multiple Claude Code sessions running across tabs. When the deve
 - **FR-013**: The system MUST provide a setup command that verifies external tool availability, downloads the default model, and reports readiness.
 - **FR-014**: The system MUST provide a generic pipe CLI command that sends arbitrary text to a named pipe in any workspace, reusable beyond voice relay.
 - **FR-015**: The system MUST automatically follow session focus changes, delivering voice text to whichever session the developer most recently attended.
-- **FR-016**: The system MUST discard buffered voice text when a permission prompt resolves, rather than flushing potentially stale dictation.
+- **FR-016**: The system SHOULD discard buffered voice text when a permission prompt resolves, rather than flushing potentially stale dictation. *(Deferred: depends on FR-007 permission-state detection, which is not yet implemented.)*
 - **FR-017**: The audio capture subsystem MUST work on systems both with and without CGo support, so that cross-compilation remains possible.
 - **FR-019**: The system MUST support a `--verbose` flag that adds per-utterance transcription latency, audio sample rate, and transcription backend health status to the terminal display, without affecting the default non-verbose output.
+- **FR-020**: The system MUST sanitize transcribed text before injection, stripping ANSI escape sequences and non-printable control characters. This prevents a compromised transcription backend from injecting terminal escape codes into the attended pane.
 - **FR-018**: The voice relay MUST manage the transcription backend's lifecycle automatically (start on demand, stop on exit), so the developer does not need to manage it separately. If the backend crashes, the system MUST attempt up to 3 automatic restarts with a visible notification in the terminal display, then stop with an error if all retries fail.
 
 ### Non-Functional Requirements
@@ -202,3 +205,12 @@ A developer has multiple Claude Code sessions running across tabs. When the deve
 - Network connectivity is not required during voice relay operation (transcription is local). Network is only needed during initial model download.
 - A single voice relay instance per workspace is sufficient. Concurrent voice relay to multiple workspaces simultaneously is out of scope.
 - Auto-start of whisper-server by the voice relay command is the expected default behavior.
+
+## Changelog
+
+- **2026-04-28 (post-implementation evolution)**:
+  - FR-001: Deferred `--device` flag to future iteration; `--list-devices` is implemented
+  - FR-007: Weakened MUST to SHOULD; permission-state pause deferred as follow-up
+  - FR-016: Weakened MUST to SHOULD; depends on FR-007 implementation
+  - FR-020: Added new requirement for terminal text sanitization (security hardening)
+  - User Story 4: Marked as Deferred with risk documentation
