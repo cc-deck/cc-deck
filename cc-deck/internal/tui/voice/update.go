@@ -98,12 +98,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.mode = "ptt"
 		case "ptt_waiting":
 			m.mode = "ptt"
-		case "paused":
-			m.paused = true
-			m.resizeViewport()
-		case "resumed":
-			m.paused = false
-			m.resizeViewport()
 		case "target_changed":
 			m.session = msg.Text
 		}
@@ -161,9 +155,6 @@ func (m Model) updateDevicePicker(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.deviceIdx++
 			}
 		case "enter":
-			if m.deviceIdx < len(m.devices) {
-				m.deviceName = m.devices[m.deviceIdx].Name
-			}
 			m.devicePick = false
 			m.devices = nil
 		case "esc", "q", "d":

@@ -20,12 +20,10 @@ type Model struct {
 	session     string
 	verbose     bool
 	logPath     string
-	deviceName  string
 	devices     []voicepkg.DeviceInfo
 	devicePick  bool
 	deviceIdx   int
 	quitting    bool
-	paused      bool
 	err         error
 
 	width         int
@@ -46,14 +44,13 @@ type levelTickMsg struct{}
 type pttStateMsg string // "recording", "waiting"
 
 // New creates a new voice TUI model.
-func New(relay *voicepkg.VoiceRelay, mode string, target string, verbose bool, logPath string, deviceName string) Model {
+func New(relay *voicepkg.VoiceRelay, mode string, target string, verbose bool, logPath string) Model {
 	return Model{
-		relay:      relay,
-		mode:       mode,
-		target:     target,
-		verbose:    verbose,
-		logPath:    logPath,
-		deviceName: deviceName,
+		relay:   relay,
+		mode:    mode,
+		target:  target,
+		verbose: verbose,
+		logPath: logPath,
 	}
 }
 

@@ -52,15 +52,17 @@ func (s *ffmpegSource) Start(ctx context.Context, sampleRate int) (<-chan []int1
 	s.cmd = cmd
 	s.cancel = cancel
 	s.level.Store(float64(0))
-	s.stopped = make(chan struct{})
+	stopped := make(chan struct{})
+	s.stopped = stopped
 	s.closeOnce = sync.Once{}
 
 	out := make(chan []int16, 16)
 	frameSize := sampleRate / 50 // 20ms frames
+	closeOnce := &s.closeOnce
 
 	go func() {
 		defer close(out)
-		defer s.closeOnce.Do(func() { close(s.stopped) })
+		defer closeOnce.Do(func() { close(stopped) })
 
 		buf := make([]int16, frameSize)
 		for {

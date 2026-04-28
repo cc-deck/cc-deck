@@ -44,12 +44,16 @@ func (s *WhisperServer) Start(ctx context.Context) error {
 	}
 
 	s.mu.Lock()
+	if s.cmd != nil {
+		s.mu.Unlock()
+		return nil
+	}
 	if _, err := exec.LookPath("whisper-server"); err != nil {
 		s.mu.Unlock()
 		return fmt.Errorf("whisper-server not found in PATH; install: brew install whisper-cpp")
 	}
 
-	cmdCtx, cancel := context.WithCancel(ctx)
+	cmdCtx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(cmdCtx, "whisper-server",
 		"-m", s.modelPath,
 		"--host", "127.0.0.1",
@@ -144,7 +148,7 @@ func (s *WhisperServer) Healthy(ctx context.Context) bool {
 		return false
 	}
 	resp.Body.Close()
-	return true
+	return resp.StatusCode >= 200 && resp.StatusCode < 300
 }
 
 func (s *WhisperServer) waitReady(ctx context.Context) error {
