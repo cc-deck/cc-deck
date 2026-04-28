@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	headerLines = 5 // title, device+mode, level bar, blank line, separator
+	headerLines = 6 // title, title-separator, workspace, device+mode, level bar, separator
 )
 
 // Update handles incoming messages.
