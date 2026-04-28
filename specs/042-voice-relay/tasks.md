@@ -157,11 +157,11 @@
 
 **Purpose**: Documentation, cleanup, and quality improvements
 
-- [ ] T045 [P] Update README.md with voice relay feature description, usage examples, and spec table entry for 042-voice-relay
-- [ ] T046 [P] Update CLI reference in docs/modules/reference/pages/cli.adoc with ws voice and ws pipe command documentation (flags, usage, examples)
-- [ ] T047 Add --list-devices flag implementation to ws voice command in cc-deck/internal/cmd/ws_voice.go: enumerate devices via AudioSource.ListDevices(), print list, exit
-- [ ] T048 Verify make test passes for both Go and Rust test suites
-- [ ] T049 Verify make lint passes for both Go and Rust linting
+- [X] T045 [P] Update README.md with voice relay feature description, usage examples, and spec table entry for 042-voice-relay
+- [X] T046 [P] Update CLI reference in docs/modules/reference/pages/cli.adoc with ws voice and ws pipe command documentation (flags, usage, examples)
+- [X] T047 Add --list-devices flag implementation to ws voice command in cc-deck/internal/cmd/ws_voice.go: enumerate devices via AudioSource.ListDevices(), print list, exit
+- [X] T048 Verify make test passes for both Go and Rust test suites
+- [X] T049 Verify make lint passes for both Go and Rust linting
 - [ ] T050 Run quickstart.md validation: execute the quickstart steps manually to verify end-to-end flow
 
 ---
