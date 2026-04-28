@@ -128,11 +128,11 @@
 
 ### Implementation for User Story 5
 
-- [ ] T038 [P] [US5] Implement model info registry in cc-deck/internal/voice/setup.go: ModelInfo structs for tiny.en, base.en, small.en, medium with URLs, expected sizes, and file names
-- [ ] T039 [P] [US5] Implement dependency checker in cc-deck/internal/voice/setup.go: check for whisper-server and whisper-cli in PATH, report availability, print platform-specific install instructions
-- [ ] T040 [US5] Implement model download with progress in cc-deck/internal/voice/setup.go: HTTP GET from Hugging Face URL to ~/.cache/cc-deck/models/, progress bar output, file size validation, re-download on corruption
-- [ ] T041 [US5] Add --setup flag handling to cc-deck ws voice command in cc-deck/internal/cmd/ws_voice.go: run dependency check, model download, report readiness
-- [ ] T042 [US5] Add startup validation to VoiceRelay in cc-deck/internal/voice/relay.go: check model exists and is valid before starting, error with setup instructions if missing
+- [X] T038 [P] [US5] Implement model info registry in cc-deck/internal/voice/setup.go: ModelInfo structs for tiny.en, base.en, small.en, medium with URLs, expected sizes, and file names
+- [X] T039 [P] [US5] Implement dependency checker in cc-deck/internal/voice/setup.go: check for whisper-server and whisper-cli in PATH, report availability, print platform-specific install instructions
+- [X] T040 [US5] Implement model download with progress in cc-deck/internal/voice/setup.go: HTTP GET from Hugging Face URL to ~/.cache/cc-deck/models/, progress bar output, file size validation, re-download on corruption
+- [X] T041 [US5] Add --setup flag handling to cc-deck ws voice command in cc-deck/internal/cmd/ws_voice.go: run dependency check, model download, report readiness
+- [X] T042 [US5] Add startup validation to VoiceRelay in cc-deck/internal/voice/relay.go: check model exists and is valid before starting, error with setup instructions if missing
 
 **Checkpoint**: Setup flow works end-to-end. Model downloads with progress. Missing dependencies show clear instructions.
 
@@ -146,8 +146,8 @@
 
 ### Implementation for User Story 6
 
-- [ ] T043 [US6] Implement session focus tracking in VoiceRelay orchestrator in cc-deck/internal/voice/relay.go: query attended session state before each utterance delivery, update target pane ID on change
-- [ ] T044 [US6] Update TUI to show current target session in cc-deck/internal/tui/voice/view.go: display attended session name, show warning when no session is attended
+- [X] T043 [US6] Implement session focus tracking in VoiceRelay orchestrator in cc-deck/internal/voice/relay.go: query attended session state before each utterance delivery, update target pane ID on change
+- [X] T044 [US6] Update TUI to show current target session in cc-deck/internal/tui/voice/view.go: display attended session name, show warning when no session is attended
 
 **Checkpoint**: Voice relay follows session focus changes. Text always goes to the currently attended session.
 

@@ -104,6 +104,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "resumed":
 			m.paused = false
 			m.resizeViewport()
+		case "target_changed":
+			m.session = msg.Text
 		}
 		return m, waitForEvent(m.relay)
 	}
