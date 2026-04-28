@@ -46,6 +46,19 @@ When deploying containerized sessions, cc-deck can restrict outbound network acc
 
 When creating a remote environment, cc-deck can automatically clone git repositories into the workspace. Declare repos in the environment definition or pass them via `--repo` flags. Running `ws new` inside a git repository auto-detects the current project and includes it in the clone list. Credentials are transported via SSH agent forwarding or token injection with post-clone cleanup, depending on the environment type. Up to four repos are cloned in parallel, and the operation is fully idempotent.
 
+### Voice Relay
+
+Voice relay lets you dictate into any workspace session using local speech-to-text. Audio is captured from your microphone and transcribed on your machine via whisper.cpp, so nothing leaves the local network except the resulting text. Two capture modes are available: VAD (voice activity detection) listens continuously and segments speech automatically, while PTT (push-to-talk) records only when you hold F8. Saying "submit" or "enter" as a standalone phrase sends a newline to submit the prompt.
+
+```bash
+# One-time setup: install whisper.cpp and download a model
+brew install whisper-cpp
+cc-deck ws voice --setup
+
+# Start voice relay for a workspace (in a second terminal)
+cc-deck ws voice my-project
+```
+
 ### Multi-Platform
 
 Run cc-deck locally with Zellij, in Podman containers with mounted source code, or on Kubernetes clusters with persistent StatefulSet-backed workspaces. OpenShift is detected automatically and generates Routes and EgressFirewall resources. The sidebar experience is the same everywhere.
@@ -514,4 +527,4 @@ cc-deck follows [Spec-Driven Development](CONTRIBUTING.md#spec-driven-developmen
 | [038](specs/038-workspace-repos/) | Workspace Repos | Auto-clone git repos into remote workspaces during `ws new`, with credential transport and CLI flags | In Progress |
 | [039](specs/039-cli-rename-ws-build/) | CLI Rename: Workspace & Build | Rename `env` to `ws`, `setup` to `build`, new `config` parent, promote `attach`/`ls`/`exec` to top level | In Progress |
 | [041](specs/041-workspace-channels/) | Workspace Channels | Typed channel abstractions (Pipe, Data, Git) for unified local-to-remote transport across all workspace types | In Progress |
-| [042](specs/042-voice-relay/) | Voice Relay | Local speech-to-text dictation into remote agent sessions via whisper.cpp, VAD, PTT, and permission safety | In Progress |
+| [042](specs/042-voice-relay/) | Voice Relay | Local speech-to-text dictation into remote agent sessions via whisper.cpp, VAD, PTT, and permission safety | Implemented |
