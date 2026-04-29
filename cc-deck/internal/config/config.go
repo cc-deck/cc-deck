@@ -41,7 +41,8 @@ type Defaults struct {
 
 // VoiceDefaults holds default values for the voice relay.
 type VoiceDefaults struct {
-	Threshold *int `yaml:"threshold,omitempty"`
+	Threshold *int                `yaml:"threshold,omitempty"`
+	Commands  map[string][]string `yaml:"commands,omitempty"`
 }
 
 // Session represents a running or previously deployed Claude Code session.

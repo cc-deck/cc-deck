@@ -20,5 +20,5 @@ type Transcriber interface {
 type TranscriptionResult struct {
 	Text          string
 	IsCommand     bool
-	CommandAction string // "submit" or "enter" when IsCommand is true
+	CommandAction string // action name (e.g. "submit") when IsCommand is true
 }

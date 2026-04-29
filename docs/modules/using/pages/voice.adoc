@@ -61,8 +61,9 @@ cc-deck ws voice my-project
 The voice TUI opens with an audio level meter and a scrollable transcript.
 Start speaking and your words appear in the Claude Code input of the attended pane.
 
-To submit the prompt, say "submit" or "enter" as a standalone phrase.
-cc-deck recognizes these as command words and sends a newline instead of the literal text.
+To submit the prompt, say "send" as a standalone word.
+cc-deck recognizes this as a command word and sends a newline instead of the literal text.
+Additional command words can be configured in `~/.config/cc-deck/config.yaml`.
 
 Press `q` to quit the voice TUI and shut down the whisper server.
 
@@ -231,6 +232,26 @@ All voice settings can be overridden per invocation:
 | `false`
 | Write detailed diagnostic logs to `~/.local/state/cc-deck/voice.log`.
 |===
+
+=== Command Words
+
+By default, saying "send" as a standalone word submits the current prompt (sends a newline).
+You can configure additional trigger words or define new actions in the config file:
+
+[source,yaml]
+----
+defaults:
+  voice:
+    commands:
+      submit:
+        - send
+        - done
+        - enter
+----
+
+Each key under `commands` is an action name, and the list contains trigger words for that action.
+When you set `commands` in the config, it replaces the defaults entirely.
+Filler words (um, uh, hmm) are stripped before matching, so "um, send" still triggers the command.
 
 === Diagnostic Logging
 

@@ -28,6 +28,7 @@ type RelayConfig struct {
 	SampleRate int
 	VADConfig  VADConfig
 	Verbose    bool
+	Commands   map[string]string // word -> action lookup (built by BuildCommandMap)
 }
 
 // DefaultRelayConfig returns sensible defaults for the relay.
@@ -36,6 +37,7 @@ func DefaultRelayConfig() RelayConfig {
 		Mode:       "vad",
 		SampleRate: 16000,
 		VADConfig:  DefaultVADConfig(),
+		Commands:   BuildCommandMap(DefaultCommands),
 	}
 }
 
@@ -510,7 +512,7 @@ func (r *VoiceRelay) handleUtterance(ctx context.Context, u Utterance) {
 	}
 
 	latency := time.Since(start)
-	result := ProcessStopwords(text)
+	result := ProcessStopwords(text, r.config.Commands)
 
 	if r.config.Verbose {
 		log.Printf("[voice] stopword: text=%q isCommand=%v action=%q latency=%s",
@@ -525,7 +527,12 @@ func (r *VoiceRelay) handleUtterance(ctx context.Context, u Utterance) {
 
 	var payload string
 	if result.IsCommand {
-		payload = "\r"
+		switch result.CommandAction {
+		case "submit":
+			payload = "\r"
+		default:
+			payload = "\r"
+		}
 	} else {
 		payload = result.Text + " "
 	}

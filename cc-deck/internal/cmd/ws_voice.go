@@ -117,8 +117,13 @@ func runVoiceRelay(wsName, mode, modelName string, verbose bool, port int, thres
 	config.Verbose = verbose
 
 	thresholdPct := voice.ThresholdToPercent(config.VADConfig.Threshold)
-	if cfg, err := ccconfig.Load(""); err == nil && cfg.Defaults.Voice.Threshold != nil {
-		thresholdPct = *cfg.Defaults.Voice.Threshold
+	if cfg, err := ccconfig.Load(""); err == nil {
+		if cfg.Defaults.Voice.Threshold != nil {
+			thresholdPct = *cfg.Defaults.Voice.Threshold
+		}
+		if len(cfg.Defaults.Voice.Commands) > 0 {
+			config.Commands = voice.BuildCommandMap(cfg.Defaults.Voice.Commands)
+		}
 	}
 	if thresholdFlag >= 0 {
 		thresholdPct = thresholdFlag

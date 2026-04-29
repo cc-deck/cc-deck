@@ -158,7 +158,7 @@ func TestVoiceRelay_TextFlowsToSender(t *testing.T) {
 
 func TestVoiceRelay_CommandWordSendsNewline(t *testing.T) {
 	audio := newMockAudioSource(makeSpeech(500, 5000), makeSilence(500))
-	transcriber := &mockTranscriber{results: []string{"submit"}}
+	transcriber := &mockTranscriber{results: []string{"send"}}
 	pipe := &mockPipeSender{}
 
 	config := DefaultRelayConfig()
@@ -185,7 +185,7 @@ func TestVoiceRelay_CommandWordSendsNewline(t *testing.T) {
 
 func TestVoiceRelay_NonCommandRelaysFullText(t *testing.T) {
 	audio := newMockAudioSource(makeSpeech(500, 5000), makeSilence(500))
-	transcriber := &mockTranscriber{results: []string{"please submit the form"}}
+	transcriber := &mockTranscriber{results: []string{"please send the email"}}
 	pipe := &mockPipeSender{}
 
 	config := DefaultRelayConfig()
@@ -205,7 +205,7 @@ func TestVoiceRelay_NonCommandRelaysFullText(t *testing.T) {
 	if len(sent) == 0 {
 		t.Fatal("expected at least one send, got none")
 	}
-	if sent[0].payload != "please submit the form " {
+	if sent[0].payload != "please send the email " {
 		t.Errorf("payload = %q, want full text with trailing space", sent[0].payload)
 	}
 }
