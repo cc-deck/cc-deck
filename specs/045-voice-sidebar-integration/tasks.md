@@ -64,13 +64,13 @@
 
 ## Phase 4: User Story 2 - Mute Toggle from Sidebar (Priority: P1)
 
-**Goal**: Toggle voice mute via `Alt+v` global shortcut, `v` key in navigation mode, or clicking the ♫ indicator.
+**Goal**: Toggle voice mute via `Alt+m` global shortcut, `m` key in navigation mode, or clicking the ♫ indicator.
 
-**Independent Test**: Start voice relay. Press `Alt+v`. The ♫ dims and voice TUI shows muted state. Press `Alt+v` again. The ♫ brightens and dictation resumes.
+**Independent Test**: Start voice relay. Press `Alt+m`. The ♫ dims and voice TUI shows muted state. Press `Alt+m` again. The ♫ brightens and dictation resumes.
 
 ### Implementation for User Story 2
 
-- [X] T021 [P] [US2] Add `voice_key` config field (default `"Alt v"`) to `PluginConfig` in `cc-zellij-plugin/src/config.rs`. Parse from KDL configuration map.
+- [X] T021 [P] [US2] Add `voice_key` config field (default `"Alt m"`) to `PluginConfig` in `cc-zellij-plugin/src/config.rs`. Parse from KDL configuration map.
 - [X] T022 [US2] Register `voice_key` as a Zellij keybinding in `register_keybindings()` in `cc-zellij-plugin/src/controller/events.rs`: bind configured key to `MessagePluginId` with name `cc-deck:voice-mute-toggle`.
 - [X] T023 [US2] Add `VoiceMuteToggle` variant to `PipeAction` enum in `cc-zellij-plugin/src/pipe_handler.rs` for the `cc-deck:voice-mute-toggle` pipe name.
 - [X] T024 [US2] Handle `VoiceMuteToggle` in the controller pipe handler in `cc-zellij-plugin/src/controller/mod.rs`: if `voice_enabled`, set `voice_mute_requested` to `Some(!voice_muted)` and mark render dirty. If not connected, ignore silently. Note: rapid toggles before the CLI polls are safe because each toggle overwrites the requested state (not a counter), so the final state is always correct. The CLI acknowledges by sending `[[voice:mute/unmute]]`, which clears the request.
@@ -137,7 +137,7 @@
 
 **Purpose**: Documentation, help overlay, and final validation.
 
-- [X] T040 [P] Update help overlay in `cc-zellij-plugin/src/sidebar_plugin/render.rs` (`render_help_overlay`): add `Alt+v  Voice mute` entry and `v` key in navigation mode actions.
+- [X] T040 [P] Update help overlay in `cc-zellij-plugin/src/sidebar_plugin/render.rs` (`render_help_overlay`): add `Alt+m  Voice mute` entry and `m` key in navigation mode actions.
 - [X] T041 [P] Update CLI reference documentation in `docs/modules/reference/pages/cli.adoc`: add voice mute toggle, remove PTT mode, document `voice_key` config.
 - [X] T042 [P] Update configuration reference in `docs/modules/reference/pages/configuration.adoc`: add `voice_key` plugin config option.
 - [X] T043 [P] Add Antora guide page for voice sidebar integration in `docs/modules/guides/pages/voice-sidebar.adoc`: explain mute toggle, ♫ indicator, command protocol overview.
@@ -217,7 +217,7 @@ Task T016: Add CLI-side unit tests in relay_test.go
 1. Complete Phase 1: PTT Removal (clears the way)
 2. Complete Phase 2: Command Protocol (foundation)
 3. Complete Phase 3: Voice Status Visibility (♫ in sidebar)
-4. Complete Phase 4: Sidebar Mute Toggle (Alt+v, click, nav key)
+4. Complete Phase 4: Sidebar Mute Toggle (Alt+m, click, nav key)
 5. **STOP and VALIDATE**: Test mute from sidebar, verify ♫ visual feedback
 6. Deploy/demo if ready
 

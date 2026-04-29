@@ -118,7 +118,7 @@ Plugin settings are specified in the layout file's plugin block:
 plugin location="file:~/.config/zellij/plugins/cc_deck.wasm" {
     navigate_key "Alt s"      // Key to toggle navigation mode
     attend_key "Alt a"        // Key for smart attend
-    voice_key "Alt v"         // Key for voice mute toggle
+    voice_key "Alt m"         // Key for voice mute toggle
 }
 ----
 
@@ -135,7 +135,7 @@ plugin location="file:~/.config/zellij/plugins/cc_deck.wasm" {
 | Global shortcut for smart attend
 
 | `voice_key`
-| `Alt v`
+| `Alt m`
 | Global shortcut for voice mute toggle
 |===
 

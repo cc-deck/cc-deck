@@ -25,7 +25,7 @@ Add voice relay state visibility to the cc-deck sidebar (♫ indicator with brig
 
 | Principle | Status | Notes |
 |-----------|--------|-------|
-| Tests + documentation | PASS | Unit tests required for command protocol parsing, voice state management, mute toggle. CLI reference and Antora docs for `Alt+v` / `voice_key` config. |
+| Tests + documentation | PASS | Unit tests required for command protocol parsing, voice state management, mute toggle. CLI reference and Antora docs for `Alt+m` / `voice_key` config. |
 | Interface contracts | PASS | Voice command protocol is a new interface; contract defined in spec (FR-007 through FR-012). Will document in `contracts/`. |
 | Build/tool rules | PASS | Use `make install`, `make test`, `make lint`. No direct cargo/go build. Use internal/xdg, podman. |
 
