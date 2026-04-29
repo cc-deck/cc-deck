@@ -106,6 +106,16 @@ pub fn handle_timer(state: &mut ControllerState, _elapsed: f64) {
     // After startup grace expires, run one deferred cleanup pass.
     if state.startup_grace_until.is_some() && !state.in_startup_grace() {
         state.startup_grace_until = None;
+        // Remove restored sessions that were never confirmed by a hook event.
+        if !state.unconfirmed_pane_ids.is_empty() {
+            let count = state.unconfirmed_pane_ids.len();
+            for pane_id in state.unconfirmed_pane_ids.drain() {
+                state.sessions.remove(&pane_id);
+            }
+            crate::debug_log(&format!("CTRL CLEANUP removed {count} unconfirmed restored sessions"));
+            state.save_sessions();
+            state.mark_render_dirty();
+        }
         if state.remove_dead_sessions() {
             state.save_sessions();
             state.mark_render_dirty();

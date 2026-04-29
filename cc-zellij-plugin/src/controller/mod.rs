@@ -91,6 +91,7 @@ impl ZellijPlugin for ControllerPlugin {
                     // Restore persisted sessions (reattach recovery)
                     let restored = ControllerState::restore_sessions();
                     if !restored.is_empty() {
+                        self.state.unconfirmed_pane_ids = restored.keys().copied().collect();
                         self.state.merge_sessions(restored);
                     }
                     // Grace period lets the pane manifest stabilize before

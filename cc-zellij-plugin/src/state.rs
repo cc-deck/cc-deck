@@ -258,6 +258,10 @@ pub struct PluginState {
     /// Prevents the startup race condition where early PaneUpdate events deliver
     /// incomplete manifests that would wipe restored cached sessions.
     pub startup_grace_until: Option<u64>,
+    /// Pane IDs restored from cache that have not yet been confirmed by a hook
+    /// event. After the startup grace period, any pane still in this set is a
+    /// stale leftover (e.g., from PID reuse after --reset) and gets removed.
+    pub unconfirmed_pane_ids: std::collections::HashSet<u32>,
     /// Pane IDs with in-flight git branch detection commands.
     /// Prevents spawning duplicate `run_command` calls that leak file descriptors.
     pub pending_git_branch: std::collections::HashSet<u32>,
@@ -681,6 +685,46 @@ mod tests {
 
         let changed = state.remove_dead_sessions();
         assert!(!changed);
+        assert_eq!(state.sessions.len(), 2);
+    }
+
+    #[test]
+    fn test_unconfirmed_restored_sessions_removed_after_grace() {
+        let mut state = PluginState::default();
+        // Simulate restoring sessions from cache (PID reuse scenario)
+        state.sessions.insert(10, make_session(10));
+        state.sessions.insert(20, make_session(20));
+        state.unconfirmed_pane_ids.insert(10);
+        state.unconfirmed_pane_ids.insert(20);
+        // Both panes exist in the manifest (pane ID collision)
+        state.pane_manifest = Some(make_manifest(&[10, 20]));
+
+        // Simulate hook event confirming pane 10 is real
+        state.unconfirmed_pane_ids.remove(&10);
+
+        // After grace: remove unconfirmed sessions
+        for pane_id in state.unconfirmed_pane_ids.drain() {
+            state.sessions.remove(&pane_id);
+        }
+
+        assert_eq!(state.sessions.len(), 1);
+        assert!(state.sessions.contains_key(&10));
+        assert!(!state.sessions.contains_key(&20));
+    }
+
+    #[test]
+    fn test_unconfirmed_all_confirmed_keeps_all() {
+        let mut state = PluginState::default();
+        state.sessions.insert(10, make_session(10));
+        state.sessions.insert(20, make_session(20));
+        state.unconfirmed_pane_ids.insert(10);
+        state.unconfirmed_pane_ids.insert(20);
+
+        // Both confirmed by hook events
+        state.unconfirmed_pane_ids.remove(&10);
+        state.unconfirmed_pane_ids.remove(&20);
+
+        assert!(state.unconfirmed_pane_ids.is_empty());
         assert_eq!(state.sessions.len(), 2);
     }
 
