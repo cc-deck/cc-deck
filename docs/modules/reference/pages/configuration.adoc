@@ -24,12 +24,22 @@ verbose: false
 defaults:
   voice:
     threshold: 45    # VAD sensitivity (0-100, logarithmic)
+    commands:         # Custom command words (optional)
+      submit:
+        - send
+        - done
+        - enter
 ----
 
 The `defaults.voice.threshold` setting controls how sensitive voice activity detection is.
 Lower values capture quieter speech but pick up more background noise.
 A value between 30 and 50 works well for most indoor environments.
 This value can be overridden per invocation with `--threshold`.
+
+The `defaults.voice.commands` setting maps action names to trigger words.
+The default action is `submit` with the trigger word "send".
+When you set `commands` in the config, it replaces the defaults entirely.
+Future actions (such as switching to the next waiting session) can be added here as new keys.
 
 == Environment Variables
 
