@@ -48,7 +48,7 @@ When creating a remote environment, cc-deck can automatically clone git reposito
 
 ### Voice Relay
 
-Voice relay lets you dictate into any workspace session using local speech-to-text. Audio is captured from your microphone and transcribed on your machine via whisper.cpp, so nothing leaves the local network except the resulting text. Two capture modes are available: VAD (voice activity detection) listens continuously and segments speech automatically, while PTT (push-to-talk) records only when you hold F8. Saying "submit" or "enter" as a standalone phrase sends a newline to submit the prompt.
+Voice relay lets you dictate into any workspace session using local speech-to-text. Audio is captured from your microphone and transcribed on your machine via whisper.cpp, so nothing leaves the local network except the resulting text. Two capture modes are available: VAD (voice activity detection) listens continuously and segments speech automatically, while PTT (push-to-talk) records only when you hold F8. Saying "send" as a standalone word sends a newline to submit the prompt. Additional command words can be configured in `~/.config/cc-deck/config.yaml`.
 
 ```bash
 # One-time setup: install whisper.cpp and download a model

@@ -13,9 +13,21 @@ var fillerWords = map[string]bool{
 	"er":  true,
 }
 
-var commandWords = map[string]string{
-	"submit": "submit",
-	"enter":  "enter",
+// DefaultCommands maps action names to their default trigger words.
+var DefaultCommands = map[string][]string{
+	"submit": {"send"},
+}
+
+// BuildCommandMap flattens an action-to-words map into a word-to-action
+// lookup table for use by ProcessStopwords.
+func BuildCommandMap(actions map[string][]string) map[string]string {
+	m := make(map[string]string)
+	for action, words := range actions {
+		for _, w := range words {
+			m[strings.ToLower(w)] = action
+		}
+	}
+	return m
 }
 
 // IsWhisperArtifact returns true if the text is a non-speech transcription
@@ -61,10 +73,16 @@ func IsWhisperArtifact(text string) bool {
 // ProcessStopwords analyzes transcription text for command words.
 // A command word is "standalone" when the entire text, after trimming
 // whitespace and removing filler words, equals exactly the command word.
-func ProcessStopwords(text string) TranscriptionResult {
+// The commands map is word -> action (built by BuildCommandMap).
+// If commands is nil, DefaultCommands is used.
+func ProcessStopwords(text string, commands map[string]string) TranscriptionResult {
+	if commands == nil {
+		commands = BuildCommandMap(DefaultCommands)
+	}
+
 	stripped := stripFillers(text)
 
-	if action, ok := commandWords[stripped]; ok {
+	if action, ok := commands[stripped]; ok {
 		return TranscriptionResult{
 			Text:          text,
 			IsCommand:     true,
@@ -83,7 +101,6 @@ func stripFillers(text string) string {
 	var remaining []string
 	for _, w := range words {
 		lower := strings.ToLower(w)
-		// Strip punctuation for matching
 		cleaned := strings.TrimRight(lower, ".,!?;:")
 		if !fillerWords[cleaned] {
 			remaining = append(remaining, cleaned)
