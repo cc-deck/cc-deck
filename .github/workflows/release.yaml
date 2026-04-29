@@ -80,3 +80,15 @@ jobs:
       # NOTE: Multi-arch (arm64) images are built and pushed locally via:
       #   make base-image-push
       #   make demo-image-push
+
+  publish-docs:
+    name: Publish Documentation
+    runs-on: ubuntu-latest
+    needs: release
+    steps:
+      - name: Trigger docs rebuild
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.DOCS_DISPATCH_TOKEN }}
+          repository: cc-deck/cc-deck.github.io
+          event-type: docs-updated
