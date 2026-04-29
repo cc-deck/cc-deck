@@ -70,6 +70,9 @@ pub struct ControllerState {
     pub keybindings_registered: bool,
     /// Tab count from last TabUpdate. Used to detect tab closures.
     pub last_tab_count: usize,
+    /// Pane IDs restored from cache that have not yet been confirmed by a hook
+    /// event. After the startup grace period, unconfirmed sessions are removed.
+    pub unconfirmed_pane_ids: HashSet<u32>,
     /// Pane IDs with in-flight git branch detection commands.
     pub pending_git_branch: HashSet<u32>,
     /// Timestamp (ms) of the last timer-driven git branch poll.
@@ -500,6 +503,28 @@ mod tests {
         assert!(state.in_startup_grace());
         // Caller should check in_startup_grace() before calling remove_dead_sessions
         assert_eq!(state.sessions.len(), 2);
+    }
+
+    #[test]
+    fn test_unconfirmed_restored_sessions_removed() {
+        let mut state = ControllerState::default();
+        state.sessions.insert(10, make_session(10));
+        state.sessions.insert(20, make_session(20));
+        state.unconfirmed_pane_ids.insert(10);
+        state.unconfirmed_pane_ids.insert(20);
+        state.pane_manifest = Some(make_manifest(&[10, 20]));
+
+        // Confirm pane 10 via hook
+        state.unconfirmed_pane_ids.remove(&10);
+
+        // Simulate grace period expiry cleanup
+        for pane_id in state.unconfirmed_pane_ids.drain() {
+            state.sessions.remove(&pane_id);
+        }
+
+        assert_eq!(state.sessions.len(), 1);
+        assert!(state.sessions.contains_key(&10));
+        assert!(!state.sessions.contains_key(&20));
     }
 
     #[test]

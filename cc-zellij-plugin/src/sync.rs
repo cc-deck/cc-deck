@@ -94,7 +94,7 @@ pub fn broadcast_state(state: &PluginState) {
     use zellij_tile::prelude::*;
     let pid = current_zellij_pid();
     let payload = serde_json::to_string(&state.sessions).unwrap_or_default();
-    let mut msg = MessageToPlugin::new(&sync_message_name(pid));
+    let mut msg = MessageToPlugin::new(sync_message_name(pid));
     msg.message_payload = Some(payload);
     pipe_message_to_plugin(msg);
 }
@@ -113,7 +113,7 @@ pub fn broadcast_and_save(state: &PluginState) {
     let pid = current_zellij_pid();
     let json = serde_json::to_string(&state.sessions).unwrap_or_default();
     // Broadcast via pipe with PID-scoped name
-    let mut msg = MessageToPlugin::new(&sync_message_name(pid));
+    let mut msg = MessageToPlugin::new(sync_message_name(pid));
     msg.message_payload = Some(json.clone());
     pipe_message_to_plugin(msg);
     // Save to PID-scoped file (no separate PID file needed)
@@ -146,7 +146,7 @@ pub fn flush_if_dirty(state: &mut PluginState) {
 pub fn request_state() {
     use zellij_tile::prelude::*;
     let pid = current_zellij_pid();
-    pipe_message_to_plugin(MessageToPlugin::new(&request_message_name(pid)));
+    pipe_message_to_plugin(MessageToPlugin::new(request_message_name(pid)));
 }
 
 #[cfg(not(target_family = "wasm"))]
