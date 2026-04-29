@@ -408,7 +408,7 @@ impl ZellijPlugin for UnifiedPlugin {
             };
             let flag = format!("/cache/unified_update_{}", variant);
             if std::fs::metadata(&flag).is_err() {
-                let _ = std::fs::write(&flag, format!("first update event received\n"));
+                let _ = std::fs::write(&flag, "first update event received\n");
             }
         }
         match self {
@@ -650,6 +650,7 @@ impl ZellijPlugin for PluginState {
                 // Restore persisted sessions (reattach recovery)
                 let restored = sync::restore_sessions();
                 if !restored.is_empty() {
+                    self.unconfirmed_pane_ids = restored.keys().copied().collect();
                     self.merge_sessions(restored);
                     // Defer dead session cleanup for 3 seconds to let the
                     // pane manifest stabilize before reconciliation.
@@ -756,6 +757,8 @@ impl ZellijPlugin for PluginState {
 
         let result = match action {
             PipeAction::HookEvent(hook) => {
+                self.unconfirmed_pane_ids.remove(&hook.pane_id);
+
                 if is_session_end(&hook.hook_event_name) {
                     let removed = self.sessions.remove(&hook.pane_id).is_some();
                     if removed {
@@ -1449,7 +1452,20 @@ impl PluginState {
                 // may arrive to trigger cleanup, so the timer handles it.
                 if self.startup_grace_until.is_some() && !self.in_startup_grace() {
                     self.startup_grace_until = None;
-                    if self.remove_dead_sessions() {
+                    // Remove restored sessions that were never confirmed by a
+                    // hook event. These are stale leftovers from PID reuse
+                    // (e.g., after --reset recreates the Zellij session).
+                    let mut cleaned = false;
+                    if !self.unconfirmed_pane_ids.is_empty() {
+                        let count = self.unconfirmed_pane_ids.len();
+                        for pane_id in self.unconfirmed_pane_ids.drain() {
+                            self.sessions.remove(&pane_id);
+                        }
+                        debug_log(&format!("CLEANUP removed {count} unconfirmed restored sessions"));
+                        cleaned = true;
+                    }
+                    cleaned |= self.remove_dead_sessions();
+                    if cleaned {
                         sync::broadcast_and_save(self);
                         sync::prune_session_meta(&self.sessions);
                     }

@@ -12,6 +12,8 @@ use crate::session::{self, Activity, Session};
 
 /// Process a hook event from the CLI. Returns true if state changed visibly.
 pub fn process_hook(state: &mut ControllerState, hook: HookPayload) -> bool {
+    state.unconfirmed_pane_ids.remove(&hook.pane_id);
+
     // SessionEnd: remove the session entirely
     if is_session_end(&hook.hook_event_name) {
         let removed = state.sessions.remove(&hook.pane_id).is_some();
