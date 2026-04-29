@@ -94,7 +94,7 @@ The push-to-talk mode and its associated long-poll pipe are removed. The `--mode
 
 ### Edge Cases
 
-- Voice relay connects, then crashes without sending `[[voice:off]]`. The plugin should handle stale connection state (timeout or next `[[voice:on]]` resets).
+- Voice relay connects, then crashes without sending `[[voice:off]]`. The plugin tracks voice liveness via the dump-state polling loop (the CLI polls every 1 second). If no dump-state request arrives for 15 seconds, the plugin clears the voice state and removes the ♫ indicator. A subsequent `[[voice:on]]` resets the state normally.
 - Two voice relay instances try to connect to the same workspace simultaneously. Only one should be active.
 - Mute toggle is pressed rapidly multiple times. State should not get out of sync.
 - Voice relay is running but the workspace Zellij session is restarted. The ♫ should disappear and reappear when the plugin reinitializes.
@@ -114,13 +114,14 @@ The push-to-talk mode and its associated long-poll pipe are removed. The `--mode
 - **FR-009**: `[[enter]]` MUST send a carriage return to the attended pane
 - **FR-010**: `[[voice:on]]` and `[[voice:off]]` MUST set the voice connection state in the plugin
 - **FR-011**: `[[voice:mute]]` and `[[voice:unmute]]` MUST synchronize mute state between CLI and plugin
-- **FR-012**: Mute toggle from sidebar MUST send a signal back to the voice CLI via pipe
+- **FR-012**: Mute toggle from sidebar MUST be communicated to the voice CLI by including a `voice_mute_requested` field in the `cc-deck:dump-state` response. The CLI picks up the toggle on its next poll cycle and acknowledges it by sending `[[voice:mute]]` or `[[voice:unmute]]` back to the plugin
 - **FR-013**: Mute state MUST be consistent across sidebar and voice TUI at all times
 - **FR-014**: Voice TUI MUST display mute state visually in the TUI header
 - **FR-015**: The `m` key in voice TUI MUST toggle mute/unmute
 - **FR-016**: PTT mode MUST be removed, including `--mode` CLI flag and voice-control long-poll pipe
 - **FR-017**: Voice CLI MUST send `[[voice:on]]` on startup and `[[voice:off]]` on shutdown
 - **FR-018**: The `Alt+v` shortcut key MUST be configurable via `voice_key` in the plugin layout config
+- **FR-019**: The plugin MUST use dump-state polling as the voice heartbeat signal: each `cc-deck:dump-state` request refreshes the voice liveness timestamp when voice is enabled. The plugin MUST clear voice state if no dump-state request arrives for 15 seconds. No dedicated `[[voice:ping]]` messages are sent, avoiding the risk of text injection from unrecognized commands.
 
 ### Key Entities
 
@@ -133,15 +134,22 @@ The push-to-talk mode and its associated long-poll pipe are removed. The `--mode
 ### Measurable Outcomes
 
 - **SC-001**: Voice connection state is visible in the sidebar within 1 second of voice relay starting or stopping
-- **SC-002**: Mute toggle from any source (shortcut, nav key, click, TUI) reflects in both sidebar and voice TUI within 200ms
+- **SC-002**: Mute toggle from CLI-initiated sources (shortcut, nav key, click) reflects in the sidebar within 200ms. Sidebar-initiated mute toggles reflect in the voice TUI within 1 second (bounded by the dump-state poll interval)
 - **SC-003**: Dictated text continues to arrive in the attended pane within 5 seconds end-to-end (unchanged from current behavior)
 - **SC-004**: The `[[command]]` protocol correctly separates 100% of control signals from dictation text (no false positives where text starting with `[[` is misinterpreted)
 - **SC-005**: PTT mode code and voice-control pipe are fully removed with no remaining references
 
+## Clarifications
+
+### Session 2026-04-29
+
+- Q: How should the plugin detect a crashed voice relay that never sent `[[voice:off]]`? → A: Dump-state polling serves as heartbeat; plugin clears voice state after 15s without a dump-state request
+- Q: How should the plugin communicate sidebar mute toggles back to the voice CLI? → A: Include `voice_mute_requested` in the existing `cc-deck:dump-state` response; CLI picks it up on next poll cycle
+- Q: What poll interval for dump-state is acceptable for sidebar-initiated mute propagation? → A: 1 second (sidebar-to-CLI mute takes up to ~1s worst case)
+
 ## Assumptions
 
-- The existing `cc-deck:voice` pipe is sufficient for bidirectional communication (commands flow both directions on the same pipe name)
+- The existing `cc-deck:voice` pipe carries CLI-to-plugin commands. The plugin-to-CLI backchannel uses the existing `cc-deck:dump-state` poll response (no new pipe needed)
 - The sidebar plugin can register an additional click region for a single character (♫) on the status line
-- Mute from the sidebar triggers a pipe message that the voice CLI process receives and acts on (the CLI must be listening for incoming pipe messages)
 - The `[[` prefix does not conflict with any natural speech transcription (Whisper does not produce text starting with `[[`)
 - Color values for bright and dim ♫ will follow the existing indicator palette used for session state icons

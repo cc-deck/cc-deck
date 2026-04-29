@@ -213,6 +213,10 @@ pub fn toggle_navigate(state: &mut SidebarState) {
 fn handle_left_click(state: &mut SidebarState, row: usize) -> bool {
     // Check for special click regions
     if let Some(&(_r, pane_id, _)) = state.click_regions.iter().find(|(r, _, _)| *r == row) {
+        if pane_id == super::render::VOICE_CLICK_SENTINEL {
+            send_action(state, ActionType::VoiceMute, None, None, None);
+            return true;
+        }
         if pane_id == u32::MAX - 1 {
             // Header clicked: enter/cycle navigate mode
             toggle_navigate(state);
@@ -414,6 +418,10 @@ fn handle_navigate_key(state: &mut SidebarState, key: KeyWithModifier) -> bool {
         }
         BareKey::Char('?') | BareKey::F(1) => {
             state.mode.toggle_help();
+            true
+        }
+        BareKey::Char('m') => {
+            send_action(state, ActionType::VoiceMute, None, None, None);
             true
         }
         BareKey::Char('n') => {

@@ -132,6 +132,20 @@ pub fn handle_timer(state: &mut ControllerState, _elapsed: f64) {
         state.mark_render_dirty();
     }
 
+    // Voice heartbeat timeout: if voice is enabled but no ping for 15 seconds, clear voice state
+    if state.voice_enabled {
+        let now_ms = session::unix_now_ms();
+        if state.voice_last_ping_ms > 0
+            && now_ms.saturating_sub(state.voice_last_ping_ms) > 15000
+        {
+            state.voice_enabled = false;
+            state.voice_muted = false;
+            state.voice_mute_requested = None;
+            state.mark_render_dirty();
+            crate::debug_log("CTRL TIMER: voice heartbeat timeout, clearing voice state");
+        }
+    }
+
     // Fading colors change every tick for Done/Idle sessions
     if state.sessions.values().any(|s| {
         matches!(
@@ -337,9 +351,9 @@ fn register_keybindings(state: &ControllerState) {
                 name "cc-deck:working-prev"
             }}
         }}
-        bind "F8" {{
+        bind "{voice}" {{
             MessagePluginId {id} {{
-                name "cc-deck:voice-toggle"
+                name "cc-deck:voice-mute-toggle"
             }}
         }}
     }}
@@ -350,6 +364,7 @@ fn register_keybindings(state: &ControllerState) {
         nav_prev = nav_prev,
         att_prev = att_prev,
         wrk_prev = wrk_prev,
+        voice = state.config.voice_key,
         id = plugin_id,
     );
     crate::debug_log(&format!(

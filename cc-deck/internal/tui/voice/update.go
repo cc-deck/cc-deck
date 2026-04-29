@@ -51,7 +51,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.relay.SetVADThreshold(m.relay.VADThreshold() - 2)
 			return m, nil
 		case "m":
-			return m.toggleMode()
+			wantMuted := !m.muted
+			return m, func() tea.Msg {
+				var cmd string
+				if wantMuted {
+					cmd = "[[voice:mute]]"
+				} else {
+					cmd = "[[voice:unmute]]"
+				}
+				if err := m.relay.SendMuteCommand(cmd); err != nil {
+					return relayEventMsg(voicepkg.RelayEvent{Type: "error", Err: err})
+				}
+				if wantMuted {
+					return relayEventMsg(voicepkg.RelayEvent{Type: "muted"})
+				}
+				return relayEventMsg(voicepkg.RelayEvent{Type: "unmuted"})
+			}
 		case "d":
 			devices, err := m.relay.ListDevices()
 			if err != nil || len(devices) == 0 {
@@ -94,10 +109,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "error":
 			m.err = msg.Err
 			m.resizeViewport()
-		case "ptt_recording":
-			m.mode = "ptt"
-		case "ptt_waiting":
-			m.mode = "ptt"
+		case "muted":
+			m.muted = true
+		case "unmuted":
+			m.muted = false
 		case "target_changed":
 			m.session = msg.Text
 		}
@@ -105,22 +120,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
-}
-
-func (m Model) toggleMode() (tea.Model, tea.Cmd) {
-	if m.mode == "vad" {
-		m.mode = "ptt"
-	} else {
-		m.mode = "vad"
-	}
-
-	return m, func() tea.Msg {
-		err := m.relay.SwitchMode(m.mode)
-		if err != nil {
-			return relayEventMsg(voicepkg.RelayEvent{Type: "error", Err: err})
-		}
-		return waitForEvent(m.relay)()
-	}
 }
 
 func (m *Model) resizeViewport() {

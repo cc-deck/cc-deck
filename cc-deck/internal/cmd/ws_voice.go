@@ -19,7 +19,6 @@ import (
 
 func newWsVoiceCmd(_ *GlobalFlags) *cobra.Command {
 	var (
-		mode        string
 		model       string
 		verbose     bool
 		setup       bool
@@ -32,8 +31,8 @@ func newWsVoiceCmd(_ *GlobalFlags) *cobra.Command {
 		Use:   "voice <workspace>",
 		Short: "Start voice relay to dictate into a workspace",
 		Long: `Capture audio from the local microphone, transcribe via a local
-Whisper model, and relay text into the attended agent pane. Supports
-VAD (voice activity detection) and PTT (push-to-talk via F8) modes.`,
+Whisper model, and relay text into the attended agent pane. Uses voice
+activity detection (VAD) with mute/unmute toggle.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			if setup {
@@ -45,11 +44,10 @@ VAD (voice activity detection) and PTT (push-to-talk via F8) modes.`,
 			if len(args) == 0 {
 				return fmt.Errorf("workspace name required (or use --setup / --list-devices)")
 			}
-			return runVoiceRelay(args[0], mode, model, verbose, serverPort, threshold)
+			return runVoiceRelay(args[0], model, verbose, serverPort, threshold)
 		},
 	}
 
-	cmd.Flags().StringVar(&mode, "mode", "vad", "capture mode: vad or ptt")
 	cmd.Flags().StringVar(&model, "model", "base.en", "whisper model name")
 	cmd.Flags().BoolVar(&verbose, "verbose", false, "show diagnostic details")
 	cmd.Flags().BoolVar(&setup, "setup", false, "check dependencies and download model")
@@ -64,7 +62,7 @@ func voiceLogPath() string {
 	return filepath.Join(xdg.StateHome, "cc-deck", "voice.log")
 }
 
-func runVoiceRelay(wsName, mode, modelName string, verbose bool, port int, thresholdFlag int) error {
+func runVoiceRelay(wsName, modelName string, verbose bool, port int, thresholdFlag int) error {
 	var logPath string
 	if verbose {
 		logPath = voiceLogPath()
@@ -76,7 +74,7 @@ func runVoiceRelay(wsName, mode, modelName string, verbose bool, port int, thres
 				defer logFile.Close()
 			}
 		}
-		log.Printf("[voice] starting: workspace=%s mode=%s model=%s port=%d", wsName, mode, modelName, port)
+		log.Printf("[voice] starting: workspace=%s model=%s port=%d", wsName, modelName, port)
 	}
 
 	modelPath := voice.ModelPath(modelName)
@@ -113,7 +111,6 @@ func runVoiceRelay(wsName, mode, modelName string, verbose bool, port int, thres
 	audio := voice.NewAudioSource()
 
 	config := voice.DefaultRelayConfig()
-	config.Mode = mode
 	config.Verbose = verbose
 
 	thresholdPct := voice.ThresholdToPercent(config.VADConfig.Threshold)
@@ -153,7 +150,7 @@ func runVoiceRelay(wsName, mode, modelName string, verbose bool, port int, thres
 		}
 	}()
 
-	model := voicetui.New(relay, mode, wsName, verbose, logPath)
+	model := voicetui.New(relay, wsName, verbose, logPath)
 	p := tea.NewProgram(model, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("TUI error: %w", err)
