@@ -53,7 +53,7 @@ One new field in `config.rs`:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `voice_key` | `String` | `"Alt v"` | Keybinding for global voice mute toggle |
+| `voice_key` | `String` | `"Alt m"` | Keybinding for global voice mute toggle |
 
 ## Relationships
 
