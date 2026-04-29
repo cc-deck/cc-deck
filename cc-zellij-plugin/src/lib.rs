@@ -38,6 +38,10 @@ pub struct RenderPayload {
     pub working: usize,
     pub idle: usize,
     pub controller_plugin_id: u32,
+    #[serde(default)]
+    pub voice_connected: bool,
+    #[serde(default)]
+    pub voice_muted: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -58,6 +62,7 @@ pub enum ActionType {
     Navigate,
     NewSession,
     Refresh,
+    VoiceMute,
 }
 
 /// A user-initiated action sent from a sidebar to the controller.
@@ -114,6 +119,8 @@ mod protocol_tests {
             working: 1,
             idle: 0,
             controller_plugin_id: 42,
+            voice_connected: false,
+            voice_muted: false,
         };
         let json = serde_json::to_string(&payload).unwrap();
         let restored: RenderPayload = serde_json::from_str(&json).unwrap();
@@ -173,6 +180,37 @@ mod protocol_tests {
     }
 
     #[test]
+    fn test_render_payload_voice_fields() {
+        let payload = RenderPayload {
+            sessions: vec![],
+            focused_pane_id: None,
+            active_tab_index: 0,
+            notification: None,
+            notification_expiry: None,
+            total: 0,
+            waiting: 0,
+            working: 0,
+            idle: 0,
+            controller_plugin_id: 1,
+            voice_connected: true,
+            voice_muted: false,
+        };
+        let json = serde_json::to_string(&payload).unwrap();
+        let restored: RenderPayload = serde_json::from_str(&json).unwrap();
+        assert!(restored.voice_connected);
+        assert!(!restored.voice_muted);
+    }
+
+    #[test]
+    fn test_render_payload_voice_backwards_compat() {
+        // Deserialize payload without voice fields (defaults to false)
+        let json = r#"{"sessions":[],"focused_pane_id":null,"active_tab_index":0,"notification":null,"notification_expiry":null,"total":0,"waiting":0,"working":0,"idle":0,"controller_plugin_id":1}"#;
+        let restored: RenderPayload = serde_json::from_str(json).unwrap();
+        assert!(!restored.voice_connected);
+        assert!(!restored.voice_muted);
+    }
+
+    #[test]
     fn test_render_payload_empty_sessions() {
         let payload = RenderPayload {
             sessions: vec![],
@@ -185,6 +223,8 @@ mod protocol_tests {
             working: 0,
             idle: 0,
             controller_plugin_id: 1,
+            voice_connected: false,
+            voice_muted: false,
         };
         let json = serde_json::to_string(&payload).unwrap();
         let restored: RenderPayload = serde_json::from_str(&json).unwrap();
@@ -205,6 +245,8 @@ mod protocol_tests {
             ActionType::WorkingPrev,
             ActionType::Navigate,
             ActionType::NewSession,
+            ActionType::Refresh,
+            ActionType::VoiceMute,
         ];
         for action in types {
             let msg = ActionMessage {

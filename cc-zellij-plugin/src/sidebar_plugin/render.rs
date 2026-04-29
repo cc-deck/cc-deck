@@ -43,6 +43,13 @@ pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> Vec<Cli
 
     // Header with status counts (clickable to enter navigate mode)
     render_header(payload, cols);
+
+    // Voice indicator click region MUST come before header regions so
+    // handle_left_click's .find() matches the voice sentinel first on row 0.
+    if payload.voice_connected {
+        click_regions.push((0, VOICE_CLICK_SENTINEL, 0));
+    }
+
     // Use pane_id u32::MAX - 1 as sentinel for "header clicked"
     click_regions.push((0, u32::MAX - 1, 0));
     click_regions.push((1, u32::MAX - 1, 0));
@@ -283,11 +290,31 @@ pub fn render_unavailable(rows: usize, cols: usize) -> Vec<ClickRegion> {
     Vec::new()
 }
 
+/// Click sentinel for the voice indicator.
+pub const VOICE_CLICK_SENTINEL: u32 = u32::MAX - 2;
+
 /// Render the status header with orange star and session counts.
 fn render_header(payload: &cc_deck::RenderPayload, cols: usize) {
+    let voice_indicator = if payload.voice_connected {
+        if payload.voice_muted {
+            "\x1b[2m\u{266b}\x1b[0m" // dim ♫
+        } else {
+            "\x1b[38;2;80;220;120m\u{266b}\x1b[0m" // bright green ♫
+        }
+    } else {
+        ""
+    };
+
     if payload.total == 0 {
         let header = " \x1b[38;2;255;170;50m\u{2731}\x1b[0m \x1b[1mClaude Code\x1b[0m".to_string();
-        print!("\x1b[1;1H{}", pad(&header, cols));
+        if voice_indicator.is_empty() {
+            print!("\x1b[1;1H{}", pad(&header, cols));
+        } else {
+            let left = header.to_string();
+            let left_width = display_width(&left);
+            let pad_count = cols.saturating_sub(left_width + 2);
+            print!("\x1b[1;1H{}{}{}", left, " ".repeat(pad_count), voice_indicator);
+        }
     } else {
         let mut status_parts = Vec::new();
         if payload.waiting > 0 {
@@ -306,7 +333,13 @@ fn render_header(payload: &cc_deck::RenderPayload, cols: usize) {
             format!("{} \x1b[2m\u{2502}\x1b[0m {}", payload.total, status_parts.join(" "))
         };
         let header = format!(" \x1b[38;2;255;170;50m\u{2731}\x1b[0m {status}");
-        print!("\x1b[1;1H{}", pad(&header, cols));
+        if voice_indicator.is_empty() {
+            print!("\x1b[1;1H{}", pad(&header, cols));
+        } else {
+            let left_width = display_width(&header);
+            let pad_count = cols.saturating_sub(left_width + 2);
+            print!("\x1b[1;1H{}{}{}", header, " ".repeat(pad_count), voice_indicator);
+        }
     }
 
     let sep: String = "\u{2500}".repeat(cols.min(40));
@@ -442,10 +475,14 @@ fn render_help_overlay(rows: usize, cols: usize) -> Vec<ClickRegion> {
         " \x1b[1mr\x1b[0m      Rename",
         " \x1b[1md\x1b[0m      Delete",
         " \x1b[1mp\x1b[0m      Pause/unpause",
+        " \x1b[1mv\x1b[0m      Voice mute",
         " \x1b[1mn\x1b[0m      New tab",
         " \x1b[1mR\x1b[0m      Refresh sidebar",
         " \x1b[1m/\x1b[0m      Search",
         " \x1b[1m?\x1b[0m      This help",
+        "",
+        " \x1b[2mGlobal:\x1b[0m",
+        " \x1b[1mAlt+v\x1b[0m  Voice mute",
     ];
 
     for (i, line) in help_lines.iter().enumerate() {

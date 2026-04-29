@@ -844,11 +844,14 @@ cc-deck ws harvest mydev --branch feature-x --create-pr
 
 Start voice relay for hands-free dictation into a workspace's attended agent session.
 Captures audio from the local microphone, transcribes locally via whisper.cpp, and relays text into the attended pane.
+Uses voice activity detection (VAD) with mute/unmute toggle.
+
+When connected, a ♫ indicator appears in the sidebar header (bright green when listening, dim when muted).
+Mute can be toggled from the sidebar (kbd:[Alt+v], kbd:[v] in navigation mode, or clicking ♫) or from the voice TUI (kbd:[m]).
 
 [source,bash]
 ----
 cc-deck ws voice mydev
-cc-deck ws voice mydev --mode ptt
 cc-deck ws voice mydev --model small.en --verbose
 cc-deck ws voice --setup
 cc-deck ws voice --list-devices
@@ -858,14 +861,8 @@ cc-deck ws voice --list-devices
 |===
 | Flag | Description
 
-| `--mode`
-| Audio gating mode: `vad` (voice activity detection, default) or `ptt` (push-to-talk via F8)
-
 | `--model`
 | Whisper model name: `tiny.en`, `base.en` (default), `small.en`, `medium`
-
-| `--device`
-| Audio input device name (use `--list-devices` to enumerate)
 
 | `--port`
 | Whisper-server port (default: `8234`)

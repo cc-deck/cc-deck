@@ -220,6 +220,8 @@ mod tests {
             working: 0,
             idle: 0,
             controller_plugin_id: 1,
+            voice_connected: false,
+            voice_muted: false,
         }
     }
 

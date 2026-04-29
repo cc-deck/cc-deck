@@ -80,6 +80,12 @@ Rust (stable, latest edition 2021+): Follow standard conventions
 - 026-project-local-config: Added Go 1.25 (from go.mod) + cobra v1.10.2 (CLI), gopkg.in/yaml.v3 (YAML), internal/xdg (XDG paths), internal/podman (container interaction), internal/compose (YAML generation)
 
 
+<!-- SPECKIT START -->
+For additional context about technologies to be used, project structure,
+shell commands, and other important information, read the current plan
+at `specs/045-voice-sidebar-integration/plan.md`
+<!-- SPECKIT END -->
+
 <!-- MANUAL ADDITIONS START -->
 
 ## Constitution Principles (ALWAYS ENFORCED)

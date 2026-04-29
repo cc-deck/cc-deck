@@ -16,7 +16,7 @@ type PipeSender interface {
 	Send(ctx context.Context, pipeName string, payload string) error
 }
 
-// PipeSendReceiver extends PipeSender with blocking request-response for PTT long-poll.
+// PipeSendReceiver extends PipeSender with blocking request-response for dump-state polling.
 type PipeSendReceiver interface {
 	PipeSender
 	SendReceive(ctx context.Context, pipeName string, payload string) (string, error)
@@ -24,7 +24,6 @@ type PipeSendReceiver interface {
 
 // RelayConfig configures the voice relay pipeline.
 type RelayConfig struct {
-	Mode       string // "vad" or "ptt"
 	SampleRate int
 	VADConfig  VADConfig
 	Verbose    bool
@@ -34,7 +33,6 @@ type RelayConfig struct {
 // DefaultRelayConfig returns sensible defaults for the relay.
 func DefaultRelayConfig() RelayConfig {
 	return RelayConfig{
-		Mode:       "vad",
 		SampleRate: 16000,
 		VADConfig:  DefaultVADConfig(),
 		Commands:   BuildCommandMap(DefaultCommands),
@@ -60,7 +58,7 @@ type VoiceRelay struct {
 
 	mu          sync.Mutex
 	running     bool
-	pttActive   bool
+	muted       bool
 	parentCtx   context.Context
 	ctx         context.Context
 	cancel      context.CancelFunc
@@ -79,25 +77,29 @@ func NewVoiceRelay(config RelayConfig, audio AudioSource, transcriber Transcribe
 	}
 }
 
-// IsPTTActive returns whether PTT recording is currently active.
-func (r *VoiceRelay) IsPTTActive() bool {
+// IsMuted returns whether the relay is currently muted.
+func (r *VoiceRelay) IsMuted() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.pttActive
+	return r.muted
 }
 
-// Mode returns the current relay mode ("vad" or "ptt").
-func (r *VoiceRelay) Mode() string {
+// SendMuteCommand sends a mute/unmute protocol message to the plugin
+// and updates the local muted state immediately so handleUtterance
+// stops processing without waiting for the dump-state poll round-trip.
+func (r *VoiceRelay) SendMuteCommand(cmd string) error {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.config.Mode
-}
-
-// SetMode changes the relay mode. Takes effect on next Start or restart.
-func (r *VoiceRelay) SetMode(mode string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.config.Mode = mode
+	if cmd == "[[voice:mute]]" {
+		r.muted = true
+	} else if cmd == "[[voice:unmute]]" {
+		r.muted = false
+	}
+	ctx := r.ctx
+	r.mu.Unlock()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return r.pipe.Send(ctx, "cc-deck:voice", cmd)
 }
 
 // VADThreshold returns the current VAD threshold as a 0-100 percentage
@@ -134,7 +136,6 @@ func (r *VoiceRelay) Start(ctx context.Context) error {
 		return fmt.Errorf("voice relay already running")
 	}
 	r.running = true
-	r.pttActive = false
 	r.parentCtx = ctx
 	relayCtx, cancel := context.WithCancel(ctx)
 	r.cancel = cancel
@@ -142,15 +143,20 @@ func (r *VoiceRelay) Start(ctx context.Context) error {
 	r.wg = sync.WaitGroup{}
 	r.mu.Unlock()
 
-	var err error
-	if r.config.Mode == "ptt" {
-		err = r.startPTT(relayCtx)
-	} else {
-		err = r.startVAD(relayCtx)
-	}
-	if err != nil {
+	if err := r.startVAD(relayCtx); err != nil {
 		return err
 	}
+
+	// Send voice:on protocol message
+	if err := r.pipe.Send(ctx, "cc-deck:voice", "[[voice:on]]"); err != nil {
+		if r.config.Verbose {
+			log.Printf("[voice] failed to send voice:on: %v", err)
+		}
+	}
+
+	// No dedicated heartbeat goroutine needed: the dump-state poll (every 1s)
+	// serves as the heartbeat. The plugin refreshes voice_last_ping_ms on each
+	// dump-state request when voice is enabled.
 
 	if sr, ok := r.pipe.(PipeSendReceiver); ok {
 		r.wg.Add(1)
@@ -178,165 +184,6 @@ func (r *VoiceRelay) startVAD(ctx context.Context) error {
 	go r.processUtterances(ctx, utterances)
 
 	return nil
-}
-
-func (r *VoiceRelay) startPTT(ctx context.Context) error {
-	sr, ok := r.pipe.(PipeSendReceiver)
-	if !ok {
-		r.mu.Lock()
-		r.running = false
-		r.mu.Unlock()
-		r.cancel()
-		return fmt.Errorf("PTT mode requires PipeSendReceiver (pipe does not support SendReceive)")
-	}
-
-	r.wg.Add(1)
-	go r.pttLoop(ctx, sr)
-
-	return nil
-}
-
-func (r *VoiceRelay) pttLoop(ctx context.Context, sr PipeSendReceiver) {
-	defer r.wg.Done()
-
-	for {
-		if ctx.Err() != nil {
-			return
-		}
-
-		r.sendEvent(RelayEvent{Type: "ptt_waiting"})
-
-		if r.config.Verbose {
-			log.Printf("[voice] PTT: sending long-poll to cc-deck:voice-control")
-		}
-
-		resp, err := sr.SendReceive(ctx, "cc-deck:voice-control", "listen")
-		if err != nil {
-			if ctx.Err() != nil {
-				return
-			}
-			r.sendEvent(RelayEvent{Type: "error", Err: fmt.Errorf("PTT long-poll: %w", err)})
-			time.Sleep(time.Second)
-			continue
-		}
-
-		resp = strings.TrimSpace(resp)
-		if r.config.Verbose {
-			log.Printf("[voice] PTT: received response %q", resp)
-		}
-
-		if resp != "toggle" {
-			continue
-		}
-
-		r.mu.Lock()
-		r.pttActive = true
-		r.mu.Unlock()
-		r.sendEvent(RelayEvent{Type: "ptt_recording"})
-
-		if r.config.Verbose {
-			log.Printf("[voice] PTT: starting audio capture")
-		}
-
-		frames, err := r.audio.Start(ctx, r.config.SampleRate)
-		if err != nil {
-			r.mu.Lock()
-			r.pttActive = false
-			r.mu.Unlock()
-			r.sendEvent(RelayEvent{Type: "error", Err: fmt.Errorf("PTT audio start: %w", err)})
-			continue
-		}
-
-		r.collectPTTUtterance(ctx, frames, sr)
-	}
-}
-
-func (r *VoiceRelay) collectPTTUtterance(ctx context.Context, frames <-chan []int16, sr PipeSendReceiver) {
-	var allSamples []int16
-	maxSamples := int(r.config.VADConfig.MaxUtteranceDuration) * r.config.SampleRate
-	levelTicker := time.NewTicker(50 * time.Millisecond)
-	defer levelTicker.Stop()
-
-	stopCtx, stopCancel := context.WithCancel(ctx)
-	defer stopCancel()
-
-	stopCh := make(chan struct{})
-	r.wg.Add(1)
-	go func() {
-		defer r.wg.Done()
-		defer close(stopCh)
-		_, _ = sr.SendReceive(stopCtx, "cc-deck:voice-control", "listen")
-	}()
-
-	collecting := true
-	for collecting {
-		select {
-		case <-ctx.Done():
-			_ = r.audio.Stop()
-			r.mu.Lock()
-			r.pttActive = false
-			r.mu.Unlock()
-			return
-		case <-stopCh:
-			collecting = false
-		case f, ok := <-frames:
-			if !ok {
-				collecting = false
-			} else {
-				allSamples = append(allSamples, f...)
-				if len(allSamples) >= maxSamples {
-					collecting = false
-				}
-			}
-		case <-levelTicker.C:
-			level := r.audio.Level()
-			select {
-			case r.events <- RelayEvent{Type: "level", Level: level}:
-			default:
-			}
-		}
-	}
-
-	_ = r.audio.Stop()
-	r.mu.Lock()
-	r.pttActive = false
-	r.mu.Unlock()
-	r.sendEvent(RelayEvent{Type: "ptt_waiting"})
-
-	if len(allSamples) == 0 {
-		return
-	}
-
-	if r.config.Verbose {
-		log.Printf("[voice] PTT: collected %d samples, transcribing", len(allSamples))
-	}
-
-	u := Utterance{
-		Audio:      allSamples,
-		SampleRate: r.config.SampleRate,
-	}
-	r.handleUtterance(ctx, u)
-}
-
-// SwitchMode stops the current pipeline, changes mode, and restarts.
-// The events channel is preserved so callers keep receiving events.
-func (r *VoiceRelay) SwitchMode(mode string) error {
-	r.mu.Lock()
-	parentCtx := r.parentCtx
-	r.mu.Unlock()
-
-	r.stopInternal()
-
-	r.mu.Lock()
-	r.config.Mode = mode
-	r.running = false
-	r.pttActive = false
-	r.mu.Unlock()
-
-	if parentCtx == nil {
-		parentCtx = context.Background()
-	}
-	return r.Start(parentCtx)
 }
 
 // stopInternal halts goroutines and audio without closing the events channel.
@@ -367,6 +214,11 @@ func (r *VoiceRelay) stopInternal() {
 
 // Stop halts the voice relay pipeline and waits for goroutines to finish.
 func (r *VoiceRelay) Stop() {
+	// Send voice:off with a fresh context (parentCtx may already be cancelled)
+	offCtx, offCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer offCancel()
+	_ = r.pipe.Send(offCtx, "cc-deck:voice", "[[voice:off]]")
+
 	r.stopInternal()
 	_ = r.transcriber.Close()
 	r.closeOnce.Do(func() { close(r.events) })
@@ -393,7 +245,7 @@ func (r *VoiceRelay) levelPoll(ctx context.Context) {
 
 func (r *VoiceRelay) statePoll(ctx context.Context, sr PipeSendReceiver) {
 	defer r.wg.Done()
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
 	var lastTarget string
@@ -417,18 +269,41 @@ func (r *VoiceRelay) statePoll(ctx context.Context, sr PipeSendReceiver) {
 				lastTarget = state.targetName
 				r.sendEvent(RelayEvent{Type: "target_changed", Text: state.targetName})
 			}
+
+			if state.voiceMuteRequested != nil {
+				requested := *state.voiceMuteRequested
+
+				r.mu.Lock()
+				muted := r.muted
+				if requested != muted {
+					r.muted = requested
+				}
+				r.mu.Unlock()
+
+				if requested != muted {
+					if requested {
+						_ = r.pipe.Send(ctx, "cc-deck:voice", "[[voice:mute]]")
+						r.sendEvent(RelayEvent{Type: "muted"})
+					} else {
+						_ = r.pipe.Send(ctx, "cc-deck:voice", "[[voice:unmute]]")
+						r.sendEvent(RelayEvent{Type: "unmuted"})
+					}
+				}
+			}
 		}
 	}
 }
 
 type dumpStateResult struct {
-	targetName string
+	targetName        string
+	voiceMuteRequested *bool
 }
 
 func parseDumpStateResponse(stateJSON string) dumpStateResult {
 	var envelope struct {
-		Sessions       map[string]json.RawMessage `json:"sessions"`
-		AttendedPaneID *int                       `json:"attended_pane_id"`
+		Sessions            map[string]json.RawMessage `json:"sessions"`
+		AttendedPaneID      *int                       `json:"attended_pane_id"`
+		VoiceMuteRequested  *bool                      `json:"voice_mute_requested"`
 	}
 	if err := json.Unmarshal([]byte(stateJSON), &envelope); err != nil {
 		return dumpStateResult{}
@@ -444,6 +319,7 @@ func parseDumpStateResponse(stateJSON string) dumpStateResult {
 	}
 
 	var result dumpStateResult
+	result.voiceMuteRequested = envelope.VoiceMuteRequested
 
 	if attendedKey != "" {
 		if raw, ok := envelope.Sessions[attendedKey]; ok {
@@ -479,6 +355,13 @@ func (r *VoiceRelay) processUtterances(ctx context.Context, utterances <-chan Ut
 }
 
 func (r *VoiceRelay) handleUtterance(ctx context.Context, u Utterance) {
+	if r.IsMuted() {
+		if r.config.Verbose {
+			log.Printf("[voice] muted, discarding utterance")
+		}
+		return
+	}
+
 	start := time.Now()
 
 	if r.config.Verbose {
@@ -529,9 +412,9 @@ func (r *VoiceRelay) handleUtterance(ctx context.Context, u Utterance) {
 	if result.IsCommand {
 		switch result.CommandAction {
 		case "submit":
-			payload = "\r"
+			payload = "[[enter]]"
 		default:
-			payload = "\r"
+			payload = "[[enter]]"
 		}
 	} else {
 		payload = result.Text + " "
@@ -560,6 +443,8 @@ var termEscapeRe = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
 
 func sanitizeTerminalText(text string) string {
 	text = termEscapeRe.ReplaceAllString(text, "")
+	// Strip any remaining ESC bytes (covers OSC, DCS, and other non-CSI sequences)
+	text = strings.ReplaceAll(text, "\x1b", "")
 	var b strings.Builder
 	b.Grow(len(text))
 	for _, r := range text {

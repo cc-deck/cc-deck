@@ -36,6 +36,8 @@ pub struct PluginConfig {
     pub attend_key: String,
     /// Global shortcut to cycle through working sessions (default: "Alt w").
     pub working_key: String,
+    /// Global shortcut for voice mute toggle (default: "Alt m").
+    pub voice_key: String,
     /// Enable performance instrumentation (default: false).
     pub perf_enabled: bool,
     /// Perf stats dump interval in seconds (default: 30).
@@ -55,6 +57,7 @@ impl Default for PluginConfig {
             navigate_key: "Alt s".to_string(),
             attend_key: "Alt a".to_string(),
             working_key: "Alt w".to_string(),
+            voice_key: "Alt m".to_string(),
             perf_enabled: false,
             perf_interval: 30,
         }
@@ -127,6 +130,12 @@ impl PluginConfig {
             }
         }
 
+
+        if let Some(v) = config.get("voice_key") {
+            if !v.is_empty() {
+                result.voice_key = v.clone();
+            }
+        }
 
         if let Some(v) = config.get("perf") {
             result.perf_enabled = v == "true" || v == "1";

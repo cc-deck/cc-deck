@@ -177,10 +177,9 @@ impl ZellijPlugin for ControllerPlugin {
 
         // Unblock CLI pipe input so `zellij pipe` does not hang.
         // DumpState handles its own unblock after sending output.
-        // VoiceControl holds the pipe open for PTT long-poll.
         #[cfg(target_family = "wasm")]
         if let PipeSource::Cli(ref pipe_id) = pipe_message.source {
-            if !matches!(action, PipeAction::DumpState | PipeAction::VoiceControl) {
+            if !matches!(action, PipeAction::DumpState) {
                 zellij_tile::prelude::unblock_cli_pipe_input(pipe_id);
             }
         }
@@ -312,45 +311,38 @@ impl ZellijPlugin for ControllerPlugin {
                 broadcast_navigate(&self.state, "forward");
             }
             PipeAction::VoiceText(text) if !text.is_empty() => {
-                let sessions = &self.state.sessions;
-                let is_session = |id: &u32| sessions.contains_key(id);
-                let target = self.state.last_attended_pane_id.filter(&is_session)
-                    .or(self.state.focused_pane_id.filter(&is_session))
-                    .or_else(|| sessions.keys().next().copied());
-                if let Some(pane_id) = target {
-                    write_chars_to_pane(pane_id, &text);
-                    crate::debug_log(&format!(
-                        "CTRL VOICE injected {} chars to pane={}",
-                        text.len(), pane_id
-                    ));
+                if text.starts_with("[[") && text.ends_with("]]") {
+                    let command = &text[2..text.len()-2];
+                    self.handle_voice_command(command);
+                } else if self.state.voice_muted {
+                    crate::debug_log("CTRL VOICE discarded: muted");
                 } else {
-                    crate::debug_log("CTRL VOICE discarded: no target pane");
+                    let sanitized = crate::sanitize_voice_text(&text);
+                    let sessions = &self.state.sessions;
+                    let is_session = |id: &u32| sessions.contains_key(id);
+                    let target = self.state.last_attended_pane_id.filter(&is_session)
+                        .or(self.state.focused_pane_id.filter(&is_session))
+                        .or_else(|| sessions.keys().next().copied());
+                    if let Some(pane_id) = target {
+                        write_chars_to_pane(pane_id, &sanitized);
+                        crate::debug_log(&format!(
+                            "CTRL VOICE injected {} chars to pane={}",
+                            sanitized.len(), pane_id
+                        ));
+                    } else {
+                        crate::debug_log("CTRL VOICE discarded: no target pane");
+                    }
                 }
             }
-            PipeAction::VoiceControl => {
-                #[cfg(target_family = "wasm")]
-                if let PipeSource::Cli(ref pipe_id) = pipe_message.source {
-                    self.state.voice_control_pipe = Some(pipe_id.clone());
-                    self.state.voice_enabled = true;
+            PipeAction::VoiceMuteToggle => {
+                if self.state.voice_enabled {
+                    self.state.voice_mute_requested = Some(!self.state.voice_muted);
+                    render_broadcast::broadcast_render(&self.state);
+                    self.state.render_dirty = false;
                     crate::debug_log(&format!(
-                        "CTRL VOICE-CONTROL pipe held: {}", pipe_id
+                        "CTRL VOICE-MUTE-TOGGLE requested={}",
+                        !self.state.voice_muted
                     ));
-                }
-                #[cfg(not(target_family = "wasm"))]
-                {
-                    self.state.voice_enabled = true;
-                    crate::debug_log("CTRL VOICE-CONTROL enabled (non-wasm)");
-                }
-            }
-            PipeAction::VoiceToggle => {
-                if let Some(ref pipe_id) = self.state.voice_control_pipe.take() {
-                    cli_pipe_output_wasm(pipe_id, "toggle");
-                    unblock_cli_pipe_input_wasm(pipe_id);
-                    crate::debug_log(&format!(
-                        "CTRL VOICE-TOGGLE responded to pipe: {}", pipe_id
-                    ));
-                } else {
-                    crate::debug_log("CTRL VOICE-TOGGLE ignored: no held pipe");
                 }
             }
             PipeAction::TestInject => {
@@ -447,16 +439,77 @@ impl ControllerPlugin {
         }
     }
 
+    /// Handle a voice command extracted from [[command]] protocol.
+    fn handle_voice_command(&mut self, command: &str) {
+        let now_ms = session::unix_now_ms();
+        match command {
+            "voice:on" => {
+                self.state.voice_enabled = true;
+                self.state.voice_muted = false;
+                self.state.voice_mute_requested = None;
+                self.state.voice_last_ping_ms = now_ms;
+                self.state.mark_render_dirty();
+                crate::debug_log("CTRL VOICE command: voice:on");
+            }
+            "voice:off" => {
+                self.state.voice_enabled = false;
+                self.state.voice_muted = false;
+                self.state.voice_mute_requested = None;
+                self.state.mark_render_dirty();
+                crate::debug_log("CTRL VOICE command: voice:off");
+            }
+            "voice:ping" => {
+                // Accepted for backwards compatibility but no longer needed.
+                // Heartbeat is now driven by dump-state polling.
+                self.state.voice_last_ping_ms = now_ms;
+            }
+            "voice:mute" => {
+                self.state.voice_muted = true;
+                self.state.voice_mute_requested = None;
+                self.state.mark_render_dirty();
+                crate::debug_log("CTRL VOICE command: voice:mute");
+            }
+            "voice:unmute" => {
+                self.state.voice_muted = false;
+                self.state.voice_mute_requested = None;
+                self.state.mark_render_dirty();
+                crate::debug_log("CTRL VOICE command: voice:unmute");
+            }
+            "enter" => {
+                let sessions = &self.state.sessions;
+                let is_session = |id: &u32| sessions.contains_key(id);
+                let target = self.state.last_attended_pane_id.filter(&is_session)
+                    .or(self.state.focused_pane_id.filter(&is_session))
+                    .or_else(|| sessions.keys().next().copied());
+                if let Some(pane_id) = target {
+                    write_chars_to_pane(pane_id, "\r");
+                    crate::debug_log(&format!("CTRL VOICE command: enter -> pane={}", pane_id));
+                }
+            }
+            _ => {
+                crate::debug_log(&format!("CTRL VOICE unknown command: {}", command));
+            }
+        }
+    }
+
     /// Serialize session state and send it via CLI pipe output.
-    fn dump_state(&self, pipe_message: &PipeMessage) {
+    /// Also serves as the voice heartbeat: each poll refreshes voice_last_ping_ms,
+    /// so no separate [[voice:ping]] message is needed.
+    fn dump_state(&mut self, pipe_message: &PipeMessage) {
+        if self.state.voice_enabled {
+            self.state.voice_last_ping_ms = crate::session::unix_now_ms();
+        }
         #[derive(serde::Serialize)]
         struct DumpStateResponse<'a> {
             sessions: &'a std::collections::BTreeMap<u32, crate::session::Session>,
             attended_pane_id: Option<u32>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            voice_mute_requested: Option<bool>,
         }
         let resp = DumpStateResponse {
             sessions: &self.state.sessions,
             attended_pane_id: self.state.last_attended_pane_id,
+            voice_mute_requested: self.state.voice_mute_requested,
         };
         let _state_json = serde_json::to_string(&resp)
             .unwrap_or_else(|_| "{}".to_string());
@@ -540,5 +593,96 @@ mod tests {
         assert!(plugin.state.sessions.is_empty());
         assert!(!plugin.state.permissions_granted);
         assert_eq!(plugin.state.plugin_id, 0);
+    }
+
+    #[test]
+    fn test_voice_command_on() {
+        let mut plugin = ControllerPlugin::default();
+        assert!(!plugin.state.voice_enabled);
+
+        plugin.handle_voice_command("voice:on");
+        assert!(plugin.state.voice_enabled);
+        assert!(!plugin.state.voice_muted);
+        assert!(plugin.state.voice_last_ping_ms > 0);
+        assert!(plugin.state.render_dirty);
+    }
+
+    #[test]
+    fn test_voice_command_off() {
+        let mut plugin = ControllerPlugin::default();
+        plugin.state.voice_enabled = true;
+        plugin.state.voice_muted = true;
+
+        plugin.handle_voice_command("voice:off");
+        assert!(!plugin.state.voice_enabled);
+        assert!(!plugin.state.voice_muted);
+        assert!(plugin.state.render_dirty);
+    }
+
+    #[test]
+    fn test_voice_command_ping() {
+        let mut plugin = ControllerPlugin::default();
+        plugin.state.voice_enabled = true;
+
+        plugin.handle_voice_command("voice:ping");
+        assert!(plugin.state.voice_last_ping_ms > 0);
+        assert!(!plugin.state.render_dirty);
+    }
+
+    #[test]
+    fn test_voice_command_mute() {
+        let mut plugin = ControllerPlugin::default();
+        plugin.state.voice_enabled = true;
+        plugin.state.voice_mute_requested = Some(true);
+
+        plugin.handle_voice_command("voice:mute");
+        assert!(plugin.state.voice_muted);
+        assert!(plugin.state.voice_mute_requested.is_none());
+        assert!(plugin.state.render_dirty);
+    }
+
+    #[test]
+    fn test_voice_command_unmute() {
+        let mut plugin = ControllerPlugin::default();
+        plugin.state.voice_enabled = true;
+        plugin.state.voice_muted = true;
+
+        plugin.handle_voice_command("voice:unmute");
+        assert!(!plugin.state.voice_muted);
+        assert!(plugin.state.render_dirty);
+    }
+
+    #[test]
+    fn test_voice_command_enter_no_session() {
+        let mut plugin = ControllerPlugin::default();
+        plugin.handle_voice_command("enter");
+        // No sessions, should not panic
+    }
+
+    #[test]
+    fn test_voice_command_unknown() {
+        let mut plugin = ControllerPlugin::default();
+        plugin.handle_voice_command("unknown:cmd");
+        assert!(!plugin.state.render_dirty);
+    }
+
+    #[test]
+    fn test_voice_protocol_plain_text_passthrough() {
+        // Plain text (no [[ prefix) should not be treated as a command
+        let text = "hello world";
+        assert!(!text.starts_with("[["));
+    }
+
+    #[test]
+    fn test_voice_protocol_command_detection() {
+        // [[command]] syntax should be detected
+        let cmd_text = "[[voice:on]]";
+        assert!(cmd_text.starts_with("[[") && cmd_text.ends_with("]]"));
+        let command = &cmd_text[2..cmd_text.len()-2];
+        assert_eq!(command, "voice:on");
+
+        let cmd_text2 = "[[enter]]";
+        let command2 = &cmd_text2[2..cmd_text2.len()-2];
+        assert_eq!(command2, "enter");
     }
 }
