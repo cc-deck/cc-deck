@@ -847,7 +847,7 @@ Captures audio from the local microphone, transcribes locally via whisper.cpp, a
 Uses voice activity detection (VAD) with mute/unmute toggle.
 
 When connected, a ♫ indicator appears in the sidebar header (bright green when listening, dim when muted).
-Mute can be toggled from the sidebar (kbd:[Alt+v], kbd:[v] in navigation mode, or clicking ♫) or from the voice TUI (kbd:[m]).
+Mute can be toggled from the sidebar (kbd:[Alt+m], kbd:[m] in navigation mode, or clicking ♫) or from the voice TUI (kbd:[m]).
 
 [source,bash]
 ----

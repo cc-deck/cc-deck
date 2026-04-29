@@ -30,15 +30,15 @@ A developer working in a Zellij session wants to mute and unmute the voice relay
 
 **Why this priority**: Muting is the primary control action. Without it, the sidebar indicator is passive and the developer must switch terminals to pause dictation.
 
-**Independent Test**: Start voice relay. Press `Alt+v` to mute. The ♫ dims in the sidebar and the voice TUI shows muted state. Press `Alt+v` again to unmute. The ♫ returns to bright and dictation resumes.
+**Independent Test**: Start voice relay. Press `Alt+m` to mute. The ♫ dims in the sidebar and the voice TUI shows muted state. Press `Alt+m` again to unmute. The ♫ returns to bright and dictation resumes.
 
 **Acceptance Scenarios**:
 
-1. **Given** voice relay is connected and listening, **When** I press `Alt+v`, **Then** voice relay mutes and ♫ dims
-2. **Given** voice relay is muted, **When** I press `Alt+v`, **Then** voice relay unmutes and ♫ brightens
-3. **Given** I am in navigation mode with voice relay connected, **When** I press `v`, **Then** the mute state toggles
+1. **Given** voice relay is connected and listening, **When** I press `Alt+m`, **Then** voice relay mutes and ♫ dims
+2. **Given** voice relay is muted, **When** I press `Alt+m`, **Then** voice relay unmutes and ♫ brightens
+3. **Given** I am in navigation mode with voice relay connected, **When** I press `m`, **Then** the mute state toggles
 4. **Given** voice relay is connected, **When** I click the ♫ symbol, **Then** the mute state toggles
-5. **Given** voice relay is not connected, **When** I press `Alt+v`, **Then** nothing happens (no error, no indicator)
+5. **Given** voice relay is not connected, **When** I press `Alt+m`, **Then** nothing happens (no error, no indicator)
 
 ---
 
@@ -106,8 +106,8 @@ The push-to-talk mode and its associated long-poll pipe are removed. The `--mode
 - **FR-001**: Sidebar MUST display ♫ (beamed eighth notes, U+266B) right-aligned on the status line when voice relay is connected
 - **FR-002**: ♫ MUST appear in bright color when listening and dim color when muted
 - **FR-003**: ♫ MUST be absent from the status line when voice relay is not connected
-- **FR-004**: Users MUST be able to toggle mute via a global shortcut (`Alt+v` by default, configurable via `voice_key` in plugin config)
-- **FR-005**: Users MUST be able to toggle mute via the `v` key when in navigation mode
+- **FR-004**: Users MUST be able to toggle mute via a global shortcut (`Alt+m` by default, configurable via `voice_key` in plugin config)
+- **FR-005**: Users MUST be able to toggle mute via the `m` key when in navigation mode
 - **FR-006**: Users MUST be able to toggle mute by clicking the ♫ symbol
 - **FR-007**: Control signals MUST use `[[command]]` syntax on the `cc-deck:voice` pipe
 - **FR-008**: Plain text payloads (no `[[` prefix) MUST be injected via `write_chars_to_pane_id` as before
@@ -120,7 +120,7 @@ The push-to-talk mode and its associated long-poll pipe are removed. The `--mode
 - **FR-015**: The `m` key in voice TUI MUST toggle mute/unmute
 - **FR-016**: PTT mode MUST be removed, including `--mode` CLI flag and voice-control long-poll pipe
 - **FR-017**: Voice CLI MUST send `[[voice:on]]` on startup and `[[voice:off]]` on shutdown
-- **FR-018**: The `Alt+v` shortcut key MUST be configurable via `voice_key` in the plugin layout config
+- **FR-018**: The `Alt+m` shortcut key MUST be configurable via `voice_key` in the plugin layout config
 - **FR-019**: The plugin MUST use dump-state polling as the voice heartbeat signal: each `cc-deck:dump-state` request refreshes the voice liveness timestamp when voice is enabled. The plugin MUST clear voice state if no dump-state request arrives for 15 seconds. No dedicated `[[voice:ping]]` messages are sent, avoiding the risk of text injection from unrecognized commands.
 
 ### Key Entities

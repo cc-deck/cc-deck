@@ -7,8 +7,8 @@ Voice relay now shows a ♫ indicator in the sidebar and supports mute/unmute fr
 ## Using Voice Mute
 
 ### From the Sidebar (any pane)
-- **Alt+v**: Toggle mute (configurable via `voice_key` in plugin config)
-- **Navigation mode + v**: Toggle mute while navigating sessions
+- **Alt+m**: Toggle mute (configurable via `voice_key` in plugin config)
+- **Navigation mode + m**: Toggle mute while navigating sessions
 - **Click ♫**: Toggle mute by clicking the indicator
 
 ### From the Voice TUI
@@ -32,7 +32,7 @@ Add to your Zellij layout KDL plugin config:
 
 ```kdl
 plugin location="file:cc-deck.wasm" {
-    voice_key "Alt v"    // default, change to preferred key
+    voice_key "Alt m"    // default, change to preferred key
 }
 ```
 

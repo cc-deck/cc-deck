@@ -94,8 +94,8 @@ You can mute and unmute voice relay from multiple locations:
 
 **From the sidebar (any pane):**
 
-* kbd:[Alt+v]: Toggle mute (configurable via `voice_key` in plugin config).
-* kbd:[v] in navigation mode: Toggle mute while navigating sessions.
+* kbd:[Alt+m]: Toggle mute (configurable via `voice_key` in plugin config).
+* kbd:[m] in navigation mode: Toggle mute while navigating sessions.
 * Click the ♫ indicator: Toggle mute with the mouse.
 
 **From the voice TUI:**
