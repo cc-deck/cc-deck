@@ -716,18 +716,18 @@ func runWsAttachReset(name string, force bool) error {
 		return err
 	}
 
-	sessionName := ws.ZellijSessionName(name)
-	state := ws.ZellijSessionState(sessionName)
-	if state == "running" && !force {
+	ctx := cmd_context()
+	status, err := e.Status(ctx)
+	if err == nil && status != nil && status.SessionState == ws.SessionStateExists && !force {
 		return fmt.Errorf("session %q is running; use --force to reset a running session", name)
 	}
 
-	if state != "" {
-		ws.DeleteZellijSession(sessionName, force)
+	if err := e.KillSession(ctx); err != nil {
+		log.Printf("WARNING: killing session: %v", err)
 	}
 
 	fmt.Fprintf(os.Stderr, "Session reset. Attaching...\n")
-	return e.Attach(cmd_context())
+	return e.Attach(ctx)
 }
 
 func runWsAttach(name string) error {
