@@ -48,7 +48,7 @@ When creating a remote environment, cc-deck can automatically clone git reposito
 
 ### Voice Relay
 
-Voice relay lets you dictate into any workspace session using local speech-to-text. Audio is captured from your microphone and transcribed on your machine via whisper.cpp, so nothing leaves the local network except the resulting text. Two capture modes are available: VAD (voice activity detection) listens continuously and segments speech automatically, while PTT (push-to-talk) records only when you hold F8. Saying "send" as a standalone word sends a newline to submit the prompt. Additional command words can be configured in `~/.config/cc-deck/config.yaml`.
+Voice relay lets you dictate into any workspace session using local speech-to-text. Audio is captured from your microphone and transcribed on your machine via whisper.cpp, so nothing leaves the local network except the resulting text. Voice activity detection (VAD) listens continuously and segments speech automatically. A ♫ indicator in the sidebar header shows connection status (bright green when listening, dim when muted). You can toggle mute from the sidebar (Alt+v, `v` in navigation mode, or click ♫) or from the voice TUI (`m`). Saying "send" as a standalone word sends a newline to submit the prompt. Additional command words can be configured in `~/.config/cc-deck/config.yaml`.
 
 ```bash
 # One-time setup: install whisper.cpp and download a model
@@ -527,4 +527,5 @@ cc-deck follows [Spec-Driven Development](CONTRIBUTING.md#spec-driven-developmen
 | [038](specs/038-workspace-repos/) | Workspace Repos | Auto-clone git repos into remote workspaces during `ws new`, with credential transport and CLI flags | In Progress |
 | [039](specs/039-cli-rename-ws-build/) | CLI Rename: Workspace & Build | Rename `env` to `ws`, `setup` to `build`, new `config` parent, promote `attach`/`ls`/`exec` to top level | In Progress |
 | [041](specs/041-workspace-channels/) | Workspace Channels | Typed channel abstractions (Pipe, Data, Git) for unified local-to-remote transport across all workspace types | In Progress |
-| [042](specs/042-voice-relay/) | Voice Relay | Local speech-to-text dictation into remote agent sessions via whisper.cpp, VAD, PTT, and permission safety | Implemented |
+| [042](specs/042-voice-relay/) | Voice Relay | Local speech-to-text dictation into remote agent sessions via whisper.cpp, VAD, and permission safety | Implemented |
+| [045](specs/045-voice-sidebar-integration/) | Voice Sidebar Integration | Sidebar ♫ indicator, bidirectional mute toggle, `[[command]]` protocol, PTT removal | In Progress |

@@ -22,6 +22,7 @@ pub fn handle_action(state: &mut ControllerState, msg: ActionMessage) {
         ActionType::Navigate => handle_navigate(state, msg.pane_id, msg.tab_index),
         ActionType::NewSession => handle_new_session(state),
         ActionType::Refresh => handle_refresh(state),
+        ActionType::VoiceMute => handle_voice_mute(state),
     }
 }
 
@@ -234,6 +235,15 @@ fn handle_refresh(state: &mut ControllerState) {
         state.merge_sessions(restored);
     }
     state.mark_render_dirty();
+}
+
+/// Toggle voice mute state (from sidebar action).
+fn handle_voice_mute(state: &mut ControllerState) {
+    if state.voice_enabled {
+        state.voice_mute_requested = Some(!state.voice_muted);
+        super::render_broadcast::broadcast_render(state);
+        state.render_dirty = false;
+    }
 }
 
 /// Create a new session tab.

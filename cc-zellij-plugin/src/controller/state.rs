@@ -82,10 +82,14 @@ pub struct ControllerState {
     pub last_attend_ms: u64,
     /// Pane IDs already visited during the current rapid-cycle sequence.
     pub attend_visited: HashSet<u32>,
-    /// Held CLI pipe ID for PTT long-poll (voice-control).
-    pub voice_control_pipe: Option<String>,
     /// Whether voice relay is currently connected.
     pub voice_enabled: bool,
+    /// Whether voice relay is currently muted.
+    pub voice_muted: bool,
+    /// Timestamp (ms) of last voice ping or voice:on message.
+    pub voice_last_ping_ms: u64,
+    /// Pending mute toggle from sidebar: Some(true) = mute, Some(false) = unmute.
+    pub voice_mute_requested: Option<bool>,
     /// Events received before permissions were granted.
     pub pending_events: Vec<Event>,
     /// Monotonic tick counter for render coalescing.

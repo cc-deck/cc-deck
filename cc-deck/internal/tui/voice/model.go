@@ -13,7 +13,7 @@ const maxHistoryLen = 200
 // Model is the Bubbletea model for the voice relay TUI.
 type Model struct {
 	relay       *voicepkg.VoiceRelay
-	mode        string // "vad" or "ptt"
+	muted       bool
 	audioLevel  float64
 	history     []historyEntry
 	target      string
@@ -40,14 +40,11 @@ type historyEntry struct {
 }
 
 type relayEventMsg voicepkg.RelayEvent
-type levelTickMsg struct{}
-type pttStateMsg string // "recording", "waiting"
 
 // New creates a new voice TUI model.
-func New(relay *voicepkg.VoiceRelay, mode string, target string, verbose bool, logPath string) Model {
+func New(relay *voicepkg.VoiceRelay, target string, verbose bool, logPath string) Model {
 	return Model{
 		relay:   relay,
-		mode:    mode,
 		target:  target,
 		verbose: verbose,
 		logPath: logPath,

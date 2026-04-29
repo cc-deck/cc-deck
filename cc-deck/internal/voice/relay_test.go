@@ -3,6 +3,7 @@ package voice
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -129,14 +130,21 @@ func TestVoiceRelay_TextFlowsToSender(t *testing.T) {
 	relay.Stop()
 
 	sent := pipe.getSent()
-	if len(sent) == 0 {
-		t.Fatal("expected at least one send, got none")
+	// Filter out protocol messages (voice:on, voice:off, voice:ping)
+	var textSends []pipeSend
+	for _, s := range sent {
+		if s.name == "cc-deck:voice" && !isProtocolMessage(s.payload) {
+			textSends = append(textSends, s)
+		}
 	}
-	if sent[0].payload != "add error handling " {
-		t.Errorf("payload = %q, want %q", sent[0].payload, "add error handling ")
+	if len(textSends) == 0 {
+		t.Fatal("expected at least one text send, got none")
 	}
-	if sent[0].name != "cc-deck:voice" {
-		t.Errorf("pipe name = %q, want %q", sent[0].name, "cc-deck:voice")
+	if textSends[0].payload != "add error handling " {
+		t.Errorf("payload = %q, want %q", textSends[0].payload, "add error handling ")
+	}
+	if textSends[0].name != "cc-deck:voice" {
+		t.Errorf("pipe name = %q, want %q", textSends[0].name, "cc-deck:voice")
 	}
 
 	var hasTranscription, hasDelivery bool
@@ -156,7 +164,7 @@ func TestVoiceRelay_TextFlowsToSender(t *testing.T) {
 	}
 }
 
-func TestVoiceRelay_CommandWordSendsNewline(t *testing.T) {
+func TestVoiceRelay_CommandWordSendsEnter(t *testing.T) {
 	audio := newMockAudioSource(makeSpeech(500, 5000), makeSilence(500))
 	transcriber := &mockTranscriber{results: []string{"send"}}
 	pipe := &mockPipeSender{}
@@ -175,11 +183,14 @@ func TestVoiceRelay_CommandWordSendsNewline(t *testing.T) {
 	relay.Stop()
 
 	sent := pipe.getSent()
-	if len(sent) == 0 {
-		t.Fatal("expected at least one send, got none")
+	var hasEnter bool
+	for _, s := range sent {
+		if s.payload == "[[enter]]" {
+			hasEnter = true
+		}
 	}
-	if sent[0].payload != "\r" {
-		t.Errorf("payload = %q, want carriage return for terminal Enter", sent[0].payload)
+	if !hasEnter {
+		t.Error("expected [[enter]] in sends for command word")
 	}
 }
 
@@ -202,11 +213,17 @@ func TestVoiceRelay_NonCommandRelaysFullText(t *testing.T) {
 	relay.Stop()
 
 	sent := pipe.getSent()
-	if len(sent) == 0 {
-		t.Fatal("expected at least one send, got none")
+	var textSends []pipeSend
+	for _, s := range sent {
+		if s.name == "cc-deck:voice" && !isProtocolMessage(s.payload) {
+			textSends = append(textSends, s)
+		}
 	}
-	if sent[0].payload != "please send the email " {
-		t.Errorf("payload = %q, want full text with trailing space", sent[0].payload)
+	if len(textSends) == 0 {
+		t.Fatal("expected at least one text send, got none")
+	}
+	if textSends[0].payload != "please send the email " {
+		t.Errorf("payload = %q, want full text with trailing space", textSends[0].payload)
 	}
 }
 
@@ -228,9 +245,9 @@ func TestVoiceRelay_WhisperArtifactDiscarded(t *testing.T) {
 	collectEvents(relay.Events(), 2*time.Second)
 	relay.Stop()
 
-	sent := pipe.getSent()
+	sent := filterNonProtocol(pipe.getSent())
 	if len(sent) != 0 {
-		t.Errorf("expected no sends for whisper artifact, got %d", len(sent))
+		t.Errorf("expected no text sends for whisper artifact, got %d", len(sent))
 	}
 }
 
@@ -252,9 +269,9 @@ func TestVoiceRelay_EmptyTranscriptionDiscarded(t *testing.T) {
 	collectEvents(relay.Events(), 2*time.Second)
 	relay.Stop()
 
-	sent := pipe.getSent()
+	sent := filterNonProtocol(pipe.getSent())
 	if len(sent) != 0 {
-		t.Errorf("expected no sends for empty transcription, got %d", len(sent))
+		t.Errorf("expected no text sends for empty transcription, got %d", len(sent))
 	}
 }
 
@@ -286,9 +303,9 @@ func TestVoiceRelay_TranscriptionErrorProducesEvent(t *testing.T) {
 		t.Error("expected error event for transcription failure")
 	}
 
-	sent := pipe.getSent()
+	sent := filterNonProtocol(pipe.getSent())
 	if len(sent) != 0 {
-		t.Errorf("expected no sends on transcription error, got %d", len(sent))
+		t.Errorf("expected no text sends on transcription error, got %d", len(sent))
 	}
 }
 
@@ -361,10 +378,13 @@ func TestVoiceRelay_DoubleStartReturnsError(t *testing.T) {
 }
 
 func TestParseDumpStateResponse(t *testing.T) {
+	boolPtr := func(b bool) *bool { return &b }
+
 	tests := []struct {
 		name       string
 		input      string
 		wantTarget string
+		wantMute   *bool
 	}{
 		{
 			name:       "valid JSON with attended session",
@@ -411,6 +431,23 @@ func TestParseDumpStateResponse(t *testing.T) {
 			input:      `{"sessions":{"10":{"display_name":""}},"attended_pane_id":10}`,
 			wantTarget: "",
 		},
+		{
+			name:       "voice mute requested true",
+			input:      `{"sessions":{"42":{"display_name":"claude-1"}},"attended_pane_id":42,"voice_mute_requested":true}`,
+			wantTarget: "claude-1",
+			wantMute:   boolPtr(true),
+		},
+		{
+			name:       "voice mute requested false",
+			input:      `{"sessions":{"42":{"display_name":"claude-1"}},"attended_pane_id":42,"voice_mute_requested":false}`,
+			wantTarget: "claude-1",
+			wantMute:   boolPtr(false),
+		},
+		{
+			name:       "voice mute requested absent",
+			input:      `{"sessions":{"42":{"display_name":"claude-1"}},"attended_pane_id":42}`,
+			wantTarget: "claude-1",
+		},
 	}
 
 	for _, tt := range tests {
@@ -418,6 +455,17 @@ func TestParseDumpStateResponse(t *testing.T) {
 			result := parseDumpStateResponse(tt.input)
 			if result.targetName != tt.wantTarget {
 				t.Errorf("targetName = %q, want %q", result.targetName, tt.wantTarget)
+			}
+			if tt.wantMute == nil {
+				if result.voiceMuteRequested != nil {
+					t.Errorf("voiceMuteRequested = %v, want nil", *result.voiceMuteRequested)
+				}
+			} else {
+				if result.voiceMuteRequested == nil {
+					t.Errorf("voiceMuteRequested = nil, want %v", *tt.wantMute)
+				} else if *result.voiceMuteRequested != *tt.wantMute {
+					t.Errorf("voiceMuteRequested = %v, want %v", *result.voiceMuteRequested, *tt.wantMute)
+				}
 			}
 		})
 	}
@@ -446,25 +494,6 @@ func (m *mockPipeSendReceiver) SendReceive(_ context.Context, _ string, _ string
 	return resp, err
 }
 
-func TestVoiceRelay_PTTRequiresSendReceiver(t *testing.T) {
-	audio := newMockAudioSource()
-	transcriber := &mockTranscriber{}
-	pipe := &mockPipeSender{}
-
-	config := DefaultRelayConfig()
-	config.Mode = "ptt"
-
-	relay := NewVoiceRelay(config, audio, transcriber, pipe)
-	err := relay.Start(context.Background())
-	if err == nil {
-		relay.Stop()
-		t.Fatal("expected error starting PTT with PipeSender (not PipeSendReceiver)")
-	}
-	if !contains(err.Error(), "PipeSendReceiver") {
-		t.Errorf("error should mention PipeSendReceiver, got: %v", err)
-	}
-}
-
 func TestVoiceRelay_ContextCancelGracefulShutdown(t *testing.T) {
 	audio := newMockAudioSource()
 	transcriber := &mockTranscriber{}
@@ -474,7 +503,6 @@ func TestVoiceRelay_ContextCancelGracefulShutdown(t *testing.T) {
 	}
 
 	config := DefaultRelayConfig()
-	config.Mode = "vad"
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -484,13 +512,51 @@ func TestVoiceRelay_ContextCancelGracefulShutdown(t *testing.T) {
 		t.Fatalf("Start failed: %v", err)
 	}
 
-	if relay.Mode() != "vad" {
-		t.Errorf("mode = %q, want vad", relay.Mode())
-	}
-
 	cancel()
 	time.Sleep(100 * time.Millisecond)
 	relay.Stop()
+}
+
+func isProtocolMessage(payload string) bool {
+	return strings.HasPrefix(payload, "[[voice:") || payload == "[[enter]]"
+}
+
+func filterNonProtocol(sends []pipeSend) []pipeSend {
+	var result []pipeSend
+	for _, s := range sends {
+		if s.name == "cc-deck:voice" && !isProtocolMessage(s.payload) {
+			result = append(result, s)
+		}
+	}
+	return result
+}
+
+func TestVoiceRelay_SendsVoiceOnAtStart(t *testing.T) {
+	audio := newMockAudioSource()
+	transcriber := &mockTranscriber{}
+	pipe := &mockPipeSender{}
+
+	relay := NewVoiceRelay(DefaultRelayConfig(), audio, transcriber, pipe)
+	if err := relay.Start(context.Background()); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	relay.Stop()
+
+	sent := pipe.getSent()
+	if len(sent) == 0 {
+		t.Fatal("expected at least one send")
+	}
+	if sent[0].payload != "[[voice:on]]" {
+		t.Errorf("first payload = %q, want [[voice:on]]", sent[0].payload)
+	}
+
+	// Check voice:off is sent
+	lastVoice := sent[len(sent)-1]
+	if lastVoice.payload != "[[voice:off]]" {
+		t.Errorf("last payload = %q, want [[voice:off]]", lastVoice.payload)
+	}
 }
 
 func contains(s, substr string) bool {

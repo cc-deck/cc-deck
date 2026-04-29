@@ -36,10 +36,7 @@ static mut DEBUG_ENABLED: bool = false;
 
 #[cfg(target_family = "wasm")]
 fn debug_init() {
-    // TEMPORARY: force debug on to diagnose navigate mode issues
-    let enabled = true;
-    // Create the marker so the plugin knows debug is active
-    let _ = std::fs::write("/cache/debug_enabled", b"");
+    let enabled = std::fs::metadata("/cache/debug_enabled").is_ok();
     unsafe {
         DEBUG_ENABLED = enabled;
     }
@@ -100,6 +97,28 @@ fn install_panic_hook() {
 
 #[cfg(not(target_family = "wasm"))]
 fn install_panic_hook() {}
+
+/// Strip ANSI escape sequences and control characters from voice text.
+fn sanitize_voice_text(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut in_escape = false;
+    for ch in text.chars() {
+        if ch == '\x1b' {
+            in_escape = true;
+        } else if in_escape {
+            if ch.is_ascii_alphabetic() || ch == '\\' {
+                in_escape = false;
+            }
+        } else if ch == '\x07' {
+            // BEL terminates OSC sequences; strip it
+        } else if ch == '\t' || ch == ' ' || (ch >= '\x20' && ch != '\x7f') {
+            result.push(ch);
+        }
+    }
+    // Final pass: strip any remaining ESC that slipped through
+    result.retain(|c| c != '\x1b');
+    result
+}
 
 /// RAII timer that logs event processing duration on drop (>1ms threshold).
 /// Uses unix_now_ms() since std::time::Instant is not available in WASI.
@@ -1223,8 +1242,7 @@ impl ZellijPlugin for PluginState {
             PipeAction::Working | PipeAction::WorkingPrev => false,
 
             // Voice/diagnostic actions: handled by controller only.
-            PipeAction::VoiceText(_) | PipeAction::VoiceControl | PipeAction::VoiceToggle
-            | PipeAction::TestInject => false,
+            PipeAction::VoiceText(_) | PipeAction::VoiceMuteToggle | PipeAction::TestInject => false,
 
             PipeAction::Unknown => false,
         };

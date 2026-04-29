@@ -57,10 +57,8 @@ pub enum PipeAction {
     Refresh,
     /// Voice text to inject into attended pane (cc-deck:voice).
     VoiceText(String),
-    /// Voice control long-poll connection (cc-deck:voice-control).
-    VoiceControl,
-    /// Voice toggle from F8 keybinding (cc-deck:voice-toggle).
-    VoiceToggle,
+    /// Voice mute toggle from keybinding (cc-deck:voice-mute-toggle).
+    VoiceMuteToggle,
     /// Diagnostic: inject hardcoded text into focused pane (cc-deck:test-inject).
     TestInject,
     /// Unknown message.
@@ -110,8 +108,7 @@ pub fn parse_pipe_message(name: &str, payload: Option<&str>) -> PipeAction {
         "cc-deck:working-prev" => PipeAction::WorkingPrev,
         "cc-deck:refresh" => PipeAction::Refresh,
         "cc-deck:voice" => PipeAction::VoiceText(payload.unwrap_or("").to_string()),
-        "cc-deck:voice-control" => PipeAction::VoiceControl,
-        "cc-deck:voice-toggle" => PipeAction::VoiceToggle,
+        "cc-deck:voice-mute-toggle" => PipeAction::VoiceMuteToggle,
         "cc-deck:test-inject" => PipeAction::TestInject,
         _ => PipeAction::Unknown,
     }
@@ -245,9 +242,9 @@ mod tests {
             PipeAction::VoiceText(text) => assert_eq!(text, ""),
             _ => panic!("expected VoiceText with empty payload"),
         }
-        assert!(matches!(parse_pipe_message("cc-deck:voice-control", None), PipeAction::VoiceControl));
-        assert!(matches!(parse_pipe_message("cc-deck:voice-control", Some("listen")), PipeAction::VoiceControl));
-        assert!(matches!(parse_pipe_message("cc-deck:voice-toggle", None), PipeAction::VoiceToggle));
+        assert!(matches!(parse_pipe_message("cc-deck:voice-mute-toggle", None), PipeAction::VoiceMuteToggle));
+        assert!(matches!(parse_pipe_message("cc-deck:voice-control", None), PipeAction::Unknown));
+        assert!(matches!(parse_pipe_message("cc-deck:voice-toggle", None), PipeAction::Unknown));
     }
 
     #[test]

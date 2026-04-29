@@ -69,6 +69,8 @@ pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
         working,
         idle,
         controller_plugin_id: state.plugin_id,
+        voice_connected: state.voice_enabled,
+        voice_muted: state.voice_muted,
     }
 }
 
@@ -90,11 +92,6 @@ pub fn broadcast_render(state: &ControllerState) {
 
     // Also broadcast without target for any sidebars not yet registered
     broadcast_render_all(&json);
-}
-
-/// Mark render as dirty. The actual broadcast happens on the next timer flush.
-pub fn mark_render_dirty(state: &mut ControllerState) {
-    state.render_dirty = true;
 }
 
 /// Flush the render if dirty, then clear the flag.

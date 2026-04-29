@@ -67,14 +67,9 @@ Additional command words can be configured in `~/.config/cc-deck/config.yaml`.
 
 Press `q` to quit the voice TUI and shut down the whisper server.
 
-== Capture Modes
+== Voice Activity Detection
 
-Voice relay supports two capture modes.
-You can switch between them at any time from the TUI by pressing `m`.
-
-=== VAD (Voice Activity Detection)
-
-VAD is the default mode.
+Voice relay uses VAD (voice activity detection) mode.
 The microphone listens continuously, and cc-deck detects when you start and stop speaking based on audio energy levels.
 Each utterance is automatically segmented, transcribed, and delivered.
 
@@ -85,20 +80,31 @@ Use the `+` and `-` keys in the TUI to adjust the threshold in real time.
 Silence of 1.5 seconds ends an utterance and triggers transcription.
 Utterances are capped at 30 seconds, which is the maximum window Whisper can process in a single pass.
 
-=== PTT (Push-to-Talk)
+== Sidebar Integration
 
-In PTT mode, the microphone stays silent until you press kbd:[F8].
-Press kbd:[F8] once to start recording, and press it again to stop.
-The captured audio is then transcribed and delivered.
+When voice relay is running, a ♫ indicator appears in the sidebar header.
 
-PTT is useful in noisy environments or when you want precise control over what gets transcribed.
-The kbd:[F8] keybinding works from any pane in the Zellij session, not just the voice TUI.
+* **Bright green ♫**: Voice relay is connected and listening.
+* **Dim ♫**: Voice relay is connected but muted.
+* **No ♫**: Voice relay is not connected.
 
-[NOTE]
-====
-PTT uses a bidirectional pipe to communicate the toggle signal.
-The kbd:[F8] press travels through the Zellij plugin to the voice relay process, so it works even when your workspace is remote.
-====
+=== Mute Toggle
+
+You can mute and unmute voice relay from multiple locations:
+
+**From the sidebar (any pane):**
+
+* kbd:[Alt+v]: Toggle mute (configurable via `voice_key` in plugin config).
+* kbd:[v] in navigation mode: Toggle mute while navigating sessions.
+* Click the ♫ indicator: Toggle mute with the mouse.
+
+**From the voice TUI:**
+
+* kbd:[m]: Toggle mute.
+
+Mute state synchronizes bidirectionally between the sidebar and voice TUI.
+When you mute from the sidebar, the TUI reflects the change within about one second.
+When you mute from the TUI, the sidebar updates immediately.
 
 [[models]]
 == Whisper Models
@@ -154,7 +160,7 @@ When voice relay starts, it opens a terminal interface that shows the current st
 
 === What You See
 
-The header displays the target workspace name, the active audio device, the current capture mode (VAD or PTT), and a real-time audio level meter.
+The header displays the target workspace name, the active audio device, the current mode (VAD or MUTED), and a real-time audio level meter.
 The level meter uses a braille-block visualization with a threshold indicator, so you can see at a glance whether your voice is loud enough to trigger detection.
 
 The main area shows a scrollable transcript history.
@@ -176,7 +182,7 @@ The footer shows available keyboard shortcuts.
 | Quit voice relay and stop the whisper server.
 
 | kbd:[m]
-| Toggle between VAD and PTT modes.
+| Toggle mute/unmute.
 
 | kbd:[+] / kbd:[-]
 | Increase or decrease VAD sensitivity by 2% per press.
@@ -211,10 +217,6 @@ All voice settings can be overridden per invocation:
 [cols="1,1,3"]
 |===
 | Flag | Default | Description
-
-| `--mode`
-| `vad`
-| Capture mode: `vad` or `ptt`.
 
 | `--model`
 | `base.en`
