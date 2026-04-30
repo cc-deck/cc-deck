@@ -274,7 +274,8 @@ defaults:
 ----
 
 Each key under `commands` is an action name, and the list contains trigger words for that action.
-When you set `commands` in the config, it replaces the defaults entirely.
+When you configure an action, your word list replaces the default words for that action.
+Actions you do not configure keep their defaults.
 Filler words (um, uh, hmm) are stripped before matching, so "um, send" still triggers the command.
 
 === Diagnostic Logging
