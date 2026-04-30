@@ -208,22 +208,42 @@ func (e *SSHWorkspace) Attach(ctx context.Context) error {
 	hasSession := e.remoteHasSession(client, sessionName)
 
 	if !hasSession {
-		// Create the session in the background. Try with cc-deck layout first,
-		// fall back to default layout if the cc-deck layout is not installed.
+		// Delete any exited session to prevent Zellij from resurrecting
+		// a stale layout instead of using the --layout file.
+		deleteCmd := fmt.Sprintf("zellij delete-session --force %q", sessionName)
+		_, _ = client.Run(ctx, deleteCmd)
+
 		workspace, wsErr := resolveWorkspaceRemote(ctx, client, workspacePath(def))
 		if wsErr != nil {
 			return wsErr
 		}
-		createCmd := fmt.Sprintf("mkdir -p %q && cd %q && zellij --layout cc-deck attach --create-background %q",
+
+		// Create a fresh session with serialization disabled. cc-deck
+		// manages its own session lifecycle; Zellij's serialization cache
+		// only produces stale EXITED ghosts that interfere with clean
+		// re-attach.
+		createCmd := fmt.Sprintf(
+			"mkdir -p %q && cd %q && zellij --layout cc-deck attach --create-background %q",
 			workspace, workspace, sessionName)
 		if _, err := client.Run(ctx, createCmd); err != nil {
 			// Layout not found, retry without layout specification.
-			createCmd = fmt.Sprintf("cd %q && zellij attach --create-background %q",
+			createCmd = fmt.Sprintf(
+				"cd %q && zellij attach --create-background %q",
 				workspace, sessionName)
 			if _, retryErr := client.Run(ctx, createCmd); retryErr != nil {
 				return fmt.Errorf("creating remote Zellij session: %w", retryErr)
 			}
 			log.Printf("NOTE: cc-deck layout not found on remote, using default layout")
+		}
+
+		// Wait for the background session to become attachable.
+		// create-background returns before the server is fully ready;
+		// attaching too early hits "unknown messages" in Zellij 0.44.
+		for i := 0; i < 10; i++ {
+			if e.remoteHasSession(client, sessionName) {
+				break
+			}
+			time.Sleep(200 * time.Millisecond)
 		}
 	}
 
@@ -294,6 +314,9 @@ func (e *SSHWorkspace) SyncRepos(ctx context.Context, repos []RepoEntry) error {
 }
 
 // KillSession kills the remote Zellij session without affecting the remote host.
+// Handles both running and exited (resurrectable) sessions by using
+// delete-session --force, which kills the server and removes the
+// serialization cache that Zellij would otherwise resurrect on next attach.
 func (e *SSHWorkspace) KillSession(ctx context.Context) error {
 	inst, err := e.store.FindInstanceByName(e.name)
 	if err != nil || inst.SSH == nil {
@@ -301,15 +324,17 @@ func (e *SSHWorkspace) KillSession(ctx context.Context) error {
 	}
 	client := ssh.NewClient(inst.SSH.Host, inst.SSH.Port, inst.SSH.IdentityFile, inst.SSH.JumpHost, inst.SSH.SSHConfig)
 	sessionName := e.sshSessionName()
-	if !e.remoteHasSession(client, sessionName) {
-		return nil
-	}
-	killCmd := fmt.Sprintf("zellij kill-session %q", sessionName)
-	_, _ = client.Run(ctx, killCmd)
+
+	// Always attempt delete-session --force. This handles both running
+	// sessions (kills server first) and exited sessions (removes
+	// serialization cache). Errors are non-fatal since the session may
+	// not exist at all.
 	deleteCmd := fmt.Sprintf("zellij delete-session --force %q", sessionName)
-	if _, err := client.Run(ctx, deleteCmd); err != nil {
-		return fmt.Errorf("deleting remote session: %w", err)
-	}
+	_, _ = client.Run(ctx, deleteCmd)
+
+	cleanupCmd := "pkill -f 'zellij.*pipe.*cc-deck' 2>/dev/null; true"
+	_, _ = client.Run(ctx, cleanupCmd)
+
 	inst.SessionState = SessionStateNone
 	_ = e.store.UpdateInstance(inst)
 	return nil

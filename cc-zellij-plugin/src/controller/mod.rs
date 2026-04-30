@@ -128,6 +128,10 @@ impl ZellijPlugin for ControllerPlugin {
 
     fn pipe(&mut self, pipe_message: PipeMessage) -> bool {
         if !self.state.permissions_granted {
+            #[cfg(target_family = "wasm")]
+            if let PipeSource::Cli(ref pipe_id) = pipe_message.source {
+                zellij_tile::prelude::unblock_cli_pipe_input(pipe_id);
+            }
             return false;
         }
 
@@ -318,20 +322,29 @@ impl ZellijPlugin for ControllerPlugin {
                 } else if self.state.voice_muted {
                     crate::debug_log("CTRL VOICE discarded: muted");
                 } else {
-                    let sanitized = crate::sanitize_voice_text(&text);
-                    let sessions = &self.state.sessions;
-                    let is_session = |id: &u32| sessions.contains_key(id);
-                    let target = self.state.last_attended_pane_id.filter(&is_session)
-                        .or(self.state.focused_pane_id.filter(&is_session))
-                        .or_else(|| sessions.keys().next().copied());
-                    if let Some(pane_id) = target {
-                        write_chars_to_pane(pane_id, &sanitized);
-                        crate::debug_log(&format!(
-                            "CTRL VOICE injected {} chars to pane={}",
-                            sanitized.len(), pane_id
-                        ));
+                    // Deduplicate: Zellij broadcast pipes deliver the same
+                    // message multiple times (sidebar unblocks trigger
+                    // secondary deliveries). Suppress identical text within
+                    // a short window.
+                    let now_ms = crate::session::unix_now_ms();
+                    let text_hash = {
+                        let mut h: u64 = 5381;
+                        for b in text.as_bytes() {
+                            h = h.wrapping_mul(33).wrapping_add(*b as u64);
+                        }
+                        h
+                    };
+                    if let Some((prev_hash, prev_ms)) = self.state.voice_last_inject {
+                        if prev_hash == text_hash && now_ms.saturating_sub(prev_ms) < 200 {
+                            crate::debug_log("CTRL VOICE deduplicated");
+                            // fall through without injecting
+                        } else {
+                            self.state.voice_last_inject = Some((text_hash, now_ms));
+                            self.inject_voice_text(&text);
+                        }
                     } else {
-                        crate::debug_log("CTRL VOICE discarded: no target pane");
+                        self.state.voice_last_inject = Some((text_hash, now_ms));
+                        self.inject_voice_text(&text);
                     }
                 }
             }
@@ -558,6 +571,26 @@ fn broadcast_navigate(state: &ControllerState, direction: &str) {
 
 #[cfg(not(target_family = "wasm"))]
 fn broadcast_navigate(_state: &ControllerState, _direction: &str) {}
+
+impl ControllerPlugin {
+    fn inject_voice_text(&self, text: &str) {
+        let sanitized = crate::sanitize_voice_text(text);
+        let sessions = &self.state.sessions;
+        let is_session = |id: &u32| sessions.contains_key(id);
+        let target = self.state.last_attended_pane_id.filter(&is_session)
+            .or(self.state.focused_pane_id.filter(&is_session))
+            .or_else(|| sessions.keys().next().copied());
+        if let Some(pane_id) = target {
+            write_chars_to_pane(pane_id, &sanitized);
+            crate::debug_log(&format!(
+                "CTRL VOICE injected {} chars to pane={}",
+                sanitized.len(), pane_id
+            ));
+        } else {
+            crate::debug_log("CTRL VOICE discarded: no target pane");
+        }
+    }
+}
 
 #[cfg(target_family = "wasm")]
 fn write_chars_to_pane(pane_id: u32, chars: &str) {

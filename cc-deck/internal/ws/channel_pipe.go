@@ -8,6 +8,15 @@ import (
 	"strings"
 )
 
+// controllerPluginURL is the portable tilde-based URL for the cc-deck
+// controller plugin. Zellij normalizes tildes via shell expansion, so
+// this matches the absolute path used in config.kdl's load_plugins block
+// regardless of the user's home directory.
+const controllerPluginURL = "file:~/.config/zellij/plugins/cc_deck.wasm"
+
+// ControllerPluginURL returns the controller plugin URL for use in pipe commands.
+func ControllerPluginURL() string { return controllerPluginURL }
+
 // localPipeChannel sends text to a local zellij pipe via subprocess.
 type localPipeChannel struct {
 	name string
@@ -18,7 +27,10 @@ func (c *localPipeChannel) zellijSessionName() string {
 }
 
 func (c *localPipeChannel) pipeCmd(ctx context.Context, pipeName string, payload string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, "zellij", "pipe", "--name", pipeName, "--", payload)
+	cmd := exec.CommandContext(ctx, "zellij", "pipe",
+		"--plugin", controllerPluginURL,
+		"--plugin-configuration", "mode=controller",
+		"--name", pipeName, "--", payload)
 	cmd.Env = append(os.Environ(), "ZELLIJ_SESSION_NAME="+c.zellijSessionName())
 	return cmd
 }
@@ -61,7 +73,10 @@ func (c *execPipeChannel) zellijSessionName() string {
 
 func (c *execPipeChannel) pipeCmd(pipeName string, payload string) []string {
 	sessionEnv := "ZELLIJ_SESSION_NAME=" + c.zellijSessionName()
-	return []string{"env", sessionEnv, "zellij", "pipe", "--name", pipeName, "--", payload}
+	return []string{"env", sessionEnv, "zellij", "pipe",
+		"--plugin", controllerPluginURL,
+		"--plugin-configuration", "mode=controller",
+		"--name", pipeName, "--", payload}
 }
 
 func (c *execPipeChannel) Send(ctx context.Context, pipeName string, payload string) error {
