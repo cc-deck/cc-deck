@@ -249,17 +249,24 @@ func (r *VoiceRelay) statePoll(ctx context.Context, sr PipeSendReceiver) {
 	defer ticker.Stop()
 
 	var lastTarget string
+	voiceOnConfirmed := false
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			if !voiceOnConfirmed {
+				_ = r.pipe.Send(ctx, "cc-deck:voice", "[[voice:on]]")
+				voiceOnConfirmed = true
+			}
+
 			resp, err := sr.SendReceive(ctx, "cc-deck:dump-state", "")
 			if err != nil {
 				if ctx.Err() != nil {
 					return
 				}
+				voiceOnConfirmed = false
 				continue
 			}
 
