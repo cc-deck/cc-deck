@@ -27,10 +27,10 @@
 
 **Purpose**: Extend the Go voice relay with the new "attend" action. These changes are prerequisites for all user stories since the plugin handler depends on receiving `[[attend]]` payloads.
 
-- [ ] T001 [P] Add `"attend": {"next"}` to `DefaultCommands` map in `cc-deck/internal/voice/stopword.go`
-- [ ] T002 [P] Add `case "attend": payload = "[[attend]]"` to the command dispatch switch in `cc-deck/internal/voice/relay.go` (around line 431)
-- [ ] T003 [P] Add unit tests for "next" triggering "attend" action in `cc-deck/internal/voice/stopword_test.go` (test standalone detection, filler stripping, sentence embedding)
-- [ ] T004 [P] Add unit test verifying "next" produces `[[attend]]` payload on the voice pipe in `cc-deck/internal/voice/relay_test.go`
+- [x] T001 [P] Add `"attend": {"next"}` to `DefaultCommands` map in `cc-deck/internal/voice/stopword.go`
+- [x] T002 [P] Add `case "attend": payload = "[[attend]]"` to the command dispatch switch in `cc-deck/internal/voice/relay.go` (around line 431)
+- [x] T003 [P] Add unit tests for "next" triggering "attend" action in `cc-deck/internal/voice/stopword_test.go` (test standalone detection, filler stripping, sentence embedding)
+- [x] T004 [P] Add unit test verifying "next" produces `[[attend]]` payload on the voice pipe in `cc-deck/internal/voice/relay_test.go`
 
 **Checkpoint**: Go side complete. `make test` passes. "next" utterance produces `[[attend]]` on the voice pipe.
 
@@ -44,7 +44,7 @@
 
 ### Implementation for User Story 1
 
-- [ ] T005 [US1] Add `"attend"` match arm in `handle_voice_command()` in `cc-zellij-plugin/src/controller/mod.rs` that calls the attend logic (perform_attend)
+- [x] T005 [US1] Add `"attend"` match arm in `handle_voice_command()` in `cc-zellij-plugin/src/controller/mod.rs` that calls the attend logic (perform_attend)
 
 **Checkpoint**: Core feature works. Saying "next" cycles to the next attended session.
 
@@ -60,7 +60,7 @@
 
 (No additional code changes needed. The existing `commands` map and `BuildCommandMap()` already support custom words per action. When a user overrides `DefaultCommands` with `"attend": ["switch"]`, "switch" maps to the "attend" action automatically. This is covered by existing test infrastructure in `TestProcessStopwords_CustomCommands`.)
 
-- [ ] T006 [US2] Add unit test in `cc-deck/internal/voice/stopword_test.go` verifying custom words for "attend" action work correctly (e.g., "switch" triggers "attend")
+- [x] T006 [US2] Add unit test in `cc-deck/internal/voice/stopword_test.go` verifying custom words for "attend" action work correctly (e.g., "switch" triggers "attend")
 
 **Checkpoint**: Configuration works. Custom trigger words correctly map to the attend action.
 
@@ -76,7 +76,7 @@
 
 (No additional code changes needed. `BuildCommandMap()` already iterates over word slices, so `"attend": ["next", "switch"]` maps both words to "attend" automatically.)
 
-- [ ] T007 [US3] Add unit test in `cc-deck/internal/voice/stopword_test.go` verifying multiple words for "attend" action all trigger correctly
+- [x] T007 [US3] Add unit test in `cc-deck/internal/voice/stopword_test.go` verifying multiple words for "attend" action all trigger correctly
 
 **Checkpoint**: Multiple trigger words work.
 
@@ -86,9 +86,9 @@
 
 **Purpose**: Documentation and final validation.
 
-- [ ] T008 [P] Update configuration reference in `docs/modules/reference/pages/configuration.adoc` to document the "attend" command word and how to customize it
-- [ ] T009 [P] Update voice relay guide in docs to mention the "next" command alongside "send"
-- [ ] T010 Run `make test` and `make lint` to verify all changes pass
+- [x] T008 [P] Update configuration reference in `docs/modules/reference/pages/configuration.adoc` to document the "attend" command word and how to customize it
+- [x] T009 [P] Update voice relay guide in docs to mention the "next" command alongside "send"
+- [x] T010 Run `make test` and `make lint` to verify all changes pass
 
 ---
 
