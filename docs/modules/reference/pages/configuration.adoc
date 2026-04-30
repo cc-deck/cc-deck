@@ -29,6 +29,8 @@ defaults:
         - send
         - done
         - enter
+      attend:
+        - next
 ----
 
 The `defaults.voice.threshold` setting controls how sensitive voice activity detection is.
@@ -37,9 +39,26 @@ A value between 30 and 50 works well for most indoor environments.
 This value can be overridden per invocation with `--threshold`.
 
 The `defaults.voice.commands` setting maps action names to trigger words.
-The default action is `submit` with the trigger word "send".
+Two actions are available by default:
+
+[cols="1,1,3"]
+|===
+| Action | Default Word | Description
+
+| `submit`
+| `send`
+| Sends a carriage return to the attended pane (same as pressing Enter)
+
+| `attend`
+| `next`
+| Cycles to the next session needing attention (same as Alt+a)
+|===
+
+When the entire transcribed utterance, after stripping filler words, matches a trigger word, the corresponding action fires.
+Words embedded in longer sentences are treated as normal dictation.
+
 When you set `commands` in the config, it replaces the defaults entirely.
-Future actions (such as switching to the next waiting session) can be added here as new keys.
+Each action can have multiple trigger words, and you can change the defaults to avoid conflicts with your natural speech patterns.
 
 == Environment Variables
 

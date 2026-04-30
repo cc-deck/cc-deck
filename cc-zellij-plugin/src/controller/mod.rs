@@ -500,6 +500,17 @@ impl ControllerPlugin {
                     crate::debug_log(&format!("CTRL VOICE command: enter -> pane={}", pane_id));
                 }
             }
+            "attend" => {
+                let msg = ActionMessage {
+                    action: cc_deck::ActionType::Attend,
+                    pane_id: None,
+                    tab_index: None,
+                    value: None,
+                    sidebar_plugin_id: 0,
+                };
+                actions::handle_action(&mut self.state, msg);
+                crate::debug_log("CTRL VOICE command: attend");
+            }
             _ => {
                 crate::debug_log(&format!("CTRL VOICE unknown command: {}", command));
             }

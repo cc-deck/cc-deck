@@ -16,6 +16,7 @@ var fillerWords = map[string]bool{
 // DefaultCommands maps action names to their default trigger words.
 var DefaultCommands = map[string][]string{
 	"submit": {"send"},
+	"attend": {"next"},
 }
 
 // BuildCommandMap flattens an action-to-words map into a word-to-action
