@@ -431,6 +431,8 @@ func (r *VoiceRelay) handleUtterance(ctx context.Context, u Utterance) {
 		switch result.CommandAction {
 		case "submit":
 			payload = "[[enter]]"
+		case "attend":
+			payload = "[[attend]]"
 		default:
 			payload = "[[enter]]"
 		}
