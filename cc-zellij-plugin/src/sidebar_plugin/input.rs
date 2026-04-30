@@ -214,6 +214,12 @@ fn handle_left_click(state: &mut SidebarState, row: usize) -> bool {
     // Check for special click regions
     if let Some(&(_r, pane_id, _)) = state.click_regions.iter().find(|(r, _, _)| *r == row) {
         if pane_id == super::render::VOICE_CLICK_SENTINEL {
+            // Immediate visual feedback: toggle mute locally before
+            // the controller round-trip. Cleared when the payload confirms.
+            let current = state.local_mute_override.unwrap_or_else(|| {
+                state.cached_payload.as_ref().map_or(false, |p| p.voice_muted)
+            });
+            state.local_mute_override = Some(!current);
             send_action(state, ActionType::VoiceMute, None, None, None);
             return true;
         }
@@ -435,6 +441,10 @@ fn handle_navigate_key(state: &mut SidebarState, key: KeyWithModifier) -> bool {
             true
         }
         BareKey::Char('m') => {
+            let current = state.local_mute_override.unwrap_or_else(|| {
+                state.cached_payload.as_ref().map_or(false, |p| p.voice_muted)
+            });
+            state.local_mute_override = Some(!current);
             send_action(state, ActionType::VoiceMute, None, None, None);
             true
         }

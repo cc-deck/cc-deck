@@ -198,6 +198,13 @@ impl ZellijPlugin for SidebarRendererPlugin {
                             }
                         }
 
+                        // Clear mute override once controller confirms the toggle.
+                        if let Some(expected) = self.state.local_mute_override {
+                            if render_payload.voice_muted == expected {
+                                self.state.local_mute_override = None;
+                            }
+                        }
+
                         self.state.cached_payload = Some(render_payload);
                         self.state.initialized = true;
 

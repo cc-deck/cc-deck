@@ -71,6 +71,10 @@ pub struct SidebarState {
     /// Used to detect when the sidebar loses focus in navigate mode: if no input
     /// arrives within NAVIGATE_INACTIVITY_MS, navigate mode exits automatically.
     pub last_nav_input_ms: u64,
+
+    /// Predictive mute override for immediate visual feedback on mute toggle.
+    /// Set on click, cleared when the controller payload confirms the change.
+    pub local_mute_override: Option<bool>,
 }
 
 impl Default for SidebarState {
@@ -91,6 +95,7 @@ impl Default for SidebarState {
             permissions_granted: false,
             last_click: None,
             local_focus_override: None,
+            local_mute_override: None,
             last_nav_input_ms: 0,
         }
     }
