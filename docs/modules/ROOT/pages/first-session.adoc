@@ -33,7 +33,7 @@ The sidebar now shows both sessions across tabs, each with its own status indica
 
 == Navigate Between Sessions
 
-Press kbd:[Alt+s] to enter navigation mode.
+Press `Alt+s` to enter navigation mode.
 The sidebar highlights the current session with an amber cursor.
 
 Use these keys to navigate:
@@ -42,27 +42,27 @@ Use these keys to navigate:
 |===
 | Key | Action
 
-| kbd:[j] / kbd:[k]
+| `j` / `k`
 | Move cursor down / up.
 
-| kbd:[Enter]
+| `Enter`
 | Switch to the selected session's tab.
 
-| kbd:[Esc]
+| `Esc`
 | Cancel and return to the original tab.
 
-| kbd:[g] / kbd:[G]
+| `g` / `G`
 | Jump to first / last session.
 
-| kbd:[/]
+| `/`
 | Search sessions by name.
 |===
 
-Press kbd:[Alt+s] again to cycle the cursor down without entering navigation mode first.
+Press `Alt+s` again to cycle the cursor down without entering navigation mode first.
 
 == Smart Attend
 
-Press kbd:[Alt+a] to jump to the session that most needs your attention.
+Press `Alt+a` to jump to the session that most needs your attention.
 
 The attend algorithm prioritizes:
 
@@ -70,7 +70,7 @@ The attend algorithm prioritizes:
 2. Sessions that just finished
 3. Idle sessions
 
-Pressing kbd:[Alt+a] repeatedly cycles through all sessions that need attention, skipping sessions that are actively working.
+Pressing `Alt+a` repeatedly cycles through all sessions that need attention, skipping sessions that are actively working.
 
 == Session Actions
 
@@ -80,16 +80,16 @@ While in navigation mode, you can act on the selected session:
 |===
 | Key | Action
 
-| kbd:[r]
+| `r`
 | Rename the session.
 
-| kbd:[p]
+| `p`
 | Pause the session (excluded from attend cycling).
 
-| kbd:[d]
+| `d`
 | Delete the session.
 
-| kbd:[?]
+| `?`
 | Show all keyboard shortcuts.
 |===
 

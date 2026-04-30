@@ -64,7 +64,7 @@ Start speaking and your words appear in the Claude Code input of the attended pa
 To submit the prompt, say "send" as a standalone word.
 cc-deck recognizes this as a command word and sends a newline instead of the literal text.
 To cycle to the next session needing attention, say "next" as a standalone word.
-This triggers the same tiered attend logic as kbd:[Alt+a].
+This triggers the same tiered attend logic as `Alt+a`.
 Both command words can be configured in `~/.config/cc-deck/config.yaml`.
 
 Press `q` to quit the voice TUI and shut down the whisper server.
@@ -96,13 +96,13 @@ You can mute and unmute voice relay from multiple locations:
 
 **From the sidebar (any pane):**
 
-* kbd:[Alt+m]: Toggle mute (configurable via `voice_key` in plugin config).
-* kbd:[m] in navigation mode: Toggle mute while navigating sessions.
+* `Alt+m`: Toggle mute (configurable via `voice_key` in plugin config).
+* `m` in navigation mode: Toggle mute while navigating sessions.
 * Click the ♫ indicator: Toggle mute with the mouse.
 
 **From the voice TUI:**
 
-* kbd:[m]: Toggle mute.
+* `m`: Toggle mute.
 
 Mute state synchronizes bidirectionally between the sidebar and voice TUI.
 When you mute from the sidebar, the TUI reflects the change within about one second.
@@ -180,19 +180,19 @@ The footer shows available keyboard shortcuts.
 |===
 | Key | Action
 
-| kbd:[q]
+| `q`
 | Quit voice relay and stop the whisper server.
 
-| kbd:[m]
+| `m`
 | Toggle mute/unmute.
 
-| kbd:[+] / kbd:[-]
+| `+` / `-`
 | Increase or decrease VAD sensitivity by 2% per press.
 
-| kbd:[d]
+| `d`
 | Open the audio device picker.
 
-| kbd:[PgUp] / kbd:[PgDn]
+| `PgUp` / `PgDn`
 | Scroll through transcript history.
 |===
 
@@ -251,7 +251,7 @@ Voice relay recognizes two default command words:
 
 | `next`
 | `attend`
-| Cycles to the next session needing attention (same as kbd:[Alt+a])
+| Cycles to the next session needing attention (same as `Alt+a`)
 |===
 
 A command word only fires when the entire utterance, after stripping filler words, equals the trigger word.
