@@ -235,10 +235,20 @@ fn handle_left_click(state: &mut SidebarState, row: usize) -> bool {
         // Double-click detection for rename
         let now = unix_now_ms();
         if let Some((last_ts, last_pid)) = state.last_click {
-            if last_pid == pane_id && now.saturating_sub(last_ts) < DOUBLE_CLICK_MS {
+            let delta = now.saturating_sub(last_ts);
+            crate::debug_log(&format!(
+                "SIDEBAR CLICK: row={row} pane_id={pane_id} last_pid={last_pid} delta={delta}ms dbl={}",
+                last_pid == pane_id && delta < DOUBLE_CLICK_MS,
+            ));
+            if last_pid == pane_id && delta < DOUBLE_CLICK_MS {
                 state.last_click = None;
                 return enter_rename_passive(state, pane_id);
             }
+        } else {
+            crate::debug_log(&format!(
+                "SIDEBAR CLICK: row={row} pane_id={pane_id} first_click mode={:?}",
+                std::mem::discriminant(&state.mode),
+            ));
         }
         state.last_click = Some((now, pane_id));
 
@@ -293,9 +303,13 @@ fn enter_rename_passive(state: &mut SidebarState, pane_id: u32) -> bool {
         input_buffer: display_name.clone(),
         cursor_pos: display_name.len(),
     };
+    let entered_at_ms = unix_now_ms();
+    crate::debug_log(&format!(
+        "SIDEBAR RENAME: entering RenamePassive pane_id={pane_id} name={display_name:?}",
+    ));
     state.mode = SidebarMode::RenamePassive {
         rename,
-        entered_at_ms: unix_now_ms(),
+        entered_at_ms,
     };
     crate::wasm_compat::set_selectable_wasm(true);
     focus_self_wasm();

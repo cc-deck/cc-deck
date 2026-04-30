@@ -67,7 +67,9 @@ func TestExecPipeChannel_Send_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	expected := []string{"env", "ZELLIJ_SESSION_NAME=cc-deck-test-ws", "zellij", "pipe", "--name", "cc-deck:voice", "--", "hello world"}
+	expected := []string{"env", "ZELLIJ_SESSION_NAME=cc-deck-test-ws", "zellij", "pipe",
+		"--plugin", controllerPluginURL, "--plugin-configuration", "mode=controller",
+		"--name", "cc-deck:voice", "--", "hello world"}
 	if len(capturedCmd) != len(expected) {
 		t.Fatalf("cmd length = %d, want %d", len(capturedCmd), len(expected))
 	}
@@ -145,7 +147,9 @@ func TestExecPipeChannel_SendReceive_Success(t *testing.T) {
 	if result != "response text" {
 		t.Errorf("result = %q, want %q", result, "response text")
 	}
-	expected := []string{"env", "ZELLIJ_SESSION_NAME=cc-deck-test-ws", "zellij", "pipe", "--name", "cc-deck:voice-control", "--", "listen"}
+	expected := []string{"env", "ZELLIJ_SESSION_NAME=cc-deck-test-ws", "zellij", "pipe",
+		"--plugin", controllerPluginURL, "--plugin-configuration", "mode=controller",
+		"--name", "cc-deck:voice-control", "--", "listen"}
 	if len(capturedCmd) != len(expected) {
 		t.Fatalf("cmd length = %d, want %d", len(capturedCmd), len(expected))
 	}
