@@ -23,7 +23,7 @@ All paths relative to `../cc-deck.github.io/` (the landing page repository).
 
 **Purpose**: Fix site configuration issues
 
-- [ ] T001 Fix site URL in astro.config.ts from `antwort-dev.github.io` to `cc-deck.github.io` in ../cc-deck.github.io/astro.config.ts
+- [x] T001 Fix site URL in astro.config.ts from `antwort-dev.github.io` to `cc-deck.github.io` in ../cc-deck.github.io/astro.config.ts
 
 ---
 
@@ -31,7 +31,7 @@ All paths relative to `../cc-deck.github.io/` (the landing page repository).
 
 **Purpose**: Create the tabbed code component needed by User Story 2
 
-- [ ] T002 Create TabbedCode widget component in ../cc-deck.github.io/src/components/widgets/TabbedCode.astro with vanilla JS tab switcher, monospace code blocks, dark terminal styling, and graceful JS-disabled degradation (both blocks stacked)
+- [x] T002 Create TabbedCode widget component in ../cc-deck.github.io/src/components/widgets/TabbedCode.astro with vanilla JS tab switcher, monospace code blocks, dark terminal styling, and graceful JS-disabled degradation (both blocks stacked)
 
 **Checkpoint**: Foundation ready, all widget components available for page assembly.
 
@@ -45,9 +45,9 @@ All paths relative to `../cc-deck.github.io/` (the landing page repository).
 
 ### Implementation for User Story 1
 
-- [ ] T003 [US1] Replace placeholder content in ../cc-deck.github.io/src/pages/index.astro with Hero widget section: title "cc-deck", subtitle "Your Claude Code command center", description text, placeholder image div (styled terminal box), and two CTA buttons (Get Started anchor to #get-started, GitHub external link)
-- [ ] T004 [US1] Add Sidebar Plugin Features section to ../cc-deck.github.io/src/pages/index.astro using Features widget with columns=3, tagline "Sidebar Plugin", title "Everything visible. One keystroke away.", and 6 items: Smart Attend (tabler:focus-2), Keyboard Navigation (tabler:keyboard), Session Status (tabler:activity), Voice Control (tabler:microphone), Session Management (tabler:layout-list), Hook Integration (tabler:webhook). Use descriptions from plan.md Feature Descriptions table.
-- [ ] T005 [US1] Add Run Anywhere section to ../cc-deck.github.io/src/pages/index.astro using Features widget with columns=3, tagline "Workspaces", title "Run anywhere", and 6 items: Local (tabler:device-desktop), Container (tabler:box), Compose (tabler:stack-2), SSH (tabler:terminal), Kubernetes Deploy (tabler:cloud), Kubernetes Sandbox (tabler:flask). Use descriptions from plan.md Feature Descriptions table.
+- [x] T003 [US1] Replace placeholder content in ../cc-deck.github.io/src/pages/index.astro with Hero widget section: title "cc-deck", subtitle "Your Claude Code command center", description text, placeholder image div (styled terminal box), and two CTA buttons (Get Started anchor to #get-started, GitHub external link)
+- [x] T004 [US1] Add Sidebar Plugin Features section to ../cc-deck.github.io/src/pages/index.astro using Features widget with columns=3, tagline "Sidebar Plugin", title "Everything visible. One keystroke away.", and 6 items: Smart Attend (tabler:focus-2), Keyboard Navigation (tabler:keyboard), Session Status (tabler:activity), Voice Control (tabler:microphone), Session Management (tabler:layout-list), Hook Integration (tabler:webhook). Use descriptions from plan.md Feature Descriptions table.
+- [x] T005 [US1] Add Run Anywhere section to ../cc-deck.github.io/src/pages/index.astro using Features widget with columns=3, tagline "Workspaces", title "Run anywhere", and 6 items: Local (tabler:device-desktop), Container (tabler:box), Compose (tabler:stack-2), SSH (tabler:terminal), Kubernetes Deploy (tabler:cloud), Kubernetes Sandbox (tabler:flask). Use descriptions from plan.md Feature Descriptions table.
 
 **Checkpoint**: Page shows hero, sidebar features, and workspace types. Core value proposition is visible.
 
@@ -61,7 +61,7 @@ All paths relative to `../cc-deck.github.io/` (the landing page repository).
 
 ### Implementation for User Story 2
 
-- [ ] T006 [US2] Add Get Started section to ../cc-deck.github.io/src/pages/index.astro using TabbedCode widget with id="get-started", Tab 1 "Try it now" (podman run one-liner with demo image), Tab 2 "Install locally" (brew install cc-deck + cc-deck config plugin install)
+- [x] T006 [US2] Add Get Started section to ../cc-deck.github.io/src/pages/index.astro using TabbedCode widget with id="get-started", Tab 1 "Try it now" (podman run one-liner with demo image), Tab 2 "Install locally" (brew install cc-deck + cc-deck config plugin install)
 
 **Checkpoint**: Visitors can find and copy quickstart commands.
 
@@ -75,7 +75,7 @@ All paths relative to `../cc-deck.github.io/` (the landing page repository).
 
 ### Implementation for User Story 3
 
-- [ ] T007 [US3] Add More Features section to ../cc-deck.github.io/src/pages/index.astro using Features widget with columns=2, tagline "And more", title "Built for real workflows", and 4 items: Custom Image Builder (tabler:hammer), Session Snapshots (tabler:camera), Domain Filtering (tabler:filter), Credential Profiles (tabler:key). Use descriptions from plan.md Feature Descriptions table.
+- [x] T007 [US3] Add More Features section to ../cc-deck.github.io/src/pages/index.astro using Features widget with columns=2, tagline "And more", title "Built for real workflows", and 4 items: Custom Image Builder (tabler:hammer), Session Snapshots (tabler:camera), Domain Filtering (tabler:filter), Credential Profiles (tabler:key). Use descriptions from plan.md Feature Descriptions table.
 
 **Checkpoint**: Full feature set visible on the page.
 
@@ -89,7 +89,7 @@ All paths relative to `../cc-deck.github.io/` (the landing page repository).
 
 ### Implementation for User Story 4
 
-- [ ] T008 [US4] Verify and fix navigation in ../cc-deck.github.io/src/navigation.ts if needed. Ensure header links (Docs, GitHub) and footer links are correct. Verify Get Started anchor (#get-started) scrolls correctly from hero CTA.
+- [x] T008 [US4] Verify and fix navigation in ../cc-deck.github.io/src/navigation.ts if needed. Ensure header links (Docs, GitHub) and footer links are correct. Verify Get Started anchor (#get-started) scrolls correctly from hero CTA.
 
 **Checkpoint**: All navigation paths functional.
 
@@ -99,10 +99,10 @@ All paths relative to `../cc-deck.github.io/` (the landing page repository).
 
 **Purpose**: Verification and cleanup
 
-- [ ] T009 Run `npm run build` in ../cc-deck.github.io/ to verify site builds without errors
-- [ ] T010 Verify dark/light theme toggle renders all sections correctly in both modes
-- [ ] T011 Verify responsive layout at mobile (<768px), tablet (768-1024px), and desktop (>1024px) viewports
-- [ ] T012 Start dev server (`npm run dev`) and manually verify all 6 page sections render, tab switcher works, and all links navigate correctly
+- [x] T009 Run `npm run build` in ../cc-deck.github.io/ to verify site builds without errors
+- [x] T010 Verify dark/light theme toggle renders all sections correctly in both modes
+- [x] T011 Verify responsive layout at mobile (<768px), tablet (768-1024px), and desktop (>1024px) viewports
+- [x] T012 Start dev server (`npm run dev`) and manually verify all 6 page sections render, tab switcher works, and all links navigate correctly
 
 ---
 
