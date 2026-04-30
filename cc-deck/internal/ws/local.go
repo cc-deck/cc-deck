@@ -99,11 +99,17 @@ func (e *LocalWorkspace) Attach(_ context.Context) error {
 		return nil
 	}
 
+	// Delete any EXITED session with the same name to prevent stale ghosts.
+	// cc-deck manages its own session lifecycle; Zellij's serialization cache
+	// only produces stale EXITED sessions that interfere with clean re-attach.
+	if ZellijSessionState(sessionName) == "exited" {
+		del := exec.Command(zellijPath, "delete-session", "--force", sessionName)
+		_ = del.Run()
+	}
+
 	// If the session doesn't exist, create it in the background with the
-	// cc-deck layout. The two-step approach (background create, then attach)
-	// ensures the session persists as EXITED on close, unlike -n which
-	// destroys the session. We try --layout with attach -b first, then
-	// fall back to attach -b without layout.
+	// cc-deck layout. We try --layout with attach -b first, then fall back
+	// to attach -b without layout.
 	if !zellijSessionExists(sessionName) {
 		create := exec.Command(zellijPath, "--layout", "cc-deck", "attach", "-b", sessionName)
 		if out, createErr := create.CombinedOutput(); createErr != nil {
@@ -186,7 +192,7 @@ func (e *LocalWorkspace) KillSession(_ context.Context) error {
 		return nil
 	}
 
-	cmd := exec.Command("zellij", "kill-session", sessionName)
+	cmd := exec.Command("zellij", "delete-session", "--force", sessionName)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("killing session: %s\n%s", err, string(out))
 	}

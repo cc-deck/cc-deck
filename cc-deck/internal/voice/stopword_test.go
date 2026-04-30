@@ -106,6 +106,97 @@ func TestProcessStopwords_CustomCommands(t *testing.T) {
 	}
 }
 
+func TestProcessStopwords_DefaultAttend(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     string
+		isCommand bool
+		action    string
+	}{
+		{"next standalone", "next", true, "attend"},
+		{"next uppercase", "Next", true, "attend"},
+		{"next after filler", "um, next", true, "attend"},
+		{"next after multiple fillers", "uh um next", true, "attend"},
+		{"next in sentence", "the next step is to refactor", false, ""},
+		{"next with suffix", "next one", false, ""},
+		{"send still works", "send", true, "submit"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ProcessStopwords(tt.input, nil)
+			if result.IsCommand != tt.isCommand {
+				t.Errorf("IsCommand = %v, want %v (input: %q)", result.IsCommand, tt.isCommand, tt.input)
+			}
+			if result.CommandAction != tt.action {
+				t.Errorf("CommandAction = %q, want %q (input: %q)", result.CommandAction, tt.action, tt.input)
+			}
+		})
+	}
+}
+
+func TestProcessStopwords_CustomAttendWord(t *testing.T) {
+	commands := BuildCommandMap(map[string][]string{
+		"submit": {"send"},
+		"attend": {"switch"},
+	})
+
+	tests := []struct {
+		name      string
+		input     string
+		isCommand bool
+		action    string
+	}{
+		{"switch triggers attend", "switch", true, "attend"},
+		{"switch uppercase", "SWITCH", true, "attend"},
+		{"switch after filler", "um switch", true, "attend"},
+		{"next no longer triggers", "next", false, ""},
+		{"send still works", "send", true, "submit"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ProcessStopwords(tt.input, commands)
+			if result.IsCommand != tt.isCommand {
+				t.Errorf("IsCommand = %v, want %v (input: %q)", result.IsCommand, tt.isCommand, tt.input)
+			}
+			if result.CommandAction != tt.action {
+				t.Errorf("CommandAction = %q, want %q (input: %q)", result.CommandAction, tt.action, tt.input)
+			}
+		})
+	}
+}
+
+func TestProcessStopwords_MultipleAttendWords(t *testing.T) {
+	commands := BuildCommandMap(map[string][]string{
+		"submit": {"send"},
+		"attend": {"next", "switch"},
+	})
+
+	tests := []struct {
+		name      string
+		input     string
+		isCommand bool
+		action    string
+	}{
+		{"next triggers attend", "next", true, "attend"},
+		{"switch triggers attend", "switch", true, "attend"},
+		{"send still works", "send", true, "submit"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ProcessStopwords(tt.input, commands)
+			if result.IsCommand != tt.isCommand {
+				t.Errorf("IsCommand = %v, want %v (input: %q)", result.IsCommand, tt.isCommand, tt.input)
+			}
+			if result.CommandAction != tt.action {
+				t.Errorf("CommandAction = %q, want %q (input: %q)", result.CommandAction, tt.action, tt.input)
+			}
+		})
+	}
+}
+
 func TestBuildCommandMap(t *testing.T) {
 	actions := map[string][]string{
 		"submit": {"send", "go"},

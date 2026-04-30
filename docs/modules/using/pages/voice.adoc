@@ -63,7 +63,9 @@ Start speaking and your words appear in the Claude Code input of the attended pa
 
 To submit the prompt, say "send" as a standalone word.
 cc-deck recognizes this as a command word and sends a newline instead of the literal text.
-Additional command words can be configured in `~/.config/cc-deck/config.yaml`.
+To cycle to the next session needing attention, say "next" as a standalone word.
+This triggers the same tiered attend logic as kbd:[Alt+a].
+Both command words can be configured in `~/.config/cc-deck/config.yaml`.
 
 Press `q` to quit the voice TUI and shut down the whisper server.
 
@@ -237,7 +239,24 @@ All voice settings can be overridden per invocation:
 
 === Command Words
 
-By default, saying "send" as a standalone word submits the current prompt (sends a newline).
+Voice relay recognizes two default command words:
+
+[cols="1,1,3"]
+|===
+| Word | Action | Description
+
+| `send`
+| `submit`
+| Submits the current prompt (sends a newline to the attended pane)
+
+| `next`
+| `attend`
+| Cycles to the next session needing attention (same as kbd:[Alt+a])
+|===
+
+A command word only fires when the entire utterance, after stripping filler words, equals the trigger word.
+Saying "the next step is to refactor" is treated as normal dictation because "next" is not standalone.
+
 You can configure additional trigger words or define new actions in the config file:
 
 [source,yaml]
@@ -249,10 +268,14 @@ defaults:
         - send
         - done
         - enter
+      attend:
+        - next
+        - switch
 ----
 
 Each key under `commands` is an action name, and the list contains trigger words for that action.
-When you set `commands` in the config, it replaces the defaults entirely.
+When you configure an action, your word list replaces the default words for that action.
+Actions you do not configure keep their defaults.
 Filler words (um, uh, hmm) are stripped before matching, so "um, send" still triggers the command.
 
 === Diagnostic Logging
