@@ -517,8 +517,38 @@ func TestVoiceRelay_ContextCancelGracefulShutdown(t *testing.T) {
 	relay.Stop()
 }
 
+func TestVoiceRelay_AttendCommandSendsAttend(t *testing.T) {
+	audio := newMockAudioSource(makeSpeech(500, 5000), makeSilence(500))
+	transcriber := &mockTranscriber{results: []string{"next"}}
+	pipe := &mockPipeSender{}
+
+	config := DefaultRelayConfig()
+	config.VADConfig.Threshold = 0.01
+	config.VADConfig.SilenceDuration = 0.1
+	config.VADConfig.PreRollDuration = 0
+
+	relay := NewVoiceRelay(config, audio, transcriber, pipe)
+	if err := relay.Start(context.Background()); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+
+	collectEvents(relay.Events(), 2*time.Second)
+	relay.Stop()
+
+	sent := pipe.getSent()
+	var hasAttend bool
+	for _, s := range sent {
+		if s.payload == "[[attend]]" {
+			hasAttend = true
+		}
+	}
+	if !hasAttend {
+		t.Error("expected [[attend]] in sends for 'next' command word")
+	}
+}
+
 func isProtocolMessage(payload string) bool {
-	return strings.HasPrefix(payload, "[[voice:") || payload == "[[enter]]"
+	return strings.HasPrefix(payload, "[[voice:") || payload == "[[enter]]" || payload == "[[attend]]"
 }
 
 func filterNonProtocol(sends []pipeSend) []pipeSend {

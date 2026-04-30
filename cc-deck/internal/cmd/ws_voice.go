@@ -119,7 +119,14 @@ func runVoiceRelay(wsName, modelName string, verbose bool, port int, thresholdFl
 			thresholdPct = *cfg.Defaults.Voice.Threshold
 		}
 		if len(cfg.Defaults.Voice.Commands) > 0 {
-			config.Commands = voice.BuildCommandMap(cfg.Defaults.Voice.Commands)
+			merged := make(map[string][]string)
+			for k, v := range voice.DefaultCommands {
+				merged[k] = v
+			}
+			for k, v := range cfg.Defaults.Voice.Commands {
+				merged[k] = v
+			}
+			config.Commands = voice.BuildCommandMap(merged)
 		}
 	}
 	if thresholdFlag >= 0 {
