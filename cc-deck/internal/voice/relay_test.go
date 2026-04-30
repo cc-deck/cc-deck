@@ -394,22 +394,22 @@ func TestParseDumpStateResponse(t *testing.T) {
 		{
 			name:       "attended pane not in sessions",
 			input:      `{"sessions":{"42":{"display_name":"claude-1"}},"attended_pane_id":99}`,
-			wantTarget: "",
+			wantTarget: "claude-1",
 		},
 		{
 			name:       "no attended pane ID",
 			input:      `{"sessions":{"42":{"display_name":"claude-1"}}}`,
-			wantTarget: "(no session attended)",
+			wantTarget: "claude-1",
 		},
 		{
 			name:       "null attended pane ID",
 			input:      `{"sessions":{"42":{"display_name":"claude-1"}},"attended_pane_id":null}`,
-			wantTarget: "(no session attended)",
+			wantTarget: "claude-1",
 		},
 		{
 			name:       "empty sessions map",
 			input:      `{"sessions":{},"attended_pane_id":42}`,
-			wantTarget: "",
+			wantTarget: "(no session attended)",
 		},
 		{
 			name:       "null sessions",
@@ -429,7 +429,7 @@ func TestParseDumpStateResponse(t *testing.T) {
 		{
 			name:       "session with empty display name",
 			input:      `{"sessions":{"10":{"display_name":""}},"attended_pane_id":10}`,
-			wantTarget: "",
+			wantTarget: "(no session attended)",
 		},
 		{
 			name:       "voice mute requested true",

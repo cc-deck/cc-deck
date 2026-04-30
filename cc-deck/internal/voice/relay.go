@@ -305,7 +305,11 @@ func parseDumpStateResponse(stateJSON string) dumpStateResult {
 		AttendedPaneID      *int                       `json:"attended_pane_id"`
 		VoiceMuteRequested  *bool                      `json:"voice_mute_requested"`
 	}
-	if err := json.Unmarshal([]byte(stateJSON), &envelope); err != nil {
+	// Zellij broadcast pipes can produce concatenated JSON objects when
+	// multiple plugin instances respond. Use Decoder to parse only the
+	// first complete JSON value.
+	dec := json.NewDecoder(strings.NewReader(stateJSON))
+	if err := dec.Decode(&envelope); err != nil {
 		return dumpStateResult{}
 	}
 
@@ -332,7 +336,21 @@ func parseDumpStateResponse(stateJSON string) dumpStateResult {
 		}
 	}
 
-	if result.targetName == "" && attendedKey == "" {
+	// Fall back to first session when no pane is attended (e.g., after
+	// --reset). Mirrors the controller's voice injection fallback.
+	if result.targetName == "" && len(envelope.Sessions) > 0 {
+		for _, raw := range envelope.Sessions {
+			var s struct {
+				DisplayName string `json:"display_name"`
+			}
+			if json.Unmarshal(raw, &s) == nil && s.DisplayName != "" {
+				result.targetName = s.DisplayName
+				break
+			}
+		}
+	}
+
+	if result.targetName == "" {
 		result.targetName = "(no session attended)"
 	}
 

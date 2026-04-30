@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"os/exec"
 	"sort"
+	"strings"
 	"time"
+
+	"github.com/cc-deck/cc-deck/internal/ws"
 )
 
 // pluginSession mirrors the Rust Session struct serialized by the plugin.
@@ -84,26 +87,30 @@ func QueryPluginStateCtx(ctx context.Context, name string) (*Snapshot, error) {
 
 func parseDumpState(raw []byte) (map[string]pluginSession, error) {
 	// Try envelope format: {"sessions": {...}, "attended_pane_id": ...}
+	// Use Decoder to handle concatenated JSON from Zellij broadcast pipes
+	// where the controller responds multiple times.
 	var envelope struct {
 		Sessions map[string]pluginSession `json:"sessions"`
 	}
-	if err := json.Unmarshal(raw, &envelope); err == nil && envelope.Sessions != nil {
+	dec := json.NewDecoder(strings.NewReader(string(raw)))
+	if err := dec.Decode(&envelope); err == nil && envelope.Sessions != nil {
 		return envelope.Sessions, nil
 	}
 	// Fall back to flat map format
 	var sessions map[string]pluginSession
-	if err := json.Unmarshal(raw, &sessions); err != nil {
+	dec2 := json.NewDecoder(strings.NewReader(string(raw)))
+	if err := dec2.Decode(&sessions); err != nil {
 		return nil, err
 	}
 	return sessions, nil
 }
 
 // queryPluginCtx runs zellij pipe to get session state JSON from the controller plugin.
-// Uses broadcast (--name only, no --plugin) because --plugin targeting can spawn
-// duplicate instances if the URL doesn't match exactly. The controller handles
-// DumpState; sidebars ignore it.
+// Uses targeted --plugin delivery to avoid duplicate responses from sidebars.
 func queryPluginCtx(ctx context.Context) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "zellij", "pipe",
+		"--plugin", ws.ControllerPluginURL(),
+		"--plugin-configuration", "mode=controller",
 		"--name", "cc-deck:dump-state", "--", "")
 	out, err := cmd.Output()
 	if err != nil {

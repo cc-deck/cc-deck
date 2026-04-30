@@ -102,6 +102,11 @@ pub struct ControllerState {
     /// in rebuild_pane_map() until Zellij confirms the focus change.
     /// Format: (target_pane_id, timestamp_ms). Expires after IN_FLIGHT_FOCUS_TTL_MS.
     pub in_flight_focus: Option<(u32, u64)>,
+    /// Deduplication guard for voice text injection. Zellij broadcast pipes
+    /// can deliver the same message multiple times (once per plugin instance
+    /// unblock). Tracks (text_hash, timestamp_ms) to suppress duplicates
+    /// within a short window.
+    pub voice_last_inject: Option<(u64, u64)>,
 }
 
 
