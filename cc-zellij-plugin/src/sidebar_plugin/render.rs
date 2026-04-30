@@ -38,11 +38,11 @@ pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> Vec<Cli
     let mut click_regions = Vec::new();
 
     if sessions.is_empty() && state.mode.filter_state().is_none() {
-        return render_empty_state(payload, rows, cols);
+        return render_empty_state(state, payload, rows, cols);
     }
 
     // Header with status counts (clickable to enter navigate mode)
-    render_header(payload, cols);
+    render_header(state, payload, cols);
 
     // Voice indicator click region MUST come before header regions so
     // handle_left_click's .find() matches the voice sentinel first on row 0.
@@ -294,9 +294,10 @@ pub fn render_unavailable(rows: usize, cols: usize) -> Vec<ClickRegion> {
 pub const VOICE_CLICK_SENTINEL: u32 = u32::MAX - 2;
 
 /// Render the status header with orange star and session counts.
-fn render_header(payload: &cc_deck::RenderPayload, cols: usize) {
+fn render_header(state: &super::state::SidebarState, payload: &cc_deck::RenderPayload, cols: usize) {
+    let effective_muted = state.local_mute_override.unwrap_or(payload.voice_muted);
     let voice_indicator = if payload.voice_connected {
-        if payload.voice_muted {
+        if effective_muted {
             "\x1b[2m\u{266b}\x1b[0m" // dim ♫
         } else {
             "\x1b[38;2;80;220;120m\u{266b}\x1b[0m" // bright green ♫
@@ -434,8 +435,8 @@ fn render_session_entry(
 }
 
 /// Render the empty state (no Claude sessions).
-fn render_empty_state(payload: &cc_deck::RenderPayload, rows: usize, cols: usize) -> Vec<ClickRegion> {
-    render_header(payload, cols);
+fn render_empty_state(state: &super::state::SidebarState, payload: &cc_deck::RenderPayload, rows: usize, cols: usize) -> Vec<ClickRegion> {
+    render_header(state, payload, cols);
     let mut click_regions = Vec::new();
 
     if rows > 2 {
