@@ -59,6 +59,34 @@ pub fn handle_pane_update(state: &mut ControllerState, manifest: PaneManifest) {
     state.pane_manifest = Some(manifest);
     state.rebuild_pane_map();
 
+    // Confirm restored sessions whose panes still exist in the manifest.
+    // On reattach, Claude Code processes don't re-fire hooks, so the pane
+    // manifest is the only way to verify they're still alive.
+    if !state.unconfirmed_pane_ids.is_empty() {
+        if let Some(ref manifest) = state.pane_manifest {
+            let mut confirmed = Vec::new();
+            for panes in manifest.panes.values() {
+                for pane in panes {
+                    if !pane.is_plugin
+                        && !pane.exited
+                        && state.unconfirmed_pane_ids.contains(&pane.id)
+                    {
+                        confirmed.push(pane.id);
+                    }
+                }
+            }
+            for id in &confirmed {
+                state.unconfirmed_pane_ids.remove(id);
+            }
+            if !confirmed.is_empty() {
+                crate::debug_log(&format!(
+                    "CTRL PANE_UPDATE confirmed {} restored sessions from manifest",
+                    confirmed.len()
+                ));
+            }
+        }
+    }
+
     // Remove dead sessions (unless in startup grace)
     let mut removed = false;
     if !state.in_startup_grace() {
@@ -429,6 +457,109 @@ mod tests {
         assert_eq!(shift_variant("Alt a"), "Alt A");
         assert_eq!(shift_variant("Ctrl x"), "Ctrl X");
         assert_eq!(shift_variant("Alt S"), "Alt S");
+    }
+
+    fn make_pane_info(id: u32, is_plugin: bool) -> PaneInfo {
+        PaneInfo {
+            id,
+            is_plugin,
+            is_focused: false,
+            is_fullscreen: false,
+            is_floating: false,
+            is_suppressed: false,
+            title: String::new(),
+            exited: false,
+            exit_status: None,
+            is_held: false,
+            pane_x: 0,
+            pane_content_x: 0,
+            pane_y: 0,
+            pane_content_y: 0,
+            pane_rows: 10,
+            pane_content_rows: 10,
+            pane_columns: 80,
+            pane_content_columns: 80,
+            cursor_coordinates_in_pane: None,
+            terminal_command: None,
+            plugin_url: None,
+            is_selectable: true,
+            index_in_pane_group: std::collections::BTreeMap::new(),
+            default_bg: None,
+            default_fg: None,
+        }
+    }
+
+    fn make_manifest(terminal_pane_ids: &[u32]) -> PaneManifest {
+        let panes: Vec<PaneInfo> = terminal_pane_ids
+            .iter()
+            .map(|&id| make_pane_info(id, false))
+            .collect();
+        let mut map = std::collections::HashMap::new();
+        map.insert(0, panes);
+        PaneManifest { panes: map }
+    }
+
+    fn make_manifest_with_exited(terminal_ids: &[u32], exited_ids: &[u32]) -> PaneManifest {
+        let panes: Vec<PaneInfo> = terminal_ids
+            .iter()
+            .map(|&id| {
+                let mut p = make_pane_info(id, false);
+                if exited_ids.contains(&id) {
+                    p.exited = true;
+                }
+                p
+            })
+            .collect();
+        let mut map = std::collections::HashMap::new();
+        map.insert(0, panes);
+        PaneManifest { panes: map }
+    }
+
+    #[test]
+    fn test_pane_update_confirms_restored_sessions() {
+        let mut state = ControllerState::default();
+        state.sessions.insert(10, Session::new(10, "s1".into()));
+        state.sessions.insert(20, Session::new(20, "s2".into()));
+        state.unconfirmed_pane_ids.insert(10);
+        state.unconfirmed_pane_ids.insert(20);
+        state.startup_grace_until = Some(session::unix_now_ms() + 3000);
+
+        handle_pane_update(&mut state, make_manifest(&[10, 20]));
+
+        assert!(state.unconfirmed_pane_ids.is_empty());
+        assert_eq!(state.sessions.len(), 2);
+    }
+
+    #[test]
+    fn test_pane_update_does_not_confirm_absent_panes() {
+        let mut state = ControllerState::default();
+        state.sessions.insert(10, Session::new(10, "s1".into()));
+        state.sessions.insert(20, Session::new(20, "s2".into()));
+        state.unconfirmed_pane_ids.insert(10);
+        state.unconfirmed_pane_ids.insert(20);
+        state.startup_grace_until = Some(session::unix_now_ms() + 3000);
+
+        // Only pane 10 in manifest, pane 20 is missing
+        handle_pane_update(&mut state, make_manifest(&[10]));
+
+        assert!(!state.unconfirmed_pane_ids.contains(&10));
+        assert!(state.unconfirmed_pane_ids.contains(&20));
+    }
+
+    #[test]
+    fn test_pane_update_does_not_confirm_exited_panes() {
+        let mut state = ControllerState::default();
+        state.sessions.insert(10, Session::new(10, "s1".into()));
+        state.sessions.insert(20, Session::new(20, "s2".into()));
+        state.unconfirmed_pane_ids.insert(10);
+        state.unconfirmed_pane_ids.insert(20);
+        state.startup_grace_until = Some(session::unix_now_ms() + 3000);
+
+        // Both panes in manifest but pane 20 has exited
+        handle_pane_update(&mut state, make_manifest_with_exited(&[10, 20], &[20]));
+
+        assert!(!state.unconfirmed_pane_ids.contains(&10));
+        assert!(state.unconfirmed_pane_ids.contains(&20));
     }
 
     #[test]
