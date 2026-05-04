@@ -122,7 +122,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.history = m.history[len(m.history)-maxHistoryLen:]
 			}
 			if m.recState == recRecording && m.recFile != nil {
-				if err := writeTranscriptLine(m.recFile, msg.Text); err != nil {
+				if err := writeTranscriptLine(m.recFile, msg.Text, m.recTimestamps); err != nil {
 					m.err = err
 					m.closeTranscript()
 				} else {
@@ -205,6 +205,9 @@ func (m Model) updateFilenamePrompt(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.relay.SetRecording(true)
 			m.recInput.Blur()
 			m.resizeViewport()
+			return m, nil
+		case "tab":
+			m.recTimestamps = !m.recTimestamps
 			return m, nil
 		case "esc":
 			m.recState = recIdle

@@ -48,7 +48,12 @@ func defaultTranscriptName() string {
 }
 
 // writeTranscriptLine appends a single line of text to the transcript file.
-func writeTranscriptLine(f *os.File, text string) error {
+// When timestamps is true, each line is prefixed with [HH:MM:SS].
+func writeTranscriptLine(f *os.File, text string, timestamps bool) error {
+	if timestamps {
+		_, err := fmt.Fprintf(f, "[%s] %s\n", time.Now().Format("15:04:05"), text)
+		return err
+	}
 	_, err := fmt.Fprintln(f, text)
 	return err
 }
