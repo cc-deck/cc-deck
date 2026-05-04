@@ -1,9 +1,11 @@
 package voice
 
 import (
+	"os"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	voicepkg "github.com/cc-deck/cc-deck/internal/voice"
 )
@@ -26,6 +28,12 @@ type Model struct {
 	quitting    bool
 	err         error
 
+	recState  recStatus
+	recFile   *os.File
+	recPath   string
+	recCount  int
+	recInput  textinput.Model
+
 	width         int
 	height        int
 	viewport      viewport.Model
@@ -43,11 +51,15 @@ type relayEventMsg voicepkg.RelayEvent
 
 // New creates a new voice TUI model.
 func New(relay *voicepkg.VoiceRelay, target string, verbose bool, logPath string) Model {
+	ti := textinput.New()
+	ti.Placeholder = "transcript.txt"
+	ti.CharLimit = 256
 	return Model{
-		relay:   relay,
-		target:  target,
-		verbose: verbose,
-		logPath: logPath,
+		relay:    relay,
+		target:   target,
+		verbose:  verbose,
+		logPath:  logPath,
+		recInput: ti,
 	}
 }
 
