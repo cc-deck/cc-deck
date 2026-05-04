@@ -126,10 +126,10 @@ func TestWriteTranscriptLine(t *testing.T) {
 	}
 	defer f.Close()
 
-	if err := writeTranscriptLine(f, "hello world"); err != nil {
+	if err := writeTranscriptLine(f, "hello world", false); err != nil {
 		t.Fatalf("writeTranscriptLine: %v", err)
 	}
-	if err := writeTranscriptLine(f, "second line"); err != nil {
+	if err := writeTranscriptLine(f, "second line", false); err != nil {
 		t.Fatalf("writeTranscriptLine: %v", err)
 	}
 

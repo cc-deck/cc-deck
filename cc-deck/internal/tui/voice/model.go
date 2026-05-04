@@ -27,11 +27,12 @@ type Model struct {
 	quitting    bool
 	err         error
 
-	recState  recStatus
-	recFile   *os.File
-	recPath   string
-	recCount  int
-	recInput  textinput.Model
+	recState      recStatus
+	recFile       *os.File
+	recPath       string
+	recCount      int
+	recInput      textinput.Model
+	recTimestamps bool
 
 	width         int
 	height        int
