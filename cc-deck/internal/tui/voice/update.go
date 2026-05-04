@@ -1,6 +1,7 @@
 package voice
 
 import (
+	"os"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -15,6 +16,9 @@ const (
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.devicePick {
 		return m.updateDevicePicker(msg)
+	}
+	if m.recState == recPrompting {
+		return m.updateFilenamePrompt(msg)
 	}
 
 	switch msg := msg.(type) {
@@ -42,6 +46,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "q", "ctrl+c":
+			m.closeTranscript()
 			m.quitting = true
 			return m, tea.Quit
 		case "up", "+":
@@ -76,6 +81,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.devicePick = true
 			m.deviceIdx = 0
 			return m, nil
+		case "r":
+			switch m.recState {
+			case recIdle:
+				m.recInput.SetValue(defaultTranscriptName())
+				m.recInput.Focus()
+				m.recState = recPrompting
+				m.resizeViewport()
+			case recRecording:
+				m.recState = recPaused
+			case recPaused:
+				m.recState = recRecording
+			}
+			return m, nil
+		case "R":
+			if m.recState == recRecording || m.recState == recPaused {
+				m.closeTranscript()
+				m.resizeViewport()
+			}
+			return m, nil
 		case "pgup", "pgdown":
 			var cmd tea.Cmd
 			m.viewport, cmd = m.viewport.Update(msg)
@@ -96,6 +120,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			})
 			if len(m.history) > maxHistoryLen {
 				m.history = m.history[len(m.history)-maxHistoryLen:]
+			}
+			if m.recState == recRecording && m.recFile != nil {
+				if err := writeTranscriptLine(m.recFile, msg.Text); err != nil {
+					m.err = err
+				} else {
+					m.recCount++
+				}
 			}
 			m.resizeViewport()
 			m.syncViewport()
@@ -139,6 +170,82 @@ func (m *Model) syncViewport() {
 	}
 	m.viewport.SetContent(m.renderHistory())
 	m.viewport.GotoBottom()
+}
+
+func (m Model) updateFilenamePrompt(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "enter":
+			name := m.recInput.Value()
+			if name == "" {
+				name = defaultTranscriptName()
+			}
+			path, err := resolveTranscriptPath(name)
+			if err != nil {
+				m.err = err
+				m.recState = recIdle
+				m.recInput.Blur()
+				m.resizeViewport()
+				return m, nil
+			}
+			f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+			if err != nil {
+				m.err = err
+				m.recState = recIdle
+				m.recInput.Blur()
+				m.resizeViewport()
+				return m, nil
+			}
+			m.recFile = f
+			m.recPath = path
+			m.recCount = 0
+			m.recState = recRecording
+			m.relay.SetRecording(true)
+			m.recInput.Blur()
+			m.resizeViewport()
+			return m, nil
+		case "esc":
+			m.recState = recIdle
+			m.recInput.Blur()
+			m.resizeViewport()
+			return m, nil
+		default:
+			var cmd tea.Cmd
+			m.recInput, cmd = m.recInput.Update(msg)
+			return m, cmd
+		}
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		m.resizeViewport()
+		return m, nil
+	case relayEventMsg:
+		// Continue consuming relay events while prompting.
+		switch msg.Type {
+		case "level":
+			m.audioLevel = msg.Level
+		case "transcription":
+			m.err = nil
+			m.history = append(m.history, historyEntry{
+				text:    msg.Text,
+				latency: msg.Latency,
+				status:  "transcribed",
+				at:      time.Now(),
+			})
+			if len(m.history) > maxHistoryLen {
+				m.history = m.history[len(m.history)-maxHistoryLen:]
+			}
+			m.resizeViewport()
+			m.syncViewport()
+		case "muted":
+			m.muted = true
+		case "unmuted":
+			m.muted = false
+		}
+		return m, waitForEvent(m.relay)
+	}
+	return m, nil
 }
 
 func (m Model) updateDevicePicker(msg tea.Msg) (tea.Model, tea.Cmd) {

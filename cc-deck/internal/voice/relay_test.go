@@ -589,6 +589,96 @@ func TestVoiceRelay_SendsVoiceOnAtStart(t *testing.T) {
 	}
 }
 
+func TestVoiceRelay_TranscribesWhileMutedAndRecording(t *testing.T) {
+	audio := newMockAudioSource(makeSpeech(500, 5000), makeSilence(500))
+	transcriber := &mockTranscriber{results: []string{"notes to self"}}
+	pipe := &mockPipeSender{}
+
+	config := DefaultRelayConfig()
+	config.VADConfig.Threshold = 0.01
+	config.VADConfig.SilenceDuration = 0.1
+	config.VADConfig.PreRollDuration = 0
+
+	relay := NewVoiceRelay(config, audio, transcriber, pipe)
+
+	// Set muted AND recording before starting so the utterance is processed
+	// in the muted+recording path.
+	relay.mu.Lock()
+	relay.muted = true
+	relay.recording = true
+	relay.mu.Unlock()
+
+	if err := relay.Start(context.Background()); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+
+	events := collectEvents(relay.Events(), 2*time.Second)
+	relay.Stop()
+
+	// Should have a transcription event.
+	var hasTranscription bool
+	for _, ev := range events {
+		if ev.Type == "transcription" && ev.Text == "notes to self" {
+			hasTranscription = true
+		}
+	}
+	if !hasTranscription {
+		t.Error("expected transcription event for muted+recording utterance")
+	}
+
+	// Should NOT have any text pipe sends (no delivery).
+	sent := filterNonProtocol(pipe.getSent())
+	if len(sent) != 0 {
+		t.Errorf("expected no text sends while muted+recording, got %d: %v", len(sent), sent)
+	}
+
+	// Should NOT have a delivery event.
+	for _, ev := range events {
+		if ev.Type == "delivery" {
+			t.Error("expected no delivery event while muted+recording")
+		}
+	}
+}
+
+func TestVoiceRelay_DiscardsWhileMutedNotRecording(t *testing.T) {
+	audio := newMockAudioSource(makeSpeech(500, 5000), makeSilence(500))
+	transcriber := &mockTranscriber{results: []string{"should be discarded"}}
+	pipe := &mockPipeSender{}
+
+	config := DefaultRelayConfig()
+	config.VADConfig.Threshold = 0.01
+	config.VADConfig.SilenceDuration = 0.1
+	config.VADConfig.PreRollDuration = 0
+
+	relay := NewVoiceRelay(config, audio, transcriber, pipe)
+
+	// Set muted but NOT recording.
+	relay.mu.Lock()
+	relay.muted = true
+	relay.recording = false
+	relay.mu.Unlock()
+
+	if err := relay.Start(context.Background()); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+
+	events := collectEvents(relay.Events(), 2*time.Second)
+	relay.Stop()
+
+	// Should NOT have any transcription events.
+	for _, ev := range events {
+		if ev.Type == "transcription" {
+			t.Error("expected no transcription event while muted without recording")
+		}
+	}
+
+	// Should NOT have any text pipe sends.
+	sent := filterNonProtocol(pipe.getSent())
+	if len(sent) != 0 {
+		t.Errorf("expected no text sends while muted, got %d", len(sent))
+	}
+}
+
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && searchString(s, substr)
 }

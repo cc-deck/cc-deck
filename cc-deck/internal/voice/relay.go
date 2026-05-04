@@ -59,6 +59,7 @@ type VoiceRelay struct {
 	mu          sync.Mutex
 	running     bool
 	muted       bool
+	recording   bool
 	parentCtx   context.Context
 	ctx         context.Context
 	cancel      context.CancelFunc
@@ -82,6 +83,20 @@ func (r *VoiceRelay) IsMuted() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.muted
+}
+
+// IsRecording returns whether transcript recording is active.
+func (r *VoiceRelay) IsRecording() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.recording
+}
+
+// SetRecording sets the transcript recording state.
+func (r *VoiceRelay) SetRecording(on bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.recording = on
 }
 
 // SendMuteCommand sends a mute/unmute protocol message to the plugin
@@ -380,7 +395,10 @@ func (r *VoiceRelay) processUtterances(ctx context.Context, utterances <-chan Ut
 }
 
 func (r *VoiceRelay) handleUtterance(ctx context.Context, u Utterance) {
-	if r.IsMuted() {
+	muted := r.IsMuted()
+	recording := r.IsRecording()
+
+	if muted && !recording {
 		if r.config.Verbose {
 			log.Printf("[voice] muted, discarding utterance")
 		}
@@ -420,6 +438,18 @@ func (r *VoiceRelay) handleUtterance(ctx context.Context, u Utterance) {
 	}
 
 	latency := time.Since(start)
+
+	// When muted but recording, emit the transcription event for the TUI
+	// and transcript file, but skip stopword processing and pipe delivery.
+	if muted && recording {
+		r.sendEvent(RelayEvent{
+			Type:    "transcription",
+			Text:    text,
+			Latency: latency,
+		})
+		return
+	}
+
 	result := ProcessStopwords(text, r.config.Commands)
 
 	if r.config.Verbose {
