@@ -2,6 +2,7 @@ package voice
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -131,10 +132,26 @@ func (m Model) renderFooter() string {
 	var b strings.Builder
 
 	if m.recState == recPrompting {
+		name := m.recInput.Value()
+		if name == "" {
+			name = m.recInput.Placeholder
+		}
+		var dirHint string
+		if filepath.IsAbs(name) {
+			dirHint = filepath.Dir(name)
+		} else {
+			dirHint = defaultTranscriptDir()
+		}
 		b.WriteString(labelStyle.Render("  Transcript: "))
 		b.WriteString(m.recInput.View())
 		b.WriteString("\n")
-		b.WriteString(hintStyle.Render("  enter: start  esc: cancel"))
+		b.WriteString(hintStyle.Render("  Dir: " + dirHint))
+		b.WriteString("\n")
+		tsLabel := "off"
+		if m.recTimestamps {
+			tsLabel = "on"
+		}
+		b.WriteString(hintStyle.Render("  enter: start  esc: cancel  tab: timestamps [" + tsLabel + "]"))
 		return b.String()
 	}
 
@@ -169,7 +186,7 @@ func (m Model) renderFooter() string {
 
 func (m Model) footerHeight() int {
 	if m.recState == recPrompting {
-		return 3 // prompt line + hint line + separator
+		return 4 // prompt line + dir line + hint line + separator
 	}
 	lines := 2 // hints line + separator
 	if m.err != nil {
