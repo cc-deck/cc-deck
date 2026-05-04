@@ -2,6 +2,7 @@ package voice
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -26,6 +27,8 @@ var (
 	pickerActive = lipgloss.NewStyle().Foreground(lipgloss.Color("46")).Bold(true)
 	pickerNormal = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
 	pickerDef    = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	recStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
+	pauseStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
 	separatorStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("238"))
 	scrollThumb    = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 	scrollTrack    = lipgloss.NewStyle().Foreground(lipgloss.Color("236"))
@@ -104,6 +107,14 @@ func (m Model) renderHeader() string {
 	} else {
 		b.WriteString("VAD (auto)")
 	}
+	switch m.recState {
+	case recRecording:
+		b.WriteString("  ")
+		b.WriteString(recStyle.Render("● REC"))
+	case recPaused:
+		b.WriteString("  ")
+		b.WriteString(pauseStyle.Render("⏸ REC"))
+	}
 	b.WriteString("\n")
 
 	threshPct := m.relay.VADThreshold()
@@ -120,6 +131,30 @@ func (m Model) renderHeader() string {
 func (m Model) renderFooter() string {
 	var b strings.Builder
 
+	if m.recState == recPrompting {
+		name := m.recInput.Value()
+		if name == "" {
+			name = m.recInput.Placeholder
+		}
+		var dirHint string
+		if filepath.IsAbs(name) {
+			dirHint = filepath.Dir(name)
+		} else {
+			dirHint = defaultTranscriptDir()
+		}
+		b.WriteString(labelStyle.Render("  Transcript: "))
+		b.WriteString(m.recInput.View())
+		b.WriteString("\n")
+		b.WriteString(hintStyle.Render("  Dir: " + dirHint))
+		b.WriteString("\n")
+		tsLabel := "off"
+		if m.recTimestamps {
+			tsLabel = "on"
+		}
+		b.WriteString(hintStyle.Render("  enter: start  esc: cancel  tab: timestamps [" + tsLabel + "]"))
+		return b.String()
+	}
+
 	if m.err != nil {
 		errText := fmt.Sprintf("Error: %v", m.err)
 		w := m.width - 4
@@ -135,12 +170,24 @@ func (m Model) renderFooter() string {
 	if m.muted {
 		muteHint = "m: unmute"
 	}
-	b.WriteString(hintStyle.Render("  q: quit  " + muteHint + "  +/-: threshold  d: device  pgup/pgdn: scroll"))
+	var recHint string
+	switch m.recState {
+	case recIdle:
+		recHint = "  r: record"
+	case recRecording:
+		recHint = "  r: pause  R: stop"
+	case recPaused:
+		recHint = "  r: resume  R: stop"
+	}
+	b.WriteString(hintStyle.Render("  q: quit  " + muteHint + recHint + "  +/-: threshold  d: device"))
 
 	return b.String()
 }
 
 func (m Model) footerHeight() int {
+	if m.recState == recPrompting {
+		return 4 // prompt line + dir line + hint line + separator
+	}
 	lines := 2 // hints line + separator
 	if m.err != nil {
 		errText := fmt.Sprintf("Error: %v", m.err)
@@ -226,12 +273,8 @@ func (m Model) renderHistory() string {
 			icon = pendStyle.Render("~")
 			text = pendStyle.Render(entry.text)
 		}
-		if m.verbose {
-			lat := tsStyle.Render(fmt.Sprintf("(%s)", entry.latency.Round(time.Millisecond)))
-			fmt.Fprintf(&b, " %s %s %s %s", icon, ts, lat, text)
-		} else {
-			fmt.Fprintf(&b, " %s %s %s", icon, ts, text)
-		}
+		lat := tsStyle.Render(fmt.Sprintf("(%s)", entry.latency.Round(time.Millisecond)))
+		fmt.Fprintf(&b, " %s %s %s %s", icon, ts, lat, text)
 	}
 
 	return b.String()

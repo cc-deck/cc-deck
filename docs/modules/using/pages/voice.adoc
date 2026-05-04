@@ -192,9 +192,48 @@ The footer shows available keyboard shortcuts.
 | `d`
 | Open the audio device picker.
 
+| `r`
+| Start recording, pause, or resume transcript recording.
+
+| `R` (Shift+R)
+| Stop transcript recording and close the file.
+
 | `PgUp` / `PgDn`
 | Scroll through transcript history.
 |===
+
+=== Transcript Recording
+
+Voice relay can record everything you say to a plain text file.
+Each transcribed utterance is written as a single line, with no timestamps or metadata.
+
+To start recording, press `r`.
+A filename prompt appears at the bottom of the TUI with a default name based on the current timestamp (for example, `transcript-2026-05-04T15-04-05.txt`).
+Type a custom name or press Enter to accept the default.
+Press Escape to cancel without starting a recording.
+
+While recording, a red `REC` indicator appears in the header next to the mode display.
+Every transcription is appended to the file as it arrives.
+
+To pause recording, press `r` again.
+The indicator changes to a yellow pause symbol.
+Transcriptions continue to appear in the TUI history but are not written to the file.
+Press `r` once more to resume recording.
+
+To stop recording and close the file, press `R` (Shift+R).
+The indicator disappears and the file is finalized.
+Quitting the TUI with `q` also closes the file properly.
+
+Relative filenames are stored in `~/.local/share/cc-deck/transcripts/`.
+Absolute paths are used as-is.
+
+==== Recording While Muted
+
+When the relay is muted and a recording is active, voice relay continues to transcribe speech and write it to the transcript file.
+The transcribed text is not sent to the attended pane.
+This lets you capture notes or commentary that you do not want delivered to the active session.
+
+When no recording is active and the relay is muted, audio is discarded without transcription, preserving the existing mute behavior.
 
 == Configuration
 
