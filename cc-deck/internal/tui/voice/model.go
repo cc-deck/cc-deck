@@ -20,7 +20,6 @@ type Model struct {
 	history     []historyEntry
 	target      string
 	session     string
-	verbose     bool
 	logPath     string
 	devices     []voicepkg.DeviceInfo
 	devicePick  bool
@@ -50,14 +49,13 @@ type historyEntry struct {
 type relayEventMsg voicepkg.RelayEvent
 
 // New creates a new voice TUI model.
-func New(relay *voicepkg.VoiceRelay, target string, verbose bool, logPath string) Model {
+func New(relay *voicepkg.VoiceRelay, target string, logPath string) Model {
 	ti := textinput.New()
 	ti.Placeholder = "transcript.txt"
 	ti.CharLimit = 256
 	return Model{
 		relay:    relay,
 		target:   target,
-		verbose:  verbose,
 		logPath:  logPath,
 		recInput: ti,
 	}
