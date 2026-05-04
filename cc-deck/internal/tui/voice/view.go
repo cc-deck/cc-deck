@@ -26,6 +26,8 @@ var (
 	pickerActive = lipgloss.NewStyle().Foreground(lipgloss.Color("46")).Bold(true)
 	pickerNormal = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
 	pickerDef    = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	recStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
+	pauseStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
 	separatorStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("238"))
 	scrollThumb    = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 	scrollTrack    = lipgloss.NewStyle().Foreground(lipgloss.Color("236"))
@@ -104,6 +106,14 @@ func (m Model) renderHeader() string {
 	} else {
 		b.WriteString("VAD (auto)")
 	}
+	switch m.recState {
+	case recRecording:
+		b.WriteString("  ")
+		b.WriteString(recStyle.Render("● REC"))
+	case recPaused:
+		b.WriteString("  ")
+		b.WriteString(pauseStyle.Render("⏸ REC"))
+	}
 	b.WriteString("\n")
 
 	threshPct := m.relay.VADThreshold()
@@ -120,6 +130,14 @@ func (m Model) renderHeader() string {
 func (m Model) renderFooter() string {
 	var b strings.Builder
 
+	if m.recState == recPrompting {
+		b.WriteString(labelStyle.Render("  Transcript: "))
+		b.WriteString(m.recInput.View())
+		b.WriteString("\n")
+		b.WriteString(hintStyle.Render("  enter: start  esc: cancel"))
+		return b.String()
+	}
+
 	if m.err != nil {
 		errText := fmt.Sprintf("Error: %v", m.err)
 		w := m.width - 4
@@ -135,12 +153,24 @@ func (m Model) renderFooter() string {
 	if m.muted {
 		muteHint = "m: unmute"
 	}
-	b.WriteString(hintStyle.Render("  q: quit  " + muteHint + "  +/-: threshold  d: device  pgup/pgdn: scroll"))
+	var recHint string
+	switch m.recState {
+	case recIdle:
+		recHint = "  r: record"
+	case recRecording:
+		recHint = "  r: pause  R: stop"
+	case recPaused:
+		recHint = "  r: resume  R: stop"
+	}
+	b.WriteString(hintStyle.Render("  q: quit  " + muteHint + "  +/-: threshold  d: device  pgup/pgdn: scroll" + recHint))
 
 	return b.String()
 }
 
 func (m Model) footerHeight() int {
+	if m.recState == recPrompting {
+		return 3 // prompt line + hint line + separator
+	}
 	lines := 2 // hints line + separator
 	if m.err != nil {
 		errText := fmt.Sprintf("Error: %v", m.err)
