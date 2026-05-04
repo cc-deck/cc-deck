@@ -957,7 +957,8 @@ func runWsList(gf *GlobalFlags, filterType string, showWorktrees bool, verbose b
 type wsListEntry struct {
 	Name         string `json:"name" yaml:"name"`
 	Type         string `json:"type" yaml:"type"`
-	State        string `json:"state" yaml:"state"`
+	Infra        string `json:"infra" yaml:"infra"`
+	Session      string `json:"session" yaml:"session"`
 	Project      string `json:"project" yaml:"project"`
 	Storage      string `json:"storage,omitempty" yaml:"storage,omitempty"`
 	Image        string `json:"image,omitempty" yaml:"image,omitempty"`
@@ -1012,10 +1013,12 @@ func writeWsStructured(format string, instances []*ws.WorkspaceInstance, allDefs
 		if proj == "" {
 			proj = "-"
 		}
+		infraCol, sessCol := formatWorkspaceColumns(inst)
 		entries = append(entries, wsListEntry{
 			Name:         inst.Name,
 			Type:         instType,
-			State:        formatWorkspaceState(inst),
+			Infra:        infraCol,
+			Session:      sessCol,
 			Project:      proj,
 			Storage:      storage,
 			Image:        image,
@@ -1039,7 +1042,8 @@ func writeWsStructured(format string, instances []*ws.WorkspaceInstance, allDefs
 		entries = append(entries, wsListEntry{
 			Name:    def.Name,
 			Type:    string(def.Type),
-			State:   "not created",
+			Infra:   "-",
+			Session: "none",
 			Project: proj,
 			Storage: "-",
 		})
@@ -1065,7 +1069,7 @@ func writeWsTableWithProjects(instances []*ws.WorkspaceInstance, allDefs []*ws.W
 	}
 
 	type row struct {
-		name, wsType, state, proj, storage, lastAttached, age, path string
+		name, wsType, infra, session, proj, storage, lastAttached, age, path string
 	}
 	var rows []row
 
@@ -1091,8 +1095,8 @@ func writeWsTableWithProjects(instances []*ws.WorkspaceInstance, allDefs []*ws.W
 		if proj == "" {
 			proj = "-"
 		}
-		stateDisplay := formatWorkspaceState(inst)
-		r := row{inst.Name, string(instType), stateDisplay, proj, storage,
+		infra, sess := formatWorkspaceColumns(inst)
+		r := row{inst.Name, string(instType), infra, sess, proj, storage,
 			formatRelativeTime(inst.LastAttached), formatDuration(time.Since(inst.CreatedAt)), ""}
 		if verbose && pathMap[inst.Name] != "" {
 			r.path = pathMap[inst.Name]
@@ -1118,7 +1122,7 @@ func writeWsTableWithProjects(instances []*ws.WorkspaceInstance, allDefs []*ws.W
 		if proj == "" {
 			proj = "-"
 		}
-		r := row{d.Name, string(d.Type), "not created", proj, storage, "never", "-", ""}
+		r := row{d.Name, string(d.Type), "-", "none", proj, storage, "never", "-", ""}
 		if verbose && pathMap[d.Name] != "" {
 			r.path = pathMap[d.Name]
 		}
@@ -1131,35 +1135,33 @@ func writeWsTableWithProjects(instances []*ws.WorkspaceInstance, allDefs []*ws.W
 	}
 
 	if verbose {
-		fmt.Fprintln(tw, "NAME\tTYPE\tSTATUS\tPROJECT\tSTORAGE\tLAST ATTACHED\tAGE\tPROJECT PATH")
+		fmt.Fprintln(tw, "NAME\tTYPE\tINFRA\tSESSION\tPROJECT\tSTORAGE\tLAST ATTACHED\tAGE\tPROJECT PATH")
 		for _, r := range rows {
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-				r.name, r.wsType, r.state, r.proj, r.storage, r.lastAttached, r.age, r.path)
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				r.name, r.wsType, r.infra, r.session, r.proj, r.storage, r.lastAttached, r.age, r.path)
 		}
 	} else {
-		fmt.Fprintln(tw, "NAME\tTYPE\tSTATUS\tPROJECT\tSTORAGE\tLAST ATTACHED\tAGE")
+		fmt.Fprintln(tw, "NAME\tTYPE\tINFRA\tSESSION\tPROJECT\tSTORAGE\tLAST ATTACHED\tAGE")
 		for _, r := range rows {
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-				r.name, r.wsType, r.state, r.proj, r.storage, r.lastAttached, r.age)
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				r.name, r.wsType, r.infra, r.session, r.proj, r.storage, r.lastAttached, r.age)
 		}
 	}
 
 	return tw.Flush()
 }
 
-// formatWorkspaceState returns a display string for the two-dimensional state.
-func formatWorkspaceState(inst *ws.WorkspaceInstance) string {
+// formatWorkspaceColumns returns separate INFRA and SESSION display values.
+func formatWorkspaceColumns(inst *ws.WorkspaceInstance) (infra, session string) {
+	infra = "-"
 	if inst.InfraState != nil {
-		infra := string(*inst.InfraState)
-		if inst.SessionState == ws.SessionStateExists {
-			return infra + ", session: exists"
-		}
-		return infra
+		infra = string(*inst.InfraState)
 	}
+	session = "none"
 	if inst.SessionState == ws.SessionStateExists {
-		return "session: exists"
+		session = "active"
 	}
-	return "no session"
+	return infra, session
 }
 
 func formatRelativeTime(t *time.Time) string {
