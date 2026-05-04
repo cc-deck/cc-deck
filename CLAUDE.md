@@ -83,7 +83,7 @@ Rust (stable, latest edition 2021+): Follow standard conventions
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at `specs/047-landing-page-revival/plan.md`
+at `specs/048-voice-transcript-recording/plan.md`
 <!-- SPECKIT END -->
 
 <!-- MANUAL ADDITIONS START -->
@@ -124,5 +124,5 @@ When implementing a new backend for an existing interface (e.g., new Environment
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at `specs/047-landing-page-revival/plan.md`
+at `specs/048-voice-transcript-recording/plan.md`
 <!-- SPECKIT END -->
