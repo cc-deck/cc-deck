@@ -162,7 +162,7 @@ func (m Model) renderFooter() string {
 	case recPaused:
 		recHint = "  r: resume  R: stop"
 	}
-	b.WriteString(hintStyle.Render("  q: quit  " + muteHint + "  +/-: threshold  d: device  pgup/pgdn: scroll" + recHint))
+	b.WriteString(hintStyle.Render("  q: quit  " + muteHint + recHint + "  +/-: threshold  d: device"))
 
 	return b.String()
 }
@@ -256,12 +256,8 @@ func (m Model) renderHistory() string {
 			icon = pendStyle.Render("~")
 			text = pendStyle.Render(entry.text)
 		}
-		if m.verbose {
-			lat := tsStyle.Render(fmt.Sprintf("(%s)", entry.latency.Round(time.Millisecond)))
-			fmt.Fprintf(&b, " %s %s %s %s", icon, ts, lat, text)
-		} else {
-			fmt.Fprintf(&b, " %s %s %s", icon, ts, text)
-		}
+		lat := tsStyle.Render(fmt.Sprintf("(%s)", entry.latency.Round(time.Millisecond)))
+		fmt.Fprintf(&b, " %s %s %s %s", icon, ts, lat, text)
 	}
 
 	return b.String()

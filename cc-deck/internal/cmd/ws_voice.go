@@ -20,12 +20,12 @@ import (
 func newWsVoiceCmd(_ *GlobalFlags) *cobra.Command {
 	var (
 		model       string
-		verbose     bool
 		setup       bool
 		listDevices bool
 		serverPort  int
 		threshold   int
 	)
+	verbose := true
 
 	cmd := &cobra.Command{
 		Use:   "voice <workspace>",
@@ -49,8 +49,7 @@ activity detection (VAD) with mute/unmute toggle.`,
 	}
 
 	cmd.Flags().StringVar(&model, "model", "base.en", "whisper model name")
-	cmd.Flags().BoolVar(&verbose, "verbose", false, "show diagnostic details")
-	cmd.Flags().BoolVar(&setup, "setup", false, "check dependencies and download model")
+cmd.Flags().BoolVar(&setup, "setup", false, "check dependencies and download model")
 	cmd.Flags().BoolVar(&listDevices, "list-devices", false, "list audio input devices")
 	cmd.Flags().IntVar(&serverPort, "port", 8234, "whisper-server port")
 	cmd.Flags().IntVar(&threshold, "threshold", -1, "VAD sensitivity (0-100, logarithmic); overrides config file")
@@ -157,7 +156,7 @@ func runVoiceRelay(wsName, modelName string, verbose bool, port int, thresholdFl
 		}
 	}()
 
-	model := voicetui.New(relay, wsName, verbose, logPath)
+	model := voicetui.New(relay, wsName, logPath)
 	p := tea.NewProgram(model, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("TUI error: %w", err)
