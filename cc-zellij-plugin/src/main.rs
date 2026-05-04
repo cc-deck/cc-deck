@@ -1389,6 +1389,34 @@ impl PluginState {
                 self.pane_manifest = Some(manifest);
                 self.rebuild_pane_map();
 
+                // Confirm restored sessions whose panes still exist in the manifest.
+                // On reattach, Claude Code processes don't re-fire hooks, so the pane
+                // manifest is the only way to verify they're still alive.
+                if !self.unconfirmed_pane_ids.is_empty() {
+                    if let Some(ref manifest) = self.pane_manifest {
+                        let mut confirmed = Vec::new();
+                        for panes in manifest.panes.values() {
+                            for pane in panes {
+                                if !pane.is_plugin
+                                    && !pane.exited
+                                    && self.unconfirmed_pane_ids.contains(&pane.id)
+                                {
+                                    confirmed.push(pane.id);
+                                }
+                            }
+                        }
+                        for id in &confirmed {
+                            self.unconfirmed_pane_ids.remove(id);
+                        }
+                        if !confirmed.is_empty() {
+                            debug_log(&format!(
+                                "PANE_UPDATE confirmed {} restored sessions from manifest",
+                                confirmed.len()
+                            ));
+                        }
+                    }
+                }
+
                 // Off-screen instances: store manifest but skip heavy work.
                 // They don't need to remove dead sessions, check focus, or
                 // re-render since the sidebar is not visible. This avoids
