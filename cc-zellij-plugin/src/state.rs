@@ -354,10 +354,16 @@ impl PluginState {
         }
     }
 
-    /// Remove sessions whose panes no longer exist or have exited.
+    /// Remove sessions whose panes no longer exist in the manifest.
     /// Uses the raw pane manifest (stable pane IDs) instead of the derived
     /// pane_to_tab map, which can be temporarily wrong when tab positions
     /// shift after a tab close (TabUpdate arrives before PaneUpdate).
+    ///
+    /// Note: we intentionally do NOT remove sessions for panes with
+    /// `exited=true`. When Claude Code runs a shell escape (`! command`),
+    /// Zellij marks the original process as exited while a subshell takes
+    /// over the same pane. The SessionEnd hook handles proper cleanup when
+    /// Claude Code truly exits.
     pub fn remove_dead_sessions(&mut self) -> bool {
         let before = self.sessions.len();
         if before == 0 {
@@ -370,16 +376,11 @@ impl PluginState {
 
         // Collect all terminal pane IDs from the manifest (across all tabs).
         // Pane IDs are globally unique and stable regardless of tab position shifts.
-        // Also track exited panes (command panes whose process finished).
         let mut all_pane_ids = std::collections::HashSet::new();
-        let mut exited_pane_ids = std::collections::HashSet::new();
         for panes in manifest.panes.values() {
             for pane in panes {
                 if !pane.is_plugin {
                     all_pane_ids.insert(pane.id);
-                    if pane.exited {
-                        exited_pane_ids.insert(pane.id);
-                    }
                 }
             }
         }
@@ -390,10 +391,12 @@ impl PluginState {
             return false;
         }
 
-        // Remove sessions whose panes no longer exist OR whose panes have exited
-        // (command panes where the process finished).
+        // Only remove sessions whose panes have vanished from the manifest
+        // entirely (tab closed, pane closed). Do not remove sessions for
+        // exited panes, as the pane may still host a subshell or be
+        // restarting. The SessionEnd hook handles cleanup for ended sessions.
         self.sessions.retain(|pane_id, _| {
-            all_pane_ids.contains(pane_id) && !exited_pane_ids.contains(pane_id)
+            all_pane_ids.contains(pane_id)
         });
         if self.sessions.len() != before {
             // Clean up pending git tracking for removed sessions
@@ -662,18 +665,21 @@ mod tests {
     }
 
     #[test]
-    fn test_exited_panes_removed() {
+    fn test_exited_panes_kept() {
+        // Exited panes should be retained: Claude Code shell escapes (`! cmd`)
+        // cause Zellij to mark the pane as exited while a subshell runs.
+        // The SessionEnd hook handles proper cleanup.
         let mut state = PluginState::default();
         state.sessions.insert(10, make_session(10));
         state.sessions.insert(20, make_session(20));
-        // Pane 20 exists but has exited (command pane finished)
+        // Pane 20 exists but has exited (e.g., shell escape)
         state.pane_manifest = Some(make_manifest_with_exited(&[10, 20], &[20]));
 
         let changed = state.remove_dead_sessions();
-        assert!(changed);
-        assert_eq!(state.sessions.len(), 1);
+        assert!(!changed);
+        assert_eq!(state.sessions.len(), 2);
         assert!(state.sessions.contains_key(&10));
-        assert!(!state.sessions.contains_key(&20));
+        assert!(state.sessions.contains_key(&20));
     }
 
     #[test]
