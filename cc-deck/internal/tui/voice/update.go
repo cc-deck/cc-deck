@@ -124,6 +124,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.recState == recRecording && m.recFile != nil {
 				if err := writeTranscriptLine(m.recFile, msg.Text); err != nil {
 					m.err = err
+					m.closeTranscript()
 				} else {
 					m.recCount++
 				}
