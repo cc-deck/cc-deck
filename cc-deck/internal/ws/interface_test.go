@@ -19,6 +19,7 @@ func TestInfraManagerImplementation(t *testing.T) {
 		{"compose", &ComposeWorkspace{name: "t", store: store}, true},
 		{"ssh", &SSHWorkspace{name: "t", store: store}, false},
 		{"k8s-deploy", &K8sDeployWorkspace{name: "t", store: store}, true},
+		{"openshell", &OpenShellWorkspace{name: "t", store: store}, true},
 	}
 
 	for _, tt := range tests {
@@ -40,4 +41,6 @@ var (
 	_ InfraManager = (*ContainerWorkspace)(nil)
 	_ InfraManager = (*ComposeWorkspace)(nil)
 	_ InfraManager = (*K8sDeployWorkspace)(nil)
+	_ Workspace    = (*OpenShellWorkspace)(nil)
+	_ InfraManager = (*OpenShellWorkspace)(nil)
 )
