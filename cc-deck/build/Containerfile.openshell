@@ -1,0 +1,44 @@
+# OpenShell Sandbox Image
+# Contains Zellij, Claude Code, and development tools for use with OpenShell.
+# The entrypoint is compatible with OpenShell supervisor injection.
+#
+# Build:  podman build -f Containerfile.openshell -t cc-deck/openshell-sandbox:latest .
+
+FROM debian:bookworm-slim
+
+LABEL org.opencontainers.image.title="cc-deck-openshell-sandbox" \
+      org.opencontainers.image.description="OpenShell sandbox with Zellij and Claude Code"
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    git \
+    openssh-client \
+    procps \
+    sudo \
+    tar \
+    unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js (LTS)
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Zellij (latest stable)
+RUN curl -fsSL https://github.com/zellij-org/zellij/releases/latest/download/zellij-x86_64-unknown-linux-musl.tar.gz \
+    | tar xz -C /usr/local/bin
+
+# Install Claude Code
+RUN npm install -g @anthropic-ai/claude-code
+
+# Create sandbox user and working directory
+RUN useradd -m -s /bin/bash sandbox \
+    && mkdir -p /sandbox \
+    && chown sandbox:sandbox /sandbox
+
+USER sandbox
+WORKDIR /sandbox
+
+ENTRYPOINT ["/bin/bash", "-c"]
+CMD ["zellij"]

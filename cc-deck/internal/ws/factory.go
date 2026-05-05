@@ -17,6 +17,8 @@ func NewWorkspace(wsType WorkspaceType, name string, store *FileStateStore, defs
 		return &SSHWorkspace{name: name, store: store, defs: defs}, nil
 	case WorkspaceTypeK8sDeploy:
 		return &K8sDeployWorkspace{name: name, store: store, defs: defs}, nil
+	case WorkspaceTypeOpenShell:
+		return &OpenShellWorkspace{name: name, store: store, defs: defs}, nil
 	default:
 		return nil, fmt.Errorf("%s: %w", wsType, ErrNotImplemented)
 	}

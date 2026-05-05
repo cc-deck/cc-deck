@@ -1,0 +1,12 @@
+allowed_domains:
+  - api.anthropic.com
+  - api.openai.com
+  - registry.npmjs.org
+  - pypi.org
+  - files.pythonhosted.org
+  - proxy.golang.org
+  - sum.golang.org
+  - crates.io
+  - github.com
+  - gitlab.com
+default_action: deny

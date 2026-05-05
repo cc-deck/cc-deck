@@ -17,10 +17,10 @@
 
 **Purpose**: Project initialization, gRPC client, and type registration
 
-- [ ] T001 Add `WorkspaceTypeOpenShell WorkspaceType = "openshell"` to `cc-deck/internal/ws/types.go`
-- [ ] T002 Add openshell case to `NewWorkspace` switch in `cc-deck/internal/ws/factory.go`, returning `&OpenShellWorkspace{name: name, store: store, defs: defs}`
-- [ ] T003 Copy OpenShell proto files from the upstream openshell repository (`github.com/openshell-project/openshell/api/proto/`) to `cc-deck/internal/openshell/proto/` and run `protoc` with `protoc-gen-go` and `protoc-gen-go-grpc` to generate Go client code (`*.pb.go`, `*_grpc.pb.go`)
-- [ ] T004 Create `cc-deck/internal/openshell/client.go` with `Client` struct wrapping gRPC connection: `NewClient(cfg GatewayConfig) (*Client, error)` with TLS optional (plaintext for localhost, warning for non-localhost), typed methods for `CreateSandbox`, `DeleteSandbox`, `GetSandbox`, `ExecSandbox`, `CreateSshSession`
+- [X] T001 Add `WorkspaceTypeOpenShell WorkspaceType = "openshell"` to `cc-deck/internal/ws/types.go`
+- [X] T002 Add openshell case to `NewWorkspace` switch in `cc-deck/internal/ws/factory.go`, returning `&OpenShellWorkspace{name: name, store: store, defs: defs}`
+- [X] T003 Copy OpenShell proto files from the upstream openshell repository (`github.com/openshell-project/openshell/api/proto/`) to `cc-deck/internal/openshell/proto/` and run `protoc` with `protoc-gen-go` and `protoc-gen-go-grpc` to generate Go client code (`*.pb.go`, `*_grpc.pb.go`)
+- [X] T004 Create `cc-deck/internal/openshell/client.go` with `Client` struct wrapping gRPC connection: `NewClient(cfg GatewayConfig) (*Client, error)` with TLS optional (plaintext for localhost, warning for non-localhost), typed methods for `CreateSandbox`, `DeleteSandbox`, `GetSandbox`, `ExecSandbox`, `CreateSshSession`
 
 ---
 
@@ -30,11 +30,11 @@
 
 **CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T005 Create `cc-deck/internal/ws/openshell.go` with `OpenShellWorkspace` struct: fields for `name`, `store`, `defs`, `client` (*openshell.Client), `sandboxID` (string), `sshTunnel` (*sshTunnelState), lazy channel fields (`pipeOnce`/`pipeCh`, `dataOnce`/`dataCh`, `gitOnce`/`gitCh`), and `Type()`, `Name()` methods
-- [ ] T006 [P] Create `GatewayConfig` struct in `cc-deck/internal/openshell/client.go` with fields: `Address` (string), `TLS` (bool), `TLSCertPath`, `TLSKeyPath`, `TLSCAPath` (string). Add `ResolveGatewayConfig(defs *DefinitionStore, name string) GatewayConfig` that checks workspace definition YAML first, then `OPENSHELL_GATEWAY_URL` env var, then defaults to `localhost:8080`
-- [ ] T007 [P] Create `SandboxConfig` struct in `cc-deck/internal/ws/openshell.go` with fields: `Image` (string, default `cc-deck/openshell-sandbox:latest`), `Command` (string, default `zellij`), `Policy` (string, optional), `Provider` (string, optional). Add `resolveSandboxConfig(defs *DefinitionStore, name string) SandboxConfig`
-- [ ] T008 [P] Create `sshTunnelState` struct in `cc-deck/internal/ws/openshell.go` with fields: `sessionID` (string), `localPort` (int), `pid` (int), `connected` (bool). Add `isAlive() bool` method that checks PID liveness via `os.FindProcess` + signal 0
-- [ ] T009 Implement `Status(ctx context.Context) (*WorkspaceStatus, error)` in `cc-deck/internal/ws/openshell.go`: call `client.GetSandbox(sandboxID)`, map OpenShell state to InfraState (creating/error -> transient, running -> `InfraStateRunning`, suspended -> `InfraStateStopped`, error -> `InfraStateError`, deleted -> nil InfraState + remove from store), check SSH tunnel PID liveness for SessionState
+- [X] T005 Create `cc-deck/internal/ws/openshell.go` with `OpenShellWorkspace` struct: fields for `name`, `store`, `defs`, `client` (*openshell.Client), `sandboxID` (string), `sshTunnel` (*sshTunnelState), lazy channel fields (`pipeOnce`/`pipeCh`, `dataOnce`/`dataCh`, `gitOnce`/`gitCh`), and `Type()`, `Name()` methods
+- [X] T006 [P] Create `GatewayConfig` struct in `cc-deck/internal/openshell/client.go` with fields: `Address` (string), `TLS` (bool), `TLSCertPath`, `TLSKeyPath`, `TLSCAPath` (string). Add `ResolveGatewayConfig(defs *DefinitionStore, name string) GatewayConfig` that checks workspace definition YAML first, then `OPENSHELL_GATEWAY_URL` env var, then defaults to `localhost:8080`
+- [X] T007 [P] Create `SandboxConfig` struct in `cc-deck/internal/ws/openshell.go` with fields: `Image` (string, default `cc-deck/openshell-sandbox:latest`), `Command` (string, default `zellij`), `Policy` (string, optional), `Provider` (string, optional). Add `resolveSandboxConfig(defs *DefinitionStore, name string) SandboxConfig`
+- [X] T008 [P] Create `sshTunnelState` struct in `cc-deck/internal/ws/openshell.go` with fields: `sessionID` (string), `localPort` (int), `pid` (int), `connected` (bool). Add `isAlive() bool` method that checks PID liveness via `os.FindProcess` + signal 0
+- [X] T009 Implement `Status(ctx context.Context) (*WorkspaceStatus, error)` in `cc-deck/internal/ws/openshell.go`: call `client.GetSandbox(sandboxID)`, map OpenShell state to InfraState (creating/error -> transient, running -> `InfraStateRunning`, suspended -> `InfraStateStopped`, error -> `InfraStateError`, deleted -> nil InfraState + remove from store), check SSH tunnel PID liveness for SessionState
 
 **Checkpoint**: Foundation ready. OpenShellWorkspace struct compiles, gRPC client connects to gateway, state mapping works.
 
@@ -48,11 +48,11 @@
 
 ### Implementation for User Story 1
 
-- [ ] T010 [US1] Implement `Create(ctx context.Context, opts CreateOpts) error` in `cc-deck/internal/ws/openshell.go`: resolve GatewayConfig, create openshell.Client, resolve SandboxConfig from workspace definition, call `client.CreateSandbox(image, command, policy)`, poll `client.GetSandbox` until state is "running" (timeout 60s), store sandboxID in workspace instance state via `store`
-- [ ] T011 [US1] Implement `Start(ctx context.Context) error` in `cc-deck/internal/ws/openshell.go` (InfraManager): load stored sandbox config from definition, delegate to Create logic
-- [ ] T012 [US1] Add `openshell` type validation to the create subcommand in `cc-deck/internal/cmd/ws.go`: validate that workspace definition includes gateway config (or env var is set), validate sandbox image is specified or use default
-- [ ] T013 [US1] Create default network policy YAML at `cc-deck/internal/openshell/default-policy.yaml` with allowed domains: `api.anthropic.com`, `api.openai.com`, `registry.npmjs.org`, `pypi.org`, `files.pythonhosted.org`, `proxy.golang.org`, `crates.io`, `github.com`, `gitlab.com`. Default deny for everything else.
-- [ ] T014 [US1] Create `cc-deck/build/Dockerfile.openshell` with sandbox image: base from debian:bookworm-slim, install Zellij (latest stable), Claude Code (via npm), git, Node.js runtime, create /sandbox working directory, set entrypoint compatible with OpenShell supervisor injection
+- [X] T010 [US1] Implement `Create(ctx context.Context, opts CreateOpts) error` in `cc-deck/internal/ws/openshell.go`: resolve GatewayConfig, create openshell.Client, resolve SandboxConfig from workspace definition, call `client.CreateSandbox(image, command, policy)`, poll `client.GetSandbox` until state is "running" (timeout 60s), store sandboxID in workspace instance state via `store`
+- [X] T011 [US1] Implement `Start(ctx context.Context) error` in `cc-deck/internal/ws/openshell.go` (InfraManager): load stored sandbox config from definition, delegate to Create logic
+- [X] T012 [US1] Add `openshell` type validation to the create subcommand in `cc-deck/internal/cmd/ws.go`: validate that workspace definition includes gateway config (or env var is set), validate sandbox image is specified or use default
+- [X] T013 [US1] Create default network policy YAML at `cc-deck/internal/openshell/default-policy.yaml` with allowed domains: `api.anthropic.com`, `api.openai.com`, `registry.npmjs.org`, `pypi.org`, `files.pythonhosted.org`, `proxy.golang.org`, `crates.io`, `github.com`, `gitlab.com`. Default deny for everything else.
+- [X] T014 [US1] Create `cc-deck/build/Dockerfile.openshell` with sandbox image: base from debian:bookworm-slim, install Zellij (latest stable), Claude Code (via npm), git, Node.js runtime, create /sandbox working directory, set entrypoint compatible with OpenShell supervisor injection
 
 **Checkpoint**: `cc-deck create --type openshell my-workspace` provisions a sandbox. Status shows "running". Zellij is active inside.
 
@@ -66,9 +66,9 @@
 
 ### Implementation for User Story 2
 
-- [ ] T015 [US2] Implement `Attach(ctx context.Context) error` in `cc-deck/internal/ws/openshell.go`: check `sshTunnel.isAlive()` and return "workspace already attached" error (FR-013) if active tunnel exists, clear stale tunnel if PID dead, call `client.CreateSshSession(sandboxID)` to establish SSH tunnel, run `zellij attach --create` over the tunnel, store tunnel state
-- [ ] T016 [US2] Implement `KillSession(ctx context.Context) error` in `cc-deck/internal/ws/openshell.go`: call `client.ExecSandbox(sandboxID, ["zellij", "kill-all-sessions"])`, clear sshTunnel state, do NOT destroy sandbox
-- [ ] T017 [US2] Add attach flow handling for openshell type in `cc-deck/internal/cmd/ws.go` (attach subcommand): detect workspace type, call workspace.Attach, handle "workspace already attached" error with user-friendly message
+- [X] T015 [US2] Implement `Attach(ctx context.Context) error` in `cc-deck/internal/ws/openshell.go`: check `sshTunnel.isAlive()` and return "workspace already attached" error (FR-013) if active tunnel exists, clear stale tunnel if PID dead, call `client.CreateSshSession(sandboxID)` to establish SSH tunnel, run `zellij attach --create` over the tunnel, store tunnel state
+- [X] T016 [US2] Implement `KillSession(ctx context.Context) error` in `cc-deck/internal/ws/openshell.go`: call `client.ExecSandbox(sandboxID, ["zellij", "kill-all-sessions"])`, clear sshTunnel state, do NOT destroy sandbox
+- [X] T017 [US2] Add attach flow handling for openshell type in `cc-deck/internal/cmd/ws.go` (attach subcommand): detect workspace type, call workspace.Attach, handle "workspace already attached" error with user-friendly message
 
 **Checkpoint**: `cc-deck attach my-workspace` opens Zellij. Detach and reattach preserves session. Second concurrent attach fails cleanly.
 
@@ -82,10 +82,10 @@
 
 ### Implementation for User Story 3
 
-- [ ] T018 [P] [US3] Create `cc-deck/internal/ws/channel_openshell.go` with `OpenShellDataChannel` struct implementing `DataChannel` interface: `Push(ctx, opts SyncOpts) error` pipes tar archive over SSH tunnel into sandbox, `Pull(ctx, opts SyncOpts) error` pipes tar archive back, `PushBytes(ctx, data []byte, remotePath string) error` writes bytes via SSH. Respect exclusion lists from SyncOpts.
-- [ ] T019 [P] [US3] Create `OpenShellGitChannel` struct in `cc-deck/internal/ws/channel_openshell.go` implementing `GitChannel` interface: `Fetch(ctx, opts HarvestOpts) error` creates temporary git remote with `ext::ssh -W %h:%p gateway` transport, fetches commits from sandbox repo. `Push(ctx) error` reverse direction.
-- [ ] T020 [US3] Create `OpenShellPipeChannel` struct in `cc-deck/internal/ws/channel_openshell.go` implementing `PipeChannel` interface: `Send(ctx, pipeName, payload string) error` calls `client.ExecSandbox(sandboxID, ["zellij", "pipe", "--name", pipeName, payload])`. `SendReceive` not supported initially (return ErrNotSupported).
-- [ ] T021 [US3] Wire channel lazy initialization in `cc-deck/internal/ws/openshell.go`: implement `PipeChannel(ctx)`, `DataChannel(ctx)`, `GitChannel(ctx)` methods using sync.Once pattern, `Push(ctx, opts)`, `Pull(ctx, opts)`, `Harvest(ctx, opts)` delegates to channels
+- [X] T018 [P] [US3] Create `cc-deck/internal/ws/channel_openshell.go` with `OpenShellDataChannel` struct implementing `DataChannel` interface: `Push(ctx, opts SyncOpts) error` pipes tar archive over SSH tunnel into sandbox, `Pull(ctx, opts SyncOpts) error` pipes tar archive back, `PushBytes(ctx, data []byte, remotePath string) error` writes bytes via SSH. Respect exclusion lists from SyncOpts.
+- [X] T019 [P] [US3] Create `OpenShellGitChannel` struct in `cc-deck/internal/ws/channel_openshell.go` implementing `GitChannel` interface: `Fetch(ctx, opts HarvestOpts) error` creates temporary git remote with `ext::ssh -W %h:%p gateway` transport, fetches commits from sandbox repo. `Push(ctx) error` reverse direction.
+- [X] T020 [US3] Create `OpenShellPipeChannel` struct in `cc-deck/internal/ws/channel_openshell.go` implementing `PipeChannel` interface: `Send(ctx, pipeName, payload string) error` calls `client.ExecSandbox(sandboxID, ["zellij", "pipe", "--name", pipeName, payload])`. `SendReceive` not supported initially (return ErrNotSupported).
+- [X] T021 [US3] Wire channel lazy initialization in `cc-deck/internal/ws/openshell.go`: implement `PipeChannel(ctx)`, `DataChannel(ctx)`, `GitChannel(ctx)` methods using sync.Once pattern, `Push(ctx, opts)`, `Pull(ctx, opts)`, `Harvest(ctx, opts)` delegates to channels
 
 **Checkpoint**: `cc-deck push/pull/harvest my-workspace` works. Files transfer correctly with exclusions.
 
@@ -99,8 +99,8 @@
 
 ### Implementation for User Story 4
 
-- [ ] T022 [US4] Implement `Delete(ctx context.Context, force bool) error` in `cc-deck/internal/ws/openshell.go`: call KillSession (best-effort), call `client.DeleteSandbox(sandboxID)`, remove workspace from state store. If force=true and gateway unreachable: remove local state, log warning about potentially orphaned sandbox.
-- [ ] T023 [US4] Implement `Stop(ctx context.Context) error` in `cc-deck/internal/ws/openshell.go` (InfraManager): call KillSession, call DeleteSandbox, update InfraState
+- [X] T022 [US4] Implement `Delete(ctx context.Context, force bool) error` in `cc-deck/internal/ws/openshell.go`: call KillSession (best-effort), call `client.DeleteSandbox(sandboxID)`, remove workspace from state store. If force=true and gateway unreachable: remove local state, log warning about potentially orphaned sandbox.
+- [X] T023 [US4] Implement `Stop(ctx context.Context) error` in `cc-deck/internal/ws/openshell.go` (InfraManager): call KillSession, call DeleteSandbox, update InfraState
 
 **Checkpoint**: `cc-deck delete my-workspace` removes sandbox and state. Force delete works when gateway is down.
 
@@ -114,8 +114,8 @@
 
 ### Implementation for User Story 5
 
-- [ ] T024 [US5] Implement `Exec(ctx context.Context, cmd []string) error` in `cc-deck/internal/ws/openshell.go`: call `client.ExecSandbox(sandboxID, cmd)`, stream stdout/stderr to terminal, return exit code error if non-zero
-- [ ] T025 [US5] Implement `ExecOutput(ctx context.Context, cmd []string) (string, error)` in `cc-deck/internal/ws/openshell.go`: same as Exec but capture stdout as string return, stderr still to terminal
+- [X] T024 [US5] Implement `Exec(ctx context.Context, cmd []string) error` in `cc-deck/internal/ws/openshell.go`: call `client.ExecSandbox(sandboxID, cmd)`, stream stdout/stderr to terminal, return exit code error if non-zero
+- [X] T025 [US5] Implement `ExecOutput(ctx context.Context, cmd []string) (string, error)` in `cc-deck/internal/ws/openshell.go`: same as Exec but capture stdout as string return, stderr still to terminal
 
 **Checkpoint**: `cc-deck exec my-workspace -- ls /sandbox` shows sandbox filesystem.
 
@@ -125,11 +125,11 @@
 
 **Purpose**: State reconciliation, error wrapping, and workspace definition schema
 
-- [ ] T026 [P] Implement state reconciliation in `cc-deck/internal/ws/openshell.go`: on any operation, if stored sandboxID exists but GetSandbox returns "not found", clear local state and return appropriate error. Handle gateway reconnection after restart.
-- [ ] T027 [P] Wrap all gRPC errors in cc-deck's `ChannelError` type in `cc-deck/internal/ws/channel_openshell.go`: include channel type, operation name, workspace name, and original gRPC status code
-- [ ] T028 [P] Add workspace definition YAML schema for openshell type in cc-deck documentation: `gateway:` section (address, tls, certs), `sandbox:` section (image, command, policy, provider), example workspace definition file
-- [ ] T029 Add compile-time interface check in `cc-deck/internal/ws/interface_test.go`: `var _ Workspace = (*OpenShellWorkspace)(nil)` and `var _ InfraManager = (*OpenShellWorkspace)(nil)`
-- [ ] T036 [P] Add debug-level logging for all gRPC call outcomes in `cc-deck/internal/openshell/client.go` (FR-014): log connect, CreateSandbox, DeleteSandbox, GetSandbox, ExecSandbox, CreateSshSession results with operation name, sandbox ID, and duration using cc-deck's existing log output
+- [X] T026 [P] Implement state reconciliation in `cc-deck/internal/ws/openshell.go`: on any operation, if stored sandboxID exists but GetSandbox returns "not found", clear local state and return appropriate error. Handle gateway reconnection after restart.
+- [X] T027 [P] Wrap all gRPC errors in cc-deck's `ChannelError` type in `cc-deck/internal/ws/channel_openshell.go`: include channel type, operation name, workspace name, and original gRPC status code
+- [X] T028 [P] Add workspace definition YAML schema for openshell type in cc-deck documentation: `gateway:` section (address, tls, certs), `sandbox:` section (image, command, policy, provider), example workspace definition file
+- [X] T029 Add compile-time interface check in `cc-deck/internal/ws/interface_test.go`: `var _ Workspace = (*OpenShellWorkspace)(nil)` and `var _ InfraManager = (*OpenShellWorkspace)(nil)`
+- [X] T036 [P] Add debug-level logging for all gRPC call outcomes in `cc-deck/internal/openshell/client.go` (FR-014): log connect, CreateSandbox, DeleteSandbox, GetSandbox, ExecSandbox, CreateSshSession results with operation name, sandbox ID, and duration using cc-deck's existing log output
 
 ---
 
@@ -137,12 +137,12 @@
 
 **Purpose**: Unit tests for all OpenShell backend components
 
-- [ ] T030 [P] Create `cc-deck/internal/openshell/client_test.go`: test `NewClient` with valid/invalid GatewayConfig, test `ResolveGatewayConfig` resolution order (definition YAML > env var > default), test TLS warning for non-localhost plaintext
-- [ ] T031 [P] Create `cc-deck/internal/ws/openshell_test.go`: test `OpenShellWorkspace.Status` state mapping (all five OpenShell states to cc-deck InfraState), test `sshTunnelState.isAlive` with live/dead PIDs, test `resolveSandboxConfig` defaults and overrides
-- [ ] T032 [P] Create `cc-deck/internal/ws/channel_openshell_test.go`: test `OpenShellDataChannel.Push/Pull` with mock SSH, test `OpenShellGitChannel.Fetch` transport construction, test `OpenShellPipeChannel.Send` command assembly, test `SendReceive` returns ErrNotSupported
-- [ ] T033 Test `Create` flow in `cc-deck/internal/ws/openshell_test.go`: test sandbox creation with mock gRPC client, test polling timeout, test error propagation from gateway
-- [ ] T034 Test `Attach` flow in `cc-deck/internal/ws/openshell_test.go`: test single-attach enforcement (second attach fails), test stale tunnel cleanup (dead PID), test tunnel establishment with mock CreateSshSession
-- [ ] T035 Test `Delete` flow in `cc-deck/internal/ws/openshell_test.go`: test normal delete (KillSession + DeleteSandbox + state removal), test force delete with unreachable gateway (local state removed, warning logged)
+- [X] T030 [P] Create `cc-deck/internal/openshell/client_test.go`: test `NewClient` with valid/invalid GatewayConfig, test `ResolveGatewayConfig` resolution order (definition YAML > env var > default), test TLS warning for non-localhost plaintext
+- [X] T031 [P] Create `cc-deck/internal/ws/openshell_test.go`: test `OpenShellWorkspace.Status` state mapping (all five OpenShell states to cc-deck InfraState), test `sshTunnelState.isAlive` with live/dead PIDs, test `resolveSandboxConfig` defaults and overrides
+- [X] T032 [P] Create `cc-deck/internal/ws/channel_openshell_test.go`: test `OpenShellDataChannel.Push/Pull` with mock SSH, test `OpenShellGitChannel.Fetch` transport construction, test `OpenShellPipeChannel.Send` command assembly, test `SendReceive` returns ErrNotSupported
+- [X] T033 Test `Create` flow in `cc-deck/internal/ws/openshell_test.go`: test sandbox creation with mock gRPC client, test polling timeout, test error propagation from gateway
+- [X] T034 Test `Attach` flow in `cc-deck/internal/ws/openshell_test.go`: test single-attach enforcement (second attach fails), test stale tunnel cleanup (dead PID), test tunnel establishment with mock CreateSshSession
+- [X] T035 Test `Delete` flow in `cc-deck/internal/ws/openshell_test.go`: test normal delete (KillSession + DeleteSandbox + state removal), test force delete with unreachable gateway (local state removed, warning logged)
 
 **Checkpoint**: `make test` passes. All OpenShell backend code has unit test coverage.
 
