@@ -276,7 +276,11 @@ func (r *VoiceRelay) statePoll(ctx context.Context, sr PipeSendReceiver) {
 				voiceOnConfirmed = true
 			}
 
-			resp, err := sr.SendReceive(ctx, "cc-deck:dump-state", "")
+			// Per-call timeout prevents a stuck zellij pipe from
+			// starving the heartbeat (plugin times out after 15s).
+			pollCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			resp, err := sr.SendReceive(pollCtx, "cc-deck:dump-state", "")
+			cancel()
 			if err != nil {
 				if ctx.Err() != nil {
 					return
