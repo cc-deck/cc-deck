@@ -161,26 +161,10 @@ impl ZellijPlugin for SidebarRendererPlugin {
                             }
                         }
 
-                        // Exit navigate mode if no input arrived recently.
-                        // The sidebar has no "focus lost" event, so we detect it
-                        // by checking whether navigate-related input (key events
-                        // or Alt+s pipe messages) stopped arriving. If the user
-                        // clicked the terminal or focus shifted, no input reaches
-                        // the sidebar and navigate mode should auto-exit.
-                        if self.state.mode.is_navigating() {
-                            let now_ms = crate::session::unix_now_ms();
-                            let in_grace = self.state.mode.in_grace_period(now_ms);
-                            let idle_ms = now_ms.saturating_sub(self.state.last_nav_input_ms);
-                            if !in_grace && self.state.last_nav_input_ms > 0 && idle_ms > 5000 {
-                                crate::debug_log(&format!(
-                                    "SIDEBAR RENDER: exiting navigate due to inactivity ({}ms)",
-                                    idle_ms,
-                                ));
-                                self.state.mode = modes::SidebarMode::Passive;
-                                self.state.filter_text.clear();
-                                crate::wasm_compat::set_selectable_wasm(false);
-                            }
-                        }
+                        // Navigation mode persists until explicit exit (Escape,
+                        // Enter/select, or PaneUpdate detecting terminal focus).
+                        // No inactivity timeout: the user may be reading the
+                        // sidebar without pressing keys.
 
                         // Exit RenamePassive when focus moves to a different pane.
                         // Without this, the rename cursor stays visible on a row

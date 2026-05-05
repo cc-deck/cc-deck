@@ -31,10 +31,6 @@ pub fn handle_key(state: &mut SidebarState, key: KeyWithModifier) -> bool {
         std::mem::discriminant(&state.mode),
     ));
 
-    // Track last input time for navigate inactivity detection.
-    if state.mode.is_navigating() {
-        state.last_nav_input_ms = unix_now_ms();
-    }
 
     // Help mode: any key dismisses
     if state.mode.is_help() {
@@ -57,7 +53,6 @@ pub fn handle_key(state: &mut SidebarState, key: KeyWithModifier) -> bool {
 /// Enter navigate mode, or move cursor up if already navigating.
 /// Called when controller forwards navigate-prev keybinding (Shift-Alt-s).
 pub fn toggle_navigate_prev(state: &mut SidebarState) {
-    state.last_nav_input_ms = unix_now_ms();
     crate::debug_log(&format!(
         "SIDEBAR NAV-PREV: mode={:?} tab={:?}",
         std::mem::discriminant(&state.mode),
@@ -142,7 +137,6 @@ fn active_session_index(state: &SidebarState) -> usize {
 /// Enter navigate mode, or move cursor down if already navigating.
 /// Called when controller forwards navigate keybinding (Alt-s).
 pub fn toggle_navigate(state: &mut SidebarState) {
-    state.last_nav_input_ms = unix_now_ms();
     crate::debug_log(&format!(
         "SIDEBAR NAV: mode={:?} tab={:?}",
         std::mem::discriminant(&state.mode),
