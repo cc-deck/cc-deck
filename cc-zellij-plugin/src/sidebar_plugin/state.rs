@@ -171,39 +171,7 @@ impl SidebarState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cc_deck::RenderPayload;
-
-    fn make_payload(sessions: Vec<RenderSession>) -> RenderPayload {
-        let total = sessions.len();
-        RenderPayload {
-            sessions,
-            focused_pane_id: None,
-            active_tab_index: 0,
-            notification: None,
-            notification_expiry: None,
-            total,
-            waiting: 0,
-            working: 0,
-            idle: 0,
-            controller_plugin_id: 1,
-            voice_connected: false,
-            voice_muted: false,
-        }
-    }
-
-    fn make_session(pane_id: u32, name: &str, tab_index: usize) -> RenderSession {
-        RenderSession {
-            pane_id,
-            display_name: name.to_string(),
-            activity_label: "Idle".to_string(),
-            indicator: "\u{25cb}".to_string(),
-            color: (180, 175, 195),
-            git_branch: None,
-            tab_index,
-            paused: false,
-            done_attended: false,
-        }
-    }
+    use super::super::test_helpers::{make_payload, make_session};
 
     #[test]
     fn test_filtered_sessions_no_payload() {
