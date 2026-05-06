@@ -258,4 +258,20 @@ mod tests {
     fn test_parse_test_inject() {
         assert!(matches!(parse_pipe_message("cc-deck:test-inject", None), PipeAction::TestInject));
     }
+
+    #[test]
+    fn test_is_sync_message() {
+        assert!(is_sync_message("cc-deck:sync"));
+        assert!(is_sync_message("cc-deck:sync:12345"));
+        assert!(!is_sync_message("cc-deck:request"));
+        assert!(!is_sync_message("cc-deck:hook"));
+    }
+
+    #[test]
+    fn test_is_request_message() {
+        assert!(is_request_message("cc-deck:request"));
+        assert!(is_request_message("cc-deck:request:12345"));
+        assert!(!is_request_message("cc-deck:sync"));
+        assert!(!is_request_message("cc-deck:hook"));
+    }
 }

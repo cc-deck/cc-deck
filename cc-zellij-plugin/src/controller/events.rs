@@ -280,7 +280,7 @@ pub fn handle_run_command_result(
                         .filter(|s| s.tab_index == Some(tab_idx))
                         .count();
                     if sessions_on_tab == 1 {
-                        rename_tab_wasm(tab_idx, &new_name);
+                        crate::wasm_compat::rename_tab_wasm(tab_idx, &new_name);
                     }
                 }
 
@@ -424,15 +424,7 @@ fn set_timer(interval: f64) {
 #[cfg(not(target_family = "wasm"))]
 fn set_timer(_interval: f64) {}
 
-/// Rename a Zellij tab.
-#[cfg(target_family = "wasm")]
-fn rename_tab_wasm(tab_idx: usize, name: &str) {
-    zellij_tile::prelude::rename_tab(tab_idx as u32 + 1, name);
-}
-
-#[cfg(not(target_family = "wasm"))]
-fn rename_tab_wasm(_tab_idx: usize, _name: &str) {}
-
+/// Derive the Shift variant of a keybinding string by uppercasing the last character.
 #[allow(dead_code)]
 fn shift_variant(key: &str) -> String {
     let trimmed = key.trim_end();
