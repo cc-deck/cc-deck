@@ -465,6 +465,9 @@ fn render_help_overlay(rows: usize, cols: usize) -> Vec<ClickRegion> {
         " \x1b[1mAlt+S\x1b[0m  Session list \x1b[2m/ prev\x1b[0m",
         " \x1b[1mAlt+a\x1b[0m  Next session",
         " \x1b[1mAlt+A\x1b[0m  Prev session",
+        " \x1b[1mAlt+w\x1b[0m  Next working",
+        " \x1b[1mAlt+W\x1b[0m  Prev working",
+        " \x1b[1mAlt+m\x1b[0m  Voice mute toggle",
         "",
         " \x1b[2mNavigation:\x1b[0m",
         " \x1b[1mj/\u{2193}\x1b[0m    Move down",
@@ -476,14 +479,11 @@ fn render_help_overlay(rows: usize, cols: usize) -> Vec<ClickRegion> {
         " \x1b[1mr\x1b[0m      Rename",
         " \x1b[1md\x1b[0m      Delete",
         " \x1b[1mp\x1b[0m      Pause/unpause",
-        " \x1b[1mv\x1b[0m      Voice mute",
+        " \x1b[1mm\x1b[0m      Voice mute",
         " \x1b[1mn\x1b[0m      New tab",
         " \x1b[1mR\x1b[0m      Refresh sidebar",
         " \x1b[1m/\x1b[0m      Search",
         " \x1b[1m?\x1b[0m      This help",
-        "",
-        " \x1b[2mGlobal:\x1b[0m",
-        " \x1b[1mAlt+v\x1b[0m  Voice mute",
     ];
 
     for (i, line) in help_lines.iter().enumerate() {
