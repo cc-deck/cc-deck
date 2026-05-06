@@ -48,26 +48,6 @@ impl PerfTracker {
         }
     }
 
-    /// Record an event with timing. Call at the end of the measured block.
-    pub fn record(&mut self, label: &str, start_ms: u64) {
-        if !self.enabled {
-            return;
-        }
-        let elapsed_us = crate::session::unix_now_ms()
-            .saturating_sub(start_ms)
-            .saturating_mul(1000);
-        self.record_raw(label, elapsed_us);
-    }
-
-    /// Record a count-only event (no timing).
-    pub fn count(&mut self, label: &str) {
-        if !self.enabled {
-            return;
-        }
-        let entry = self.stats.entry(label.to_string()).or_default();
-        entry.count += 1;
-    }
-
     /// Check if it's time to dump stats and do so if needed.
     /// Called from the timer handler.
     pub fn maybe_dump(&mut self) {
@@ -140,27 +120,9 @@ mod tests {
     }
 
     #[test]
-    fn test_count_only() {
-        let mut tracker = PerfTracker {
-            enabled: true,
-            dump_interval_secs: 30,
-            ..Default::default()
-        };
-
-        tracker.count("pipe_hook");
-        tracker.count("pipe_hook");
-        tracker.count("pipe_sync");
-
-        assert_eq!(tracker.stats["pipe_hook"].count, 2);
-        assert_eq!(tracker.stats["pipe_hook"].total_us, 0);
-        assert_eq!(tracker.stats["pipe_sync"].count, 1);
-    }
-
-    #[test]
-    fn test_disabled_noop() {
-        let mut tracker = PerfTracker::default(); // enabled=false
-        tracker.record("test", 0);
-        tracker.count("test");
+    fn test_default_disabled() {
+        let tracker = PerfTracker::default();
+        assert!(!tracker.enabled);
         assert!(tracker.stats.is_empty());
     }
 

@@ -18,7 +18,7 @@ pub enum PipeAction {
     /// Hook event from CLI (cc-deck:hook).
     HookEvent(HookPayload),
     /// State sync from another instance (cc-deck:sync).
-    SyncState(String),
+    SyncState,
     /// State request from a new instance (cc-deck:request).
     RequestState,
     /// Attend action (cc-deck:attend).
@@ -65,15 +65,22 @@ pub enum PipeAction {
     Unknown,
 }
 
+fn is_sync_message(name: &str) -> bool {
+    name == "cc-deck:sync" || name.starts_with("cc-deck:sync:")
+}
+
+fn is_request_message(name: &str) -> bool {
+    name == "cc-deck:request" || name.starts_with("cc-deck:request:")
+}
+
 /// Parse a pipe message name into an action.
 /// Handles PID-scoped sync/request messages (cc-deck:sync:{pid}, cc-deck:request:{pid})
 /// as well as legacy names without PID suffix.
 pub fn parse_pipe_message(name: &str, payload: Option<&str>) -> PipeAction {
-    // Check PID-scoped sync/request messages first
-    if crate::sync::is_sync_message(name) {
-        return PipeAction::SyncState(payload.unwrap_or("").to_string());
+    if is_sync_message(name) {
+        return PipeAction::SyncState;
     }
-    if crate::sync::is_request_message(name) {
+    if is_request_message(name) {
         return PipeAction::RequestState;
     }
 
@@ -217,7 +224,7 @@ mod tests {
         let payload = r#"{"1":{"pane_id":1}}"#;
         assert!(matches!(
             parse_pipe_message("cc-deck:sync:12345", Some(payload)),
-            PipeAction::SyncState(_)
+            PipeAction::SyncState
         ));
         // PID-scoped request messages should parse as RequestState
         assert!(matches!(

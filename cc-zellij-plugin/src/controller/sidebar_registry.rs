@@ -7,6 +7,7 @@
 
 use super::state::ControllerState;
 use cc_deck::{SidebarHello, SidebarInit};
+#[allow(unused_imports)]
 use zellij_tile::prelude::*;
 
 /// Handle a sidebar-hello registration message.

@@ -5,7 +5,6 @@
 // session list and prints ANSI escape sequences; no heavy computation.
 
 use cc_deck::RenderSession;
-use super::modes::SidebarMode;
 use super::rename;
 use super::state::{ClickRegion, SidebarState};
 
@@ -268,28 +267,6 @@ pub fn render_permission_prompt(rows: usize, cols: usize) {
     }
 }
 
-/// Render the "Controller unavailable" state.
-pub fn render_unavailable(rows: usize, cols: usize) -> Vec<ClickRegion> {
-    let header = " \x1b[38;2;255;170;50m\u{2731}\x1b[0m \x1b[1mClaude Code\x1b[0m".to_string();
-    print!("\x1b[1;1H{}", pad(&header, cols));
-
-    let sep: String = "\u{2500}".repeat(cols.min(40));
-    print!("\x1b[2;1H\x1b[2m{}\x1b[0m{}", sep, " ".repeat(cols.saturating_sub(sep.len())));
-
-    if rows > 3 {
-        print_line(3, cols, "  Controller unavailable", Style::Dim);
-    }
-    if rows > 4 {
-        print_line(4, cols, "  Check plugin status", Style::Dim);
-    }
-
-    for row in 5..rows {
-        print_line(row, cols, "", Style::Normal);
-    }
-
-    Vec::new()
-}
-
 /// Click sentinel for the voice indicator.
 pub const VOICE_CLICK_SENTINEL: u32 = u32::MAX - 2;
 
@@ -456,9 +433,37 @@ fn render_empty_state(state: &super::state::SidebarState, payload: &cc_deck::Ren
     click_regions
 }
 
+const HELP_LINES: &[&str] = &[
+    "\x1b[1m Keyboard Shortcuts\x1b[0m",
+    "\x1b[2m \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\x1b[0m",
+    " \x1b[1mAlt+s\x1b[0m  Session list \x1b[2m/ next\x1b[0m",
+    " \x1b[1mAlt+S\x1b[0m  Session list \x1b[2m/ prev\x1b[0m",
+    " \x1b[1mAlt+a\x1b[0m  Next session",
+    " \x1b[1mAlt+A\x1b[0m  Prev session",
+    " \x1b[1mAlt+w\x1b[0m  Next working",
+    " \x1b[1mAlt+W\x1b[0m  Prev working",
+    " \x1b[1mAlt+m\x1b[0m  Voice mute toggle",
+    "",
+    " \x1b[2mNavigation:\x1b[0m",
+    " \x1b[1mj/\u{2193}\x1b[0m    Move down",
+    " \x1b[1mk/\u{2191}\x1b[0m    Move up",
+    " \x1b[1mEnter\x1b[0m  Go to session",
+    " \x1b[1mEsc\x1b[0m    Cancel",
+    "",
+    " \x1b[2mActions:\x1b[0m",
+    " \x1b[1mr\x1b[0m      Rename",
+    " \x1b[1md\x1b[0m      Delete",
+    " \x1b[1mp\x1b[0m      Pause/unpause",
+    " \x1b[1mm\x1b[0m      Voice mute",
+    " \x1b[1mn\x1b[0m      New tab",
+    " \x1b[1mR\x1b[0m      Refresh sidebar",
+    " \x1b[1m/\x1b[0m      Search",
+    " \x1b[1m?\x1b[0m      This help",
+];
+
 /// Render a help overlay listing all keyboard shortcuts.
 fn render_help_overlay(rows: usize, cols: usize) -> Vec<ClickRegion> {
-    let help_lines = crate::sidebar::HELP_LINES;
+    let help_lines = HELP_LINES;
     for (i, line) in help_lines.iter().enumerate() {
         if i >= rows {
             break;
@@ -607,9 +612,8 @@ fn truncate_chars(s: &str, max: usize) -> String {
     s.chars().take(max).collect()
 }
 
-/// Handle a mouse click on the sidebar.
-/// Returns (tab_index, pane_id) if a session was clicked.
-pub fn handle_click(click_row: usize, click_regions: &[ClickRegion]) -> Option<(usize, u32)> {
+#[cfg(test)]
+fn handle_click(click_row: usize, click_regions: &[ClickRegion]) -> Option<(usize, u32)> {
     for &(row, pane_id, tab_index) in click_regions {
         if click_row >= row && click_row < row + 3 {
             return Some((tab_index, pane_id));
