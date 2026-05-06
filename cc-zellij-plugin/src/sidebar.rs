@@ -6,6 +6,34 @@ use crate::state::{PluginState, RenameState, SidebarMode};
 /// Click region: (row, pane_id, tab_index).
 pub type ClickRegion = (usize, u32, usize);
 
+pub const HELP_LINES: &[&str] = &[
+    "\x1b[1m Keyboard Shortcuts\x1b[0m",
+    "\x1b[2m \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\x1b[0m",
+    " \x1b[1mAlt+s\x1b[0m  Session list \x1b[2m/ next\x1b[0m",
+    " \x1b[1mAlt+S\x1b[0m  Session list \x1b[2m/ prev\x1b[0m",
+    " \x1b[1mAlt+a\x1b[0m  Next session",
+    " \x1b[1mAlt+A\x1b[0m  Prev session",
+    " \x1b[1mAlt+w\x1b[0m  Next working",
+    " \x1b[1mAlt+W\x1b[0m  Prev working",
+    " \x1b[1mAlt+m\x1b[0m  Voice mute toggle",
+    "",
+    " \x1b[2mNavigation:\x1b[0m",
+    " \x1b[1mj/\u{2193}\x1b[0m    Move down",
+    " \x1b[1mk/\u{2191}\x1b[0m    Move up",
+    " \x1b[1mEnter\x1b[0m  Go to session",
+    " \x1b[1mEsc\x1b[0m    Cancel",
+    "",
+    " \x1b[2mActions:\x1b[0m",
+    " \x1b[1mr\x1b[0m      Rename",
+    " \x1b[1md\x1b[0m      Delete",
+    " \x1b[1mp\x1b[0m      Pause/unpause",
+    " \x1b[1mm\x1b[0m      Voice mute",
+    " \x1b[1mn\x1b[0m      New tab",
+    " \x1b[1mR\x1b[0m      Refresh sidebar",
+    " \x1b[1m/\x1b[0m      Search",
+    " \x1b[1m?\x1b[0m      This help",
+];
+
 // Active session highlight: dark teal background with brighter teal foreground
 const ACTIVE_BG: &str = "\x1b[48;2;25;45;55m"; // dark teal background
 const ACTIVE_FG: &str = "\x1b[38;2;120;200;220m"; // bright teal foreground
@@ -396,42 +424,14 @@ pub fn handle_click(click_row: usize, click_regions: &[ClickRegion]) -> Option<(
 
 /// Render a help overlay listing all keyboard shortcuts.
 fn render_help_overlay(rows: usize, cols: usize) -> Vec<ClickRegion> {
-    let help_lines = [
-        "\x1b[1m Keyboard Shortcuts\x1b[0m",
-        "\x1b[2m \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\x1b[0m",
-        " \x1b[1mAlt+s\x1b[0m  Session list \x1b[2m/ next\x1b[0m",
-        " \x1b[1mAlt+S\x1b[0m  Session list \x1b[2m/ prev\x1b[0m",
-        " \x1b[1mAlt+a\x1b[0m  Next session",
-        " \x1b[1mAlt+A\x1b[0m  Prev session",
-        " \x1b[1mAlt+w\x1b[0m  Next working",
-        " \x1b[1mAlt+W\x1b[0m  Prev working",
-        " \x1b[1mAlt+m\x1b[0m  Voice mute toggle",
-        "",
-        " \x1b[2mNavigation:\x1b[0m",
-        " \x1b[1mj/\u{2193}\x1b[0m    Move down",
-        " \x1b[1mk/\u{2191}\x1b[0m    Move up",
-        " \x1b[1mEnter\x1b[0m  Go to session",
-        " \x1b[1mEsc\x1b[0m    Cancel",
-        "",
-        " \x1b[2mActions:\x1b[0m",
-        " \x1b[1mr\x1b[0m      Rename",
-        " \x1b[1md\x1b[0m      Delete",
-        " \x1b[1mp\x1b[0m      Pause/unpause",
-        " \x1b[1mm\x1b[0m      Voice mute",
-        " \x1b[1mn\x1b[0m      New tab",
-        " \x1b[1mR\x1b[0m      Refresh sidebar",
-        " \x1b[1m/\x1b[0m      Search",
-        " \x1b[1m?\x1b[0m      This help",
-    ];
-
-    for (i, line) in help_lines.iter().enumerate() {
+    for (i, line) in HELP_LINES.iter().enumerate() {
         if i >= rows {
             break;
         }
         print!("\x1b[{};1H{}", i + 1, pad(line, cols));
     }
     // Fill remaining rows
-    for i in help_lines.len()..rows {
+    for i in HELP_LINES.len()..rows {
         print!("\x1b[{};1H{}", i + 1, " ".repeat(cols));
     }
 
