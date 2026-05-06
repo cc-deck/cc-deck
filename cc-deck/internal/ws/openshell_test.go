@@ -18,24 +18,24 @@ func TestOpenShellWorkspace_TypeAndName(t *testing.T) {
 	assert.Equal(t, "test-ws", w.Name())
 }
 
-func TestSshTunnelState_IsAlive_Nil(t *testing.T) {
-	var tunnel *sshTunnelState
-	assert.False(t, tunnel.isAlive())
+func TestAttachState_IsAlive_Nil(t *testing.T) {
+	var a *attachState
+	assert.False(t, a.isAlive())
 }
 
-func TestSshTunnelState_IsAlive_ZeroPID(t *testing.T) {
-	tunnel := &sshTunnelState{pid: 0}
-	assert.False(t, tunnel.isAlive())
+func TestAttachState_IsAlive_ZeroPID(t *testing.T) {
+	a := &attachState{pid: 0}
+	assert.False(t, a.isAlive())
 }
 
-func TestSshTunnelState_IsAlive_CurrentProcess(t *testing.T) {
-	tunnel := &sshTunnelState{pid: os.Getpid(), connected: true}
-	assert.True(t, tunnel.isAlive())
+func TestAttachState_IsAlive_CurrentProcess(t *testing.T) {
+	a := &attachState{pid: os.Getpid()}
+	assert.True(t, a.isAlive())
 }
 
-func TestSshTunnelState_IsAlive_DeadProcess(t *testing.T) {
-	tunnel := &sshTunnelState{pid: 99999999, connected: true}
-	assert.False(t, tunnel.isAlive())
+func TestAttachState_IsAlive_DeadProcess(t *testing.T) {
+	a := &attachState{pid: 99999999}
+	assert.False(t, a.isAlive())
 }
 
 func TestResolveSandboxConfig_Defaults(t *testing.T) {
@@ -72,8 +72,6 @@ workspaces:
 func TestResolveGatewayConfig_FromDefinition(t *testing.T) {
 	dir := t.TempDir()
 	defPath := filepath.Join(dir, "workspaces.yaml")
-	tls := true
-	_ = tls
 	os.WriteFile(defPath, []byte(`version: 3
 workspaces:
   - name: test-ws
@@ -135,10 +133,10 @@ func TestLoadSandboxID_NoStore(t *testing.T) {
 
 func TestStatusMapping(t *testing.T) {
 	tests := []struct {
-		name           string
-		sandboxState   openshell.SandboxState
-		expectedInfra  *InfraStateValue
-		expectedMsg    string
+		name          string
+		sandboxState  openshell.SandboxState
+		expectedInfra *InfraStateValue
+		expectedMsg   string
 	}{
 		{
 			"running",
@@ -197,19 +195,19 @@ func TestStatusMapping(t *testing.T) {
 	}
 }
 
-func TestSessionStateWithTunnel(t *testing.T) {
+func TestSessionStateWithActiveAttach(t *testing.T) {
 	status := &WorkspaceStatus{SessionState: SessionStateNone}
-	tunnel := &sshTunnelState{pid: os.Getpid(), connected: true}
-	if tunnel.isAlive() {
+	a := &attachState{pid: os.Getpid()}
+	if a.isAlive() {
 		status.SessionState = SessionStateExists
 	}
 	assert.Equal(t, SessionStateExists, status.SessionState)
 }
 
-func TestSessionStateWithDeadTunnel(t *testing.T) {
+func TestSessionStateWithDeadAttach(t *testing.T) {
 	status := &WorkspaceStatus{SessionState: SessionStateNone}
-	tunnel := &sshTunnelState{pid: 99999999, connected: true}
-	if tunnel.isAlive() {
+	a := &attachState{pid: 99999999}
+	if a.isAlive() {
 		status.SessionState = SessionStateExists
 	}
 	assert.Equal(t, SessionStateNone, status.SessionState)
@@ -217,8 +215,8 @@ func TestSessionStateWithDeadTunnel(t *testing.T) {
 
 func TestAttach_AlreadyAttached(t *testing.T) {
 	w := &OpenShellWorkspace{
-		name:      "test-ws",
-		sshTunnel: &sshTunnelState{pid: os.Getpid(), connected: true},
+		name:   "test-ws",
+		attach: &attachState{pid: os.Getpid()},
 	}
 	err := w.Attach(context.Background())
 	assert.Error(t, err)
@@ -298,11 +296,11 @@ func TestClearLocalState(t *testing.T) {
 		name:      "test-ws",
 		store:     store,
 		sandboxID: "sb-999",
-		sshTunnel: &sshTunnelState{pid: 1, connected: true},
+		attach:    &attachState{pid: 1},
 	}
 	w.clearLocalState()
 	assert.Empty(t, w.sandboxID)
-	assert.Nil(t, w.sshTunnel)
+	assert.Nil(t, w.attach)
 
 	_, findErr := store.FindInstanceByName("test-ws")
 	assert.Error(t, findErr)

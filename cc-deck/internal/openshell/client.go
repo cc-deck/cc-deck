@@ -28,14 +28,6 @@ type SandboxInfo struct {
 	State SandboxState
 }
 
-// SSHSession holds information returned by CreateSshSession.
-type SSHSession struct {
-	SessionID string
-	Host      string
-	Port      int
-	User      string
-}
-
 // ExecResult holds the result of a command execution inside a sandbox.
 type ExecResult struct {
 	Stdout   string
@@ -76,92 +68,88 @@ func isLocalhost(addr string) bool {
 	return host == "localhost" || host == "127.0.0.1" || host == "::1"
 }
 
-// Client wraps gRPC communication with the OpenShell gateway.
-// Until proto codegen is integrated, this uses the openshell CLI
-// as a temporary transport layer.
-type Client struct {
+// cliClient wraps the openshell CLI binary for gateway communication.
+type cliClient struct {
 	cfg GatewayConfig
 }
 
-// NewClient creates a new OpenShell gateway client.
-func NewClient(cfg GatewayConfig) (*Client, error) {
+// NewClient creates a new OpenShell gateway client that wraps the CLI.
+func NewClient(cfg GatewayConfig) (Client, error) {
 	if cfg.Address == "" {
 		return nil, fmt.Errorf("gateway address is required")
 	}
 	if !cfg.TLS && !isLocalhost(cfg.Address) {
 		log.Printf("WARNING: connecting to non-localhost gateway %s without TLS", cfg.Address)
 	}
-	log.Printf("DEBUG: openshell: connecting to gateway at %s (tls=%v)", cfg.Address, cfg.TLS)
-	return &Client{cfg: cfg}, nil
+	log.Printf("DEBUG: openshell: gateway configured at %s (tls=%v)", cfg.Address, cfg.TLS)
+	return &cliClient{cfg: cfg}, nil
 }
 
-// Address returns the gateway address.
-func (c *Client) Address() string {
+func (c *cliClient) Address() string {
 	return c.cfg.Address
 }
 
 // CreateSandbox provisions a new sandbox on the OpenShell gateway.
-func (c *Client) CreateSandbox(ctx context.Context, image, command, policy, provider string) (string, error) {
+func (c *cliClient) CreateSandbox(ctx context.Context, image, command, policy, provider string) (string, error) {
 	start := time.Now()
-	args := []string{"sandbox", "create",
-		"--gateway", c.cfg.Address,
-		"--image", image,
-		"--command", command,
-	}
-	if policy != "" {
-		args = append(args, "--policy", policy)
-	}
+	args := []string{"sandbox", "create", "--from", image}
 	if provider != "" {
 		args = append(args, "--provider", provider)
 	}
+	args = append(args, "--", command)
+
 	out, err := c.execCLI(ctx, args...)
 	log.Printf("DEBUG: openshell: CreateSandbox took %v", time.Since(start))
 	if err != nil {
 		return "", fmt.Errorf("creating sandbox: %w", err)
 	}
-	return strings.TrimSpace(out), nil
+	sandboxName := parseSandboxName(out)
+	if sandboxName == "" {
+		return "", fmt.Errorf("creating sandbox: could not parse sandbox name from CLI output")
+	}
+
+	if policy != "" {
+		if _, policyErr := c.execCLI(ctx, "policy", "set", sandboxName, policy); policyErr != nil {
+			log.Printf("WARNING: failed to set policy on sandbox %s: %v", sandboxName, policyErr)
+		}
+	}
+
+	return sandboxName, nil
 }
 
 // DeleteSandbox destroys an existing sandbox.
-func (c *Client) DeleteSandbox(ctx context.Context, sandboxID string) error {
+func (c *cliClient) DeleteSandbox(ctx context.Context, sandboxName string) error {
 	start := time.Now()
-	_, err := c.execCLI(ctx, "sandbox", "delete",
-		"--gateway", c.cfg.Address,
-		sandboxID)
-	log.Printf("DEBUG: openshell: DeleteSandbox(%s) took %v", sandboxID, time.Since(start))
+	_, err := c.execCLI(ctx, "sandbox", "delete", sandboxName)
+	log.Printf("DEBUG: openshell: DeleteSandbox(%s) took %v", sandboxName, time.Since(start))
 	if err != nil {
-		return fmt.Errorf("deleting sandbox %s: %w", sandboxID, err)
+		return fmt.Errorf("deleting sandbox %s: %w", sandboxName, err)
 	}
 	return nil
 }
 
 // GetSandbox retrieves the current state of a sandbox.
-func (c *Client) GetSandbox(ctx context.Context, sandboxID string) (*SandboxInfo, error) {
+func (c *cliClient) GetSandbox(ctx context.Context, sandboxName string) (*SandboxInfo, error) {
 	start := time.Now()
-	out, err := c.execCLI(ctx, "sandbox", "get",
-		"--gateway", c.cfg.Address,
-		"--output", "json",
-		sandboxID)
-	log.Printf("DEBUG: openshell: GetSandbox(%s) took %v", sandboxID, time.Since(start))
+	out, err := c.execCLI(ctx, "sandbox", "get", sandboxName)
+	log.Printf("DEBUG: openshell: GetSandbox(%s) took %v", sandboxName, time.Since(start))
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
-			return &SandboxInfo{ID: sandboxID, State: SandboxStateDeleted}, nil
+			return &SandboxInfo{ID: sandboxName, State: SandboxStateDeleted}, nil
 		}
-		return nil, fmt.Errorf("getting sandbox %s: %w", sandboxID, err)
+		return nil, fmt.Errorf("getting sandbox %s: %w", sandboxName, err)
 	}
 	state := parseSandboxState(strings.TrimSpace(out))
-	return &SandboxInfo{ID: sandboxID, State: state}, nil
+	return &SandboxInfo{ID: sandboxName, State: state}, nil
 }
 
-// ExecSandbox runs a command inside a sandbox.
-func (c *Client) ExecSandbox(ctx context.Context, sandboxID string, cmd []string) (*ExecResult, error) {
+// ExecSandbox runs a command inside a sandbox and captures the output.
+func (c *cliClient) ExecSandbox(ctx context.Context, sandboxName string, cmd []string) (*ExecResult, error) {
 	start := time.Now()
-	args := []string{"sandbox", "exec",
-		"--gateway", c.cfg.Address,
-		sandboxID, "--"}
+	args := []string{"sandbox", "exec", "-n", sandboxName, "--"}
 	args = append(args, cmd...)
 	out, err := c.execCLI(ctx, args...)
-	log.Printf("DEBUG: openshell: ExecSandbox(%s, %v) took %v", sandboxID, cmd, time.Since(start))
+	log.Printf("DEBUG: openshell: ExecSandbox(%s, %v) took %v", sandboxName, cmd, time.Since(start))
 	result := &ExecResult{Stdout: out}
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
@@ -169,43 +157,64 @@ func (c *Client) ExecSandbox(ctx context.Context, sandboxID string, cmd []string
 			result.Stderr = string(exitErr.Stderr)
 			return result, nil
 		}
-		return nil, fmt.Errorf("exec in sandbox %s: %w", sandboxID, err)
+		return nil, fmt.Errorf("exec in sandbox %s: %w", sandboxName, err)
 	}
 	return result, nil
 }
 
 // ExecSandboxStream runs a command inside a sandbox, streaming output
-// to the provided writers.
-func (c *Client) ExecSandboxStream(ctx context.Context, sandboxID string, cmd []string) error {
+// to stdout/stderr.
+func (c *cliClient) ExecSandboxStream(ctx context.Context, sandboxName string, cmd []string) error {
 	start := time.Now()
-	args := []string{"sandbox", "exec",
-		"--gateway", c.cfg.Address,
-		sandboxID, "--"}
+	args := []string{"sandbox", "exec", "-n", sandboxName, "--"}
 	args = append(args, cmd...)
 	osCmd := exec.CommandContext(ctx, "openshell", args...)
 	osCmd.Stdout = os.Stdout
 	osCmd.Stderr = os.Stderr
 	err := osCmd.Run()
-	log.Printf("DEBUG: openshell: ExecSandboxStream(%s, %v) took %v", sandboxID, cmd, time.Since(start))
+	log.Printf("DEBUG: openshell: ExecSandboxStream(%s, %v) took %v", sandboxName, cmd, time.Since(start))
 	return err
 }
 
-// CreateSshSession establishes an SSH tunnel into a sandbox.
-func (c *Client) CreateSshSession(ctx context.Context, sandboxID string) (*SSHSession, error) {
+// AttachExec connects interactively to a sandbox via `openshell sandbox connect`.
+// The cmd parameter is currently unused because connect runs the sandbox's
+// default shell. For Zellij-based workspaces, the sandbox image should have
+// Zellij as the entrypoint or default command.
+func (c *cliClient) AttachExec(ctx context.Context, sandboxName string, _ []string) error {
 	start := time.Now()
-	out, err := c.execCLI(ctx, "sandbox", "ssh",
-		"--gateway", c.cfg.Address,
-		"--output", "json",
-		sandboxID)
-	log.Printf("DEBUG: openshell: CreateSshSession(%s) took %v", sandboxID, time.Since(start))
-	if err != nil {
-		return nil, fmt.Errorf("creating SSH session for sandbox %s: %w", sandboxID, err)
-	}
-	session := parseSSHSession(strings.TrimSpace(out))
-	return session, nil
+	args := []string{"sandbox", "connect", sandboxName}
+	osCmd := exec.CommandContext(ctx, "openshell", args...)
+	osCmd.Stdin = os.Stdin
+	osCmd.Stdout = os.Stdout
+	osCmd.Stderr = os.Stderr
+	err := osCmd.Run()
+	log.Printf("DEBUG: openshell: AttachExec(%s) took %v", sandboxName, time.Since(start))
+	return err
 }
 
-func (c *Client) execCLI(ctx context.Context, args ...string) (string, error) {
+// Upload transfers files from the local filesystem into a sandbox.
+func (c *cliClient) Upload(ctx context.Context, sandboxName, localPath, remotePath string) error {
+	start := time.Now()
+	_, err := c.execCLI(ctx, "sandbox", "upload", sandboxName, localPath, remotePath)
+	log.Printf("DEBUG: openshell: Upload(%s, %s -> %s) took %v", sandboxName, localPath, remotePath, time.Since(start))
+	if err != nil {
+		return fmt.Errorf("uploading to sandbox %s: %w", sandboxName, err)
+	}
+	return nil
+}
+
+// Download transfers files from a sandbox to the local filesystem.
+func (c *cliClient) Download(ctx context.Context, sandboxName, remotePath, localPath string) error {
+	start := time.Now()
+	_, err := c.execCLI(ctx, "sandbox", "download", sandboxName, remotePath, localPath)
+	log.Printf("DEBUG: openshell: Download(%s, %s -> %s) took %v", sandboxName, remotePath, localPath, time.Since(start))
+	if err != nil {
+		return fmt.Errorf("downloading from sandbox %s: %w", sandboxName, err)
+	}
+	return nil
+}
+
+func (c *cliClient) execCLI(ctx context.Context, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "openshell", args...)
 	out, err := cmd.Output()
 	if err != nil {
@@ -217,53 +226,73 @@ func (c *Client) execCLI(ctx context.Context, args ...string) (string, error) {
 	return string(out), nil
 }
 
+// parseSandboxName extracts the sandbox name from the create command output.
+// The CLI outputs "Created sandbox: <name>" followed by progress lines.
+func parseSandboxName(output string) string {
+	stripped := stripANSI(output)
+	for _, line := range strings.Split(stripped, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "Created sandbox:") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "Created sandbox:"))
+		}
+	}
+	first := strings.TrimSpace(strings.Split(stripped, "\n")[0])
+	if first != "" && !strings.ContainsAny(first, " \t[") {
+		return first
+	}
+	return ""
+}
+
+// parseSandboxPhase extracts the Phase value from sandbox get output.
+// The CLI outputs "Phase: <phase>" with optional ANSI color codes.
+func parseSandboxPhase(output string) string {
+	stripped := stripANSI(output)
+	for _, line := range strings.Split(stripped, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "Phase:") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "Phase:"))
+		}
+	}
+	return output
+}
+
 func parseSandboxState(output string) SandboxState {
-	lower := strings.ToLower(output)
+	phase := strings.ToLower(parseSandboxPhase(output))
 	switch {
-	case strings.Contains(lower, "running"):
+	case strings.Contains(phase, "ready"), strings.Contains(phase, "running"):
 		return SandboxStateRunning
-	case strings.Contains(lower, "creating"):
+	case strings.Contains(phase, "provisioning"), strings.Contains(phase, "creating"):
 		return SandboxStateCreating
-	case strings.Contains(lower, "suspended"):
+	case strings.Contains(phase, "suspended"):
 		return SandboxStateSuspended
-	case strings.Contains(lower, "error"):
+	case strings.Contains(phase, "error"):
 		return SandboxStateError
-	case strings.Contains(lower, "deleted"), strings.Contains(lower, "not found"):
+	case strings.Contains(phase, "delet"), strings.Contains(phase, "not found"):
 		return SandboxStateDeleted
 	default:
-		log.Printf("WARNING: unrecognized sandbox state: %q", output)
+		log.Printf("WARNING: unrecognized sandbox phase: %q", phase)
 		return SandboxStateError
 	}
 }
 
-func parseSSHSession(output string) *SSHSession {
-	session := &SSHSession{}
-	for _, line := range strings.Split(output, "\n") {
-		parts := strings.SplitN(strings.TrimSpace(line), ":", 2)
-		if len(parts) != 2 {
+// stripANSI removes ANSI escape sequences from a string.
+func stripANSI(s string) string {
+	var result strings.Builder
+	i := 0
+	for i < len(s) {
+		if s[i] == '\x1b' && i+1 < len(s) && s[i+1] == '[' {
+			j := i + 2
+			for j < len(s) && !((s[j] >= 'A' && s[j] <= 'Z') || (s[j] >= 'a' && s[j] <= 'z')) {
+				j++
+			}
+			if j < len(s) {
+				j++
+			}
+			i = j
 			continue
 		}
-		key := strings.TrimSpace(parts[0])
-		val := strings.TrimSpace(parts[1])
-		switch strings.ToLower(key) {
-		case "session_id", "sessionid", "id":
-			session.SessionID = val
-		case "host":
-			session.Host = val
-		case "port":
-			fmt.Sscanf(val, "%d", &session.Port)
-		case "user":
-			session.User = val
-		}
+		result.WriteByte(s[i])
+		i++
 	}
-	if session.Host == "" {
-		session.Host = "localhost"
-	}
-	if session.Port == 0 {
-		session.Port = 22
-	}
-	if session.User == "" {
-		session.User = "sandbox"
-	}
-	return session
+	return result.String()
 }

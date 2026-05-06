@@ -112,23 +112,23 @@ A developer wants to run one-off commands inside the sandbox without attaching t
 ### Functional Requirements
 
 - **FR-001**: The system MUST add a new workspace type `openshell` that creates and manages workspaces inside OpenShell sandboxes.
-- **FR-002**: The system MUST communicate with the OpenShell gateway exclusively via the gRPC API (CreateSandbox, DeleteSandbox, GetSandbox, ExecSandbox, CreateSshSession).
+- **FR-002**: The system MUST communicate with the OpenShell gateway via the `openshell` CLI binary, using correct CLI syntax for all sandbox operations (create, delete, get, exec, upload, download).
 - **FR-003**: The system MUST provision sandboxes with a container image that includes Zellij and Claude Code, with Zellij as the agent command.
-- **FR-004**: The system MUST establish SSH tunnels to sandboxes via the OpenShell gateway's CreateSshSession RPC for attach operations.
-- **FR-005**: The system MUST detect SSH tunnel disconnections and re-establish them on the next attach without losing the Zellij session inside the sandbox.
-- **FR-006**: The system MUST support file synchronization (push/pull) over the SSH tunnel, respecting exclusion lists configured in the workspace definition.
-- **FR-007**: The system MUST support git commit harvesting from the sandbox using the git ext:: protocol over the SSH tunnel.
+- **FR-004**: The system MUST attach to sandboxes interactively via `openshell sandbox exec --tty`, running Zellij attach inside the sandbox.
+- **FR-005**: The system MUST detect attach session disconnections and allow re-attach on the next attempt without losing the Zellij session inside the sandbox. Zellij runs independently inside the sandbox and survives client disconnections.
+- **FR-006**: The system MUST support file synchronization (push/pull) via the `openshell sandbox upload` and `openshell sandbox download` CLI commands.
+- **FR-007**: The system MUST support git commit harvesting from the sandbox using the git ext:: protocol over `openshell sandbox exec`.
 - **FR-008**: The system MUST implement the InfraManager interface, mapping Start to CreateSandbox and Stop to DeleteSandbox.
 - **FR-009**: The system MUST reconcile stored workspace state with actual sandbox state (via GetSandbox) to handle gateway restarts and out-of-band changes. OpenShell states map to cc-deck's existing InfraState: creating/error to "starting", running to "running", suspended to "stopped", deleted to "not found".
 - **FR-010**: The system MUST accept gateway connection configuration from workspace definition YAML, with environment variable fallback (`OPENSHELL_GATEWAY_URL`). TLS is optional: plaintext is allowed for localhost connections, but the system MUST emit a warning for non-localhost connections without TLS.
-- **FR-013**: The system MUST enforce single-attach semantics. If a workspace already has an active SSH tunnel, a second attach attempt MUST fail with a clear "workspace already attached" error.
+- **FR-013**: The system MUST enforce single-attach semantics. If a workspace already has an active attach session, a second attach attempt MUST fail with a clear "workspace already attached" error.
 - **FR-011**: The system MUST apply network policy to sandboxes, using a default policy that allows inference APIs, package registries, and git hosting, with user customization via workspace definitions.
 - **FR-012**: The system MUST register the OpenShell workspace type in the factory so that `cc-deck create --type openshell` works.
-- **FR-014**: The system MUST log all gRPC call outcomes (connect, create, attach, delete, exec) at debug level using cc-deck's existing log output. No new metrics infrastructure is required for the initial implementation.
+- **FR-014**: The system MUST log all CLI invocation outcomes (create, attach, delete, exec, upload, download) at debug level using cc-deck's existing log output. No new metrics infrastructure is required for the initial implementation.
 
 ### Key Entities
 
-- **OpenShellWorkspace**: A cc-deck workspace backed by an OpenShell sandbox. Holds sandbox ID, gateway connection info, SSH tunnel state, and workspace definition reference.
+- **OpenShellWorkspace**: A cc-deck workspace backed by an OpenShell sandbox. Holds sandbox name, gateway connection info, attach session state, and workspace definition reference.
 - **Sandbox Image**: A container image containing Zellij, Claude Code, and development tools. Built from a Dockerfile provided by cc-deck or the user.
 - **Network Policy**: An OPA/Rego policy file defining which hosts, ports, and HTTP methods the sandbox can access. Stored in workspace definition or as a standalone YAML file.
 - **Gateway Connection**: Configuration for reaching the OpenShell gateway (address, port, optional TLS settings). TLS is not required for localhost but recommended for remote gateways. Resolved from workspace definition or environment variable.
@@ -139,8 +139,8 @@ A developer wants to run one-off commands inside the sandbox without attaching t
 ### Measurable Outcomes
 
 - **SC-001**: A developer can create a sandboxed Claude Code workspace with a single command in under 30 seconds (Podman driver, image already pulled).
-- **SC-002**: Attaching to an existing workspace takes under 5 seconds (SSH tunnel establishment + Zellij attach).
-- **SC-003**: File sync (push/pull) transfers a 100MB project in under 30 seconds over the SSH tunnel.
+- **SC-002**: Attaching to an existing workspace takes under 5 seconds (exec-based attach + Zellij).
+- **SC-003**: File sync (push/pull) transfers a 100MB project in under 30 seconds via `openshell sandbox upload/download`.
 - **SC-004**: Workspace survives gateway restarts: after gateway comes back, the developer can reattach to the same Zellij session without data loss.
 - **SC-005**: The OpenShell backend passes all cc-deck workspace behavioral contract tests (as defined in `specs/043-workspace-lifecycle/contracts/workspace-interface.md`).
 - **SC-006**: All Claude Code network activity inside the sandbox is subject to policy enforcement (verified by OCSF deny logs for blocked destinations).
@@ -148,8 +148,8 @@ A developer wants to run one-off commands inside the sandbox without attaching t
 ## Assumptions
 
 - OpenShell gateway with the Podman compute driver is available and running on the developer's machine.
-- The OpenShell gRPC API is stable enough for integration. Proto files are pinned to a specific gateway release tag and vendored into cc-deck. The minimum compatible gateway version is documented alongside the proto files.
-- The sandbox image (with Zellij + Claude Code) can be built from a Dockerfile that cc-deck provides or the user customizes.
-- OpenShell's `CreateSshSession` RPC works with the Podman driver (it uses HTTP CONNECT, which works for local gateways but has known issues with K8s ingress).
+- The `openshell` CLI is installed and available in PATH. The CLI version should be compatible with the running gateway.
+- The sandbox image (with Zellij + Claude Code) can be built from a Containerfile that cc-deck provides or the user customizes.
+- The `openshell sandbox exec --tty` command provides proper interactive terminal support for Zellij attach.
 - The cc-deck Zellij sidebar plugin will not work inside the sandbox in the initial version (it requires host-side pipe communication). This is an accepted limitation.
 - Kubernetes/OpenShift driver support is out of scope for the initial implementation but the interface should not preclude it.

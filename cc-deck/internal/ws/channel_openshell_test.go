@@ -82,8 +82,8 @@ func TestOpenShellGitChannel_Push_NoSandbox(t *testing.T) {
 }
 
 func TestBuildExtOpenShellURL(t *testing.T) {
-	url := buildExtOpenShellURL("gw:8080", "sb-123", "/sandbox")
-	assert.Equal(t, "ext::openshell sandbox exec --gateway gw:8080 sb-123 -- %S /sandbox", url)
+	url := buildExtOpenShellURL("my-sandbox", "/sandbox")
+	assert.Equal(t, "ext::openshell sandbox exec -n my-sandbox -- %S /sandbox", url)
 }
 
 func TestPipeChannel_UsesExecPipeChannel(t *testing.T) {

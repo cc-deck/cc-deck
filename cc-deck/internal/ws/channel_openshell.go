@@ -1,14 +1,14 @@
 package ws
 
 import (
+	"bytes"
 	"context"
-	"encoding/base64"
 	"fmt"
 	"os/exec"
-	"strings"
 )
 
-// openShellDataChannel transfers files via SSH tunnel into OpenShell sandboxes.
+// openShellDataChannel transfers files using the openshell CLI's
+// native upload/download commands.
 type openShellDataChannel struct {
 	ws *OpenShellWorkspace
 }
@@ -30,19 +30,8 @@ func (c *openShellDataChannel) Push(ctx context.Context, opts SyncOpts) error {
 		remotePath = "/sandbox"
 	}
 
-	tarArgs := buildTarArgs("cf", opts.LocalPath, opts.Excludes)
-	tarCmd := exec.CommandContext(ctx, "tar", tarArgs...)
-	tarOut, err := tarCmd.Output()
-	if err != nil {
-		return newChannelError("data", "push", c.ws.name, "creating tar archive", err)
-	}
-
-	encoded := base64.StdEncoding.EncodeToString(tarOut)
-	shellCmd := fmt.Sprintf("echo %s | base64 -d | tar xf - -C %s",
-		shellQuote(encoded), shellQuote(remotePath))
-	_, err = c.ws.client.ExecSandbox(ctx, c.ws.sandboxID, []string{"sh", "-c", shellCmd})
-	if err != nil {
-		return newChannelError("data", "push", c.ws.name, "extracting tar in sandbox", err)
+	if err := c.ws.client.Upload(ctx, c.ws.sandboxID, opts.LocalPath, remotePath); err != nil {
+		return newChannelError("data", "push", c.ws.name, "uploading files to sandbox", err)
 	}
 	return nil
 }
@@ -60,27 +49,13 @@ func (c *openShellDataChannel) Pull(ctx context.Context, opts SyncOpts) error {
 		return newChannelError("data", "pull", c.ws.name, "gateway connection failed", err)
 	}
 
-	tarCmd := buildRemoteTarArgs(remotePath, opts.Excludes)
-	shellCmd := fmt.Sprintf("%s | base64", strings.Join(tarCmd, " "))
-	result, err := c.ws.client.ExecSandbox(ctx, c.ws.sandboxID, []string{"sh", "-c", shellCmd})
-	if err != nil {
-		return newChannelError("data", "pull", c.ws.name, "creating tar in sandbox", err)
-	}
-
-	tarData, err := base64.StdEncoding.DecodeString(strings.TrimSpace(result.Stdout))
-	if err != nil {
-		return newChannelError("data", "pull", c.ws.name, "decoding tar data", err)
-	}
-
 	localPath := opts.LocalPath
 	if localPath == "" {
 		localPath = "."
 	}
 
-	extractCmd := exec.CommandContext(ctx, "tar", "xf", "-", "-C", localPath)
-	extractCmd.Stdin = strings.NewReader(string(tarData))
-	if err := extractCmd.Run(); err != nil {
-		return newChannelError("data", "pull", c.ws.name, "extracting tar locally", err)
+	if err := c.ws.client.Download(ctx, c.ws.sandboxID, remotePath, localPath); err != nil {
+		return newChannelError("data", "pull", c.ws.name, "downloading files from sandbox", err)
 	}
 	return nil
 }
@@ -94,37 +69,17 @@ func (c *openShellDataChannel) PushBytes(ctx context.Context, data []byte, remot
 		return newChannelError("data", "push-bytes", c.ws.name, "gateway connection failed", err)
 	}
 
-	encoded := base64.StdEncoding.EncodeToString(data)
-	shellCmd := fmt.Sprintf("echo %s | base64 -d > %s",
-		shellQuote(encoded), shellQuote(remotePath))
-	_, err := c.ws.client.ExecSandbox(ctx, c.ws.sandboxID, []string{"sh", "-c", shellCmd})
-	if err != nil {
+	cmd := exec.CommandContext(ctx, "openshell", "sandbox", "exec", "-n", c.ws.sandboxID,
+		"--", "sh", "-c", fmt.Sprintf("cat > %s", shellQuote(remotePath)))
+	cmd.Stdin = bytes.NewReader(data)
+	if err := cmd.Run(); err != nil {
 		return newChannelError("data", "push-bytes", c.ws.name, "writing bytes to sandbox", err)
 	}
 	return nil
 }
 
-// buildTarArgs constructs tar arguments with excludes placed before positional args.
-func buildTarArgs(mode, dir string, excludes []string) []string {
-	var args []string
-	for _, exc := range excludes {
-		args = append(args, "--exclude="+exc)
-	}
-	args = append(args, mode, "-", "-C", dir, ".")
-	return args
-}
-
-// buildRemoteTarArgs constructs a remote tar command with excludes.
-func buildRemoteTarArgs(remotePath string, excludes []string) []string {
-	args := []string{"tar"}
-	for _, exc := range excludes {
-		args = append(args, "--exclude="+exc)
-	}
-	args = append(args, "cf", "-", "-C", remotePath, ".")
-	return args
-}
-
-// openShellGitChannel synchronizes git commits via ext:: transport over SSH.
+// openShellGitChannel synchronizes git commits via ext:: transport
+// over the openshell CLI.
 type openShellGitChannel struct {
 	ws *OpenShellWorkspace
 }
@@ -143,7 +98,7 @@ func (c *openShellGitChannel) Fetch(ctx context.Context, opts HarvestOpts) error
 		workspacePath = opts.Path
 	}
 
-	remoteURL := buildExtOpenShellURL(c.ws.client.Address(), c.ws.sandboxID, workspacePath)
+	remoteURL := buildExtOpenShellURL(c.ws.sandboxID, workspacePath)
 	return gitFetch(ctx, c.ws.name, remoteURL, opts)
 }
 
@@ -157,13 +112,12 @@ func (c *openShellGitChannel) Push(ctx context.Context) error {
 	}
 
 	workspacePath := "/sandbox"
-	remoteURL := buildExtOpenShellURL(c.ws.client.Address(), c.ws.sandboxID, workspacePath)
+	remoteURL := buildExtOpenShellURL(c.ws.sandboxID, workspacePath)
 	return gitPush(ctx, c.ws.name, remoteURL)
 }
 
-// buildExtOpenShellURL constructs an ext:: remote URL for git operations
-// over the OpenShell CLI exec transport.
-func buildExtOpenShellURL(gateway, sandboxID, workspacePath string) string {
-	return fmt.Sprintf("ext::openshell sandbox exec --gateway %s %s -- %%S %s",
-		gateway, sandboxID, workspacePath)
+// buildExtOpenShellURL constructs an ext:: remote URL for git operations.
+// Git ext:: protocol requires a command-line tool for stdin/stdout piping.
+func buildExtOpenShellURL(sandboxName, workspacePath string) string {
+	return fmt.Sprintf("ext::openshell sandbox exec -n %s -- %%S %s", sandboxName, workspacePath)
 }
