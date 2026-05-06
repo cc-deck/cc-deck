@@ -163,14 +163,7 @@ fn char_ceil(s: &str, pos: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::BTreeSet;
-
-    fn bare(key: BareKey) -> KeyWithModifier {
-        KeyWithModifier {
-            bare_key: key,
-            key_modifiers: BTreeSet::new(),
-        }
-    }
+    use super::super::test_helpers::bare;
 
     #[test]
     fn test_char_insert() {

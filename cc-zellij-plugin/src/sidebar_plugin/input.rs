@@ -644,3 +644,565 @@ fn focus_self_wasm() {
 
 #[cfg(not(target_family = "wasm"))]
 fn focus_self_wasm() {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use super::super::modes::{FilterState, NavigateContext, RenameState, SidebarMode};
+    use super::super::render::VOICE_CLICK_SENTINEL;
+    use super::super::test_helpers::*;
+
+    // --- handle_key dispatcher ---
+
+    #[test]
+    fn test_passive_ignores_keys() {
+        let mut state = make_state_with_sessions(&[(1, "api", 0)]);
+        assert!(!handle_key(&mut state, bare(BareKey::Char('j'))));
+        assert!(matches!(state.mode, SidebarMode::Passive));
+    }
+
+    #[test]
+    fn test_help_any_key_dismisses() {
+        let mut state = make_nav_state(&[(1, "api", 0)], 0);
+        state.mode.toggle_help();
+        assert!(state.mode.is_help());
+        assert!(handle_key(&mut state, bare(BareKey::Char('x'))));
+        assert!(matches!(state.mode, SidebarMode::Navigate(_)));
+    }
+
+    #[test]
+    fn test_help_esc_dismisses() {
+        let mut state = make_state_with_sessions(&[(1, "api", 0)]);
+        state.mode = SidebarMode::Help(Box::new(SidebarMode::Passive));
+        assert!(handle_key(&mut state, bare(BareKey::Esc)));
+        assert!(matches!(state.mode, SidebarMode::Passive));
+    }
+
+    // --- toggle_navigate ---
+
+    #[test]
+    fn test_toggle_nav_from_passive() {
+        let mut state = make_state_with_sessions(&[(1, "api", 0), (2, "web", 1), (3, "db", 2)]);
+        toggle_navigate(&mut state);
+        assert!(state.mode.is_navigating());
+    }
+
+    #[test]
+    fn test_toggle_nav_from_passive_no_sessions() {
+        let mut state = SidebarState::default();
+        toggle_navigate(&mut state);
+        assert!(state.mode.is_navigating());
+        assert_eq!(state.mode.cursor_index(), 0);
+    }
+
+    #[test]
+    fn test_toggle_nav_already_navigating_moves_down() {
+        let mut state = make_nav_state(&[(1, "a", 0), (2, "b", 1), (3, "c", 2)], 0);
+        toggle_navigate(&mut state);
+        assert_eq!(state.mode.cursor_index(), 1);
+    }
+
+    #[test]
+    fn test_toggle_nav_wraps_around() {
+        let mut state = make_nav_state(&[(1, "a", 0), (2, "b", 1), (3, "c", 2)], 2);
+        toggle_navigate(&mut state);
+        assert_eq!(state.mode.cursor_index(), 0);
+    }
+
+    #[test]
+    fn test_toggle_nav_from_filter_cancels() {
+        let mut state = make_state_with_sessions(&[(1, "api", 0)]);
+        state.mode = SidebarMode::NavigateFilter {
+            ctx: NavigateContext { cursor_index: 0, restore_pane_id: None, restore_tab_index: None, entered_at_ms: 0 },
+            filter: FilterState::default(),
+        };
+        state.filter_text = "old".to_string();
+        toggle_navigate(&mut state);
+        assert!(state.mode.is_navigating());
+        assert!(state.filter_text.is_empty());
+    }
+
+    #[test]
+    fn test_toggle_nav_from_rename_passive_cancels() {
+        let mut state = make_state_with_sessions(&[(1, "api", 0)]);
+        state.mode = SidebarMode::RenamePassive {
+            rename: RenameState { pane_id: 1, input_buffer: "api".into(), cursor_pos: 3 },
+            entered_at_ms: 0,
+        };
+        toggle_navigate(&mut state);
+        assert!(state.mode.is_navigating());
+    }
+
+    // --- toggle_navigate_prev ---
+
+    #[test]
+    fn test_toggle_nav_prev_from_passive() {
+        let mut state = make_state_with_sessions(&[(1, "a", 0), (2, "b", 1), (3, "c", 2)]);
+        toggle_navigate_prev(&mut state);
+        assert!(state.mode.is_navigating());
+    }
+
+    #[test]
+    fn test_toggle_nav_prev_already_navigating_moves_up() {
+        let mut state = make_nav_state(&[(1, "a", 0), (2, "b", 1), (3, "c", 2)], 1);
+        toggle_navigate_prev(&mut state);
+        assert_eq!(state.mode.cursor_index(), 0);
+    }
+
+    #[test]
+    fn test_toggle_nav_prev_wraps_to_end() {
+        let mut state = make_nav_state(&[(1, "a", 0), (2, "b", 1), (3, "c", 2)], 0);
+        toggle_navigate_prev(&mut state);
+        assert_eq!(state.mode.cursor_index(), 2);
+    }
+
+    // --- handle_navigate_key ---
+
+    #[test]
+    fn test_nav_j_moves_down() {
+        let mut state = make_nav_state(&[(1, "a", 0), (2, "b", 1)], 0);
+        assert!(handle_navigate_key(&mut state, bare(BareKey::Char('j'))));
+        assert_eq!(state.mode.cursor_index(), 1);
+    }
+
+    #[test]
+    fn test_nav_k_moves_up() {
+        let mut state = make_nav_state(&[(1, "a", 0), (2, "b", 1)], 1);
+        assert!(handle_navigate_key(&mut state, bare(BareKey::Char('k'))));
+        assert_eq!(state.mode.cursor_index(), 0);
+    }
+
+    #[test]
+    fn test_nav_down_arrow() {
+        let mut state = make_nav_state(&[(1, "a", 0), (2, "b", 1)], 0);
+        assert!(handle_navigate_key(&mut state, bare(BareKey::Down)));
+        assert_eq!(state.mode.cursor_index(), 1);
+    }
+
+    #[test]
+    fn test_nav_up_arrow() {
+        let mut state = make_nav_state(&[(1, "a", 0), (2, "b", 1)], 1);
+        assert!(handle_navigate_key(&mut state, bare(BareKey::Up)));
+        assert_eq!(state.mode.cursor_index(), 0);
+    }
+
+    #[test]
+    fn test_nav_j_wraps() {
+        let mut state = make_nav_state(&[(1, "a", 0), (2, "b", 1)], 1);
+        assert!(handle_navigate_key(&mut state, bare(BareKey::Char('j'))));
+        assert_eq!(state.mode.cursor_index(), 0);
+    }
+
+    #[test]
+    fn test_nav_k_wraps() {
+        let mut state = make_nav_state(&[(1, "a", 0), (2, "b", 1)], 0);
+        assert!(handle_navigate_key(&mut state, bare(BareKey::Char('k'))));
+        assert_eq!(state.mode.cursor_index(), 1);
+    }
+
+    #[test]
+    fn test_nav_enter_switches_and_exits() {
+        let mut state = make_nav_state(&[(10, "api", 0), (20, "web", 1)], 0);
+        assert!(handle_navigate_key(&mut state, bare(BareKey::Enter)));
+        assert!(matches!(state.mode, SidebarMode::Passive));
+        assert_eq!(state.local_focus_override, Some(10));
+        assert!(state.filter_text.is_empty());
+    }
+
+    #[test]
+    fn test_nav_enter_empty_sessions() {
+        let mut state = make_nav_state(&[], 0);
+        assert!(handle_navigate_key(&mut state, bare(BareKey::Enter)));
+        assert!(matches!(state.mode, SidebarMode::Passive));
+        assert_eq!(state.local_focus_override, None);
+    }
+
+    #[test]
+    fn test_nav_esc_exits() {
+        let mut state = make_nav_state(&[(1, "a", 0)], 0);
+        state.filter_text = "some filter".into();
+        assert!(handle_navigate_key(&mut state, bare(BareKey::Esc)));
+        assert!(matches!(state.mode, SidebarMode::Passive));
+        assert!(state.filter_text.is_empty());
+    }
+
+    #[test]
+    fn test_nav_d_enters_delete_confirm() {
+        let mut state = make_nav_state(&[(10, "api", 0), (20, "web", 1)], 0);
+        assert!(handle_navigate_key(&mut state, bare(BareKey::Char('d'))));
+        match &state.mode {
+            SidebarMode::NavigateDeleteConfirm { pane_id, .. } => assert_eq!(*pane_id, 10),
+            other => panic!("expected NavigateDeleteConfirm, got {:?}", std::mem::discriminant(other)),
+        }
+    }
+
+    #[test]
+    fn test_nav_d_empty_sessions() {
+        let mut state = make_nav_state(&[], 0);
+        assert!(handle_navigate_key(&mut state, bare(BareKey::Char('d'))));
+        assert!(state.mode.is_navigating());
+    }
+
+    #[test]
+    fn test_nav_r_enters_rename() {
+        let mut state = make_nav_state(&[(10, "api", 0)], 0);
+        assert!(handle_navigate_key(&mut state, bare(BareKey::Char('r'))));
+        match &state.mode {
+            SidebarMode::NavigateRename { rename, .. } => {
+                assert_eq!(rename.pane_id, 10);
+                assert_eq!(rename.input_buffer, "api");
+            }
+            other => panic!("expected NavigateRename, got {:?}", std::mem::discriminant(other)),
+        }
+    }
+
+    #[test]
+    fn test_nav_r_empty_sessions() {
+        let mut state = make_nav_state(&[], 0);
+        assert!(handle_navigate_key(&mut state, bare(BareKey::Char('r'))));
+        assert!(state.mode.is_navigating());
+    }
+
+    #[test]
+    fn test_nav_slash_enters_filter() {
+        let mut state = make_nav_state(&[(1, "a", 0)], 0);
+        assert!(handle_navigate_key(&mut state, bare(BareKey::Char('/'))));
+        assert!(matches!(state.mode, SidebarMode::NavigateFilter { .. }));
+    }
+
+    #[test]
+    fn test_nav_question_enters_help() {
+        let mut state = make_nav_state(&[(1, "a", 0)], 0);
+        assert!(handle_navigate_key(&mut state, bare(BareKey::Char('?'))));
+        assert!(state.mode.is_help());
+    }
+
+    #[test]
+    fn test_nav_f1_enters_help() {
+        let mut state = make_nav_state(&[(1, "a", 0)], 0);
+        assert!(handle_navigate_key(&mut state, bare(BareKey::F(1))));
+        assert!(state.mode.is_help());
+    }
+
+    #[test]
+    fn test_nav_p_stays_navigate() {
+        let mut state = make_nav_state(&[(1, "a", 0)], 0);
+        assert!(handle_navigate_key(&mut state, bare(BareKey::Char('p'))));
+        assert!(state.mode.is_navigating());
+    }
+
+    #[test]
+    fn test_nav_m_toggles_mute() {
+        let mut state = make_nav_state(&[(1, "a", 0)], 0);
+        assert_eq!(state.local_mute_override, None);
+        assert!(handle_navigate_key(&mut state, bare(BareKey::Char('m'))));
+        assert_eq!(state.local_mute_override, Some(true));
+        assert!(handle_navigate_key(&mut state, bare(BareKey::Char('m'))));
+        assert_eq!(state.local_mute_override, Some(false));
+    }
+
+    #[test]
+    fn test_nav_n_exits_to_passive() {
+        let mut state = make_nav_state(&[(1, "a", 0)], 0);
+        assert!(handle_navigate_key(&mut state, bare(BareKey::Char('n'))));
+        assert!(matches!(state.mode, SidebarMode::Passive));
+        assert!(state.filter_text.is_empty());
+    }
+
+    #[test]
+    fn test_nav_unknown_key_returns_false() {
+        let mut state = make_nav_state(&[(1, "a", 0)], 0);
+        assert!(!handle_navigate_key(&mut state, bare(BareKey::Char('z'))));
+        assert!(state.mode.is_navigating());
+    }
+
+    // --- handle_filter_key ---
+
+    #[test]
+    fn test_filter_esc_returns_to_navigate() {
+        let mut state = make_state_with_sessions(&[(1, "a", 0)]);
+        let ctx = NavigateContext { cursor_index: 0, restore_pane_id: None, restore_tab_index: None, entered_at_ms: 0 };
+        state.mode = SidebarMode::NavigateFilter { ctx, filter: FilterState::default() };
+        assert!(handle_filter_key(&mut state, bare(BareKey::Esc)));
+        assert!(matches!(state.mode, SidebarMode::Navigate(_)));
+    }
+
+    #[test]
+    fn test_filter_enter_applies_filter() {
+        let mut state = make_state_with_sessions(&[(1, "a", 0)]);
+        let ctx = NavigateContext { cursor_index: 0, restore_pane_id: None, restore_tab_index: None, entered_at_ms: 0 };
+        let mut filter = FilterState::default();
+        filter.input_buffer = "api".into();
+        filter.cursor_pos = 3;
+        state.mode = SidebarMode::NavigateFilter { ctx, filter };
+        assert!(handle_filter_key(&mut state, bare(BareKey::Enter)));
+        assert!(matches!(state.mode, SidebarMode::Navigate(_)));
+        assert_eq!(state.filter_text, "api");
+        assert_eq!(state.mode.cursor_index(), 0);
+    }
+
+    #[test]
+    fn test_filter_char_appends() {
+        let mut state = make_state_with_sessions(&[(1, "a", 0)]);
+        let ctx = NavigateContext { cursor_index: 0, restore_pane_id: None, restore_tab_index: None, entered_at_ms: 0 };
+        state.mode = SidebarMode::NavigateFilter { ctx, filter: FilterState::default() };
+        assert!(handle_filter_key(&mut state, bare(BareKey::Char('a'))));
+        if let SidebarMode::NavigateFilter { filter, .. } = &state.mode {
+            assert_eq!(filter.input_buffer, "a");
+            assert_eq!(filter.cursor_pos, 1);
+        } else {
+            panic!("expected NavigateFilter");
+        }
+    }
+
+    #[test]
+    fn test_filter_backspace_removes() {
+        let mut state = make_state_with_sessions(&[(1, "a", 0)]);
+        let ctx = NavigateContext { cursor_index: 0, restore_pane_id: None, restore_tab_index: None, entered_at_ms: 0 };
+        let mut filter = FilterState::default();
+        filter.input_buffer = "ab".into();
+        filter.cursor_pos = 2;
+        state.mode = SidebarMode::NavigateFilter { ctx, filter };
+        assert!(handle_filter_key(&mut state, bare(BareKey::Backspace)));
+        if let SidebarMode::NavigateFilter { filter, .. } = &state.mode {
+            assert_eq!(filter.input_buffer, "a");
+            assert_eq!(filter.cursor_pos, 1);
+        } else {
+            panic!("expected NavigateFilter");
+        }
+    }
+
+    #[test]
+    fn test_filter_backspace_at_start() {
+        let mut state = make_state_with_sessions(&[(1, "a", 0)]);
+        let ctx = NavigateContext { cursor_index: 0, restore_pane_id: None, restore_tab_index: None, entered_at_ms: 0 };
+        state.mode = SidebarMode::NavigateFilter { ctx, filter: FilterState::default() };
+        assert!(handle_filter_key(&mut state, bare(BareKey::Backspace)));
+        if let SidebarMode::NavigateFilter { filter, .. } = &state.mode {
+            assert!(filter.input_buffer.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_filter_unknown_key_returns_false() {
+        let mut state = make_state_with_sessions(&[(1, "a", 0)]);
+        let ctx = NavigateContext { cursor_index: 0, restore_pane_id: None, restore_tab_index: None, entered_at_ms: 0 };
+        state.mode = SidebarMode::NavigateFilter { ctx, filter: FilterState::default() };
+        assert!(!handle_filter_key(&mut state, bare(BareKey::Tab)));
+    }
+
+    // --- handle_delete_confirm_key ---
+
+    #[test]
+    fn test_delete_y_confirms() {
+        let mut state = make_state_with_sessions(&[(10, "a", 0)]);
+        let ctx = NavigateContext { cursor_index: 0, restore_pane_id: None, restore_tab_index: None, entered_at_ms: 0 };
+        state.mode = SidebarMode::NavigateDeleteConfirm { ctx, pane_id: 10 };
+        assert!(handle_delete_confirm_key(&mut state, bare(BareKey::Char('y'))));
+        assert!(matches!(state.mode, SidebarMode::Navigate(_)));
+    }
+
+    #[test]
+    fn test_delete_Y_confirms() {
+        let mut state = make_state_with_sessions(&[(10, "a", 0)]);
+        let ctx = NavigateContext { cursor_index: 0, restore_pane_id: None, restore_tab_index: None, entered_at_ms: 0 };
+        state.mode = SidebarMode::NavigateDeleteConfirm { ctx, pane_id: 10 };
+        assert!(handle_delete_confirm_key(&mut state, bare(BareKey::Char('Y'))));
+        assert!(matches!(state.mode, SidebarMode::Navigate(_)));
+    }
+
+    #[test]
+    fn test_delete_n_cancels() {
+        let mut state = make_state_with_sessions(&[(10, "a", 0)]);
+        let ctx = NavigateContext { cursor_index: 0, restore_pane_id: None, restore_tab_index: None, entered_at_ms: 0 };
+        state.mode = SidebarMode::NavigateDeleteConfirm { ctx, pane_id: 10 };
+        assert!(handle_delete_confirm_key(&mut state, bare(BareKey::Char('n'))));
+        assert!(matches!(state.mode, SidebarMode::Navigate(_)));
+    }
+
+    #[test]
+    fn test_delete_esc_cancels() {
+        let mut state = make_state_with_sessions(&[(10, "a", 0)]);
+        let ctx = NavigateContext { cursor_index: 0, restore_pane_id: None, restore_tab_index: None, entered_at_ms: 0 };
+        state.mode = SidebarMode::NavigateDeleteConfirm { ctx, pane_id: 10 };
+        assert!(handle_delete_confirm_key(&mut state, bare(BareKey::Esc)));
+        assert!(matches!(state.mode, SidebarMode::Navigate(_)));
+    }
+
+    #[test]
+    fn test_delete_unknown_key_returns_false() {
+        let mut state = make_state_with_sessions(&[(10, "a", 0)]);
+        let ctx = NavigateContext { cursor_index: 0, restore_pane_id: None, restore_tab_index: None, entered_at_ms: 0 };
+        state.mode = SidebarMode::NavigateDeleteConfirm { ctx, pane_id: 10 };
+        assert!(!handle_delete_confirm_key(&mut state, bare(BareKey::Char('x'))));
+    }
+
+    // --- handle_rename_key ---
+
+    #[test]
+    fn test_rename_navigate_enter_confirms() {
+        let mut state = make_state_with_sessions(&[(10, "api", 0)]);
+        let ctx = NavigateContext { cursor_index: 0, restore_pane_id: None, restore_tab_index: None, entered_at_ms: 0 };
+        let rename = RenameState { pane_id: 10, input_buffer: "new-name".into(), cursor_pos: 8 };
+        state.mode = SidebarMode::NavigateRename { ctx, rename };
+        assert!(handle_rename_key(&mut state, bare(BareKey::Enter)));
+        assert!(matches!(state.mode, SidebarMode::Navigate(_)));
+    }
+
+    #[test]
+    fn test_rename_navigate_esc_cancels() {
+        let mut state = make_state_with_sessions(&[(10, "api", 0)]);
+        let ctx = NavigateContext { cursor_index: 0, restore_pane_id: None, restore_tab_index: None, entered_at_ms: 0 };
+        let rename = RenameState { pane_id: 10, input_buffer: "api".into(), cursor_pos: 3 };
+        state.mode = SidebarMode::NavigateRename { ctx, rename };
+        assert!(handle_rename_key(&mut state, bare(BareKey::Esc)));
+        assert!(matches!(state.mode, SidebarMode::Navigate(_)));
+    }
+
+    #[test]
+    fn test_rename_passive_enter_confirms() {
+        let mut state = make_state_with_sessions(&[(10, "api", 0)]);
+        let rename = RenameState { pane_id: 10, input_buffer: "new-name".into(), cursor_pos: 8 };
+        state.mode = SidebarMode::RenamePassive { rename, entered_at_ms: 0 };
+        assert!(handle_rename_key(&mut state, bare(BareKey::Enter)));
+        assert!(matches!(state.mode, SidebarMode::Passive));
+    }
+
+    #[test]
+    fn test_rename_passive_esc_cancels() {
+        let mut state = make_state_with_sessions(&[(10, "api", 0)]);
+        let rename = RenameState { pane_id: 10, input_buffer: "api".into(), cursor_pos: 3 };
+        state.mode = SidebarMode::RenamePassive { rename, entered_at_ms: 0 };
+        assert!(handle_rename_key(&mut state, bare(BareKey::Esc)));
+        assert!(matches!(state.mode, SidebarMode::Passive));
+    }
+
+    #[test]
+    fn test_rename_typing_continues() {
+        let mut state = make_state_with_sessions(&[(10, "api", 0)]);
+        let ctx = NavigateContext { cursor_index: 0, restore_pane_id: None, restore_tab_index: None, entered_at_ms: 0 };
+        let rename = RenameState { pane_id: 10, input_buffer: "api".into(), cursor_pos: 3 };
+        state.mode = SidebarMode::NavigateRename { ctx, rename };
+        assert!(handle_rename_key(&mut state, bare(BareKey::Char('x'))));
+        assert!(matches!(state.mode, SidebarMode::NavigateRename { .. }));
+    }
+
+    // --- Mouse handlers ---
+
+    #[test]
+    fn test_left_click_session_switches() {
+        let mut state = make_state_with_sessions(&[(10, "api", 0), (20, "web", 1)]);
+        state.click_regions = vec![(2, 10, 0), (5, 20, 1)];
+        assert!(handle_left_click(&mut state, 2));
+        assert_eq!(state.local_focus_override, Some(10));
+    }
+
+    #[test]
+    fn test_left_click_exits_navigate() {
+        let mut state = make_nav_state(&[(10, "api", 0), (20, "web", 1)], 0);
+        state.click_regions = vec![(2, 10, 0), (5, 20, 1)];
+        assert!(handle_left_click(&mut state, 2));
+        assert!(matches!(state.mode, SidebarMode::Passive));
+    }
+
+    #[test]
+    fn test_left_click_header_toggles_nav() {
+        let mut state = make_state_with_sessions(&[(10, "api", 0)]);
+        state.click_regions = vec![(0, u32::MAX - 1, 0)];
+        assert!(handle_left_click(&mut state, 0));
+        assert!(state.mode.is_navigating());
+    }
+
+    #[test]
+    fn test_left_click_voice_toggles_mute() {
+        let mut state = make_state_with_sessions(&[(10, "api", 0)]);
+        state.click_regions = vec![(0, VOICE_CLICK_SENTINEL, 0)];
+        assert!(handle_left_click(&mut state, 0));
+        assert_eq!(state.local_mute_override, Some(true));
+    }
+
+    #[test]
+    fn test_left_click_no_hit() {
+        let mut state = make_state_with_sessions(&[(10, "api", 0)]);
+        state.click_regions = vec![(2, 10, 0)];
+        assert!(!handle_left_click(&mut state, 10));
+    }
+
+    #[test]
+    fn test_right_click_enters_rename() {
+        let mut state = make_state_with_sessions(&[(10, "api", 0)]);
+        state.click_regions = vec![(2, 10, 0)];
+        assert!(handle_right_click(&mut state, 2));
+        assert!(matches!(state.mode, SidebarMode::RenamePassive { .. }));
+    }
+
+    #[test]
+    fn test_right_click_no_hit() {
+        let mut state = make_state_with_sessions(&[(10, "api", 0)]);
+        state.click_regions = vec![(2, 10, 0)];
+        assert!(!handle_right_click(&mut state, 10));
+    }
+
+    // --- active_session_index ---
+
+    #[test]
+    fn test_active_session_index_found() {
+        let mut state = make_state_with_sessions(&[(10, "a", 0), (20, "b", 1)]);
+        if let Some(ref mut p) = state.cached_payload {
+            p.focused_pane_id = Some(20);
+        }
+        assert_eq!(active_session_index(&state), 1);
+    }
+
+    #[test]
+    fn test_active_session_index_not_found() {
+        let state = make_state_with_sessions(&[(10, "a", 0), (20, "b", 1)]);
+        assert_eq!(active_session_index(&state), 0);
+    }
+
+    #[test]
+    fn test_active_session_index_no_payload() {
+        let state = SidebarState::default();
+        assert_eq!(active_session_index(&state), 0);
+    }
+
+    // --- exit_navigate ---
+
+    #[test]
+    fn test_exit_navigate_clears_mode_and_filter() {
+        let mut state = make_nav_state(&[(1, "a", 0)], 0);
+        state.filter_text = "test".into();
+        exit_navigate(&mut state);
+        assert!(matches!(state.mode, SidebarMode::Passive));
+        assert!(state.filter_text.is_empty());
+    }
+
+    // --- enter_rename_passive ---
+
+    #[test]
+    fn test_enter_rename_passive() {
+        let mut state = make_state_with_sessions(&[(10, "api", 0)]);
+        assert!(enter_rename_passive(&mut state, 10));
+        match &state.mode {
+            SidebarMode::RenamePassive { rename, .. } => {
+                assert_eq!(rename.pane_id, 10);
+                assert_eq!(rename.input_buffer, "api");
+                assert_eq!(rename.cursor_pos, 3);
+            }
+            other => panic!("expected RenamePassive, got {:?}", std::mem::discriminant(other)),
+        }
+    }
+
+    #[test]
+    fn test_enter_rename_passive_unknown_pane() {
+        let mut state = make_state_with_sessions(&[(10, "api", 0)]);
+        assert!(enter_rename_passive(&mut state, 99));
+        match &state.mode {
+            SidebarMode::RenamePassive { rename, .. } => {
+                assert_eq!(rename.pane_id, 99);
+                assert!(rename.input_buffer.is_empty());
+            }
+            other => panic!("expected RenamePassive, got {:?}", std::mem::discriminant(other)),
+        }
+    }
+}
