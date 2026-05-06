@@ -1,8 +1,7 @@
 // Sidebar mode state machine for the thin sidebar renderer.
 //
-// Adapted from crate::state::SidebarMode but simplified for the sidebar
-// plugin context. The sidebar does not maintain session state; it only
-// manages local UI modes (navigation, rename, filter, help).
+// The sidebar does not maintain session state; it only manages local
+// UI modes (navigation, rename, filter, help).
 
 /// Grace period (ms) for ignoring stale events after mode entry.
 pub const ENTER_GRACE_MS: u64 = 1500;

@@ -143,4 +143,39 @@ mod unified_plugin_tests {
         p.load(config);
         assert!(matches!(p, UnifiedPlugin::Sidebar(_)));
     }
+
+    #[test]
+    fn test_sanitize_voice_text_plain() {
+        assert_eq!(sanitize_voice_text("hello world"), "hello world");
+    }
+
+    #[test]
+    fn test_sanitize_voice_text_ansi_colors() {
+        assert_eq!(sanitize_voice_text("\x1b[31mred\x1b[0m"), "red");
+    }
+
+    #[test]
+    fn test_sanitize_voice_text_bel() {
+        assert_eq!(sanitize_voice_text("text\x07more"), "textmore");
+    }
+
+    #[test]
+    fn test_sanitize_voice_text_control_chars() {
+        assert_eq!(sanitize_voice_text("a\x01\x02\x03b"), "ab");
+    }
+
+    #[test]
+    fn test_sanitize_voice_text_preserves_tabs() {
+        assert_eq!(sanitize_voice_text("col1\tcol2"), "col1\tcol2");
+    }
+
+    #[test]
+    fn test_sanitize_voice_text_empty() {
+        assert_eq!(sanitize_voice_text(""), "");
+    }
+
+    #[test]
+    fn test_sanitize_voice_text_only_escapes() {
+        assert_eq!(sanitize_voice_text("\x1b[1m\x1b[0m"), "");
+    }
 }

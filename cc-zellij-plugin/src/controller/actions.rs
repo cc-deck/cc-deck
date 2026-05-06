@@ -89,7 +89,7 @@ fn handle_rename(state: &mut ControllerState, pane_id: Option<u32>, value: Optio
             .filter(|s| s.tab_index == Some(idx))
             .count();
         if sessions_on_tab <= 1 {
-            rename_tab_wasm(idx, &final_name);
+            crate::wasm_compat::rename_tab_wasm(idx, &final_name);
         }
     }
 
@@ -254,7 +254,7 @@ fn handle_new_session(state: &mut ControllerState) {
     }
 }
 
-// --- Tiered attend logic (adapted from crate::attend) ---
+// --- Tiered attend logic ---
 
 enum AttendDirection {
     Forward,
@@ -479,14 +479,6 @@ fn focus_terminal_pane_wasm(pane_id: u32) {
 
 #[cfg(not(target_family = "wasm"))]
 fn focus_terminal_pane_wasm(_pane_id: u32) {}
-
-#[cfg(target_family = "wasm")]
-fn rename_tab_wasm(tab_idx: usize, name: &str) {
-    zellij_tile::prelude::rename_tab(tab_idx as u32 + 1, name);
-}
-
-#[cfg(not(target_family = "wasm"))]
-fn rename_tab_wasm(_tab_idx: usize, _name: &str) {}
 
 #[cfg(target_family = "wasm")]
 fn close_session_pane_wasm(pane_id: u32, tab_index: Option<usize>, is_only_pane: bool) {

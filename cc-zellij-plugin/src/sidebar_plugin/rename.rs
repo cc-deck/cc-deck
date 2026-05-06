@@ -1,8 +1,8 @@
 // Inline rename editing for the sidebar renderer plugin.
 //
-// Adapted from crate::rename but operates on the local RenameState
-// defined in modes.rs. Returns actions that the caller translates
-// into pipe messages to the controller.
+// Operates on the local RenameState defined in modes.rs. Returns
+// actions that the caller translates into pipe messages to the
+// controller.
 
 use super::modes::RenameState;
 use zellij_tile::prelude::*;

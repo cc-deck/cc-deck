@@ -187,14 +187,14 @@ impl ControllerState {
             }
         }
         // Issue deferred tab renames for tabs with a single session.
-        for (tab_idx, _display_name) in &pending_renames {
+        for (tab_idx, display_name) in &pending_renames {
             let sessions_on_tab = self
                 .sessions
                 .values()
                 .filter(|s| s.tab_index == Some(*tab_idx))
                 .count();
             if sessions_on_tab == 1 {
-                auto_rename_tab(*tab_idx, _display_name);
+                crate::wasm_compat::rename_tab_wasm(*tab_idx, display_name);
             }
         }
     }
@@ -395,15 +395,6 @@ fn current_zellij_pid() -> u32 {
 fn current_zellij_pid() -> u32 {
     0
 }
-
-/// Rename a Zellij tab by index (0-based).
-#[cfg(target_family = "wasm")]
-fn auto_rename_tab(tab_idx: usize, name: &str) {
-    zellij_tile::prelude::rename_tab(tab_idx as u32 + 1, name);
-}
-
-#[cfg(not(target_family = "wasm"))]
-fn auto_rename_tab(_tab_idx: usize, _name: &str) {}
 
 /// Clean up orphaned state files from killed Zellij sessions.
 /// Scans `/cache/` for `sessions-*.json` and `session-meta-*.json` files.
@@ -695,5 +686,21 @@ mod tests {
         assert!(!state.render_dirty);
         state.mark_render_dirty();
         assert!(state.render_dirty);
+    }
+
+    #[test]
+    fn test_extract_pid_from_filename() {
+        assert_eq!(super::extract_pid_from_filename("sessions-12345.json"), Some(12345));
+        assert_eq!(super::extract_pid_from_filename("session-meta-12345.json"), Some(12345));
+        assert_eq!(super::extract_pid_from_filename("sessions.json"), None);
+        assert_eq!(super::extract_pid_from_filename("session-meta.json"), None);
+        assert_eq!(super::extract_pid_from_filename("debug.log"), None);
+        assert_eq!(super::extract_pid_from_filename("sessions-abc.json"), None);
+    }
+
+    #[test]
+    fn test_sessions_path() {
+        assert_eq!(super::sessions_path(12345), "/cache/sessions-12345.json");
+        assert_eq!(super::sessions_path(0), "/cache/sessions.json");
     }
 }
