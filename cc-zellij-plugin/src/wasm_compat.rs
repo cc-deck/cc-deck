@@ -38,3 +38,11 @@ pub fn set_selectable_wasm(selectable: bool) {
 
 #[cfg(not(target_family = "wasm"))]
 pub fn set_selectable_wasm(_selectable: bool) {}
+
+#[cfg(target_family = "wasm")]
+pub fn rename_tab_wasm(tab_idx: usize, name: &str) {
+    rename_tab(tab_idx as u32 + 1, name);
+}
+
+#[cfg(not(target_family = "wasm"))]
+pub fn rename_tab_wasm(_tab_idx: usize, _name: &str) {}
