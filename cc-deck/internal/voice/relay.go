@@ -264,29 +264,18 @@ func (r *VoiceRelay) statePoll(ctx context.Context, sr PipeSendReceiver) {
 	defer ticker.Stop()
 
 	var lastTarget string
-	voiceOnConfirmed := false
-	// Consecutive failures: after recovery, skip the first successful
-	// dump-state response to let the plugin process voice:on first.
-	consecutiveFailures := 0
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if !voiceOnConfirmed {
-				// Send voice:on and wait briefly for the plugin to
-				// process it before the next dump-state poll.
-				_ = r.pipe.Send(ctx, "cc-deck:voice", "[[voice:on]]")
-				voiceOnConfirmed = true
-				if consecutiveFailures > 0 {
-					// After recovery (sleep/wake), skip this tick's
-					// dump-state so the plugin processes voice:on
-					// before we poll. The next tick will poll normally.
-					consecutiveFailures = 0
-					continue
-				}
-			}
+			// Send voice:on on every tick. The handler is idempotent
+			// (sets voice_enabled=true, refreshes heartbeat). This
+			// ensures the plugin's voice state recovers after sleep/wake
+			// without depending on pipe message ordering between
+			// voice:on and dump-state.
+			_ = r.pipe.Send(ctx, "cc-deck:voice", "[[voice:on]]")
 
 			// Per-call timeout prevents a stuck zellij pipe from
 			// starving the heartbeat (plugin times out after 15s).
@@ -297,8 +286,6 @@ func (r *VoiceRelay) statePoll(ctx context.Context, sr PipeSendReceiver) {
 				if ctx.Err() != nil {
 					return
 				}
-				consecutiveFailures++
-				voiceOnConfirmed = false
 				continue
 			}
 
