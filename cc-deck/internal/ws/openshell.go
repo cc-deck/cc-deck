@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"sync"
 	"syscall"
 	"time"
@@ -28,19 +27,16 @@ type SandboxConfig struct {
 	Provider string
 }
 
-// sshTunnelState tracks an active SSH tunnel into a sandbox.
-type sshTunnelState struct {
-	sessionID string
-	localPort int
-	pid       int
-	connected bool
+// attachState tracks an active interactive attach session.
+type attachState struct {
+	pid int
 }
 
-func (t *sshTunnelState) isAlive() bool {
-	if t == nil || t.pid == 0 {
+func (a *attachState) isAlive() bool {
+	if a == nil || a.pid == 0 {
 		return false
 	}
-	proc, err := os.FindProcess(t.pid)
+	proc, err := os.FindProcess(a.pid)
 	if err != nil {
 		return false
 	}
@@ -52,9 +48,9 @@ type OpenShellWorkspace struct {
 	name      string
 	store     *FileStateStore
 	defs      *DefinitionStore
-	client    *openshell.Client
+	client    openshell.Client
 	sandboxID string
-	sshTunnel *sshTunnelState
+	attach    *attachState
 
 	clientOnce sync.Once
 	clientErr  error
@@ -70,7 +66,7 @@ type OpenShellWorkspace struct {
 func (w *OpenShellWorkspace) Type() WorkspaceType { return WorkspaceTypeOpenShell }
 func (w *OpenShellWorkspace) Name() string        { return w.name }
 
-// ensureClient lazily initializes the gRPC client from workspace definition.
+// ensureClient lazily initializes the CLI client from workspace definition.
 func (w *OpenShellWorkspace) ensureClient() error {
 	w.clientOnce.Do(func() {
 		gwCfg := w.resolveGatewayConfig()
@@ -172,7 +168,7 @@ func (w *OpenShellWorkspace) Status(ctx context.Context) (*WorkspaceStatus, erro
 		status.Message = "sandbox is starting"
 	}
 
-	if w.sshTunnel != nil && w.sshTunnel.isAlive() {
+	if w.attach != nil && w.attach.isAlive() {
 		status.SessionState = SessionStateExists
 	}
 
@@ -185,7 +181,7 @@ func (w *OpenShellWorkspace) clearLocalState() {
 	}
 	_ = w.store.RemoveInstance(w.name)
 	w.sandboxID = ""
-	w.sshTunnel = nil
+	w.attach = nil
 	log.Printf("DEBUG: openshell: cleared local state for %s", w.name)
 }
 
@@ -255,8 +251,6 @@ func (w *OpenShellWorkspace) pollUntilRunning(ctx context.Context) error {
 }
 
 // Start provisions a new sandbox for this workspace (InfraManager).
-// OpenShell sandboxes do not support suspend/resume, so Start always
-// creates a fresh sandbox.
 func (w *OpenShellWorkspace) Start(ctx context.Context) error {
 	return w.Create(ctx, CreateOpts{})
 }
@@ -316,18 +310,18 @@ func (w *OpenShellWorkspace) KillSession(ctx context.Context) error {
 	if err != nil {
 		log.Printf("DEBUG: openshell: kill-session best-effort failed: %v", err)
 	}
-	w.sshTunnel = nil
+	w.attach = nil
 	return nil
 }
 
-// Attach connects to the sandbox via SSH tunnel and attaches to Zellij.
+// Attach connects to the sandbox interactively and attaches to Zellij.
 func (w *OpenShellWorkspace) Attach(ctx context.Context) error {
-	if w.sshTunnel != nil && w.sshTunnel.isAlive() {
-		return fmt.Errorf("workspace %s is already attached (pid %d)", w.name, w.sshTunnel.pid)
+	if w.attach != nil && w.attach.isAlive() {
+		return fmt.Errorf("workspace %s is already attached (pid %d)", w.name, w.attach.pid)
 	}
-	if w.sshTunnel != nil {
-		log.Printf("DEBUG: openshell: clearing stale tunnel for %s (pid %d dead)", w.name, w.sshTunnel.pid)
-		w.sshTunnel = nil
+	if w.attach != nil {
+		log.Printf("DEBUG: openshell: clearing stale attach for %s (pid %d dead)", w.name, w.attach.pid)
+		w.attach = nil
 	}
 
 	w.loadSandboxID()
@@ -338,37 +332,7 @@ func (w *OpenShellWorkspace) Attach(ctx context.Context) error {
 		return err
 	}
 
-	session, err := w.client.CreateSshSession(ctx, w.sandboxID)
-	if err != nil {
-		return fmt.Errorf("establishing SSH tunnel: %w", err)
-	}
-
-	w.sshTunnel = &sshTunnelState{
-		sessionID: session.SessionID,
-		localPort: session.Port,
-		connected: true,
-	}
-
-	sshTarget := fmt.Sprintf("%s@%s", session.User, session.Host)
-	// Host key verification disabled: sandbox SSH endpoints are ephemeral
-	// and their keys rotate on every sandbox creation.
-	sshArgs := []string{
-		"-p", fmt.Sprintf("%d", session.Port),
-		"-o", "StrictHostKeyChecking=no",
-		"-o", "UserKnownHostsFile=/dev/null",
-		sshTarget,
-		"zellij", "attach", "--create",
-	}
-	sshCmd := exec.CommandContext(ctx, "ssh", sshArgs...)
-	sshCmd.Stdin = os.Stdin
-	sshCmd.Stdout = os.Stdout
-	sshCmd.Stderr = os.Stderr
-	if err = sshCmd.Start(); err != nil {
-		w.sshTunnel = nil
-		return fmt.Errorf("starting SSH session: %w", err)
-	}
-	w.sshTunnel.pid = sshCmd.Process.Pid
-	err = sshCmd.Wait()
+	err := w.client.AttachExec(ctx, w.sandboxID, []string{"zellij", "attach", "--create"})
 
 	now := time.Now()
 	if inst, loadErr := w.store.FindInstanceByName(w.name); loadErr == nil && inst != nil {
