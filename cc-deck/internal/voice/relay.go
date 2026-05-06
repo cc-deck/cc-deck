@@ -265,6 +265,9 @@ func (r *VoiceRelay) statePoll(ctx context.Context, sr PipeSendReceiver) {
 
 	var lastTarget string
 	voiceOnConfirmed := false
+	// Consecutive failures: after recovery, skip the first successful
+	// dump-state response to let the plugin process voice:on first.
+	consecutiveFailures := 0
 
 	for {
 		select {
@@ -272,8 +275,17 @@ func (r *VoiceRelay) statePoll(ctx context.Context, sr PipeSendReceiver) {
 			return
 		case <-ticker.C:
 			if !voiceOnConfirmed {
+				// Send voice:on and wait briefly for the plugin to
+				// process it before the next dump-state poll.
 				_ = r.pipe.Send(ctx, "cc-deck:voice", "[[voice:on]]")
 				voiceOnConfirmed = true
+				if consecutiveFailures > 0 {
+					// After recovery (sleep/wake), skip this tick's
+					// dump-state so the plugin processes voice:on
+					// before we poll. The next tick will poll normally.
+					consecutiveFailures = 0
+					continue
+				}
 			}
 
 			// Per-call timeout prevents a stuck zellij pipe from
@@ -285,13 +297,17 @@ func (r *VoiceRelay) statePoll(ctx context.Context, sr PipeSendReceiver) {
 				if ctx.Err() != nil {
 					return
 				}
+				consecutiveFailures++
 				voiceOnConfirmed = false
 				continue
 			}
 
 			state := parseDumpStateResponse(resp)
 
-			if state.targetName != lastTarget {
+			// Only update displayed target when we have a concrete
+			// name. Empty targetName means no attended pane and
+			// multiple sessions; keep showing the previous target.
+			if state.targetName != "" && state.targetName != lastTarget {
 				lastTarget = state.targetName
 				r.sendEvent(RelayEvent{Type: "target_changed", Text: state.targetName})
 			}
@@ -322,6 +338,7 @@ func (r *VoiceRelay) statePoll(ctx context.Context, sr PipeSendReceiver) {
 
 type dumpStateResult struct {
 	targetName        string
+	hasAttendedPane   bool
 	voiceMuteRequested *bool
 }
 
@@ -343,15 +360,12 @@ func parseDumpStateResponse(stateJSON string) dumpStateResult {
 		return dumpStateResult{}
 	}
 
-	attendedKey := ""
-	if envelope.AttendedPaneID != nil {
-		attendedKey = fmt.Sprintf("%d", *envelope.AttendedPaneID)
-	}
-
 	var result dumpStateResult
 	result.voiceMuteRequested = envelope.VoiceMuteRequested
 
-	if attendedKey != "" {
+	if envelope.AttendedPaneID != nil {
+		result.hasAttendedPane = true
+		attendedKey := fmt.Sprintf("%d", *envelope.AttendedPaneID)
 		if raw, ok := envelope.Sessions[attendedKey]; ok {
 			var s struct {
 				DisplayName string `json:"display_name"`
@@ -362,9 +376,11 @@ func parseDumpStateResponse(stateJSON string) dumpStateResult {
 		}
 	}
 
-	// Fall back to first session when no pane is attended (e.g., after
-	// --reset). Mirrors the controller's voice injection fallback.
-	if result.targetName == "" && len(envelope.Sessions) > 0 {
+	// Only fall back to a session name when there is exactly one session
+	// (unambiguous). With multiple sessions and no attended pane, keep
+	// the previous target to avoid non-deterministic rotation from Go
+	// map iteration order.
+	if result.targetName == "" && len(envelope.Sessions) == 1 {
 		for _, raw := range envelope.Sessions {
 			var s struct {
 				DisplayName string `json:"display_name"`
@@ -374,10 +390,6 @@ func parseDumpStateResponse(stateJSON string) dumpStateResult {
 				break
 			}
 		}
-	}
-
-	if result.targetName == "" {
-		result.targetName = "(no session attended)"
 	}
 
 	return result
