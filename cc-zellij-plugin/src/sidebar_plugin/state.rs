@@ -38,9 +38,6 @@ pub struct SidebarState {
     /// The controller plugin's ID (learned from sidebar-init or render payload).
     pub controller_plugin_id: Option<u32>,
 
-    /// Scroll offset for overflow rendering.
-    pub scroll_offset: usize,
-
     /// Current filter text (applied locally to cached sessions).
     pub filter_text: String,
 
@@ -81,7 +78,6 @@ impl Default for SidebarState {
             my_tab_index: None,
             my_plugin_id: 0,
             controller_plugin_id: None,
-            scroll_offset: 0,
             filter_text: String::new(),
             notification: None,
             config: PluginConfig::default(),
@@ -124,26 +120,6 @@ impl SidebarState {
             .collect()
     }
 
-    /// Count sessions matching a filter string.
-    pub fn filtered_session_count(&self, filter: &str) -> usize {
-        let payload = match &self.cached_payload {
-            Some(p) => p,
-            None => return 0,
-        };
-        if filter.is_empty() {
-            return payload.sessions.len();
-        }
-        let lower = filter.to_lowercase();
-        payload.sessions.iter()
-            .filter(|s| s.display_name.to_lowercase().contains(&lower))
-            .count()
-    }
-
-    /// Get the active tab index from the cached payload.
-    pub fn active_tab_index(&self) -> Option<usize> {
-        self.cached_payload.as_ref().map(|p| p.active_tab_index)
-    }
-
     /// Get the focused pane ID from the cached payload.
     pub fn focused_pane_id(&self) -> Option<u32> {
         self.cached_payload.as_ref().and_then(|p| p.focused_pane_id)
@@ -180,15 +156,6 @@ impl SidebarState {
                 }
             }
         }
-    }
-
-    /// Create a notification that expires after the given duration.
-    pub fn set_notification(&mut self, message: &str, duration_secs: u64) {
-        let now = crate::session::unix_now();
-        self.notification = Some(Notification {
-            message: message.to_string(),
-            expires_at: now + duration_secs,
-        });
     }
 
     /// Clear expired notifications.
@@ -270,18 +237,6 @@ mod tests {
     }
 
     #[test]
-    fn test_filtered_session_count() {
-        let mut state = SidebarState::default();
-        state.cached_payload = Some(make_payload(vec![
-            make_session(1, "api", 0),
-            make_session(2, "web", 1),
-        ]));
-        assert_eq!(state.filtered_session_count(""), 2);
-        assert_eq!(state.filtered_session_count("api"), 1);
-        assert_eq!(state.filtered_session_count("xyz"), 0);
-    }
-
-    #[test]
     fn test_preserve_cursor_clamps() {
         let mut state = SidebarState::default();
         state.cached_payload = Some(make_payload(vec![
@@ -312,20 +267,4 @@ mod tests {
         assert_eq!(state.mode.cursor_index(), 0);
     }
 
-    #[test]
-    fn test_active_tab_index() {
-        let mut state = SidebarState::default();
-        assert!(state.active_tab_index().is_none());
-
-        state.cached_payload = Some(make_payload(vec![]));
-        assert_eq!(state.active_tab_index(), Some(0));
-    }
-
-    #[test]
-    fn test_set_notification() {
-        let mut state = SidebarState::default();
-        state.set_notification("test msg", 5);
-        assert!(state.notification.is_some());
-        assert_eq!(state.notification.as_ref().unwrap().message, "test msg");
-    }
 }

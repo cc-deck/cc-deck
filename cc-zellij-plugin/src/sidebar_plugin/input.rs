@@ -211,7 +211,7 @@ fn handle_left_click(state: &mut SidebarState, row: usize) -> bool {
             // Immediate visual feedback: toggle mute locally before
             // the controller round-trip. Cleared when the payload confirms.
             let current = state.local_mute_override.unwrap_or_else(|| {
-                state.cached_payload.as_ref().map_or(false, |p| p.voice_muted)
+                state.cached_payload.as_ref().is_some_and(|p| p.voice_muted)
             });
             state.local_mute_override = Some(!current);
             send_action(state, ActionType::VoiceMute, None, None, None);
@@ -436,7 +436,7 @@ fn handle_navigate_key(state: &mut SidebarState, key: KeyWithModifier) -> bool {
         }
         BareKey::Char('m') => {
             let current = state.local_mute_override.unwrap_or_else(|| {
-                state.cached_payload.as_ref().map_or(false, |p| p.voice_muted)
+                state.cached_payload.as_ref().is_some_and(|p| p.voice_muted)
             });
             state.local_mute_override = Some(!current);
             send_action(state, ActionType::VoiceMute, None, None, None);

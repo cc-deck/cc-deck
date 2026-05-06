@@ -202,7 +202,7 @@ pub fn handle_timer(state: &mut ControllerState, _elapsed: f64) {
     if now_ms.saturating_sub(state.last_git_poll_ms) >= 60_000 {
         state.last_git_poll_ms = now_ms;
         // T019: Clean up orphaned state files from dead Zellij sessions
-        crate::sync::cleanup_orphaned_state_files();
+        super::state::cleanup_orphaned_state_files();
         for s in state.sessions.values() {
             if s.paused {
                 continue;
@@ -433,7 +433,7 @@ fn rename_tab_wasm(tab_idx: usize, name: &str) {
 #[cfg(not(target_family = "wasm"))]
 fn rename_tab_wasm(_tab_idx: usize, _name: &str) {}
 
-/// Derive the Shift variant of a keybinding string by uppercasing the last character.
+#[allow(dead_code)]
 fn shift_variant(key: &str) -> String {
     let trimmed = key.trim_end();
     if let Some((prefix, last_char)) = trimmed.rsplit_once(' ') {

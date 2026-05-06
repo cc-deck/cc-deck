@@ -405,6 +405,75 @@ fn auto_rename_tab(tab_idx: usize, name: &str) {
 #[cfg(not(target_family = "wasm"))]
 fn auto_rename_tab(_tab_idx: usize, _name: &str) {}
 
+/// Clean up orphaned state files from killed Zellij sessions.
+/// Scans `/cache/` for `sessions-*.json` and `session-meta-*.json` files.
+/// Attempts to check process liveness via `/proc/{pid}/`. If `/proc/` is
+/// not available (WASI limitation), falls back to removing files older
+/// than 7 days based on modification time.
+pub fn cleanup_orphaned_state_files() {
+    let current_pid = current_zellij_pid();
+    if current_pid == 0 {
+        return;
+    }
+
+    let entries = match std::fs::read_dir("/cache/") {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+
+    let seven_days_secs: u64 = 7 * 24 * 60 * 60;
+    let now_secs = crate::session::unix_now();
+
+    for entry in entries.flatten() {
+        let name = match entry.file_name().into_string() {
+            Ok(n) => n,
+            Err(_) => continue,
+        };
+
+        let pid = extract_pid_from_filename(&name);
+        let pid = match pid {
+            Some(p) => p,
+            None => continue,
+        };
+
+        if pid == current_pid {
+            continue;
+        }
+
+        let proc_path = format!("/proc/{pid}");
+        let is_alive = std::fs::metadata(&proc_path).is_ok();
+
+        if is_alive {
+            continue;
+        }
+
+        let should_remove = match entry.metadata().and_then(|m| m.modified()) {
+            Ok(mtime) => {
+                match mtime.duration_since(std::time::UNIX_EPOCH) {
+                    Ok(d) => now_secs.saturating_sub(d.as_secs()) > seven_days_secs,
+                    Err(_) => false,
+                }
+            }
+            Err(_) => false,
+        };
+
+        if should_remove {
+            let path = entry.path();
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+}
+
+fn extract_pid_from_filename(name: &str) -> Option<u32> {
+    if let Some(rest) = name.strip_prefix("sessions-") {
+        rest.strip_suffix(".json")?.parse().ok()
+    } else if let Some(rest) = name.strip_prefix("session-meta-") {
+        rest.strip_suffix(".json")?.parse().ok()
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
