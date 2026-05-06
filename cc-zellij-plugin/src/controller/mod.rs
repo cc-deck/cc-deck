@@ -458,10 +458,14 @@ impl ControllerPlugin {
         let now_ms = session::unix_now_ms();
         match command {
             "voice:on" => {
+                let was_enabled = self.state.voice_enabled;
                 self.state.voice_enabled = true;
-                self.state.voice_muted = false;
-                self.state.voice_mute_requested = None;
                 self.state.voice_last_ping_ms = now_ms;
+                if !was_enabled {
+                    // First activation: reset mute state
+                    self.state.voice_muted = false;
+                    self.state.voice_mute_requested = None;
+                }
                 self.state.mark_render_dirty();
                 crate::debug_log("CTRL VOICE command: voice:on");
             }
