@@ -96,7 +96,8 @@ func (c *cliClient) CreateSandbox(ctx context.Context, image, command, policy, p
 	if provider != "" {
 		args = append(args, "--provider", provider)
 	}
-	args = append(args, "--", command)
+	args = append(args, "--")
+	args = append(args, strings.Fields(command)...)
 
 	out, err := c.execCLI(ctx, args...)
 	log.Printf("DEBUG: openshell: CreateSandbox took %v", time.Since(start))
