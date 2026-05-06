@@ -2,31 +2,30 @@
 
 **Date**: 2026-04-30
 
-## R1: OpenShell gRPC Proto Availability
+## R1: OpenShell Gateway Communication
 
-**Decision**: Use OpenShell's published proto files from the upstream repository for Go client code generation via `protoc-gen-go` and `protoc-gen-go-grpc`.
+**Decision**: Wrap the `openshell` CLI binary for all gateway communication. The CLI provides correct syntax, handles mTLS transparently, and adapts to gateway version changes automatically.
 
-**Rationale**: The PRFAQ documents a stable gRPC API surface with specific RPC names (CreateSandbox, DeleteSandbox, GetSandbox, ExecSandbox, CreateSshSession, PushSandboxLogs, SetPolicy, GetPolicy). The gateway already serves these on a multiplexed port. Proto files are the source of truth for client generation.
-
-**Alternatives considered**:
-- Hand-written gRPC client without proto codegen: fragile, version-coupling risk
-- REST wrapper: OpenShell doesn't expose REST, only gRPC
-- CLI wrapping (`openshell sandbox create`): brittle output parsing, version coupling
-
-**Source**: PRFAQ Appendix "OpenShell gRPC API surface"
-
-## R2: SSH Tunnel via CreateSshSession
-
-**Decision**: Use OpenShell's `CreateSshSession` RPC to establish SSH tunnels into sandboxes. Reuse cc-deck's existing SSH backend patterns for Zellij session management, data channel (rsync/tar), and git channel (ext:: protocol).
-
-**Rationale**: `CreateSshSession` provides an authenticated, tunnel into the sandbox through the gateway. The gateway routes the HTTP CONNECT request to the correct supervisor. This works reliably for the Podman driver (local gateway). For K8s, HTTP CONNECT has known issues with port-forward and Routes, but that's out of scope.
+**Rationale**: OpenShell is alpha software (v0.0.36, daily releases). The proto API changes frequently. The CLI team maintains backwards-compatibility for their UX, making it a more stable interface than raw proto definitions. The CLI also handles mTLS certificate management, gateway discovery, and credential injection transparently. Since cc-deck still needs the CLI for gateway management (`openshell gateway start/stop`), SSH proxy (ProxyCommand), and git ext:: transport, adding gRPC only for CRUD operations would mean maintaining two communication paths.
 
 **Alternatives considered**:
-- Direct Podman exec: bypasses OpenShell security model, no policy enforcement on tunnel
-- WebSocket tunneling: not implemented in OpenShell yet
-- gRPC streaming for terminal: would require new RPCs, not in current API
+- Direct gRPC via proto codegen: type-safe but adds protoc toolchain, mTLS cert handling, proto version pinning, and ~500 lines of new code for alpha software that can't fully eliminate the CLI dependency
+- Hybrid (gRPC for lifecycle, CLI for transport): same complexity as pure gRPC with no additional benefit
 
-**Source**: PRFAQ "How the sandbox actually works", OpenShell on OpenShift appendix
+**Source**: Brainstorm `brainstorm/049-openshell-grpc-vs-cli.md`
+
+## R2: Interactive Attach via exec
+
+**Decision**: Use `openshell sandbox exec --tty` for interactive attach instead of SSH tunnels. This simplifies the implementation by eliminating SSH tunnel management, ProxyCommand construction, and host key handling entirely.
+
+**Rationale**: The openshell CLI's `exec --tty` flag provides proper TTY allocation for interactive sessions. Zellij runs independently inside the sandbox, so it survives exec disconnections. Reattaching is as simple as running exec again. For file transfer, `openshell sandbox upload/download` replaces the tar+base64+exec approach that was fragile for large files.
+
+**Alternatives considered**:
+- SSH tunnel via CreateSshSession RPC: requires HTTP CONNECT proxy setup, cert management, ProxyCommand construction. More complex for the same result.
+- `openshell sandbox connect`: simple but doesn't allow customizing the command (need `zellij attach --create`)
+- Direct SSH via ssh-config: requires parsing ssh-config output and managing ProxyCommand. The exec approach is simpler.
+
+**Source**: Brainstorm `brainstorm/049-openshell-grpc-vs-cli.md`, OpenShell CLI docs
 
 ## R3: Sandbox Image Strategy
 
@@ -105,21 +104,17 @@
 
 **Source**: Brainstorm document "Network Policy Defaults" section
 
-## R8: Proto Versioning Strategy
+## R8: CLI Version Compatibility
 
-**Decision**: Pin proto files to a specific gateway release tag. Vendor the generated Go code into `cc-deck/internal/openshell/proto/`. Document the minimum compatible gateway version alongside the proto files.
+**Decision**: Rely on the user-installed `openshell` CLI binary. The CLI version should match the running gateway. No proto files or version pinning is needed since the CLI handles API compatibility internally.
 
-**Rationale**: The OpenShell gRPC API is early-stage (documented in PRFAQ, not a versioned SDK). Pinning to a release tag provides reproducibility. Explicit version tracking allows controlled upgrades when the gateway API evolves.
+**Rationale**: With CLI wrapping, version compatibility is the CLI's responsibility. The CLI team maintains backwards-compatible output formats. If the CLI and gateway versions diverge, the CLI itself will surface errors. This is simpler than managing proto file versions.
 
-**Alternatives considered**:
-- No version tracking (vendor proto files without tag reference): risk of silent API drift
-- gRPC reflection at runtime: adds complexity, loses type safety, not appropriate for a CLI tool
-
-**Source**: Clarification session 2026-05-04
+**Source**: Decision to use CLI wrapping (brainstorm/049-openshell-grpc-vs-cli.md)
 
 ## R9: Observability Approach
 
-**Decision**: Debug-level logging of all gRPC call outcomes (connect, create, attach, delete, exec) using cc-deck's existing log output. No new metrics infrastructure for the MVP.
+**Decision**: Debug-level logging of all CLI invocation outcomes (create, attach, delete, exec, upload, download) using cc-deck's existing log output. No new metrics infrastructure for the MVP.
 
 **Rationale**: Sufficient for troubleshooting sandbox lifecycle issues during development. The OpenShell gateway provides its own OCSF logging for security and audit events. cc-deck's debug logs complement the gateway's logs without duplicating them.
 

@@ -72,12 +72,14 @@ func TestParseSandboxState(t *testing.T) {
 		input    string
 		expected SandboxState
 	}{
+		{"Phase: Running", SandboxStateRunning},
+		{"Phase: Ready", SandboxStateRunning},
+		{"Phase: Provisioning", SandboxStateCreating},
+		{"Phase: Error", SandboxStateError},
+		{"Phase: Deleting", SandboxStateDeleted},
 		{"running", SandboxStateRunning},
-		{"Running", SandboxStateRunning},
-		{"creating", SandboxStateCreating},
-		{"suspended", SandboxStateSuspended},
-		{"error", SandboxStateError},
-		{"deleted", SandboxStateDeleted},
+		{"ready", SandboxStateRunning},
+		{"provisioning", SandboxStateCreating},
 		{"not found", SandboxStateDeleted},
 		{"unknown-state", SandboxStateError},
 	}
@@ -88,18 +90,54 @@ func TestParseSandboxState(t *testing.T) {
 	}
 }
 
-func TestParseSSHSession_Defaults(t *testing.T) {
-	session := parseSSHSession("")
-	assert.Equal(t, "localhost", session.Host)
-	assert.Equal(t, 22, session.Port)
-	assert.Equal(t, "sandbox", session.User)
+func TestParseSandboxState_FullOutput(t *testing.T) {
+	output := "Sandbox:\n\n  Id: abc-123\n  Name: test-sb\n  Phase: Ready\n  Policy source: sandbox\n"
+	assert.Equal(t, SandboxStateRunning, parseSandboxState(output))
 }
 
-func TestParseSSHSession_Parsed(t *testing.T) {
-	output := "host: gateway.local\nport: 2222\nuser: dev\nsession_id: abc-123"
-	session := parseSSHSession(output)
-	assert.Equal(t, "gateway.local", session.Host)
-	assert.Equal(t, 2222, session.Port)
-	assert.Equal(t, "dev", session.User)
-	assert.Equal(t, "abc-123", session.SessionID)
+func TestParseSandboxName(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			"simple",
+			"Created sandbox: my-sandbox\n",
+			"my-sandbox",
+		},
+		{
+			"with progress",
+			"Created sandbox: polite-euglena\n\n  [0.0s] Requesting compute...\n[4.5s] Sandbox allocated\n",
+			"polite-euglena",
+		},
+		{
+			"with ansi codes",
+			"\x1b[1m\x1b[36mCreated sandbox:\x1b[39m\x1b[0m \x1b[1mpolite-euglena\x1b[0m\n",
+			"polite-euglena",
+		},
+		{
+			"empty",
+			"",
+			"",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, parseSandboxName(tt.input))
+		})
+	}
+}
+
+func TestStripANSI(t *testing.T) {
+	assert.Equal(t, "hello", stripANSI("\x1b[1mhello\x1b[0m"))
+	assert.Equal(t, "Phase: Ready", stripANSI("\x1b[2mPhase:\x1b[0m Ready"))
+	assert.Equal(t, "plain text", stripANSI("plain text"))
+}
+
+func TestNewClient_ReturnsInterface(t *testing.T) {
+	cfg := GatewayConfig{Address: "localhost:8080"}
+	client, err := NewClient(cfg)
+	require.NoError(t, err)
+	var _ Client = client
 }

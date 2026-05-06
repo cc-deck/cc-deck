@@ -5,18 +5,18 @@
 
 ## Summary
 
-Add a new `openshell` workspace type to cc-deck that runs Claude Code sessions inside OpenShell sandboxes. The backend communicates with the OpenShell gateway via gRPC, provisions sandboxes with a custom image containing Zellij, and uses SSH tunnels for session attach and file sync. Targets the Podman compute driver for local development.
+Add a new `openshell` workspace type to cc-deck that runs Claude Code sessions inside OpenShell sandboxes. The backend communicates with the OpenShell gateway via the `openshell` CLI binary, provisions sandboxes with a custom image containing Zellij, and uses `exec --tty` for interactive attach and native `upload/download` for file sync. Targets the Podman compute driver for local development.
 
 ## Technical Context
 
 **Language/Version**: Go 1.25 (cc-deck CLI)
-**Primary Dependencies**: OpenShell gRPC proto (Go client codegen), existing cc-deck ws package
+**Primary Dependencies**: `openshell` CLI binary (gateway communication), existing cc-deck ws package
 **Storage**: cc-deck FileStateStore (`~/.local/state/cc-deck/state.yaml`) + DefinitionStore (`~/.config/cc-deck/`)
 **Testing**: Go standard testing + testify v1.11.1, cc-deck behavioral contract tests
 **Target Platform**: Linux, macOS (developer workstations with Podman)
 **Project Type**: CLI tool backend (new workspace type in existing Go project)
 **Performance Goals**: Sandbox create <30s, attach <5s, 100MB file sync <30s
-**Constraints**: OpenShell gateway must be running locally with Podman driver. gRPC proto files pinned to a specific gateway release tag and vendored into cc-deck. All gRPC call outcomes logged at debug level (FR-014). Credentials handled by gateway provider mechanism, not by cc-deck.
+**Constraints**: OpenShell gateway must be running locally with Podman driver. The `openshell` CLI must be installed and in PATH. All CLI invocation outcomes logged at debug level (FR-014). Credentials handled by gateway provider mechanism, not by cc-deck.
 **Scale/Scope**: Single developer workstation, 1-5 concurrent sandboxes
 
 ## Constitution Check
@@ -27,7 +27,7 @@ Add a new `openshell` workspace type to cc-deck that runs Claude Code sessions i
 
 **II. Interface behavioral contracts**: This feature implements a new backend for the `Workspace` and `InfraManager` interfaces. Contract document exists at `contracts/workspace-interface.md`. Existing implementations (SSH, container, k8s-deploy) were reviewed during spec creation. **PASS**.
 
-**III. Build and tool rules**: Plan uses `make test`/`make lint` (not direct `go build`). XDG paths use `internal/xdg`. Container runtime is Podman. Proto codegen uses `protoc` (acceptable, not a Go build). **PASS**.
+**III. Build and tool rules**: Plan uses `make test`/`make lint` (not direct `go build`). XDG paths use `internal/xdg`. Container runtime is Podman. No proto codegen needed (CLI wrapping). **PASS**.
 
 ## Project Structure
 
@@ -55,19 +55,19 @@ cc-deck/internal/ws/
 ├── factory.go                # (modify) Add openshell case to NewWorkspace
 
 cc-deck/internal/openshell/
-├── client.go                 # gRPC client wrapper for OpenShell gateway
+├── iface.go                  # Client interface definition
+├── client.go                 # CLI-wrapping client for OpenShell gateway
 ├── client_test.go            # Client tests
-├── proto/                    # Generated Go code from OpenShell proto files
-│   └── *.pb.go
+├── default-policy.yaml       # Default network policy for sandboxes
 
 cc-deck/internal/cmd/
 ├── ws.go                     # (modify) Add openshell type validation and attach flow
 
 cc-deck/build/
-├── Dockerfile.openshell      # Sandbox image with Zellij + Claude Code
+├── Containerfile.openshell   # Sandbox image with Zellij + Claude Code
 ```
 
-**Structure Decision**: Follows cc-deck's existing pattern. New workspace type in `internal/ws/`. New gRPC client package in `internal/openshell/`. Sandbox image Dockerfile in `build/`.
+**Structure Decision**: Follows cc-deck's existing pattern. New workspace type in `internal/ws/`. CLI-wrapping client package in `internal/openshell/`. Sandbox Containerfile in `build/`.
 
 ## Complexity Tracking
 
