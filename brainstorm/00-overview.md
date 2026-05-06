@@ -1,6 +1,6 @@
 # Brainstorm Overview
 
-Last updated: 2026-05-04
+Last updated: 2026-05-06
 
 ## Active Brainstorms
 
@@ -17,6 +17,7 @@ Last updated: 2026-05-04
 | 046 | 2026-04-30 | Voice attend stop word | active | - |
 | 047 | 2026-04-30 | Landing page revival | active | - |
 | 048 | 2026-05-04 | Voice transcript recording | active | - |
+| 049 | 2026-05-06 | WASM dead code cleanup | active | - |
 
 ## Open Threads
 
@@ -29,6 +30,7 @@ Last updated: 2026-05-04
 - Clipboard bridge: image paste in remote workspaces via DataChannel + xclip shim (from #043, depends on spec 041)
 - Git workflow: git push/harvest patterns for remote workspaces (from #023)
 - Security model: credential proxy, git-push restriction, sandbox hardening (from #025)
+- WASM dead code cleanup: binary size reduction measurement after LTO (may already strip dead code), audit sync.rs for shared helpers worth keeping (from #049)
 
 ## Attic
 
