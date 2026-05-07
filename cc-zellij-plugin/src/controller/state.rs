@@ -187,14 +187,14 @@ impl ControllerState {
             }
         }
         // Issue deferred tab renames for tabs with a single session.
-        for (tab_idx, _display_name) in &pending_renames {
+        for (tab_idx, display_name) in &pending_renames {
             let sessions_on_tab = self
                 .sessions
                 .values()
                 .filter(|s| s.tab_index == Some(*tab_idx))
                 .count();
             if sessions_on_tab == 1 {
-                auto_rename_tab(*tab_idx, _display_name);
+                crate::wasm_compat::rename_tab_wasm(*tab_idx, display_name);
             }
         }
     }
@@ -396,14 +396,74 @@ fn current_zellij_pid() -> u32 {
     0
 }
 
-/// Rename a Zellij tab by index (0-based).
-#[cfg(target_family = "wasm")]
-fn auto_rename_tab(tab_idx: usize, name: &str) {
-    zellij_tile::prelude::rename_tab(tab_idx as u32 + 1, name);
+/// Clean up orphaned state files from killed Zellij sessions.
+/// Scans `/cache/` for `sessions-*.json` and `session-meta-*.json` files.
+/// Attempts to check process liveness via `/proc/{pid}/`. If `/proc/` is
+/// not available (WASI limitation), falls back to removing files older
+/// than 7 days based on modification time.
+pub fn cleanup_orphaned_state_files() {
+    let current_pid = current_zellij_pid();
+    if current_pid == 0 {
+        return;
+    }
+
+    let entries = match std::fs::read_dir("/cache/") {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+
+    let seven_days_secs: u64 = 7 * 24 * 60 * 60;
+    let now_secs = crate::session::unix_now();
+
+    for entry in entries.flatten() {
+        let name = match entry.file_name().into_string() {
+            Ok(n) => n,
+            Err(_) => continue,
+        };
+
+        let pid = extract_pid_from_filename(&name);
+        let pid = match pid {
+            Some(p) => p,
+            None => continue,
+        };
+
+        if pid == current_pid {
+            continue;
+        }
+
+        let proc_path = format!("/proc/{pid}");
+        let is_alive = std::fs::metadata(&proc_path).is_ok();
+
+        if is_alive {
+            continue;
+        }
+
+        let should_remove = match entry.metadata().and_then(|m| m.modified()) {
+            Ok(mtime) => {
+                match mtime.duration_since(std::time::UNIX_EPOCH) {
+                    Ok(d) => now_secs.saturating_sub(d.as_secs()) > seven_days_secs,
+                    Err(_) => false,
+                }
+            }
+            Err(_) => false,
+        };
+
+        if should_remove {
+            let path = entry.path();
+            let _ = std::fs::remove_file(&path);
+        }
+    }
 }
 
-#[cfg(not(target_family = "wasm"))]
-fn auto_rename_tab(_tab_idx: usize, _name: &str) {}
+fn extract_pid_from_filename(name: &str) -> Option<u32> {
+    if let Some(rest) = name.strip_prefix("sessions-") {
+        rest.strip_suffix(".json")?.parse().ok()
+    } else if let Some(rest) = name.strip_prefix("session-meta-") {
+        rest.strip_suffix(".json")?.parse().ok()
+    } else {
+        None
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -626,5 +686,21 @@ mod tests {
         assert!(!state.render_dirty);
         state.mark_render_dirty();
         assert!(state.render_dirty);
+    }
+
+    #[test]
+    fn test_extract_pid_from_filename() {
+        assert_eq!(super::extract_pid_from_filename("sessions-12345.json"), Some(12345));
+        assert_eq!(super::extract_pid_from_filename("session-meta-12345.json"), Some(12345));
+        assert_eq!(super::extract_pid_from_filename("sessions.json"), None);
+        assert_eq!(super::extract_pid_from_filename("session-meta.json"), None);
+        assert_eq!(super::extract_pid_from_filename("debug.log"), None);
+        assert_eq!(super::extract_pid_from_filename("sessions-abc.json"), None);
+    }
+
+    #[test]
+    fn test_sessions_path() {
+        assert_eq!(super::sessions_path(12345), "/cache/sessions-12345.json");
+        assert_eq!(super::sessions_path(0), "/cache/sessions.json");
     }
 }

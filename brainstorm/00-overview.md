@@ -1,6 +1,6 @@
 # Brainstorm Overview
 
-Last updated: 2026-05-06
+Last updated: 2026-05-07
 
 ## Active Brainstorms
 
@@ -18,6 +18,7 @@ Last updated: 2026-05-06
 | 047 | 2026-04-30 | Landing page revival | active | - |
 | 048 | 2026-05-04 | Voice transcript recording | active | - |
 | 049 | 2026-05-06 | WASM dead code cleanup | active | - |
+| 050 | 2026-05-06 | Test coverage measurement | active | - |
 
 ## Open Threads
 
@@ -31,6 +32,7 @@ Last updated: 2026-05-06
 - Git workflow: git push/harvest patterns for remote workspaces (from #023)
 - Security model: credential proxy, git-push restriction, sandbox hardening (from #025)
 - WASM dead code cleanup: binary size reduction measurement after LTO (may already strip dead code), audit sync.rs for shared helpers worth keeping (from #049)
+- Test coverage measurement: coverage floor value TBD after first baseline, per-module CI reporting TBD after initial results (from #050)
 
 ## Attic
 
