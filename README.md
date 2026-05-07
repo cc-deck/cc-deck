@@ -490,6 +490,32 @@ Then use the Makefile targets:
 
 Coverage runs tests on the native target, not wasm32. Code behind `#[cfg(target_family = "wasm")]` guards is unreachable during measurement. The no-op stubs in `wasm_compat.rs` and `debug.rs` are covered instead.
 
+### Integration Tests
+
+The plugin includes integration tests that exercise `SidebarRendererPlugin` and `ControllerPlugin` through their `ZellijPlugin` trait methods (`load`, `update`, `pipe`) with synthetic events. These tests verify the full event dispatch chain (pipe message arrives, state updates, assertions confirm the change) without requiring a running Zellij instance.
+
+Integration tests cover:
+
+- **Render payload pipeline**: Sidebar receives, replaces, and filters render payloads from the controller
+- **Hook event processing**: Controller creates and updates sessions from CLI hook events (SessionStart, PreToolUse, Stop)
+- **Discovery protocol**: SidebarHello/SidebarInit handshake between controller and sidebar
+- **Action dispatch**: Pause, attend, and other action messages processed through the controller pipe interface
+- **Permission deferral**: Events queued before permissions are granted and replayed afterward
+- **Mode transitions**: Sidebar navigation mode triggered through pipe messages
+- **Error handling**: Malformed JSON and unknown pipe names handled gracefully without panics
+- **Protocol roundtrips**: Serialization fidelity verified for RenderPayload and ActionMessage through the pipe interface
+
+Test files live alongside the code they test:
+
+- `cc-zellij-plugin/src/sidebar_plugin/integration_tests.rs`
+- `cc-zellij-plugin/src/controller/integration_tests.rs`
+
+Run all tests (including integration tests) with `make test`. To run only integration tests:
+
+```bash
+cargo test --lib integration_tests
+```
+
 ## Uninstall
 
 ```bash

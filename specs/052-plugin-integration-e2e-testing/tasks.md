@@ -17,10 +17,10 @@
 
 **Purpose**: Add test state accessors and module declarations needed by all integration tests
 
-- [ ] T001 Add `#[cfg(test)]` test_state() accessor to SidebarRendererPlugin in cc-zellij-plugin/src/sidebar_plugin/mod.rs
-- [ ] T002 Add `#[cfg(test)]` test_state() accessor to ControllerPlugin in cc-zellij-plugin/src/controller/mod.rs
-- [ ] T003 [P] Add `#[cfg(test)] mod integration_tests;` declaration to cc-zellij-plugin/src/sidebar_plugin/mod.rs
-- [ ] T004 [P] Add `#[cfg(test)] mod integration_tests;` declaration to cc-zellij-plugin/src/controller/mod.rs
+- [x] T001 Add `#[cfg(test)]` test_state() accessor to SidebarRendererPlugin in cc-zellij-plugin/src/sidebar_plugin/mod.rs
+- [x] T002 Add `#[cfg(test)]` test_state() accessor to ControllerPlugin in cc-zellij-plugin/src/controller/mod.rs
+- [x] T003 [P] Add `#[cfg(test)] mod integration_tests;` declaration to cc-zellij-plugin/src/sidebar_plugin/mod.rs
+- [x] T004 [P] Add `#[cfg(test)] mod integration_tests;` declaration to cc-zellij-plugin/src/controller/mod.rs
 
 ---
 
@@ -30,12 +30,12 @@
 
 **WARNING**: No user story work can begin until this phase is complete
 
-- [ ] T005 Add make_pipe() helper that constructs a PipeMessage with plugin source in cc-zellij-plugin/src/sidebar_plugin/test_helpers.rs
-- [ ] T006 Add make_hook_pipe() and make_hook_pipe_with_cwd() helpers for CLI-sourced hook events in cc-zellij-plugin/src/sidebar_plugin/test_helpers.rs
-- [ ] T007 Add make_action_pipe() helper for sidebar action messages in cc-zellij-plugin/src/sidebar_plugin/test_helpers.rs
-- [ ] T008 Add make_hello_pipe() and make_init_pipe() helpers for discovery protocol messages in cc-zellij-plugin/src/sidebar_plugin/test_helpers.rs
-- [ ] T009 Add setup_sidebar() and setup_controller() convenience functions that create, load, and grant permissions in cc-zellij-plugin/src/sidebar_plugin/test_helpers.rs
-- [ ] T010 Add setup_sidebar_with_tab() helper that also sends SidebarInit in cc-zellij-plugin/src/sidebar_plugin/test_helpers.rs
+- [x] T005 Add make_pipe() helper that constructs a PipeMessage with plugin source in cc-zellij-plugin/src/sidebar_plugin/test_helpers.rs
+- [x] T006 Add make_hook_pipe() and make_hook_pipe_with_cwd() helpers for CLI-sourced hook events in cc-zellij-plugin/src/sidebar_plugin/test_helpers.rs
+- [x] T007 Add make_action_pipe() helper for sidebar action messages in cc-zellij-plugin/src/sidebar_plugin/test_helpers.rs
+- [x] T008 Add make_hello_pipe() and make_init_pipe() helpers for discovery protocol messages in cc-zellij-plugin/src/sidebar_plugin/test_helpers.rs
+- [x] T009 Add setup_sidebar() and setup_controller() convenience functions that create, load, and grant permissions in cc-zellij-plugin/src/sidebar_plugin/test_helpers.rs
+- [x] T010 Add setup_sidebar_with_tab() helper that also sends SidebarInit in cc-zellij-plugin/src/sidebar_plugin/test_helpers.rs
 
 **Checkpoint**: Foundation ready - all integration test helper functions available
 
@@ -49,10 +49,10 @@
 
 ### Implementation for User Story 1
 
-- [ ] T011 [P] [US1] Create cc-zellij-plugin/src/sidebar_plugin/integration_tests.rs with test_sidebar_load_and_permission_grant
-- [ ] T012 [P] [US1] Add test_sidebar_receives_render_payload verifying 3 sessions appear in state in cc-zellij-plugin/src/sidebar_plugin/integration_tests.rs
-- [ ] T013 [P] [US1] Add test_sidebar_payload_replacement verifying second payload replaces first in cc-zellij-plugin/src/sidebar_plugin/integration_tests.rs
-- [ ] T014 [P] [US1] Add test_sidebar_render_before_permissions verifying payload is not processed before grant in cc-zellij-plugin/src/sidebar_plugin/integration_tests.rs
+- [x] T011 [P] [US1] Create cc-zellij-plugin/src/sidebar_plugin/integration_tests.rs with test_sidebar_load_and_permission_grant
+- [x] T012 [P] [US1] Add test_sidebar_receives_render_payload verifying 3 sessions appear in state in cc-zellij-plugin/src/sidebar_plugin/integration_tests.rs
+- [x] T013 [P] [US1] Add test_sidebar_payload_replacement verifying second payload replaces first in cc-zellij-plugin/src/sidebar_plugin/integration_tests.rs
+- [x] T014 [P] [US1] Add test_sidebar_render_before_permissions verifying payload is not processed before grant in cc-zellij-plugin/src/sidebar_plugin/integration_tests.rs
 
 **Checkpoint**: Sidebar render payload pipeline fully tested
 
@@ -66,10 +66,10 @@
 
 ### Implementation for User Story 2
 
-- [ ] T015 [P] [US2] Create cc-zellij-plugin/src/controller/integration_tests.rs with test_controller_load_and_permission_grant
-- [ ] T016 [P] [US2] Add test_controller_hook_session_start verifying new session creation with Init activity in cc-zellij-plugin/src/controller/integration_tests.rs
-- [ ] T017 [P] [US2] Add test_controller_hook_pre_tool_use verifying activity transitions to Working in cc-zellij-plugin/src/controller/integration_tests.rs
-- [ ] T018 [P] [US2] Add test_controller_hook_stop verifying activity transitions to Done in cc-zellij-plugin/src/controller/integration_tests.rs
+- [x] T015 [P] [US2] Create cc-zellij-plugin/src/controller/integration_tests.rs with test_controller_load_and_permission_grant
+- [x] T016 [P] [US2] Add test_controller_hook_session_start verifying new session creation with Init activity in cc-zellij-plugin/src/controller/integration_tests.rs
+- [x] T017 [P] [US2] Add test_controller_hook_pre_tool_use verifying activity transitions to Working in cc-zellij-plugin/src/controller/integration_tests.rs
+- [x] T018 [P] [US2] Add test_controller_hook_stop verifying activity transitions to Done in cc-zellij-plugin/src/controller/integration_tests.rs
 
 **Checkpoint**: Controller hook event pipeline fully tested
 
@@ -83,8 +83,8 @@
 
 ### Implementation for User Story 3
 
-- [ ] T019 [P] [US3] Add test_controller_sidebar_hello_registration verifying sidebar registered in registry in cc-zellij-plugin/src/controller/integration_tests.rs
-- [ ] T020 [P] [US3] Add test_sidebar_init_assigns_tab verifying tab_index stored after SidebarInit in cc-zellij-plugin/src/sidebar_plugin/integration_tests.rs
+- [x] T019 [P] [US3] Add test_controller_sidebar_hello_registration verifying sidebar registered in registry in cc-zellij-plugin/src/controller/integration_tests.rs
+- [x] T020 [P] [US3] Add test_sidebar_init_assigns_tab verifying tab_index stored after SidebarInit in cc-zellij-plugin/src/sidebar_plugin/integration_tests.rs
 
 **Checkpoint**: Discovery protocol verified end-to-end
 
@@ -98,8 +98,8 @@
 
 ### Implementation for User Story 4
 
-- [ ] T021 [P] [US4] Add test_controller_action_pause verifying paused state toggles in cc-zellij-plugin/src/controller/integration_tests.rs
-- [ ] T022 [P] [US4] Add test_controller_action_attend verifying done_attended flag set in cc-zellij-plugin/src/controller/integration_tests.rs
+- [x] T021 [P] [US4] Add test_controller_action_pause verifying paused state toggles in cc-zellij-plugin/src/controller/integration_tests.rs
+- [x] T022 [P] [US4] Add test_controller_action_attend verifying done_attended flag set in cc-zellij-plugin/src/controller/integration_tests.rs
 
 **Checkpoint**: Action dispatch verified for pause and attend operations
 
@@ -113,7 +113,7 @@
 
 ### Implementation for User Story 5
 
-- [ ] T023 [US5] Add test_controller_deferred_events verifying queued events are replayed on permission grant in cc-zellij-plugin/src/controller/integration_tests.rs
+- [x] T023 [US5] Add test_controller_deferred_events verifying queued events are replayed on permission grant in cc-zellij-plugin/src/controller/integration_tests.rs
 
 **Checkpoint**: Permission deferral and replay verified
 
@@ -123,11 +123,11 @@
 
 **Purpose**: Verify robustness for malformed input and protocol serialization fidelity
 
-- [ ] T024 [P] [US1] Add test_sidebar_malformed_pipe_message verifying no panic on invalid JSON in cc-zellij-plugin/src/sidebar_plugin/integration_tests.rs
-- [ ] T025 [P] [US2] Add test_controller_malformed_hook_payload verifying no panic on invalid JSON in cc-zellij-plugin/src/controller/integration_tests.rs
-- [ ] T026 [P] [US1] Add test_sidebar_empty_payload verifying empty session list handled in cc-zellij-plugin/src/sidebar_plugin/integration_tests.rs
-- [ ] T027 [P] [US3] Add test_render_payload_roundtrip_through_pipe verifying serialization fidelity in cc-zellij-plugin/src/sidebar_plugin/integration_tests.rs
-- [ ] T028 [P] [US4] Add test_action_message_roundtrip_through_pipe verifying serialization fidelity in cc-zellij-plugin/src/controller/integration_tests.rs
+- [x] T024 [P] [US1] Add test_sidebar_malformed_pipe_message verifying no panic on invalid JSON in cc-zellij-plugin/src/sidebar_plugin/integration_tests.rs
+- [x] T025 [P] [US2] Add test_controller_malformed_hook_payload verifying no panic on invalid JSON in cc-zellij-plugin/src/controller/integration_tests.rs
+- [x] T026 [P] [US1] Add test_sidebar_empty_payload verifying empty session list handled in cc-zellij-plugin/src/sidebar_plugin/integration_tests.rs
+- [x] T027 [P] [US3] Add test_render_payload_roundtrip_through_pipe verifying serialization fidelity in cc-zellij-plugin/src/sidebar_plugin/integration_tests.rs
+- [x] T028 [P] [US4] Add test_action_message_roundtrip_through_pipe verifying serialization fidelity in cc-zellij-plugin/src/controller/integration_tests.rs
 
 ---
 
@@ -135,7 +135,7 @@
 
 **Purpose**: Verify sidebar mode changes triggered through the pipe interface
 
-- [ ] T029 [US1] Add test_sidebar_navigate_mode_via_pipe verifying mode transitions to Navigate in cc-zellij-plugin/src/sidebar_plugin/integration_tests.rs
+- [x] T029 [US1] Add test_sidebar_navigate_mode_via_pipe verifying mode transitions to Navigate in cc-zellij-plugin/src/sidebar_plugin/integration_tests.rs
 
 ---
 
@@ -143,9 +143,9 @@
 
 **Purpose**: Documentation and validation
 
-- [ ] T030 Update README.md to document the integration test suite
-- [ ] T031 Run `make test` to verify all integration tests pass alongside existing tests
-- [ ] T032 Run `make lint` to verify no clippy warnings introduced
+- [x] T030 Update README.md to document the integration test suite
+- [x] T031 Run `make test` to verify all integration tests pass alongside existing tests
+- [x] T032 Run `make lint` to verify no clippy warnings introduced
 
 ---
 
