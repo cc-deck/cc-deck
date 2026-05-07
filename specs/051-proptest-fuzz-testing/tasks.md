@@ -17,9 +17,9 @@
 
 **Purpose**: Add proptest dependency and create module structure
 
-- [ ] T001 Add `proptest = "1"` to `[dev-dependencies]` in `cc-zellij-plugin/Cargo.toml`
-- [ ] T002 Add `#[cfg(test)] mod fuzz_tests;` declaration to `cc-zellij-plugin/src/sidebar_plugin/mod.rs`
-- [ ] T003 Create empty `cc-zellij-plugin/src/sidebar_plugin/fuzz_tests.rs` with module doc comment and imports
+- [x] T001 Add `proptest = "1"` to `[dev-dependencies]` in `cc-zellij-plugin/Cargo.toml`
+- [x] T002 Add `#[cfg(test)] mod fuzz_tests;` declaration to `cc-zellij-plugin/src/sidebar_plugin/mod.rs`
+- [x] T003 Create empty `cc-zellij-plugin/src/sidebar_plugin/fuzz_tests.rs` with module doc comment and imports
 
 **Checkpoint**: `make test` passes with empty fuzz_tests module
 
@@ -33,13 +33,13 @@
 
 ### Implementation for User Story 1
 
-- [ ] T004 [US1] Define `FuzzAction` enum with all 22 variants (KeyJ, KeyK, KeyEnter, KeyEsc, KeyD, KeyR, KeyP, KeySlash, KeyQuestion, KeyM, KeyN, KeyBigR, KeyY, KeyBigY, KeyBackspace, ArbitraryChar, ToggleNavigate, ToggleNavigatePrev, LeftClick, RightClick, AddSession, RemoveSession) in `cc-zellij-plugin/src/sidebar_plugin/fuzz_tests.rs`
-- [ ] T005 [US1] Implement proptest `Arbitrary` strategy for `FuzzAction` using `prop_oneof!` with uniform weighting across all variants in `cc-zellij-plugin/src/sidebar_plugin/fuzz_tests.rs`
-- [ ] T006 [US1] Implement `apply_action` function that maps each `FuzzAction` variant to the corresponding handler call (`handle_key`, `handle_mouse`, `toggle_navigate`, `toggle_navigate_prev`, or payload mutation) in `cc-zellij-plugin/src/sidebar_plugin/fuzz_tests.rs`
-- [ ] T007 [US1] Implement `build_click_regions` helper that constructs valid click regions from the current session list (3-row spacing, header sentinel at row 0) in `cc-zellij-plugin/src/sidebar_plugin/fuzz_tests.rs`
-- [ ] T008 [US1] Implement `check_invariants` function verifying all 5 invariants (cursor bounds, filter state consistency, passive filter clean, selectable matches mode, help consistency) in `cc-zellij-plugin/src/sidebar_plugin/fuzz_tests.rs`
-- [ ] T009 [US1] Implement the main `proptest!` test function `test_sidebar_invariants` with `ProptestConfig { cases: 2000, .. }`, generating 0-5 initial sessions and 1-50 action sequences, applying actions and checking invariants after each in `cc-zellij-plugin/src/sidebar_plugin/fuzz_tests.rs`
-- [ ] T010 [US1] Run `make test` and verify fuzz tests pass. If invariant violations are found, fix the bugs in the sidebar state machine code (modes.rs, input.rs, state.rs) before proceeding
+- [x] T004 [US1] Define `FuzzAction` enum with all 22 variants (KeyJ, KeyK, KeyEnter, KeyEsc, KeyD, KeyR, KeyP, KeySlash, KeyQuestion, KeyM, KeyN, KeyBigR, KeyY, KeyBigY, KeyBackspace, ArbitraryChar, ToggleNavigate, ToggleNavigatePrev, LeftClick, RightClick, AddSession, RemoveSession) in `cc-zellij-plugin/src/sidebar_plugin/fuzz_tests.rs`
+- [x] T005 [US1] Implement proptest `Arbitrary` strategy for `FuzzAction` using `prop_oneof!` with uniform weighting across all variants in `cc-zellij-plugin/src/sidebar_plugin/fuzz_tests.rs`
+- [x] T006 [US1] Implement `apply_action` function that maps each `FuzzAction` variant to the corresponding handler call (`handle_key`, `handle_mouse`, `toggle_navigate`, `toggle_navigate_prev`, or payload mutation) in `cc-zellij-plugin/src/sidebar_plugin/fuzz_tests.rs`
+- [x] T007 [US1] Implement `build_click_regions` helper that constructs valid click regions from the current session list (3-row spacing, header sentinel at row 0) in `cc-zellij-plugin/src/sidebar_plugin/fuzz_tests.rs`
+- [x] T008 [US1] Implement `check_invariants` function verifying all 5 invariants (cursor bounds, filter state consistency, passive filter clean, selectable matches mode, help consistency) in `cc-zellij-plugin/src/sidebar_plugin/fuzz_tests.rs`
+- [x] T009 [US1] Implement the main `proptest!` test function `test_sidebar_invariants` with `ProptestConfig { cases: 2000, .. }`, generating 0-5 initial sessions and 1-50 action sequences, applying actions and checking invariants after each in `cc-zellij-plugin/src/sidebar_plugin/fuzz_tests.rs`
+- [x] T010 [US1] Run `make test` and verify fuzz tests pass. If invariant violations are found, fix the bugs in the sidebar state machine code (modes.rs, input.rs, state.rs) before proceeding
 
 **Checkpoint**: `cargo test -p cc-deck fuzz` runs 2000 cases in <10 seconds with no invariant violations
 
@@ -53,8 +53,8 @@
 
 ### Implementation for User Story 2
 
-- [ ] T011 [US2] Evaluate existing seeds in `cc-zellij-plugin/proptest-regressions/fuzz_tests.txt` for compatibility with new test module path and FuzzAction signature; document findings as a comment in `cc-zellij-plugin/src/sidebar_plugin/fuzz_tests.rs`
-- [ ] T012 [US2] Verify proptest creates regression files at the correct path (should be `cc-zellij-plugin/proptest-regressions/sidebar_plugin/fuzz_tests/test_sidebar_invariants.txt`) by checking proptest config or running a deliberate failure test
+- [x] T011 [US2] Evaluate existing seeds in `cc-zellij-plugin/proptest-regressions/fuzz_tests.txt` for compatibility with new test module path and FuzzAction signature; document findings as a comment in `cc-zellij-plugin/src/sidebar_plugin/fuzz_tests.rs`
+- [x] T012 [US2] Verify proptest creates regression files at the correct path (should be `cc-zellij-plugin/proptest-regressions/sidebar_plugin/fuzz_tests/test_sidebar_invariants.txt`) by checking proptest config or running a deliberate failure test
 
 **Checkpoint**: Regression seed infrastructure is verified and documented
 
@@ -68,8 +68,8 @@
 
 ### Implementation for User Story 3
 
-- [ ] T013 [US3] Run `make test` with timing and verify fuzz tests complete in <10 seconds. If too slow, adjust `ProptestConfig.cases` or sequence length bounds in `cc-zellij-plugin/src/sidebar_plugin/fuzz_tests.rs`
-- [ ] T014 [US3] Run `make lint` and fix any clippy warnings in `cc-zellij-plugin/src/sidebar_plugin/fuzz_tests.rs`
+- [x] T013 [US3] Run `make test` with timing and verify fuzz tests complete in <10 seconds. If too slow, adjust `ProptestConfig.cases` or sequence length bounds in `cc-zellij-plugin/src/sidebar_plugin/fuzz_tests.rs`
+- [x] T014 [US3] Run `make lint` and fix any clippy warnings in `cc-zellij-plugin/src/sidebar_plugin/fuzz_tests.rs`
 
 **Checkpoint**: Full test suite passes, fuzz tests run within performance budget, no lint warnings
 
@@ -79,8 +79,8 @@
 
 **Purpose**: Final validation and cleanup
 
-- [ ] T015 Verify all existing tests still pass with `make test` (no regressions)
-- [ ] T016 Run quickstart.md validation: execute the commands documented in quickstart.md and verify they work
+- [x] T015 Verify all existing tests still pass with `make test` (no regressions)
+- [x] T016 Run quickstart.md validation: execute the commands documented in quickstart.md and verify they work
 
 ---
 
