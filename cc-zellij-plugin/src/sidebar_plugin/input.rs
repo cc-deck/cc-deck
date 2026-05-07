@@ -298,6 +298,10 @@ fn enter_rename_passive(state: &mut SidebarState, pane_id: u32) -> bool {
         .map(|s| s.display_name.clone())
         .unwrap_or_default();
 
+    // Clear any leftover filter text when entering RenamePassive
+    // (may be set if we came here via right-click while navigating with an active filter)
+    state.filter_text.clear();
+
     let rename = RenameState {
         pane_id,
         input_buffer: display_name.clone(),
@@ -488,6 +492,8 @@ fn handle_filter_key(state: &mut SidebarState, key: KeyWithModifier) -> bool {
                     filter.cursor_pos = prev;
                 }
             }
+            // Clamp cursor after filter change narrows/widens results
+            state.preserve_cursor();
             true
         }
         BareKey::Char(c) => {
@@ -495,6 +501,8 @@ fn handle_filter_key(state: &mut SidebarState, key: KeyWithModifier) -> bool {
                 filter.input_buffer.insert(filter.cursor_pos, c);
                 filter.cursor_pos += c.len_utf8();
             }
+            // Clamp cursor after filter change narrows/widens results
+            state.preserve_cursor();
             true
         }
         _ => false,
@@ -557,6 +565,7 @@ fn handle_rename_key(state: &mut SidebarState, key: KeyWithModifier) -> bool {
                 }
                 SidebarMode::RenamePassive { .. } => {
                     state.mode = SidebarMode::Passive;
+                    state.filter_text.clear();
                     crate::wasm_compat::set_selectable_wasm(false);
                 }
                 other => state.mode = other,
@@ -570,6 +579,7 @@ fn handle_rename_key(state: &mut SidebarState, key: KeyWithModifier) -> bool {
                 }
                 SidebarMode::RenamePassive { .. } => {
                     state.mode = SidebarMode::Passive;
+                    state.filter_text.clear();
                     crate::wasm_compat::set_selectable_wasm(false);
                 }
                 other => state.mode = other,
