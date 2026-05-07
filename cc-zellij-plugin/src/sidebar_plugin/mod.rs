@@ -11,6 +11,8 @@ pub mod modes;
 pub mod rename;
 #[cfg(test)]
 pub(crate) mod test_helpers;
+#[cfg(test)]
+mod fuzz_tests;
 
 use self::state::SidebarState;
 use crate::config::PluginConfig;

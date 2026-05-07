@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 4f36ed0dfef6c1c2391eb91cdb9c2d5d49fe55a8e670d11dba850f51649d1490 # shrinks to initial_session_count = 2, actions = [ToggleNavigate, ArbitraryChar('/'), KeyD]
+cc 6607ba33e7f4f48a90a4446cf97a0f24dcf78381d69ca340f748b71c1af87c4c # shrinks to initial_session_count = 4, actions = [KeyJ, ToggleNavigate, KeySlash, ArbitraryChar('¡'), KeyEnter, RightClick(2), KeyEnter]
