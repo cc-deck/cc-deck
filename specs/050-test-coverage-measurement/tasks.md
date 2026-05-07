@@ -27,7 +27,7 @@
 
 **Purpose**: Prerequisite check helper used by all Makefile coverage targets
 
-- [ ] T001 Add cargo-llvm-cov prerequisite check function to Makefile that prints actionable install instructions when the tool is missing, in `Makefile`
+- [x] T001 Add cargo-llvm-cov prerequisite check function to Makefile that prints actionable install instructions when the tool is missing, in `Makefile`
 
 **Checkpoint**: Foundation ready, coverage targets can reference the prerequisite check.
 
@@ -41,7 +41,7 @@
 
 ### Implementation for User Story 1
 
-- [ ] T002 [US1] Add `coverage` target to `Makefile` that runs `cargo llvm-cov --html` in `cc-zellij-plugin/`, opens the HTML report in the default browser, and depends on the T001 prerequisite check
+- [x] T002 [US1] Add `coverage` target to `Makefile` that runs `cargo llvm-cov --html` in `cc-zellij-plugin/`, opens the HTML report in the default browser, and depends on the T001 prerequisite check
 
 **Checkpoint**: `make coverage` generates and opens an HTML coverage report.
 
@@ -55,7 +55,7 @@
 
 ### Implementation for User Story 2
 
-- [ ] T003 [P] [US2] Add `coverage-summary` target to `Makefile` that runs `cargo llvm-cov --json` in `cc-zellij-plugin/`, pipes output through `jq` to group files by module (controller/, sidebar_plugin/, root), and prints an aligned coverage table with an aggregate total row
+- [x] T003 [P] [US2] Add `coverage-summary` target to `Makefile` that runs `cargo llvm-cov --json` in `cc-zellij-plugin/`, pipes output through `jq` to group files by module (controller/, sidebar_plugin/, root), and prints an aligned coverage table with an aggregate total row
 
 **Checkpoint**: `make coverage-summary` prints a per-module coverage table with totals.
 
@@ -69,7 +69,7 @@
 
 ### Implementation for User Story 3
 
-- [ ] T004 [P] [US3] Extend the `rust-test` job in `.github/workflows/ci.yaml` to: (1) add `components: llvm-tools-preview` to the rust toolchain step, (2) add a step to install `cargo-llvm-cov` via `taiki-e/install-action@cargo-llvm-cov`, (3) replace `cargo test` with `cargo llvm-cov --lcov --output-path lcov.info`, (4) add a Codecov upload step using `codecov/codecov-action@v5` with `flags: rust`, conditional on `CODECOV_TOKEN`, matching the `go-test` job pattern
+- [x] T004 [P] [US3] Extend the `rust-test` job in `.github/workflows/ci.yaml` to: (1) add `components: llvm-tools-preview` to the rust toolchain step, (2) add a step to install `cargo-llvm-cov` via `taiki-e/install-action@cargo-llvm-cov`, (3) replace `cargo test` with `cargo llvm-cov --lcov --output-path lcov.info`, (4) add a Codecov upload step using `codecov/codecov-action@v5` with `flags: rust`, conditional on `CODECOV_TOKEN`, matching the `go-test` job pattern
 
 **Checkpoint**: CI `rust-test` job generates coverage and uploads to Codecov.
 
@@ -83,7 +83,7 @@
 
 ### Implementation for User Story 4
 
-- [ ] T005 [P] [US4] Verify that the existing aggregate Codecov badge in `README.md` will automatically include Rust coverage data once uploaded. No changes needed if the badge already uses `codecov.io/gh/cc-deck/cc-deck/graph/badge.svg` (which it does). Document this in a comment in the PR description.
+- [x] T005 [P] [US4] Verify that the existing aggregate Codecov badge in `README.md` will automatically include Rust coverage data once uploaded. No changes needed if the badge already uses `codecov.io/gh/cc-deck/cc-deck/graph/badge.svg` (which it does). Document this in a comment in the PR description.
 
 **Checkpoint**: Existing README badge will reflect combined Go+Rust coverage after first CI upload.
 
@@ -97,7 +97,7 @@
 
 ### Implementation for User Story 5
 
-- [ ] T006 [P] [US5] Add `coverage-json` target to `Makefile` that runs `cargo llvm-cov --json` in `cc-zellij-plugin/` and writes output to `cc-zellij-plugin/target/llvm-cov/coverage.json`, depends on the T001 prerequisite check
+- [x] T006 [P] [US5] Add `coverage-json` target to `Makefile` that runs `cargo llvm-cov --json` in `cc-zellij-plugin/` and writes output to `cc-zellij-plugin/target/llvm-cov/coverage.json`, depends on the T001 prerequisite check
 
 **Checkpoint**: `make coverage-json` produces a parseable JSON file.
 
@@ -107,7 +107,7 @@
 
 **Purpose**: Documentation and cleanup
 
-- [ ] T007 [P] Update README.md to document coverage targets (`make coverage`, `make coverage-summary`, `make coverage-json`) in the development section, noting the `cargo-llvm-cov` prerequisite and WASM limitation
+- [x] T007 [P] Update README.md to document coverage targets (`make coverage`, `make coverage-summary`, `make coverage-json`) in the development section, noting the `cargo-llvm-cov` prerequisite and WASM limitation
 
 **Checkpoint**: All coverage functionality documented.
 
