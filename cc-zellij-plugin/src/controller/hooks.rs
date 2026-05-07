@@ -14,8 +14,34 @@ use crate::session::{self, Activity, Session};
 pub fn process_hook(state: &mut ControllerState, hook: HookPayload) -> bool {
     state.unconfirmed_pane_ids.remove(&hook.pane_id);
 
-    // SessionEnd: remove the session entirely
+    // SessionEnd: remove the session only if the pane is actually gone.
+    // Claude Code may fire SessionEnd transiently (e.g., during plugin
+    // reinstall via `claude plugin install`) while the pane is still alive.
+    // Check the manifest before removing to avoid false disappearances.
     if is_session_end(&hook.hook_event_name) {
+        let pane_alive = state
+            .pane_manifest
+            .as_ref()
+            .map(|m| {
+                m.panes.values().flatten().any(|p| {
+                    !p.is_plugin && p.id == hook.pane_id && !p.exited
+                })
+            })
+            .unwrap_or(false);
+
+        if pane_alive {
+            // Pane still exists: transition to Idle instead of removing.
+            if let Some(session) = state.sessions.get_mut(&hook.pane_id) {
+                let changed = session.transition(Activity::Idle);
+                if changed {
+                    state.save_sessions();
+                }
+                state.mark_render_dirty();
+                return changed;
+            }
+            return false;
+        }
+
         let removed = state.sessions.remove(&hook.pane_id).is_some();
         if removed {
             state.save_sessions();
@@ -342,6 +368,7 @@ fn maybe_rename_tab(state: &mut ControllerState, pane_id: u32) {
 mod tests {
     use super::*;
     use crate::session::Activity;
+    use zellij_tile::prelude::{PaneInfo, PaneManifest};
 
     fn make_hook(pane_id: u32, event: &str) -> HookPayload {
         HookPayload {
@@ -377,12 +404,99 @@ mod tests {
         assert_eq!(state.sessions[&42].activity, Activity::Working);
     }
 
+    fn make_pane_info(id: u32, is_plugin: bool, exited: bool) -> PaneInfo {
+        PaneInfo {
+            id,
+            is_plugin,
+            is_focused: false,
+            is_fullscreen: false,
+            is_floating: false,
+            is_suppressed: false,
+            title: String::new(),
+            exited,
+            exit_status: None,
+            is_held: false,
+            pane_x: 0,
+            pane_content_x: 0,
+            pane_y: 0,
+            pane_content_y: 0,
+            pane_rows: 0,
+            pane_content_rows: 0,
+            pane_columns: 0,
+            pane_content_columns: 0,
+            cursor_coordinates_in_pane: None,
+            terminal_command: None,
+            plugin_url: None,
+            is_selectable: true,
+            index_in_pane_group: std::collections::BTreeMap::new(),
+            default_bg: None,
+            default_fg: None,
+        }
+    }
+
+    fn make_manifest(panes_list: Vec<PaneInfo>) -> PaneManifest {
+        let mut map = std::collections::HashMap::new();
+        map.insert(0, panes_list);
+        PaneManifest { panes: map }
+    }
+
     #[test]
-    fn test_process_hook_session_end_removes() {
+    fn test_process_hook_session_end_removes_when_pane_gone() {
         let mut state = ControllerState::default();
         state
             .sessions
             .insert(42, Session::new(42, "test".into()));
+        // No manifest = pane not confirmed alive -> remove
+        let hook = make_hook(42, "SessionEnd");
+        let changed = process_hook(&mut state, hook);
+        assert!(changed);
+        assert!(!state.sessions.contains_key(&42));
+    }
+
+    #[test]
+    fn test_process_hook_session_end_removes_when_pane_exited() {
+        let mut state = ControllerState::default();
+        state
+            .sessions
+            .insert(42, Session::new(42, "test".into()));
+        state.pane_manifest = Some(make_manifest(vec![
+            make_pane_info(42, false, true),
+        ]));
+
+        let hook = make_hook(42, "SessionEnd");
+        let changed = process_hook(&mut state, hook);
+        assert!(changed);
+        assert!(!state.sessions.contains_key(&42));
+    }
+
+    #[test]
+    fn test_process_hook_session_end_keeps_when_pane_alive() {
+        let mut state = ControllerState::default();
+        let mut s = Session::new(42, "test".into());
+        s.activity = Activity::Working;
+        state.sessions.insert(42, s);
+        state.pane_manifest = Some(make_manifest(vec![
+            make_pane_info(42, false, false),
+        ]));
+
+        let hook = make_hook(42, "SessionEnd");
+        let changed = process_hook(&mut state, hook);
+        assert!(changed);
+        // Session should still exist, transitioned to Idle
+        assert!(state.sessions.contains_key(&42));
+        assert_eq!(state.sessions[&42].activity, Activity::Idle);
+    }
+
+    #[test]
+    fn test_process_hook_session_end_ignores_plugin_panes() {
+        let mut state = ControllerState::default();
+        state
+            .sessions
+            .insert(42, Session::new(42, "test".into()));
+        // Pane 42 exists but as a plugin pane, not a terminal pane
+        state.pane_manifest = Some(make_manifest(vec![
+            make_pane_info(42, true, false),
+        ]));
 
         let hook = make_hook(42, "SessionEnd");
         let changed = process_hook(&mut state, hook);
