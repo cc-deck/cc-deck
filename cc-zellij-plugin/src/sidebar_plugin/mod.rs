@@ -13,6 +13,8 @@ pub mod rename;
 pub(crate) mod test_helpers;
 #[cfg(test)]
 mod fuzz_tests;
+#[cfg(test)]
+mod integration_tests;
 
 use self::state::SidebarState;
 use crate::config::PluginConfig;
@@ -295,3 +297,10 @@ fn send_hello_wasm(hello: &SidebarHello) {
 
 #[cfg(not(target_family = "wasm"))]
 fn send_hello_wasm(_hello: &SidebarHello) {}
+
+#[cfg(test)]
+impl SidebarRendererPlugin {
+    pub(crate) fn test_state(&self) -> &SidebarState {
+        &self.state
+    }
+}
