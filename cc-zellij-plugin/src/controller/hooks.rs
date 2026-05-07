@@ -330,21 +330,13 @@ fn maybe_rename_tab(state: &mut ControllerState, pane_id: u32) {
             .count();
         if sessions_on_tab == 1 {
             if let Some(s) = state.sessions.get(&pane_id) {
-                rename_tab_wasm(tab_idx, &s.display_name);
+                crate::wasm_compat::rename_tab_wasm(tab_idx, &s.display_name);
             }
         }
     } else if let Some(s) = state.sessions.get_mut(&pane_id) {
         s.pending_tab_rename = true;
     }
 }
-
-#[cfg(target_family = "wasm")]
-fn rename_tab_wasm(tab_idx: usize, name: &str) {
-    zellij_tile::prelude::rename_tab(tab_idx as u32 + 1, name);
-}
-
-#[cfg(not(target_family = "wasm"))]
-fn rename_tab_wasm(_tab_idx: usize, _name: &str) {}
 
 #[cfg(test)]
 mod tests {

@@ -1,8 +1,8 @@
 // Inline rename editing for the sidebar renderer plugin.
 //
-// Adapted from crate::rename but operates on the local RenameState
-// defined in modes.rs. Returns actions that the caller translates
-// into pipe messages to the controller.
+// Operates on the local RenameState defined in modes.rs. Returns
+// actions that the caller translates into pipe messages to the
+// controller.
 
 use super::modes::RenameState;
 use zellij_tile::prelude::*;
@@ -163,14 +163,7 @@ fn char_ceil(s: &str, pos: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::BTreeSet;
-
-    fn bare(key: BareKey) -> KeyWithModifier {
-        KeyWithModifier {
-            bare_key: key,
-            key_modifiers: BTreeSet::new(),
-        }
-    }
+    use super::super::test_helpers::bare;
 
     #[test]
     fn test_char_insert() {

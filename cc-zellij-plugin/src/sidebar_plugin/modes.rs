@@ -1,8 +1,7 @@
 // Sidebar mode state machine for the thin sidebar renderer.
 //
-// Adapted from crate::state::SidebarMode but simplified for the sidebar
-// plugin context. The sidebar does not maintain session state; it only
-// manages local UI modes (navigation, rename, filter, help).
+// The sidebar does not maintain session state; it only manages local
+// UI modes (navigation, rename, filter, help).
 
 /// Grace period (ms) for ignoring stale events after mode entry.
 pub const ENTER_GRACE_MS: u64 = 1500;
@@ -109,11 +108,6 @@ impl SidebarMode {
         )
     }
 
-    /// Whether this mode captures keyboard input.
-    pub fn is_capturing_input(&self) -> bool {
-        !matches!(self, SidebarMode::Passive)
-    }
-
     /// Get navigate context reference (if in any navigate sub-mode).
     pub fn nav_ctx(&self) -> Option<&NavigateContext> {
         match self {
@@ -164,15 +158,6 @@ impl SidebarMode {
         }
     }
 
-    /// Get mutable rename state if currently renaming.
-    pub fn rename_state_mut(&mut self) -> Option<&mut RenameState> {
-        match self {
-            SidebarMode::NavigateRename { rename, .. }
-            | SidebarMode::RenamePassive { rename, .. } => Some(rename),
-            _ => None,
-        }
-    }
-
     /// Get the filter state if currently filtering.
     pub fn filter_state(&self) -> Option<&FilterState> {
         match self {
@@ -198,7 +183,6 @@ mod tests {
     fn test_passive_not_selectable() {
         assert!(!SidebarMode::Passive.is_selectable());
         assert!(!SidebarMode::Passive.is_navigating());
-        assert!(!SidebarMode::Passive.is_capturing_input());
     }
 
     #[test]
@@ -211,7 +195,6 @@ mod tests {
         });
         assert!(mode.is_selectable());
         assert!(mode.is_navigating());
-        assert!(mode.is_capturing_input());
         assert_eq!(mode.cursor_index(), 0);
     }
 
