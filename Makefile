@@ -31,6 +31,7 @@ CLI_LDFLAGS = -X github.com/cc-deck/cc-deck/internal/cmd.Version=$(VERSION)+$(GI
 
 .PHONY: build build-wasm build-wasm-debug copy-wasm build-cli cross-cli \
         test test-go test-rust test-e2e test-compose test-integration smoke lint lint-go lint-rust \
+        coverage coverage-summary coverage-json \
         deploy-ssh install uninstall status \
         test-image demo-image demo-image-push base-image base-image-push \
         demo-setup demo-record demo-gif demo-mp4 demo-clean \
@@ -97,6 +98,68 @@ lint-go:  ## Run Go linter
 
 lint-rust:  ## Run Rust linter
 	cd cc-zellij-plugin && cargo clippy -- -D warnings
+
+## -- Coverage ---------------------------------------------
+
+define check_llvm_cov
+	@command -v cargo-llvm-cov >/dev/null 2>&1 || { \
+		echo "Error: cargo-llvm-cov is not installed."; \
+		echo ""; \
+		echo "Install it with:"; \
+		echo "  cargo install cargo-llvm-cov"; \
+		echo "  rustup component add llvm-tools-preview"; \
+		echo ""; \
+		echo "See https://github.com/taiki-e/cargo-llvm-cov for details."; \
+		exit 1; \
+	}
+endef
+
+coverage:  ## Generate HTML coverage report and open in browser
+	$(call check_llvm_cov)
+	cd cc-zellij-plugin && cargo llvm-cov --html --ignore-filename-regex 'tests?\.rs'
+	@echo "Opening coverage report..."
+	@open cc-zellij-plugin/target/llvm-cov/html/index.html 2>/dev/null || \
+		xdg-open cc-zellij-plugin/target/llvm-cov/html/index.html 2>/dev/null || \
+		echo "Report generated at cc-zellij-plugin/target/llvm-cov/html/index.html"
+
+coverage-summary:  ## Print per-module coverage summary table
+	$(call check_llvm_cov)
+	@cd cc-zellij-plugin && cargo llvm-cov --json --ignore-filename-regex 'tests?\.rs' 2>/dev/null | \
+		jq -r ' \
+			.data[0].files | \
+			map(select(.filename | contains("/src/"))) | \
+			map(.relpath = (.filename | split("/src/") | last | ("src/" + .))) | \
+			group_by( \
+				if (.relpath | split("/") | length) > 2 then \
+					.relpath | split("/")[1] \
+				else \
+					"(root)" \
+				end \
+			) | \
+			map({ \
+				module: .[0] | (if (.relpath | split("/") | length) > 2 then .relpath | split("/")[1] else "(root)" end), \
+				covered: (map(.summary.lines.covered) | add), \
+				total: (map(.summary.lines.count) | add) \
+			}) | \
+			sort_by(.module) | \
+			. as $$modules | \
+			(map(.covered) | add) as $$total_covered | \
+			(map(.total) | add) as $$total_total | \
+			["Module", "Lines", "Covered", "Coverage"], \
+			["------", "-----", "-------", "--------"], \
+			(.[] | [.module, (.total | tostring), (.covered | tostring), \
+				(if .total > 0 then ((.covered * 1000 / .total | floor) / 10 | tostring) + "%" else "N/A" end)]), \
+			["------", "-----", "-------", "--------"], \
+			["TOTAL", ($$total_total | tostring), ($$total_covered | tostring), \
+				(if $$total_total > 0 then (($$total_covered * 1000 / $$total_total | floor) / 10 | tostring) + "%" else "N/A" end)] \
+			| @tsv' | \
+		column -t -s '	'
+
+coverage-json:  ## Generate machine-readable JSON coverage report
+	$(call check_llvm_cov)
+	@mkdir -p cc-zellij-plugin/target/llvm-cov
+	cd cc-zellij-plugin && cargo llvm-cov --json --ignore-filename-regex 'tests?\.rs' > target/llvm-cov/coverage.json
+	@echo "Coverage data written to cc-zellij-plugin/target/llvm-cov/coverage.json"
 
 ## -- Remote Deploy ----------------------------------------
 
