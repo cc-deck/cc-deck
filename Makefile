@@ -114,6 +114,18 @@ define check_llvm_cov
 	}
 endef
 
+define check_jq
+	@command -v jq >/dev/null 2>&1 || { \
+		echo "Error: jq is not installed (required for coverage-summary)."; \
+		echo ""; \
+		echo "Install it with:"; \
+		echo "  brew install jq       # macOS"; \
+		echo "  apt install jq        # Debian/Ubuntu"; \
+		echo "  dnf install jq        # Fedora/RHEL"; \
+		exit 1; \
+	}
+endef
+
 coverage:  ## Generate HTML coverage report and open in browser
 	$(call check_llvm_cov)
 	cd cc-zellij-plugin && cargo llvm-cov --html --ignore-filename-regex 'tests?\.rs'
@@ -124,7 +136,8 @@ coverage:  ## Generate HTML coverage report and open in browser
 
 coverage-summary:  ## Print per-module coverage summary table
 	$(call check_llvm_cov)
-	@cd cc-zellij-plugin && cargo llvm-cov --json --ignore-filename-regex 'tests?\.rs' 2>/dev/null | \
+	$(call check_jq)
+	@cd cc-zellij-plugin && cargo llvm-cov --json --ignore-filename-regex 'tests?\.rs' | \
 		jq -r ' \
 			.data[0].files | \
 			map(select(.filename | contains("/src/"))) | \
