@@ -8,7 +8,7 @@
 // reference the old top-level fuzz_tests module with a different FuzzAction
 // shape. Those seeds are incompatible with this module's strategy tree and
 // are kept as historical documentation only. New seeds will be written to
-// `proptest-regressions/sidebar_plugin/fuzz_tests/test_sidebar_invariants.txt`.
+// `proptest-regressions/sidebar_plugin/fuzz_tests.txt`.
 
 use proptest::prelude::*;
 use super::input;
