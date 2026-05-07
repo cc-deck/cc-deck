@@ -86,7 +86,7 @@ impl ZellijPlugin for ControllerPlugin {
                     // T021-T023: Migrate legacy state files to PID-scoped paths
                     ControllerState::migrate_legacy_files();
                     // T018: Clean up orphaned state files from dead Zellij sessions
-                    crate::sync::cleanup_orphaned_state_files();
+                    state::cleanup_orphaned_state_files();
 
                     // Restore persisted sessions (reattach recovery)
                     let restored = ControllerState::restore_sessions();
@@ -193,7 +193,7 @@ impl ZellijPlugin for ControllerPlugin {
             PipeAction::HookEvent(hook) => {
                 hooks::process_hook(&mut self.state, hook);
             }
-            PipeAction::SyncState(_) | PipeAction::RequestState => {
+            PipeAction::SyncState | PipeAction::RequestState => {
                 // Legacy sync messages: ignored in controller architecture.
                 // The controller is the single writer; no peer sync needed.
             }
@@ -621,6 +621,7 @@ fn cli_pipe_output_wasm(pipe_id: &str, output: &str) {
 }
 
 #[cfg(not(target_family = "wasm"))]
+#[allow(dead_code)]
 fn cli_pipe_output_wasm(_pipe_id: &str, _output: &str) {}
 
 #[cfg(target_family = "wasm")]
@@ -629,6 +630,7 @@ fn unblock_cli_pipe_input_wasm(pipe_id: &str) {
 }
 
 #[cfg(not(target_family = "wasm"))]
+#[allow(dead_code)]
 fn unblock_cli_pipe_input_wasm(_pipe_id: &str) {}
 
 #[cfg(test)]

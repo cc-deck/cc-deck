@@ -9,6 +9,8 @@ pub mod render;
 pub mod input;
 pub mod modes;
 pub mod rename;
+#[cfg(test)]
+pub(crate) mod test_helpers;
 
 use self::state::SidebarState;
 use crate::config::PluginConfig;

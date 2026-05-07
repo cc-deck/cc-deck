@@ -1,0 +1,43 @@
+Baseline Measurements (2026-05-06)
+====================================
+
+Source Code:
+  Total lines in src/: 14,436
+  src/main.rs lines: 2,083
+  Total .rs files: 29
+
+WASM Binary:
+  cc_deck.wasm size: 898 KB
+
+Tests:
+  make test-rust: 296 passed, 0 failed
+
+Lint (pre-existing issues, not from this feature):
+  - clippy::unnecessary_map_or in sidebar_plugin/input.rs (2 instances)
+  - clippy::large_enum_variant in main.rs UnifiedPlugin enum
+
+Final Measurements (2026-05-06)
+====================================
+
+Source Code:
+  Total lines in src/: 8,019
+  src/main.rs lines: 146
+  Total .rs files: 22
+
+WASM Binary:
+  cc_deck.wasm size: 898 KB (unchanged, dead code was already eliminated by LTO)
+
+Tests:
+  make test-rust: 143 passed, 0 failed
+
+Lint:
+  make lint-rust: zero warnings
+
+Changes:
+  Lines removed: 6,417 (44.5% reduction)
+  Files removed: 8 (state.rs, sidebar.rs, rename.rs, attend.rs, sync.rs, notification.rs, state_machine_tests.rs, fuzz_tests.rs)
+  Files added: 1 (debug.rs, extracted from main.rs)
+  main.rs reduced from 2,083 to 146 lines (93% reduction)
+  Global #![allow(dead_code, unused_imports)] removed
+  Orphaned dev-dependency (proptest) removed
+  3 pre-existing clippy warnings fixed
