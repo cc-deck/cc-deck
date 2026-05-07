@@ -634,6 +634,20 @@ fn unblock_cli_pipe_input_wasm(pipe_id: &str) {
 fn unblock_cli_pipe_input_wasm(_pipe_id: &str) {}
 
 #[cfg(test)]
+mod integration_tests;
+
+#[cfg(test)]
+impl ControllerPlugin {
+    pub(crate) fn test_state(&self) -> &ControllerState {
+        &self.state
+    }
+
+    pub(crate) fn test_state_mut(&mut self) -> &mut ControllerState {
+        &mut self.state
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::session::{Activity, Session};
