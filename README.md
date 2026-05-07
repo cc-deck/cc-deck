@@ -471,6 +471,25 @@ rustup target add wasm32-wasip1
 make install
 ```
 
+## Test Coverage
+
+Coverage measurement for the Rust plugin uses [cargo-llvm-cov](https://github.com/taiki-e/cargo-llvm-cov). Install prerequisites first:
+
+```bash
+cargo install cargo-llvm-cov
+rustup component add llvm-tools-preview
+```
+
+Then use the Makefile targets:
+
+| Target | Description |
+|--------|-------------|
+| `make coverage` | Generate an HTML report and open it in the browser |
+| `make coverage-summary` | Print a per-module coverage table to the terminal |
+| `make coverage-json` | Write machine-readable JSON to `cc-zellij-plugin/target/llvm-cov/coverage.json` |
+
+Coverage runs tests on the native target, not wasm32. Code behind `#[cfg(target_family = "wasm")]` guards is unreachable during measurement. The no-op stubs in `wasm_compat.rs` and `debug.rs` are covered instead.
+
 ## Uninstall
 
 ```bash
