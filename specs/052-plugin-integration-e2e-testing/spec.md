@@ -125,3 +125,4 @@ A developer changes the permission handling or event queuing logic. Integration 
 - The existing test helper infrastructure (make_payload, make_session, make_state_with_sessions) can be extended for integration test use.
 - Timer-dependent behavior (grace periods, stale session cleanup) is tested through direct state manipulation rather than real time delays.
 - Multi-instance coordination (multiple sidebar instances communicating through a shared controller) is out of scope for this feature.
+- README.md will be updated to document the new integration test suite per project constitution requirements.

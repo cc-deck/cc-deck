@@ -123,5 +123,5 @@ When implementing a new backend for an existing interface (e.g., new Environment
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at `specs/051-proptest-fuzz-testing/plan.md`
+at `specs/052-plugin-integration-e2e-testing/plan.md`
 <!-- SPECKIT END -->
