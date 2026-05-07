@@ -118,6 +118,21 @@ A developer or script needs coverage data in a machine-readable format for furth
 - **SC-005**: Coverage reports correctly show 0% for modules with no tests rather than omitting them.
 - **SC-006**: The CI build does not fail when the Codecov token is absent (graceful degradation).
 
+## Clarifications
+
+### Session 2026-05-07
+
+No critical ambiguities detected. All open questions from the brainstorm were resolved before specification:
+- Coverage floor: measure first, set later (deferred)
+- CI enforcement: advisory only, never blocks merges
+- lcov output: generated for CI upload only, not as a separate local target
+- Per-module tracking: included via `make coverage-summary`
+
+Minor details deferred to planning phase:
+- Exact module granularity for the per-module summary (top-level source directories vs Rust module paths)
+- Output file locations for HTML and JSON coverage artifacts
+- Whether a `codecov.yml` configuration file is needed for PR comment behavior
+
 ## Assumptions
 
 - Developers have `cargo-llvm-cov` and the `llvm-tools-preview` rustup component installed locally for local coverage targets. These are not installed automatically by the Makefile.
