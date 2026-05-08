@@ -1013,7 +1013,7 @@ mod tests {
     }
 
     #[test]
-    fn test_delete_Y_confirms() {
+    fn test_delete_uppercase_y_confirms() {
         let mut state = make_state_with_sessions(&[(10, "a", 0)]);
         let ctx = NavigateContext { cursor_index: 0, restore_pane_id: None, restore_tab_index: None, entered_at_ms: 0 };
         state.mode = SidebarMode::NavigateDeleteConfirm { ctx, pane_id: 10 };

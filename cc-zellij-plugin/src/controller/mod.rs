@@ -650,7 +650,6 @@ impl ControllerPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::session::{Activity, Session};
 
     #[test]
     fn test_controller_plugin_default() {
