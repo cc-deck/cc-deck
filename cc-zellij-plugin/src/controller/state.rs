@@ -93,6 +93,8 @@ pub struct ControllerState {
     pub voice_last_ping_ms: u64,
     /// Pending mute toggle from sidebar: Some(true) = mute, Some(false) = unmute.
     pub voice_mute_requested: Option<bool>,
+    /// Timestamp (ms) when voice_mute_requested was set; used for timeout.
+    pub voice_mute_requested_ms: u64,
     /// Events received before permissions were granted.
     pub pending_events: Vec<Event>,
     /// Monotonic tick counter for render coalescing.

@@ -351,6 +351,7 @@ impl ZellijPlugin for ControllerPlugin {
             PipeAction::VoiceMuteToggle => {
                 if self.state.voice_enabled {
                     self.state.voice_mute_requested = Some(!self.state.voice_muted);
+                    self.state.voice_mute_requested_ms = session::unix_now_ms();
                     render_broadcast::broadcast_render(&self.state);
                     self.state.render_dirty = false;
                     crate::debug_log(&format!(
@@ -457,22 +458,23 @@ impl ControllerPlugin {
     fn handle_voice_command(&mut self, command: &str) {
         let now_ms = session::unix_now_ms();
         match command {
-            "voice:on" => {
+            cmd if cmd == "voice:on" || cmd.starts_with("voice:on:") => {
                 let was_enabled = self.state.voice_enabled;
                 self.state.voice_enabled = true;
                 self.state.voice_last_ping_ms = now_ms;
                 if !was_enabled {
-                    // First activation: reset mute state
-                    self.state.voice_muted = false;
+                    self.state.voice_muted = cmd == "voice:on:muted";
                     self.state.voice_mute_requested = None;
+                    self.state.voice_mute_requested_ms = 0;
                 }
                 self.state.mark_render_dirty();
-                crate::debug_log("CTRL VOICE command: voice:on");
+                crate::debug_log(&format!("CTRL VOICE command: {}", cmd));
             }
             "voice:off" => {
                 self.state.voice_enabled = false;
                 self.state.voice_muted = false;
                 self.state.voice_mute_requested = None;
+                self.state.voice_mute_requested_ms = 0;
                 self.state.mark_render_dirty();
                 crate::debug_log("CTRL VOICE command: voice:off");
             }
@@ -484,12 +486,14 @@ impl ControllerPlugin {
             "voice:mute" => {
                 self.state.voice_muted = true;
                 self.state.voice_mute_requested = None;
+                self.state.voice_mute_requested_ms = 0;
                 self.state.mark_render_dirty();
                 crate::debug_log("CTRL VOICE command: voice:mute");
             }
             "voice:unmute" => {
                 self.state.voice_muted = false;
                 self.state.voice_mute_requested = None;
+                self.state.voice_mute_requested_ms = 0;
                 self.state.mark_render_dirty();
                 crate::debug_log("CTRL VOICE command: voice:unmute");
             }
@@ -748,5 +752,38 @@ mod tests {
         let cmd_text2 = "[[enter]]";
         let command2 = &cmd_text2[2..cmd_text2.len()-2];
         assert_eq!(command2, "enter");
+    }
+
+    #[test]
+    fn test_voice_on_muted_sets_state() {
+        let mut plugin = ControllerPlugin::default();
+        plugin.handle_voice_command("voice:on:muted");
+        assert!(plugin.state.voice_enabled);
+        assert!(plugin.state.voice_muted);
+    }
+
+    #[test]
+    fn test_voice_on_unmuted_sets_state() {
+        let mut plugin = ControllerPlugin::default();
+        plugin.handle_voice_command("voice:on:unmuted");
+        assert!(plugin.state.voice_enabled);
+        assert!(!plugin.state.voice_muted);
+    }
+
+    #[test]
+    fn test_voice_on_plain_backward_compat() {
+        let mut plugin = ControllerPlugin::default();
+        plugin.handle_voice_command("voice:on");
+        assert!(plugin.state.voice_enabled);
+        assert!(!plugin.state.voice_muted);
+    }
+
+    #[test]
+    fn test_voice_on_already_enabled_preserves_mute() {
+        let mut plugin = ControllerPlugin::default();
+        plugin.state.voice_enabled = true;
+        plugin.state.voice_muted = true;
+        plugin.handle_voice_command("voice:on");
+        assert!(plugin.state.voice_muted);
     }
 }

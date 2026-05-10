@@ -241,6 +241,7 @@ fn handle_refresh(state: &mut ControllerState) {
 fn handle_voice_mute(state: &mut ControllerState) {
     if state.voice_enabled {
         state.voice_mute_requested = Some(!state.voice_muted);
+        state.voice_mute_requested_ms = crate::session::unix_now_ms();
         super::render_broadcast::broadcast_render(state);
         state.render_dirty = false;
     }

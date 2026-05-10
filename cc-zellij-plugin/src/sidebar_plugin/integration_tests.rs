@@ -216,5 +216,42 @@ fn test_sidebar_unknown_pipe_ignored() {
     assert!(!should_render);
 }
 
+#[test]
+fn test_local_mute_override_cleared_on_disconnect() {
+    let mut plugin = setup_sidebar();
+
+    // Set local mute override (as if user clicked mute)
+    plugin.test_state_mut().local_mute_override = Some(true);
+
+    // Send a render payload with voice disconnected
+    let mut payload = make_payload(vec![make_session(1, "test", 0)]);
+    payload.voice_connected = false;
+    payload.voice_muted = false;
+    plugin.pipe(make_pipe(
+        "cc-deck:render",
+        &serde_json::to_string(&payload).unwrap(),
+    ));
+
+    assert!(plugin.test_state().local_mute_override.is_none());
+}
+
+#[test]
+fn test_local_mute_override_preserved_on_mismatch() {
+    let mut plugin = setup_sidebar();
+
+    plugin.test_state_mut().local_mute_override = Some(true);
+
+    // Send payload with voice connected but muted=false (mismatch with override)
+    let mut payload = make_payload(vec![make_session(1, "test", 0)]);
+    payload.voice_connected = true;
+    payload.voice_muted = false;
+    plugin.pipe(make_pipe(
+        "cc-deck:render",
+        &serde_json::to_string(&payload).unwrap(),
+    ));
+
+    assert_eq!(plugin.test_state().local_mute_override, Some(true));
+}
+
 use super::SidebarRendererPlugin;
 use cc_deck::RenderPayload;
