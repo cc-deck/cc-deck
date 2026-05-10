@@ -188,8 +188,12 @@ impl ZellijPlugin for SidebarRendererPlugin {
                             }
                         }
 
-                        // Clear mute override once controller confirms the toggle.
-                        if let Some(expected) = self.state.local_mute_override {
+                        // Clear mute override on disconnect (prevents stale
+                        // overrides surviving across sleep/wake cycles) or
+                        // when the controller confirms the expected state.
+                        if !render_payload.voice_connected {
+                            self.state.local_mute_override = None;
+                        } else if let Some(expected) = self.state.local_mute_override {
                             if render_payload.voice_muted == expected {
                                 self.state.local_mute_override = None;
                             }
@@ -302,5 +306,8 @@ fn send_hello_wasm(_hello: &SidebarHello) {}
 impl SidebarRendererPlugin {
     pub(crate) fn test_state(&self) -> &SidebarState {
         &self.state
+    }
+    pub(crate) fn test_state_mut(&mut self) -> &mut SidebarState {
+        &mut self.state
     }
 }

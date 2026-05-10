@@ -11,7 +11,8 @@ mod wasm_compat;
 
 pub use debug::{debug_init, debug_log, install_panic_hook};
 
-/// Strip ANSI escape sequences and control characters from voice text.
+/// Strip ANSI escape sequences, control characters, and speech-to-text
+/// noise markers (e.g. `*cough*`, `(typing)`) from voice text.
 fn sanitize_voice_text(text: &str) -> String {
     let mut result = String::with_capacity(text.len());
     let mut in_escape = false;
@@ -29,7 +30,48 @@ fn sanitize_voice_text(text: &str) -> String {
         }
     }
     result.retain(|c| c != '\x1b');
+    strip_noise_markers(&mut result);
     result
+}
+
+/// Remove speech-to-text noise markers enclosed in `*...*` or `(...)`.
+/// Only strips markers where the inner text starts and ends with a
+/// letter/digit (not a space), to avoid false positives on arithmetic
+/// like `a * b * c`.
+fn strip_noise_markers(text: &mut String) {
+    let original = text.clone();
+    text.clear();
+    let bytes = original.as_bytes();
+    let len = bytes.len();
+    let mut i = 0;
+    while i < len {
+        let ch = bytes[i];
+        if ch == b'*' || ch == b'(' {
+            let close = if ch == b'*' { b'*' } else { b')' };
+            if let Some(end) = bytes[i + 1..].iter().position(|&b| b == close) {
+                let end = i + 1 + end;
+                let inner = &original[i + 1..end];
+                let first = inner.as_bytes().first().copied().unwrap_or(b' ');
+                let last = inner.as_bytes().last().copied().unwrap_or(b' ');
+                if !inner.is_empty()
+                    && !inner.contains('\n')
+                    && inner.len() <= 30
+                    && first.is_ascii_alphabetic()
+                    && last.is_ascii_alphabetic()
+                {
+                    i = end + 1;
+                    while i < len && bytes[i] == b' ' {
+                        i += 1;
+                    }
+                    continue;
+                }
+            }
+        }
+        text.push(ch as char);
+        i += 1;
+    }
+    let trimmed = text.trim().to_string();
+    *text = trimmed;
 }
 
 use std::collections::BTreeMap;
@@ -177,5 +219,39 @@ mod unified_plugin_tests {
     #[test]
     fn test_sanitize_voice_text_only_escapes() {
         assert_eq!(sanitize_voice_text("\x1b[1m\x1b[0m"), "");
+    }
+
+    #[test]
+    fn test_sanitize_voice_text_noise_asterisk() {
+        assert_eq!(sanitize_voice_text("hello *cough* world"), "hello world");
+    }
+
+    #[test]
+    fn test_sanitize_voice_text_noise_parens() {
+        assert_eq!(sanitize_voice_text("hello (typing) world"), "hello world");
+    }
+
+    #[test]
+    fn test_sanitize_voice_text_noise_only() {
+        assert_eq!(sanitize_voice_text("*cough*"), "");
+    }
+
+    #[test]
+    fn test_sanitize_voice_text_noise_multiple() {
+        assert_eq!(
+            sanitize_voice_text("*ahem* hello (clears throat) world *sniff*"),
+            "hello world"
+        );
+    }
+
+    #[test]
+    fn test_sanitize_voice_text_preserves_real_asterisks() {
+        assert_eq!(sanitize_voice_text("a * b * c"), "a * b * c");
+    }
+
+    #[test]
+    fn test_sanitize_voice_text_preserves_long_parens() {
+        let long = format!("({})", "a".repeat(31));
+        assert_eq!(sanitize_voice_text(&long), long);
     }
 }
