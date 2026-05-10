@@ -170,18 +170,31 @@ pub fn handle_timer(state: &mut ControllerState, _elapsed: f64) {
         state.mark_render_dirty();
     }
 
+    let now_ms = session::unix_now_ms();
+
     // Voice heartbeat timeout: if voice is enabled but no ping for 15 seconds, clear voice state
-    if state.voice_enabled {
-        let now_ms = session::unix_now_ms();
-        if state.voice_last_ping_ms > 0
-            && now_ms.saturating_sub(state.voice_last_ping_ms) > 15000
-        {
-            state.voice_enabled = false;
-            state.voice_muted = false;
-            state.voice_mute_requested = None;
-            state.mark_render_dirty();
-            crate::debug_log("CTRL TIMER: voice heartbeat timeout, clearing voice state");
-        }
+    if state.voice_enabled
+        && state.voice_last_ping_ms > 0
+        && now_ms.saturating_sub(state.voice_last_ping_ms) > 15000
+    {
+        state.voice_enabled = false;
+        state.voice_muted = false;
+        state.voice_mute_requested = None;
+        state.voice_mute_requested_ms = 0;
+        state.mark_render_dirty();
+        crate::debug_log("CTRL TIMER: voice heartbeat timeout, clearing voice state");
+    }
+
+    // Timeout for stale voice_mute_requested: if the relay hasn't confirmed
+    // the toggle within 5 seconds, clear the request to unstick the UI.
+    if state.voice_mute_requested.is_some()
+        && state.voice_mute_requested_ms > 0
+        && now_ms.saturating_sub(state.voice_mute_requested_ms) > 5000
+    {
+        crate::debug_log("CTRL TIMER: voice_mute_requested timeout, clearing");
+        state.voice_mute_requested = None;
+        state.voice_mute_requested_ms = 0;
+        state.mark_render_dirty();
     }
 
     // Fading colors change every tick for Done/Idle sessions
