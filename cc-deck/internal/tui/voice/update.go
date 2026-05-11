@@ -84,7 +84,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "r":
 			switch m.recState {
 			case recIdle:
-				m.recInput.SetValue(defaultTranscriptName())
+				name := defaultTranscriptName()
+				m.recInput.SetValue(name)
+				m.recInput.SetCursor(len(name) - len(".txt"))
 				m.recInput.Focus()
 				m.recState = recPrompting
 				m.resizeViewport()
