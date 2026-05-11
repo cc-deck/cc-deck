@@ -42,9 +42,11 @@ func resolveTranscriptPath(name string) (string, error) {
 	return filepath.Join(dir, name), nil
 }
 
-// defaultTranscriptName returns a timestamped filename for a new transcript.
+// defaultTranscriptName returns a date-prefixed filename for a new transcript.
+// The format is "2006-01-02-.txt" so the user can insert a description after
+// the dash (e.g. "2026-05-11-standup.txt").
 func defaultTranscriptName() string {
-	return "transcript-" + time.Now().Format("2006-01-02T15-04-05") + ".txt"
+	return time.Now().Format("2006-01-02") + "-.txt"
 }
 
 // writeTranscriptLine appends a single line of text to the transcript file.
