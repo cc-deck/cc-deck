@@ -71,16 +71,18 @@ func TestResolveTranscriptPath_Absolute(t *testing.T) {
 func TestDefaultTranscriptName(t *testing.T) {
 	name := defaultTranscriptName()
 
-	if !strings.HasPrefix(name, "transcript-") {
-		t.Errorf("name %q should start with 'transcript-'", name)
+	if !strings.HasSuffix(name, "-.txt") {
+		t.Errorf("name %q should end with '-.txt'", name)
 	}
-	if !strings.HasSuffix(name, ".txt") {
-		t.Errorf("name %q should end with '.txt'", name)
+	// Format: YYYY-MM-DD-.txt
+	// Total length: 10 (date) + 1 (dash) + 4 (suffix) = 15
+	if len(name) != 15 {
+		t.Errorf("name %q length = %d, want 15", name, len(name))
 	}
-	// Format: transcript-YYYY-MM-DDTHH-MM-SS.txt
-	// Total length: 11 (prefix) + 19 (timestamp) + 4 (suffix) = 34
-	if len(name) != 34 {
-		t.Errorf("name %q length = %d, want 34", name, len(name))
+	// Cursor should be placed after the dash, before ".txt"
+	cursorPos := len(name) - len(".txt")
+	if cursorPos != 11 {
+		t.Errorf("cursor position = %d, want 11", cursorPos)
 	}
 }
 
