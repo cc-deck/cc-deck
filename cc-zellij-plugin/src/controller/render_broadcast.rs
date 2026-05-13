@@ -75,7 +75,8 @@ pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
 }
 
 /// Broadcast the render payload to all registered sidebar instances.
-pub fn broadcast_render(state: &ControllerState) {
+/// Skips broadcast if the serialized JSON is identical to the last one sent.
+pub fn broadcast_render(state: &mut ControllerState) {
     let payload = build_render_payload(state);
     let json = match serde_json::to_string(&payload) {
         Ok(j) => j,
@@ -84,6 +85,18 @@ pub fn broadcast_render(state: &ControllerState) {
             return;
         }
     };
+
+    let hash = {
+        let mut h: u64 = 5381;
+        for b in json.as_bytes() {
+            h = h.wrapping_mul(33).wrapping_add(*b as u64);
+        }
+        h
+    };
+    if hash == state.last_render_hash {
+        return;
+    }
+    state.last_render_hash = hash;
 
     // Send to each registered sidebar
     for &sidebar_plugin_id in state.sidebar_registry.keys() {
@@ -112,6 +125,12 @@ pub fn flush_render(state: &mut ControllerState) {
         broadcast_render(state);
         state.render_dirty = false;
     }
+}
+
+/// Force broadcast regardless of dedup hash (e.g. for focus changes).
+pub fn broadcast_render_force(state: &mut ControllerState) {
+    state.last_render_hash = 0;
+    broadcast_render(state);
 }
 
 /// Human-readable label for an activity state.
