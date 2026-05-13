@@ -167,6 +167,10 @@ pub fn process_hook(state: &mut ControllerState, hook: HookPayload) -> bool {
     }
 
     // Transition activity
+    let prev_activity = state
+        .sessions
+        .get(&hook.pane_id)
+        .map(|s| format!("{:?}", s.activity));
     let was_waiting = state
         .sessions
         .get(&hook.pane_id)
@@ -176,6 +180,14 @@ pub fn process_hook(state: &mut ControllerState, hook: HookPayload) -> bool {
         Some(s) => s.transition(activity),
         None => return false,
     };
+    if changed {
+        crate::debug_log(&format!(
+            "CTRL HOOK: pane={} {} {:?}->{:?}",
+            hook.pane_id, hook.hook_event_name,
+            prev_activity.as_deref().unwrap_or("?"),
+            state.sessions.get(&hook.pane_id).map(|s| format!("{:?}", s.activity)).unwrap_or_default()
+        ));
+    }
     if was_waiting && changed {
         crate::debug_log(&format!(
             "CTRL HOOK: pane={} left Waiting via {}",
