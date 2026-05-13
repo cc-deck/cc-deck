@@ -14,6 +14,7 @@ use zellij_tile::prelude::*;
 /// Handle TabUpdate event: track tabs, detect active tab, register keybindings,
 /// clean up dead sessions.
 pub fn handle_tab_update(state: &mut ControllerState, tabs: Vec<TabInfo>) {
+    let old_active = state.active_tab_index;
     let new_active = tabs.iter().find(|t| t.active).map(|t| t.position);
     state.active_tab_index = new_active;
 
@@ -24,7 +25,8 @@ pub fn handle_tab_update(state: &mut ControllerState, tabs: Vec<TabInfo>) {
     state.tabs = tabs;
     let pre_focus = state.focused_pane_id;
     state.rebuild_pane_map();
-    if state.focused_pane_id != pre_focus {
+    let focus_changed = state.focused_pane_id != pre_focus;
+    if focus_changed {
         crate::debug_log(&format!(
             "CTRL TAB_UPDATE: rebuild changed focus {:?} -> {:?}",
             pre_focus, state.focused_pane_id
@@ -40,15 +42,18 @@ pub fn handle_tab_update(state: &mut ControllerState, tabs: Vec<TabInfo>) {
     state.last_tab_count = current_tab_count;
 
     // Clean up dead sessions
-    state.remove_dead_sessions();
-    state.cleanup_stale_sessions(state.config.done_timeout);
+    let removed = state.remove_dead_sessions();
+    let stale = state.cleanup_stale_sessions(state.config.done_timeout);
 
     // If tab count changed, notify sidebars to reindex
     if tab_count_changed {
         super::sidebar_registry::handle_tab_reindex(state);
     }
 
-    state.mark_render_dirty();
+    // Only broadcast when something actually changed
+    if focus_changed || tab_count_changed || old_active != new_active || removed || stale {
+        state.mark_render_dirty();
+    }
 }
 
 /// Handle PaneUpdate event: update manifest, rebuild pane map, remove dead sessions.
