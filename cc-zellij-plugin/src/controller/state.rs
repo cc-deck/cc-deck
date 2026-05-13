@@ -281,12 +281,21 @@ impl ControllerState {
             match session.activity {
                 Activity::Done | Activity::AgentDone => {
                     if now.saturating_sub(session.last_event_ts) >= timeout_secs {
+                        crate::debug_log(&format!(
+                            "CTRL STALE: pane={} {:?}->Idle elapsed={}s timeout={}s",
+                            session.pane_id, session.activity,
+                            now.saturating_sub(session.last_event_ts), timeout_secs
+                        ));
                         session.activity = Activity::Idle;
                         changed = true;
                     }
                 }
                 Activity::Working => {
                     if now.saturating_sub(session.last_event_ts) >= timeout_secs {
+                        crate::debug_log(&format!(
+                            "CTRL STALE: pane={} Working->Done elapsed={}s",
+                            session.pane_id, now.saturating_sub(session.last_event_ts)
+                        ));
                         session.activity = Activity::Done;
                         changed = true;
                     }

@@ -466,9 +466,9 @@ impl ControllerPlugin {
                     self.state.voice_muted = cmd == "voice:on:muted";
                     self.state.voice_mute_requested = None;
                     self.state.voice_mute_requested_ms = 0;
+                    self.state.mark_render_dirty();
+                    crate::debug_log(&format!("CTRL VOICE command: {}", cmd));
                 }
-                self.state.mark_render_dirty();
-                crate::debug_log(&format!("CTRL VOICE command: {}", cmd));
             }
             "voice:off" => {
                 self.state.voice_enabled = false;
@@ -785,5 +785,6 @@ mod tests {
         plugin.state.voice_muted = true;
         plugin.handle_voice_command("voice:on");
         assert!(plugin.state.voice_muted);
+        assert!(!plugin.state.render_dirty);
     }
 }
