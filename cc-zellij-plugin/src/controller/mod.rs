@@ -107,7 +107,7 @@ impl ZellijPlugin for ControllerPlugin {
                     }
                     // Immediately broadcast initial render payload so
                     // sidebars stop showing "Waiting for controller..."
-                    render_broadcast::broadcast_render(&self.state);
+                    render_broadcast::broadcast_render_force(&mut self.state);
                     self.state.render_dirty = false;
                 }
                 false // Controller has no UI to render
@@ -352,7 +352,7 @@ impl ZellijPlugin for ControllerPlugin {
                 if self.state.voice_enabled {
                     self.state.voice_mute_requested = Some(!self.state.voice_muted);
                     self.state.voice_mute_requested_ms = session::unix_now_ms();
-                    render_broadcast::broadcast_render(&self.state);
+                    render_broadcast::broadcast_render_force(&mut self.state);
                     self.state.render_dirty = false;
                     crate::debug_log(&format!(
                         "CTRL VOICE-MUTE-TOGGLE requested={}",
