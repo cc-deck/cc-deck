@@ -197,6 +197,8 @@ install: build  ## Build and install plugin into Zellij
 	@# Remove legacy two-binary files from previous installations
 	@rm -f $(HOME)/.config/zellij/plugins/cc_deck_controller.wasm 2>/dev/null || true
 	@rm -f $(HOME)/.config/zellij/plugins/cc_deck_sidebar.wasm 2>/dev/null || true
+	@# Remove stale copy in data dir that Zellij may load instead
+	@rm -f $(HOME)/.local/share/zellij/plugins/cc_deck.wasm 2>/dev/null || true
 
 uninstall:  ## Remove plugin from Zellij
 	$(CLI_BIN) config plugin remove
