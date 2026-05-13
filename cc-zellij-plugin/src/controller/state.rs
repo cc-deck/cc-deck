@@ -95,6 +95,8 @@ pub struct ControllerState {
     pub voice_mute_requested: Option<bool>,
     /// Timestamp (ms) when voice_mute_requested was set; used for timeout.
     pub voice_mute_requested_ms: u64,
+    /// Last broadcast JSON hash for deduplication.
+    pub last_render_hash: u64,
     /// Events received before permissions were granted.
     pub pending_events: Vec<Event>,
     /// Monotonic tick counter for render coalescing.
