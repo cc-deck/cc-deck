@@ -197,13 +197,17 @@ pub fn handle_timer(state: &mut ControllerState, _elapsed: f64) {
         state.mark_render_dirty();
     }
 
-    // Fading colors change every tick for Done/Idle sessions
-    if state.sessions.values().any(|s| {
-        matches!(
-            s.activity,
-            Activity::Done | Activity::AgentDone | Activity::Idle
-        )
-    }) {
+    // Fading colors change every tick, but only while the fade is in progress.
+    // Once elapsed >= duration the color is static, so no re-render needed.
+    let needs_fade = state.sessions.values().any(|s| {
+        let elapsed = s.elapsed_secs();
+        match s.activity {
+            Activity::Done | Activity::AgentDone => elapsed < state.config.done_timeout,
+            Activity::Idle => elapsed < state.config.idle_fade_secs,
+            _ => false,
+        }
+    });
+    if needs_fade {
         state.mark_render_dirty();
     }
 
