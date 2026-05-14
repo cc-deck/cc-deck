@@ -547,6 +547,101 @@ func TestVoiceRelay_AttendCommandSendsAttend(t *testing.T) {
 	}
 }
 
+func TestParseDumpStateResponse_PrefersFocusedPaneID(t *testing.T) {
+	input := `{"sessions":{"10":{"display_name":"backend"},"20":{"display_name":"frontend"}},"attended_pane_id":10,"focused_pane_id":20}`
+	result := parseDumpStateResponse(input)
+	if result.targetName != "frontend" {
+		t.Errorf("targetName = %q, want %q (should prefer focused_pane_id)", result.targetName, "frontend")
+	}
+	if !result.hasFocusedPane {
+		t.Error("hasFocusedPane should be true")
+	}
+}
+
+func TestParseDumpStateResponse_FallsBackToAttendedPaneID(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{
+			"focused_pane_id absent",
+			`{"sessions":{"10":{"display_name":"backend"},"20":{"display_name":"frontend"}},"attended_pane_id":10}`,
+		},
+		{
+			"focused_pane_id not in sessions",
+			`{"sessions":{"10":{"display_name":"backend"}},"attended_pane_id":10,"focused_pane_id":99}`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := parseDumpStateResponse(tt.input)
+			if result.targetName != "backend" {
+				t.Errorf("targetName = %q, want %q (should fall back to attended_pane_id)", result.targetName, "backend")
+			}
+		})
+	}
+}
+
+func TestVoiceRelay_HeartbeatSendsMuteState(t *testing.T) {
+	tests := []struct {
+		name    string
+		muted   bool
+		wantMsg string
+	}{
+		{"unmuted sends voice:on:unmuted", false, "[[voice:on:unmuted]]"},
+		{"muted sends voice:on:muted", true, "[[voice:on:muted]]"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			audio := newMockAudioSource()
+			transcriber := &mockTranscriber{}
+			recvCalled := make(chan struct{}, 8)
+			pipe := &mockPipeSendReceiver{
+				recvResponse: `{"sessions":{}}`,
+				recvCalled:   recvCalled,
+			}
+
+			config := DefaultRelayConfig()
+			relay := NewVoiceRelay(config, audio, transcriber, pipe)
+			relay.mu.Lock()
+			relay.muted = tt.muted
+			relay.mu.Unlock()
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			if err := relay.Start(ctx); err != nil {
+				t.Fatalf("Start failed: %v", err)
+			}
+
+			// Wait for at least one statePoll tick
+			select {
+			case <-recvCalled:
+			case <-time.After(3 * time.Second):
+				t.Fatal("statePoll did not fire within 3s")
+			}
+
+			cancel()
+			relay.Stop()
+
+			sent := pipe.getSent()
+			var found bool
+			for _, s := range sent {
+				if s.payload == tt.wantMsg {
+					found = true
+					break
+				}
+			}
+			if !found {
+				var payloads []string
+				for _, s := range sent {
+					payloads = append(payloads, s.payload)
+				}
+				t.Errorf("expected %q in sends, got: %v", tt.wantMsg, payloads)
+			}
+		})
+	}
+}
+
 func isProtocolMessage(payload string) bool {
 	return strings.HasPrefix(payload, "[[voice:") || payload == "[[enter]]" || payload == "[[attend]]"
 }

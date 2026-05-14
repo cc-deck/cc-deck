@@ -170,6 +170,20 @@ pub fn send_render_to_plugin_pub(plugin_id: u32, json: &str) {
     send_render_to_plugin(plugin_id, json);
 }
 
+/// Build and send the current render payload to a single sidebar plugin.
+pub fn targeted_render(state: &ControllerState, plugin_id: u32) {
+    let payload = build_render_payload(state);
+    match serde_json::to_string(&payload) {
+        Ok(json) => send_render_to_plugin(plugin_id, &json),
+        Err(e) => {
+            crate::debug_log(&format!(
+                "CTRL RENDER targeted_render failed to serialize for plugin_id={}: {}",
+                plugin_id, e
+            ));
+        }
+    }
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -298,5 +312,24 @@ mod tests {
         assert!(!state.render_dirty);
         flush_render(&mut state);
         assert!(!state.render_dirty);
+    }
+
+    #[test]
+    fn test_targeted_render_builds_payload_without_panic() {
+        let mut state = ControllerState::default();
+        state.sessions.insert(1, make_session(1, "test-session", Activity::Working));
+        state.voice_enabled = true;
+        state.voice_muted = false;
+
+        // In non-WASM test mode, send_render_to_plugin is a no-op.
+        // This test verifies targeted_render builds a valid payload
+        // and does not panic. Actual delivery is verified via WASM
+        // integration tests.
+        targeted_render(&state, 42);
+
+        let payload = build_render_payload(&state);
+        assert_eq!(payload.sessions.len(), 1);
+        assert!(payload.voice_connected);
+        assert!(!payload.voice_muted);
     }
 }
