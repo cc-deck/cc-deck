@@ -217,12 +217,18 @@ pub fn handle_timer(state: &mut ControllerState, _elapsed: f64) {
 
     // Fading colors change over time for Done/Idle sessions.
     // Only re-render every 5 ticks (5s) to reduce broadcast frequency.
+    // Skip sessions whose fade animation is already complete to reach
+    // zero broadcasts at steady-state idle.
+    let done_timeout = state.config.done_timeout;
+    let idle_fade_secs = state.config.idle_fade_secs;
     if state.tick_count.is_multiple_of(5)
         && state.sessions.values().any(|s| {
-            matches!(
-                s.activity,
-                Activity::Done | Activity::AgentDone | Activity::Idle
-            )
+            let elapsed = s.elapsed_secs();
+            match s.activity {
+                Activity::Done | Activity::AgentDone => elapsed < done_timeout,
+                Activity::Idle => elapsed < idle_fade_secs,
+                _ => false,
+            }
         })
     {
         state.mark_render_dirty();

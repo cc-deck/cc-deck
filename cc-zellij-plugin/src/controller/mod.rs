@@ -431,6 +431,9 @@ impl ZellijPlugin for ControllerPlugin {
                 }
             }
             PipeAction::ControllerPing(sender_id) => {
+                if sender_id == self.state.plugin_id {
+                    return false;
+                }
                 if sender_id < self.state.plugin_id {
                     // Sender has lower (winning) plugin_id: self-disable
                     self.state.disabled = true;
