@@ -21,9 +21,6 @@ pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
     let mut working = 0usize;
     let mut idle = 0usize;
 
-    let done_timeout = state.config.done_timeout;
-    let idle_fade_secs = state.config.idle_fade_secs;
-
     let render_sessions: Vec<RenderSession> = sessions
         .iter()
         .map(|s| {
@@ -32,7 +29,6 @@ pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
                 Activity::Working => working += 1,
                 Activity::Idle | Activity::Init => idle += 1,
                 Activity::Done | Activity::AgentDone => {
-                    // Done/AgentDone count as idle for summary purposes
                     idle += 1;
                 }
             }
@@ -42,12 +38,7 @@ pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
                 display_name: s.display_name.clone(),
                 activity_label: activity_label(&s.activity),
                 indicator: s.activity.indicator().to_string(),
-                color: crate::session::faded_color(
-                    &s.activity,
-                    s.elapsed_secs(),
-                    done_timeout,
-                    idle_fade_secs,
-                ),
+                last_event_ts: s.last_event_ts,
                 git_branch: s.git_branch.clone(),
                 tab_index: s.tab_index.unwrap_or(0),
                 paused: s.paused,
@@ -71,6 +62,8 @@ pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
         controller_plugin_id: state.plugin_id,
         voice_connected: state.voice_enabled,
         voice_muted: state.voice_muted,
+        done_timeout: state.config.done_timeout,
+        idle_fade_secs: state.config.idle_fade_secs,
     }
 }
 
@@ -249,7 +242,7 @@ mod tests {
         assert_eq!(rs.display_name, "api-server");
         assert_eq!(rs.activity_label, "Working");
         assert_eq!(rs.indicator, "\u{25cf}"); // ●
-        assert_eq!(rs.color, (180, 140, 255));
+        assert!(rs.last_event_ts > 0);
         assert_eq!(rs.git_branch, Some("main".to_string()));
         assert!(!rs.paused);
         assert_eq!(payload.focused_pane_id, Some(42));

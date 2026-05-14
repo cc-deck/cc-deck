@@ -21,6 +21,8 @@ pub fn make_payload(sessions: Vec<RenderSession>) -> RenderPayload {
         controller_plugin_id: 1,
         voice_connected: false,
         voice_muted: false,
+        done_timeout: 300,
+        idle_fade_secs: 3600,
     }
 }
 
@@ -30,7 +32,7 @@ pub fn make_session(pane_id: u32, name: &str, tab_index: usize) -> RenderSession
         display_name: name.to_string(),
         activity_label: "Idle".to_string(),
         indicator: "\u{25cb}".to_string(),
-        color: (180, 175, 195),
+        last_event_ts: crate::session::unix_now(),
         git_branch: None,
         tab_index,
         paused: false,
