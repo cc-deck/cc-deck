@@ -16,7 +16,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/cc-deck/cc-deck/internal/session"
-	"github.com/cc-deck/cc-deck/internal/ws"
 	"github.com/cc-deck/cc-deck/internal/xdg"
 )
 
@@ -151,14 +150,14 @@ func runHook(stdin io.Reader, paneIDStr string) {
 		return
 	}
 
-	// Send hook event to the controller plugin via targeted pipe.
-	// Use a 3-second timeout to prevent hangs when no Zellij session is active.
+	// Send hook event via broadcast pipe. All running plugins receive it;
+	// the controller processes cc-deck:hook, sidebars ignore it.
+	// Broadcast avoids creating a second controller instance when the
+	// --plugin-configuration doesn't exactly match the load_plugins config.
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, zellijPath, "pipe",
-		"--plugin", ws.ControllerPluginURL(),
-		"--plugin-configuration", "mode=controller",
 		"--name", "cc-deck:hook",
 		"--", string(payloadJSON))
 	_ = cmd.Run()
