@@ -78,7 +78,7 @@ A developer mutes voice relay. If the plugin's voice state times out and recover
 
 ### Edge Cases
 
-- What happens when two voice relay instances connect simultaneously? Only the most recent heartbeat should be authoritative.
+- What happens when two voice relay instances connect simultaneously? Last heartbeat wins with no relay identity tracking. This converges naturally when one relay stops.
 - What happens when the sidebar receives a render payload before voice relay has connected? The note should be absent (not flickering).
 - What happens when a session is closed while focused? The relay should fall back to the next available session or clear the displayed name.
 - What happens when all sessions are closed? The relay should show no target session name.
@@ -106,10 +106,34 @@ A developer mutes voice relay. If the plugin's voice state times out and recover
 - **SC-004**: After a heartbeat timeout and recovery, the mute state matches the relay's actual mute state (no manual re-mute needed)
 - **SC-005**: No increase in render broadcast frequency at steady state compared to current behavior (net reduction expected due to change-gated dirty marking)
 
+## Error Handling
+
+- If the voice relay crashes without clean disconnect, the controller continues reporting voice as enabled until the 15-second heartbeat timeout expires. Newly registered sidebars receive this state immediately (brief false positive is acceptable).
+- If the controller receives a heartbeat with an unrecognized mute suffix, it treats the relay as unmuted (consistent with bare `[[voice:on]]` backward compatibility).
+- If `focused_pane_id` is absent from the dump-state response, the relay falls back to `attended_pane_id` for session name resolution (FR-004).
+
+## Out of Scope
+
+- Voice relay protocol version negotiation or relay identity tracking
+- Changing the 15-second heartbeat timeout value
+- Changing the 1-second heartbeat interval
+- Sidebar-side rendering optimizations for voice indicator display
+
+## Clarifications
+
+### Session 2026-05-14
+
+- Q: How should the controller handle an unrecognized mute suffix on the heartbeat? → A: Treat as unmuted (same as missing suffix)
+- Q: When a second voice relay connects while one is already active, how should the controller resolve the conflict? → A: Last heartbeat wins, no relay identity tracking. Two simultaneous relays is a user error; last-write-wins converges when one stops.
+- Q: Should a newly registered sidebar receive voice state even if it may be stale (within the 15s timeout window)? → A: Yes, send current state immediately. Brief false positive (up to 15s) is better than a false negative.
+- Q: What should the initial value of `voice_muted` be before the first heartbeat? → A: Default `false` (unmuted). Before a relay connects, `voice_enabled` is false so the muted flag is irrelevant. First heartbeat sets actual state without unnecessary dirty mark.
+
 ## Assumptions
 
+- `voice_muted` defaults to `false` before the first heartbeat arrives (irrelevant while `voice_enabled` is `false`)
 - The dual controller issue (spec 053) has been fixed and only one controller instance processes voice commands
 - The 1-second polling interval for dump-state is acceptable latency for session name updates (2-second target allows for one missed poll)
 - The existing 15-second heartbeat timeout is appropriate and does not need adjustment
 - Zellij's pipe message delivery is reliable for targeted (plugin-id-specific) messages
 - An older relay sending bare `[[voice:on]]` (without mute suffix) is treated as unmuted for backward compatibility
+- Any unrecognized mute suffix (e.g., `[[voice:on:garbage]]`) is treated as unmuted, consistent with the bare `[[voice:on]]` fallback
