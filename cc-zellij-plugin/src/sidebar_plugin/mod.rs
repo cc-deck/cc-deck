@@ -39,7 +39,6 @@ impl ZellijPlugin for SidebarRendererPlugin {
         crate::wasm_compat::subscribe_wasm(&[
             EventType::Mouse,
             EventType::Key,
-            EventType::Timer,
             EventType::PermissionRequestResult,
         ]);
 
@@ -85,10 +84,6 @@ impl ZellijPlugin for SidebarRendererPlugin {
                     return false;
                 }
                 input::handle_key(&mut self.state, key)
-            }
-            Event::Timer(_) => {
-                self.schedule_fade_timer();
-                true
             }
             _ => false,
         }
@@ -216,7 +211,6 @@ impl ZellijPlugin for SidebarRendererPlugin {
                             self.state.hello_sent = true;
                         }
 
-                        self.schedule_fade_timer();
                         return true; // Trigger re-render
                     }
                 }
@@ -289,23 +283,6 @@ impl SidebarRendererPlugin {
             plugin_id: self.state.my_plugin_id,
         };
         send_hello_wasm(&hello);
-    }
-
-    fn schedule_fade_timer(&self) {
-        if let Some(payload) = &self.state.cached_payload {
-            let now = crate::session::unix_now();
-            let needs_fade = payload.sessions.iter().any(|s| {
-                let elapsed = now.saturating_sub(s.last_event_ts);
-                match s.activity_label.as_str() {
-                    "Done" | "AgentDone" => elapsed < payload.done_timeout,
-                    "Idle" => elapsed < payload.idle_fade_secs,
-                    _ => false,
-                }
-            });
-            if needs_fade {
-                crate::wasm_compat::set_timeout_wasm(1.0);
-            }
-        }
     }
 }
 

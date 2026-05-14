@@ -21,6 +21,9 @@ pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
     let mut working = 0usize;
     let mut idle = 0usize;
 
+    let done_timeout = state.config.done_timeout;
+    let idle_fade_secs = state.config.idle_fade_secs;
+
     let render_sessions: Vec<RenderSession> = sessions
         .iter()
         .map(|s| {
@@ -29,6 +32,7 @@ pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
                 Activity::Working => working += 1,
                 Activity::Idle | Activity::Init => idle += 1,
                 Activity::Done | Activity::AgentDone => {
+                    // Done/AgentDone count as idle for summary purposes
                     idle += 1;
                 }
             }
@@ -38,7 +42,12 @@ pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
                 display_name: s.display_name.clone(),
                 activity_label: activity_label(&s.activity),
                 indicator: s.activity.indicator().to_string(),
-                last_event_ts: s.last_event_ts,
+                color: crate::session::faded_color(
+                    &s.activity,
+                    s.elapsed_secs(),
+                    done_timeout,
+                    idle_fade_secs,
+                ),
                 git_branch: s.git_branch.clone(),
                 tab_index: s.tab_index.unwrap_or(0),
                 paused: s.paused,
@@ -62,14 +71,11 @@ pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
         controller_plugin_id: state.plugin_id,
         voice_connected: state.voice_enabled,
         voice_muted: state.voice_muted,
-        done_timeout: state.config.done_timeout,
-        idle_fade_secs: state.config.idle_fade_secs,
     }
 }
 
 /// Broadcast the render payload to all registered sidebar instances.
-/// Skips broadcast if the serialized JSON is identical to the last one sent.
-pub fn broadcast_render(state: &mut ControllerState) {
+pub fn broadcast_render(state: &ControllerState) {
     let payload = build_render_payload(state);
     let json = match serde_json::to_string(&payload) {
         Ok(j) => j,
@@ -79,22 +85,13 @@ pub fn broadcast_render(state: &mut ControllerState) {
         }
     };
 
-    let hash = {
-        let mut h: u64 = 5381;
-        for b in json.as_bytes() {
-            h = h.wrapping_mul(33).wrapping_add(*b as u64);
-        }
-        h
-    };
-    if hash == state.last_render_hash {
-        return;
-    }
-    state.last_render_hash = hash;
-
     // Send to each registered sidebar
     for &sidebar_plugin_id in state.sidebar_registry.keys() {
         send_render_to_plugin(sidebar_plugin_id, &json);
     }
+
+    // Also broadcast without target for any sidebars not yet registered
+    broadcast_render_all(&json);
 }
 
 /// Flush the render if dirty, then clear the flag.
@@ -115,12 +112,6 @@ pub fn flush_render(state: &mut ControllerState) {
         broadcast_render(state);
         state.render_dirty = false;
     }
-}
-
-/// Force broadcast regardless of dedup hash (e.g. for focus changes).
-pub fn broadcast_render_force(state: &mut ControllerState) {
-    state.last_render_hash = 0;
-    broadcast_render(state);
 }
 
 /// Human-readable label for an activity state.
@@ -155,6 +146,20 @@ fn send_render_to_plugin(plugin_id: u32, json: &str) {
 #[cfg(not(target_family = "wasm"))]
 fn send_render_to_plugin(_plugin_id: u32, _json: &str) {}
 
+/// Broadcast render payload to ALL plugins via pipe_message_to_plugin.
+/// With no plugin_url and no destination_plugin_id, Zellij broadcasts
+/// to every loaded plugin's pipe() handler (confirmed in Zellij source:
+/// zellij-server/src/plugins/mod.rs pipe_to_all_plugins).
+#[cfg(target_family = "wasm")]
+fn broadcast_render_all(json: &str) {
+    use zellij_tile::prelude::*;
+    let mut msg = MessageToPlugin::new("cc-deck:render");
+    msg.message_payload = Some(json.to_string());
+    pipe_message_to_plugin(msg);
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn broadcast_render_all(_json: &str) {}
 
 #[cfg(test)]
 mod tests {
@@ -225,7 +230,7 @@ mod tests {
         assert_eq!(rs.display_name, "api-server");
         assert_eq!(rs.activity_label, "Working");
         assert_eq!(rs.indicator, "\u{25cf}"); // ●
-        assert!(rs.last_event_ts > 0);
+        assert_eq!(rs.color, (180, 140, 255));
         assert_eq!(rs.git_branch, Some("main".to_string()));
         assert!(!rs.paused);
         assert_eq!(payload.focused_pane_id, Some(42));
