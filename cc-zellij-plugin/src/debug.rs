@@ -24,7 +24,20 @@ pub fn debug_init() {
     unsafe {
         DEBUG_ENABLED = enabled;
     }
-    let _ = std::fs::write("/cache/debug.log", b"");
+    // Do NOT truncate: multiple instances share this file, and truncating
+    // from a later-loading instance erases earlier startup diagnostics.
+    // Instead, append a separator on each load.
+    if enabled {
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open("/cache/debug.log")
+        {
+            use std::io::Write;
+            let ts = crate::session::unix_now_ms();
+            let _ = writeln!(f, "--- instance load at {ts} ---");
+        }
+    }
 }
 
 #[cfg(not(target_family = "wasm"))]
@@ -78,8 +91,31 @@ fn flush_buffer(lines: &[String]) {
     }
 }
 
+/// Write a log line immediately (unbuffered). Use for critical startup
+/// diagnostics that must survive file truncation by later-loading instances.
+#[cfg(target_family = "wasm")]
+pub fn debug_log_immediate(msg: &str) {
+    if unsafe { !DEBUG_ENABLED } {
+        return;
+    }
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("/cache/debug.log")
+    {
+        use std::io::Write;
+        let ts = crate::session::unix_now_ms();
+        let secs = ts / 1000;
+        let millis = ts % 1000;
+        let _ = writeln!(f, "[{secs}.{millis:03}] {msg}");
+    }
+}
+
 #[cfg(not(target_family = "wasm"))]
 pub fn debug_log(_msg: &str) {}
+
+#[cfg(not(target_family = "wasm"))]
+pub fn debug_log_immediate(_msg: &str) {}
 
 #[cfg(not(target_family = "wasm"))]
 pub fn debug_flush() {}

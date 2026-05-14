@@ -32,7 +32,7 @@ impl ZellijPlugin for SidebarRendererPlugin {
     fn load(&mut self, configuration: BTreeMap<String, String>) {
         crate::install_panic_hook();
         crate::debug_init();
-        crate::debug_log("SIDEBAR LOAD start");
+        crate::debug_log_immediate("SIDEBAR LOAD start");
 
         self.state.config = PluginConfig::from_configuration(&configuration);
 
@@ -57,7 +57,7 @@ impl ZellijPlugin for SidebarRendererPlugin {
             PermissionType::WriteToStdin,
         ]);
 
-        crate::debug_log("SIDEBAR LOAD complete");
+        crate::debug_log_immediate("SIDEBAR LOAD complete");
     }
 
     fn update(&mut self, event: Event) -> bool {

@@ -9,7 +9,7 @@ mod controller;
 mod sidebar_plugin;
 mod wasm_compat;
 
-pub use debug::{debug_flush, debug_init, debug_log, install_panic_hook};
+pub use debug::{debug_flush, debug_init, debug_log, debug_log_immediate, install_panic_hook};
 
 /// Strip ANSI escape sequences, control characters, and speech-to-text
 /// noise markers (e.g. `*cough*`, `(typing)`) from voice text.
@@ -88,7 +88,14 @@ enum UnifiedPlugin {
 
 impl ZellijPlugin for UnifiedPlugin {
     fn load(&mut self, configuration: BTreeMap<String, String>) {
+        debug_init();
         let mode = configuration.get("mode").map(|s| s.as_str());
+        debug_log_immediate(&format!(
+            "UNIFIED LOAD mode={:?} config_keys={:?} build={} fingerprint=DR2",
+            mode,
+            configuration.keys().collect::<Vec<_>>(),
+            env!("CARGO_PKG_VERSION"),
+        ));
         match mode {
             Some("controller") => {
                 let mut plugin = controller::ControllerPlugin::default();

@@ -95,7 +95,7 @@ A developer or maintainer can observe render pipeline performance metrics to det
 **Dual Controller Elimination**
 
 - **FR-005**: The root cause of the phantom second controller MUST be identified and eliminated
-- **FR-006**: If the root cause cannot be eliminated (external behavior beyond the plugin's control), the system MUST implement a startup probe: the controller broadcasts a ping on load and self-disables if another controller responds. When both controllers start simultaneously, the controller with the higher plugin_id MUST self-disable (deterministic tiebreaker based on plugin_id ordering)
+- **FR-006**: If the root cause is external (Zellij behavior beyond the plugin's control), the system MUST ensure only one controller processes hook events. The CLI MUST use broadcast pipe delivery (no `--plugin` targeting) for hook events so that the active controller receives them regardless of which instance Zellij created first. A startup probe based on plugin_id comparison is NOT safe because Zellij's targeted pipe delivery routes hooks to a specific instance, and the probe could disable that exact instance.
 - **FR-007**: Regardless of root-cause resolution, the controller MUST NOT process pipe messages when its plugin_id has not been set by a permission grant (defensive fallback)
 
 **Sidebar Bootstrapping**
@@ -124,7 +124,7 @@ A developer or maintainer can observe render pipeline performance metrics to det
 
 ## Error Handling
 
-- If the startup probe detects a second controller, the later instance logs a warning and disables itself. No crash, no user-visible error. The disabled instance ignores all pipe messages and timer events.
+- If a duplicate controller instance is created by Zellij (due to the AddClient race), the orphaned instance is overwritten in Zellij's plugin_map. The defensive guard (FR-007) prevents it from processing events before permissions are granted. No crash, no user-visible error.
 - If the one-shot render request from a sidebar receives no response (controller not yet ready), the sidebar displays "Connecting..." rather than "No Claude sessions" until a payload arrives.
 - If profiling instrumentation encounters timing errors (clock unavailable), it silently degrades to no-op rather than blocking the render path.
 
@@ -151,7 +151,8 @@ A developer or maintainer can observe render pipeline performance metrics to det
 
 ### Session 2026-05-14
 
-- Q: How should simultaneous startup of two controllers be resolved in the startup probe? → A: The controller with the higher plugin_id self-disables (deterministic tiebreaker based on plugin_id ordering)
+- Q: How should simultaneous startup of two controllers be resolved in the startup probe? → A: ~~The controller with the higher plugin_id self-disables~~ Superseded: startup probe is unsafe because Zellij routes targeted pipe messages to a specific instance. The probe could disable the instance that receives hooks. Resolution: use broadcast pipe delivery for hooks so the active controller receives them regardless of Zellij's instance ordering.
+- Q: Why does `load_plugins` create two controller instances? → A: Zellij bug. Race between background plugin loading (`load_plugins`) and `AddClient`: `add_client()` does not recognize the `initiating_client_id` as already connected, re-creates the plugin instance for the same `(plugin_id, client_id)` pair. The first instance is orphaned. See `brainstorm/zellij-load-plugins-duplicate-instance.md` for upstream issue draft.
 
 ## Assumptions
 
