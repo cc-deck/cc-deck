@@ -95,8 +95,6 @@ pub struct ControllerState {
     pub voice_mute_requested: Option<bool>,
     /// Timestamp (ms) when voice_mute_requested was set; used for timeout.
     pub voice_mute_requested_ms: u64,
-    /// Last broadcast JSON hash for deduplication.
-    pub last_render_hash: u64,
     /// Events received before permissions were granted.
     pub pending_events: Vec<Event>,
     /// Monotonic tick counter for render coalescing.
@@ -283,21 +281,12 @@ impl ControllerState {
             match session.activity {
                 Activity::Done | Activity::AgentDone => {
                     if now.saturating_sub(session.last_event_ts) >= timeout_secs {
-                        crate::debug_log(&format!(
-                            "CTRL STALE: pane={} {:?}->Idle elapsed={}s timeout={}s",
-                            session.pane_id, session.activity,
-                            now.saturating_sub(session.last_event_ts), timeout_secs
-                        ));
                         session.activity = Activity::Idle;
                         changed = true;
                     }
                 }
                 Activity::Working => {
                     if now.saturating_sub(session.last_event_ts) >= timeout_secs {
-                        crate::debug_log(&format!(
-                            "CTRL STALE: pane={} Working->Done elapsed={}s",
-                            session.pane_id, now.saturating_sub(session.last_event_ts)
-                        ));
                         session.activity = Activity::Done;
                         changed = true;
                     }
