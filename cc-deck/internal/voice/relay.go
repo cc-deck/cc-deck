@@ -270,12 +270,13 @@ func (r *VoiceRelay) statePoll(ctx context.Context, sr PipeSendReceiver) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			// Send voice:on on every tick. The handler is idempotent
-			// (sets voice_enabled=true, refreshes heartbeat). This
-			// ensures the plugin's voice state recovers after sleep/wake
-			// without depending on pipe message ordering between
-			// voice:on and dump-state.
-			_ = r.pipe.Send(ctx, "cc-deck:voice", "[[voice:on]]")
+			r.mu.Lock()
+			muteState := "unmuted"
+			if r.muted {
+				muteState = "muted"
+			}
+			r.mu.Unlock()
+			_ = r.pipe.Send(ctx, "cc-deck:voice", fmt.Sprintf("[[voice:on:%s]]", muteState))
 
 			// Per-call timeout prevents a stuck zellij pipe from
 			// starving the heartbeat (plugin times out after 15s).
@@ -324,8 +325,9 @@ func (r *VoiceRelay) statePoll(ctx context.Context, sr PipeSendReceiver) {
 }
 
 type dumpStateResult struct {
-	targetName        string
-	hasAttendedPane   bool
+	targetName         string
+	hasAttendedPane    bool
+	hasFocusedPane     bool
 	voiceMuteRequested *bool
 }
 
@@ -333,6 +335,7 @@ func parseDumpStateResponse(stateJSON string) dumpStateResult {
 	var envelope struct {
 		Sessions            map[string]json.RawMessage `json:"sessions"`
 		AttendedPaneID      *int                       `json:"attended_pane_id"`
+		FocusedPaneID       *int                       `json:"focused_pane_id"`
 		VoiceMuteRequested  *bool                      `json:"voice_mute_requested"`
 	}
 	// Zellij broadcast pipes can produce concatenated JSON objects when
@@ -350,23 +353,31 @@ func parseDumpStateResponse(stateJSON string) dumpStateResult {
 	var result dumpStateResult
 	result.voiceMuteRequested = envelope.VoiceMuteRequested
 
-	if envelope.AttendedPaneID != nil {
-		result.hasAttendedPane = true
-		attendedKey := fmt.Sprintf("%d", *envelope.AttendedPaneID)
-		if raw, ok := envelope.Sessions[attendedKey]; ok {
+	resolveSessionName := func(paneID int) string {
+		key := fmt.Sprintf("%d", paneID)
+		if raw, ok := envelope.Sessions[key]; ok {
 			var s struct {
 				DisplayName string `json:"display_name"`
 			}
 			if json.Unmarshal(raw, &s) == nil {
-				result.targetName = s.DisplayName
+				return s.DisplayName
 			}
+		}
+		return ""
+	}
+
+	if envelope.FocusedPaneID != nil {
+		result.hasFocusedPane = true
+		result.targetName = resolveSessionName(*envelope.FocusedPaneID)
+	}
+
+	if envelope.AttendedPaneID != nil {
+		result.hasAttendedPane = true
+		if result.targetName == "" {
+			result.targetName = resolveSessionName(*envelope.AttendedPaneID)
 		}
 	}
 
-	// Only fall back to a session name when there is exactly one session
-	// (unambiguous). With multiple sessions and no attended pane, keep
-	// the previous target to avoid non-deterministic rotation from Go
-	// map iteration order.
 	if result.targetName == "" && len(envelope.Sessions) == 1 {
 		for _, raw := range envelope.Sessions {
 			var s struct {
