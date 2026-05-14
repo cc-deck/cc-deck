@@ -300,6 +300,113 @@ fn make_pane_info_full(id: u32, is_plugin: bool, is_focused: bool) -> PaneInfo {
 
 use crate::controller::ControllerPlugin;
 
+// ---------------------------------------------------------------------------
+// Render Pipeline Stability: Defensive Guard (T007)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_controller_without_permissions_ignores_pipe() {
+    let mut plugin = ControllerPlugin::default();
+    plugin.load(std::collections::BTreeMap::new());
+    // Do NOT grant permissions
+
+    let hook = make_hook_pipe("SessionStart", 42);
+    plugin.pipe(hook);
+
+    // Session should NOT be created because permissions are not granted
+    assert!(plugin.test_state().sessions.is_empty());
+}
+
+#[test]
+fn test_disabled_controller_ignores_timer() {
+    let mut plugin = setup_controller();
+
+    // Create a session so we can verify no changes happen
+    plugin.pipe(make_hook_pipe("SessionStart", 42));
+    assert_eq!(plugin.test_state().sessions.len(), 1);
+
+    // Disable the controller
+    plugin.test_state_mut().disabled = true;
+    plugin.test_state_mut().render_dirty = false;
+
+    // Timer events should be ignored
+    plugin.update(Event::Timer(1.0));
+
+    // render_dirty should still be false (timer didn't process)
+    assert!(!plugin.test_state().render_dirty);
+}
+
+#[test]
+fn test_disabled_controller_ignores_pipe_messages() {
+    let mut plugin = setup_controller();
+    plugin.pipe(make_hook_pipe("SessionStart", 42));
+    plugin.test_state_mut().disabled = true;
+
+    // Hook events should be ignored when disabled
+    plugin.pipe(make_hook_pipe("SessionStart", 99));
+    assert_eq!(plugin.test_state().sessions.len(), 1);
+    assert!(!plugin.test_state().sessions.contains_key(&99));
+}
+
+// ---------------------------------------------------------------------------
+// Render Pipeline Stability: Startup Probe Protocol (T008-T009)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_lower_plugin_id_wins_startup_probe() {
+    let mut plugin = setup_controller();
+    // Simulate this controller having plugin_id = 10
+    plugin.test_state_mut().plugin_id = 10;
+
+    // Receive a ping from a controller with lower plugin_id (5)
+    let ping = make_pipe("cc-deck:controller-ping", "5");
+    plugin.pipe(ping);
+
+    // This controller should self-disable (it has the higher id)
+    assert!(plugin.test_state().disabled);
+}
+
+#[test]
+fn test_higher_plugin_id_does_not_disable() {
+    let mut plugin = setup_controller();
+    plugin.test_state_mut().plugin_id = 5;
+
+    // Receive a ping from a controller with higher plugin_id (10)
+    let ping = make_pipe("cc-deck:controller-ping", "10");
+    plugin.pipe(ping);
+
+    // This controller should NOT self-disable (it has the lower id)
+    assert!(!plugin.test_state().disabled);
+}
+
+#[test]
+fn test_pong_from_lower_id_causes_self_disable() {
+    let mut plugin = setup_controller();
+    plugin.test_state_mut().plugin_id = 10;
+
+    // Receive a pong from a controller with lower plugin_id (3)
+    let pong = make_pipe("cc-deck:controller-pong", "3");
+    plugin.pipe(pong);
+
+    assert!(plugin.test_state().disabled);
+}
+
+#[test]
+fn test_disabled_controller_does_not_broadcast_renders() {
+    let mut plugin = setup_controller();
+    plugin.pipe(make_hook_pipe("SessionStart", 42));
+
+    // Disable the controller
+    plugin.test_state_mut().disabled = true;
+    plugin.test_state_mut().render_dirty = true;
+
+    // Timer should be ignored, so flush_render never runs
+    plugin.update(Event::Timer(1.0));
+
+    // render_dirty should remain true (timer was skipped)
+    assert!(plugin.test_state().render_dirty);
+}
+
 #[test]
 fn test_voice_reconnect_resync_muted() {
     let mut plugin = setup_controller();

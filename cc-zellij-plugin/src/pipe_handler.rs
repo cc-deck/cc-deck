@@ -61,6 +61,12 @@ pub enum PipeAction {
     VoiceMuteToggle,
     /// Diagnostic: inject hardcoded text into focused pane (cc-deck:test-inject).
     TestInject,
+    /// Startup probe: controller announces its plugin_id (cc-deck:controller-ping).
+    ControllerPing(u32),
+    /// Startup probe response: controller responds with its plugin_id (cc-deck:controller-pong).
+    ControllerPong(u32),
+    /// Sidebar requests initial render from controller (cc-deck:render-request).
+    RenderRequest(u32),
     /// Unknown message.
     Unknown,
 }
@@ -117,6 +123,21 @@ pub fn parse_pipe_message(name: &str, payload: Option<&str>) -> PipeAction {
         "cc-deck:voice" => PipeAction::VoiceText(payload.unwrap_or("").to_string()),
         "cc-deck:voice-mute-toggle" => PipeAction::VoiceMuteToggle,
         "cc-deck:test-inject" => PipeAction::TestInject,
+        "cc-deck:controller-ping" => {
+            payload.and_then(|p| p.parse::<u32>().ok())
+                .map(PipeAction::ControllerPing)
+                .unwrap_or(PipeAction::Unknown)
+        }
+        "cc-deck:controller-pong" => {
+            payload.and_then(|p| p.parse::<u32>().ok())
+                .map(PipeAction::ControllerPong)
+                .unwrap_or(PipeAction::Unknown)
+        }
+        "cc-deck:render-request" => {
+            payload.and_then(|p| p.parse::<u32>().ok())
+                .map(PipeAction::RenderRequest)
+                .unwrap_or(PipeAction::Unknown)
+        }
         _ => PipeAction::Unknown,
     }
 }
@@ -265,6 +286,34 @@ mod tests {
         assert!(is_sync_message("cc-deck:sync:12345"));
         assert!(!is_sync_message("cc-deck:request"));
         assert!(!is_sync_message("cc-deck:hook"));
+    }
+
+    #[test]
+    fn test_parse_controller_ping() {
+        match parse_pipe_message("cc-deck:controller-ping", Some("42")) {
+            PipeAction::ControllerPing(id) => assert_eq!(id, 42),
+            _ => panic!("expected ControllerPing"),
+        }
+        assert!(matches!(parse_pipe_message("cc-deck:controller-ping", None), PipeAction::Unknown));
+        assert!(matches!(parse_pipe_message("cc-deck:controller-ping", Some("abc")), PipeAction::Unknown));
+    }
+
+    #[test]
+    fn test_parse_controller_pong() {
+        match parse_pipe_message("cc-deck:controller-pong", Some("99")) {
+            PipeAction::ControllerPong(id) => assert_eq!(id, 99),
+            _ => panic!("expected ControllerPong"),
+        }
+        assert!(matches!(parse_pipe_message("cc-deck:controller-pong", None), PipeAction::Unknown));
+    }
+
+    #[test]
+    fn test_parse_render_request() {
+        match parse_pipe_message("cc-deck:render-request", Some("55")) {
+            PipeAction::RenderRequest(id) => assert_eq!(id, 55),
+            _ => panic!("expected RenderRequest"),
+        }
+        assert!(matches!(parse_pipe_message("cc-deck:render-request", None), PipeAction::Unknown));
     }
 
     #[test]

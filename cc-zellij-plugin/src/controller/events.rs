@@ -14,6 +14,7 @@ use zellij_tile::prelude::*;
 /// Handle TabUpdate event: track tabs, detect active tab, register keybindings,
 /// clean up dead sessions.
 pub fn handle_tab_update(state: &mut ControllerState, tabs: Vec<TabInfo>) {
+    let old_active = state.active_tab_index;
     let new_active = tabs.iter().find(|t| t.active).map(|t| t.position);
     state.active_tab_index = new_active;
 
@@ -26,8 +27,8 @@ pub fn handle_tab_update(state: &mut ControllerState, tabs: Vec<TabInfo>) {
     state.rebuild_pane_map();
     if state.focused_pane_id != pre_focus {
         crate::debug_log(&format!(
-            "CTRL TAB_UPDATE: rebuild changed focus {:?} -> {:?}",
-            pre_focus, state.focused_pane_id
+            "CTRL[{}] TAB_UPDATE: rebuild changed focus {:?} -> {:?}",
+            state.plugin_id, pre_focus, state.focused_pane_id
         ));
     }
 
@@ -40,15 +41,19 @@ pub fn handle_tab_update(state: &mut ControllerState, tabs: Vec<TabInfo>) {
     state.last_tab_count = current_tab_count;
 
     // Clean up dead sessions
-    state.remove_dead_sessions();
-    state.cleanup_stale_sessions(state.config.done_timeout);
+    let dead_removed = state.remove_dead_sessions();
+    let stale_transitioned = state.cleanup_stale_sessions(state.config.done_timeout);
 
     // If tab count changed, notify sidebars to reindex
     if tab_count_changed {
         super::sidebar_registry::handle_tab_reindex(state);
     }
 
-    state.mark_render_dirty();
+    // Only mark render dirty when something actually changed
+    let active_tab_changed = new_active != old_active;
+    if tab_count_changed || active_tab_changed || dead_removed || stale_transitioned {
+        state.mark_render_dirty();
+    }
 }
 
 /// Handle PaneUpdate event: update manifest, rebuild pane map, remove dead sessions.
@@ -93,8 +98,22 @@ pub fn handle_pane_update(state: &mut ControllerState, manifest: PaneManifest) {
         removed = state.remove_dead_sessions();
     }
 
-    // Auto-discover sidebar plugin panes from manifest for reliable targeting
-    super::sidebar_registry::discover_sidebars_from_manifest(state);
+    // Auto-discover sidebar plugin panes from manifest for reliable targeting.
+    // Send an immediate render to newly discovered sidebars so they don't
+    // have to wait for the next timer tick.
+    let new_sidebars = super::sidebar_registry::discover_sidebars_from_manifest(state);
+    if !new_sidebars.is_empty() {
+        let payload = render_broadcast::build_render_payload(state);
+        if let Ok(json) = serde_json::to_string(&payload) {
+            for &sidebar_id in &new_sidebars {
+                render_broadcast::send_render_to_plugin_pub(sidebar_id, &json);
+                crate::debug_log(&format!(
+                    "CTRL[{}] PUSH-ON-DISCOVERY: sent render to new sidebar={}",
+                    state.plugin_id, sidebar_id
+                ));
+            }
+        }
+    }
 
     // Auto-unpause: when the user focuses a paused session, unpause it.
     if let Some(focused_pid) = state.focused_pane_id {
@@ -211,6 +230,9 @@ pub fn handle_timer(state: &mut ControllerState, _elapsed: f64) {
 
     // Flush coalesced render if dirty
     render_broadcast::flush_render(state);
+
+    // Flush buffered debug log lines
+    crate::debug_flush();
 
     // Git branch polling and orphan cleanup: every 60s.
     let now_ms = session::unix_now_ms();
@@ -567,6 +589,78 @@ mod tests {
 
         assert!(!state.unconfirmed_pane_ids.contains(&10));
         assert!(state.unconfirmed_pane_ids.contains(&20));
+    }
+
+    // -----------------------------------------------------------------------
+    // Conditional handle_tab_update tests (T014-T016)
+    // -----------------------------------------------------------------------
+
+    fn make_tab_info(position: usize, active: bool) -> TabInfo {
+        TabInfo {
+            position,
+            name: format!("Tab {position}"),
+            active,
+            panes_to_hide: 0,
+            is_fullscreen_active: false,
+            is_sync_panes_active: false,
+            are_floating_panes_visible: false,
+            other_focused_clients: Vec::new(),
+            active_swap_layout_name: None,
+            is_swap_layout_dirty: false,
+            viewport_rows: 24,
+            viewport_columns: 80,
+            display_area_rows: 24,
+            display_area_columns: 80,
+            selectable_tiled_panes_count: 1,
+            selectable_floating_panes_count: 0,
+            tab_id: position,
+            has_bell_notification: false,
+            is_flashing_bell: false,
+        }
+    }
+
+    #[test]
+    fn test_tab_update_no_changes_does_not_mark_dirty() {
+        let mut state = ControllerState::default();
+        state.permissions_granted = true;
+        state.keybindings_registered = true;
+
+        let tabs = vec![make_tab_info(0, true)];
+        state.active_tab_index = Some(0);
+        state.last_tab_count = 1;
+
+        handle_tab_update(&mut state, tabs);
+
+        assert!(!state.render_dirty);
+    }
+
+    #[test]
+    fn test_tab_update_tab_count_change_marks_dirty() {
+        let mut state = ControllerState::default();
+        state.permissions_granted = true;
+        state.keybindings_registered = true;
+        state.last_tab_count = 1;
+
+        let tabs = vec![make_tab_info(0, true), make_tab_info(1, false)];
+
+        handle_tab_update(&mut state, tabs);
+
+        assert!(state.render_dirty);
+    }
+
+    #[test]
+    fn test_tab_update_active_tab_change_marks_dirty() {
+        let mut state = ControllerState::default();
+        state.permissions_granted = true;
+        state.keybindings_registered = true;
+        state.active_tab_index = Some(0);
+        state.last_tab_count = 2;
+
+        let tabs = vec![make_tab_info(0, false), make_tab_info(1, true)];
+
+        handle_tab_update(&mut state, tabs);
+
+        assert!(state.render_dirty);
     }
 
     #[test]

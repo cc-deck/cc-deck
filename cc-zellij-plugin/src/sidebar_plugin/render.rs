@@ -218,7 +218,7 @@ pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> Vec<Cli
     click_regions
 }
 
-/// Render the "Waiting for controller..." loading state.
+/// Render the "Connecting..." loading state.
 pub fn render_loading(rows: usize, cols: usize) -> Vec<ClickRegion> {
     // Orange star header
     let header = " \x1b[38;2;255;170;50m\u{2731}\x1b[0m \x1b[1mClaude Code\x1b[0m".to_string();
@@ -228,7 +228,7 @@ pub fn render_loading(rows: usize, cols: usize) -> Vec<ClickRegion> {
     print!("\x1b[2;1H\x1b[2m{}\x1b[0m{}", sep, " ".repeat(cols.saturating_sub(sep.len())));
 
     if rows > 3 {
-        print_line(3, cols, "  Waiting for controller...", Style::Dim);
+        print_line(3, cols, "  Connecting...", Style::Dim);
     }
 
     for row in 4..rows {

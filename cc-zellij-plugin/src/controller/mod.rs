@@ -36,7 +36,7 @@ impl ZellijPlugin for ControllerPlugin {
     fn load(&mut self, configuration: BTreeMap<String, String>) {
         crate::install_panic_hook();
         crate::debug_init();
-        crate::debug_log("CTRL LOAD start");
+        crate::debug_log("CTRL[0] LOAD start");
 
         self.state.config = PluginConfig::from_configuration(&configuration);
         self.state.perf.enabled = self.state.config.perf_enabled;
@@ -68,13 +68,16 @@ impl ZellijPlugin for ControllerPlugin {
         // Controller is headless: never selectable
         crate::wasm_compat::set_selectable_wasm(false);
 
-        crate::debug_log("CTRL LOAD complete");
+        crate::debug_log("CTRL[0] LOAD complete");
     }
 
     fn update(&mut self, event: Event) -> bool {
         match event {
             Event::PermissionRequestResult(status) => {
-                crate::debug_log(&format!("CTRL PERMISSION result={status:?}"));
+                crate::debug_log(&format!(
+                    "CTRL[{}] PERMISSION result={status:?}",
+                    self.state.plugin_id
+                ));
                 if status == PermissionStatus::Granted {
                     self.state.permissions_granted = true;
 
@@ -109,12 +112,22 @@ impl ZellijPlugin for ControllerPlugin {
                     // sidebars stop showing "Waiting for controller..."
                     render_broadcast::broadcast_render(&self.state);
                     self.state.render_dirty = false;
+
+                    // Startup probe: announce this controller's plugin_id
+                    broadcast_controller_ping(self.state.plugin_id);
+                    crate::debug_log(&format!(
+                        "CTRL[{}] sent controller-ping",
+                        self.state.plugin_id
+                    ));
                 }
                 false // Controller has no UI to render
             }
             _ => {
                 if !self.state.permissions_granted {
                     self.state.pending_events.push(event);
+                    return false;
+                }
+                if self.state.disabled {
                     return false;
                 }
                 self.handle_event_inner(event);
@@ -135,13 +148,29 @@ impl ZellijPlugin for ControllerPlugin {
             return false;
         }
 
+        // Controller-ping/pong must be processed even when disabled
+        // (a disabled controller needs to respond to probes).
+        let is_probe = matches!(
+            pipe_message.name.as_str(),
+            "cc-deck:controller-ping" | "cc-deck:controller-pong"
+        );
+
+        if self.state.disabled && !is_probe {
+            #[cfg(target_family = "wasm")]
+            if let PipeSource::Cli(ref pipe_id) = pipe_message.source {
+                zellij_tile::prelude::unblock_cli_pipe_input(pipe_id);
+            }
+            return false;
+        }
+
         // Trace log (skip high-volume internal messages)
         if pipe_message.name != "cc-deck:render"
             && pipe_message.name != "cc-deck:sidebar-init"
             && pipe_message.name != "cc-deck:sidebar-reindex"
         {
             crate::debug_log(&format!(
-                "CTRL PIPE name={} payload={} sessions={}",
+                "CTRL[{}] PIPE name={} payload={} sessions={}",
+                self.state.plugin_id,
                 pipe_message.name,
                 pipe_message.payload.as_deref().unwrap_or("None"),
                 self.state.sessions.len()
@@ -401,6 +430,40 @@ impl ZellijPlugin for ControllerPlugin {
                     unblock_cli_pipe_input_wasm(pipe_id);
                 }
             }
+            PipeAction::ControllerPing(sender_id) => {
+                if sender_id < self.state.plugin_id {
+                    // Sender has lower (winning) plugin_id: self-disable
+                    self.state.disabled = true;
+                    self.state.render_dirty = false;
+                    crate::debug_log(&format!(
+                        "CTRL[{}] PROBE: received ping from lower id={}, self-disabling",
+                        self.state.plugin_id, sender_id
+                    ));
+                }
+                // Always respond with pong so the sender can compare
+                send_controller_pong(self.state.plugin_id, sender_id);
+            }
+            PipeAction::ControllerPong(responder_id) => {
+                if responder_id < self.state.plugin_id {
+                    // Responder has lower (winning) plugin_id: self-disable
+                    self.state.disabled = true;
+                    self.state.render_dirty = false;
+                    crate::debug_log(&format!(
+                        "CTRL[{}] PROBE: received pong from lower id={}, self-disabling",
+                        self.state.plugin_id, responder_id
+                    ));
+                }
+            }
+            PipeAction::RenderRequest(sidebar_plugin_id) => {
+                crate::debug_log(&format!(
+                    "CTRL[{}] RENDER-REQUEST from sidebar={}",
+                    self.state.plugin_id, sidebar_plugin_id
+                ));
+                let payload = render_broadcast::build_render_payload(&self.state);
+                if let Ok(json) = serde_json::to_string(&payload) {
+                    render_broadcast::send_render_to_plugin_pub(sidebar_plugin_id, &json);
+                }
+            }
             PipeAction::Unknown => {}
             _ => {
                 // NavUp, NavDown, NavSelect, etc. are sidebar-local concerns.
@@ -590,6 +653,29 @@ fn broadcast_navigate(state: &ControllerState, direction: &str) {
 
 #[cfg(not(target_family = "wasm"))]
 fn broadcast_navigate(_state: &ControllerState, _direction: &str) {}
+
+/// Broadcast a controller-ping to discover other controller instances.
+#[cfg(target_family = "wasm")]
+fn broadcast_controller_ping(plugin_id: u32) {
+    let mut msg = MessageToPlugin::new("cc-deck:controller-ping");
+    msg.message_payload = Some(plugin_id.to_string());
+    pipe_message_to_plugin(msg);
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn broadcast_controller_ping(_plugin_id: u32) {}
+
+/// Send a controller-pong response to a specific controller.
+#[cfg(target_family = "wasm")]
+fn send_controller_pong(own_id: u32, target_id: u32) {
+    let mut msg = MessageToPlugin::new("cc-deck:controller-pong");
+    msg.message_payload = Some(own_id.to_string());
+    msg.destination_plugin_id = Some(target_id);
+    pipe_message_to_plugin(msg);
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn send_controller_pong(_own_id: u32, _target_id: u32) {}
 
 impl ControllerPlugin {
     fn inject_voice_text(&self, text: &str) {

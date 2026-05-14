@@ -39,6 +39,7 @@ impl ZellijPlugin for SidebarRendererPlugin {
         crate::wasm_compat::subscribe_wasm(&[
             EventType::Mouse,
             EventType::Key,
+            EventType::Timer,
             EventType::PermissionRequestResult,
         ]);
 
@@ -70,6 +71,38 @@ impl ZellijPlugin for SidebarRendererPlugin {
                     {
                         self.state.my_plugin_id = get_plugin_ids().plugin_id;
                     }
+
+                    // Start the timer for render request fallback
+                    crate::wasm_compat::set_timeout_wasm(1.0);
+                }
+                false
+            }
+            Event::Timer(_) => {
+                if self.state.initialized {
+                    // No longer need timer events after first render received
+                    return false;
+                }
+                self.state.ticks_since_init = self.state.ticks_since_init.saturating_add(1);
+
+                // One-shot render request: if no payload received after 3 ticks
+                if self.state.ticks_since_init >= 3
+                    && !self.state.initialized
+                    && !self.state.render_request_sent
+                {
+                    if let Some(controller_id) = self.state.controller_plugin_id {
+                        send_render_request(self.state.my_plugin_id, controller_id);
+                        self.state.render_request_sent = true;
+                        crate::debug_log(&format!(
+                            "SIDEBAR[{}] sent render-request to controller={}",
+                            self.state.my_plugin_id, controller_id
+                        ));
+                    }
+                    // If controller_plugin_id is None, wait for next tick
+                }
+
+                // Reschedule timer if still waiting
+                if !self.state.initialized {
+                    crate::wasm_compat::set_timeout_wasm(1.0);
                 }
                 false
             }
@@ -301,6 +334,18 @@ fn send_hello_wasm(hello: &SidebarHello) {
 
 #[cfg(not(target_family = "wasm"))]
 fn send_hello_wasm(_hello: &SidebarHello) {}
+
+/// Send a render-request to the controller.
+#[cfg(target_family = "wasm")]
+fn send_render_request(sidebar_plugin_id: u32, controller_plugin_id: u32) {
+    let mut msg = MessageToPlugin::new("cc-deck:render-request");
+    msg.message_payload = Some(sidebar_plugin_id.to_string());
+    msg.destination_plugin_id = Some(controller_plugin_id);
+    pipe_message_to_plugin(msg);
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn send_render_request(_sidebar_plugin_id: u32, _controller_plugin_id: u32) {}
 
 #[cfg(test)]
 impl SidebarRendererPlugin {

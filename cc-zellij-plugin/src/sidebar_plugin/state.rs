@@ -67,6 +67,12 @@ pub struct SidebarState {
     /// Predictive mute override for immediate visual feedback on mute toggle.
     /// Set on click, cleared when the controller payload confirms the change.
     pub local_mute_override: Option<bool>,
+
+    /// Whether the one-shot render request has been sent to the controller.
+    pub render_request_sent: bool,
+
+    /// Timer tick counter since initialization, used for render request fallback.
+    pub ticks_since_init: u8,
 }
 
 impl Default for SidebarState {
@@ -87,6 +93,8 @@ impl Default for SidebarState {
             last_click: None,
             local_focus_override: None,
             local_mute_override: None,
+            render_request_sent: false,
+            ticks_since_init: 0,
         }
     }
 }

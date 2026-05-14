@@ -120,26 +120,93 @@ fn broadcast_reindex() {}
 
 /// Auto-discover sidebar plugin panes from the PaneManifest.
 /// Registers any plugin pane that is NOT the controller itself.
-/// This avoids depending on the hello handshake for initial registration.
-pub fn discover_sidebars_from_manifest(state: &mut ControllerState) {
+/// Returns the plugin_ids of newly registered sidebars.
+pub fn discover_sidebars_from_manifest(state: &mut ControllerState) -> Vec<u32> {
     let manifest = match &state.pane_manifest {
         Some(m) => m,
-        None => return,
+        None => return Vec::new(),
     };
 
+    let mut new_sidebars = Vec::new();
     for (&tab_pos, panes) in &manifest.panes {
         for pane in panes {
-            // Register plugin panes that aren't the controller
             if pane.is_plugin && pane.id != state.plugin_id && !state.sidebar_registry.contains_key(&pane.id) {
                 state.sidebar_registry.insert(pane.id, tab_pos);
+                new_sidebars.push(pane.id);
             }
         }
     }
+    new_sidebars
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn make_plugin_pane(id: u32) -> PaneInfo {
+        PaneInfo {
+            id,
+            is_plugin: true,
+            is_focused: false,
+            is_fullscreen: false,
+            is_floating: false,
+            is_suppressed: false,
+            title: String::new(),
+            exited: false,
+            exit_status: None,
+            is_held: false,
+            pane_x: 0,
+            pane_content_x: 0,
+            pane_y: 0,
+            pane_content_y: 0,
+            pane_rows: 0,
+            pane_content_rows: 0,
+            pane_columns: 0,
+            pane_content_columns: 0,
+            cursor_coordinates_in_pane: None,
+            terminal_command: None,
+            plugin_url: None,
+            is_selectable: true,
+            index_in_pane_group: std::collections::BTreeMap::new(),
+            default_bg: None,
+            default_fg: None,
+        }
+    }
+
+    #[test]
+    fn test_discover_sidebars_returns_new_ids() {
+        let mut state = ControllerState::default();
+        state.plugin_id = 1; // controller is plugin 1
+
+        let mut panes = std::collections::HashMap::new();
+        panes.insert(0, vec![make_plugin_pane(1), make_plugin_pane(10), make_plugin_pane(20)]);
+        state.pane_manifest = Some(PaneManifest { panes });
+
+        let new_ids = discover_sidebars_from_manifest(&mut state);
+
+        assert_eq!(new_ids.len(), 2);
+        assert!(new_ids.contains(&10));
+        assert!(new_ids.contains(&20));
+        // Controller itself (id=1) should NOT be registered
+        assert!(!state.sidebar_registry.contains_key(&1));
+    }
+
+    #[test]
+    fn test_discover_sidebars_does_not_return_existing() {
+        let mut state = ControllerState::default();
+        state.plugin_id = 1;
+        state.sidebar_registry.insert(10, 0); // already registered
+
+        let mut panes = std::collections::HashMap::new();
+        panes.insert(0, vec![make_plugin_pane(1), make_plugin_pane(10), make_plugin_pane(20)]);
+        state.pane_manifest = Some(PaneManifest { panes });
+
+        let new_ids = discover_sidebars_from_manifest(&mut state);
+
+        assert_eq!(new_ids.len(), 1);
+        assert!(new_ids.contains(&20));
+        assert!(!new_ids.contains(&10));
+    }
 
     #[test]
     fn test_cleanup_dead_sidebars_no_manifest() {
