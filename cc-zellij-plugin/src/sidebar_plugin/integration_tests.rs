@@ -308,18 +308,14 @@ fn test_sidebar_does_not_send_render_request_more_than_once() {
 }
 
 #[test]
-fn test_sidebar_waits_for_controller_id_before_render_request() {
+fn test_sidebar_sends_broadcast_render_request_without_controller_id() {
     let mut plugin = setup_sidebar();
     // controller_plugin_id is None by default
 
-    // After 3+ ticks without a controller_plugin_id, should NOT send
-    for _ in 0..5 {
+    // After 3 ticks, render request should be sent even without controller_plugin_id
+    // (broadcast to any controller)
+    for _ in 0..3 {
         plugin.update(Event::Timer(1.0));
     }
-    assert!(!plugin.test_state().render_request_sent);
-
-    // Now set the controller_plugin_id and tick again
-    plugin.test_state_mut().controller_plugin_id = Some(42);
-    plugin.update(Event::Timer(1.0));
     assert!(plugin.test_state().render_request_sent);
 }
