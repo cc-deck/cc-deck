@@ -185,6 +185,8 @@ fn test_render_payload_roundtrip_through_pipe() {
         controller_plugin_id: 42,
         voice_connected: true,
         voice_muted: false,
+        done_timeout: 300,
+        idle_fade_secs: 3600,
     };
 
     let json = serde_json::to_string(&original).unwrap();

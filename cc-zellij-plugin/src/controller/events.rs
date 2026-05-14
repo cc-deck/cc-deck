@@ -7,7 +7,7 @@
 use super::render_broadcast;
 use super::state::ControllerState;
 use crate::git::{self, GitResult};
-use crate::session::{self, Activity, Session};
+use crate::session::{self, Session};
 use std::collections::BTreeMap;
 use zellij_tile::prelude::*;
 
@@ -194,20 +194,6 @@ pub fn handle_timer(state: &mut ControllerState, _elapsed: f64) {
         crate::debug_log("CTRL TIMER: voice_mute_requested timeout, clearing");
         state.voice_mute_requested = None;
         state.voice_mute_requested_ms = 0;
-        state.mark_render_dirty();
-    }
-
-    // Fading colors change every tick, but only while the fade is in progress.
-    // Once elapsed >= duration the color is static, so no re-render needed.
-    let needs_fade = state.sessions.values().any(|s| {
-        let elapsed = s.elapsed_secs();
-        match s.activity {
-            Activity::Done | Activity::AgentDone => elapsed < state.config.done_timeout,
-            Activity::Idle => elapsed < state.config.idle_fade_secs,
-            _ => false,
-        }
-    });
-    if needs_fade {
         state.mark_render_dirty();
     }
 

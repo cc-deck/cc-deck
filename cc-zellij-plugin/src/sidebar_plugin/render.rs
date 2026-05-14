@@ -17,6 +17,11 @@ const RENAME_FG: &str = "\x1b[38;2;140;220;255m";        // light cyan for renam
 const RENAME_NAV_FG: &str = "\x1b[38;2;255;220;150m";   // warm amber for rename in navigate
 const RESET: &str = "\x1b[0m";
 
+fn session_color(session: &RenderSession, done_timeout: u64, idle_fade_secs: u64) -> (u8, u8, u8) {
+    let elapsed = crate::session::unix_now().saturating_sub(session.last_event_ts);
+    crate::session::faded_color_from_label(&session.activity_label, elapsed, done_timeout, idle_fade_secs)
+}
+
 /// Render the sidebar into the plugin's stdout.
 /// Returns click regions for mouse handling.
 pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> Vec<ClickRegion> {
@@ -132,8 +137,9 @@ pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> Vec<Cli
             let rename_for_session = state.mode.rename_state()
                 .filter(|rs| rs.pane_id == session.pane_id);
 
+            let color = session_color(session, payload.done_timeout, payload.idle_fade_secs);
             if let Some(region) = render_session_entry(
-                session, is_active, has_cursor, force_active, row, cols, rename_for_session,
+                session, color, is_active, has_cursor, force_active, row, cols, rename_for_session,
             ) {
                 click_regions.push(region);
             }
@@ -325,8 +331,10 @@ fn render_header(state: &super::state::SidebarState, payload: &cc_deck::RenderPa
 }
 
 /// Render a single session entry (3 lines: indicator+name, branch, blank).
+#[allow(clippy::too_many_arguments)]
 fn render_session_entry(
     session: &RenderSession,
+    color: (u8, u8, u8),
     is_active: bool,
     has_cursor: bool,
     force_active: bool,
@@ -334,7 +342,7 @@ fn render_session_entry(
     cols: usize,
     rename_state: Option<&super::modes::RenameState>,
 ) -> Option<ClickRegion> {
-    let (r, g, b) = session.color;
+    let (r, g, b) = color;
     let indicator = if session.paused { "\u{23f8}" } else { &session.indicator };
 
     // has_cursor (amber) wins over is_active (cyan) during navigation so the
@@ -653,7 +661,7 @@ mod tests {
             display_name: "a".into(),
             activity_label: "Idle".into(),
             indicator: "\u{25cb}".into(),
-            color: (180, 175, 195),
+            last_event_ts: 0,
             git_branch: None,
             tab_index: 0,
             paused: false,
@@ -664,7 +672,7 @@ mod tests {
             display_name: "b".into(),
             activity_label: "Idle".into(),
             indicator: "\u{25cb}".into(),
-            color: (180, 175, 195),
+            last_event_ts: 0,
             git_branch: None,
             tab_index: 1,
             paused: false,
@@ -683,7 +691,7 @@ mod tests {
                 display_name: format!("s{i}"),
                 activity_label: "Idle".into(),
                 indicator: "\u{25cb}".into(),
-                color: (180, 175, 195),
+                last_event_ts: 0,
                 git_branch: None,
                 tab_index: i as usize,
                 paused: false,
