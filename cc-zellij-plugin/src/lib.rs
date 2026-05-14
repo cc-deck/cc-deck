@@ -17,7 +17,7 @@ pub struct RenderSession {
     pub display_name: String,
     pub activity_label: String,
     pub indicator: String,
-    pub last_event_ts: u64,
+    pub color: (u8, u8, u8),
     pub git_branch: Option<String>,
     pub tab_index: usize,
     pub paused: bool,
@@ -42,14 +42,7 @@ pub struct RenderPayload {
     pub voice_connected: bool,
     #[serde(default)]
     pub voice_muted: bool,
-    #[serde(default = "default_done_timeout")]
-    pub done_timeout: u64,
-    #[serde(default = "default_idle_fade_secs")]
-    pub idle_fade_secs: u64,
 }
-
-fn default_done_timeout() -> u64 { 300 }
-fn default_idle_fade_secs() -> u64 { 3600 }
 
 // ---------------------------------------------------------------------------
 // Action message: sidebar -> controller via cc-deck:action pipe
@@ -111,7 +104,7 @@ mod protocol_tests {
                 display_name: "api-server".into(),
                 activity_label: "Working".into(),
                 indicator: "●".into(),
-                last_event_ts: 0,
+                color: (180, 140, 255),
                 git_branch: Some("main".into()),
                 tab_index: 0,
                 paused: false,
@@ -128,8 +121,6 @@ mod protocol_tests {
             controller_plugin_id: 42,
             voice_connected: false,
             voice_muted: false,
-            done_timeout: 300,
-            idle_fade_secs: 3600,
         };
         let json = serde_json::to_string(&payload).unwrap();
         let restored: RenderPayload = serde_json::from_str(&json).unwrap();
@@ -203,8 +194,6 @@ mod protocol_tests {
             controller_plugin_id: 1,
             voice_connected: true,
             voice_muted: false,
-            done_timeout: 300,
-            idle_fade_secs: 3600,
         };
         let json = serde_json::to_string(&payload).unwrap();
         let restored: RenderPayload = serde_json::from_str(&json).unwrap();
@@ -236,8 +225,6 @@ mod protocol_tests {
             controller_plugin_id: 1,
             voice_connected: false,
             voice_muted: false,
-            done_timeout: 300,
-            idle_fade_secs: 3600,
         };
         let json = serde_json::to_string(&payload).unwrap();
         let restored: RenderPayload = serde_json::from_str(&json).unwrap();

@@ -304,13 +304,12 @@ use crate::controller::ControllerPlugin;
 fn test_voice_reconnect_resync_muted() {
     let mut plugin = setup_controller();
 
-    // Enable voice and mute it
     plugin.pipe(make_pipe("cc-deck:voice", "[[voice:on]]"));
     assert!(plugin.test_state().voice_enabled);
     plugin.pipe(make_pipe("cc-deck:voice", "[[voice:mute]]"));
     assert!(plugin.test_state().voice_muted);
 
-    // Simulate disconnect (heartbeat timeout clears voice state)
+    // Simulate disconnect
     plugin.test_state_mut().voice_enabled = false;
     plugin.test_state_mut().voice_muted = false;
     plugin.test_state_mut().voice_mute_requested = None;

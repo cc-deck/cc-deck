@@ -76,7 +76,6 @@ impl Activity {
 ///
 /// Uses a square-root curve (via integer approximation) for perceptually
 /// smooth decay: rapid initial darkening that tapers off.
-#[cfg(test)]
 pub fn faded_color(
     activity: &Activity,
     elapsed_secs: u64,
@@ -93,34 +92,6 @@ pub fn faded_color(
             let t = sqrt_ratio_1024(elapsed_secs, idle_fade_secs.max(1));
             lerp_color_i((180, 175, 195), (70, 65, 80), t)
         }
-    }
-}
-
-/// Compute faded color from an activity label string and elapsed time.
-/// Used by the sidebar to compute colors locally from the render payload.
-pub fn faded_color_from_label(
-    activity_label: &str,
-    elapsed_secs: u64,
-    done_timeout: u64,
-    idle_fade_secs: u64,
-) -> (u8, u8, u8) {
-    match activity_label {
-        "Done" | "AgentDone" => {
-            let base = if activity_label == "Done" {
-                Activity::Done.color()
-            } else {
-                Activity::AgentDone.color()
-            };
-            let t = sqrt_ratio_1024(elapsed_secs, done_timeout.max(1));
-            lerp_color_i(base, (180, 175, 195), t)
-        }
-        "Idle" => {
-            let t = sqrt_ratio_1024(elapsed_secs, idle_fade_secs.max(1));
-            lerp_color_i((180, 175, 195), (70, 65, 80), t)
-        }
-        "Working" => Activity::Working.color(),
-        "Permission" | "Notification" => Activity::Waiting(WaitReason::Permission).color(),
-        _ => Activity::Init.color(),
     }
 }
 
@@ -264,7 +235,7 @@ impl Session {
         }
     }
 
-    #[allow(dead_code)]
+    /// Elapsed seconds since last activity change.
     pub fn elapsed_secs(&self) -> u64 {
         unix_now().saturating_sub(self.last_event_ts)
     }

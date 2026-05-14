@@ -7,7 +7,7 @@
 use super::render_broadcast;
 use super::state::ControllerState;
 use crate::git::{self, GitResult};
-use crate::session::{self, Session};
+use crate::session::{self, Activity, Session};
 use std::collections::BTreeMap;
 use zellij_tile::prelude::*;
 
@@ -120,7 +120,7 @@ pub fn handle_pane_update(state: &mut ControllerState, manifest: PaneManifest) {
             "CTRL PANE_UPDATE: focus changed {:?} -> {:?}, immediate broadcast",
             old_focused, state.focused_pane_id
         ));
-        super::render_broadcast::broadcast_render_force(state);
+        super::render_broadcast::broadcast_render(state);
         state.render_dirty = false;
     } else if count_changed || removed {
         state.mark_render_dirty();
@@ -185,8 +185,7 @@ pub fn handle_timer(state: &mut ControllerState, _elapsed: f64) {
         crate::debug_log("CTRL TIMER: voice heartbeat timeout, clearing voice state");
     }
 
-    // Timeout for stale voice_mute_requested: if the relay hasn't confirmed
-    // the toggle within 5 seconds, clear the request to unstick the UI.
+    // Timeout for stale voice_mute_requested
     if state.voice_mute_requested.is_some()
         && state.voice_mute_requested_ms > 0
         && now_ms.saturating_sub(state.voice_mute_requested_ms) > 5000
@@ -194,6 +193,19 @@ pub fn handle_timer(state: &mut ControllerState, _elapsed: f64) {
         crate::debug_log("CTRL TIMER: voice_mute_requested timeout, clearing");
         state.voice_mute_requested = None;
         state.voice_mute_requested_ms = 0;
+        state.mark_render_dirty();
+    }
+
+    // Fading colors change over time for Done/Idle sessions.
+    // Only re-render every 5 ticks (5s) to reduce broadcast frequency.
+    if state.tick_count.is_multiple_of(5)
+        && state.sessions.values().any(|s| {
+            matches!(
+                s.activity,
+                Activity::Done | Activity::AgentDone | Activity::Idle
+            )
+        })
+    {
         state.mark_render_dirty();
     }
 
