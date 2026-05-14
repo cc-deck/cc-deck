@@ -86,18 +86,18 @@ impl ZellijPlugin for SidebarRendererPlugin {
 
                 // One-shot render request: if no payload received after 3 ticks
                 if self.state.ticks_since_init >= 3
-                    && !self.state.initialized
                     && !self.state.render_request_sent
                 {
-                    if let Some(controller_id) = self.state.controller_plugin_id {
-                        send_render_request(self.state.my_plugin_id, controller_id);
-                        self.state.render_request_sent = true;
-                        crate::debug_log(&format!(
-                            "SIDEBAR[{}] sent render-request to controller={}",
-                            self.state.my_plugin_id, controller_id
-                        ));
-                    }
-                    // If controller_plugin_id is None, wait for next tick
+                    send_render_request(
+                        self.state.my_plugin_id,
+                        self.state.controller_plugin_id,
+                    );
+                    self.state.render_request_sent = true;
+                    crate::debug_log(&format!(
+                        "SIDEBAR[{}] sent render-request target={:?}",
+                        self.state.my_plugin_id,
+                        self.state.controller_plugin_id
+                    ));
                 }
 
                 // Reschedule timer if still waiting
@@ -335,17 +335,20 @@ fn send_hello_wasm(hello: &SidebarHello) {
 #[cfg(not(target_family = "wasm"))]
 fn send_hello_wasm(_hello: &SidebarHello) {}
 
-/// Send a render-request to the controller.
+/// Send a render-request to the controller. If controller_plugin_id is known,
+/// send targeted. Otherwise broadcast so any controller can respond.
 #[cfg(target_family = "wasm")]
-fn send_render_request(sidebar_plugin_id: u32, controller_plugin_id: u32) {
+fn send_render_request(sidebar_plugin_id: u32, controller_plugin_id: Option<u32>) {
     let mut msg = MessageToPlugin::new("cc-deck:render-request");
     msg.message_payload = Some(sidebar_plugin_id.to_string());
-    msg.destination_plugin_id = Some(controller_plugin_id);
+    if let Some(id) = controller_plugin_id {
+        msg.destination_plugin_id = Some(id);
+    }
     pipe_message_to_plugin(msg);
 }
 
 #[cfg(not(target_family = "wasm"))]
-fn send_render_request(_sidebar_plugin_id: u32, _controller_plugin_id: u32) {}
+fn send_render_request(_sidebar_plugin_id: u32, _controller_plugin_id: Option<u32>) {}
 
 #[cfg(test)]
 impl SidebarRendererPlugin {
