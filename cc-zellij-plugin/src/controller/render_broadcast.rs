@@ -95,9 +95,6 @@ pub fn broadcast_render(state: &mut ControllerState) {
     for &sidebar_plugin_id in state.sidebar_registry.keys() {
         send_render_to_plugin(sidebar_plugin_id, &json);
     }
-
-    // Also broadcast without target for any sidebars not yet registered
-    broadcast_render_all(&json);
 }
 
 /// Flush the render if dirty, then clear the flag.
@@ -158,20 +155,6 @@ fn send_render_to_plugin(plugin_id: u32, json: &str) {
 #[cfg(not(target_family = "wasm"))]
 fn send_render_to_plugin(_plugin_id: u32, _json: &str) {}
 
-/// Broadcast render payload to ALL plugins via pipe_message_to_plugin.
-/// With no plugin_url and no destination_plugin_id, Zellij broadcasts
-/// to every loaded plugin's pipe() handler (confirmed in Zellij source:
-/// zellij-server/src/plugins/mod.rs pipe_to_all_plugins).
-#[cfg(target_family = "wasm")]
-fn broadcast_render_all(json: &str) {
-    use zellij_tile::prelude::*;
-    let mut msg = MessageToPlugin::new("cc-deck:render");
-    msg.message_payload = Some(json.to_string());
-    pipe_message_to_plugin(msg);
-}
-
-#[cfg(not(target_family = "wasm"))]
-fn broadcast_render_all(_json: &str) {}
 
 #[cfg(test)]
 mod tests {
