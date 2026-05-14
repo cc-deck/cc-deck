@@ -76,6 +76,8 @@ pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
 
 /// Broadcast the render payload to all registered sidebar instances.
 pub fn broadcast_render(state: &ControllerState) {
+    let start_us = crate::session::unix_now_ms().saturating_mul(1000);
+
     let payload = build_render_payload(state);
     let json = match serde_json::to_string(&payload) {
         Ok(j) => j,
@@ -85,9 +87,24 @@ pub fn broadcast_render(state: &ControllerState) {
         }
     };
 
+    let serialization_us = crate::session::unix_now_ms().saturating_mul(1000).saturating_sub(start_us);
+
     // Send to each registered sidebar (discovered from PaneManifest)
+    let mut send_count: u64 = 0;
     for &sidebar_plugin_id in state.sidebar_registry.keys() {
         send_render_to_plugin(sidebar_plugin_id, &json);
+        send_count += 1;
+    }
+
+    if state.perf.enabled {
+        // Perf tracker is behind a shared reference; record via unsafe cell
+        // pattern or just inline. Since perf is behind &ControllerState, we
+        // log the values and let the timer handler record them.
+        // For now, use a simpler approach: log for post-mortem analysis.
+        crate::debug_log(&format!(
+            "CTRL RENDER broadcast: sidebars={} serialization_us={}",
+            send_count, serialization_us
+        ));
     }
 }
 
@@ -106,8 +123,13 @@ pub fn flush_render(state: &mut ControllerState) {
                 "CTRL FLUSH: waiting panes={waiting_panes:?}"
             ));
         }
+        state.perf.record_raw("render:broadcast", 1);
+        let sidebar_count = state.sidebar_registry.len() as u64;
+        state.perf.record_raw("render:pipe_send", sidebar_count);
         broadcast_render(state);
         state.render_dirty = false;
+    } else {
+        state.perf.record_raw("render:skipped", 1);
     }
 }
 
@@ -142,6 +164,11 @@ fn send_render_to_plugin(plugin_id: u32, json: &str) {
 
 #[cfg(not(target_family = "wasm"))]
 fn send_render_to_plugin(_plugin_id: u32, _json: &str) {}
+
+/// Public wrapper for send_render_to_plugin (used by controller for targeted renders).
+pub fn send_render_to_plugin_pub(plugin_id: u32, json: &str) {
+    send_render_to_plugin(plugin_id, json);
+}
 
 
 #[cfg(test)]

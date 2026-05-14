@@ -243,3 +243,83 @@ fn test_local_mute_override_preserved_on_mismatch() {
 
 use super::SidebarRendererPlugin;
 use cc_deck::RenderPayload;
+
+// ---------------------------------------------------------------------------
+// Render Pipeline Stability: Sidebar Render Request Fallback (T019-T021)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_sidebar_sends_render_request_after_3_ticks() {
+    let mut plugin = setup_sidebar();
+    // Set controller_plugin_id so the request has a target
+    plugin.test_state_mut().controller_plugin_id = Some(42);
+
+    assert!(!plugin.test_state().render_request_sent);
+    assert_eq!(plugin.test_state().ticks_since_init, 0);
+
+    // Tick 1
+    plugin.update(Event::Timer(1.0));
+    assert!(!plugin.test_state().render_request_sent);
+    assert_eq!(plugin.test_state().ticks_since_init, 1);
+
+    // Tick 2
+    plugin.update(Event::Timer(1.0));
+    assert!(!plugin.test_state().render_request_sent);
+
+    // Tick 3: should send render request
+    plugin.update(Event::Timer(1.0));
+    assert!(plugin.test_state().render_request_sent);
+    assert_eq!(plugin.test_state().ticks_since_init, 3);
+}
+
+#[test]
+fn test_sidebar_does_not_send_render_request_if_already_initialized() {
+    let mut plugin = setup_sidebar();
+    plugin.test_state_mut().controller_plugin_id = Some(42);
+
+    // Receive a render payload first
+    let payload = make_payload(vec![make_session(1, "api-server", 0)]);
+    plugin.pipe(make_pipe("cc-deck:render", &serde_json::to_string(&payload).unwrap()));
+    assert!(plugin.test_state().initialized);
+
+    // Even after 3+ ticks, no render request should be sent
+    for _ in 0..5 {
+        plugin.update(Event::Timer(1.0));
+    }
+    assert!(!plugin.test_state().render_request_sent);
+}
+
+#[test]
+fn test_sidebar_does_not_send_render_request_more_than_once() {
+    let mut plugin = setup_sidebar();
+    plugin.test_state_mut().controller_plugin_id = Some(42);
+
+    // Get past the 3-tick threshold
+    for _ in 0..4 {
+        plugin.update(Event::Timer(1.0));
+    }
+    assert!(plugin.test_state().render_request_sent);
+
+    // Further ticks should not reset the flag
+    for _ in 0..5 {
+        plugin.update(Event::Timer(1.0));
+    }
+    assert!(plugin.test_state().render_request_sent);
+}
+
+#[test]
+fn test_sidebar_waits_for_controller_id_before_render_request() {
+    let mut plugin = setup_sidebar();
+    // controller_plugin_id is None by default
+
+    // After 3+ ticks without a controller_plugin_id, should NOT send
+    for _ in 0..5 {
+        plugin.update(Event::Timer(1.0));
+    }
+    assert!(!plugin.test_state().render_request_sent);
+
+    // Now set the controller_plugin_id and tick again
+    plugin.test_state_mut().controller_plugin_id = Some(42);
+    plugin.update(Event::Timer(1.0));
+    assert!(plugin.test_state().render_request_sent);
+}

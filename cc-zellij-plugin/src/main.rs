@@ -9,7 +9,7 @@ mod controller;
 mod sidebar_plugin;
 mod wasm_compat;
 
-pub use debug::{debug_init, debug_log, install_panic_hook};
+pub use debug::{debug_flush, debug_init, debug_log, install_panic_hook};
 
 /// Strip ANSI escape sequences, control characters, and speech-to-text
 /// noise markers (e.g. `*cough*`, `(typing)`) from voice text.

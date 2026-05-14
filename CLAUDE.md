@@ -83,6 +83,7 @@ Rust (stable, latest edition 2021+): Follow standard conventions
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
+at `specs/053-render-pipeline-stability/plan.md`
 <!-- SPECKIT END -->
 
 <!-- MANUAL ADDITIONS START -->
@@ -123,5 +124,5 @@ When implementing a new backend for an existing interface (e.g., new Environment
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at `specs/052-plugin-integration-e2e-testing/plan.md`
+at `specs/053-render-pipeline-stability/plan.md`
 <!-- SPECKIT END -->
