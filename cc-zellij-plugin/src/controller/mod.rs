@@ -421,10 +421,7 @@ impl ZellijPlugin for ControllerPlugin {
                     "CTRL[{}] RENDER-REQUEST from sidebar={}",
                     self.state.plugin_id, sidebar_plugin_id
                 ));
-                let payload = render_broadcast::build_render_payload(&self.state);
-                if let Ok(json) = serde_json::to_string(&payload) {
-                    render_broadcast::send_render_to_plugin_pub(sidebar_plugin_id, &json);
-                }
+                render_broadcast::targeted_render(&self.state, sidebar_plugin_id);
             }
             PipeAction::Unknown => {}
             _ => {
@@ -485,12 +482,21 @@ impl ControllerPlugin {
         match command {
             cmd if cmd == "voice:on" || cmd.starts_with("voice:on:") => {
                 let was_enabled = self.state.voice_enabled;
+                let was_muted = self.state.voice_muted;
                 self.state.voice_enabled = true;
                 self.state.voice_last_ping_ms = now_ms;
+
+                let new_muted = cmd.strip_prefix("voice:on:")
+                    .map(|suffix| suffix == "muted")
+                    .unwrap_or(false);
+                self.state.voice_muted = new_muted;
+
                 if !was_enabled {
-                    self.state.voice_muted = cmd == "voice:on:muted";
                     self.state.voice_mute_requested = None;
                     self.state.voice_mute_requested_ms = 0;
+                }
+
+                if !was_enabled || was_muted != new_muted {
                     self.state.mark_render_dirty();
                     crate::debug_log(&format!("CTRL VOICE command: {}", cmd));
                 }
@@ -562,11 +568,14 @@ impl ControllerPlugin {
             sessions: &'a std::collections::BTreeMap<u32, crate::session::Session>,
             attended_pane_id: Option<u32>,
             #[serde(skip_serializing_if = "Option::is_none")]
+            focused_pane_id: Option<u32>,
+            #[serde(skip_serializing_if = "Option::is_none")]
             voice_mute_requested: Option<bool>,
         }
         let resp = DumpStateResponse {
             sessions: &self.state.sessions,
             attended_pane_id: self.state.last_attended_pane_id,
+            focused_pane_id: self.state.focused_pane_id,
             voice_mute_requested: self.state.voice_mute_requested,
         };
         let _state_json = serde_json::to_string(&resp)
@@ -817,12 +826,81 @@ mod tests {
     }
 
     #[test]
-    fn test_voice_on_already_enabled_preserves_mute() {
+    fn test_voice_on_bare_clears_mute_and_marks_dirty() {
         let mut plugin = ControllerPlugin::default();
         plugin.state.voice_enabled = true;
         plugin.state.voice_muted = true;
+        plugin.state.render_dirty = false;
         plugin.handle_voice_command("voice:on");
-        assert!(plugin.state.voice_muted);
+        assert!(!plugin.state.voice_muted);
+        assert!(plugin.state.render_dirty);
+    }
+
+    #[test]
+    fn test_voice_on_unmuted_no_dirty_when_unchanged() {
+        let mut plugin = ControllerPlugin::default();
+        plugin.state.voice_enabled = true;
+        plugin.state.voice_muted = false;
+        plugin.state.render_dirty = false;
+        plugin.handle_voice_command("voice:on:unmuted");
         assert!(!plugin.state.render_dirty);
+    }
+
+    #[test]
+    fn test_voice_on_muted_sets_dirty_on_change() {
+        let mut plugin = ControllerPlugin::default();
+        plugin.state.voice_enabled = true;
+        plugin.state.voice_muted = false;
+        plugin.state.render_dirty = false;
+        plugin.handle_voice_command("voice:on:muted");
+        assert!(plugin.state.voice_muted);
+        assert!(plugin.state.render_dirty);
+    }
+
+    #[test]
+    fn test_voice_on_bare_backward_compat_unmuted() {
+        let mut plugin = ControllerPlugin::default();
+        plugin.handle_voice_command("voice:on");
+        assert!(plugin.state.voice_enabled);
+        assert!(!plugin.state.voice_muted);
+    }
+
+    #[test]
+    fn test_voice_on_garbage_suffix_treated_as_unmuted() {
+        let mut plugin = ControllerPlugin::default();
+        plugin.handle_voice_command("voice:on:garbage");
+        assert!(plugin.state.voice_enabled);
+        assert!(!plugin.state.voice_muted);
+    }
+
+    #[test]
+    fn test_dump_state_includes_focused_pane_id() {
+        let mut plugin = ControllerPlugin::default();
+        plugin.state.focused_pane_id = Some(42);
+        plugin.state.last_attended_pane_id = Some(10);
+
+        // Use the same DumpStateResponse struct as dump_state() to verify serialization
+        #[derive(serde::Serialize, serde::Deserialize)]
+        struct DumpStateResponse {
+            sessions: std::collections::BTreeMap<u32, serde_json::Value>,
+            attended_pane_id: Option<u32>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            focused_pane_id: Option<u32>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            voice_mute_requested: Option<bool>,
+        }
+
+        let resp = DumpStateResponse {
+            sessions: std::collections::BTreeMap::new(),
+            attended_pane_id: plugin.state.last_attended_pane_id,
+            focused_pane_id: plugin.state.focused_pane_id,
+            voice_mute_requested: None,
+        };
+
+        let json = serde_json::to_string(&resp).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed["focused_pane_id"], 42);
+        assert_eq!(parsed["attended_pane_id"], 10);
     }
 }

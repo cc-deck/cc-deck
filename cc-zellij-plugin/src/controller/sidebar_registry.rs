@@ -27,6 +27,7 @@ pub fn handle_sidebar_hello(state: &mut ControllerState, hello: SidebarHello) {
             controller_plugin_id: state.plugin_id,
         };
         send_sidebar_init(hello.plugin_id, &init);
+        super::render_broadcast::targeted_render(state, hello.plugin_id);
     } else {
         crate::debug_log(&format!(
             "CTRL SIDEBAR plugin_id={} not found in manifest, skipping",
@@ -216,6 +217,28 @@ mod tests {
         // No manifest - cleanup is a no-op
         cleanup_dead_sidebars(&mut state);
         assert_eq!(state.sidebar_registry.len(), 2);
+    }
+
+    #[test]
+    fn test_handle_sidebar_hello_registers_and_renders() {
+        let mut state = ControllerState::default();
+        state.plugin_id = 1;
+
+        let mut panes = std::collections::HashMap::new();
+        panes.insert(0, vec![make_plugin_pane(1), make_plugin_pane(42)]);
+        state.pane_manifest = Some(PaneManifest { panes });
+
+        state.voice_enabled = true;
+        state.voice_muted = false;
+
+        let hello = SidebarHello { plugin_id: 42 };
+        // In non-WASM test mode, send_sidebar_init and targeted_render
+        // are no-ops. This test verifies registration succeeds and the
+        // code path through targeted_render does not panic.
+        handle_sidebar_hello(&mut state, hello);
+
+        assert!(state.sidebar_registry.contains_key(&42));
+        assert_eq!(*state.sidebar_registry.get(&42).unwrap(), 0);
     }
 
     #[test]
