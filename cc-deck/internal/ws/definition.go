@@ -41,6 +41,15 @@ type WorkspaceSpec struct {
 	K8sContext     string            `yaml:"context,omitempty"`
 	StorageSize    string            `yaml:"storage-size,omitempty"`
 	StorageClass   string            `yaml:"storage-class,omitempty"`
+	Gateway        string            `yaml:"gateway,omitempty"`
+	GatewayTLS     *bool             `yaml:"gateway-tls,omitempty"`
+	TLSCertPath    string            `yaml:"tls-cert-path,omitempty"`
+	TLSKeyPath     string            `yaml:"tls-key-path,omitempty"`
+	TLSCAPath      string            `yaml:"tls-ca-path,omitempty"`
+	SandboxImage   string            `yaml:"sandbox-image,omitempty"`
+	SandboxCommand string            `yaml:"sandbox-command,omitempty"`
+	Policy         string            `yaml:"policy,omitempty"`
+	Provider       string            `yaml:"provider,omitempty"`
 }
 
 // WorkspaceDefinition is the declarative, user-editable description of a workspace.
