@@ -54,7 +54,7 @@ func ResolveGatewayConfig(gateway *GatewayConfig) GatewayConfig {
 	if envAddr, ok := os.LookupEnv("OPENSHELL_GATEWAY_URL"); ok && envAddr != "" {
 		return GatewayConfig{Address: envAddr}
 	}
-	return GatewayConfig{Address: "localhost:8080"}
+	return GatewayConfig{Address: "localhost:17670"}
 }
 
 // isLocalhost returns true if the address targets a loopback interface.
@@ -99,12 +99,14 @@ func (c *cliClient) CreateSandbox(ctx context.Context, image, command, policy, p
 	args = append(args, "--")
 	args = append(args, strings.Fields(command)...)
 
-	out, err := c.execCLI(ctx, args...)
+	// The CLI blocks with a progress spinner and never exits in non-TTY mode.
+	// We read the first few lines to capture the sandbox name, then kill it.
+	// The workspace layer polls for Ready via GetSandbox separately.
+	sandboxName, err := c.execCLICaptureName(ctx, args...)
 	log.Printf("DEBUG: openshell: CreateSandbox took %v", time.Since(start))
 	if err != nil {
 		return "", fmt.Errorf("creating sandbox: %w", err)
 	}
-	sandboxName := parseSandboxName(out)
 	if sandboxName == "" {
 		return "", fmt.Errorf("creating sandbox: could not parse sandbox name from CLI output")
 	}
@@ -116,6 +118,43 @@ func (c *cliClient) CreateSandbox(ctx context.Context, image, command, policy, p
 	}
 
 	return sandboxName, nil
+}
+
+// execCLICaptureName starts the openshell CLI, reads output until the sandbox
+// name is found, then terminates the process. This is needed because the CLI
+// blocks with a progress spinner in non-TTY mode.
+func (c *cliClient) execCLICaptureName(ctx context.Context, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "openshell", args...)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return "", err
+	}
+	cmd.Stderr = nil
+	if err := cmd.Start(); err != nil {
+		return "", err
+	}
+
+	buf := make([]byte, 4096)
+	var output strings.Builder
+	nameFound := false
+
+	for !nameFound {
+		n, readErr := stdout.Read(buf)
+		if n > 0 {
+			output.Write(buf[:n])
+			if name := parseSandboxName(stripANSI(output.String())); name != "" {
+				nameFound = true
+			}
+		}
+		if readErr != nil {
+			break
+		}
+	}
+
+	_ = cmd.Process.Kill()
+	_ = cmd.Wait()
+
+	return parseSandboxName(stripANSI(output.String())), nil
 }
 
 // DeleteSandbox destroys an existing sandbox.

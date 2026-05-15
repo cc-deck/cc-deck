@@ -24,5 +24,9 @@ RUN ARCH=$(uname -m) && \
     curl -fsSL "https://github.com/zellij-org/zellij/releases/latest/download/zellij-${ZELLIJ_ARCH}.tar.gz" \
     | tar xz -C /usr/local/bin
 
+# Override the base image policy with cc-deck's policy that includes
+# /dev/urandom (needed by Zellij) and Vertex AI endpoints.
+COPY openshell-sandbox-policy.yaml /etc/openshell/policy.yaml
+
 USER sandbox
 WORKDIR /sandbox
