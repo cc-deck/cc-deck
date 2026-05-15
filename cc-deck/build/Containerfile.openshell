@@ -1,0 +1,32 @@
+# OpenShell Sandbox Image
+# Contains Zellij, Claude Code, and development tools for use with OpenShell.
+# Based on the OpenShell base image which includes the sandbox user,
+# Claude Code, Node.js, and supervisor compatibility.
+#
+# Build:  podman build -f Containerfile.openshell -t cc-deck/openshell-sandbox:latest .
+
+FROM ghcr.io/nvidia/openshell-community/sandboxes/base:latest
+
+USER root
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    openssh-client \
+    procps \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Zellij (latest stable, arch-aware)
+RUN ARCH=$(uname -m) && \
+    case "${ARCH}" in \
+        x86_64)  ZELLIJ_ARCH="x86_64-unknown-linux-musl" ;; \
+        aarch64) ZELLIJ_ARCH="aarch64-unknown-linux-musl" ;; \
+        *)       echo "Unsupported architecture: ${ARCH}" && exit 1 ;; \
+    esac && \
+    curl -fsSL "https://github.com/zellij-org/zellij/releases/latest/download/zellij-${ZELLIJ_ARCH}.tar.gz" \
+    | tar xz -C /usr/local/bin
+
+# Override the base image policy with cc-deck's policy that includes
+# /dev/urandom (needed by Zellij) and Vertex AI endpoints.
+COPY openshell-sandbox-policy.yaml /etc/openshell/policy.yaml
+
+USER sandbox
+WORKDIR /sandbox

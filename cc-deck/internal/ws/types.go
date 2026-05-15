@@ -12,6 +12,7 @@ const (
 	WorkspaceTypeK8sDeploy  WorkspaceType = "k8s-deploy"
 	WorkspaceTypeK8sSandbox WorkspaceType = "k8s-sandbox"
 	WorkspaceTypeSSH        WorkspaceType = "ssh"
+	WorkspaceTypeOpenShell  WorkspaceType = "openshell"
 )
 
 // WorkspaceState represents the current state of a workspace.
@@ -121,6 +122,12 @@ type SSHFields struct {
 	Workspace    string `yaml:"workspace,omitempty"`
 }
 
+// OpenShellFields holds fields for an OpenShell workspace.
+type OpenShellFields struct {
+	SandboxID  string `yaml:"sandbox_id,omitempty"`
+	GatewayAddr string `yaml:"gateway_addr,omitempty"`
+}
+
 // SandboxFields holds fields for a K8sSandbox workspace.
 type SandboxFields struct {
 	Namespace  string     `yaml:"namespace,omitempty"`
@@ -145,6 +152,7 @@ type WorkspaceInstance struct {
 	K8s          *K8sFields        `yaml:"k8s,omitempty"`
 	Sandbox      *SandboxFields    `yaml:"sandbox,omitempty"`
 	SSH          *SSHFields        `yaml:"ssh,omitempty"`
+	OpenShell    *OpenShellFields  `yaml:"openshell,omitempty"`
 }
 
 // StateFile is the top-level structure of the workspace state file.
