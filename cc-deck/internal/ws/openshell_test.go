@@ -100,7 +100,7 @@ func TestResolveGatewayConfig_FallbackToDefault(t *testing.T) {
 	t.Setenv("OPENSHELL_GATEWAY_URL", "")
 	w := &OpenShellWorkspace{name: "test-ws"}
 	cfg := w.resolveGatewayConfig()
-	assert.Equal(t, "localhost:8080", cfg.Address)
+	assert.Equal(t, "localhost:17670", cfg.Address)
 }
 
 func TestLoadSandboxID_FromState(t *testing.T) {

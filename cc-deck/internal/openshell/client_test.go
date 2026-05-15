@@ -8,10 +8,10 @@ import (
 )
 
 func TestNewClient_ValidConfig(t *testing.T) {
-	cfg := GatewayConfig{Address: "localhost:8080"}
+	cfg := GatewayConfig{Address: "localhost:17670"}
 	client, err := NewClient(cfg)
 	require.NoError(t, err)
-	assert.Equal(t, "localhost:8080", client.Address())
+	assert.Equal(t, "localhost:17670", client.Address())
 }
 
 func TestNewClient_EmptyAddress(t *testing.T) {
@@ -37,14 +37,14 @@ func TestResolveGatewayConfig_FromEnvVar(t *testing.T) {
 func TestResolveGatewayConfig_Default(t *testing.T) {
 	t.Setenv("OPENSHELL_GATEWAY_URL", "")
 	result := ResolveGatewayConfig(nil)
-	assert.Equal(t, "localhost:8080", result.Address)
+	assert.Equal(t, "localhost:17670", result.Address)
 }
 
 func TestResolveGatewayConfig_EmptyDefinition(t *testing.T) {
 	t.Setenv("OPENSHELL_GATEWAY_URL", "")
 	cfg := &GatewayConfig{}
 	result := ResolveGatewayConfig(cfg)
-	assert.Equal(t, "localhost:8080", result.Address)
+	assert.Equal(t, "localhost:17670", result.Address)
 }
 
 func TestIsLocalhost(t *testing.T) {
@@ -52,7 +52,7 @@ func TestIsLocalhost(t *testing.T) {
 		addr     string
 		expected bool
 	}{
-		{"localhost:8080", true},
+		{"localhost:17670", true},
 		{"127.0.0.1:8080", true},
 		{"[::1]:8080", true},
 		{"::1", true},
@@ -136,7 +136,7 @@ func TestStripANSI(t *testing.T) {
 }
 
 func TestNewClient_ReturnsInterface(t *testing.T) {
-	cfg := GatewayConfig{Address: "localhost:8080"}
+	cfg := GatewayConfig{Address: "localhost:17670"}
 	client, err := NewClient(cfg)
 	require.NoError(t, err)
 	var _ Client = client
