@@ -444,46 +444,49 @@ pub fn handle_pane_closed(state: &mut ControllerState, pane_id: PaneId) {
 /// Register global keybindings via reconfigure() pointing to this controller plugin.
 #[cfg(target_family = "wasm")]
 fn register_keybindings(state: &ControllerState) {
-    let plugin_id = state.plugin_id;
     let nav_prev = shift_variant(&state.config.navigate_key);
     let att_prev = shift_variant(&state.config.attend_key);
     let wrk_prev = shift_variant(&state.config.working_key);
 
+    // Use broadcast MessagePlugin (no ID) instead of MessagePluginId.
+    // With duplicate controller instances (Zellij bug), MessagePluginId
+    // routes to the plugin_map entry which may be the dormant instance.
+    // Broadcast reaches both; the dormant guard drops it, the leader processes.
     let kdl = format!(
         r#"keybinds {{
     shared_except "locked" {{
         bind "{nav}" {{
-            MessagePluginId {id} {{
+            MessagePlugin {{
                 name "cc-deck:navigate"
             }}
         }}
         bind "{att}" {{
-            MessagePluginId {id} {{
+            MessagePlugin {{
                 name "cc-deck:attend"
             }}
         }}
         bind "{wrk}" {{
-            MessagePluginId {id} {{
+            MessagePlugin {{
                 name "cc-deck:working"
             }}
         }}
         bind "{nav_prev}" {{
-            MessagePluginId {id} {{
+            MessagePlugin {{
                 name "cc-deck:navigate-prev"
             }}
         }}
         bind "{att_prev}" {{
-            MessagePluginId {id} {{
+            MessagePlugin {{
                 name "cc-deck:attend-prev"
             }}
         }}
         bind "{wrk_prev}" {{
-            MessagePluginId {id} {{
+            MessagePlugin {{
                 name "cc-deck:working-prev"
             }}
         }}
         bind "{voice}" {{
-            MessagePluginId {id} {{
+            MessagePlugin {{
                 name "cc-deck:voice-mute-toggle"
             }}
         }}
@@ -496,11 +499,10 @@ fn register_keybindings(state: &ControllerState) {
         att_prev = att_prev,
         wrk_prev = wrk_prev,
         voice = state.config.voice_key,
-        id = plugin_id,
     );
     crate::debug_log(&format!(
-        "CTRL KEYBINDS registering: navigate={} attend={} working={} plugin_id={}",
-        state.config.navigate_key, state.config.attend_key, state.config.working_key, plugin_id
+        "CTRL KEYBINDS registering: navigate={} attend={} working={} (broadcast)",
+        state.config.navigate_key, state.config.attend_key, state.config.working_key
     ));
     zellij_tile::prelude::reconfigure(kdl, false);
 }
