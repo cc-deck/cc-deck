@@ -96,11 +96,11 @@ pub fn broadcast_render(state: &ControllerState) {
         send_count += 1;
     }
 
+    // Untargeted broadcast as fallback for sidebars not yet in the registry.
+    // With leader election ensuring only one active controller, this is safe.
+    broadcast_render_all(&json);
+
     if state.perf.enabled {
-        // Perf tracker is behind a shared reference; record via unsafe cell
-        // pattern or just inline. Since perf is behind &ControllerState, we
-        // log the values and let the timer handler record them.
-        // For now, use a simpler approach: log for post-mortem analysis.
         crate::debug_log(&format!(
             "CTRL RENDER broadcast: sidebars={} serialization_us={}",
             send_count, serialization_us
@@ -151,6 +151,19 @@ fn activity_label(activity: &Activity) -> String {
 }
 
 // --- Wasm-gated host function wrappers ---
+
+/// Broadcast an untargeted render payload to all sidebar instances.
+/// Provides a fallback for sidebars not yet in the registry.
+#[cfg(target_family = "wasm")]
+fn broadcast_render_all(json: &str) {
+    use zellij_tile::prelude::*;
+    let mut msg = MessageToPlugin::new("cc-deck:render");
+    msg.message_payload = Some(json.to_string());
+    pipe_message_to_plugin(msg);
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn broadcast_render_all(_json: &str) {}
 
 /// Send a render payload to a specific sidebar plugin by ID.
 #[cfg(target_family = "wasm")]
@@ -312,6 +325,19 @@ mod tests {
         assert!(!state.render_dirty);
         flush_render(&mut state);
         assert!(!state.render_dirty);
+    }
+
+    #[test]
+    fn test_broadcast_render_calls_both_targeted_and_untargeted() {
+        let mut state = ControllerState::default();
+        state.sessions.insert(1, make_session(1, "test", Activity::Working));
+        state.sidebar_registry.insert(42, 0);
+        state.sidebar_registry.insert(43, 1);
+
+        // In non-WASM test mode, both send_render_to_plugin and
+        // broadcast_render_all are no-ops. This test verifies broadcast_render
+        // completes without panic and processes the registry.
+        broadcast_render(&state);
     }
 
     #[test]
