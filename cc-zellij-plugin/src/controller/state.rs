@@ -30,6 +30,15 @@ const LEGACY_PID_PATH: &str = "/cache/zellij_pid";
 /// focus is trusted again even if it differs from the action-set value.
 const IN_FLIGHT_FOCUS_TTL_MS: u64 = 3000;
 
+/// Timer ticks to wait before self-activating as leader.
+pub const ELECTION_TIMEOUT_TICKS: u32 = 2;
+
+/// Ticks between leader heartbeat pings.
+pub const LEADER_HEARTBEAT_TICKS: u64 = 30;
+
+/// Milliseconds without leader ping before dormant instance re-activates.
+pub const LEADER_FAILURE_TIMEOUT_MS: u64 = 60_000;
+
 /// Metadata override to apply when a restored session is discovered via CWD matching.
 #[derive(Debug, Clone)]
 pub struct PendingOverride {
@@ -109,6 +118,14 @@ pub struct ControllerState {
     /// unblock). Tracks (text_hash, timestamp_ms) to suppress duplicates
     /// within a short window.
     pub voice_last_inject: Option<(u64, u64)>,
+    /// Whether this controller instance is the active leader.
+    pub is_leader: bool,
+    /// Plugin ID of the known leader (if not self).
+    pub leader_plugin_id: Option<u32>,
+    /// Timestamp (ms) of last received leader ping.
+    pub last_leader_ping_ms: u64,
+    /// Timer ticks since startup ping was sent.
+    pub election_ticks: u32,
 }
 
 
@@ -704,5 +721,21 @@ mod tests {
     fn test_sessions_path() {
         assert_eq!(super::sessions_path(12345), "/cache/sessions-12345.json");
         assert_eq!(super::sessions_path(0), "/cache/sessions.json");
+    }
+
+    #[test]
+    fn test_election_pessimistic_default() {
+        let state = ControllerState::default();
+        assert!(!state.is_leader);
+        assert!(state.leader_plugin_id.is_none());
+        assert_eq!(state.last_leader_ping_ms, 0);
+        assert_eq!(state.election_ticks, 0);
+    }
+
+    #[test]
+    fn test_election_constants() {
+        assert_eq!(super::ELECTION_TIMEOUT_TICKS, 2);
+        assert_eq!(super::LEADER_HEARTBEAT_TICKS, 30);
+        assert_eq!(super::LEADER_FAILURE_TIMEOUT_MS, 60_000);
     }
 }

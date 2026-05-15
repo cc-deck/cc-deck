@@ -8,8 +8,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/cc-deck/cc-deck/internal/ws"
 )
 
 // pluginSession mirrors the Rust Session struct serialized by the plugin.
@@ -106,11 +104,10 @@ func parseDumpState(raw []byte) (map[string]pluginSession, error) {
 }
 
 // queryPluginCtx runs zellij pipe to get session state JSON from the controller plugin.
-// Uses targeted --plugin delivery to avoid duplicate responses from sidebars.
+// Uses broadcast delivery so the leader controller responds regardless of
+// which instance Zellij routes targeted pipes to (duplicate instance bug).
 func queryPluginCtx(ctx context.Context) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "zellij", "pipe",
-		"--plugin", ws.ControllerPluginURL(),
-		"--plugin-configuration", "mode=controller",
 		"--name", "cc-deck:dump-state", "--", "")
 	out, err := cmd.Output()
 	if err != nil {
