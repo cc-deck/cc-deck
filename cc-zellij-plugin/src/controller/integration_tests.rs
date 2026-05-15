@@ -321,19 +321,251 @@ fn test_controller_without_permissions_ignores_pipe() {
 // Render Pipeline Stability: Probe messages are no-ops (T008-T009)
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Leader Election Protocol Tests (T009, T010, T017)
+// ---------------------------------------------------------------------------
+
 #[test]
-fn test_controller_ping_is_noop() {
-    let mut plugin = setup_controller();
+fn test_election_dormant_default() {
+    // A fresh controller starts dormant (is_leader = false)
+    let mut plugin = ControllerPlugin::default();
+    plugin.load(std::collections::BTreeMap::new());
+    plugin.update(Event::PermissionRequestResult(PermissionStatus::Granted));
+    // Do NOT set is_leader = true (unlike setup_controller)
+    assert!(!plugin.test_state().is_leader);
+}
+
+#[test]
+fn test_election_activation_after_timeout() {
+    let mut plugin = ControllerPlugin::default();
+    plugin.load(std::collections::BTreeMap::new());
+    plugin.update(Event::PermissionRequestResult(PermissionStatus::Granted));
+    assert!(!plugin.test_state().is_leader);
+
+    // Simulate 2 timer ticks (ELECTION_TIMEOUT_TICKS = 2)
+    plugin.update(Event::Timer(1.0));
+    assert!(!plugin.test_state().is_leader);
+    plugin.update(Event::Timer(1.0));
+    assert!(plugin.test_state().is_leader);
+}
+
+#[test]
+fn test_election_dormant_on_lower_id_ping() {
+    let mut plugin = ControllerPlugin::default();
+    plugin.load(std::collections::BTreeMap::new());
+    plugin.update(Event::PermissionRequestResult(PermissionStatus::Granted));
     plugin.test_state_mut().plugin_id = 10;
 
-    // Probe messages are parsed but not acted on (hooks use targeted
-    // pipe delivery, so a probe-based tiebreaker would disable the
-    // controller that receives hooks)
+    // Receive ping from lower-ID controller (ID 5)
     let ping = make_pipe("cc-deck:controller-ping", "5");
+    // Dormant controller still processes controller-ping (not blocked by guard)
     plugin.pipe(ping);
 
-    // Controller should still be functioning normally
-    assert_eq!(plugin.test_state().sessions.len(), 0);
+    assert!(!plugin.test_state().is_leader);
+    assert_eq!(plugin.test_state().leader_plugin_id, Some(5));
+    assert!(plugin.test_state().last_leader_ping_ms > 0);
+
+    // Even after timeout ticks, should not activate (leader is known)
+    plugin.update(Event::Timer(1.0));
+    plugin.update(Event::Timer(1.0));
+    plugin.update(Event::Timer(1.0));
+    assert!(!plugin.test_state().is_leader);
+}
+
+#[test]
+fn test_election_dormant_ignores_pipe_messages() {
+    let mut plugin = ControllerPlugin::default();
+    plugin.load(std::collections::BTreeMap::new());
+    plugin.update(Event::PermissionRequestResult(PermissionStatus::Granted));
+    // is_leader = false (dormant)
+
+    // Hook events should be ignored
+    let hook = make_hook_pipe("SessionStart", 42);
+    plugin.pipe(hook);
+    assert!(plugin.test_state().sessions.is_empty());
+}
+
+#[test]
+fn test_election_leader_processes_pipes() {
+    let mut plugin = setup_controller();
+    // setup_controller sets is_leader = true
+
+    let hook = make_hook_pipe("SessionStart", 42);
+    plugin.pipe(hook);
+    assert!(plugin.test_state().sessions.contains_key(&42));
+}
+
+#[test]
+fn test_election_dual_controllers_navigation() {
+    // T010: Two controllers, only the leader processes navigate messages
+    let mut leader = setup_controller();
+    leader.test_state_mut().plugin_id = 0;
+    leader.test_state_mut().is_leader = true;
+
+    let mut dormant = ControllerPlugin::default();
+    dormant.load(std::collections::BTreeMap::new());
+    dormant.update(Event::PermissionRequestResult(PermissionStatus::Granted));
+    dormant.test_state_mut().plugin_id = 4;
+    // Simulate receiving ping from lower ID
+    let ping = make_pipe("cc-deck:controller-ping", "0");
+    dormant.pipe(ping);
+    assert!(!dormant.test_state().is_leader);
+
+    // Navigate message should be ignored by dormant controller
+    let nav = make_pipe("cc-deck:navigate", "");
+    dormant.pipe(nav);
+    // No panic, no state change (dormant guard blocks it)
+
+    // Navigate message should be processed by leader (no panic in non-WASM)
+    let nav2 = PipeMessage {
+        source: PipeSource::Cli("test".to_string()),
+        name: "cc-deck:navigate".to_string(),
+        payload: None,
+        args: std::collections::BTreeMap::new(),
+        is_private: false,
+    };
+    leader.pipe(nav2);
+}
+
+#[test]
+fn test_election_full_flow() {
+    // T017: Simulate full election with two controllers
+    let mut ctrl_low = ControllerPlugin::default();
+    ctrl_low.load(std::collections::BTreeMap::new());
+    ctrl_low.update(Event::PermissionRequestResult(PermissionStatus::Granted));
+    ctrl_low.test_state_mut().plugin_id = 0;
+
+    let mut ctrl_high = ControllerPlugin::default();
+    ctrl_high.load(std::collections::BTreeMap::new());
+    ctrl_high.update(Event::PermissionRequestResult(PermissionStatus::Granted));
+    ctrl_high.test_state_mut().plugin_id = 4;
+
+    // Both are dormant initially
+    assert!(!ctrl_low.test_state().is_leader);
+    assert!(!ctrl_high.test_state().is_leader);
+
+    // High-ID receives ping from low-ID: goes/stays dormant
+    let ping_from_low = make_pipe("cc-deck:controller-ping", "0");
+    ctrl_high.pipe(ping_from_low);
+    assert!(!ctrl_high.test_state().is_leader);
+    assert_eq!(ctrl_high.test_state().leader_plugin_id, Some(0));
+
+    // Low-ID receives ping from high-ID: responds with own ping (lower wins)
+    let ping_from_high = make_pipe("cc-deck:controller-ping", "4");
+    ctrl_low.pipe(ping_from_high);
+    // Low-ID should NOT go dormant (it has the lower ID)
+    assert!(ctrl_low.test_state().leader_plugin_id.is_none());
+
+    // Low-ID: election timeout fires, activates as leader
+    ctrl_low.update(Event::Timer(1.0));
+    ctrl_low.update(Event::Timer(1.0));
+    assert!(ctrl_low.test_state().is_leader);
+
+    // High-ID stays dormant
+    ctrl_high.update(Event::Timer(1.0));
+    ctrl_high.update(Event::Timer(1.0));
+    ctrl_high.update(Event::Timer(1.0));
+    assert!(!ctrl_high.test_state().is_leader);
+}
+
+#[test]
+fn test_election_leader_demotion() {
+    // A controller that is already leader receives a ping from a lower-ID
+    // controller and must step down.
+    let mut plugin = setup_controller();
+    plugin.test_state_mut().plugin_id = 10;
+    plugin.test_state_mut().keybindings_registered = true;
+    assert!(plugin.test_state().is_leader);
+
+    // Receive ping from lower-ID controller
+    let ping = make_pipe("cc-deck:controller-ping", "2");
+    plugin.pipe(ping);
+
+    assert!(!plugin.test_state().is_leader);
+    assert_eq!(plugin.test_state().leader_plugin_id, Some(2));
+    assert!(!plugin.test_state().keybindings_registered);
+
+    // Verify dormant guard now blocks hook events
+    let hook = make_hook_pipe("SessionStart", 42);
+    plugin.pipe(hook);
+    assert!(plugin.test_state().sessions.is_empty());
+}
+
+#[test]
+fn test_election_leader_failure_reactivation() {
+    // Simulate a dormant controller detecting leader failure and re-activating.
+    let mut plugin = ControllerPlugin::default();
+    plugin.load(std::collections::BTreeMap::new());
+    plugin.update(Event::PermissionRequestResult(PermissionStatus::Granted));
+    plugin.test_state_mut().plugin_id = 4;
+
+    // Accept leader with ID 0
+    let ping = make_pipe("cc-deck:controller-ping", "0");
+    plugin.pipe(ping);
+    assert_eq!(plugin.test_state().leader_plugin_id, Some(0));
+    assert!(!plugin.test_state().is_leader);
+
+    // Simulate leader failure: set last_leader_ping_ms far in the past
+    plugin.test_state_mut().last_leader_ping_ms = 1;
+
+    // Fire a timer tick to trigger leader failure detection.
+    // Within this tick: election_ticks increments, then leader failure
+    // resets it back to 0 and clears leader_plugin_id.
+    plugin.update(Event::Timer(1.0));
+
+    assert!(plugin.test_state().leader_plugin_id.is_none());
+    assert_eq!(plugin.test_state().election_ticks, 0);
+    assert!(!plugin.test_state().is_leader);
+
+    // Two more ticks needed to reach ELECTION_TIMEOUT_TICKS (2)
+    plugin.update(Event::Timer(1.0));
+    assert!(!plugin.test_state().is_leader);
+    plugin.update(Event::Timer(1.0));
+    assert!(plugin.test_state().is_leader);
+}
+
+#[test]
+fn test_election_no_payload_ping_ignored() {
+    let mut plugin = ControllerPlugin::default();
+    plugin.load(std::collections::BTreeMap::new());
+    plugin.update(Event::PermissionRequestResult(PermissionStatus::Granted));
+    plugin.test_state_mut().plugin_id = 5;
+
+    // Ping with no payload should be silently ignored
+    let ping = PipeMessage {
+        source: PipeSource::Plugin(1),
+        name: "cc-deck:controller-ping".to_string(),
+        payload: None,
+        args: std::collections::BTreeMap::new(),
+        is_private: false,
+    };
+    plugin.pipe(ping);
+
+    assert!(plugin.test_state().leader_plugin_id.is_none());
+    assert_eq!(plugin.test_state().last_leader_ping_ms, 0);
+}
+
+#[test]
+fn test_election_heartbeat_resets_timer() {
+    let mut dormant = ControllerPlugin::default();
+    dormant.load(std::collections::BTreeMap::new());
+    dormant.update(Event::PermissionRequestResult(PermissionStatus::Granted));
+    dormant.test_state_mut().plugin_id = 4;
+
+    // Accept leadership from ID 0
+    let ping = make_pipe("cc-deck:controller-ping", "0");
+    dormant.pipe(ping);
+    assert_eq!(dormant.test_state().leader_plugin_id, Some(0));
+
+    let first_ping_ms = dormant.test_state().last_leader_ping_ms;
+
+    // Simulate some time passing then another heartbeat
+    std::thread::sleep(std::time::Duration::from_millis(10));
+    let heartbeat = make_pipe("cc-deck:controller-ping", "0");
+    dormant.pipe(heartbeat);
+
+    assert!(dormant.test_state().last_leader_ping_ms >= first_ping_ms);
+    assert!(!dormant.test_state().is_leader);
 }
 
 #[test]

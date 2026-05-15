@@ -27,9 +27,12 @@ func (c *localPipeChannel) zellijSessionName() string {
 }
 
 func (c *localPipeChannel) pipeCmd(ctx context.Context, pipeName string, payload string) *exec.Cmd {
+	// Broadcast pipe (no --plugin targeting). With duplicate controller
+	// instances (Zellij bug), --plugin targeting can route to the dormant
+	// instance, dropping the message. Broadcast reaches all plugins; the
+	// leader election protocol ensures only the active controller processes
+	// it. Sidebars ignore unknown pipe names.
 	cmd := exec.CommandContext(ctx, "zellij", "pipe",
-		"--plugin", controllerPluginURL,
-		"--plugin-configuration", "mode=controller",
 		"--name", pipeName, "--", payload)
 	cmd.Env = append(os.Environ(), "ZELLIJ_SESSION_NAME="+c.zellijSessionName())
 	return cmd
@@ -74,8 +77,6 @@ func (c *execPipeChannel) zellijSessionName() string {
 func (c *execPipeChannel) pipeCmd(pipeName string, payload string) []string {
 	sessionEnv := "ZELLIJ_SESSION_NAME=" + c.zellijSessionName()
 	return []string{"env", sessionEnv, "zellij", "pipe",
-		"--plugin", controllerPluginURL,
-		"--plugin-configuration", "mode=controller",
 		"--name", pipeName, "--", payload}
 }
 

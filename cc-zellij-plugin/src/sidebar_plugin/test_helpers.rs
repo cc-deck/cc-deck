@@ -174,12 +174,15 @@ pub fn setup_sidebar() -> SidebarRendererPlugin {
 }
 
 /// Create a ControllerPlugin with permissions granted and ready to test.
+/// Sets is_leader = true to bypass election protocol for non-election tests.
 pub fn setup_controller() -> ControllerPlugin {
     let mut plugin = ControllerPlugin::default();
     plugin.load(std::collections::BTreeMap::new());
     // Grant permissions (note: in non-wasm tests, restore_sessions and
     // cleanup_orphaned_state_files are no-ops because /cache/ does not exist)
     plugin.update(Event::PermissionRequestResult(PermissionStatus::Granted));
+    // Activate as leader so pipe/update handlers are not blocked by dormant guard
+    plugin.test_state_mut().is_leader = true;
     plugin
 }
 
