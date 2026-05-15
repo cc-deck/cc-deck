@@ -18,7 +18,15 @@
 
 **Estimated overhead:** ~5-10% more CPU in Zellij's pipe routing layer. Not measurable in user-facing latency. The actual WASM processing cost per sidebar is negligible (one match arm, return false).
 
-### 2. Untargeted `broadcast_render_all` (Rust plugin)
+### 2. Broadcast keybindings via `MessagePlugin` (Rust plugin)
+
+**What changed:** `register_keybindings()` switched from `MessagePluginId {id}` (targeted) to `MessagePlugin` (broadcast) in the reconfigure KDL.
+
+**Impact:** Every keybinding press now delivers a pipe message to ALL plugin instances (2 controllers + N sidebars) instead of one specific controller. The dormant controller drops it in the dormant guard. Each sidebar receives `cc-deck:navigate` etc. with no payload, which fails the `if let Some(json) = payload` check and returns false immediately.
+
+**Estimated overhead:** Negligible. Keybinding presses are infrequent (human-speed, a few per minute). The extra pipe delivery to ~14 instances adds microseconds per press.
+
+### 3. Untargeted `broadcast_render_all` (Rust plugin)
 
 **What changed:** `broadcast_render` now sends an untargeted pipe message after the targeted per-sidebar sends. This provides a fallback for sidebars not yet in the registry.
 
@@ -61,45 +69,50 @@ When Zellij fixes the duplicate instance bug (ensuring only one controller loads
    - Revert `queryPluginCtx` in `cc-deck/internal/session/save.go`
    - This eliminates broadcast overhead for CLI pipes (biggest performance win)
 
-2. **Remove `broadcast_render_all` from `broadcast_render`** (`cc-zellij-plugin/src/controller/render_broadcast.rs`)
+2. **Restore `MessagePluginId` in keybinding registration** (`cc-zellij-plugin/src/controller/events.rs`)
+   - Change `MessagePlugin` back to `MessagePluginId {id}` in the `register_keybindings` KDL template
+   - Re-add `let plugin_id = state.plugin_id;` and the `id = plugin_id` format argument
+   - This eliminates broadcast overhead for keybinding presses
+
+3. **Remove `broadcast_render_all` from `broadcast_render`** (`cc-zellij-plugin/src/controller/render_broadcast.rs`)
    - Remove the `broadcast_render_all(&json)` call at line 101
    - Remove the `broadcast_render_all` function (lines 155-166)
    - Targeted renders via sidebar registry are sufficient when only one controller exists
 
 ### Medium Priority (simplify code)
 
-3. **Remove dormant guards** (`cc-zellij-plugin/src/controller/mod.rs`)
+4. **Remove dormant guards** (`cc-zellij-plugin/src/controller/mod.rs`)
    - Remove the `is_leader` check in `pipe()` (lines 157-170)
    - Remove the `is_leader` check in `update()` (lines 134-141)
    - These guards serve no purpose with a single controller
 
-4. **Remove election protocol from `handle_timer`** (`cc-zellij-plugin/src/controller/events.rs`)
+5. **Remove election protocol from `handle_timer`** (`cc-zellij-plugin/src/controller/events.rs`)
    - Remove the entire dormant election block (lines 155-191)
    - Remove the heartbeat ping (lines 195-198)
    - Remove `broadcast_controller_ping` function (lines 518-530)
    - The `is_leader` guard in `handle_tab_update` keybinding registration can also be removed
 
-5. **Remove startup election ping** (`cc-zellij-plugin/src/controller/mod.rs`)
+6. **Remove startup election ping** (`cc-zellij-plugin/src/controller/mod.rs`)
    - Restore the immediate `broadcast_render` after `PermissionRequestResult(Granted)` (was at lines 116-119 before the election changes)
    - Remove `broadcast_controller_ping(self.state.plugin_id)` call
    - This eliminates the 2-second startup delay
 
 ### Low Priority (cleanup)
 
-6. **Remove election state fields** (`cc-zellij-plugin/src/controller/state.rs`)
+7. **Remove election state fields** (`cc-zellij-plugin/src/controller/state.rs`)
    - Remove `is_leader`, `leader_plugin_id`, `last_leader_ping_ms`, `election_ticks` fields
    - Remove `ELECTION_TIMEOUT_TICKS`, `LEADER_HEARTBEAT_TICKS`, `LEADER_FAILURE_TIMEOUT_MS` constants
 
-7. **Remove election tests** (`cc-zellij-plugin/src/controller/integration_tests.rs`, `state.rs`)
+8. **Remove election tests** (`cc-zellij-plugin/src/controller/integration_tests.rs`, `state.rs`)
    - Remove all `test_election_*` tests
    - Revert `setup_controller()` in `test_helpers.rs` (remove `is_leader = true` line)
 
-8. **Remove ping/pong handler** (`cc-zellij-plugin/src/controller/mod.rs`)
+9. **Remove ping/pong handler** (`cc-zellij-plugin/src/controller/mod.rs`)
    - Revert `ControllerPing | ControllerPong` match arm to no-op (or remove entirely)
    - The `ControllerPing`/`ControllerPong` pipe actions in `pipe_handler.rs` can stay for backward compatibility or be removed
 
-9. **Remove README Known Issues section** (`README.md`)
-   - Remove the "Duplicate Controller Instances (Zellij Bug)" section
+10. **Remove README Known Issues section** (`README.md`)
+    - Remove the "Duplicate Controller Instances (Zellij Bug)" section
 
 ## How to Detect the Upstream Fix
 
@@ -115,9 +128,10 @@ To verify: start cc-deck, check the debug log for only one `CTRL LOAD` entry (cu
 | Component | Extra messages/sec | Extra CPU | Memory |
 |-----------|-------------------|-----------|---------|
 | Broadcast pipes (CLI) | ~0 at idle, ~20 at peak | ~5-10% in Zellij routing | 0 |
+| Broadcast keybindings | ~0 (human-speed input) | Negligible | 0 |
 | broadcast_render_all | ~0.2 at idle | Negligible | 0 |
 | Election heartbeat | ~0.03 (2/min) | Negligible | 0 |
 | Dormant controller | 0 | ~0 (timer checks only) | ~1 MB WASM |
 | **Total** | **~0.2 idle, ~20 peak** | **~5-10% peak** | **~1 MB** |
 
-The overhead is dominated by the broadcast pipe delivery change. At idle (no active Claude Code sessions), overhead is negligible. At peak (multiple sessions with rapid tool use), the extra pipe routing adds measurable but not user-visible CPU usage.
+The overhead is dominated by the broadcast pipe delivery change. At idle (no active Claude Code sessions), overhead is negligible. At peak (multiple sessions with rapid tool use), the extra pipe routing adds measurable but not user-visible CPU usage. The keybinding broadcast overhead is negligible since keypresses are human-speed.
