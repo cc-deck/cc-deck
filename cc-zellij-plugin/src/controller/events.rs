@@ -32,9 +32,11 @@ pub fn handle_tab_update(state: &mut ControllerState, tabs: Vec<TabInfo>) {
         ));
     }
 
-    // Register keybindings on first TabUpdate or when tabs are closed
-    // (the registered plugin_id may have been on a closed tab).
-    if !state.keybindings_registered || current_tab_count < state.last_tab_count {
+    // Register keybindings on first TabUpdate or when tabs are closed,
+    // but only if this instance is the active leader.
+    if state.is_leader
+        && (!state.keybindings_registered || current_tab_count < state.last_tab_count)
+    {
         register_keybindings(state);
         state.keybindings_registered = true;
     }
@@ -149,6 +151,54 @@ pub fn handle_pane_update(state: &mut ControllerState, manifest: PaneManifest) {
 /// Handle Timer event: flush render, clean up stale sessions, poll git branches.
 pub fn handle_timer(state: &mut ControllerState, _elapsed: f64) {
     state.tick_count += 1;
+
+    // --- Leader election protocol ---
+    use super::state::{ELECTION_TIMEOUT_TICKS, LEADER_HEARTBEAT_TICKS, LEADER_FAILURE_TIMEOUT_MS};
+
+    if !state.is_leader {
+        state.election_ticks += 1;
+
+        // Check for leader failure: if we know a leader but haven't heard
+        // from it in LEADER_FAILURE_TIMEOUT_MS, clear it and start a new election.
+        if let Some(_leader_id) = state.leader_plugin_id {
+            let now_ms = session::unix_now_ms();
+            if state.last_leader_ping_ms > 0
+                && now_ms.saturating_sub(state.last_leader_ping_ms) > LEADER_FAILURE_TIMEOUT_MS
+            {
+                crate::debug_log("CTRL ELECTION: leader timeout, starting new election");
+                state.leader_plugin_id = None;
+                state.election_ticks = 0;
+            }
+        }
+
+        // Election timeout: if no lower-ID controller has pinged us,
+        // activate as leader.
+        if state.election_ticks >= ELECTION_TIMEOUT_TICKS && state.leader_plugin_id.is_none() {
+            state.is_leader = true;
+            crate::debug_log(&format!(
+                "CTRL ELECTION: won (activating as leader) plugin_id={}",
+                state.plugin_id
+            ));
+            // Broadcast ping so other dormant instances discover the new
+            // leader and don't also self-activate after their own timeout.
+            broadcast_controller_ping(state.plugin_id);
+            register_keybindings(state);
+            state.keybindings_registered = true;
+            render_broadcast::broadcast_render(state);
+            state.render_dirty = false;
+        }
+
+        // Reschedule timer even when dormant
+        set_timer(state.config.timer_interval);
+        return;
+    }
+
+    // Leader heartbeat: broadcast ping periodically so dormant instances
+    // know the leader is still alive.
+    if state.tick_count.is_multiple_of(LEADER_HEARTBEAT_TICKS) {
+        broadcast_controller_ping(state.plugin_id);
+        crate::debug_log("CTRL ELECTION: leader heartbeat");
+    }
 
     // After startup grace expires, run one deferred cleanup pass.
     if state.startup_grace_until.is_some() && !state.in_startup_grace() {
@@ -466,6 +516,18 @@ fn set_timer(interval: f64) {
 
 #[cfg(not(target_family = "wasm"))]
 fn set_timer(_interval: f64) {}
+
+/// Broadcast a controller ping for leader election protocol.
+#[cfg(target_family = "wasm")]
+pub fn broadcast_controller_ping(plugin_id: u32) {
+    use zellij_tile::prelude::*;
+    let mut msg = MessageToPlugin::new("cc-deck:controller-ping");
+    msg.message_payload = Some(plugin_id.to_string());
+    pipe_message_to_plugin(msg);
+}
+
+#[cfg(not(target_family = "wasm"))]
+pub fn broadcast_controller_ping(_plugin_id: u32) {}
 
 /// Derive the Shift variant of a keybinding string by uppercasing the last character.
 #[allow(dead_code)]
