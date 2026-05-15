@@ -1,1 +1,3 @@
-{"feature_directory": "specs/055-controller-leader-election"}
+{
+  "feature_directory": "specs/056-openshell-build-target"
+}
