@@ -1,6 +1,6 @@
 # Brainstorm Overview
 
-Last updated: 2026-05-07
+Last updated: 2026-05-15
 
 ## Active Brainstorms
 
@@ -19,6 +19,7 @@ Last updated: 2026-05-07
 | 048 | 2026-05-04 | Voice transcript recording | active | - |
 | 049 | 2026-05-06 | WASM dead code cleanup | active | - |
 | 050 | 2026-05-06 | Test coverage measurement | active | - |
+| 053 | 2026-05-15 | OpenShell build integration | active | - |
 
 ## Open Threads
 
@@ -33,6 +34,7 @@ Last updated: 2026-05-07
 - Security model: credential proxy, git-push restriction, sandbox hardening (from #025)
 - WASM dead code cleanup: binary size reduction measurement after LTO (may already strip dead code), audit sync.rs for shared helpers worth keeping (from #049)
 - Test coverage measurement: coverage floor value TBD after first baseline, per-module CI reporting TBD after initial results (from #050)
+- OpenShell build integration: capture-phase binary-to-endpoint discovery, skills-to-plugins mapping, Zellij-specific policy auto-additions, policy precedence (--policy > env > image-embedded), verify target for openshell (from #053)
 
 ## Attic
 
