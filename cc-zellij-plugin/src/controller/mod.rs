@@ -113,10 +113,16 @@ impl ZellijPlugin for ControllerPlugin {
                     for e in pending {
                         self.handle_event_inner(e);
                     }
-                    // Immediately broadcast initial render payload so
-                    // sidebars stop showing "Connecting..."
-                    render_broadcast::broadcast_render(&self.state);
-                    self.state.render_dirty = false;
+
+                    // Start leader election: broadcast ping with own plugin_id.
+                    // Remain dormant (is_leader = false) and start counting
+                    // election ticks. If no lower-ID controller responds within
+                    // ELECTION_TIMEOUT_TICKS, self-activate as leader.
+                    broadcast_controller_ping(self.state.plugin_id);
+                    crate::debug_log(&format!(
+                        "CTRL ELECTION: starting probe (dormant) plugin_id={}",
+                        self.state.plugin_id
+                    ));
                 }
                 false // Controller has no UI to render
             }
@@ -125,10 +131,15 @@ impl ZellijPlugin for ControllerPlugin {
                     self.state.pending_events.push(event);
                     return false;
                 }
+                // Dormant guard: non-leader only processes Timer (for election)
+                // and PermissionRequestResult. All other events are ignored.
+                if !self.state.is_leader {
+                    if matches!(event, Event::Timer(_)) {
+                        self.handle_event_inner(event);
+                    }
+                    return false;
+                }
                 self.handle_event_inner(event);
-                // Automatic events (PaneUpdate, TabUpdate, Timer) use coalesced
-                // rendering via render_dirty flag + timer flush. This prevents
-                // message storms during rapid state changes (e.g., snapshot restore).
                 false // Controller has no UI
             }
         }
@@ -140,6 +151,23 @@ impl ZellijPlugin for ControllerPlugin {
             if let PipeSource::Cli(ref pipe_id) = pipe_message.source {
                 zellij_tile::prelude::unblock_cli_pipe_input(pipe_id);
             }
+            return false;
+        }
+
+        // Dormant guard: non-leader only processes election protocol messages.
+        // Do NOT unblock CLI pipes here. The leader instance handles all CLI
+        // pipe lifecycle (output + unblock). Unblocking from the dormant
+        // instance can race with the leader's cli_pipe_output, causing the
+        // CLI process to exit before receiving the response (breaks dump-state
+        // polling for voice relay and other CLI consumers).
+        if !self.state.is_leader
+            && pipe_message.name != "cc-deck:controller-ping"
+            && pipe_message.name != "cc-deck:controller-pong"
+        {
+            crate::debug_log(&format!(
+                "CTRL DORMANT: ignoring pipe name={}",
+                pipe_message.name
+            ));
             return false;
         }
 
@@ -411,10 +439,29 @@ impl ZellijPlugin for ControllerPlugin {
                 }
             }
             PipeAction::ControllerPing | PipeAction::ControllerPong => {
-                // Startup probe protocol kept in PipeAction for forward
-                // compatibility but not acted on. Hooks use targeted pipe
-                // delivery (--plugin flag), so a probe-based tiebreaker
-                // would disable the controller that receives hooks.
+                if let Some(payload) = pipe_message.payload.as_deref() {
+                    if let Ok(sender_id) = payload.parse::<u32>() {
+                        if sender_id == self.state.plugin_id {
+                            // Ignore own ping
+                        } else if sender_id < self.state.plugin_id {
+                            // Lower ID wins: stay/go dormant
+                            let was_leader = self.state.is_leader;
+                            self.state.is_leader = false;
+                            self.state.leader_plugin_id = Some(sender_id);
+                            self.state.last_leader_ping_ms = session::unix_now_ms();
+                            self.state.election_ticks = 0;
+                            crate::debug_log(&format!(
+                                "CTRL ELECTION: lost to plugin_id={sender_id} (staying dormant)"
+                            ));
+                            if was_leader {
+                                self.state.keybindings_registered = false;
+                            }
+                        } else {
+                            // Higher ID: respond with own ping (lower ID wins)
+                            broadcast_controller_ping(self.state.plugin_id);
+                        }
+                    }
+                }
             }
             PipeAction::RenderRequest(sidebar_plugin_id) => {
                 crate::debug_log(&format!(
@@ -636,6 +683,10 @@ fn broadcast_navigate(state: &ControllerState, direction: &str) {
 
 #[cfg(not(target_family = "wasm"))]
 fn broadcast_navigate(_state: &ControllerState, _direction: &str) {}
+
+fn broadcast_controller_ping(plugin_id: u32) {
+    events::broadcast_controller_ping(plugin_id);
+}
 
 
 impl ControllerPlugin {

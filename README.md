@@ -534,6 +534,16 @@ base-image/         Base container image build
 specs/              Feature specifications (SDD)
 ```
 
+## Known Issues
+
+### Duplicate Controller Instances (Zellij Bug)
+
+Zellij versions 0.43 and 0.44 occasionally create two WASM instances of a background plugin when `load_plugins` races with the `AddClient` event. This produced duplicate keybinding registrations and render broadcasts, causing navigation mode to jump two positions per keypress and the voice indicator to flicker during tab switches.
+
+cc-deck mitigates this with a leader election protocol. On startup, each controller instance broadcasts a probe message containing its plugin ID and enters a dormant state. The instance with the lowest plugin ID wins the election and activates within two seconds. The losing instance stays dormant, ignoring all events except election protocol messages. The leader sends a periodic heartbeat (every 30 seconds) so the dormant instance can detect a leader failure and re-activate if needed.
+
+This approach is invisible in normal operation. The only observable effect is a brief two-second delay before keybindings become active on a fresh Zellij start, which overlaps with the time Zellij needs to initialize its own UI.
+
 ## Contributing
 
 Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the development process, including how we use Spec-Driven Development for larger changes.
