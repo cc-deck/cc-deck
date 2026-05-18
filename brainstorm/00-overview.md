@@ -1,6 +1,6 @@
 # Brainstorm Overview
 
-Last updated: 2026-05-15
+Last updated: 2026-05-18
 
 ## Active Brainstorms
 
@@ -20,6 +20,7 @@ Last updated: 2026-05-15
 | 049 | 2026-05-06 | WASM dead code cleanup | active | - |
 | 050 | 2026-05-06 | Test coverage measurement | active | - |
 | 053 | 2026-05-15 | OpenShell build integration | active | - |
+| 056 | 2026-05-18 | Sidebar badges | active | - |
 
 ## Open Threads
 
@@ -35,6 +36,7 @@ Last updated: 2026-05-15
 - WASM dead code cleanup: binary size reduction measurement after LTO (may already strip dead code), audit sync.rs for shared helpers worth keeping (from #049)
 - Test coverage measurement: coverage floor value TBD after first baseline, per-module CI reporting TBD after initial results (from #050)
 - OpenShell build integration: capture-phase binary-to-endpoint discovery, skills-to-plugins mapping, Zellij-specific policy auto-additions, policy precedence (--policy > env > image-embedded), verify target for openshell (from #053)
+- Sidebar badges: badge evaluation caching, max badge count, YAML format support, dot-path array handling (from #056)
 
 ## Attic
 
