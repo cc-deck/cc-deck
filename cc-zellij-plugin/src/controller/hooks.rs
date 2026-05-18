@@ -711,4 +711,27 @@ mod tests {
         assert!(changed);
         assert_eq!(state.sessions[&42].activity, Activity::Working);
     }
+
+    #[test]
+    fn test_waiting_preserved_with_empty_agent_id() {
+        let mut state = ControllerState::default();
+        let mut s = Session::new(42, "test-session".into());
+        s.activity = Activity::Waiting(crate::session::WaitReason::Permission);
+        state.sessions.insert(42, s);
+
+        let hook = HookPayload {
+            session_id: Some("test-session".to_string()),
+            pane_id: 42,
+            hook_event_name: "PostToolUse".to_string(),
+            tool_name: None,
+            cwd: None,
+            agent_id: Some("".to_string()),
+        };
+        let changed = process_hook(&mut state, hook);
+        assert!(!changed);
+        assert_eq!(
+            state.sessions[&42].activity,
+            Activity::Waiting(crate::session::WaitReason::Permission)
+        );
+    }
 }
