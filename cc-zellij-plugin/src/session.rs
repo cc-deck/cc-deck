@@ -163,12 +163,6 @@ pub struct Session {
     /// rename is issued in rebuild_pane_map.
     #[serde(default)]
     pub pending_tab_rename: bool,
-    /// Number of currently active subagents (between SubagentStart/SubagentStop).
-    /// Used to suppress Working transitions that would clear Waiting(Permission)
-    /// when the tool events are coming from parallel subagents, not from the
-    /// main agent answering the permission prompt.
-    #[serde(default)]
-    pub active_subagents: u32,
 }
 
 impl Session {
@@ -188,7 +182,6 @@ impl Session {
             meta_ts: 0,
             done_attended: false,
             pending_tab_rename: false,
-            active_subagents: 0,
         }
     }
 
@@ -372,6 +365,31 @@ mod tests {
         assert_eq!(sqrt_ratio_1024(200, 100), 1024); // clamped
         // sqrt(0.25) = 0.5 -> 512
         assert_eq!(sqrt_ratio_1024(25, 100), 512);
+    }
+
+    #[test]
+    fn test_session_deserialize_ignores_unknown_fields() {
+        let json = r#"{
+            "pane_id": 42,
+            "session_id": "test-session",
+            "display_name": "my-project",
+            "activity": "Working",
+            "tab_index": null,
+            "tab_name": null,
+            "working_dir": "/home/user/project",
+            "git_branch": null,
+            "last_event_ts": 1234567890,
+            "manually_renamed": false,
+            "paused": false,
+            "meta_ts": 0,
+            "done_attended": false,
+            "pending_tab_rename": false,
+            "active_subagents": 3
+        }"#;
+        let session: Session = serde_json::from_str(json).unwrap();
+        assert_eq!(session.pane_id, 42);
+        assert_eq!(session.session_id, "test-session");
+        assert_eq!(session.activity, Activity::Working);
     }
 
     #[test]
