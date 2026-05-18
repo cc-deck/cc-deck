@@ -35,6 +35,7 @@ pub fn make_session(pane_id: u32, name: &str, tab_index: usize) -> RenderSession
         tab_index,
         paused: false,
         done_attended: false,
+        badges: vec![],
     }
 }
 
@@ -123,6 +124,23 @@ pub fn make_hook_pipe_with_agent_id(hook_event: &str, pane_id: u32, agent_id: &s
         "pane_id": pane_id,
         "hook_event_name": hook_event,
         "agent_id": agent_id,
+    });
+    PipeMessage {
+        source: PipeSource::Cli("test-pipe".to_string()),
+        name: "cc-deck:hook".to_string(),
+        payload: Some(payload.to_string()),
+        args: std::collections::BTreeMap::new(),
+        is_private: false,
+    }
+}
+
+/// Construct a hook event PipeMessage with badges.
+pub fn make_hook_pipe_with_badges(hook_event: &str, pane_id: u32, badges: &[&str]) -> PipeMessage {
+    let payload = serde_json::json!({
+        "session_id": "test-session",
+        "pane_id": pane_id,
+        "hook_event_name": hook_event,
+        "badges": badges,
     });
     PipeMessage {
         source: PipeSource::Cli("test-pipe".to_string()),

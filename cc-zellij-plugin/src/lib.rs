@@ -22,6 +22,8 @@ pub struct RenderSession {
     pub tab_index: usize,
     pub paused: bool,
     pub done_attended: bool,
+    #[serde(default)]
+    pub badges: Vec<String>,
 }
 
 /// Complete render payload broadcast by the controller to all sidebars.
@@ -109,6 +111,7 @@ mod protocol_tests {
                 tab_index: 0,
                 paused: false,
                 done_attended: false,
+                badges: vec![],
             }],
             focused_pane_id: Some(1),
             active_tab_index: 0,

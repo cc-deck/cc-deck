@@ -163,6 +163,8 @@ pub struct Session {
     /// rename is issued in rebuild_pane_map.
     #[serde(default)]
     pub pending_tab_rename: bool,
+    #[serde(default)]
+    pub badges: Vec<String>,
 }
 
 impl Session {
@@ -182,6 +184,7 @@ impl Session {
             meta_ts: 0,
             done_attended: false,
             pending_tab_rename: false,
+            badges: Vec::new(),
         }
     }
 

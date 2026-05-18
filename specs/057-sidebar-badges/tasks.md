@@ -17,11 +17,11 @@
 
 **Purpose**: Add badge data structures across the Go CLI and Rust plugin
 
-- [ ] T001 [P] Add BadgeRule struct and Badges field to Config in cc-deck/internal/config/config.go
-- [ ] T002 [P] Create badge evaluation package with Evaluate function in cc-deck/internal/badge/badge.go
-- [ ] T003 [P] Add badges field (Vec<String>) to HookPayload in cc-zellij-plugin/src/pipe_handler.rs
-- [ ] T004 [P] Add badges field (Vec<String>) to Session in cc-zellij-plugin/src/session.rs
-- [ ] T005 [P] Add badges field (Vec<String>) to RenderSession in cc-zellij-plugin/src/lib.rs
+- [x] T001 [P] Add BadgeRule struct and Badges field to Config in cc-deck/internal/config/config.go
+- [x] T002 [P] Create badge evaluation package with Evaluate function in cc-deck/internal/badge/badge.go
+- [x] T003 [P] Add badges field (Vec<String>) to HookPayload in cc-zellij-plugin/src/pipe_handler.rs
+- [x] T004 [P] Add badges field (Vec<String>) to Session in cc-zellij-plugin/src/session.rs
+- [x] T005 [P] Add badges field (Vec<String>) to RenderSession in cc-zellij-plugin/src/lib.rs
 
 ---
 
@@ -29,10 +29,10 @@
 
 **Purpose**: Wire badge data through the hook pipeline end-to-end
 
-- [ ] T006 Add badges field to pipePayload and hookPayload structs in cc-deck/internal/cmd/hook.go
-- [ ] T007 Call badge.Evaluate in runHook and populate pipePayload.Badges in cc-deck/internal/cmd/hook.go
-- [ ] T008 Store HookPayload.badges on Session in process_hook in cc-zellij-plugin/src/controller/hooks.rs
-- [ ] T009 Copy Session.badges to RenderSession.badges in build_render_payload in cc-zellij-plugin/src/controller/render_broadcast.rs
+- [x] T006 Add badges field to pipePayload and hookPayload structs in cc-deck/internal/cmd/hook.go
+- [x] T007 Call badge.Evaluate in runHook and populate pipePayload.Badges in cc-deck/internal/cmd/hook.go
+- [x] T008 Store HookPayload.badges on Session in process_hook in cc-zellij-plugin/src/controller/hooks.rs
+- [x] T009 Copy Session.badges to RenderSession.badges in build_render_payload in cc-zellij-plugin/src/controller/render_broadcast.rs
 
 **Checkpoint**: Badge data flows from CLI config through hook payload to plugin render payload. No visible output yet.
 
@@ -46,11 +46,11 @@
 
 ### Implementation for User Story 1
 
-- [ ] T010 [US1] Implement dot-path JSON extraction (extractDotPath function) in cc-deck/internal/badge/badge.go
-- [ ] T011 [US1] Implement full Evaluate function (file read, extract, map to emoji) in cc-deck/internal/badge/badge.go
-- [ ] T012 [US1] Add unit tests for badge evaluation (dot-path, value mapping, defaults, errors) in cc-deck/internal/badge/badge_test.go
-- [ ] T013 [US1] Render badges on line 2 before branch icon in render_session_entry in cc-zellij-plugin/src/sidebar_plugin/render.rs
-- [ ] T014 [US1] Add unit test for badge rendering in cc-zellij-plugin/src/sidebar_plugin/render.rs
+- [x] T010 [US1] Implement dot-path JSON extraction (extractDotPath function) in cc-deck/internal/badge/badge.go
+- [x] T011 [US1] Implement full Evaluate function (file read, extract, map to emoji) in cc-deck/internal/badge/badge.go
+- [x] T012 [US1] Add unit tests for badge evaluation (dot-path, value mapping, defaults, errors) in cc-deck/internal/badge/badge_test.go
+- [x] T013 [US1] Render badges on line 2 before branch icon in render_session_entry in cc-zellij-plugin/src/sidebar_plugin/render.rs
+- [x] T014 [US1] Add unit test for badge rendering in cc-zellij-plugin/src/sidebar_plugin/render.rs
 
 **Checkpoint**: Single badge (spex pipeline) renders on sidebar line 2.
 
@@ -64,8 +64,8 @@
 
 ### Implementation for User Story 2
 
-- [ ] T015 [US2] Add unit test for multiple badge evaluation (multiple rules, partial matches) in cc-deck/internal/badge/badge_test.go
-- [ ] T016 [US2] Add unit test for multiple badge rendering on line 2 in cc-zellij-plugin/src/sidebar_plugin/render.rs
+- [x] T015 [US2] Add unit test for multiple badge evaluation (multiple rules, partial matches) in cc-deck/internal/badge/badge_test.go
+- [x] T016 [US2] Add unit test for multiple badge rendering on line 2 in cc-zellij-plugin/src/sidebar_plugin/render.rs
 
 **Checkpoint**: Multiple badges render correctly in configuration order.
 
@@ -79,7 +79,7 @@
 
 ### Implementation for User Story 3
 
-- [ ] T017 [US3] Add unit tests for error cases (missing file, invalid JSON, bad dot-path, no match no default) in cc-deck/internal/badge/badge_test.go
+- [x] T017 [US3] Add unit tests for error cases (missing file, invalid JSON, bad dot-path, no match no default) in cc-deck/internal/badge/badge_test.go
 
 **Checkpoint**: All error cases handled silently.
 
@@ -93,9 +93,9 @@
 
 ### Implementation for User Story 4
 
-- [ ] T018 [US4] Add config parsing test for badges section in cc-deck/internal/config/config_test.go (or badge_test.go)
-- [ ] T019 [US4] Add test for nested dot-path extraction (e.g., .result.outcome) in cc-deck/internal/badge/badge_test.go
-- [ ] T020 [US4] Add test for invalid/missing badge rule fields (skip silently) in cc-deck/internal/badge/badge_test.go
+- [x] T018 [US4] Add config parsing test for badges section in cc-deck/internal/config/config_test.go (or badge_test.go)
+- [x] T019 [US4] Add test for nested dot-path extraction (e.g., .result.outcome) in cc-deck/internal/badge/badge_test.go
+- [x] T020 [US4] Add test for invalid/missing badge rule fields (skip silently) in cc-deck/internal/badge/badge_test.go
 
 **Checkpoint**: Configuration parsing is robust and well-tested.
 
@@ -105,10 +105,10 @@
 
 **Purpose**: Documentation, integration test, cleanup
 
-- [ ] T021 [P] Add integration test for full badge pipeline (hook with badges through to render) in cc-zellij-plugin/src/controller/integration_tests.rs
-- [ ] T022 [P] Add HookPayload deserialization test with badges field in cc-zellij-plugin/src/pipe_handler.rs
-- [ ] T023 [P] Update configuration reference docs for badges section in docs/modules/reference/pages/configuration.adoc
-- [ ] T024 [P] Update README.md with badge configuration example
+- [x] T021 [P] Add integration test for full badge pipeline (hook with badges through to render) in cc-zellij-plugin/src/controller/integration_tests.rs
+- [x] T022 [P] Add HookPayload deserialization test with badges field in cc-zellij-plugin/src/pipe_handler.rs
+- [x] T023 [P] Update configuration reference docs for badges section in docs/modules/reference/pages/configuration.adoc
+- [x] T024 [P] Update README.md with badge configuration example
 
 ---
 

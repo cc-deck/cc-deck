@@ -15,6 +15,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/cc-deck/cc-deck/internal/badge"
+	"github.com/cc-deck/cc-deck/internal/config"
 	"github.com/cc-deck/cc-deck/internal/session"
 	"github.com/cc-deck/cc-deck/internal/xdg"
 )
@@ -34,8 +36,9 @@ type pipePayload struct {
 	PaneID    uint32 `json:"pane_id"`
 	HookEvent string `json:"hook_event_name"`
 	ToolName  string `json:"tool_name,omitempty"`
-	CWD       string `json:"cwd,omitempty"`
-	AgentID   string `json:"agent_id,omitempty"`
+	CWD       string   `json:"cwd,omitempty"`
+	AgentID   string   `json:"agent_id,omitempty"`
+	Badges    []string `json:"badges,omitempty"`
 }
 
 // NewHookCmd creates the hook cobra command.
@@ -138,6 +141,15 @@ func runHook(stdin io.Reader, paneIDStr string) {
 		return
 	}
 
+	// Evaluate badge rules against the session's working directory
+	var badges []string
+	if hook.CWD != "" {
+		cfg, _ := config.Load("")
+		if cfg != nil && len(cfg.Badges) > 0 {
+			badges = badge.Evaluate(cfg.Badges, hook.CWD)
+		}
+	}
+
 	// Build pipe payload
 	payload := pipePayload{
 		SessionID: hook.SessionID,
@@ -146,6 +158,7 @@ func runHook(stdin io.Reader, paneIDStr string) {
 		ToolName:  hook.ToolName,
 		CWD:       hook.CWD,
 		AgentID:   hook.AgentID,
+		Badges:    badges,
 	}
 
 	payloadJSON, err := json.Marshal(payload)
