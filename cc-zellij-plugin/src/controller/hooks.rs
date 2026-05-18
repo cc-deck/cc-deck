@@ -50,19 +50,6 @@ pub fn process_hook(state: &mut ControllerState, hook: HookPayload) -> bool {
         return removed;
     }
 
-    // PostToolUse/PostToolUseFailure is allowed to clear Waiting state,
-    // but only when no subagents are active (see suppression logic below).
-    //
-    // Without subagent tracking, these events would clear Waiting(Permission)
-    // even when they originated from parallel subagent tool calls, not from
-    // the user answering the permission prompt. The active_subagents counter
-    // (incremented on SubagentStart, decremented on SubagentStop) lets us
-    // suppress Working transitions while subagents are running.
-    //
-    // When no subagents are active, PostToolUse freely clears Waiting to
-    // handle the auto-approve case: PermissionRequest fires but the tool
-    // runs immediately, and PostToolUse follows within milliseconds.
-
     // Map hook event to activity
     let activity = match hook_event_to_activity(&hook.hook_event_name, hook.tool_name.as_deref()) {
         Some(a) => a,
@@ -111,7 +98,6 @@ pub fn process_hook(state: &mut ControllerState, hook: HookPayload) -> bool {
             session.meta_ts = 0;
             session.done_attended = false;
             session.working_dir = None;
-            session.active_subagents = 0;
         }
     }
 
@@ -124,40 +110,16 @@ pub fn process_hook(state: &mut ControllerState, hook: HookPayload) -> bool {
         }
     }
 
-    // Track active subagent count so we can distinguish subagent tool events
-    // from main-agent tool events when deciding whether to clear Waiting state.
-    if hook.hook_event_name == "SubagentStart" {
-        if let Some(s) = state.sessions.get_mut(&hook.pane_id) {
-            s.active_subagents = s.active_subagents.saturating_add(1);
-            crate::debug_log(&format!(
-                "CTRL HOOK: pane={} SubagentStart, active_subagents={}",
-                hook.pane_id, s.active_subagents,
-            ));
-        }
-    } else if hook.hook_event_name == "SubagentStop" {
-        if let Some(s) = state.sessions.get_mut(&hook.pane_id) {
-            s.active_subagents = s.active_subagents.saturating_sub(1);
-            crate::debug_log(&format!(
-                "CTRL HOOK: pane={} SubagentStop, active_subagents={}",
-                hook.pane_id, s.active_subagents,
-            ));
-        }
-    }
-
-    // When subagents are active and the session is waiting for permission,
-    // suppress Working transitions: PreToolUse/PostToolUse events are likely
-    // from subagent tool calls, not from the user answering the permission
-    // prompt. Without this guard, parallel subagent events continuously
-    // reset Waiting(Permission) back to Working, preventing the attention
-    // indicator from showing.
+    // Suppress Working transitions from subagent tool events when the session
+    // is waiting for permission. Subagent events carry agent_id; main-agent
+    // events do not. Only main-agent PostToolUse should clear Waiting.
     if matches!(activity, Activity::Working) {
         if let Some(s) = state.sessions.get(&hook.pane_id) {
-            if s.activity.is_waiting() && s.active_subagents > 0 {
+            if s.activity.is_waiting() && hook.agent_id.is_some() {
                 crate::debug_log(&format!(
-                    "CTRL HOOK: pane={} suppressing Working during Waiting (active_subagents={})",
-                    hook.pane_id, s.active_subagents,
+                    "CTRL HOOK: pane={} suppressing Working during Waiting (subagent event)",
+                    hook.pane_id,
                 ));
-                // Still refresh the timestamp so the session doesn't appear stale
                 if let Some(s) = state.sessions.get_mut(&hook.pane_id) {
                     s.last_event_ts = session::unix_now();
                 }
@@ -389,6 +351,18 @@ mod tests {
             hook_event_name: event.to_string(),
             tool_name: None,
             cwd: None,
+            agent_id: None,
+        }
+    }
+
+    fn make_subagent_hook(pane_id: u32, event: &str) -> HookPayload {
+        HookPayload {
+            session_id: Some("test-session".to_string()),
+            pane_id,
+            hook_event_name: event.to_string(),
+            tool_name: None,
+            cwd: None,
+            agent_id: Some("sub-1".to_string()),
         }
     }
 
@@ -543,6 +517,7 @@ mod tests {
             hook_event_name: "PreToolUse".to_string(),
             tool_name: None,
             cwd: Some("/home/user/my-project".to_string()),
+            agent_id: None,
         };
         process_hook(&mut state, hook);
         assert_eq!(
@@ -566,6 +541,7 @@ mod tests {
             hook_event_name: "PreToolUse".to_string(),
             tool_name: None,
             cwd: Some("/home/user/project/.claude/worktree".to_string()),
+            agent_id: None,
         };
         process_hook(&mut state, hook);
         // CWD should NOT change to the worktree path
@@ -590,6 +566,7 @@ mod tests {
             hook_event_name: "SessionStart".to_string(),
             tool_name: None,
             cwd: None,
+            agent_id: None,
         };
         process_hook(&mut state, hook);
 
@@ -620,6 +597,7 @@ mod tests {
             hook_event_name: "PreToolUse".to_string(),
             tool_name: None,
             cwd: Some("/home/user/api".to_string()),
+            agent_id: None,
         };
         process_hook(&mut state, hook);
 
@@ -678,62 +656,22 @@ mod tests {
     }
 
     #[test]
-    fn test_subagent_counter_increments_on_start() {
-        let mut state = ControllerState::default();
-        state
-            .sessions
-            .insert(42, Session::new(42, "test-session".into()));
-
-        process_hook(&mut state, make_hook(42, "SubagentStart"));
-        assert_eq!(state.sessions[&42].active_subagents, 1);
-
-        process_hook(&mut state, make_hook(42, "SubagentStart"));
-        assert_eq!(state.sessions[&42].active_subagents, 2);
-    }
-
-    #[test]
-    fn test_subagent_counter_decrements_on_stop() {
-        let mut state = ControllerState::default();
-        let mut s = Session::new(42, "test-session".into());
-        s.active_subagents = 2;
-        state.sessions.insert(42, s);
-
-        process_hook(&mut state, make_hook(42, "SubagentStop"));
-        assert_eq!(state.sessions[&42].active_subagents, 1);
-
-        process_hook(&mut state, make_hook(42, "SubagentStop"));
-        assert_eq!(state.sessions[&42].active_subagents, 0);
-    }
-
-    #[test]
-    fn test_subagent_counter_no_underflow() {
-        let mut state = ControllerState::default();
-        state
-            .sessions
-            .insert(42, Session::new(42, "test-session".into()));
-
-        process_hook(&mut state, make_hook(42, "SubagentStop"));
-        assert_eq!(state.sessions[&42].active_subagents, 0);
-    }
-
-    #[test]
-    fn test_waiting_preserved_with_active_subagents() {
+    fn test_waiting_preserved_when_subagent_event() {
         let mut state = ControllerState::default();
         let mut s = Session::new(42, "test-session".into());
         s.activity = Activity::Waiting(crate::session::WaitReason::Permission);
-        s.active_subagents = 1;
         state.sessions.insert(42, s);
 
-        // PreToolUse (from subagent) should NOT clear Waiting
-        let changed = process_hook(&mut state, make_hook(42, "PreToolUse"));
+        // PreToolUse from subagent should NOT clear Waiting
+        let changed = process_hook(&mut state, make_subagent_hook(42, "PreToolUse"));
         assert!(!changed);
         assert_eq!(
             state.sessions[&42].activity,
             Activity::Waiting(crate::session::WaitReason::Permission)
         );
 
-        // PostToolUse (from subagent) should NOT clear Waiting either
-        let changed = process_hook(&mut state, make_hook(42, "PostToolUse"));
+        // PostToolUse from subagent should NOT clear Waiting either
+        let changed = process_hook(&mut state, make_subagent_hook(42, "PostToolUse"));
         assert!(!changed);
         assert_eq!(
             state.sessions[&42].activity,
@@ -742,58 +680,35 @@ mod tests {
     }
 
     #[test]
-    fn test_waiting_clears_without_active_subagents() {
+    fn test_waiting_clears_on_main_agent_event() {
         let mut state = ControllerState::default();
         let mut s = Session::new(42, "test-session".into());
         s.activity = Activity::Waiting(crate::session::WaitReason::Permission);
-        s.active_subagents = 0;
         state.sessions.insert(42, s);
 
-        // PostToolUse should clear Waiting when no subagents are active
+        // PostToolUse from main agent (no agent_id) should clear Waiting
         let changed = process_hook(&mut state, make_hook(42, "PostToolUse"));
         assert!(changed);
         assert_eq!(state.sessions[&42].activity, Activity::Working);
     }
 
     #[test]
-    fn test_waiting_clears_after_last_subagent_stops() {
+    fn test_waiting_clears_on_main_agent_even_with_subagents_running() {
         let mut state = ControllerState::default();
         let mut s = Session::new(42, "test-session".into());
         s.activity = Activity::Waiting(crate::session::WaitReason::Permission);
-        s.active_subagents = 1;
         state.sessions.insert(42, s);
 
-        // PreToolUse suppressed while subagent active
-        process_hook(&mut state, make_hook(42, "PreToolUse"));
+        // Subagent events arrive (don't clear Waiting)
+        process_hook(&mut state, make_subagent_hook(42, "PreToolUse"));
         assert!(state.sessions[&42].activity.is_waiting());
 
-        // SubagentStop decrements counter to 0
-        process_hook(&mut state, make_hook(42, "SubagentStop"));
-        assert_eq!(state.sessions[&42].active_subagents, 0);
-        // Still in Waiting (SubagentStop maps to AgentDone, blocked by Waiting)
+        process_hook(&mut state, make_subagent_hook(42, "PostToolUse"));
         assert!(state.sessions[&42].activity.is_waiting());
 
-        // Next PostToolUse clears Waiting (no active subagents)
-        process_hook(&mut state, make_hook(42, "PostToolUse"));
+        // Main agent PostToolUse arrives (clears Waiting)
+        let changed = process_hook(&mut state, make_hook(42, "PostToolUse"));
+        assert!(changed);
         assert_eq!(state.sessions[&42].activity, Activity::Working);
-    }
-
-    #[test]
-    fn test_session_replacement_resets_subagent_counter() {
-        let mut state = ControllerState::default();
-        let mut s = Session::new(42, "old-session".into());
-        s.active_subagents = 3;
-        state.sessions.insert(42, s);
-
-        let hook = HookPayload {
-            session_id: Some("new-session".to_string()),
-            pane_id: 42,
-            hook_event_name: "SessionStart".to_string(),
-            tool_name: None,
-            cwd: None,
-        };
-        process_hook(&mut state, hook);
-
-        assert_eq!(state.sessions[&42].active_subagents, 0);
     }
 }
