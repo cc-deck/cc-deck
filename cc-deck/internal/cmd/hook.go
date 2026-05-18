@@ -25,6 +25,7 @@ type hookPayload struct {
 	HookEvent string `json:"hook_event_name"`
 	ToolName  string `json:"tool_name,omitempty"`
 	CWD       string `json:"cwd,omitempty"`
+	AgentID   string `json:"agent_id,omitempty"`
 }
 
 // pipePayload is what we send to the Zellij plugin via pipe.
@@ -34,6 +35,7 @@ type pipePayload struct {
 	HookEvent string `json:"hook_event_name"`
 	ToolName  string `json:"tool_name,omitempty"`
 	CWD       string `json:"cwd,omitempty"`
+	AgentID   string `json:"agent_id,omitempty"`
 }
 
 // NewHookCmd creates the hook cobra command.
@@ -143,6 +145,7 @@ func runHook(stdin io.Reader, paneIDStr string) {
 		HookEvent: hook.HookEvent,
 		ToolName:  hook.ToolName,
 		CWD:       hook.CWD,
+		AgentID:   hook.AgentID,
 	}
 
 	payloadJSON, err := json.Marshal(payload)
