@@ -116,6 +116,23 @@ pub fn make_hook_pipe_with_cwd(hook_event: &str, pane_id: u32, cwd: &str) -> Pip
     }
 }
 
+/// Construct a hook event PipeMessage with agent_id (simulating a subagent event).
+pub fn make_hook_pipe_with_agent_id(hook_event: &str, pane_id: u32, agent_id: &str) -> PipeMessage {
+    let payload = serde_json::json!({
+        "session_id": "test-session",
+        "pane_id": pane_id,
+        "hook_event_name": hook_event,
+        "agent_id": agent_id,
+    });
+    PipeMessage {
+        source: PipeSource::Cli("test-pipe".to_string()),
+        name: "cc-deck:hook".to_string(),
+        payload: Some(payload.to_string()),
+        args: std::collections::BTreeMap::new(),
+        is_private: false,
+    }
+}
+
 /// Construct an action PipeMessage from a sidebar.
 pub fn make_action_pipe(action: ActionType, pane_id: Option<u32>, sidebar_plugin_id: u32) -> PipeMessage {
     let msg = ActionMessage {
