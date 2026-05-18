@@ -175,6 +175,11 @@ pub fn process_hook(state: &mut ControllerState, hook: HookPayload) -> bool {
         process_cwd_change(state, hook.pane_id, cwd);
     }
 
+    // Store resolved badges from the hook payload
+    if let Some(s) = state.sessions.get_mut(&hook.pane_id) {
+        s.badges = hook.badges.clone();
+    }
+
     // Refresh tab info from pane map
     if let Some((idx, name)) = state.pane_to_tab.get(&hook.pane_id) {
         let (idx, name) = (*idx, name.clone());
@@ -352,6 +357,7 @@ mod tests {
             tool_name: None,
             cwd: None,
             agent_id: None,
+            badges: vec![],
         }
     }
 
@@ -363,6 +369,7 @@ mod tests {
             tool_name: None,
             cwd: None,
             agent_id: Some("sub-1".to_string()),
+            badges: vec![],
         }
     }
 
@@ -518,6 +525,7 @@ mod tests {
             tool_name: None,
             cwd: Some("/home/user/my-project".to_string()),
             agent_id: None,
+            badges: vec![],
         };
         process_hook(&mut state, hook);
         assert_eq!(
@@ -542,6 +550,7 @@ mod tests {
             tool_name: None,
             cwd: Some("/home/user/project/.claude/worktree".to_string()),
             agent_id: None,
+            badges: vec![],
         };
         process_hook(&mut state, hook);
         // CWD should NOT change to the worktree path
@@ -567,6 +576,7 @@ mod tests {
             tool_name: None,
             cwd: None,
             agent_id: None,
+            badges: vec![],
         };
         process_hook(&mut state, hook);
 
@@ -598,6 +608,7 @@ mod tests {
             tool_name: None,
             cwd: Some("/home/user/api".to_string()),
             agent_id: None,
+            badges: vec![],
         };
         process_hook(&mut state, hook);
 
@@ -726,6 +737,7 @@ mod tests {
             tool_name: None,
             cwd: None,
             agent_id: Some("".to_string()),
+            badges: vec![],
         };
         let changed = process_hook(&mut state, hook);
         assert!(!changed);
