@@ -11,6 +11,7 @@ pub struct HookPayload {
     pub hook_event_name: String,
     pub tool_name: Option<String>,
     pub cwd: Option<String>,
+    pub agent_id: Option<String>,
 }
 
 /// Pipe message types that the plugin handles.
@@ -190,6 +191,20 @@ mod tests {
         assert_eq!(hook_event_to_activity("SubagentStop", None), Some(Activity::AgentDone));
         assert_eq!(hook_event_to_activity("Notification", None), None);
         assert_eq!(hook_event_to_activity("SessionEnd", None), None);
+    }
+
+    #[test]
+    fn test_parse_hook_payload_with_agent_id() {
+        let json = r#"{"session_id":"abc","pane_id":42,"hook_event_name":"PostToolUse","tool_name":"Bash","agent_id":"sub-123"}"#;
+        let payload: HookPayload = serde_json::from_str(json).unwrap();
+        assert_eq!(payload.agent_id.as_deref(), Some("sub-123"));
+    }
+
+    #[test]
+    fn test_parse_hook_payload_without_agent_id() {
+        let json = r#"{"pane_id":1,"hook_event_name":"PostToolUse"}"#;
+        let payload: HookPayload = serde_json::from_str(json).unwrap();
+        assert!(payload.agent_id.is_none());
     }
 
     #[test]
