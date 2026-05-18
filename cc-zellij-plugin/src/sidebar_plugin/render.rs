@@ -390,9 +390,16 @@ fn render_session_entry(
         print!("\x1b[{};1H{}", start_row + 1, pad(&line1, cols));
     }
 
-    // Line 2: branch info
+    // Line 2: badges + branch info
+    let badge_prefix = if session.badges.is_empty() {
+        String::new()
+    } else {
+        format!("  {}", session.badges.join(""))
+    };
     let line2_content = if let Some(ref branch) = session.git_branch {
-        format!("   \u{2387} {branch}")
+        format!("{badge_prefix} \u{2387} {branch}")
+    } else if !badge_prefix.is_empty() {
+        badge_prefix
     } else {
         String::new()
     };
@@ -658,6 +665,7 @@ mod tests {
             tab_index: 0,
             paused: false,
             done_attended: false,
+            badges: vec![],
         };
         let s2 = cc_deck::RenderSession {
             pane_id: 2,
@@ -669,6 +677,7 @@ mod tests {
             tab_index: 1,
             paused: false,
             done_attended: false,
+            badges: vec![],
         };
         let sessions: Vec<&RenderSession> = vec![&s1, &s2];
         let (start, end, above, below) = visible_range(2, 5, None, &sessions);
@@ -688,6 +697,7 @@ mod tests {
                 tab_index: i as usize,
                 paused: false,
                 done_attended: false,
+                badges: vec![],
             }
         }).collect();
         let refs: Vec<&RenderSession> = sessions_owned.iter().collect();

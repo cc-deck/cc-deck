@@ -265,6 +265,25 @@ fn test_controller_waiting_not_cleared_by_subagent_events() {
 }
 
 #[test]
+fn test_controller_badges_stored_from_hook() {
+    let mut plugin = setup_controller();
+
+    plugin.pipe(make_hook_pipe("SessionStart", 10));
+    assert!(plugin.test_state().sessions[&10].badges.is_empty());
+
+    plugin.pipe(make_hook_pipe_with_badges("PreToolUse", 10, &["🚢", "✅"]));
+    assert_eq!(plugin.test_state().sessions[&10].badges, vec!["🚢", "✅"]);
+
+    // Badges update on each hook event
+    plugin.pipe(make_hook_pipe_with_badges("PostToolUse", 10, &["🌊"]));
+    assert_eq!(plugin.test_state().sessions[&10].badges, vec!["🌊"]);
+
+    // Hook without badges clears them
+    plugin.pipe(make_hook_pipe("PostToolUse", 10));
+    assert!(plugin.test_state().sessions[&10].badges.is_empty());
+}
+
+#[test]
 fn test_controller_multiple_sessions() {
     let mut plugin = setup_controller();
 

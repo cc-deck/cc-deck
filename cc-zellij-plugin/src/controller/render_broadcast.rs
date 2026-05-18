@@ -52,6 +52,7 @@ pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
                 tab_index: s.tab_index.unwrap_or(0),
                 paused: s.paused,
                 done_attended: s.done_attended,
+                badges: s.badges.clone(),
             }
         })
         .collect();

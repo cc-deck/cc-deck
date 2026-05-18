@@ -12,6 +12,8 @@ pub struct HookPayload {
     pub tool_name: Option<String>,
     pub cwd: Option<String>,
     pub agent_id: Option<String>,
+    #[serde(default)]
+    pub badges: Vec<String>,
 }
 
 /// Pipe message types that the plugin handles.
@@ -205,6 +207,20 @@ mod tests {
         let json = r#"{"pane_id":1,"hook_event_name":"PostToolUse"}"#;
         let payload: HookPayload = serde_json::from_str(json).unwrap();
         assert!(payload.agent_id.is_none());
+    }
+
+    #[test]
+    fn test_parse_hook_payload_with_badges() {
+        let json = r#"{"pane_id":42,"hook_event_name":"PreToolUse","badges":["🚢","✅"]}"#;
+        let payload: HookPayload = serde_json::from_str(json).unwrap();
+        assert_eq!(payload.badges, vec!["🚢", "✅"]);
+    }
+
+    #[test]
+    fn test_parse_hook_payload_without_badges() {
+        let json = r#"{"pane_id":1,"hook_event_name":"PostToolUse"}"#;
+        let payload: HookPayload = serde_json::from_str(json).unwrap();
+        assert!(payload.badges.is_empty());
     }
 
     #[test]
