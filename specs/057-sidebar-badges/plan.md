@@ -1,6 +1,6 @@
 # Implementation Plan: Configurable Sidebar Badges
 
-**Branch**: `056-sidebar-badges` | **Date**: 2026-05-18 | **Spec**: [spec.md](spec.md)
+**Branch**: `057-sidebar-badges` | **Date**: 2026-05-18 | **Spec**: [spec.md](spec.md)
 **Input**: Feature specification from `/specs/057-sidebar-badges/spec.md`
 
 ## Summary
