@@ -244,6 +244,27 @@ fn test_controller_full_lifecycle_chain() {
 }
 
 #[test]
+fn test_controller_waiting_not_cleared_by_subagent_events() {
+    let mut plugin = setup_controller();
+
+    // Start session and enter Waiting
+    plugin.pipe(make_hook_pipe("SessionStart", 10));
+    plugin.pipe(make_hook_pipe("PermissionRequest", 10));
+    assert!(plugin.test_state().sessions[&10].activity.is_waiting());
+
+    // Subagent tool events should NOT clear Waiting
+    plugin.pipe(make_hook_pipe_with_agent_id("PreToolUse", 10, "sub-1"));
+    assert!(plugin.test_state().sessions[&10].activity.is_waiting());
+
+    plugin.pipe(make_hook_pipe_with_agent_id("PostToolUse", 10, "sub-1"));
+    assert!(plugin.test_state().sessions[&10].activity.is_waiting());
+
+    // Main agent PostToolUse SHOULD clear Waiting
+    plugin.pipe(make_hook_pipe("PostToolUse", 10));
+    assert_eq!(plugin.test_state().sessions[&10].activity, Activity::Working);
+}
+
+#[test]
 fn test_controller_multiple_sessions() {
     let mut plugin = setup_controller();
 
