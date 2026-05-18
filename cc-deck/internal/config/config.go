@@ -21,6 +21,17 @@ type Config struct {
 	Defaults       Defaults          `yaml:"defaults,omitempty"`
 	Profiles       map[string]Profile `yaml:"profiles,omitempty"`
 	Sessions       []Session         `yaml:"sessions,omitempty"`
+	Badges         []BadgeRule       `yaml:"badges,omitempty"`
+}
+
+// BadgeRule defines a file-based badge indicator for the sidebar.
+type BadgeRule struct {
+	Name    string            `yaml:"name"`
+	File    string            `yaml:"file"`
+	Format  string            `yaml:"format"`
+	Extract string            `yaml:"extract"`
+	Values  map[string]string `yaml:"values"`
+	Default string            `yaml:"default,omitempty"`
 }
 
 // ContainerDefaults holds default values for container workspaces.
