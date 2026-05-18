@@ -368,6 +368,31 @@ mod tests {
     }
 
     #[test]
+    fn test_session_deserialize_ignores_unknown_fields() {
+        let json = r#"{
+            "pane_id": 42,
+            "session_id": "test-session",
+            "display_name": "my-project",
+            "activity": "Working",
+            "tab_index": null,
+            "tab_name": null,
+            "working_dir": "/home/user/project",
+            "git_branch": null,
+            "last_event_ts": 1234567890,
+            "manually_renamed": false,
+            "paused": false,
+            "meta_ts": 0,
+            "done_attended": false,
+            "pending_tab_rename": false,
+            "active_subagents": 3
+        }"#;
+        let session: Session = serde_json::from_str(json).unwrap();
+        assert_eq!(session.pane_id, 42);
+        assert_eq!(session.session_id, "test-session");
+        assert_eq!(session.activity, Activity::Working);
+    }
+
+    #[test]
     fn test_faded_color_active_states_unchanged() {
         // Active states return their base color regardless of elapsed time
         assert_eq!(faded_color(&Activity::Working, 9999, 120, 3600), Activity::Working.color());
