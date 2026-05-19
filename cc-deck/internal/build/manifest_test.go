@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 func TestLoadManifest_WithContainerTarget(t *testing.T) {
@@ -528,6 +529,84 @@ func TestManifest_OpenShellBaseImage(t *testing.T) {
 			assert.Equal(t, tt.want, tt.m.OpenShellBaseImage())
 		})
 	}
+}
+
+func TestLoadManifest_WithCredentials(t *testing.T) {
+	content := `
+version: 3
+credentials:
+  - type: claude
+    env_vars: [ANTHROPIC_API_KEY]
+  - type: github
+    env_vars: [GITHUB_TOKEN]
+  - type: vertex
+    file: GOOGLE_APPLICATION_CREDENTIALS
+    env_vars: [ANTHROPIC_VERTEX_PROJECT_ID, CLOUD_ML_REGION]
+  - type: generic
+    env_vars: [CUSTOM_API_KEY]
+    endpoints:
+      - host: api.custom.com
+        port: 443
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "build.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(content), 0644))
+
+	m, err := LoadManifest(path)
+	require.NoError(t, err)
+
+	require.Len(t, m.Credentials, 4)
+
+	assert.Equal(t, "claude", m.Credentials[0].Type)
+	assert.Equal(t, []string{"ANTHROPIC_API_KEY"}, m.Credentials[0].EnvVars)
+
+	assert.Equal(t, "github", m.Credentials[1].Type)
+	assert.Equal(t, []string{"GITHUB_TOKEN"}, m.Credentials[1].EnvVars)
+
+	assert.Equal(t, "vertex", m.Credentials[2].Type)
+	assert.Equal(t, "GOOGLE_APPLICATION_CREDENTIALS", m.Credentials[2].File)
+	assert.Equal(t, []string{"ANTHROPIC_VERTEX_PROJECT_ID", "CLOUD_ML_REGION"}, m.Credentials[2].EnvVars)
+
+	assert.Equal(t, "generic", m.Credentials[3].Type)
+	assert.Equal(t, []string{"CUSTOM_API_KEY"}, m.Credentials[3].EnvVars)
+	require.Len(t, m.Credentials[3].Endpoints, 1)
+	assert.Equal(t, "api.custom.com", m.Credentials[3].Endpoints[0].Host)
+	assert.Equal(t, 443, m.Credentials[3].Endpoints[0].Port)
+}
+
+func TestLoadManifest_CredentialsMarshalRoundTrip(t *testing.T) {
+	m := &Manifest{
+		Version: 3,
+		Credentials: []CredentialEntry{
+			{Type: "claude", EnvVars: []string{"ANTHROPIC_API_KEY"}},
+			{Type: "generic", EnvVars: []string{"MY_KEY"}, Endpoints: []PolicyEndpoint{{Host: "api.example.com", Port: 8443}}},
+		},
+	}
+
+	data, err := yaml.Marshal(m)
+	require.NoError(t, err)
+
+	var parsed Manifest
+	require.NoError(t, yaml.Unmarshal(data, &parsed))
+	require.Len(t, parsed.Credentials, 2)
+	assert.Equal(t, "claude", parsed.Credentials[0].Type)
+	assert.Equal(t, "generic", parsed.Credentials[1].Type)
+	assert.Equal(t, "api.example.com", parsed.Credentials[1].Endpoints[0].Host)
+}
+
+func TestLoadManifest_NoCredentials(t *testing.T) {
+	content := `
+version: 3
+tools:
+  - name: ripgrep
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "build.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(content), 0644))
+
+	m, err := LoadManifest(path)
+	require.NoError(t, err)
+	assert.Empty(t, m.Credentials)
 }
 
 func TestManifest_BaseImage(t *testing.T) {

@@ -8,16 +8,27 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// CredentialEntry declares a credential provider requirement in the manifest.
+// It stores only type identifiers and environment variable names, never actual
+// credential values.
+type CredentialEntry struct {
+	Type      string           `yaml:"type"`
+	EnvVars   []string         `yaml:"env_vars,omitempty"`
+	File      string           `yaml:"file,omitempty"`
+	Endpoints []PolicyEndpoint `yaml:"endpoints,omitempty"`
+}
+
 // Manifest represents the build.yaml file.
 type Manifest struct {
-	Version     int              `yaml:"version"`
-	Tools       []ToolEntry      `yaml:"tools,omitempty"`
-	Sources     []SourceEntry    `yaml:"sources,omitempty"`
-	Plugins     []PluginEntry    `yaml:"plugins,omitempty"`
-	MCP         []MCPEntry       `yaml:"mcp,omitempty"`
-	Settings    *SettingsConfig  `yaml:"settings,omitempty"`
-	Network     *NetworkConfig   `yaml:"network,omitempty"`
-	Targets     *TargetsConfig   `yaml:"targets,omitempty"`
+	Version     int               `yaml:"version"`
+	Tools       []ToolEntry       `yaml:"tools,omitempty"`
+	Sources     []SourceEntry     `yaml:"sources,omitempty"`
+	Plugins     []PluginEntry     `yaml:"plugins,omitempty"`
+	MCP         []MCPEntry        `yaml:"mcp,omitempty"`
+	Settings    *SettingsConfig   `yaml:"settings,omitempty"`
+	Network     *NetworkConfig    `yaml:"network,omitempty"`
+	Credentials []CredentialEntry `yaml:"credentials,omitempty"`
+	Targets     *TargetsConfig    `yaml:"targets,omitempty"`
 }
 
 // ToolEntry describes a tool to install, either via package manager or GitHub release.

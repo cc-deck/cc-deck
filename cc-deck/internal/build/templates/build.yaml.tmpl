@@ -75,6 +75,24 @@ version: 3
 #       source: ./helix-config.toml
 #       target: helix/config.toml
 
+# Credential providers for OpenShell workspaces.
+# Stores env var names only (never actual values). Values are resolved
+# from the host environment at workspace creation time.
+# Populated by /cc-deck.capture
+# credentials:
+#   - type: claude
+#     env_vars: [ANTHROPIC_API_KEY]
+#   - type: github
+#     env_vars: [GITHUB_TOKEN]
+#   - type: vertex
+#     file: GOOGLE_APPLICATION_CREDENTIALS
+#     env_vars: [ANTHROPIC_VERTEX_PROJECT_ID, CLOUD_ML_REGION]
+#   - type: generic
+#     env_vars: [CUSTOM_API_KEY]
+#     endpoints:
+#       - host: api.custom.com
+#         port: 443
+
 # Network domain groups for container workspaces.
 # network:
 #   allowed_domains:
