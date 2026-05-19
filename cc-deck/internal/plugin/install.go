@@ -17,7 +17,8 @@ type InstallOptions struct {
 	Force         bool
 	SkipBackup    bool
 	Layout        string // layout name (currently only "cc-deck")
-	InstallZellij bool   // download and install matching Zellij binary
+	InstallZellij bool   // download and install Zellij binary
+	ZellijVersion string // explicit Zellij version (empty = latest release)
 	Stdout        io.Writer
 	Stderr        io.Writer
 	Stdin         io.Reader // for confirmation prompt
@@ -26,7 +27,6 @@ type InstallOptions struct {
 // Install copies the embedded WASM binary, writes a layout file, and registers
 // hooks in ~/.claude/settings.json with a timestamped backup.
 func Install(opts InstallOptions) error {
-	// 0. Install Zellij if requested (before detection)
 	if opts.InstallZellij {
 		if err := installZellijBinary(opts); err != nil {
 			return fmt.Errorf("installing Zellij: %w", err)
@@ -242,18 +242,21 @@ func wrapPermissionError(err error, path string, access string) error {
 	return fmt.Errorf("file operation failed at %s: %w", path, err)
 }
 
-// installZellijBinary downloads and installs the Zellij binary matching the plugin SDK version.
+// installZellijBinary downloads and installs the Zellij binary.
+// Version resolution order:
+//  1. opts.ZellijVersion if set (explicit user choice)
+//  2. GitHub API latest release (default)
 func installZellijBinary(opts InstallOptions) error {
-	pInfo := EmbeddedPlugin()
-	// Use the SDK version as the target Zellij version (e.g., "0.43")
-	// Append .0 for the release tag if only major.minor
-	version := pInfo.SDKVersion
-	parts := strings.SplitN(version, ".", 3)
-	if len(parts) == 2 {
-		version = version + ".0"
+	version := opts.ZellijVersion
+	if version == "" || version == "latest" {
+		resolved, err := resolveLatestZellijVersion()
+		if err != nil {
+			return fmt.Errorf("resolving latest Zellij version: %w", err)
+		}
+		version = resolved
 	}
+	version = strings.TrimPrefix(version, "v")
 
-	// Map Go arch to Zellij release arch
 	arch := runtime.GOARCH
 	switch arch {
 	case "amd64":
@@ -285,7 +288,6 @@ func installZellijBinary(opts InstallOptions) error {
 		return fmt.Errorf("download failed: HTTP %d from %s", resp.StatusCode, url)
 	}
 
-	// Write to temp file
 	tmpFile, err := os.CreateTemp("", "zellij-*.tar.gz")
 	if err != nil {
 		return err
@@ -299,7 +301,6 @@ func installZellijBinary(opts InstallOptions) error {
 	}
 	tmpFile.Close()
 
-	// Extract with tar
 	installDir := "/usr/local/bin"
 	if _, err := os.Stat(installDir); os.IsNotExist(err) {
 		if err := os.MkdirAll(installDir, 0o755); err != nil {
@@ -316,6 +317,29 @@ func installZellijBinary(opts InstallOptions) error {
 
 	fmt.Fprintf(opts.Stdout, "Zellij v%s installed to %s/zellij\n", version, installDir)
 	return nil
+}
+
+// resolveLatestZellijVersion queries GitHub for the latest Zellij release tag.
+func resolveLatestZellijVersion() (string, error) {
+	client := &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	resp, err := client.Get("https://github.com/zellij-org/zellij/releases/latest")
+	if err != nil {
+		return "", err
+	}
+	resp.Body.Close()
+
+	loc := resp.Header.Get("Location")
+	if loc == "" {
+		return "", fmt.Errorf("no redirect from GitHub releases/latest")
+	}
+	// Location is like https://github.com/zellij-org/zellij/releases/tag/v0.44.3
+	parts := strings.Split(loc, "/")
+	tag := parts[len(parts)-1]
+	return strings.TrimPrefix(tag, "v"), nil
 }
 
 // atomicWrite writes data to a temporary file and renames it to the target path.

@@ -447,6 +447,10 @@ func runWsNew(gf *GlobalFlags, name string, cf *newFlags, cmd *cobra.Command) er
 			te.Repos = allRepos
 			te.ExtraRemotes = extraRemotes
 			te.AutoDetectedURL = autoURL
+		case *ws.OpenShellWorkspace:
+			te.Repos = allRepos
+			te.ExtraRemotes = extraRemotes
+			te.AutoDetectedURL = autoURL
 		}
 	}
 

@@ -10,7 +10,7 @@ var wasmBinary []byte
 // PluginInfo describes the embedded WASM plugin binary.
 type PluginInfo struct {
 	Version    string // plugin version, e.g. "0.1.0"
-	SDKVersion string // zellij-tile SDK version, e.g. "0.43"
+	SDKVersion string // zellij-tile SDK version, e.g. "0.44"
 	MinZellij  string // minimum supported Zellij version, e.g. "0.40"
 	BinarySize int64
 	Binary     []byte
@@ -20,7 +20,7 @@ type PluginInfo struct {
 func EmbeddedPlugin() PluginInfo {
 	return PluginInfo{
 		Version:    "0.8.0",
-		SDKVersion: "0.43",
+		SDKVersion: "0.44",
 		MinZellij:  "0.40",
 		BinarySize: int64(len(wasmBinary)),
 		Binary:     wasmBinary,
