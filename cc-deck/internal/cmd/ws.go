@@ -530,6 +530,9 @@ func runWsNew(gf *GlobalFlags, name string, cf *newFlags, cmd *cobra.Command) er
 func applyFlagOverrides(cmd *cobra.Command, cf *newFlags, def *ws.WorkspaceDefinition) {
 	if cf.image != "" {
 		def.Image = cf.image
+		if def.Type == ws.WorkspaceTypeOpenShell {
+			def.SandboxImage = cf.image
+		}
 	}
 	if cmd.Flags().Changed("auth") {
 		def.Auth = cf.auth
@@ -872,6 +875,7 @@ func runWsDelete(name string, force bool, keepVolumes bool) error {
 		return err
 	}
 
+	_ = defs.Remove(name)
 	fmt.Fprintf(os.Stdout, "Workspace %q deleted\n", name)
 	return nil
 }
