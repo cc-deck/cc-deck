@@ -44,7 +44,7 @@ func TestResolveSandboxConfig_Defaults(t *testing.T) {
 	assert.Equal(t, defaultSandboxImage, cfg.Image)
 	assert.Equal(t, defaultSandboxCommand, cfg.Command)
 	assert.Empty(t, cfg.Policy)
-	assert.Empty(t, cfg.Provider)
+	assert.Empty(t, cfg.Providers)
 }
 
 func TestResolveSandboxConfig_FromDefinition(t *testing.T) {
@@ -66,7 +66,7 @@ workspaces:
 	assert.Equal(t, "custom/image:v1", cfg.Image)
 	assert.Equal(t, "tmux", cfg.Command)
 	assert.Equal(t, "/etc/policy.yaml", cfg.Policy)
-	assert.Equal(t, "my-provider", cfg.Provider)
+	assert.Equal(t, []string{"my-provider"}, cfg.Providers)
 }
 
 func TestResolveGatewayConfig_FromDefinition(t *testing.T) {
@@ -304,6 +304,101 @@ func TestClearLocalState(t *testing.T) {
 
 	_, findErr := store.FindInstanceByName("test-ws")
 	assert.Error(t, findErr)
+}
+
+func TestLoadManifestCredentials_NoDefinitionStore(t *testing.T) {
+	w := &OpenShellWorkspace{name: "test-ws"}
+	result := w.loadManifestCredentials()
+	assert.Nil(t, result)
+}
+
+func TestLoadManifestCredentials_NoProjectDir(t *testing.T) {
+	dir := t.TempDir()
+	defPath := filepath.Join(dir, "workspaces.yaml")
+	os.WriteFile(defPath, []byte(`version: 3
+workspaces:
+  - name: test-ws
+    type: openshell
+`), 0644)
+
+	defs := NewDefinitionStore(defPath)
+	w := &OpenShellWorkspace{name: "test-ws", defs: defs}
+	result := w.loadManifestCredentials()
+	assert.Nil(t, result)
+}
+
+func TestLoadManifestCredentials_WithManifest(t *testing.T) {
+	projectDir := t.TempDir()
+
+	// Create .cc-deck/setup/build.yaml
+	setupDir := filepath.Join(projectDir, ".cc-deck", "setup")
+	require.NoError(t, os.MkdirAll(setupDir, 0755))
+	manifestContent := `version: 3
+credentials:
+  - type: claude
+    env_vars: [ANTHROPIC_API_KEY]
+  - type: github
+    env_vars: [GITHUB_TOKEN]
+`
+	require.NoError(t, os.WriteFile(filepath.Join(setupDir, "build.yaml"), []byte(manifestContent), 0644))
+
+	defDir := t.TempDir()
+	defPath := filepath.Join(defDir, "workspaces.yaml")
+	os.WriteFile(defPath, []byte(`version: 3
+workspaces:
+  - name: test-ws
+    type: openshell
+    project-dir: `+projectDir+`
+`), 0644)
+
+	defs := NewDefinitionStore(defPath)
+	w := &OpenShellWorkspace{name: "test-ws", defs: defs}
+	result := w.loadManifestCredentials()
+
+	require.Len(t, result, 2)
+	assert.Equal(t, "claude", result[0].Type)
+	assert.Equal(t, []string{"ANTHROPIC_API_KEY"}, result[0].EnvVars)
+	assert.Equal(t, "github", result[1].Type)
+}
+
+func TestLoadManifestCredentials_NoCredentialsSection(t *testing.T) {
+	projectDir := t.TempDir()
+
+	setupDir := filepath.Join(projectDir, ".cc-deck", "setup")
+	require.NoError(t, os.MkdirAll(setupDir, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(setupDir, "build.yaml"), []byte("version: 3\n"), 0644))
+
+	defDir := t.TempDir()
+	defPath := filepath.Join(defDir, "workspaces.yaml")
+	os.WriteFile(defPath, []byte(`version: 3
+workspaces:
+  - name: test-ws
+    type: openshell
+    project-dir: `+projectDir+`
+`), 0644)
+
+	defs := NewDefinitionStore(defPath)
+	w := &OpenShellWorkspace{name: "test-ws", defs: defs}
+	result := w.loadManifestCredentials()
+	assert.Nil(t, result)
+}
+
+func TestLoadManifestCredentials_NoManifestFile(t *testing.T) {
+	projectDir := t.TempDir()
+
+	defDir := t.TempDir()
+	defPath := filepath.Join(defDir, "workspaces.yaml")
+	os.WriteFile(defPath, []byte(`version: 3
+workspaces:
+  - name: test-ws
+    type: openshell
+    project-dir: `+projectDir+`
+`), 0644)
+
+	defs := NewDefinitionStore(defPath)
+	w := &OpenShellWorkspace{name: "test-ws", defs: defs}
+	result := w.loadManifestCredentials()
+	assert.Nil(t, result)
 }
 
 func infraPtr(v InfraStateValue) *InfraStateValue { return &v }

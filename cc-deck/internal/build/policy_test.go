@@ -203,6 +203,118 @@ func TestMergePolicy_EmptyOverrides(t *testing.T) {
 	assert.True(t, ok)
 }
 
+func TestGeneratePolicy_VertexCredentialAddsGCPEndpoints(t *testing.T) {
+	t.Setenv("CLOUD_ML_REGION", "europe-west4")
+
+	m := &Manifest{
+		Version: 3,
+		Credentials: []CredentialEntry{
+			{Type: "vertex"},
+		},
+	}
+
+	p, err := GeneratePolicy(m)
+	require.NoError(t, err)
+
+	// Should have GCP OAuth endpoint.
+	oauth, ok := p.NetworkPolicies["gcp_oauth"]
+	require.True(t, ok, "expected gcp_oauth policy")
+	require.Len(t, oauth.Endpoints, 1)
+	assert.Equal(t, "oauth2.googleapis.com", oauth.Endpoints[0].Host)
+	assert.Equal(t, 443, oauth.Endpoints[0].Port)
+
+	// Should have Vertex AI regional endpoint.
+	vertex, ok := p.NetworkPolicies["gcp_vertex_europe_west4"]
+	require.True(t, ok, "expected gcp_vertex_europe_west4 policy")
+	require.Len(t, vertex.Endpoints, 1)
+	assert.Equal(t, "europe-west4-aiplatform.googleapis.com", vertex.Endpoints[0].Host)
+	assert.Equal(t, 443, vertex.Endpoints[0].Port)
+}
+
+func TestGeneratePolicy_VertexDefaultRegion(t *testing.T) {
+	t.Setenv("CLOUD_ML_REGION", "")
+
+	m := &Manifest{
+		Version: 3,
+		Credentials: []CredentialEntry{
+			{Type: "vertex"},
+		},
+	}
+
+	p, err := GeneratePolicy(m)
+	require.NoError(t, err)
+
+	vertex, ok := p.NetworkPolicies["gcp_vertex_us_east1"]
+	require.True(t, ok, "expected gcp_vertex_us_east1 policy with default region")
+	assert.Equal(t, "us-east1-aiplatform.googleapis.com", vertex.Endpoints[0].Host)
+}
+
+func TestGeneratePolicy_GenericCredentialAddsCustomEndpoints(t *testing.T) {
+	m := &Manifest{
+		Version: 3,
+		Credentials: []CredentialEntry{
+			{
+				Type:    "generic",
+				EnvVars: []string{"CUSTOM_KEY"},
+				Endpoints: []PolicyEndpoint{
+					{Host: "api.custom.com", Port: 443},
+					{Host: "auth.custom.com", Port: 8443},
+				},
+			},
+		},
+	}
+
+	p, err := GeneratePolicy(m)
+	require.NoError(t, err)
+
+	ep1, ok := p.NetworkPolicies["cred_api_custom_com"]
+	require.True(t, ok, "expected cred_api_custom_com policy")
+	assert.Equal(t, "api.custom.com", ep1.Endpoints[0].Host)
+	assert.Equal(t, 443, ep1.Endpoints[0].Port)
+
+	ep2, ok := p.NetworkPolicies["cred_auth_custom_com"]
+	require.True(t, ok, "expected cred_auth_custom_com policy")
+	assert.Equal(t, "auth.custom.com", ep2.Endpoints[0].Host)
+	assert.Equal(t, 8443, ep2.Endpoints[0].Port)
+}
+
+func TestGeneratePolicy_NoCredentialsDefaultPolicyOnly(t *testing.T) {
+	m := &Manifest{Version: 3}
+
+	p, err := GeneratePolicy(m)
+	require.NoError(t, err)
+
+	assert.Empty(t, p.NetworkPolicies)
+}
+
+func TestGeneratePolicy_CredentialsAndDomainsCombined(t *testing.T) {
+	t.Setenv("CLOUD_ML_REGION", "")
+
+	m := &Manifest{
+		Version: 3,
+		Network: &NetworkConfig{
+			AllowedDomains: []string{"api.anthropic.com"},
+		},
+		Credentials: []CredentialEntry{
+			{Type: "vertex"},
+		},
+	}
+
+	p, err := GeneratePolicy(m)
+	require.NoError(t, err)
+
+	// Should have the domain entry.
+	_, hasDomain := p.NetworkPolicies["api_anthropic_com"]
+	assert.True(t, hasDomain, "expected domain policy entry")
+
+	// Should have vertex entries.
+	_, hasOAuth := p.NetworkPolicies["gcp_oauth"]
+	assert.True(t, hasOAuth, "expected gcp_oauth policy entry")
+
+	_, hasVertex := p.NetworkPolicies["gcp_vertex_us_east1"]
+	assert.True(t, hasVertex, "expected vertex policy entry")
+}
+
 func TestSlugify(t *testing.T) {
 	assert.Equal(t, "api_anthropic_com", slugify("api.anthropic.com"))
 	assert.Equal(t, "github_com", slugify("github.com"))

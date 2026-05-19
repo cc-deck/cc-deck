@@ -18,7 +18,7 @@ All file references in this command (manifest, config files) are relative to the
 
 ## Interaction Model
 
-This command runs as a **step-by-step wizard**. There are 10 steps total.
+This command runs as a **step-by-step wizard**. There are 11 steps total.
 
 **Rules:**
 - Present ONE step at a time
@@ -61,7 +61,7 @@ Then present Step 1 with the results.
 
 ---
 
-## Step 1/10: Detected Tools
+## Step 1/11: Detected Tools
 
 Analyze each repository for these files (if present):
 
@@ -86,7 +86,7 @@ Merge findings across all repositories, deduplicate, resolve version conflicts (
 **Present** the detected tools as a numbered text list:
 
 ```
-## Step 1/10: Detected Tools
+## Step 1/11: Detected Tools
 
 Scanned N repositories.
 
@@ -121,7 +121,7 @@ If user selects "Exclude some", ask which items to remove by number or name, the
 
 ---
 
-## Step 2/10: cc-deck Companion Tools
+## Step 2/11: cc-deck Companion Tools
 
 Present optional tools from the cc-deck ecosystem and community that enhance the development workspace. These are not detected from repositories but offered as curated recommendations.
 
@@ -139,7 +139,7 @@ Present optional tools from the cc-deck ecosystem and community that enhance the
 **Present** the catalog as text, then use `AskUserQuestion` with `multiSelect: true`. Tools detected on the host should be listed first and pre-labeled:
 
 ```
-## Step 2/10: cc-deck Companion Tools
+## Step 2/11: cc-deck Companion Tools
 
 Optional tools that integrate with your cc-deck workspace:
 ```
@@ -201,7 +201,7 @@ The `post_install` field is a shell command that runs after the tool binary is i
 
 ---
 
-## Step 3/10: Network Domain Groups
+## Step 3/11: Network Domain Groups
 
 Based on the ecosystem files found in Step 1, determine which network domain groups to add to the manifest's `network.allowed_domains` section:
 
@@ -240,7 +240,7 @@ If more than 4 groups are detected, fall back to the accept/exclude pattern.
 
 ---
 
-## Step 4/10: Tool Configuration Files
+## Step 4/11: Tool Configuration Files
 
 For each tool accepted in Steps 1-2 (and any tools already in the manifest), check whether a corresponding config file exists locally under `~/.config/`.
 
@@ -267,7 +267,7 @@ Stop at the first match. If multiple files are found in step 4, prefer `config.*
 **Present** the findings as a numbered text list showing which tools have configs and which don't:
 
 ```
-## Step 4/10: Tool Configuration Files
+## Step 4/11: Tool Configuration Files
 
   1. starship   ~/.config/starship.toml (42 lines)
   2. helix      ~/.config/helix/config.toml (78 lines)
@@ -299,7 +299,7 @@ The `source` field is relative to the setup directory. The `target` field is rel
 
 ---
 
-## Step 5/10: Shell Configuration
+## Step 5/11: Shell Configuration
 
 **Step 5a: Extract git config**
 
@@ -380,7 +380,7 @@ Show the guarded lines in the "Stripped" summary so the user sees what was wrapp
 **Present** the curated config as text:
 
 ```
-## Step 5/10: Shell Configuration
+## Step 5/11: Shell Configuration
 
 Analyzed: ~/.zshrc (85 lines)
 
@@ -501,7 +501,7 @@ The Zellij `config.kdl` `default_shell` is set to match the chosen shell.
 
 ---
 
-## Step 6/10: Zellij Configuration
+## Step 6/11: Zellij Configuration
 
 **Scan**: Check `~/.config/zellij/` for:
 - `config.kdl` (main config with keybindings, theme, etc.)
@@ -518,7 +518,7 @@ The Zellij `config.kdl` `default_shell` is set to match the chosen shell.
 **Present** findings as text, then use `AskUserQuestion` with `multiSelect: true` (typically 2-4 items):
 
 ```
-## Step 6/10: Zellij Configuration
+## Step 6/11: Zellij Configuration
 
   Excluded (managed by cc-deck): plugins/cc_deck.wasm, layouts/cc-deck*.kdl
 ```
@@ -549,7 +549,7 @@ settings:
 
 ---
 
-## Step 7/10: Claude Configuration
+## Step 7/11: Claude Configuration
 
 **Scan** `~/.claude/` for:
 - `CLAUDE.md` (global user instructions)
@@ -585,7 +585,7 @@ For `settings.json`, extract only portable preferences (model, theme, permission
 
 ---
 
-## Step 8/10: Claude Code Plugins
+## Step 8/11: Claude Code Plugins
 
 **Scan**: Discover installed plugins and their marketplace sources:
 1. Run `claude plugins list` to get all installed plugins
@@ -600,7 +600,7 @@ For each installed plugin, determine the marketplace source type:
 **Present** as a categorized text list:
 
 ```
-## Step 8/10: Claude Code Plugins
+## Step 8/11: Claude Code Plugins
 
   Marketplace plugins:
     1. superpowers (official)
@@ -659,7 +659,7 @@ Directory-based plugins are included in the manifest with `source: directory` so
 
 ---
 
-## Step 9/10: MCP Servers
+## Step 9/11: MCP Servers
 
 **Scan** MCP configuration from multiple sources:
 1. `~/.config/cc-setup/mcp.json` (cc-setup cached MCP configs)
@@ -669,7 +669,7 @@ Directory-based plugins are included in the manifest with `source: directory` so
 **Present** as a categorized text list:
 
 ```
-## Step 9/10: MCP Servers
+## Step 9/11: MCP Servers
 
   From cc-setup cache:
     1. github-mcp (container, ghcr.io/..., sse, port 8000)
@@ -733,7 +733,78 @@ If user selects "Exclude some", ask which items to remove by number or name.
 
 ---
 
-## Step 10/10: Target Configuration
+## Step 10/11: Credential Providers
+
+Detect credentials available in the host environment and map them to OpenShell provider profiles. This step scans for well-known environment variables that correspond to API keys and service account files.
+
+**Detection**: For each known provider profile, check if the detection env var is set:
+
+| Env Var | Provider Type |
+|---------|--------------|
+| `ANTHROPIC_API_KEY` | `claude` |
+| `GITHUB_TOKEN` or `GH_TOKEN` | `github` |
+| `GITLAB_TOKEN` or `GLAB_TOKEN` | `gitlab` |
+| `OPENAI_API_KEY` | `openai` |
+| `NVIDIA_API_KEY` | `nvidia` |
+| `GOOGLE_APPLICATION_CREDENTIALS` | `vertex` |
+
+**Present** the detected credentials as a numbered text list:
+
+```
+## Step 10/11: Credential Providers
+
+Detected credentials from host environment:
+
+  1. claude       ANTHROPIC_API_KEY is set
+  2. github       GITHUB_TOKEN is set
+```
+
+If no credentials are detected, show "No credential env vars detected in host environment." and allow manual addition.
+
+Then use `AskUserQuestion`:
+
+```json
+{
+  "questions": [{
+    "question": "Which credential providers should the workspace use?",
+    "header": "Credentials",
+    "multiSelect": true,
+    "options": [
+      {"label": "claude", "description": "Anthropic API key (ANTHROPIC_API_KEY)"},
+      {"label": "github", "description": "GitHub token (GITHUB_TOKEN)"}
+    ]
+  }]
+}
+```
+
+Only show detected credentials as options. If more than 4 are detected, fall back to the accept/exclude pattern.
+
+**STOP. Wait for user response before proceeding.**
+
+**Action**: For each selected credential, add an entry to the manifest's `credentials` section:
+
+```yaml
+credentials:
+  - type: claude
+    env_vars: [ANTHROPIC_API_KEY]
+  - type: github
+    env_vars: [GITHUB_TOKEN]
+```
+
+For `vertex` type, also include the `file` field:
+
+```yaml
+credentials:
+  - type: vertex
+    file: GOOGLE_APPLICATION_CREDENTIALS
+    env_vars: [ANTHROPIC_VERTEX_PROJECT_ID, CLOUD_ML_REGION]
+```
+
+The `credentials` section stores only env var names, never actual values. Values are resolved from the host environment at workspace creation time.
+
+---
+
+## Step 11/11: Target Configuration
 
 Configure the build targets (SSH, container, and/or OpenShell). This step populates the `targets` section of the manifest.
 
@@ -821,7 +892,7 @@ The `network.allowed_domains` captured in Step 4 will be used to auto-generate `
 
 ## Summary and Manifest Update
 
-After all 10 steps are complete, show a final text summary:
+After all 11 steps are complete, show a final text summary:
 
 ```
 ## Capture Complete
@@ -834,6 +905,7 @@ After all 10 steps are complete, show a final text summary:
   Claude:      CLAUDE.md + settings (merged)
   Plugins:     superpowers, gopls-lsp, copyedit (3 selected)
   MCP:         playwright, readwise (2 selected)
+  Credentials: claude, github (2 selected)
   Targets:     SSH (root@marovo, user: roland), Container (cc-deck), OpenShell (cc-deck)
   Repos:       cc-deck, cc-session (2 to clone)
 ```
@@ -870,9 +942,10 @@ Then perform the write:
 4. Update `settings` section with shell, Zellij, Claude selections
 5. Update `plugins` section with selected plugins
 6. Update `mcp` section with selected MCP servers
-7. Copy selected config files to `<setup-dir>/config/`
-8. Write repos to `.cc-deck/workspace.yaml` if target is SSH
-9. Report what was written
+7. Update `credentials` section with selected credential providers
+8. Copy selected config files to `<setup-dir>/config/`
+9. Write repos to `.cc-deck/workspace.yaml` if target is SSH
+10. Report what was written
 
 ---
 

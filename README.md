@@ -39,6 +39,23 @@ The `cc-deck build` command provides a single workflow for replicating your deve
 
 Capture once, then build for any target from the same manifest. After generating artifacts, run `cc-deck build run` to execute them without Claude Code involvement. Use `--push` to also push container images to a registry. The OpenShell target auto-generates a `policy.yaml` from `network.allowed_domains` with per-binary network restrictions, embedding it at `/etc/openshell/policy.yaml` in the built image.
 
+### Credential Injection for OpenShell
+
+OpenShell workspaces need API keys and tokens to run Claude Code and interact with external services. The build manifest supports a `credentials` section that declares which credential providers the workspace requires without storing actual secrets.
+
+```yaml
+# In .cc-deck/setup/build.yaml
+credentials:
+  - type: claude
+  - type: github
+```
+
+When you run `cc-deck ws new --type openshell`, cc-deck reads the credential declarations, resolves values from your host environment, creates OpenShell providers on the gateway, and attaches them to the sandbox. If an env var is missing, the provider is skipped with a warning and the workspace still starts.
+
+Supported provider types include `claude`, `github`, `gitlab`, `openai`, `nvidia`, and `vertex`. The `vertex` type handles file-based auth by uploading the service account JSON into the sandbox automatically. A `generic` type supports custom services with explicit env vars and network endpoints.
+
+Use `/cc-deck.capture` to auto-detect available credentials from your host environment during workspace setup.
+
 ### Network Filtering
 
 When deploying containerized sessions, cc-deck can restrict outbound network access to only the domains your project needs. Domain groups (python, nodejs, rust, golang, github, and more) let you describe allowed domains by ecosystem instead of listing individual hosts. A tinyproxy sidecar enforces the allowlist in Podman deployments, while NetworkPolicy and EgressFirewall resources handle Kubernetes and OpenShift.
@@ -586,3 +603,4 @@ cc-deck follows [Spec-Driven Development](CONTRIBUTING.md#spec-driven-developmen
 | [042](specs/042-voice-relay/) | Voice Relay | Local speech-to-text dictation into remote agent sessions via whisper.cpp, VAD, and permission safety | Implemented |
 | [045](specs/045-voice-sidebar-integration/) | Voice Sidebar Integration | Sidebar ♫ indicator, bidirectional mute toggle, `[[command]]` protocol, PTT removal | In Progress |
 | [056](specs/056-openshell-build-target/) | OpenShell Build Target | Generate OpenShell sandbox images from build manifest with auto-generated security policies | In Progress |
+| [058](specs/058-openshell-credential-injection/) | OpenShell Credential Injection | Bridge cc-deck credential system to OpenShell provider architecture for sandbox workspaces | In Progress |

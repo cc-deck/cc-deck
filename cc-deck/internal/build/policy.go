@@ -2,6 +2,7 @@ package build
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -81,21 +82,56 @@ func DefaultPolicy() *PolicyFile {
 }
 
 // GeneratePolicy builds a policy from defaults and auto-generates network_policies
-// entries from the manifest's allowed_domains.
+// entries from the manifest's allowed_domains and credential endpoints.
 func GeneratePolicy(manifest *Manifest) (*PolicyFile, error) {
 	policy := DefaultPolicy()
 
-	if manifest.Network == nil {
-		return policy, nil
+	if manifest.Network != nil {
+		for _, domain := range manifest.Network.AllowedDomains {
+			slug := slugify(domain)
+			policy.NetworkPolicies[slug] = NetworkPolicy{
+				Name: domain,
+				Endpoints: []PolicyEndpoint{
+					{Host: domain, Port: 443},
+				},
+			}
+		}
 	}
 
-	for _, domain := range manifest.Network.AllowedDomains {
-		slug := slugify(domain)
-		policy.NetworkPolicies[slug] = NetworkPolicy{
-			Name: domain,
-			Endpoints: []PolicyEndpoint{
-				{Host: domain, Port: 443},
-			},
+	// Add credential-specific endpoints.
+	for _, cred := range manifest.Credentials {
+		switch cred.Type {
+		case "vertex":
+			// Add GCP OAuth endpoint.
+			policy.NetworkPolicies["gcp_oauth"] = NetworkPolicy{
+				Name: "GCP OAuth",
+				Endpoints: []PolicyEndpoint{
+					{Host: "oauth2.googleapis.com", Port: 443},
+				},
+			}
+			// Add Vertex AI regional endpoint.
+			region := os.Getenv("CLOUD_ML_REGION")
+			if region == "" {
+				region = "us-east1"
+			}
+			host := region + "-aiplatform.googleapis.com"
+			policy.NetworkPolicies["gcp_vertex_"+slugify(region)] = NetworkPolicy{
+				Name: "GCP Vertex AI (" + region + ")",
+				Endpoints: []PolicyEndpoint{
+					{Host: host, Port: 443},
+				},
+			}
+		case "generic":
+			// Add custom endpoints from the credential entry.
+			for _, ep := range cred.Endpoints {
+				slug := slugify(ep.Host)
+				policy.NetworkPolicies["cred_"+slug] = NetworkPolicy{
+					Name: ep.Host,
+					Endpoints: []PolicyEndpoint{
+						{Host: ep.Host, Port: ep.Port},
+					},
+				}
+			}
 		}
 	}
 
