@@ -284,3 +284,70 @@ cc-deck domains blocked <session-name>    # Show blocked requests from proxy log
 **Multi-Backend Sessions**: If a session uses multiple AI backends (e.g., Anthropic for fast queries, Vertex for long-running tasks), how should domain allowlists merge? Union of both backend defaults?
 
 **Egress to Internal Services**: Should there be a separate allowlist for cluster-internal traffic (e.g., other services in the same namespace, monitoring endpoints)? K8s NetworkPolicy handles this separately from external egress.
+
+## Updated Learnings from paude (May 2026)
+
+Source: `bbrowning/paude` v0.15.0, specifically `containers/proxy/entrypoint.sh`, `src/paude/domains.py`, and `src/paude/agents/base.py`.
+
+### Proxy Sidecar Architecture: dnsmasq + paude-proxy Binary
+
+paude's proxy sidecar is more than just Squid. The container entrypoint runs two components:
+
+1. **dnsmasq** (DNS forwarding): Binds to `127.0.0.1:53` inside the proxy container. This exists because some tools (notably Rust's `reqwest` HTTP client) bypass the system DNS resolver and query DNS servers directly. Without a local DNS forwarder, these tools could fail or leak DNS queries outside the filtered network.
+
+   The dnsmasq config is generated dynamically:
+   - Parses upstream servers from `/etc/resolv.conf` (skipping localhost to avoid loops)
+   - Accepts an optional `PROXY_DNS` env var for custom upstream DNS
+   - Falls back to public DNS (8.8.8.8, 1.1.1.1)
+
+2. **paude-proxy** (HTTP/HTTPS filtering): A compiled binary (not Squid) that handles the actual domain filtering. The proxy binary receives the expanded domain list and enforces the allowlist.
+
+cc-deck's proxy design should include DNS forwarding. Our current plan to use standard Squid would miss DNS-level leaks from tools that bypass `HTTP_PROXY`/`HTTPS_PROXY` env vars.
+
+### Per-Agent Domain Aliases
+
+paude's `AgentConfig` includes an `extra_domain_aliases` field. Each agent declares which domain groups it needs in addition to the base set:
+
+- Claude Code: `["claude"]` (adds `.claude.ai`, `.anthropic.com`)
+- Cursor: `["cursor"]` (adds `.cursor.com`, `.cursor.sh`, etc.)
+- Gemini: `["gemini", "nodejs"]` (adds googleapis + npm/yarn for tool use)
+- OpenClaw: `["openclaw"]` (adds `.anthropic.com`, `.openai.com`, DuckDuckGo, weather APIs)
+
+When a user specifies `--allowed-domains default`, the expansion is `BASE_ALIASES + agent.extra_domain_aliases`. This means the network filter automatically adapts to the agent type without user intervention.
+
+cc-deck should adopt this pattern. The agent adapter (Go interface) declares its required domain groups. The workspace definition merges agent-required groups with user-specified groups at deploy time. This fits naturally into our three-layer resolution model (built-in, user, manifest).
+
+```go
+type Agent interface {
+    // ... existing methods ...
+    RequiredDomainGroups() []string  // e.g., ["claude"] or ["gemini", "nodejs"]
+}
+```
+
+### Regex Domain Patterns for Regional Endpoints
+
+paude supports regex patterns prefixed with `~` for domains that cannot be expressed as simple wildcards. The primary use case is Vertex AI's regional endpoints:
+
+```python
+"~aiplatform\\.googleapis\\.com$"
+```
+
+This matches `us-central1-aiplatform.googleapis.com`, `europe-west4-aiplatform.googleapis.com`, etc. The region prefix uses hyphens, not dots, so subdomain wildcards (`.aiplatform.googleapis.com`) would not match.
+
+Our domain expansion should support the same `~` prefix convention. In the Squid ACL output, these map to `acl allowed_domains_regex dstdom_regex` (separate from the standard `dstdomain` ACL). In K8s NetworkPolicy or EgressFirewall, regex patterns require FQDN-aware CNI support.
+
+### Domain Configuration Precedence
+
+paude uses a three-layer precedence model that closely mirrors our planned architecture:
+
+1. **CLI `--allowed-domains`** (highest, completely replaces)
+2. **Project config + user defaults** (merged/union from `paude.json` + `~/.config/paude/defaults.json`)
+3. **Built-in fallback**: `["default"]`
+
+The `expand_domains()` function handles all resolution. Key design choice: `"all"` returns an empty list meaning unrestricted (proxy allows everything), while a non-empty list means strict allowlist. The `is_unrestricted()` check is simply `len(domains) == 0`.
+
+### Post-Creation Domain Modification
+
+paude supports modifying domain allowlists on running sessions via `paude allowed-domains <session> --add/--remove/--replace` (mutually exclusive operations). For Podman, this recreates the proxy container with updated config. For OpenShift, it patches the Deployment and triggers a pod rollout.
+
+Our `cc-deck domains add/remove` commands (planned in CLI Interface section above) should follow the same pattern. The key implementation detail: on Podman, a proxy container restart is needed (Squid reloads config on restart); on K8s/OpenShift, the resource update triggers a rollout automatically.
