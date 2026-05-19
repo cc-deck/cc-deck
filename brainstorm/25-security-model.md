@@ -132,6 +132,66 @@ Watchdog Process (sidecar or background)
 - Hardening guide for production deployments
 - Incident response playbook for detected exfiltration attempts
 
+## Updated Learnings from paude (May 2026)
+
+Source: `bbrowning/paude` v0.15.0, specifically `src/paude/agents/base.py`.
+
+### Explicit Secret vs Passthrough Env Var Separation
+
+paude makes a clear distinction between two categories of environment variables in its `AgentConfig`:
+
+- **`passthrough_env_vars`**: Regular env vars forwarded from the host to the container. These appear in the container spec and are visible in `podman inspect` or K8s Pod manifests. Examples: `GOOGLE_CLOUD_LOCATION`, `CLOUD_ML_REGION`.
+
+- **`secret_env_vars`**: Sensitive credentials that must be delivered securely. These are explicitly excluded from `build_environment_from_config()` and handled separately by `build_secret_environment_from_config()`. The separation ensures secrets are never accidentally included in container specs, image layers, or debug output.
+
+The `build_environment_from_config()` function filters secrets by maintaining a `secret_set` and skipping any var in that set during passthrough iteration:
+
+```python
+secret_set = set(config.secret_env_vars)
+for var in config.passthrough_env_vars:
+    if var in secret_set:
+        continue
+    # ... add to env
+```
+
+cc-deck should adopt this pattern. Currently, all credential env vars are treated uniformly. A formal distinction would prevent accidental exposure in compose files, `podman inspect` output, or K8s Pod specs. The workspace definition could gain explicit fields:
+
+```yaml
+credentials:
+  passthrough:    # visible in container spec, OK for non-sensitive config
+    - GOOGLE_CLOUD_LOCATION
+    - CLOUD_ML_REGION
+  secrets:        # delivered via podman secret / K8s Secret, never in spec
+    - ANTHROPIC_API_KEY
+    - OPENAI_API_KEY
+```
+
+### Equivalent Variable Syncing
+
+paude maintains a list of equivalent env var pairs (e.g., `GOOGLE_CLOUD_LOCATION` and `CLOUD_ML_REGION`) and ensures both are set when either is present. This prevents subtle configuration failures where a tool expects one name but the user set the other.
+
+cc-deck could implement this for known equivalences in the agent adapter layer, or document it as a convention.
+
+### Trust/Onboarding Suppression via Config Injection
+
+paude's `apply_sandbox_config()` generates shell scripts that pre-configure agents to skip interactive prompts inside containers:
+
+- **Claude Code**: Sets `hasCompletedOnboarding: true` and `hasTrustDialogAccepted: true` for the workspace path in `~/.claude.json`. Uses `jq` for safe JSON manipulation.
+- **Gemini CLI**: Writes the workspace path to `~/.gemini/trustedFolders.json` with `"TRUST_FOLDER"` status.
+
+This is a security-relevant pattern: it ensures agents start in a known state without human interaction, which is essential for YOLO mode and fire-and-forget workflows. cc-deck currently handles Claude Code trust via hook configuration, but extending this to multi-agent scenarios would need the same approach.
+
+### DNS Leak Prevention via Proxy dnsmasq
+
+paude's proxy sidecar runs `dnsmasq` bound to `127.0.0.1:53` before starting the actual proxy binary. This exists because some tools (notably Rust's `reqwest` HTTP client) bypass the system DNS resolver and query DNS directly. Without a local DNS server, these tools could fail or leak DNS queries outside the filtered network.
+
+The dnsmasq config:
+1. Parses upstream servers from `/etc/resolv.conf`
+2. Accepts an optional `PROXY_DNS` env var for custom upstream
+3. Falls back to public DNS (8.8.8.8, 1.1.1.1)
+
+cc-deck's proxy sidecar design (brainstorm 22) should include dnsmasq or equivalent DNS forwarding to prevent DNS-level leaks that bypass the HTTP proxy.
+
 ## Open Questions
 
 - Should the credential watchdog be on by default or opt-in?
@@ -140,3 +200,5 @@ Watchdog Process (sidecar or background)
 - How to audit agent actions within the container (shell history, file modifications)?
 - Integration with external secret management (HashiCorp Vault, AWS Secrets Manager, OpenShift Vault integration)?
 - Should cc-deck provide a "security score" for a deployment configuration?
+- Should the secret vs passthrough distinction be enforced at the Go type level (separate fields in the workspace struct) or at the config level (separate YAML keys)?
+- Should equivalent env var syncing be hardcoded per agent or configurable in the agent adapter config?

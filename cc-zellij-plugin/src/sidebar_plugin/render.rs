@@ -5,6 +5,7 @@
 // session list and prints ANSI escape sequences; no heavy computation.
 
 use cc_deck::RenderSession;
+use unicode_width::UnicodeWidthChar;
 use super::rename;
 use super::state::{ClickRegion, SidebarState};
 
@@ -390,19 +391,7 @@ fn render_session_entry(
         print!("\x1b[{};1H{}", start_row + 1, pad(&line1, cols));
     }
 
-    // Line 2: badges + branch info
-    let badge_prefix = if session.badges.is_empty() {
-        String::new()
-    } else {
-        format!("  {}", session.badges.join(""))
-    };
-    let line2_content = if let Some(ref branch) = session.git_branch {
-        format!("{badge_prefix} \u{2387} {branch}")
-    } else if !badge_prefix.is_empty() {
-        badge_prefix
-    } else {
-        String::new()
-    };
+    let line2_content = format_line2(&session.badges, session.git_branch.as_deref());
 
     if use_bg {
         let highlighted = format!("{bg}{fg}\x1b[2m{line2_content}{RESET}");
@@ -556,6 +545,27 @@ fn pad(s: &str, width: usize) -> String {
     }
 }
 
+/// Format line 2 content (badges + branch) with alignment.
+/// When badges are narrow enough, pads so ⎇ aligns at column 4 (under the session name).
+fn format_line2(badges: &[String], branch: Option<&str>) -> String {
+    const BRANCH_COL: usize = 3;
+    match (branch, badges.is_empty()) {
+        (Some(branch), true) => format!("   \u{2387} {branch}"),
+        (Some(branch), false) => {
+            let badges_str = badges.join(" ");
+            let badges_width = display_width(&badges_str);
+            if badges_width < BRANCH_COL {
+                let padding = BRANCH_COL - badges_width;
+                format!("{badges_str}{}\u{2387} {branch}", " ".repeat(padding))
+            } else {
+                format!("{badges_str} \u{2387} {branch}")
+            }
+        }
+        (None, false) => badges.join(" "),
+        (None, true) => String::new(),
+    }
+}
+
 fn display_width(s: &str) -> usize {
     let mut width = 0;
     let mut in_escape = false;
@@ -567,7 +577,7 @@ fn display_width(s: &str) -> usize {
                 in_escape = false;
             }
         } else {
-            width += 1;
+            width += ch.width().unwrap_or(0);
         }
     }
     width
@@ -638,6 +648,43 @@ mod tests {
         assert_eq!(display_width("hello"), 5);
         assert_eq!(display_width("\x1b[1mhello\x1b[0m"), 5);
         assert_eq!(display_width("\x1b[38;2;255;0;0mX\x1b[0m text"), 6);
+        assert_eq!(display_width("🚢"), 2);
+        assert_eq!(display_width("🚢 ✅"), 5);
+        assert_eq!(display_width("\u{2387}"), 1);
+    }
+
+    #[test]
+    fn test_format_line2_no_badges_with_branch() {
+        let result = format_line2(&[], Some("main"));
+        assert_eq!(result, "   \u{2387} main");
+    }
+
+    #[test]
+    fn test_format_line2_one_emoji_badge_aligns() {
+        let badges = vec!["🚢".to_string()];
+        let result = format_line2(&badges, Some("main"));
+        let before_icon: &str = result.split('\u{2387}').next().unwrap();
+        assert_eq!(display_width(before_icon), 3);
+    }
+
+    #[test]
+    fn test_format_line2_two_emoji_badges_fallback() {
+        let badges = vec!["🚢".to_string(), "✅".to_string()];
+        let result = format_line2(&badges, Some("main"));
+        assert!(result.contains("✅ \u{2387}"));
+    }
+
+    #[test]
+    fn test_format_line2_badges_only() {
+        let badges = vec!["🚢".to_string()];
+        let result = format_line2(&badges, None);
+        assert_eq!(result, "🚢");
+    }
+
+    #[test]
+    fn test_format_line2_empty() {
+        let result = format_line2(&[], None);
+        assert!(result.is_empty());
     }
 
     #[test]

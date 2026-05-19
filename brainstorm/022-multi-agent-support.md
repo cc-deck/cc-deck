@@ -455,6 +455,67 @@ Recommended order:
 5. **Image build integration** (multi-agent manifests)
 6. **Credential transport** (consider proxy approach)
 
+## Lessons from paude (May 2026 Analysis)
+
+[paude](https://github.com/bbrowning/paude) is a Python CLI for running AI coding agents in secure containers. It supports Claude Code, Cursor CLI, Gas City, Gemini CLI, and OpenClaw. Unlike cc-deck's interactive terminal approach, paude uses a fire-and-forget model where agents work in containers and users harvest results via git. Its agent abstraction is mature (v0.15.0, 592 commits) and worth studying.
+
+### Patterns to adopt from paude
+
+**1. AgentConfig dataclass with rich metadata.** paude's `AgentConfig` captures 20+ fields per agent in a single dataclass: identity (`name`, `display_name`, `process_name`), installation (`install_script`, `install_dir`), environment (`env_vars`, `passthrough_env_vars`, `secret_env_vars`, `passthrough_env_prefixes`), container settings (`config_dir_name`, `config_file_name`, `exposed_ports`, `default_base_image`), and interaction flags (`yolo_flag`, `clear_command`, `args_env_var`, `session_name`).
+
+Our Go `Agent` interface already covers most of these concerns but distributes them across method returns rather than a single struct. Consider adding an `AgentConfig` struct that consolidates static agent metadata, keeping the Go interface for behavioral methods only.
+
+**2. Provider/Credential separation.** paude separates agent identity from provider credentials via `ProviderCredentials`. The same agent (e.g., Claude Code) can use different providers (Anthropic direct, Vertex AI), and each provider declares its own credential requirements. The `build_provider_credentials()` function resolves the correct credential set based on agent + provider combination.
+
+This matters for cc-deck because our credential transport design (see Open Question 6) currently ties credentials to agents. A provider abstraction would let users run Claude Code via Vertex AI with different credentials than Anthropic direct, without changing the agent adapter.
+
+```go
+type ProviderConfig struct {
+    Name                 string
+    PassthroughEnvVars   []string
+    SecretEnvVars        []string
+    PassthroughPrefixes  []string
+    ExtraEnvVars         map[string]string
+    ModelConfig          map[string]string
+}
+```
+
+**3. Trust/onboarding suppression per agent.** paude ships `claude_trust_script()` and `gemini_trust_script()` functions that generate shell snippets to pre-configure agents for non-interactive use. These use `jq` to safely manipulate JSON config files, setting `hasCompletedOnboarding`, `hasTrustDialogAccepted`, and `trustedFolders`.
+
+Our `apply_sandbox_config()` equivalent should be part of the Agent interface, called during container setup:
+
+```go
+type Agent interface {
+    // ... existing methods ...
+    SandboxConfigScript(home, workspace, args string, yolo bool) string
+}
+```
+
+**4. Per-agent domain aliases.** Each paude agent declares `extra_domain_aliases` (e.g., Claude adds `["claude"]`, Cursor adds `["cursor"]`, Gemini adds `["gemini", "nodejs"]`). When the user requests `"default"` domains, the expansion merges `BASE_ALIASES` (vertexai, python, github) with the agent's extras. This means the network filter adapts automatically to the agent type.
+
+cc-deck's domain group system (brainstorm 22) should adopt this. The agent adapter declares which domain groups it needs, and the workspace definition merges them with user-specified groups.
+
+**5. Exposed ports for web-based agents.** paude's `exposed_ports` field (list of host/container port tuples) supports agents like OpenClaw that have web UIs rather than CLI-only interfaces. This is forward-looking for cc-deck if we ever support web-based agents or agents with debug UIs.
+
+**6. Pipefail-safe installation scripts.** paude wraps agent install commands in `SHELL ["/bin/bash", "-o", "pipefail", "-c"]` Dockerfile directives and verifies the binary exists after installation. This prevents silent `curl | sh` failures during image builds. Our `InstallScript()` should include similar verification.
+
+### Patterns that validate our approach
+
+**Agent Protocol (Python Protocol class).** paude uses a Python `Protocol` (structural typing) with methods: `config` (property), `dockerfile_install_lines()`, `apply_sandbox_config()`, `launch_command()`, `host_config_mounts()`, `build_environment()`. This is structurally similar to our Go `Agent` interface, confirming the interface approach is correct.
+
+**Tmux session names per agent.** paude assigns each agent a `session_name` for tmux management (e.g., `"claude"`, `"cursor"`). Our Zellij pane-based approach is analogous but more native to our terminal multiplexer.
+
+### Comparative analysis
+
+| Aspect | paude | cc-deck (current) | cc-deck (proposed) |
+|---|---|---|---|
+| Agent config model | Single `AgentConfig` dataclass | Go interface methods | Hybrid: `AgentConfig` struct + interface |
+| Credential model | Provider-level separation | Agent-level only | Add provider abstraction |
+| Trust suppression | Shell script generators | Hook-based config | Add `SandboxConfigScript()` |
+| Domain filtering | Per-agent `extra_domain_aliases` | Global domain groups | Per-agent domain group declarations |
+| Installation safety | Pipefail + binary verification | Basic install scripts | Add pipefail + verification |
+| Web agent support | `exposed_ports` field | Not supported | Add port exposure to config |
+
 ## Related Brainstorms
 
 - **042 (voice-relay)**: Voice relay via PipeChannel, agent-agnostic, focus-based routing

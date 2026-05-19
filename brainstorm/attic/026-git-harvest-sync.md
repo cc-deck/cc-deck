@@ -99,6 +99,79 @@ environments:
 | Speed (first sync) | Fast | Slower (full push) |
 | Speed (subsequent) | Same (full copy) | Fast (delta only) |
 
+## Updated Learnings from paude (May 2026)
+
+Source: `bbrowning/paude` v0.15.0, specifically `src/paude/workflow.py` and `src/paude/domains.py`.
+
+### Unmerged Work Safety Check
+
+paude's `_check_unmerged_work()` uses `git merge-base --is-ancestor HEAD origin/<branch>` before allowing a reset. If the container's HEAD is not an ancestor of origin/main, it warns the user and exits unless `--force` is passed. This prevents accidental loss of unharvested work.
+
+cc-deck should adopt this pattern for `cc-deck env reset`:
+
+```bash
+# Inside container via exec:
+git fetch origin 2>/dev/null
+git merge-base --is-ancestor HEAD origin/main
+# Exit code 0 = safe to reset (HEAD already in main)
+# Exit code 1 = unharvested work exists, warn user
+```
+
+### Protected Branch Pattern Matching
+
+paude uses `fnmatch` against a frozen set of patterns: `main`, `master`, `release`, `release-*`, `release/*`. This is more robust than exact string matching and catches branch naming variations.
+
+cc-deck's protected branch list should be configurable in the environment definition, with these as defaults:
+
+```yaml
+sync:
+  protected-branches:
+    - main
+    - master
+    - "release-*"
+    - "release/*"
+```
+
+### Harvest with PR Creation
+
+paude's harvest workflow includes an integrated PR path:
+
+1. `git fetch origin` to update refs for `--force-with-lease`
+2. `git push --force-with-lease -u origin <branch>` (safe force push)
+3. Check if an open PR already exists for this branch using `gh pr list --head <branch> --state open`
+4. If PR exists, report "PR already exists and updated"
+5. If no PR, create one with `gh pr create --head <branch>`
+
+The `--force-with-lease` is important: it prevents overwriting remote changes that someone else may have pushed to the same branch, while still allowing updates to the harvested branch.
+
+cc-deck should support the same flow: `cc-deck harvest <name> --pr` creates or updates a PR, and `--pr-title` sets the title.
+
+### Concurrent Session Enrichment
+
+paude's `status_sessions()` uses `ThreadPoolExecutor(max_workers=8)` to concurrently query running sessions for activity and work summaries. Each session gets an `exec_in_session` call to gather git status, branch info, and recent commit summaries. Results are sorted by elapsed time (most recently active first).
+
+For cc-deck's sidebar or a future `cc-deck ws status` command, this pattern is valuable when managing many concurrent workspaces. The Zellij plugin could request workspace git status via pipe messages, with the Go CLI handling concurrent exec calls and returning aggregated results.
+
+### Session Reset with Conversation Clearing
+
+paude's `reset_session()` does more than just git reset. After resetting the workspace, it optionally clears the agent's conversation history:
+
+1. Deletes `.jsonl` conversation files and `sessions-index.json`
+2. Removes todo directories
+3. Preserves per-project settings (`settings.local.json`, `CLAUDE.md`)
+4. Sends a `/clear` command via tmux to the running agent
+
+cc-deck's reset should similarly preserve agent configuration while clearing state. The distinction between "reset workspace" and "reset everything" matters for task-to-task transitions.
+
+### Git Remote via ext:: with Auto-Setup
+
+paude auto-creates the `ext::` remote on first harvest, including:
+1. Enabling `git ext::` protocol in global git config (if not already)
+2. Initializing the container workspace as a bare-capable repo
+3. Adding the remote with the correct exec command
+
+The remote name follows a convention: `paude-<session-name>`. cc-deck should use `cc-deck-<workspace-name>` for consistency.
+
 ## Open Questions
 
 1. Should git harvest be the default sync strategy for container/compose, or opt-in?
@@ -106,3 +179,5 @@ environments:
 3. Should `cc-deck env push --git` auto-detect whether the local directory is a git repo and choose the strategy accordingly?
 4. How to handle submodules?
 5. Should `cc-deck env harvest --pr` use `gh pr create` or `glab mr create` depending on the remote?
+6. Should `--force-with-lease` be the default for harvest push, or should cc-deck offer both force-with-lease and regular push?
+7. How should concurrent session enrichment interact with the Zellij plugin's render cycle? Should the plugin cache git status and refresh on a timer, or only on user request?
