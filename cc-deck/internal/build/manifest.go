@@ -33,6 +33,16 @@ type ToolEntry struct {
 type TargetsConfig struct {
 	Container *ContainerTarget `yaml:"container,omitempty"`
 	SSH       *SSHTarget       `yaml:"ssh,omitempty"`
+	OpenShell *OpenShellTarget `yaml:"openshell,omitempty"`
+}
+
+// OpenShellTarget describes the OpenShell sandbox image to build.
+type OpenShellTarget struct {
+	Name     string           `yaml:"name"`
+	Tag      string           `yaml:"tag,omitempty"`
+	Base     string           `yaml:"base,omitempty"`
+	Registry string           `yaml:"registry,omitempty"`
+	Policy   *OpenShellPolicy `yaml:"policy,omitempty"`
 }
 
 // ContainerTarget describes the container image to build.
@@ -200,6 +210,11 @@ func (m *Manifest) Validate() error {
 				return fmt.Errorf("targets.ssh.user is required when create_user is true")
 			}
 		}
+		if ost := m.Targets.OpenShell; ost != nil {
+			if ost.Name == "" {
+				return fmt.Errorf("targets.openshell.name is required")
+			}
+		}
 	}
 	return nil
 }
@@ -216,6 +231,30 @@ func (m *Manifest) ImageRef() string {
 		tag = "latest"
 	}
 	return ct.Name + ":" + tag
+}
+
+// OpenShellImageRef returns the full image reference for the OpenShell target (name:tag).
+func (m *Manifest) OpenShellImageRef() string {
+	if m.Targets == nil || m.Targets.OpenShell == nil {
+		return ""
+	}
+	os := m.Targets.OpenShell
+	tag := os.Tag
+	if tag == "" {
+		tag = "latest"
+	}
+	return os.Name + ":" + tag
+}
+
+// DefaultOpenShellBaseImage is the default base image for OpenShell sandboxes.
+var DefaultOpenShellBaseImage = "ghcr.io/nvidia/openshell-community/sandboxes/base:latest"
+
+// OpenShellBaseImage returns the OpenShell base image reference, with default.
+func (m *Manifest) OpenShellBaseImage() string {
+	if m.Targets != nil && m.Targets.OpenShell != nil && m.Targets.OpenShell.Base != "" {
+		return m.Targets.OpenShell.Base
+	}
+	return DefaultOpenShellBaseImage
 }
 
 // DefaultBaseImage is the fallback base image reference.

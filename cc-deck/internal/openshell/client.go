@@ -2,6 +2,7 @@ package openshell
 
 import (
 	"context"
+	_ "embed"
 	"fmt"
 	"log"
 	"net"
@@ -10,6 +11,9 @@ import (
 	"strings"
 	"time"
 )
+
+//go:embed default-policy.yaml
+var defaultPolicy []byte
 
 // SandboxState represents the lifecycle state of an OpenShell sandbox.
 type SandboxState string
@@ -92,7 +96,21 @@ func (c *cliClient) Address() string {
 // CreateSandbox provisions a new sandbox on the OpenShell gateway.
 func (c *cliClient) CreateSandbox(ctx context.Context, image, command, policy, provider string) (string, error) {
 	start := time.Now()
-	args := []string{"sandbox", "create", "--from", image}
+	policyPath := policy
+	if policyPath == "" {
+		tmp, writeErr := os.CreateTemp("", "openshell-policy-*.yaml")
+		if writeErr != nil {
+			return "", fmt.Errorf("writing default policy: %w", writeErr)
+		}
+		defer os.Remove(tmp.Name())
+		if _, writeErr = tmp.Write(defaultPolicy); writeErr != nil {
+			tmp.Close()
+			return "", fmt.Errorf("writing default policy: %w", writeErr)
+		}
+		tmp.Close()
+		policyPath = tmp.Name()
+	}
+	args := []string{"sandbox", "create", "--from", image, "--policy", policyPath}
 	if provider != "" {
 		args = append(args, "--provider", provider)
 	}
@@ -109,12 +127,6 @@ func (c *cliClient) CreateSandbox(ctx context.Context, image, command, policy, p
 	}
 	if sandboxName == "" {
 		return "", fmt.Errorf("creating sandbox: could not parse sandbox name from CLI output")
-	}
-
-	if policy != "" {
-		if _, policyErr := c.execCLI(ctx, "policy", "set", sandboxName, policy); policyErr != nil {
-			log.Printf("WARNING: failed to set policy on sandbox %s: %v", sandboxName, policyErr)
-		}
 	}
 
 	return sandboxName, nil
