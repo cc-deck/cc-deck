@@ -352,6 +352,184 @@ settings:
 	assert.Equal(t, "roland@example.com", m.Settings.GitConfig["user.email"])
 }
 
+func TestLoadManifest_WithOpenShellTarget(t *testing.T) {
+	content := `
+version: 3
+targets:
+  openshell:
+    name: my-sandbox
+    tag: v2
+    base: ghcr.io/custom/base:latest
+    registry: ghcr.io/myorg
+network:
+  allowed_domains:
+    - api.anthropic.com
+    - github.com
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "build.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(content), 0644))
+
+	m, err := LoadManifest(path)
+	require.NoError(t, err)
+
+	require.NotNil(t, m.Targets)
+	require.NotNil(t, m.Targets.OpenShell)
+	assert.Equal(t, "my-sandbox", m.Targets.OpenShell.Name)
+	assert.Equal(t, "v2", m.Targets.OpenShell.Tag)
+	assert.Equal(t, "ghcr.io/custom/base:latest", m.Targets.OpenShell.Base)
+	assert.Equal(t, "ghcr.io/myorg", m.Targets.OpenShell.Registry)
+	assert.Nil(t, m.Targets.Container)
+	assert.Nil(t, m.Targets.SSH)
+}
+
+func TestLoadManifest_WithOpenShellPolicy(t *testing.T) {
+	content := `
+version: 3
+targets:
+  openshell:
+    name: my-sandbox
+    policy:
+      filesystem_policy:
+        include_workdir: true
+        read_only:
+          - /usr
+        read_write:
+          - /sandbox
+      landlock:
+        compatibility: best_effort
+      process:
+        run_as_user: sandbox
+        run_as_group: sandbox
+      network_policies:
+        git_hosting:
+          name: git-hosting
+          endpoints:
+            - host: github.com
+              port: 443
+          binaries:
+            - path: /usr/bin/git
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "build.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(content), 0644))
+
+	m, err := LoadManifest(path)
+	require.NoError(t, err)
+
+	require.NotNil(t, m.Targets.OpenShell.Policy)
+	p := m.Targets.OpenShell.Policy
+
+	require.NotNil(t, p.FilesystemPolicy)
+	assert.True(t, p.FilesystemPolicy.IncludeWorkdir)
+	assert.Equal(t, []string{"/usr"}, p.FilesystemPolicy.ReadOnly)
+
+	require.NotNil(t, p.Landlock)
+	assert.Equal(t, "best_effort", p.Landlock.Compatibility)
+
+	require.NotNil(t, p.Process)
+	assert.Equal(t, "sandbox", p.Process.RunAsUser)
+
+	require.Len(t, p.NetworkPolicies, 1)
+	np := p.NetworkPolicies["git_hosting"]
+	assert.Equal(t, "git-hosting", np.Name)
+	require.Len(t, np.Endpoints, 1)
+	assert.Equal(t, "github.com", np.Endpoints[0].Host)
+	assert.Equal(t, 443, np.Endpoints[0].Port)
+	require.Len(t, np.Binaries, 1)
+	assert.Equal(t, "/usr/bin/git", np.Binaries[0].Path)
+}
+
+func TestManifest_Validate_OpenShellMissingName(t *testing.T) {
+	m := &Manifest{
+		Version: 3,
+		Targets: &TargetsConfig{
+			OpenShell: &OpenShellTarget{},
+		},
+	}
+	err := m.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "targets.openshell.name is required")
+}
+
+func TestManifest_Validate_OpenShellValid(t *testing.T) {
+	m := &Manifest{
+		Version: 3,
+		Targets: &TargetsConfig{
+			OpenShell: &OpenShellTarget{Name: "test-sandbox"},
+		},
+	}
+	assert.NoError(t, m.Validate())
+}
+
+func TestManifest_OpenShellImageRef(t *testing.T) {
+	tests := []struct {
+		name string
+		m    *Manifest
+		want string
+	}{
+		{
+			name: "no targets",
+			m:    &Manifest{},
+			want: "",
+		},
+		{
+			name: "openshell with tag",
+			m: &Manifest{Targets: &TargetsConfig{
+				OpenShell: &OpenShellTarget{Name: "my-sandbox", Tag: "v1"},
+			}},
+			want: "my-sandbox:v1",
+		},
+		{
+			name: "openshell default tag",
+			m: &Manifest{Targets: &TargetsConfig{
+				OpenShell: &OpenShellTarget{Name: "my-sandbox"},
+			}},
+			want: "my-sandbox:latest",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.m.OpenShellImageRef())
+		})
+	}
+}
+
+func TestManifest_OpenShellBaseImage(t *testing.T) {
+	tests := []struct {
+		name string
+		m    *Manifest
+		want string
+	}{
+		{
+			name: "no targets uses default",
+			m:    &Manifest{},
+			want: DefaultOpenShellBaseImage,
+		},
+		{
+			name: "openshell with custom base",
+			m: &Manifest{Targets: &TargetsConfig{
+				OpenShell: &OpenShellTarget{Name: "test", Base: "custom:latest"},
+			}},
+			want: "custom:latest",
+		},
+		{
+			name: "openshell without base uses default",
+			m: &Manifest{Targets: &TargetsConfig{
+				OpenShell: &OpenShellTarget{Name: "test"},
+			}},
+			want: DefaultOpenShellBaseImage,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.m.OpenShellBaseImage())
+		})
+	}
+}
+
 func TestManifest_BaseImage(t *testing.T) {
 	tests := []struct {
 		name string

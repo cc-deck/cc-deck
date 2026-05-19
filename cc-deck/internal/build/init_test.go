@@ -21,7 +21,7 @@ func TestUncommentTargets_ContainerOnly(t *testing.T) {
 #   ssh:
 #     host: dev@server
 `
-	result := uncommentTargets(input, true, false)
+	result := uncommentTargets(input, true, false, false)
 
 	assert.Contains(t, result, "targets:")
 	assert.Contains(t, result, "  container:")
@@ -41,7 +41,7 @@ func TestUncommentTargets_SSHOnly(t *testing.T) {
 #     host: dev@server
 #     # port: 22
 `
-	result := uncommentTargets(input, false, true)
+	result := uncommentTargets(input, false, true, false)
 
 	assert.Contains(t, result, "targets:")
 	assert.Contains(t, result, "  ssh:")
@@ -60,7 +60,7 @@ func TestUncommentTargets_Both(t *testing.T) {
 #   ssh:
 #     host: dev@server
 `
-	result := uncommentTargets(input, true, true)
+	result := uncommentTargets(input, true, true, false)
 
 	assert.Contains(t, result, "targets:")
 	assert.Contains(t, result, "  container:")
@@ -83,7 +83,7 @@ func TestUncommentTargets_Neither(t *testing.T) {
 #   ssh:
 #     host: dev@server
 `
-	result := uncommentTargets(input, false, false)
+	result := uncommentTargets(input, false, false, false)
 
 	// Nothing should change
 	assert.Equal(t, input, result)
@@ -99,7 +99,7 @@ func TestUncommentTargets_PreservesNonTargetContent(t *testing.T) {
 #   container:
 #     name: test
 `
-	result := uncommentTargets(input, true, false)
+	result := uncommentTargets(input, true, false, false)
 
 	// Tools section should remain commented (not part of targets block)
 	assert.Contains(t, result, "# tools:")
@@ -245,6 +245,80 @@ func TestInitSetupDir_ForceOverwrite(t *testing.T) {
 	// With force should succeed
 	err = InitSetupDir(setupDir, dir, true, nil)
 	require.NoError(t, err)
+}
+
+func TestInitSetupDir_OpenShellTarget(t *testing.T) {
+	dir := t.TempDir()
+	setupDir := filepath.Join(dir, "setup")
+
+	err := InitSetupDir(setupDir, dir, false, []string{"openshell"})
+	require.NoError(t, err)
+
+	// openshell directory should exist
+	assert.DirExists(t, filepath.Join(setupDir, "openshell"))
+
+	// Manifest should have uncommented openshell section
+	content, err := os.ReadFile(filepath.Join(setupDir, "build.yaml"))
+	require.NoError(t, err)
+	lines := string(content)
+	assert.Contains(t, lines, "targets:")
+	assert.Contains(t, lines, "  openshell:")
+
+	// Container and SSH should NOT exist
+	assert.NoDirExists(t, filepath.Join(setupDir, "container", "context"))
+	assert.NoDirExists(t, filepath.Join(setupDir, "ssh", "roles"))
+}
+
+func TestUncommentTargets_OpenShellOnly(t *testing.T) {
+	input := `version: 3
+
+# targets:
+#   container:
+#     name: test
+#
+#   ssh:
+#     host: dev@server
+#
+#   openshell:
+#     name: my-sandbox
+#     # base: ghcr.io/nvidia/openshell-community/sandboxes/base:latest
+`
+	result := uncommentTargets(input, false, false, true)
+
+	assert.Contains(t, result, "targets:")
+	assert.Contains(t, result, "  openshell:")
+	assert.Contains(t, result, "    name: my-sandbox")
+	// Container and SSH should remain commented
+	assert.Contains(t, result, "#   container:")
+	assert.Contains(t, result, "#   ssh:")
+}
+
+func TestUncommentTargets_AllThree(t *testing.T) {
+	input := `version: 3
+
+# targets:
+#   container:
+#     name: test
+#
+#   ssh:
+#     host: dev@server
+#
+#   openshell:
+#     name: my-sandbox
+`
+	result := uncommentTargets(input, true, true, true)
+
+	assert.Contains(t, result, "targets:")
+	assert.Contains(t, result, "  container:")
+	assert.Contains(t, result, "  ssh:")
+	assert.Contains(t, result, "  openshell:")
+	assert.NotContains(t, result, "# targets:")
+}
+
+func TestContainsTarget_OpenShell(t *testing.T) {
+	assert.True(t, containsTarget([]string{"openshell"}, "openshell"))
+	assert.True(t, containsTarget([]string{"container", "openshell"}, "openshell"))
+	assert.False(t, containsTarget([]string{"container", "ssh"}, "openshell"))
 }
 
 func TestInitSetupDir_ManifestTargetsSectionCommented(t *testing.T) {

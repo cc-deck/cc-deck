@@ -60,8 +60,8 @@ After initialization, start Claude Code from the project directory and use:
 			if target != "" {
 				for _, t := range strings.Split(target, ",") {
 					t = strings.TrimSpace(t)
-					if t != "container" && t != "ssh" {
-						return fmt.Errorf("invalid target %q: must be container, ssh, or container,ssh", t)
+					if t != "container" && t != "ssh" && t != "openshell" {
+						return fmt.Errorf("invalid target %q: must be container, ssh, or openshell", t)
 					}
 					targets = append(targets, t)
 				}
@@ -86,6 +86,8 @@ After initialization, start Claude Code from the project directory and use:
 					fmt.Println("  /cc-deck.build --target container  # Build container image")
 				case "ssh":
 					fmt.Println("  /cc-deck.build --target ssh        # Provision SSH target")
+				case "openshell":
+					fmt.Println("  /cc-deck.build --target openshell  # Build OpenShell sandbox image")
 				}
 			}
 			return nil
@@ -93,7 +95,7 @@ After initialization, start Claude Code from the project directory and use:
 	}
 
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "Overwrite existing build directory")
-	cmd.Flags().StringVar(&target, "target", "", "Targets to scaffold: container, ssh, or container,ssh (default: both)")
+	cmd.Flags().StringVar(&target, "target", "", "Targets to scaffold: container, ssh, openshell, or comma-separated (default: container,ssh)")
 
 	return cmd
 }
@@ -132,8 +134,10 @@ Use --push to push the container image after a successful build.`,
 				return runContainerBuild(dir, push)
 			case "ssh":
 				return runSSHProvision(dir)
+			case "openshell":
+				return runOpenShellBuild(dir, push)
 			default:
-				return fmt.Errorf("invalid target %q: must be container or ssh", detected)
+				return fmt.Errorf("invalid target %q: must be container, ssh, or openshell", detected)
 			}
 		},
 	}
@@ -147,22 +151,36 @@ Use --push to push the container image after a successful build.`,
 // detectRunTarget determines the run target from artifacts or explicit flag.
 func detectRunTarget(dir string, explicit string) (string, error) {
 	if explicit != "" {
-		if explicit != "container" && explicit != "ssh" {
-			return "", fmt.Errorf("invalid target %q: must be container or ssh", explicit)
+		if explicit != "container" && explicit != "ssh" && explicit != "openshell" {
+			return "", fmt.Errorf("invalid target %q: must be container, ssh, or openshell", explicit)
 		}
 		return explicit, nil
 	}
 
 	hasContainerfile := fileExists(filepath.Join(dir, "container", "Containerfile"))
 	hasSSH := fileExists(filepath.Join(dir, "ssh", "site.yml")) && fileExists(filepath.Join(dir, "ssh", "inventory.ini"))
+	hasOpenShell := fileExists(filepath.Join(dir, "openshell", "Containerfile"))
+
+	found := 0
+	if hasContainerfile {
+		found++
+	}
+	if hasSSH {
+		found++
+	}
+	if hasOpenShell {
+		found++
+	}
 
 	switch {
-	case hasContainerfile && hasSSH:
-		return "", fmt.Errorf("both container and SSH artifacts found; use --target to select one")
+	case found > 1:
+		return "", fmt.Errorf("multiple target artifacts found; use --target to select one")
 	case hasContainerfile:
 		return "container", nil
 	case hasSSH:
 		return "ssh", nil
+	case hasOpenShell:
+		return "openshell", nil
 	default:
 		return "", fmt.Errorf("no build artifacts found in %s; run /cc-deck.build to generate them", dir)
 	}
@@ -170,8 +188,8 @@ func detectRunTarget(dir string, explicit string) (string, error) {
 
 // validateRunFlags checks flag compatibility with the detected target.
 func validateRunFlags(target string, push bool) error {
-	if push && target != "container" {
-		return fmt.Errorf("--push is only valid for container targets")
+	if push && target != "container" && target != "openshell" {
+		return fmt.Errorf("--push is only valid for container or openshell targets")
 	}
 	return nil
 }
@@ -211,6 +229,62 @@ func runContainerBuild(dir string, push bool) error {
 			return fmt.Errorf("targets.container.registry not set in manifest")
 		}
 		pushRef := strings.TrimRight(ct.Registry, "/") + "/" + imageRef
+		fmt.Printf("Pushing image: %s\n", pushRef)
+
+		tagCmd := exec.Command(runtime, "tag", imageRef, pushRef)
+		tagCmd.Stdout = os.Stdout
+		tagCmd.Stderr = os.Stderr
+		if err := tagCmd.Run(); err != nil {
+			return exitError(err)
+		}
+
+		pushCmd := exec.Command(runtime, "push", pushRef)
+		pushCmd.Stdout = os.Stdout
+		pushCmd.Stderr = os.Stderr
+
+		if err := pushCmd.Run(); err != nil {
+			return exitError(err)
+		}
+	}
+
+	return nil
+}
+
+func runOpenShellBuild(dir string, push bool) error {
+	manifestPath := filepath.Join(dir, "build.yaml")
+	m, err := build.LoadManifest(manifestPath)
+	if err != nil {
+		return err
+	}
+
+	runtime, err := build.DetectRuntime()
+	if err != nil {
+		return err
+	}
+
+	imageRef := m.OpenShellImageRef()
+	if imageRef == "" {
+		return fmt.Errorf("no openshell target configured in manifest")
+	}
+
+	fmt.Printf("Building OpenShell image: %s\n", imageRef)
+
+	buildCmd := exec.Command(runtime, "build", "-t", imageRef, "-f", "openshell/Containerfile", ".")
+	buildCmd.Dir = dir
+	buildCmd.Stdout = os.Stdout
+	buildCmd.Stderr = os.Stderr
+	buildCmd.Stdin = os.Stdin
+
+	if err := buildCmd.Run(); err != nil {
+		return exitError(err)
+	}
+
+	if push {
+		ost := m.Targets.OpenShell
+		if ost.Registry == "" {
+			return fmt.Errorf("targets.openshell.registry not set in manifest")
+		}
+		pushRef := strings.TrimRight(ost.Registry, "/") + "/" + imageRef
 		fmt.Printf("Pushing image: %s\n", pushRef)
 
 		tagCmd := exec.Command(runtime, "tag", imageRef, pushRef)
@@ -282,10 +356,12 @@ For SSH targets, runs checks on the remote host via SSH.`,
 				return runContainerVerify(dir)
 			case "ssh":
 				return runSSHVerify(dir)
+			case "openshell":
+				return runOpenShellVerify(dir)
 			case "":
-				return fmt.Errorf("--target is required: specify container or ssh")
+				return fmt.Errorf("--target is required: specify container, ssh, or openshell")
 			default:
-				return fmt.Errorf("invalid target %q: must be container or ssh", target)
+				return fmt.Errorf("invalid target %q: must be container, ssh, or openshell", target)
 			}
 		},
 	}
@@ -294,6 +370,34 @@ For SSH targets, runs checks on the remote host via SSH.`,
 	_ = cmd.MarkFlagRequired("target")
 
 	return cmd
+}
+
+func runOpenShellVerify(dir string) error {
+	manifestPath := filepath.Join(dir, "build.yaml")
+	m, err := build.LoadManifest(manifestPath)
+	if err != nil {
+		return err
+	}
+
+	runtime, err := build.DetectRuntime()
+	if err != nil {
+		return err
+	}
+
+	imageRef := m.OpenShellImageRef()
+	if imageRef == "" {
+		return fmt.Errorf("no openshell target configured in manifest")
+	}
+	fmt.Printf("Verifying OpenShell image: %s\n\n", imageRef)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	return runChecks(m, func(command string) (string, error) {
+		verifyCmd := exec.CommandContext(ctx, runtime, "run", "--rm", imageRef, "sh", "-c", command)
+		output, err := verifyCmd.CombinedOutput()
+		return strings.TrimSpace(string(output)), err
+	})
 }
 
 func runContainerVerify(dir string) error {
