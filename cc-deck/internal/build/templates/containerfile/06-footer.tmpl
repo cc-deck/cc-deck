@@ -1,0 +1,14 @@
+{{- if eq .Target "openshell"}}
+
+# Fix ownership of all sandbox home files modified by root layers above.
+# This MUST be the last RUN before switching to USER sandbox.
+RUN chown -R {{.User}}:{{.User}} {{.HomeDir}}
+{{- end}}
+
+USER {{.User}}
+WORKDIR {{.HomeDir}}
+{{- if eq .Target "container"}}
+CMD ["sleep", "infinity"]
+{{- else}}
+ENTRYPOINT ["/bin/bash"]
+{{- end}}

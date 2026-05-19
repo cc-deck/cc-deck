@@ -1,0 +1,23 @@
+{{- if eq .Target "openshell"}}
+
+# ============================================================
+# FINAL SHELL SETUP (MUST be after all user config COPY/RUN layers)
+# ============================================================
+
+# Starship prompt init (for both bash and zsh)
+RUN if command -v starship >/dev/null 2>&1; then \
+      for PAIR in "bash:{{.HomeDir}}/.bashrc" "zsh:{{.HomeDir}}/.zshrc"; do \
+        SHELL_NAME="${PAIR%%:*}"; RC="${PAIR#*:}"; \
+        if [ -f "$RC" ] && ! grep -q 'starship init' "$RC"; then \
+          echo 'eval "$(starship init '"$SHELL_NAME"')"' >> "$RC"; \
+        fi; \
+      done; \
+    fi
+
+# Auto-start Zellij on interactive login (for cc-deck ws attach)
+RUN for RC in {{.HomeDir}}/.bashrc {{.HomeDir}}/.zshrc; do \
+      if [ -f "$RC" ] || [ "$(basename $RC)" = ".bashrc" ]; then \
+        printf '\n# cc-deck: auto-start Zellij with cc-deck layout on interactive login\nif [ -z "$ZELLIJ" ] && [ -t 0 ]; then\n  export SHELL=/bin/{{.Shell}}\n  exec zellij --layout cc-deck attach --create cc-deck\nfi\n' >> "$RC"; \
+      fi; \
+    done
+{{- end}}

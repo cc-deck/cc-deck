@@ -1,0 +1,13 @@
+{{- if eq .Target "openshell"}}
+
+# Layer: Skills directories for Claude Code
+RUN mkdir -p {{.HomeDir}}/.agents/skills/ {{.HomeDir}}/.claude/skills/ && \
+    chown -R {{.User}}:{{.User}} {{.HomeDir}}/.agents {{.HomeDir}}/.claude
+
+# Layer: OpenShell policy
+RUN mkdir -p /etc/openshell
+COPY openshell/policy.yaml /etc/openshell/policy.yaml
+
+# Layer: Shell environment
+ENV SHELL="/bin/{{.Shell}}"
+{{- end}}

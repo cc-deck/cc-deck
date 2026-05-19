@@ -52,6 +52,10 @@ type OpenShellWorkspace struct {
 	sandboxID string
 	attach    *attachState
 
+	Repos           []RepoEntry
+	ExtraRemotes    map[string]string
+	AutoDetectedURL string
+
 	clientOnce sync.Once
 	clientErr  error
 
@@ -205,6 +209,16 @@ func (w *OpenShellWorkspace) Create(ctx context.Context, _ CreateOpts) error {
 		return err
 	}
 
+	if len(w.Repos) > 0 {
+		creds := loadActiveGitCredentials()
+		workspace := "/sandbox"
+		runner := func(ctx2 context.Context, cmd string) (string, error) {
+			return w.ExecOutput(ctx2, []string{"bash", "-c", cmd})
+		}
+		fmt.Fprintf(os.Stderr, "Cloning %d repo(s) into %s...\n", len(w.Repos), workspace)
+		cloneRepos(ctx, runner, w.Repos, workspace, creds, w.ExtraRemotes, w.AutoDetectedURL)
+	}
+
 	now := time.Now()
 	running := InfraStateRunning
 	inst := WorkspaceInstance{
@@ -332,7 +346,7 @@ func (w *OpenShellWorkspace) Attach(ctx context.Context) error {
 		return err
 	}
 
-	err := w.client.AttachExec(ctx, w.sandboxID, []string{"zellij", "attach", "--create"})
+	err := w.client.AttachExec(ctx, w.sandboxID, nil)
 
 	now := time.Now()
 	if inst, loadErr := w.store.FindInstanceByName(w.name); loadErr == nil && inst != nil {

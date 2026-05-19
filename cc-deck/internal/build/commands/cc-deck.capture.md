@@ -125,15 +125,18 @@ If user selects "Exclude some", ask which items to remove by number or name, the
 
 Present optional tools from the cc-deck ecosystem and community that enhance the development workspace. These are not detected from repositories but offered as curated recommendations.
 
+**Host detection**: Before presenting the catalog, check which companion tools are already installed on the host machine by running `which <tool>` for each tool in the catalog. Append `(detected)` to the description of tools found on the host.
+
 **Tool catalog** (update this list as the ecosystem grows):
 
-| Tool | Source | Description |
-|------|--------|-------------|
-| cc-session | `github.com/cc-deck/cc-session` | Terminal session recorder and replayer for Claude Code sessions |
-| cc-setup | `github.com/cc-deck/cc-setup` | Workspace bootstrapper, manages MCP servers and credentials |
-| abtop | `github.com/graykode/abtop` | AI-powered terminal system monitor with natural language queries |
+| Tool | Source | Description | Post-install |
+|------|--------|-------------|--------------|
+| cc-session | `github.com/cc-deck/cc-session` | Terminal session recorder and replayer for Claude Code sessions | - |
+| cc-setup | `github.com/cc-deck/cc-setup` | Workspace bootstrapper, manages MCP servers and credentials | - |
+| rtk | `github.com/rtk-ai/rtk` | Token-optimized CLI proxy for AI coding assistants (60-90% savings) | `rtk init -g` |
+| abtop | `github.com/graykode/abtop` | AI-powered terminal system monitor with natural language queries | - |
 
-**Present** the catalog as text, then use `AskUserQuestion` with `multiSelect: true`:
+**Present** the catalog as text, then use `AskUserQuestion` with `multiSelect: true`. Tools detected on the host should be listed first and pre-labeled:
 
 ```
 ## Step 2/10: cc-deck Companion Tools
@@ -148,6 +151,7 @@ Optional tools that integrate with your cc-deck workspace:
     "header": "Companion",
     "multiSelect": true,
     "options": [
+      {"label": "rtk (detected)", "description": "Token-optimized CLI proxy for AI coding assistants, 60-90% savings (github.com/rtk-ai/rtk)"},
       {"label": "cc-session", "description": "Terminal session recorder/replayer for Claude Code (github.com/cc-deck/cc-session)"},
       {"label": "cc-setup", "description": "Workspace bootstrapper, manages MCP servers and credentials (github.com/cc-deck/cc-setup)"},
       {"label": "abtop", "description": "AI-powered terminal system monitor with natural language queries (github.com/graykode/abtop)"}
@@ -156,9 +160,11 @@ Optional tools that integrate with your cc-deck workspace:
 }
 ```
 
+Only show `(detected)` for tools that were actually found on the host. List detected tools first in the options.
+
 **STOP. Wait for user response before proceeding.**
 
-**Action**: For each selected companion tool, add it to the manifest's `tools` section with `install: github-release` and the install metadata:
+**Action**: For each selected companion tool, add it to the manifest's `tools` section with `install: github-release` and the install metadata. Tools with a `post_install` command in the catalog get that field added to their manifest entry:
 
 ```yaml
 tools:
@@ -173,12 +179,20 @@ tools:
     repo: cc-deck/cc-setup
     asset_pattern: "cc-setup-{version}-linux-{goarch}.tar.gz"
     install_path: /usr/local/bin/cc-setup
+  - name: rtk
+    install: github-release
+    repo: rtk-ai/rtk
+    asset_pattern: "rtk-{arch}-unknown-linux-gnu.tar.xz"
+    install_path: /usr/local/bin/rtk
+    post_install: "rtk init -g"
   - name: abtop
     install: github-release
     repo: graykode/abtop
     asset_pattern: "abtop-{arch}-unknown-linux-gnu.tar.xz"
     install_path: /usr/local/bin/abtop
 ```
+
+The `post_install` field is a shell command that runs after the tool binary is installed. The build command executes it as a `RUN` step in the generated Containerfile. This field is optional and only present for tools that need initialization.
 
 **Asset pattern placeholders** (resolved during build):
 - `{arch}` - system architecture (`x86_64`, `aarch64`)
@@ -721,7 +735,7 @@ If user selects "Exclude some", ask which items to remove by number or name.
 
 ## Step 10/10: Target Configuration
 
-Configure the build targets (SSH and/or container). This step populates the `targets` section of the manifest.
+Configure the build targets (SSH, container, and/or OpenShell). This step populates the `targets` section of the manifest.
 
 ```json
 {
@@ -731,7 +745,8 @@ Configure the build targets (SSH and/or container). This step populates the `tar
     "multiSelect": true,
     "options": [
       {"label": "SSH remote", "description": "Provision an existing remote machine via Ansible"},
-      {"label": "Container", "description": "Build a container image with podman"}
+      {"label": "Container", "description": "Build a container image with podman"},
+      {"label": "OpenShell", "description": "Build an OpenShell sandbox image with security policies"}
     ]
   }]
 }
@@ -786,6 +801,20 @@ targets:
     base: <base-image>
 ```
 
+**If OpenShell is selected**, ask for:
+1. Image name (default: project directory name)
+2. Base image (default: `ghcr.io/nvidia/openshell-community/sandboxes/base:latest`)
+
+Write to manifest:
+```yaml
+targets:
+  openshell:
+    name: <image-name>
+    base: <base-image>
+```
+
+The `network.allowed_domains` captured in Step 4 will be used to auto-generate `policy.yaml` during the build step (`/cc-deck.build --target openshell`). No additional policy configuration is needed at capture time.
+
 **STOP. Wait for user response before proceeding.**
 
 ---
@@ -805,7 +834,7 @@ After all 10 steps are complete, show a final text summary:
   Claude:      CLAUDE.md + settings (merged)
   Plugins:     superpowers, gopls-lsp, copyedit (3 selected)
   MCP:         playwright, readwise (2 selected)
-  Targets:     SSH (root@marovo, user: roland), Container (cc-deck)
+  Targets:     SSH (root@marovo, user: roland), Container (cc-deck), OpenShell (cc-deck)
   Repos:       cc-deck, cc-session (2 to clone)
 ```
 

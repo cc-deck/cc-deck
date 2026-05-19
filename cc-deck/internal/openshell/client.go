@@ -141,10 +141,28 @@ func (c *cliClient) execCLICaptureName(ctx context.Context, args ...string) (str
 	if err != nil {
 		return "", err
 	}
-	cmd.Stderr = nil
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return "", err
+	}
 	if err := cmd.Start(); err != nil {
 		return "", err
 	}
+
+	// Drain stderr in background to avoid blocking and to capture debug info.
+	var stderrBuf strings.Builder
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			n, readErr := stderr.Read(buf)
+			if n > 0 {
+				stderrBuf.Write(buf[:n])
+			}
+			if readErr != nil {
+				break
+			}
+		}
+	}()
 
 	buf := make([]byte, 4096)
 	var output strings.Builder
@@ -166,7 +184,19 @@ func (c *cliClient) execCLICaptureName(ctx context.Context, args ...string) (str
 	_ = cmd.Process.Kill()
 	_ = cmd.Wait()
 
-	return parseSandboxName(stripANSI(output.String())), nil
+	raw := output.String()
+	stripped := stripANSI(raw)
+	name := parseSandboxName(stripped)
+	if name == "" {
+		log.Printf("DEBUG: openshell: capture-name: raw stdout (%d bytes): %q", len(raw), raw)
+		se := strings.TrimSpace(stripANSI(stderrBuf.String()))
+		if se != "" {
+			log.Printf("DEBUG: openshell: capture-name: stderr: %q", se)
+			return "", fmt.Errorf("%s", se)
+		}
+	}
+
+	return name, nil
 }
 
 // DeleteSandbox destroys an existing sandbox.
@@ -228,19 +258,25 @@ func (c *cliClient) ExecSandboxStream(ctx context.Context, sandboxName string, c
 	return err
 }
 
-// AttachExec connects interactively to a sandbox via `openshell sandbox connect`.
-// The cmd parameter is currently unused because connect runs the sandbox's
-// default shell. For Zellij-based workspaces, the sandbox image should have
-// Zellij as the entrypoint or default command.
-func (c *cliClient) AttachExec(ctx context.Context, sandboxName string, _ []string) error {
+// AttachExec connects interactively to a sandbox and runs the given command.
+// Uses `openshell sandbox exec --tty` to get a proper PTY for interactive
+// commands like Zellij. Falls back to `openshell sandbox connect` when no
+// command is specified.
+func (c *cliClient) AttachExec(ctx context.Context, sandboxName string, cmd []string) error {
 	start := time.Now()
-	args := []string{"sandbox", "connect", sandboxName}
+	var args []string
+	if len(cmd) > 0 {
+		args = []string{"sandbox", "exec", "--tty", "-n", sandboxName, "--"}
+		args = append(args, cmd...)
+	} else {
+		args = []string{"sandbox", "connect", sandboxName}
+	}
 	osCmd := exec.CommandContext(ctx, "openshell", args...)
 	osCmd.Stdin = os.Stdin
 	osCmd.Stdout = os.Stdout
 	osCmd.Stderr = os.Stderr
 	err := osCmd.Run()
-	log.Printf("DEBUG: openshell: AttachExec(%s) took %v", sandboxName, time.Since(start))
+	log.Printf("DEBUG: openshell: AttachExec(%s, %v) took %v", sandboxName, cmd, time.Since(start))
 	return err
 }
 

@@ -1,0 +1,31 @@
+# ============================================================
+# MANDATORY: cc-deck + Zellij + cc-session + cc-setup + Claude Code (DO NOT OMIT)
+# ============================================================
+
+# MANDATORY Layer: cc-session and cc-setup (companion tools from GitHub)
+RUN ARCH=$(uname -m) && \
+    for TOOL in cc-session cc-setup; do \
+      curl -fsSL "https://github.com/cc-deck/${TOOL}/releases/latest/download/${TOOL}-${ARCH}-unknown-linux-gnu.tar.xz" \
+        | tar -xJf - -C /usr/local/bin ${TOOL} && \
+      chmod +x /usr/local/bin/${TOOL}; \
+    done
+
+# MANDATORY Layer: cc-deck self-install (Zellij + plugin + layouts + hooks)
+COPY {{.ContextDir}}/context/cc-deck-linux-${TARGETARCH} /usr/local/bin/cc-deck
+RUN chmod +x /usr/local/bin/cc-deck && \
+    mkdir -p {{.HomeDir}}/.claude {{.HomeDir}}/.cache/zellij && \
+    HOME={{.HomeDir}} \
+    ZELLIJ_CONFIG_DIR={{.HomeDir}}/.config/zellij \
+    cc-deck config plugin install --install-zellij --force --skip-backup && \
+    zellij --version && \
+    chown -R {{.User}}:{{.User}} {{.HomeDir}}/.config/zellij {{.HomeDir}}/.cache/zellij {{.HomeDir}}/.claude && \
+    rm -rf /root/.claude /root/.cache/zellij
+
+# MANDATORY Layer: Claude Code (native installer, bundles its own Node.js)
+# IMPORTANT: Must use bash, not sh - the install script uses bash syntax
+USER {{.User}}
+RUN curl -fsSL https://claude.ai/install.sh | bash
+USER root
+ENV PATH="{{.HomeDir}}/.local/bin:${PATH}"
+
+# ============================================================

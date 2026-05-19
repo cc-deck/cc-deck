@@ -85,11 +85,23 @@ func InitSetupDir(dir string, projectRoot string, force bool, targets []string) 
 		return fmt.Errorf("writing manifest: %w", err)
 	}
 
-	// Create target-specific directories
+	// Create target-specific directories and extract Containerfile snippets.
 	if hasContainer {
 		containerDir := filepath.Join(dir, "container", "context")
 		if err := os.MkdirAll(containerDir, 0o755); err != nil {
 			return fmt.Errorf("creating container/context directory: %w", err)
+		}
+		data := &ContainerfileData{
+			Target:     "container",
+			User:       "dev",
+			HomeDir:    "/home/dev",
+			ContextDir: "container",
+			BaseImage:  DefaultBaseImage,
+			Shell:      "zsh",
+		}
+		snippetDir := filepath.Join(dir, "container", "snippets")
+		if err := ExtractContainerfileSnippets(snippetDir, data); err != nil {
+			return fmt.Errorf("extracting container snippets: %w", err)
 		}
 	}
 
@@ -103,6 +115,18 @@ func InitSetupDir(dir string, projectRoot string, force bool, targets []string) 
 		openshellDir := filepath.Join(dir, "openshell")
 		if err := os.MkdirAll(openshellDir, 0o755); err != nil {
 			return fmt.Errorf("creating openshell directory: %w", err)
+		}
+		data := &ContainerfileData{
+			Target:     "openshell",
+			User:       "sandbox",
+			HomeDir:    "/sandbox",
+			ContextDir: "openshell",
+			BaseImage:  DefaultOpenShellBaseImage,
+			Shell:      "zsh",
+		}
+		snippetDir := filepath.Join(dir, "openshell", "snippets")
+		if err := ExtractContainerfileSnippets(snippetDir, data); err != nil {
+			return fmt.Errorf("extracting openshell snippets: %w", err)
 		}
 	}
 
