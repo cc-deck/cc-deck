@@ -16,6 +16,9 @@ var embeddedScripts embed.FS
 //go:embed templates/*.tmpl
 var embeddedTemplates embed.FS
 
+//go:embed templates/containerfile/*.tmpl
+var embeddedContainerfileTemplates embed.FS
+
 // ExtractCommands writes embedded command files to the target directory.
 func ExtractCommands(targetDir string) error {
 	return extractFS(embeddedCommands, "commands", targetDir)

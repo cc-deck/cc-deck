@@ -1,0 +1,7 @@
+{{- if eq .Target "container"}}
+# Layer: User setup ({{.Shell}} as default shell)
+USER root
+RUN id {{.User}} >/dev/null 2>&1 || useradd -m -s /bin/{{.Shell}} {{.User}}
+RUN chsh -s /bin/{{.Shell}} {{.User}} 2>/dev/null || usermod -s /bin/{{.Shell}} {{.User}}
+RUN touch {{.HomeDir}}/.{{.Shell}}rc && chown {{.User}}:{{.User}} {{.HomeDir}}/.{{.Shell}}rc
+{{- end}}

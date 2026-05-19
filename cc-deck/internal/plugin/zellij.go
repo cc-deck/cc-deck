@@ -35,7 +35,7 @@ func DetectZellij() ZellijInfo {
 
 	out, err := exec.Command(binaryPath, "--version").Output()
 	if err == nil {
-		// Output is typically "zellij 0.43.0\n"
+		// Output is typically "zellij 0.44.3\n"
 		version := strings.TrimSpace(string(out))
 		version = strings.TrimPrefix(version, "zellij ")
 		info.Version = version
@@ -143,8 +143,8 @@ func EnsurePluginPermissions(cacheDir, pluginsDir string) error {
 //
 // Rules:
 //   - If major.minor < 0.40: "incompatible"
-//   - If major.minor >= 0.40 and <= 0.43: "compatible"
-//   - If major.minor > 0.43: "untested"
+//   - If major.minor >= 0.40 and <= sdkVersion: "compatible"
+//   - If major.minor > sdkVersion: "untested"
 //   - If version cannot be parsed: "untested"
 func CheckCompatibility(zellijVersion, sdkVersion string) string {
 	major, minor, ok := parseVersion(zellijVersion)
