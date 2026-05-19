@@ -1,0 +1,66 @@
+= CLI Reference
+
+The `cc-deck` command-line tool manages the plugin, sessions, snapshots, and workspace builds.
+
+== Build Commands
+
+=== `cc-deck build init`
+
+Scaffold a new build directory with a `build.yaml` manifest and Claude Code commands for AI-driven workspace configuration.
+
+[cols="1,3"]
+|===
+| Flag | Description
+
+| `--target`
+| Targets to scaffold: `container`, `ssh`, `openshell`, or comma-separated combinations (default: `container,ssh`)
+
+| `--force`, `-f`
+| Overwrite existing build directory
+|===
+
+The `--target openshell` option creates an `openshell/` directory and uncomments the `targets.openshell` section in the manifest template.
+
+=== `cc-deck build run`
+
+Execute pre-generated build artifacts directly from the CLI.
+
+Target type is auto-detected from artifacts present in the build directory.
+When multiple artifact types are present, use `--target` to select one.
+
+[cols="1,3"]
+|===
+| Flag | Description
+
+| `--target`
+| Force target type: `container`, `ssh`, or `openshell`
+
+| `--push`
+| Push image after build (container and openshell targets only)
+|===
+
+For `openshell` targets, the command loads `targets.openshell` from the manifest, resolves the image reference, and builds via `podman build -t <ref> -f openshell/Containerfile .`.
+
+=== `cc-deck build verify`
+
+Smoke-test a provisioned target by verifying installed tools.
+
+[cols="1,3"]
+|===
+| Flag | Description
+
+| `--target` (required)
+| Target to verify: `container` or `ssh`
+|===
+
+=== `cc-deck build diff`
+
+Compare the current manifest against generated artifacts and report drift.
+
+[cols="1,3"]
+|===
+| Flag | Description
+
+| `--target`
+| Target to diff: `container` or `ssh` (auto-detected if omitted)
+|===

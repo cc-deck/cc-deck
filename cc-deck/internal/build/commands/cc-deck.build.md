@@ -1,12 +1,12 @@
 ---
-description: "Build workspace: --target ssh | --target container [--push]"
+description: "Build workspace: --target ssh | --target container | --target openshell [--push]"
 ---
 
 ## User Input
 
 $ARGUMENTS
 
-**Usage**: `/cc-deck.build --target ssh` or `/cc-deck.build --target container [--push]`
+**Usage**: `/cc-deck.build --target ssh` or `/cc-deck.build --target container [--push]` or `/cc-deck.build --target openshell [--push]`
 
 ## Setup directory
 
@@ -31,16 +31,17 @@ Read `<setup-dir>/build.yaml` and validate it has `version >= 1`.
 Determine which targets are configured in the manifest:
 - `targets.container` is configured if it has a `name` field
 - `targets.ssh` is configured if it has a `host` field
+- `targets.openshell` is configured if it has a `name` field
 
 | Condition | Action |
 |-----------|--------|
 | `--target container` | Go to **Section A: Container Build** |
 | `--target ssh` | Go to **Section B: SSH Provisioning** |
-| `--target` not provided, only container configured | Auto-select container, go to **Section A** |
-| `--target` not provided, only ssh configured | Auto-select ssh, go to **Section B** |
-| `--target` not provided, both configured | Error: "Both container and ssh targets are configured. Specify --target container or --target ssh" |
-| `--target` not provided, neither configured | Error: "No targets configured in manifest. Add a targets.container or targets.ssh section." |
-| `--push` with `--target ssh` | Error: "--push is only valid with --target container" |
+| `--target openshell` | Go to **Section C: OpenShell Build** |
+| `--target` not provided, only one configured | Auto-select that target |
+| `--target` not provided, multiple configured | Error: "Multiple targets configured. Specify --target container, --target ssh, or --target openshell" |
+| `--target` not provided, none configured | Error: "No targets configured in manifest. Add a targets section." |
+| `--push` with `--target ssh` | Error: "--push is only valid with --target container or --target openshell" |
 
 If the selected target section is missing from the manifest, error: "No [target] section in manifest. Run `cc-deck build init --target [target]` or add it manually."
 
@@ -119,8 +120,9 @@ RUN chmod +x /usr/local/bin/cc-deck && \
     rm -rf /root/.claude /root/.cache/zellij
 
 # MANDATORY Layer: Claude Code (native installer, bundles its own Node.js)
+# IMPORTANT: Must use bash, not sh - the install script uses bash syntax
 USER dev
-RUN curl -fsSL https://claude.ai/install.sh | sh
+RUN curl -fsSL https://claude.ai/install.sh | bash
 USER root
 ENV PATH="/home/dev/.local/bin:${PATH}"
 
@@ -654,12 +656,246 @@ After SSH provisioning succeeds, automatically register the provisioned host as 
 
 ---
 
-## Key Rules (both targets)
+## Section C: OpenShell Build
+
+### C1: Read and validate
+
+Read `build.yaml`. Extract from `targets.openshell`:
+- `name` (required)
+- `tag` (default: `latest`)
+- `base` (default: `ghcr.io/nvidia/openshell-community/sandboxes/base:latest`)
+- `registry` (optional, enables `--push`)
+- `policy` (optional, explicit overrides)
+
+### C2: Generate the Containerfile
+
+Generate a complete Containerfile for an OpenShell sandbox image. Follow these rules:
+
+**Base image**: Use the `targets.openshell.base` field from the manifest. Default: `ghcr.io/nvidia/openshell-community/sandboxes/base:latest`. The OpenShell base image provides the sandbox runtime, supervisor, and policy enforcement.
+
+**Base image probing**: Before generating the Containerfile, inspect the base image to determine:
+1. **OS family and package manager**: Run `podman run --rm --entrypoint "" <base-image> cat /etc/os-release` to detect the distro. Use `apt-get` for Debian/Ubuntu, `dnf` for Fedora/RHEL, `apk` for Alpine. The default OpenShell base image is Ubuntu-based, so do NOT assume `dnf`.
+2. **Pre-installed tools**: Run `podman run --rm --entrypoint "" <base-image> sh -c "which git node python3 npm curl rg 2>/dev/null"` to discover what is already available. Skip installing tools that are already present. Also check binary paths (e.g., python3 may be at `/sandbox/.venv/bin/python3` rather than `/usr/bin/python3`). Use the discovered paths when generating `policy.yaml` binary entries.
+
+**Tool resolution**: Tools from the unified `tools` section, dispatched by `install` field:
+- `install: package` (or omitted): resolved to the appropriate package manager command detected from the base image (e.g., `apt-get install -y` for Ubuntu, `dnf install -y` for Fedora)
+- `install: github-release`: same as Section A (downloaded from GitHub Releases)
+
+**Binary path tracking**: As you write install instructions, track which binary path each tool installs to. This mapping is used when generating `policy.yaml` (step C4):
+- **Pre-installed tools**: Use the actual paths discovered during base image probing (e.g., python3 may be at `/sandbox/.venv/bin/python3` rather than `/usr/bin/python3`)
+- `install: package` installs to `/usr/bin/<binary>` (typical for apt/dnf)
+- `install: github-release` uses the `install_path` field, or `/usr/local/bin/<name>`
+- npm global packages go to `/usr/local/bin/<name>`
+- Well-known defaults: Claude Code at `/sandbox/.local/bin/claude`, git at `/usr/bin/git`, node at `/usr/bin/node`
+
+**Layer structure** (ordered for cache efficiency):
+
+**MANDATORY LAYERS**: The cc-deck stack (Zellij, cc-deck, cc-session, cc-setup, Claude Code) MUST be included, same as the container target. This ensures the same TUI and tooling experience across all target types. The paths are adapted for the `sandbox` user.
+
+```dockerfile
+# GENERATED BY cc-deck.build --target openshell - DO NOT EDIT MANUALLY
+# Regenerate with: claude /cc-deck.build --target openshell
+
+FROM <targets.openshell.base from manifest>
+
+ARG TARGETARCH
+
+# Layer: Additional system packages (only tools NOT already in the base image)
+# Use the package manager detected from base image probing (apt-get, dnf, or apk)
+USER root
+RUN <package-manager install command for missing packages only>
+
+# Layer: Language-specific tools (changes occasionally)
+RUN <language tool installs>
+
+# Layer: GitHub tools
+RUN <curl downloads for each github-release tool>
+
+# ============================================================
+# MANDATORY: cc-deck + Zellij + cc-session + cc-setup + Claude Code (DO NOT OMIT)
+# Same stack as the container target, adapted for sandbox user paths.
+# ============================================================
+
+# MANDATORY Layer: cc-session and cc-setup (companion tools from GitHub)
+RUN ARCH=$(uname -m) && \
+    for TOOL in cc-session cc-setup; do \
+      curl -fsSL "https://github.com/cc-deck/${TOOL}/releases/latest/download/${TOOL}-${ARCH}-unknown-linux-gnu.tar.xz" \
+        | tar -xJf - -C /usr/local/bin ${TOOL} && \
+      chmod +x /usr/local/bin/${TOOL}; \
+    done
+
+# MANDATORY Layer: cc-deck self-install (Zellij + plugin + layouts + hooks)
+COPY openshell/context/cc-deck-linux-${TARGETARCH} /usr/local/bin/cc-deck
+RUN chmod +x /usr/local/bin/cc-deck && \
+    mkdir -p /sandbox/.claude /sandbox/.cache/zellij && \
+    HOME=/sandbox \
+    ZELLIJ_CONFIG_DIR=/sandbox/.config/zellij \
+    cc-deck config plugin install --install-zellij --force --skip-backup && \
+    chown -R sandbox:sandbox /sandbox/.config/zellij /sandbox/.cache/zellij /sandbox/.claude && \
+    rm -rf /root/.claude /root/.cache/zellij
+
+# MANDATORY Layer: Claude Code (native installer, bundles its own Node.js)
+# IMPORTANT: Must use bash, not sh - the install script uses bash syntax
+USER sandbox
+RUN curl -fsSL https://claude.ai/install.sh | bash
+USER root
+ENV PATH="/sandbox/.local/bin:${PATH}"
+
+# ============================================================
+
+# Layer: Claude Code plugins (from manifest plugins section)
+# Same as Section A: marketplace, github, skip directory plugins
+USER sandbox
+RUN <claude plugins marketplace add commands> && \
+    <claude plugins install commands>
+USER root
+
+# Layer: Skills directories for Claude Code
+RUN mkdir -p /sandbox/.agents/skills/ /sandbox/.claude/skills/ && \
+    chown -R sandbox:sandbox /sandbox/.agents /sandbox/.claude
+
+# Layer: OpenShell policy
+RUN mkdir -p /etc/openshell
+COPY openshell/policy.yaml /etc/openshell/policy.yaml
+
+# Layer: User configuration (changes often, keep last for cache efficiency)
+# Same settings handling as Section A, adapted for /sandbox/ paths
+# <settings-based COPY commands>
+
+USER sandbox
+WORKDIR /sandbox
+ENTRYPOINT ["/bin/bash"]
+```
+
+**Key differences from Section A (Container Build)**:
+- User is `sandbox` (not `dev`), home is `/sandbox` (not `/home/dev`)
+- Base image may be Ubuntu-based (use probed package manager, not hardcoded dnf)
+- COPY cc-deck binary from `openshell/context/` (not `container/context/`)
+- Create skills directories at `/sandbox/.agents/skills/` and `/sandbox/.claude/skills/`
+- COPY `openshell/policy.yaml` to `/etc/openshell/policy.yaml`
+- ENTRYPOINT is `/bin/bash` (sandbox default)
+- The mandatory cc-deck/Zellij stack IS included (same TUI experience as container target)
+
+### C3: Check for existing Containerfile
+
+Same pattern as A3. If `openshell/Containerfile` already exists, show diff and ask the user whether to overwrite, keep, or stop.
+
+### C3b: Prepare the build context
+
+Same as Section A step A4, but using `openshell/context/` instead of `container/context/`:
+
+1. Create `openshell/context/` directory
+2. Determine the cc-deck version by running `cc-deck version -o json` and extracting the `version` field
+3. Download Linux binaries for both architectures from GitHub Releases. Skip any architecture whose binary already exists in `openshell/context/`:
+   ```bash
+   mkdir -p openshell/context
+   VERSION=$(cc-deck version -o json | jq -r '.version')
+   for ARCH in amd64 arm64; do
+     if [ ! -f "openshell/context/cc-deck-linux-${ARCH}" ]; then
+       curl -fsSL "https://github.com/cc-deck/cc-deck/releases/download/v${VERSION}/cc-deck_${VERSION}_linux_${ARCH}.tar.gz" \
+         | tar xz -C openshell/context/ cc-deck
+       mv openshell/context/cc-deck "openshell/context/cc-deck-linux-${ARCH}"
+     fi
+   done
+   ```
+4. If the download fails (e.g., version is `dev` or the release does not exist), stop and tell the user:
+   - For development builds: run `make cross-cli` from the cc-deck source repo, then copy the binaries to `openshell/context/`
+   - For released versions: check that the version tag exists at `https://github.com/cc-deck/cc-deck/releases`
+
+Copy settings files into `openshell/context/` using the same logic as Section A step A4 (shell_rc, zellij_config, claude_md, etc.), adapting destination paths for `/sandbox/` instead of `/home/dev/`.
+
+### C4: Generate openshell/policy.yaml
+
+Generate the OpenShell policy from `network.allowed_domains` with the default policy structure:
+
+1. Start with the default policy (see `cc-deck/internal/openshell/default-policy.yaml` for reference):
+   - `version: 1`
+   - `filesystem_policy`: `include_workdir: true`, read_only paths (`/usr`, `/lib`, `/proc`, `/etc`, `/var/log`), read_write paths (`/sandbox`, `/tmp`, `/dev/null`, `/dev/urandom`, `/dev/random`, `/dev/pts`)
+   - `landlock.compatibility: best_effort`
+   - `process.run_as_user: sandbox`, `process.run_as_group: sandbox`
+
+2. Auto-generate `network_policies` entries from `network.allowed_domains`:
+   - For each domain, create an entry with slug key, name, endpoint (host:443)
+   - Associate discovered binary paths with the appropriate entries based on which tools logically use which domains (inferred from the tool install instructions you wrote in C2)
+
+3. If `targets.openshell.policy` is defined, apply merge semantics:
+   - If overrides has `filesystem_policy`, `landlock`, or `process`: replace the default section entirely
+   - For `network_policies`: match explicit entries against auto-generated entries by endpoint host. Explicit entries replace matched auto-generated entries. Entries for hosts not in `allowed_domains` are additive. Auto-generated entries for non-overridden hosts are preserved.
+
+Write the resulting policy YAML to `openshell/policy.yaml`.
+
+### C5: Build the image
+
+Detect the container runtime (prefer `podman`, fall back to `docker`).
+
+**IMPORTANT**: Use a 10-minute timeout (600000ms) for the build command.
+
+```bash
+podman build -t <name>:<tag> -f openshell/Containerfile .
+```
+
+### C6: Handle build failures (self-correction loop)
+
+Same pattern as A6. Read error output, identify failing step, diagnose root cause, fix Containerfile, retry. Up to 3 attempts.
+
+### C7: Generate openshell/build.sh
+
+After a successful build, generate a build script (same pattern as A7):
+
+```bash
+#!/bin/bash
+# Rebuild the OpenShell sandbox image from the existing Containerfile.
+# Generated by /cc-deck.build --target openshell - regenerate with: claude /cc-deck.build --target openshell
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+IMAGE_NAME="<image-name>"
+IMAGE_TAG="<image-tag>"
+
+# Detect container runtime
+if command -v podman >/dev/null 2>&1; then
+  RUNTIME=podman
+elif command -v docker >/dev/null 2>&1; then
+  RUNTIME=docker
+else
+  echo "Error: neither podman nor docker found" >&2
+  exit 1
+fi
+
+echo "Building ${IMAGE_NAME}:${IMAGE_TAG}"
+$RUNTIME build -t "${IMAGE_NAME}:${IMAGE_TAG}" -f Containerfile .
+echo "Done: ${IMAGE_NAME}:${IMAGE_TAG}"
+```
+
+Make the script executable.
+
+### C8: Push (if --push)
+
+Same pattern as A8. Check `targets.openshell.registry` is set, tag with full registry reference, push.
+
+### C9: Report results
+
+On success, show:
+- Image name:tag
+- Image size
+- Number of retry attempts (if any)
+- Summary of Containerfile fixes made (if any)
+- Note that `openshell/build.sh` was generated for CLI rebuilds
+- If pushed: the full registry reference
+- Policy summary: number of network_policies entries, whether explicit overrides were applied
+- Usage hint: `Create an OpenShell workspace with this image`
+
+---
+
+## Key Rules (all targets)
 
 - Never modify `build.yaml` (the manifest is the source of truth)
 - All generated files include a "GENERATED BY cc-deck.build" header
-- The self-correction loop pattern is the same for both targets: run, read error, fix artifact, retry, up to 3 attempts
+- The self-correction loop pattern is the same for all targets: run, read error, fix artifact, retry, up to 3 attempts
 - **Container-specific**: Never omit the 3 mandatory layers. Always use `container/context/cc-deck-linux-${TARGETARCH}` as COPY source.
 - **SSH-specific**: All roles must be idempotent. The playbook must be runnable standalone without cc-deck or Claude Code.
-- Combine related `dnf install` calls into a single task/RUN for efficiency
+- **OpenShell-specific**: Never include cc-deck/Zellij/cc-session mandatory layers. Always embed `openshell/policy.yaml` at `/etc/openshell/policy.yaml`. Use `sandbox` user and `/sandbox` workdir.
+- Combine related package install calls into a single task/RUN for efficiency
 - Clean package caches after installs

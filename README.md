@@ -34,9 +34,10 @@ The `cc-deck build` command provides a single workflow for replicating your deve
 - **`/cc-deck.capture`** discovers your local setup and writes it into the manifest
 - **`/cc-deck.build --target container`** generates a Containerfile and builds an optimized image
 - **`/cc-deck.build --target ssh`** generates Ansible playbooks and provisions a remote machine
-- **`cc-deck build run`** executes the generated artifacts directly (container build or Ansible playbook)
+- **`/cc-deck.build --target openshell`** generates an OpenShell sandbox image with embedded security policy
+- **`cc-deck build run`** executes the generated artifacts directly (container build, Ansible playbook, or OpenShell image build)
 
-Capture once, then build for either target (or both) from the same manifest. After generating artifacts, run `cc-deck build run` to execute them without Claude Code involvement. Use `--push` to also push container images to a registry.
+Capture once, then build for any target from the same manifest. After generating artifacts, run `cc-deck build run` to execute them without Claude Code involvement. Use `--push` to also push container images to a registry. The OpenShell target auto-generates a `policy.yaml` from `network.allowed_domains` with per-binary network restrictions, embedding it at `/etc/openshell/policy.yaml` in the built image.
 
 ### Network Filtering
 
@@ -584,3 +585,4 @@ cc-deck follows [Spec-Driven Development](CONTRIBUTING.md#spec-driven-developmen
 | [041](specs/041-workspace-channels/) | Workspace Channels | Typed channel abstractions (Pipe, Data, Git) for unified local-to-remote transport across all workspace types | In Progress |
 | [042](specs/042-voice-relay/) | Voice Relay | Local speech-to-text dictation into remote agent sessions via whisper.cpp, VAD, and permission safety | Implemented |
 | [045](specs/045-voice-sidebar-integration/) | Voice Sidebar Integration | Sidebar ♫ indicator, bidirectional mute toggle, `[[command]]` protocol, PTT removal | In Progress |
+| [056](specs/056-openshell-build-target/) | OpenShell Build Target | Generate OpenShell sandbox images from build manifest with auto-generated security policies | In Progress |
