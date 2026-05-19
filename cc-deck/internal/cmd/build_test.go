@@ -42,7 +42,7 @@ func TestDetectRunTarget_BothPresent_Error(t *testing.T) {
 
 	_, err := detectRunTarget(dir, "")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "--target")
+	assert.Contains(t, err.Error(), "multiple target artifacts found")
 }
 
 func TestDetectRunTarget_NeitherPresent_Error(t *testing.T) {
@@ -70,7 +70,7 @@ func TestDetectRunTarget_ExplicitOverride(t *testing.T) {
 func TestValidateRunFlags_PushWithSSH_Error(t *testing.T) {
 	err := validateRunFlags("ssh", true)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "--push is only valid for container targets")
+	assert.Contains(t, err.Error(), "--push is only valid for container or openshell targets")
 }
 
 func TestValidateRunFlags_PushWithContainer_OK(t *testing.T) {
@@ -84,6 +84,57 @@ func TestValidateRunFlags_NoPush_OK(t *testing.T) {
 
 	err = validateRunFlags("container", false)
 	require.NoError(t, err)
+}
+
+// --- OpenShell target tests ---
+
+func TestDetectRunTarget_OpenShellOnly(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "openshell"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "openshell", "Containerfile"), []byte("FROM base\n"), 0o644))
+
+	target, err := detectRunTarget(dir, "")
+	require.NoError(t, err)
+	assert.Equal(t, "openshell", target)
+}
+
+func TestDetectRunTarget_ContainerAndOpenShell_Error(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "container"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "container", "Containerfile"), []byte("FROM fedora\n"), 0o644))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "openshell"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "openshell", "Containerfile"), []byte("FROM base\n"), 0o644))
+
+	_, err := detectRunTarget(dir, "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "multiple target artifacts found")
+}
+
+func TestDetectRunTarget_ExplicitOpenShell(t *testing.T) {
+	dir := t.TempDir()
+	target, err := detectRunTarget(dir, "openshell")
+	require.NoError(t, err)
+	assert.Equal(t, "openshell", target)
+}
+
+func TestValidateRunFlags_PushWithOpenShell_OK(t *testing.T) {
+	err := validateRunFlags("openshell", true)
+	require.NoError(t, err)
+}
+
+func TestDetectRunTarget_AllThreePresent_Error(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "container"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "container", "Containerfile"), []byte("FROM fedora\n"), 0o644))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "ssh"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ssh", "site.yml"), []byte("---\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ssh", "inventory.ini"), []byte("[all]\n"), 0o644))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "openshell"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "openshell", "Containerfile"), []byte("FROM base\n"), 0o644))
+
+	_, err := detectRunTarget(dir, "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "multiple target artifacts found")
 }
 
 func TestDetectRunTarget_InvalidExplicit_Error(t *testing.T) {
