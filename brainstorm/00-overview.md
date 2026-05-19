@@ -1,6 +1,6 @@
 # Brainstorm Overview
 
-Last updated: 2026-05-18
+Last updated: 2026-05-19 (credential injection session)
 
 ## Active Brainstorms
 
@@ -21,6 +21,8 @@ Last updated: 2026-05-18
 | 050 | 2026-05-06 | Test coverage measurement | active | - |
 | 053 | 2026-05-15 | OpenShell build integration | active | - |
 | 056 | 2026-05-18 | Sidebar badges | active | - |
+| 058 | 2026-05-19 | Image tool plugins | parked | - |
+| 059 | 2026-05-19 | OpenShell credential injection | active | - |
 
 ## Open Threads
 
@@ -37,6 +39,13 @@ Last updated: 2026-05-18
 - Test coverage measurement: coverage floor value TBD after first baseline, per-module CI reporting TBD after initial results (from #050)
 - OpenShell build integration: capture-phase binary-to-endpoint discovery, skills-to-plugins mapping, Zellij-specific policy auto-additions, policy precedence (--policy > env > image-embedded), verify target for openshell (from #053)
 - Sidebar badges: badge evaluation caching, max badge count, YAML format support, dot-path array handling (from #056)
+- OpenShell credential injection: missing credential error handling (error vs warn vs prompt), provider idempotency (reuse existing?), Vertex migration path when OpenShell adds native support, custom provider types beyond known profiles, credential refresh for OpenShell workspaces (from #059)
+- Unified credential handling: refactor credential injection across all workspace types (container/SSH/K8s/compose/OpenShell) into shared interface (from #059, future brainstorm)
+
+## Parked Ideas
+
+- Image tool plugins: multi-harness plugin config sections, harness detection at container start, runtime vs build-time plugin install (#058)
+  Reason: deferred until a second harness beyond Claude Code is supported. RTK integration was implemented directly in capture wizard.
 
 ## Attic
 
