@@ -84,7 +84,7 @@ Rust (stable, latest edition 2021+): Follow standard conventions
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at `specs/056-openshell-build-target/plan.md`
+at `specs/058-openshell-credential-injection/plan.md`
 <!-- SPECKIT END -->
 
 <!-- MANUAL ADDITIONS START -->
