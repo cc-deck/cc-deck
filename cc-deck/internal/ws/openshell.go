@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
 
+	"github.com/cc-deck/cc-deck/internal/build"
 	"github.com/cc-deck/cc-deck/internal/openshell"
 )
 
@@ -21,10 +23,10 @@ const (
 
 // SandboxConfig holds sandbox provisioning parameters.
 type SandboxConfig struct {
-	Image    string
-	Command  string
-	Policy   string
-	Provider string
+	Image     string
+	Command   string
+	Policy    string
+	Providers []string
 }
 
 // attachState tracks an active interactive attach session.
@@ -118,7 +120,9 @@ func (w *OpenShellWorkspace) resolveSandboxConfig() SandboxConfig {
 		cfg.Command = def.SandboxCommand
 	}
 	cfg.Policy = def.Policy
-	cfg.Provider = def.Provider
+	if def.Provider != "" {
+		cfg.Providers = []string{def.Provider}
+	}
 	return cfg
 }
 
@@ -189,6 +193,49 @@ func (w *OpenShellWorkspace) clearLocalState() {
 	log.Printf("DEBUG: openshell: cleared local state for %s", w.name)
 }
 
+// loadManifestCredentials finds and loads credential entries from the project's
+// build.yaml manifest. Returns nil if no manifest or no credentials section.
+func (w *OpenShellWorkspace) loadManifestCredentials() []openshell.CredentialInput {
+	if w.defs == nil {
+		return nil
+	}
+	def, err := w.defs.FindByName(w.name)
+	if err != nil || def == nil || def.ProjectDir == "" {
+		return nil
+	}
+
+	// Walk up from ProjectDir to find .cc-deck/setup/build.yaml.
+	dir := def.ProjectDir
+	for {
+		manifestPath := filepath.Join(dir, ".cc-deck", "setup", "build.yaml")
+		if _, statErr := os.Stat(manifestPath); statErr == nil {
+			m, loadErr := build.LoadManifest(manifestPath)
+			if loadErr != nil {
+				log.Printf("WARNING: failed to load manifest %s: %v", manifestPath, loadErr)
+				return nil
+			}
+			if len(m.Credentials) == 0 {
+				return nil
+			}
+			var inputs []openshell.CredentialInput
+			for _, c := range m.Credentials {
+				inputs = append(inputs, openshell.CredentialInput{
+					Type:    c.Type,
+					EnvVars: c.EnvVars,
+					File:    c.File,
+				})
+			}
+			return inputs
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return nil
+}
+
 // Create provisions a new OpenShell sandbox.
 func (w *OpenShellWorkspace) Create(ctx context.Context, _ CreateOpts) error {
 	if err := ValidateWsName(w.name); err != nil {
@@ -199,7 +246,24 @@ func (w *OpenShellWorkspace) Create(ctx context.Context, _ CreateOpts) error {
 	}
 
 	sbCfg := w.resolveSandboxConfig()
-	sandboxID, err := w.client.CreateSandbox(ctx, sbCfg.Image, sbCfg.Command, sbCfg.Policy, sbCfg.Provider)
+
+	// Resolve credentials from manifest and create providers.
+	credInputs := w.loadManifestCredentials()
+	providerConfigs := openshell.ResolveCredentials(credInputs, w.name)
+
+	var credProviders []string
+	for _, pc := range providerConfigs {
+		if err := w.client.EnsureProvider(ctx, pc.Name, pc.Type, pc.FromExisting, pc.Credentials); err != nil {
+			return fmt.Errorf("creating credential provider %s: %w", pc.Name, err)
+		}
+		credProviders = append(credProviders, pc.Name)
+		log.Printf("DEBUG: openshell: created provider %s (type=%s)", pc.Name, pc.Type)
+	}
+
+	// Merge credential providers with any providers from the definition.
+	allProviders := append(sbCfg.Providers, credProviders...)
+
+	sandboxID, err := w.client.CreateSandbox(ctx, sbCfg.Image, sbCfg.Command, sbCfg.Policy, allProviders)
 	if err != nil {
 		return fmt.Errorf("creating sandbox: %w", err)
 	}
@@ -207,6 +271,16 @@ func (w *OpenShellWorkspace) Create(ctx context.Context, _ CreateOpts) error {
 
 	if err := w.pollUntilRunning(ctx); err != nil {
 		return err
+	}
+
+	// Handle file-based credentials (e.g., Vertex service account JSON).
+	for _, pc := range providerConfigs {
+		if pc.FilePath != "" {
+			remotePath := "/sandbox/.config/gcloud/credentials.json"
+			if err := openshell.UploadFileCredential(ctx, w.client, w.sandboxID, pc.FilePath, remotePath, pc.FileVar); err != nil {
+				log.Printf("WARNING: failed to upload file credential for %s: %v", pc.Type, err)
+			}
+		}
 	}
 
 	if len(w.Repos) > 0 {

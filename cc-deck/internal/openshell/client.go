@@ -94,7 +94,7 @@ func (c *cliClient) Address() string {
 }
 
 // CreateSandbox provisions a new sandbox on the OpenShell gateway.
-func (c *cliClient) CreateSandbox(ctx context.Context, image, command, policy, provider string) (string, error) {
+func (c *cliClient) CreateSandbox(ctx context.Context, image, command, policy string, providers []string) (string, error) {
 	start := time.Now()
 	policyPath := policy
 	if policyPath == "" {
@@ -111,8 +111,10 @@ func (c *cliClient) CreateSandbox(ctx context.Context, image, command, policy, p
 		policyPath = tmp.Name()
 	}
 	args := []string{"sandbox", "create", "--from", image, "--policy", policyPath}
-	if provider != "" {
-		args = append(args, "--provider", provider)
+	for _, p := range providers {
+		if p != "" {
+			args = append(args, "--provider", p)
+		}
 	}
 	args = append(args, "--")
 	args = append(args, strings.Fields(command)...)
@@ -300,6 +302,67 @@ func (c *cliClient) Download(ctx context.Context, sandboxName, remotePath, local
 		return fmt.Errorf("downloading from sandbox %s: %w", sandboxName, err)
 	}
 	return nil
+}
+
+// CreateProvider creates a new provider on the OpenShell gateway.
+func (c *cliClient) CreateProvider(ctx context.Context, name, providerType string, fromExisting bool, credentials map[string]string) error {
+	start := time.Now()
+	args := []string{"provider", "create", "--name", name, "--type", providerType}
+	if fromExisting {
+		args = append(args, "--from-existing")
+	}
+	for k, v := range credentials {
+		args = append(args, "--credential", fmt.Sprintf("%s=%s", k, v))
+	}
+	_, err := c.execCLI(ctx, args...)
+	log.Printf("DEBUG: openshell: CreateProvider(%s, %s) took %v", name, providerType, time.Since(start))
+	if err != nil {
+		return fmt.Errorf("creating provider %s: %w", name, err)
+	}
+	return nil
+}
+
+// UpdateProvider updates an existing provider's credentials.
+func (c *cliClient) UpdateProvider(ctx context.Context, name, providerType string, fromExisting bool, credentials map[string]string) error {
+	start := time.Now()
+	args := []string{"provider", "update", name, "--type", providerType}
+	if fromExisting {
+		args = append(args, "--from-existing")
+	}
+	for k, v := range credentials {
+		args = append(args, "--credential", fmt.Sprintf("%s=%s", k, v))
+	}
+	_, err := c.execCLI(ctx, args...)
+	log.Printf("DEBUG: openshell: UpdateProvider(%s, %s) took %v", name, providerType, time.Since(start))
+	if err != nil {
+		return fmt.Errorf("updating provider %s: %w", name, err)
+	}
+	return nil
+}
+
+// DeleteProvider removes a provider from the gateway. Returns nil if the
+// provider does not exist (idempotent).
+func (c *cliClient) DeleteProvider(ctx context.Context, name string) error {
+	start := time.Now()
+	_, err := c.execCLI(ctx, "provider", "delete", name)
+	log.Printf("DEBUG: openshell: DeleteProvider(%s) took %v", name, time.Since(start))
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			return nil
+		}
+		return fmt.Errorf("deleting provider %s: %w", name, err)
+	}
+	return nil
+}
+
+// EnsureProvider creates a provider if it does not exist, or updates it if it
+// already exists. Implements FR-011 (idempotent provider creation).
+func (c *cliClient) EnsureProvider(ctx context.Context, name, providerType string, fromExisting bool, credentials map[string]string) error {
+	err := c.CreateProvider(ctx, name, providerType, fromExisting, credentials)
+	if err != nil && strings.Contains(err.Error(), "already exists") {
+		return c.UpdateProvider(ctx, name, providerType, fromExisting, credentials)
+	}
+	return err
 }
 
 func (c *cliClient) execCLI(ctx context.Context, args ...string) (string, error) {

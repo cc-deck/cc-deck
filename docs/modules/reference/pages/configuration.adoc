@@ -160,6 +160,103 @@ plugin location="file:~/.config/zellij/plugins/cc_deck.wasm" {
 
 Key format follows Zellij conventions: `Alt`, `Ctrl`, `Super` (Cmd on macOS) as modifiers, followed by the key name.
 
+== Build Manifest Credentials
+
+Location: `.cc-deck/setup/build.yaml` (relative to project root)
+
+The `credentials` section of the build manifest declares which credential providers an OpenShell workspace needs.
+It stores only provider type identifiers and environment variable names, never actual credential values.
+Values are resolved from the host environment at workspace creation time (`cc-deck ws new`).
+
+[source,yaml]
+----
+credentials:
+  # API key credentials (auto-injected via OpenShell providers)
+  - type: claude
+    env_vars: [ANTHROPIC_API_KEY]
+  - type: github
+    env_vars: [GITHUB_TOKEN]
+
+  # File-based credentials (uploaded into the sandbox at runtime)
+  - type: vertex
+    file: GOOGLE_APPLICATION_CREDENTIALS
+    env_vars: [ANTHROPIC_VERTEX_PROJECT_ID, CLOUD_ML_REGION]
+
+  # Custom service with explicit endpoints for network policy
+  - type: generic
+    env_vars: [CUSTOM_API_KEY]
+    endpoints:
+      - host: api.custom.com
+        port: 443
+----
+
+=== Credential Entry Fields
+
+[cols="1,1,1,3"]
+|===
+| Field | Type | Required | Description
+
+| `type`
+| string
+| yes
+| Provider profile type. Known types: `claude`, `anthropic`, `github`, `gitlab`, `openai`, `nvidia`, `vertex`, `generic`.
+
+| `env_vars`
+| list of strings
+| no
+| Environment variable names to resolve from the host. Auto-populated from known profiles if omitted.
+
+| `file`
+| string
+| no
+| Name of an env var whose value is a file path (for example, `GOOGLE_APPLICATION_CREDENTIALS`). The file is uploaded into the sandbox at runtime.
+
+| `endpoints`
+| list of host/port
+| no
+| Custom network endpoints for `generic` type. Added to the generated network policy.
+|===
+
+=== Known Provider Types
+
+[cols="1,2,3"]
+|===
+| Type | Default env_vars | Description
+
+| `claude`
+| `ANTHROPIC_API_KEY`
+| Anthropic API key for Claude Code
+
+| `github`
+| `GITHUB_TOKEN`, `GH_TOKEN`
+| GitHub personal access token
+
+| `gitlab`
+| `GITLAB_TOKEN`, `GLAB_TOKEN`
+| GitLab personal access token
+
+| `openai`
+| `OPENAI_API_KEY`
+| OpenAI API key
+
+| `nvidia`
+| `NVIDIA_API_KEY`
+| NVIDIA API key
+
+| `vertex`
+| `GOOGLE_APPLICATION_CREDENTIALS`, `ANTHROPIC_VERTEX_PROJECT_ID`, `CLOUD_ML_REGION`
+| Google Vertex AI (file-based auth). Adds GCP endpoints to network policy automatically.
+
+| `generic`
+| (must be specified)
+| Custom service. Requires explicit `env_vars` and optional `endpoints`.
+|===
+
+When a credential's required env var is not set in the host environment, the provider is skipped with a warning.
+The workspace still starts, but the corresponding service will not be available.
+
+Use `/cc-deck.capture` to detect available credentials automatically.
+
 == Domain Groups Configuration
 
 Location: `$XDG_CONFIG_HOME/cc-deck/domains.yaml` (typically `~/.config/cc-deck/domains.yaml`)
