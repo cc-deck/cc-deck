@@ -199,7 +199,7 @@ credentials:
 | `type`
 | string
 | yes
-| Provider profile type. Known types: `claude`, `anthropic`, `github`, `gitlab`, `openai`, `nvidia`, `vertex`, `generic`.
+| Provider profile type. Known types: `claude`, `claude-vertex`, `anthropic`, `github`, `gitlab`, `openai`, `nvidia`, `vertex`, `generic`.
 
 | `env_vars`
 | list of strings
@@ -225,7 +225,11 @@ credentials:
 
 | `claude`
 | `ANTHROPIC_API_KEY`
-| Anthropic API key for Claude Code
+| Anthropic API key for Claude Code (direct API access)
+
+| `claude-vertex`
+| `CLAUDE_CODE_USE_VERTEX`, `ANTHROPIC_VERTEX_PROJECT_ID`, `CLOUD_ML_REGION`, `ANTHROPIC_MODEL`
+| Claude Code via Google Vertex AI. Detected when both `CLAUDE_CODE_USE_VERTEX` and `ANTHROPIC_VERTEX_PROJECT_ID` are set. Adds GCP OAuth endpoint to network policy.
 
 | `github`
 | `GITHUB_TOKEN`, `GH_TOKEN`
@@ -256,6 +260,66 @@ When a credential's required env var is not set in the host environment, the pro
 The workspace still starts, but the corresponding service will not be available.
 
 Use `/cc-deck.capture` to detect available credentials automatically.
+Use `/cc-deck.capture --all` to auto-accept all proposals without prompting.
+
+=== Automatic Network Policy Endpoints
+
+The OpenShell build command generates a `policy.yaml` that always includes Claude Code endpoints (`api.anthropic.com`, `statsig.anthropic.com`, `sentry.io`) and GitHub (`github.com`, `api.github.com`).
+
+Additional endpoints are auto-injected based on detected tools in the manifest:
+
+[cols="1,3"]
+|===
+| Tool | Endpoints added
+
+| Rust / Cargo
+| `crates.io`, `index.crates.io`, `static.crates.io`
+
+| Go
+| `proxy.golang.org`, `sum.golang.org`, `storage.googleapis.com`
+
+| Node / npm
+| `registry.npmjs.org`, `npmjs.org`
+
+| Python / pip / uv
+| `pypi.org`, `files.pythonhosted.org`
+|===
+
+These are added automatically when the corresponding tool names appear in the manifest's `tools` section or in `sources[].detected_tools`.
+
+=== Containerfile Template Snippets
+
+The `cc-deck build init` command renders fixed Containerfile layers into snippet files at `<target>/snippets/`.
+These snippets are pre-rendered Go templates with all paths and variables resolved.
+The `/cc-deck.build` Claude Code command assembles the final Containerfile by copying snippets verbatim and generating only the variable parts (tool installs, plugin commands, settings) between them.
+
+Snippet files:
+
+[cols="1,3"]
+|===
+| File | Content
+
+| `01-header.txt`
+| `FROM` line and `ARG TARGETARCH`
+
+| `02-user-setup.txt`
+| User creation and shell setup (container target only, empty for OpenShell)
+
+| `03-mandatory-stack.txt`
+| cc-session, cc-setup, cc-deck self-install with Zellij, Claude Code install
+
+| `04-openshell-extras.txt`
+| Skills directories, policy file COPY, `ENV SHELL` (OpenShell only)
+
+| `05-shell-finalize.txt`
+| Starship prompt init, Zellij auto-start on login (OpenShell only)
+
+| `06-footer.txt`
+| Final `chown`, `USER`, `WORKDIR`, `CMD`/`ENTRYPOINT`
+|===
+
+The Zellij binary installed by `--install-zellij` defaults to the latest GitHub release.
+Pin a specific version with `cc-deck config plugin install --install-zellij --zellij-version 0.44.3`.
 
 == Domain Groups Configuration
 

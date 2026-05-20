@@ -6,6 +6,11 @@ description: "Capture workspace: scan repos, tools, and settings into build.yaml
 
 $ARGUMENTS
 
+**Flags:**
+- `--all`: Auto-accept all proposals without prompting. Every step uses "Accept all" automatically. No `AskUserQuestion` calls are made. The wizard runs silently and writes all detected items to the manifest.
+
+Parse `$ARGUMENTS` for the `--all` flag before proceeding. If `--all` is present, set `AUTO_ACCEPT = true`.
+
 ## Setup directory
 
 All setup artifacts live in `.cc-deck/setup/` relative to the project root (the git root or the directory containing `.cc-deck/`). Resolve the setup directory first:
@@ -22,10 +27,11 @@ This command runs as a **step-by-step wizard**. There are 11 steps total.
 
 **Rules:**
 - Present ONE step at a time
-- Show a progress header: `## Step N/10: Title`
+- Show a progress header: `## Step N/11: Title`
 - After presenting each step's findings, use `AskUserQuestion` to collect the user's decision
 - Never present the next step until the user has responded to the current one
 - Use `AskUserQuestion` for ALL user interactions (never ask inline text questions)
+- **If `AUTO_ACCEPT` is true**: Skip all `AskUserQuestion` calls. For each step, automatically select "Accept all" (or the first/recommended option for single-choice questions). Show findings as text but do not prompt. Proceed immediately to the next step.
 
 **AskUserQuestion patterns:**
 
@@ -737,16 +743,17 @@ If user selects "Exclude some", ask which items to remove by number or name.
 
 Detect credentials available in the host environment and map them to OpenShell provider profiles. This step scans for well-known environment variables that correspond to API keys and service account files.
 
-**Detection**: For each known provider profile, check if the detection env var is set:
+**Detection**: Check for known credential env vars in this order. More specific variants come first (e.g., `claude-vertex` before `claude`). Once a provider type is matched, skip other variants of the same type.
 
-| Env Var | Provider Type |
-|---------|--------------|
-| `ANTHROPIC_API_KEY` | `claude` |
-| `GITHUB_TOKEN` or `GH_TOKEN` | `github` |
-| `GITLAB_TOKEN` or `GLAB_TOKEN` | `gitlab` |
-| `OPENAI_API_KEY` | `openai` |
-| `NVIDIA_API_KEY` | `nvidia` |
-| `GOOGLE_APPLICATION_CREDENTIALS` | `vertex` |
+| Check | Provider Type | Condition |
+|-------|--------------|-----------|
+| `CLAUDE_CODE_USE_VERTEX` AND `ANTHROPIC_VERTEX_PROJECT_ID` | `claude-vertex` | Both must be set. Env vars: `CLAUDE_CODE_USE_VERTEX`, `ANTHROPIC_VERTEX_PROJECT_ID`, `CLOUD_ML_REGION`, `ANTHROPIC_MODEL` |
+| `ANTHROPIC_API_KEY` | `claude` | Skip if `claude-vertex` already matched |
+| `GITHUB_TOKEN` or `GH_TOKEN` | `github` | |
+| `GITLAB_TOKEN` or `GLAB_TOKEN` | `gitlab` | |
+| `OPENAI_API_KEY` | `openai` | |
+| `NVIDIA_API_KEY` | `nvidia` | |
+| `GOOGLE_APPLICATION_CREDENTIALS` | `vertex` | File-based credential. Env vars: `GOOGLE_APPLICATION_CREDENTIALS`, `ANTHROPIC_VERTEX_PROJECT_ID`, `CLOUD_ML_REGION` |
 
 **Present** the detected credentials as a numbered text list:
 
@@ -755,8 +762,8 @@ Detect credentials available in the host environment and map them to OpenShell p
 
 Detected credentials from host environment:
 
-  1. claude       ANTHROPIC_API_KEY is set
-  2. github       GITHUB_TOKEN is set
+  1. claude-vertex  CLAUDE_CODE_USE_VERTEX + ANTHROPIC_VERTEX_PROJECT_ID are set
+  2. github         GITHUB_TOKEN is set
 ```
 
 If no credentials are detected, show "No credential env vars detected in host environment." and allow manual addition.

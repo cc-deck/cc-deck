@@ -30,7 +30,8 @@ func TestDefaultPolicy(t *testing.T) {
 	assert.Equal(t, "sandbox", p.Process.RunAsUser)
 	assert.Equal(t, "sandbox", p.Process.RunAsGroup)
 
-	assert.Empty(t, p.NetworkPolicies)
+	assert.Contains(t, p.NetworkPolicies, "claude_code")
+	assert.Contains(t, p.NetworkPolicies, "github")
 }
 
 func TestGeneratePolicy_EmptyDomains(t *testing.T) {
@@ -40,7 +41,7 @@ func TestGeneratePolicy_EmptyDomains(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, p.Version)
-	assert.Empty(t, p.NetworkPolicies)
+	assert.Contains(t, p.NetworkPolicies, "claude_code")
 	require.NotNil(t, p.FilesystemPolicy)
 	assert.True(t, p.FilesystemPolicy.IncludeWorkdir)
 	assert.Contains(t, p.FilesystemPolicy.ReadOnly, "/usr")
@@ -60,8 +61,6 @@ func TestGeneratePolicy_WithDomains(t *testing.T) {
 
 	p, err := GeneratePolicy(m)
 	require.NoError(t, err)
-
-	assert.Len(t, p.NetworkPolicies, 2)
 
 	np, ok := p.NetworkPolicies["api_anthropic_com"]
 	require.True(t, ok)
@@ -278,13 +277,15 @@ func TestGeneratePolicy_GenericCredentialAddsCustomEndpoints(t *testing.T) {
 	assert.Equal(t, 8443, ep2.Endpoints[0].Port)
 }
 
-func TestGeneratePolicy_NoCredentialsDefaultPolicyOnly(t *testing.T) {
+func TestGeneratePolicy_NoCredentialsHasDefaults(t *testing.T) {
 	m := &Manifest{Version: 3}
 
 	p, err := GeneratePolicy(m)
 	require.NoError(t, err)
 
-	assert.Empty(t, p.NetworkPolicies)
+	assert.Contains(t, p.NetworkPolicies, "claude_code")
+	assert.Contains(t, p.NetworkPolicies, "github")
+	assert.Len(t, p.NetworkPolicies, 2)
 }
 
 func TestGeneratePolicy_CredentialsAndDomainsCombined(t *testing.T) {
