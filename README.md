@@ -4,7 +4,7 @@
 [![codecov](https://codecov.io/gh/cc-deck/cc-deck/graph/badge.svg)](https://codecov.io/gh/cc-deck/cc-deck)
 [![Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go)](https://go.dev)
 [![Rust](https://img.shields.io/badge/Rust-stable-orange?logo=rust)](https://www.rust-lang.org)
-[![Zellij](https://img.shields.io/badge/Zellij-0.43+-green)](https://zellij.dev)
+[![Zellij](https://img.shields.io/badge/Zellij-0.44+-green)](https://zellij.dev)
 [![License](https://img.shields.io/github/license/cc-deck/cc-deck)](LICENSE)
 [![Beta](https://img.shields.io/badge/status-beta-orange)](https://github.com/cc-deck/cc-deck)
 
@@ -37,7 +37,7 @@ The `cc-deck build` command provides a single workflow for replicating your deve
 - **`/cc-deck.build --target openshell`** generates an OpenShell sandbox image with embedded security policy
 - **`cc-deck build run`** executes the generated artifacts directly (container build, Ansible playbook, or OpenShell image build)
 
-Capture once, then build for any target from the same manifest. After generating artifacts, run `cc-deck build run` to execute them without Claude Code involvement. Use `--push` to also push container images to a registry. The OpenShell target auto-generates a `policy.yaml` from `network.allowed_domains` with per-binary network restrictions, embedding it at `/etc/openshell/policy.yaml` in the built image.
+Capture once, then build for any target from the same manifest. After generating artifacts, run `cc-deck build run` to execute them without Claude Code involvement. Use `--push` to also push container images to a registry. The OpenShell target auto-generates a `policy.yaml` from `network.allowed_domains` with per-binary network restrictions, embedding it at `/etc/openshell/policy.yaml` in the built image. Fixed Containerfile layers (mandatory stack, shell finalize, footer) are rendered from Go templates during `build init`, ensuring deterministic output regardless of which Claude Code session generates the variable parts. The build spec uses a snippet assembly model: Claude Code copies pre-rendered template blocks verbatim and only generates tool installs, plugin commands, and settings between them.
 
 ### Credential Injection for OpenShell
 
@@ -52,9 +52,9 @@ credentials:
 
 When you run `cc-deck ws new --type openshell`, cc-deck reads the credential declarations, resolves values from your host environment, creates OpenShell providers on the gateway, and attaches them to the sandbox. If an env var is missing, the provider is skipped with a warning and the workspace still starts.
 
-Supported provider types include `claude`, `github`, `gitlab`, `openai`, `nvidia`, and `vertex`. The `vertex` type handles file-based auth by uploading the service account JSON into the sandbox automatically. A `generic` type supports custom services with explicit env vars and network endpoints.
+Supported provider types include `claude`, `claude-vertex`, `github`, `gitlab`, `openai`, `nvidia`, and `vertex`. The `claude-vertex` type handles Vertex AI authentication (detected when `CLAUDE_CODE_USE_VERTEX` and `ANTHROPIC_VERTEX_PROJECT_ID` are set). The `vertex` type handles file-based auth by uploading the service account JSON into the sandbox automatically. A `generic` type supports custom services with explicit env vars and network endpoints.
 
-Use `/cc-deck.capture` to auto-detect available credentials from your host environment during workspace setup.
+Use `/cc-deck.capture` to auto-detect available credentials from your host environment during workspace setup. Use `/cc-deck.capture --all` to auto-accept all proposals without prompting.
 
 ### Network Filtering
 
@@ -129,7 +129,7 @@ cd cc-deck
 make install
 ```
 
-Requires [Zellij](https://zellij.dev) 0.43+, [Go](https://go.dev) 1.22+, and [Rust](https://www.rust-lang.org) stable with `wasm32-wasip1` target.
+Requires [Zellij](https://zellij.dev) 0.44+, [Go](https://go.dev) 1.22+, and [Rust](https://www.rust-lang.org) stable with `wasm32-wasip1` target.
 
 ## Usage
 
