@@ -391,7 +391,7 @@ fn render_session_entry(
         print!("\x1b[{};1H{}", start_row + 1, pad(&line1, cols));
     }
 
-    let line2_content = format_line2(&session.badges, session.git_branch.as_deref());
+    let line2_content = format_line2(&session.badges, session.git_branch.as_deref(), session.color);
 
     if use_bg {
         let highlighted = format!("{bg}{fg}\x1b[2m{line2_content}{RESET}");
@@ -545,23 +545,61 @@ fn pad(s: &str, width: usize) -> String {
     }
 }
 
+/// Parse a badge string that may contain a color prefix: `#RRGGBB:icon` or plain `icon`.
+/// Returns (icon, optional RGB tuple).
+fn parse_badge_color(badge: &str) -> (&str, Option<(u8, u8, u8)>) {
+    if badge.len() >= 8 && badge.starts_with('#') {
+        if let Some(colon) = badge.find(':') {
+            let hex = &badge[1..colon];
+            if hex.len() == 6 {
+                if let (Ok(r), Ok(g), Ok(b)) = (
+                    u8::from_str_radix(&hex[0..2], 16),
+                    u8::from_str_radix(&hex[2..4], 16),
+                    u8::from_str_radix(&hex[4..6], 16),
+                ) {
+                    return (&badge[colon + 1..], Some((r, g, b)));
+                }
+            }
+        }
+    }
+    (badge, None)
+}
+
 /// Format line 2 content (badges + branch) with alignment.
 /// When badges are narrow enough, pads so ⎇ aligns at column 4 (under the session name).
-fn format_line2(badges: &[String], branch: Option<&str>) -> String {
-    const BRANCH_COL: usize = 3;
+/// Badges with a `#RRGGBB:` prefix use that color; others use the session's faded color.
+/// Uses \x1b[39m (reset foreground only) to preserve background and dim on highlighted rows.
+fn format_line2(badges: &[String], branch: Option<&str>, color: (u8, u8, u8)) -> String {
+    const BRANCH_COL: usize = 4;
     match (branch, badges.is_empty()) {
         (Some(branch), true) => format!("   \u{2387} {branch}"),
         (Some(branch), false) => {
-            let badges_str = badges.join(" ");
-            let badges_width = display_width(&badges_str);
-            if badges_width < BRANCH_COL {
-                let padding = BRANCH_COL - badges_width;
-                format!("{badges_str}{}\u{2387} {branch}", " ".repeat(padding))
+            let mut colored_parts = Vec::new();
+            let mut total_icon_width: usize = 0;
+            for badge in badges {
+                let (icon, custom_color) = parse_badge_color(badge);
+                let (r, g, b) = custom_color.unwrap_or(color);
+                colored_parts.push(format!("\x1b[38;2;{r};{g};{b}m{icon}\x1b[39m"));
+                total_icon_width += display_width(icon);
+            }
+            let badges_str = colored_parts.join(" ");
+            let total_width = 1 + total_icon_width + badges.len().saturating_sub(1);
+            if total_width < BRANCH_COL {
+                let padding = BRANCH_COL - total_width;
+                format!(" {badges_str}{}\u{2387} {branch}", " ".repeat(padding))
             } else {
-                format!("{badges_str} \u{2387} {branch}")
+                format!(" {badges_str} \u{2387} {branch}")
             }
         }
-        (None, false) => badges.join(" "),
+        (None, false) => {
+            let mut colored_parts = Vec::new();
+            for badge in badges {
+                let (icon, custom_color) = parse_badge_color(badge);
+                let (r, g, b) = custom_color.unwrap_or(color);
+                colored_parts.push(format!("\x1b[38;2;{r};{g};{b}m{icon}\x1b[39m"));
+            }
+            format!(" {}", colored_parts.join(" "))
+        }
         (None, true) => String::new(),
     }
 }
@@ -653,37 +691,43 @@ mod tests {
         assert_eq!(display_width("\u{2387}"), 1);
     }
 
+    const TEST_COLOR: (u8, u8, u8) = (180, 140, 255);
+
     #[test]
     fn test_format_line2_no_badges_with_branch() {
-        let result = format_line2(&[], Some("main"));
+        let result = format_line2(&[], Some("main"), TEST_COLOR);
         assert_eq!(result, "   \u{2387} main");
     }
 
     #[test]
-    fn test_format_line2_one_emoji_badge_aligns() {
-        let badges = vec!["🚢".to_string()];
-        let result = format_line2(&badges, Some("main"));
-        let before_icon: &str = result.split('\u{2387}').next().unwrap();
-        assert_eq!(display_width(before_icon), 3);
+    fn test_format_line2_one_badge_aligns() {
+        let badges = vec!["▶".to_string()];
+        let result = format_line2(&badges, Some("main"), TEST_COLOR);
+        assert!(result.starts_with(' '));
+        assert!(result.contains("\x1b[38;2;180;140;255m▶\x1b[39m"));
+        assert!(result.contains("\u{2387} main"));
     }
 
     #[test]
-    fn test_format_line2_two_emoji_badges_fallback() {
-        let badges = vec!["🚢".to_string(), "✅".to_string()];
-        let result = format_line2(&badges, Some("main"));
-        assert!(result.contains("✅ \u{2387}"));
+    fn test_format_line2_two_badges() {
+        let badges = vec!["▶".to_string(), "✎".to_string()];
+        let result = format_line2(&badges, Some("main"), TEST_COLOR);
+        assert!(result.starts_with(' '));
+        assert!(result.contains("\x1b[38;2;180;140;255m▶ ✎\x1b[39m"));
+        assert!(result.contains("\u{2387}"));
     }
 
     #[test]
     fn test_format_line2_badges_only() {
-        let badges = vec!["🚢".to_string()];
-        let result = format_line2(&badges, None);
-        assert_eq!(result, "🚢");
+        let badges = vec!["▶".to_string()];
+        let result = format_line2(&badges, None, TEST_COLOR);
+        assert!(result.starts_with(' '));
+        assert!(result.contains("\x1b[38;2;180;140;255m▶\x1b[39m"));
     }
 
     #[test]
     fn test_format_line2_empty() {
-        let result = format_line2(&[], None);
+        let result = format_line2(&[], None, TEST_COLOR);
         assert!(result.is_empty());
     }
 

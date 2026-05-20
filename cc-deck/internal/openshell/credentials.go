@@ -13,6 +13,7 @@ type KnownProviderProfile struct {
 	Type         string
 	DetectVars   []string
 	RequiredVars []string
+	ExtraEnvVars []string
 	FileVar      string
 	Endpoints    []ProviderEndpoint
 }
@@ -55,6 +56,15 @@ var KnownProviderProfiles = map[string]KnownProviderProfile{
 		DetectVars:   []string{"ANTHROPIC_API_KEY"},
 		RequiredVars: []string{"ANTHROPIC_API_KEY"},
 	},
+	"claude-vertex": {
+		Type:         "claude",
+		DetectVars:   []string{"CLAUDE_CODE_USE_VERTEX", "ANTHROPIC_VERTEX_PROJECT_ID"},
+		RequiredVars: []string{"ANTHROPIC_VERTEX_PROJECT_ID"},
+		Endpoints: []ProviderEndpoint{
+			{Host: "oauth2.googleapis.com", Port: 443},
+		},
+		ExtraEnvVars: []string{"CLOUD_ML_REGION", "ANTHROPIC_MODEL"},
+	},
 	"anthropic": {
 		Type:         "anthropic",
 		DetectVars:   []string{"ANTHROPIC_API_KEY"},
@@ -82,8 +92,9 @@ var KnownProviderProfiles = map[string]KnownProviderProfile{
 	},
 	"vertex": {
 		Type:         "vertex",
-		DetectVars:   []string{"GOOGLE_APPLICATION_CREDENTIALS", "ANTHROPIC_VERTEX_PROJECT_ID"},
-		RequiredVars: []string{"GOOGLE_APPLICATION_CREDENTIALS", "ANTHROPIC_VERTEX_PROJECT_ID"},
+		DetectVars:   []string{"GOOGLE_APPLICATION_CREDENTIALS"},
+		RequiredVars: []string{"GOOGLE_APPLICATION_CREDENTIALS"},
+		ExtraEnvVars: []string{"ANTHROPIC_VERTEX_PROJECT_ID", "CLOUD_ML_REGION"},
 		FileVar:      "GOOGLE_APPLICATION_CREDENTIALS",
 		Endpoints: []ProviderEndpoint{
 			{Host: "oauth2.googleapis.com", Port: 443},
@@ -102,11 +113,9 @@ func ResolveDefaultEnvVars(credType string) []string {
 	if !ok || credType == "generic" {
 		return nil
 	}
-	if credType == "vertex" {
-		return []string{"GOOGLE_APPLICATION_CREDENTIALS", "ANTHROPIC_VERTEX_PROJECT_ID", "CLOUD_ML_REGION"}
-	}
 	result := make([]string, len(profile.DetectVars))
 	copy(result, profile.DetectVars)
+	result = append(result, profile.ExtraEnvVars...)
 	return result
 }
 
@@ -194,24 +203,48 @@ func DetectCredentials() []DetectedCredential {
 	var detected []DetectedCredential
 	seen := make(map[string]bool)
 
-	// Check profiles in a deterministic order.
-	order := []string{"claude", "github", "gitlab", "openai", "nvidia", "vertex"}
+	// Check profiles in a deterministic order. More specific variants first
+	// (claude-vertex before claude) so we detect the right auth mode.
+	order := []string{"claude-vertex", "claude", "github", "gitlab", "openai", "nvidia", "vertex"}
 
 	for _, name := range order {
+		providerType := KnownProviderProfiles[name].Type
+		if seen[providerType] {
+			continue
+		}
 		profile := KnownProviderProfiles[name]
-		for _, v := range profile.DetectVars {
-			if os.Getenv(v) != "" && !seen[name] {
-				seen[name] = true
-				entry := DetectedCredential{
-					Type:    name,
-					EnvVars: ResolveDefaultEnvVars(name),
+
+		// For variant profiles (e.g., claude-vertex), ALL detect vars must be set.
+		// For standard profiles, ANY detect var triggers detection.
+		isVariant := name != providerType
+		matched := false
+		if isVariant {
+			matched = true
+			for _, v := range profile.DetectVars {
+				if os.Getenv(v) == "" {
+					matched = false
+					break
 				}
-				if profile.FileVar != "" {
-					entry.File = profile.FileVar
-				}
-				detected = append(detected, entry)
-				break
 			}
+		} else {
+			for _, v := range profile.DetectVars {
+				if os.Getenv(v) != "" {
+					matched = true
+					break
+				}
+			}
+		}
+
+		if matched {
+			seen[providerType] = true
+			entry := DetectedCredential{
+				Type:    name,
+				EnvVars: ResolveDefaultEnvVars(name),
+			}
+			if profile.FileVar != "" {
+				entry.File = profile.FileVar
+			}
+			detected = append(detected, entry)
 		}
 	}
 

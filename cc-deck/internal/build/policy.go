@@ -77,7 +77,23 @@ func DefaultPolicy() *PolicyFile {
 			RunAsUser:  "sandbox",
 			RunAsGroup: "sandbox",
 		},
-		NetworkPolicies: make(map[string]NetworkPolicy),
+		NetworkPolicies: map[string]NetworkPolicy{
+			"claude_code": {
+				Name: "Claude Code",
+				Endpoints: []PolicyEndpoint{
+					{Host: "api.anthropic.com", Port: 443},
+					{Host: "statsig.anthropic.com", Port: 443},
+					{Host: "sentry.io", Port: 443},
+				},
+			},
+			"github": {
+				Name: "GitHub",
+				Endpoints: []PolicyEndpoint{
+					{Host: "github.com", Port: 443},
+					{Host: "api.github.com", Port: 443},
+				},
+			},
+		},
 	}
 }
 
@@ -95,6 +111,16 @@ func GeneratePolicy(manifest *Manifest) (*PolicyFile, error) {
 					{Host: domain, Port: 443},
 				},
 			}
+		}
+	}
+
+	// Add package registry endpoints based on detected tools.
+	for _, tool := range manifest.Tools {
+		addToolEndpoints(policy, tool.Name)
+	}
+	for _, src := range manifest.Sources {
+		for _, t := range src.DetectedTools {
+			addToolEndpoints(policy, t)
 		}
 	}
 
@@ -136,6 +162,63 @@ func GeneratePolicy(manifest *Manifest) (*PolicyFile, error) {
 	}
 
 	return policy, nil
+}
+
+// toolEndpoints maps tool name keywords to package registry endpoints that
+// need to be allowed in the network policy for builds and package installs.
+var toolEndpoints = map[string][]PolicyEndpoint{
+	"rust": {
+		{Host: "crates.io", Port: 443},
+		{Host: "index.crates.io", Port: 443},
+		{Host: "static.crates.io", Port: 443},
+	},
+	"cargo": {
+		{Host: "crates.io", Port: 443},
+		{Host: "index.crates.io", Port: 443},
+		{Host: "static.crates.io", Port: 443},
+	},
+	"go": {
+		{Host: "proxy.golang.org", Port: 443},
+		{Host: "sum.golang.org", Port: 443},
+		{Host: "storage.googleapis.com", Port: 443},
+	},
+	"node": {
+		{Host: "registry.npmjs.org", Port: 443},
+		{Host: "npmjs.org", Port: 443},
+	},
+	"npm": {
+		{Host: "registry.npmjs.org", Port: 443},
+		{Host: "npmjs.org", Port: 443},
+	},
+	"python": {
+		{Host: "pypi.org", Port: 443},
+		{Host: "files.pythonhosted.org", Port: 443},
+	},
+	"pip": {
+		{Host: "pypi.org", Port: 443},
+		{Host: "files.pythonhosted.org", Port: 443},
+	},
+	"uv": {
+		{Host: "pypi.org", Port: 443},
+		{Host: "files.pythonhosted.org", Port: 443},
+	},
+}
+
+// addToolEndpoints checks a tool name against known package registries and
+// adds the corresponding endpoints to the policy if not already present.
+func addToolEndpoints(policy *PolicyFile, toolName string) {
+	lower := strings.ToLower(toolName)
+	for keyword, endpoints := range toolEndpoints {
+		if strings.Contains(lower, keyword) {
+			slug := "pkg_" + keyword
+			if _, exists := policy.NetworkPolicies[slug]; !exists {
+				policy.NetworkPolicies[slug] = NetworkPolicy{
+					Name:      keyword + " packages",
+					Endpoints: endpoints,
+				}
+			}
+		}
+	}
 }
 
 // MarshalPolicy serializes a PolicyFile to YAML.
