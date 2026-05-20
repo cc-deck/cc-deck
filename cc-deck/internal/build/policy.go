@@ -2,7 +2,6 @@ package build
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -127,25 +126,10 @@ func GeneratePolicy(manifest *Manifest) (*PolicyFile, error) {
 	// Add credential-specific endpoints.
 	for _, cred := range manifest.Credentials {
 		switch cred.Type {
-		case "vertex":
-			// Add GCP OAuth endpoint.
-			policy.NetworkPolicies["gcp_oauth"] = NetworkPolicy{
-				Name: "GCP OAuth",
-				Endpoints: []PolicyEndpoint{
-					{Host: "oauth2.googleapis.com", Port: 443},
-				},
-			}
-			// Add Vertex AI regional endpoint.
-			region := os.Getenv("CLOUD_ML_REGION")
-			if region == "" {
-				region = "us-east1"
-			}
-			host := region + "-aiplatform.googleapis.com"
-			policy.NetworkPolicies["gcp_vertex_"+slugify(region)] = NetworkPolicy{
-				Name: "GCP Vertex AI (" + region + ")",
-				Endpoints: []PolicyEndpoint{
-					{Host: host, Port: 443},
-				},
+		case "claude-vertex", "vertex":
+			policy.NetworkPolicies["vertex_ai"] = NetworkPolicy{
+				Name: "Vertex AI",
+				Endpoints: vertexEndpoints(),
 			}
 		case "generic":
 			// Add custom endpoints from the credential entry.
@@ -219,6 +203,30 @@ func addToolEndpoints(policy *PolicyFile, toolName string) {
 			}
 		}
 	}
+}
+
+// vertexEndpoints returns the network policy endpoints for Google Vertex AI.
+// Wildcards don't work because the hostname pattern is {region}-aiplatform
+// (prefix, not subdomain). All standard Vertex AI regions are listed.
+func vertexEndpoints() []PolicyEndpoint {
+	regions := []string{
+		"global",
+		"us-central1", "us-east1", "us-east4", "us-east5",
+		"us-south1", "us-west1", "us-west4",
+		"europe-west1", "europe-west2", "europe-west3", "europe-west4",
+		"europe-west6", "europe-west8", "europe-west9",
+		"asia-east1", "asia-east2", "asia-northeast1", "asia-northeast3",
+		"asia-south1", "asia-southeast1", "asia-southeast2",
+		"australia-southeast1",
+		"me-central1", "me-central2", "me-west1",
+		"northamerica-northeast1", "southamerica-east1",
+	}
+	endpoints := make([]PolicyEndpoint, 0, len(regions)+1)
+	for _, r := range regions {
+		endpoints = append(endpoints, PolicyEndpoint{Host: r + "-aiplatform.googleapis.com", Port: 443})
+	}
+	endpoints = append(endpoints, PolicyEndpoint{Host: "oauth2.googleapis.com", Port: 443})
+	return endpoints
 }
 
 // MarshalPolicy serializes a PolicyFile to YAML.

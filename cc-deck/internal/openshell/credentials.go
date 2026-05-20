@@ -26,12 +26,14 @@ type ProviderEndpoint struct {
 
 // ProviderConfig holds the resolved configuration for creating an OpenShell provider.
 type ProviderConfig struct {
-	Name         string
-	Type         string
-	FromExisting bool
-	Credentials  map[string]string
-	FileVar      string
-	FilePath     string
+	Name           string
+	Type           string
+	FromExisting   bool
+	SkipProvider   bool
+	Credentials    map[string]string
+	FileVar        string
+	FilePath       string
+	EnvVarsToInject map[string]string
 }
 
 // CredentialInput represents a credential entry passed from the manifest layer.
@@ -160,10 +162,36 @@ func ResolveCredentials(entries []CredentialInput, wsName string) []ProviderConf
 			continue
 		}
 
+		// Determine the OpenShell provider type. Variant profiles (e.g.,
+		// "claude-vertex") use the base type for provider creation.
+		providerType := profile.Type
+		if providerType == "" {
+			providerType = entry.Type
+		}
+
 		cfg := ProviderConfig{
 			Name:         providerName,
-			Type:         entry.Type,
+			Type:         providerType,
 			FromExisting: true,
+		}
+
+		// Types without a native OpenShell provider profile inject env vars
+		// directly into the sandbox shell rc instead of creating a provider.
+		if entry.Type == "claude-vertex" {
+			cfg.SkipProvider = true
+			cfg.EnvVarsToInject = make(map[string]string)
+			for _, v := range envVars {
+				if val := os.Getenv(v); val != "" {
+					cfg.EnvVarsToInject[v] = val
+				}
+			}
+			for _, v := range profile.ExtraEnvVars {
+				if val := os.Getenv(v); val != "" {
+					cfg.EnvVarsToInject[v] = val
+				}
+			}
+			configs = append(configs, cfg)
+			continue
 		}
 
 		// For file-based credentials, record the file info.
@@ -249,6 +277,22 @@ func DetectCredentials() []DetectedCredential {
 	}
 
 	return detected
+}
+
+// InjectEnvVars writes environment variable exports into the sandbox's shell
+// rc files. Used for configuration flags (like CLAUDE_CODE_USE_VERTEX) that
+// are not secrets and don't go through the provider proxy.
+func InjectEnvVars(ctx context.Context, client Client, sandboxID string, vars map[string]string) error {
+	for k, v := range vars {
+		exportLine := fmt.Sprintf("export %s=%q", k, v)
+		for _, rcFile := range []string{".bashrc", ".zshrc"} {
+			cmd := []string{"bash", "-c", fmt.Sprintf("echo %q >> /sandbox/%s", exportLine, rcFile)}
+			if _, err := client.ExecSandbox(ctx, sandboxID, cmd); err != nil {
+				log.Printf("WARNING: failed to set %s in %s: %v", k, rcFile, err)
+			}
+		}
+	}
+	return nil
 }
 
 // UploadFileCredential uploads a local file into the sandbox and sets the

@@ -253,6 +253,9 @@ func (w *OpenShellWorkspace) Create(ctx context.Context, _ CreateOpts) error {
 
 	var credProviders []string
 	for _, pc := range providerConfigs {
+		if pc.SkipProvider {
+			continue
+		}
 		if err := w.client.EnsureProvider(ctx, pc.Name, pc.Type, pc.FromExisting, pc.Credentials); err != nil {
 			return fmt.Errorf("creating credential provider %s: %w", pc.Name, err)
 		}
@@ -273,13 +276,19 @@ func (w *OpenShellWorkspace) Create(ctx context.Context, _ CreateOpts) error {
 		return err
 	}
 
-	// Handle file-based credentials (e.g., Vertex service account JSON).
+	// Handle post-start credential injection.
 	for _, pc := range providerConfigs {
 		if pc.FilePath != "" {
 			remotePath := "/sandbox/.config/gcloud/credentials.json"
 			if err := openshell.UploadFileCredential(ctx, w.client, w.sandboxID, pc.FilePath, remotePath, pc.FileVar); err != nil {
 				log.Printf("WARNING: failed to upload file credential for %s: %v", pc.Type, err)
 			}
+		}
+		if len(pc.EnvVarsToInject) > 0 {
+			if err := openshell.InjectEnvVars(ctx, w.client, w.sandboxID, pc.EnvVarsToInject); err != nil {
+				log.Printf("WARNING: failed to inject env vars for %s: %v", pc.Type, err)
+			}
+			log.Printf("DEBUG: openshell: injected %d env vars for %s", len(pc.EnvVarsToInject), pc.Type)
 		}
 	}
 

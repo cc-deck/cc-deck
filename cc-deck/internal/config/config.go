@@ -25,6 +25,7 @@ type Config struct {
 }
 
 // BadgeRule defines a file-based badge indicator for the sidebar.
+// Badge values may include a color prefix: "#RRGGBB:icon" for per-value coloring.
 type BadgeRule struct {
 	Name    string            `yaml:"name"`
 	File    string            `yaml:"file"`
