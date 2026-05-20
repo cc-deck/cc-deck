@@ -8,7 +8,7 @@
 [![License](https://img.shields.io/github/license/cc-deck/cc-deck)](LICENSE)
 [![Beta](https://img.shields.io/badge/status-beta-orange)](https://github.com/cc-deck/cc-deck)
 
-**The TweetDeck for Claude Code.** A [Zellij](https://zellij.dev) sidebar plugin that monitors, attends to, and orchestrates multiple Claude Code sessions from a single terminal view.
+**The TweetDeck for Claude Code.** A [Zellij](https://zellij.dev) sidebar plugin that monitors, attends to, and orchestrates multiple Claude Code sessions from a single terminal view. Zellij is a modern terminal multiplexer (like tmux, but with a plugin system and built-in layout management).
 
 > [!WARNING]
 > **Beta software.** APIs, configuration formats, and behavior may change between releases. The author uses it daily for real work and it generally does what it promises. Bug reports and feedback are welcome.
@@ -59,6 +59,8 @@ podman run -it --rm \
   quay.io/cc-deck/cc-deck-demo:latest
 ```
 
+Docker works too: replace `podman` with `docker`.
+
 ### Build from source
 
 ```bash
@@ -85,21 +87,12 @@ Session indicators fade over time: a green checkmark dims to grey after five min
 
 ### Workspace management
 
-The `cc-deck ws` command manages Claude Code sessions across local Zellij, Podman containers, SSH remotes, Kubernetes clusters, and OpenShell sandboxes.
+The `cc-deck ws` command manages Claude Code sessions across local, containerized, remote, and sandboxed backends. See the [workspace management](#workspace-management) section for the full subcommand reference, project-local configuration, and workspace type details.
 
 ```bash
 cc-deck ws new my-project --type container --image quay.io/cc-deck/cc-deck-demo
 cc-deck ws attach my-project
 ```
-
-| Type | What it does |
-|------|-------------|
-| `local` | Zellij session on the host machine |
-| `container` | Single container managed by Podman |
-| `compose` | Multi-container setup via podman-compose |
-| `ssh` | Remote machine over SSH |
-| `k8s-deploy` | Persistent Kubernetes workspace with StatefulSet |
-| `openshell` | OpenShell sandbox with security policies |
 
 Git repos are cloned into the workspace automatically when you pass `--repo` flags or run `ws new` from inside a git repository. Up to four repos clone in parallel.
 
@@ -110,31 +103,15 @@ Git repos are cloned into the workspace automatically when you pass `--repo` fla
 - `/cc-deck.capture` discovers your local tools, shell config, plugins, MCP servers, and credentials
 - `/cc-deck.build --target container|ssh|openshell` generates and builds the target
 
-Capture once, build for any target. The manifest (`build.yaml`) stores tool requirements, settings paths, network domain groups, and credential declarations. After generating artifacts, `cc-deck build run` executes them without Claude Code.
+Capture once, build for any target. The manifest (`build.yaml`) stores tool requirements, settings paths, network domain groups, and credential declarations. After generating artifacts, `cc-deck build run` executes them without Claude Code. Use `/cc-deck.capture --all` to auto-accept all proposals without prompting.
 
-The Containerfile generation uses a snippet assembly model: fixed layers (the cc-deck/Zellij/Claude Code stack, shell finalization, footer) are rendered from Go templates during `build init`. Claude Code copies these snippets verbatim and only generates the variable parts (tool installs, plugin commands, user settings) between them. This keeps the structural layers deterministic across builds.
+Fixed Containerfile layers (the cc-deck/Zellij/Claude Code stack, shell finalization, footer) are rendered from Go templates during `build init`. Claude Code copies these snippets verbatim and generates only the variable parts between them, keeping structural layers deterministic across builds.
 
-For OpenShell targets, the build also generates a `policy.yaml` with network restrictions based on `allowed_domains` and detected tools. Package registry endpoints (crates.io, proxy.golang.org, npmjs.org, pypi.org) are added automatically when the corresponding tools appear in the manifest. Claude Code and GitHub endpoints are always included.
-
-**Credentials** for OpenShell workspaces are declared in the manifest without storing secrets:
-
-```yaml
-credentials:
-  - type: claude-vertex
-  - type: github
-```
-
-At `ws new` time, cc-deck resolves values from your host environment and creates OpenShell providers on the gateway. Missing env vars produce a warning but do not block workspace creation. Supported types: `claude`, `claude-vertex`, `github`, `gitlab`, `openai`, `nvidia`, `vertex`, `generic`. Use `/cc-deck.capture --all` to auto-detect credentials without prompting.
+For OpenShell targets, the build generates a `policy.yaml` with network restrictions. Package registry endpoints (crates.io, proxy.golang.org, npmjs.org, pypi.org) are added automatically when the corresponding tools appear in the manifest. Credentials for OpenShell are declared in the manifest without storing secrets (`credentials: [{type: claude-vertex}, {type: github}]`). At `ws new` time, cc-deck resolves values from your host environment and creates OpenShell providers on the gateway. Supported types: `claude`, `claude-vertex`, `github`, `gitlab`, `openai`, `nvidia`, `vertex`, `generic`.
 
 ### Network filtering
 
-Containerized sessions can restrict outbound network access to only the domains your project needs. Domain groups (`python`, `nodejs`, `rust`, `golang`, `github`) describe allowed domains by ecosystem instead of listing individual hosts.
-
-```bash
-cc-deck ws new my-session --type compose --allowed-domains python,github
-```
-
-A tinyproxy sidecar enforces the allowlist in Podman deployments. NetworkPolicy and EgressFirewall resources handle Kubernetes and OpenShift. Run `cc-deck config domains list` to see all built-in groups.
+Containerized sessions can restrict outbound network access to specific domains, preventing code or secret exfiltration. Domain groups (`python`, `rust`, `github`, etc.) describe allowed domains by ecosystem. See the [network filtering](#network-filtering-1) section for setup, domain groups, and customization.
 
 ### Voice relay
 
@@ -225,7 +202,7 @@ plugin location="file:~/.config/zellij/plugins/cc_deck.wasm" {
     navigate_key "Super s"    // default: "Alt s"
     attend_key "Super n"      // default: "Alt a"
     working_key "Alt w"       // default: "Alt w"
-    done_timeout "300"        // seconds before Working->Done and Done->Idle (default: 300)
+    done_timeout "300"        // seconds before Working to Done and Done to Idle (default: 300)
     idle_fade_secs "3600"     // idle indicator fade duration in seconds (default: 3600)
     auto_pause_secs "3600"    // auto-pause after idle for this many seconds (default: 3600, 0 to disable)
     attend_cycle_ms "2000"    // rapid-cycle window for attend/working in ms (default: 2000, 0 to disable)
@@ -240,7 +217,7 @@ After editing, restart Zellij to apply.
 
 ### Personal layout (recommended)
 
-Create a personal layout that will not be overwritten by `make install`:
+Create a personal layout that is not overwritten by `make install`:
 
 ```bash
 cp ~/.config/zellij/layouts/cc-deck.kdl ~/.config/zellij/layouts/cc-deck-personal.kdl
@@ -331,7 +308,7 @@ Containerized sessions can restrict outbound network access to specific domains,
 
 ### Quick setup
 
-Add a `network` section to your `cc-deck-image.yaml`:
+Add a `network` section to your `build.yaml`:
 
 ```yaml
 network:
@@ -411,6 +388,15 @@ cc-deck config domains show python               # Inspect a group's domains
 
 The `cc-deck ws` command group manages Claude Code sessions across all supported backends.
 
+| Type | What it does |
+|------|-------------|
+| `local` | Zellij session on the host machine (default) |
+| `container` | Single container managed by Podman |
+| `compose` | Multi-container setup via podman-compose |
+| `ssh` | Remote machine over SSH |
+| `k8s-deploy` | Persistent Kubernetes workspace with StatefulSet |
+| `openshell` | OpenShell sandbox with security policies |
+
 | Subcommand | Description |
 |------------|-------------|
 | `cc-deck ws new` | Create a new workspace |
@@ -469,7 +455,7 @@ SSH workspaces run Zellij sessions on persistent remote machines. You connect ov
 
 ```bash
 cc-deck ws new remote-dev --type ssh --host user@dev.example.com
-cc-deck attach remote-dev
+cc-deck ws attach remote-dev
 cc-deck ws refresh-creds remote-dev
 cc-deck ws push remote-dev ./src
 ```
@@ -567,8 +553,8 @@ cc-deck follows [Spec-Driven Development](CONTRIBUTING.md#spec-driven-developmen
 | [022](specs/022-network-filtering/) | Network Security & Domain Filtering | In Progress |
 | [023](specs/023-env-interface/) | Environment Interface and CLI | Planned |
 | [024](specs/024-container-env/) | Container Environment | Implemented |
-| [025](specs/025-sidebar-state-refresh/) | Sidebar State Refresh on Reattach | In Progress |
-| [025](specs/025-compose-env/) | Compose Environment | In Progress |
+| [025a](specs/025-sidebar-state-refresh/) | Sidebar State Refresh on Reattach | In Progress |
+| [025b](specs/025-compose-env/) | Compose Environment | In Progress |
 | [026](specs/026-project-local-config/) | Project-Local Config | Implemented |
 | [027](specs/027-cli-restructuring/) | CLI Command Restructuring | In Progress |
 | [028](specs/028-k8s-deploy/) | K8s Deploy Environment | Implemented |
