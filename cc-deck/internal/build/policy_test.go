@@ -203,8 +203,6 @@ func TestMergePolicy_EmptyOverrides(t *testing.T) {
 }
 
 func TestGeneratePolicy_VertexCredentialAddsGCPEndpoints(t *testing.T) {
-	t.Setenv("CLOUD_ML_REGION", "europe-west4")
-
 	m := &Manifest{
 		Version: 3,
 		Credentials: []CredentialEntry{
@@ -215,37 +213,29 @@ func TestGeneratePolicy_VertexCredentialAddsGCPEndpoints(t *testing.T) {
 	p, err := GeneratePolicy(m)
 	require.NoError(t, err)
 
-	// Should have GCP OAuth endpoint.
-	oauth, ok := p.NetworkPolicies["gcp_oauth"]
-	require.True(t, ok, "expected gcp_oauth policy")
-	require.Len(t, oauth.Endpoints, 1)
-	assert.Equal(t, "oauth2.googleapis.com", oauth.Endpoints[0].Host)
-	assert.Equal(t, 443, oauth.Endpoints[0].Port)
-
-	// Should have Vertex AI regional endpoint.
-	vertex, ok := p.NetworkPolicies["gcp_vertex_europe_west4"]
-	require.True(t, ok, "expected gcp_vertex_europe_west4 policy")
-	require.Len(t, vertex.Endpoints, 1)
-	assert.Equal(t, "europe-west4-aiplatform.googleapis.com", vertex.Endpoints[0].Host)
-	assert.Equal(t, 443, vertex.Endpoints[0].Port)
+	vertex, ok := p.NetworkPolicies["vertex_ai"]
+	require.True(t, ok, "expected vertex_ai policy")
+	assert.True(t, len(vertex.Endpoints) > 2, "expected multiple region endpoints")
+	assert.Equal(t, "global-aiplatform.googleapis.com", vertex.Endpoints[0].Host)
+	assert.Equal(t, "oauth2.googleapis.com", vertex.Endpoints[len(vertex.Endpoints)-1].Host)
 }
 
-func TestGeneratePolicy_VertexDefaultRegion(t *testing.T) {
-	t.Setenv("CLOUD_ML_REGION", "")
-
+func TestGeneratePolicy_ClaudeVertexCredentialAddsGCPEndpoints(t *testing.T) {
 	m := &Manifest{
 		Version: 3,
 		Credentials: []CredentialEntry{
-			{Type: "vertex"},
+			{Type: "claude-vertex"},
 		},
 	}
 
 	p, err := GeneratePolicy(m)
 	require.NoError(t, err)
 
-	vertex, ok := p.NetworkPolicies["gcp_vertex_us_east1"]
-	require.True(t, ok, "expected gcp_vertex_us_east1 policy with default region")
-	assert.Equal(t, "us-east1-aiplatform.googleapis.com", vertex.Endpoints[0].Host)
+	vertex, ok := p.NetworkPolicies["vertex_ai"]
+	require.True(t, ok, "expected vertex_ai policy")
+	assert.True(t, len(vertex.Endpoints) > 2, "expected multiple region endpoints")
+	assert.Equal(t, "global-aiplatform.googleapis.com", vertex.Endpoints[0].Host)
+	assert.Equal(t, "oauth2.googleapis.com", vertex.Endpoints[len(vertex.Endpoints)-1].Host)
 }
 
 func TestGeneratePolicy_GenericCredentialAddsCustomEndpoints(t *testing.T) {
@@ -308,12 +298,10 @@ func TestGeneratePolicy_CredentialsAndDomainsCombined(t *testing.T) {
 	_, hasDomain := p.NetworkPolicies["api_anthropic_com"]
 	assert.True(t, hasDomain, "expected domain policy entry")
 
-	// Should have vertex entries.
-	_, hasOAuth := p.NetworkPolicies["gcp_oauth"]
-	assert.True(t, hasOAuth, "expected gcp_oauth policy entry")
-
-	_, hasVertex := p.NetworkPolicies["gcp_vertex_us_east1"]
-	assert.True(t, hasVertex, "expected vertex policy entry")
+	// Should have vertex entry with region endpoints.
+	vertex, hasVertex := p.NetworkPolicies["vertex_ai"]
+	assert.True(t, hasVertex, "expected vertex_ai policy entry")
+	assert.Equal(t, "global-aiplatform.googleapis.com", vertex.Endpoints[0].Host)
 }
 
 func TestSlugify(t *testing.T) {
