@@ -8,89 +8,26 @@
 [![License](https://img.shields.io/github/license/cc-deck/cc-deck)](LICENSE)
 [![Beta](https://img.shields.io/badge/status-beta-orange)](https://github.com/cc-deck/cc-deck)
 
-**The TweetDeck for Claude Code.** A [Zellij](https://zellij.dev) sidebar plugin that monitors, attends to, and orchestrates multiple Claude Code sessions from a single terminal view. Zellij is a modern terminal multiplexer (like tmux, but with a plugin system and built-in layout management).
+**The TweetDeck for Claude Code.** A [Zellij](https://zellij.dev) sidebar plugin that monitors, attends to, and orchestrates multiple Claude Code sessions from a single terminal view.
 
 > [!WARNING]
-> **Beta Software.** cc-deck is under active development and not yet suitable for production use. APIs, configuration formats, and behavior may change between releases without notice. That said, the author uses it daily for real work, and it generally does what it promises. Bug reports and feedback are very welcome.
+> **Beta software.** APIs, configuration formats, and behavior may change between releases. The author uses it daily for real work and it generally does what it promises. Bug reports and feedback are welcome.
 
-**[Website](https://cc-deck.github.io)** · **[Documentation](https://cc-deck.github.io/docs/)** · **[Quickstart](#install)** · **[Contributing](CONTRIBUTING.md)**
+**[Website](https://cc-deck.github.io)** · **[Documentation](https://cc-deck.github.io/docs/)** · **[Quickstart](#quickstart)** · **[Contributing](CONTRIBUTING.md)**
 
 ---
 
-## What is cc-deck?
-
-Managing multiple Claude Code sessions from separate terminals quickly becomes unwieldy. You lose track of which session is waiting for input, which one just finished, and which one needs your attention next.
-
-cc-deck solves this with a real-time sidebar that shows all your sessions and intelligently directs your attention where it matters most.
-
-### Zellij Sidebar Plugin
-
-The sidebar plugin tracks every Claude Code session across tabs. It shows activity status, handles permission requests, and provides keyboard-driven navigation. Smart attend automatically cycles through sessions that need your attention, prioritizing permission requests over completed tasks over idle sessions.
-
-### Build Command
-
-The `cc-deck build` command provides a single workflow for replicating your developer environment to both container images and remote SSH machines. A shared manifest captures your local tools, shell configuration, Claude Code plugins, and MCP servers. Two Claude Code slash commands handle the workflow:
-
-- **`/cc-deck.capture`** discovers your local setup and writes it into the manifest
-- **`/cc-deck.build --target container`** generates a Containerfile and builds an optimized image
-- **`/cc-deck.build --target ssh`** generates Ansible playbooks and provisions a remote machine
-- **`/cc-deck.build --target openshell`** generates an OpenShell sandbox image with embedded security policy
-- **`cc-deck build run`** executes the generated artifacts directly (container build, Ansible playbook, or OpenShell image build)
-
-Capture once, then build for any target from the same manifest. After generating artifacts, run `cc-deck build run` to execute them without Claude Code involvement. Use `--push` to also push container images to a registry. The OpenShell target auto-generates a `policy.yaml` from `network.allowed_domains` with per-binary network restrictions, embedding it at `/etc/openshell/policy.yaml` in the built image. Fixed Containerfile layers (mandatory stack, shell finalize, footer) are rendered from Go templates during `build init`, ensuring deterministic output regardless of which Claude Code session generates the variable parts. The build spec uses a snippet assembly model: Claude Code copies pre-rendered template blocks verbatim and only generates tool installs, plugin commands, and settings between them.
-
-### Credential Injection for OpenShell
-
-OpenShell workspaces need API keys and tokens to run Claude Code and interact with external services. The build manifest supports a `credentials` section that declares which credential providers the workspace requires without storing actual secrets.
-
-```yaml
-# In .cc-deck/setup/build.yaml
-credentials:
-  - type: claude
-  - type: github
-```
-
-When you run `cc-deck ws new --type openshell`, cc-deck reads the credential declarations, resolves values from your host environment, creates OpenShell providers on the gateway, and attaches them to the sandbox. If an env var is missing, the provider is skipped with a warning and the workspace still starts.
-
-Supported provider types include `claude`, `claude-vertex`, `github`, `gitlab`, `openai`, `nvidia`, and `vertex`. The `claude-vertex` type handles Vertex AI authentication (detected when `CLAUDE_CODE_USE_VERTEX` and `ANTHROPIC_VERTEX_PROJECT_ID` are set). The `vertex` type handles file-based auth by uploading the service account JSON into the sandbox automatically. A `generic` type supports custom services with explicit env vars and network endpoints.
-
-Use `/cc-deck.capture` to auto-detect available credentials from your host environment during workspace setup. Use `/cc-deck.capture --all` to auto-accept all proposals without prompting.
-
-### Network Filtering
-
-When deploying containerized sessions, cc-deck can restrict outbound network access to only the domains your project needs. Domain groups (python, nodejs, rust, golang, github, and more) let you describe allowed domains by ecosystem instead of listing individual hosts. A tinyproxy sidecar enforces the allowlist in Podman deployments, while NetworkPolicy and EgressFirewall resources handle Kubernetes and OpenShift.
-
-### Workspace Repository Provisioning
-
-When creating a remote environment, cc-deck can automatically clone git repositories into the workspace. Declare repos in the environment definition or pass them via `--repo` flags. Running `ws new` inside a git repository auto-detects the current project and includes it in the clone list. Credentials are transported via SSH agent forwarding or token injection with post-clone cleanup, depending on the environment type. Up to four repos are cloned in parallel, and the operation is fully idempotent.
-
-### Voice Relay
-
-Voice relay lets you dictate into any workspace session using local speech-to-text. Audio is captured from your microphone and transcribed on your machine via whisper.cpp, so nothing leaves the local network except the resulting text. Voice activity detection (VAD) listens continuously and segments speech automatically. A note indicator in the sidebar header shows connection status (bright green when listening, dim when muted). The indicator remains stable during normal operation and survives session switches without flickering. Mute state is carried on every heartbeat, so it persists through sleep/wake recovery without manual re-muting. The voice relay TUI shows the currently focused session name, updating within 2 seconds when you switch focus. You can toggle mute from the sidebar (Alt+v, `v` in navigation mode, or click the note) or from the voice TUI (`m`). Saying "send" as a standalone word sends a newline to submit the prompt. Additional command words can be configured in `~/.config/cc-deck/config.yaml`.
-
-```bash
-# One-time setup: install whisper.cpp and download a model
-brew install whisper-cpp
-cc-deck ws voice --setup
-
-# Start voice relay for a workspace (in a second terminal)
-cc-deck ws voice my-project
-```
-
-### Multi-Platform
-
-Run cc-deck locally with Zellij, in Podman containers with mounted source code, or on Kubernetes clusters with persistent StatefulSet-backed workspaces. OpenShift is detected automatically and generates Routes and EgressFirewall resources. The sidebar experience is the same everywhere.
-
-## Install
+## Quickstart
 
 ### Homebrew (macOS)
 
 ```bash
 brew install cc-deck/tap/cc-deck
 cc-deck config plugin install
+zellij --layout cc-deck
 ```
 
-### Binary Download
+### Binary download
 
 Download the latest release from [GitHub Releases](https://github.com/cc-deck/cc-deck/releases):
 
@@ -99,9 +36,10 @@ Download the latest release from [GitHub Releases](https://github.com/cc-deck/cc
 curl -fsSL https://github.com/cc-deck/cc-deck/releases/latest/download/cc-deck_$(curl -s https://api.github.com/repos/cc-deck/cc-deck/releases/latest | jq -r .tag_name | sed 's/^v//')_darwin_arm64.tar.gz | tar -xz
 sudo mv cc-deck /usr/local/bin/
 cc-deck config plugin install
+zellij --layout cc-deck
 ```
 
-### Linux Packages
+### Linux packages
 
 ```bash
 # Fedora / RHEL
@@ -113,7 +51,7 @@ sudo apt install ./cc-deck_*.deb
 
 Download RPM and DEB packages from [GitHub Releases](https://github.com/cc-deck/cc-deck/releases). After installing, run `cc-deck config plugin install` to set up the Zellij plugin and hooks.
 
-### Demo Image (Try Without Installing)
+### Try without installing
 
 ```bash
 podman run -it --rm \
@@ -121,7 +59,7 @@ podman run -it --rm \
   quay.io/cc-deck/cc-deck-demo:latest
 ```
 
-### Build from Source
+### Build from source
 
 ```bash
 git clone https://github.com/cc-deck/cc-deck.git
@@ -130,6 +68,89 @@ make install
 ```
 
 Requires [Zellij](https://zellij.dev) 0.44+, [Go](https://go.dev) 1.22+, and [Rust](https://www.rust-lang.org) stable with `wasm32-wasip1` target.
+
+---
+
+## What does cc-deck do?
+
+Running multiple Claude Code sessions in separate terminals gets messy fast. You lose track of which session needs your input, which one just finished, and which one is stuck waiting for permission.
+
+cc-deck puts a real-time sidebar next to your sessions that shows what each one is doing and directs your attention where it matters.
+
+### Sidebar plugin
+
+The sidebar tracks every Claude Code session across Zellij tabs. It shows activity status, handles permission requests, and provides keyboard-driven navigation. `Alt+a` (smart attend) cycles through sessions that need you, prioritizing permission requests over finished tasks over idle sessions. `Alt+w` jumps between working sessions. Click, type, or use vim-style `j`/`k` navigation.
+
+Session indicators fade over time: a green checkmark dims to grey after five minutes, an idle circle darkens over an hour. You can tell at a glance how fresh each session is.
+
+### Workspace management
+
+The `cc-deck ws` command manages Claude Code sessions across local Zellij, Podman containers, SSH remotes, Kubernetes clusters, and OpenShell sandboxes.
+
+```bash
+cc-deck ws new my-project --type container --image quay.io/cc-deck/cc-deck-demo
+cc-deck ws attach my-project
+```
+
+| Type | What it does |
+|------|-------------|
+| `local` | Zellij session on the host machine |
+| `container` | Single container managed by Podman |
+| `compose` | Multi-container setup via podman-compose |
+| `ssh` | Remote machine over SSH |
+| `k8s-deploy` | Persistent Kubernetes workspace with StatefulSet |
+| `openshell` | OpenShell sandbox with security policies |
+
+Git repos are cloned into the workspace automatically when you pass `--repo` flags or run `ws new` from inside a git repository. Up to four repos clone in parallel.
+
+### Build command
+
+`cc-deck build` replicates your local developer environment to container images, SSH machines, or OpenShell sandboxes from a single manifest. Two Claude Code slash commands handle the workflow:
+
+- `/cc-deck.capture` discovers your local tools, shell config, plugins, MCP servers, and credentials
+- `/cc-deck.build --target container|ssh|openshell` generates and builds the target
+
+Capture once, build for any target. The manifest (`build.yaml`) stores tool requirements, settings paths, network domain groups, and credential declarations. After generating artifacts, `cc-deck build run` executes them without Claude Code.
+
+The Containerfile generation uses a snippet assembly model: fixed layers (the cc-deck/Zellij/Claude Code stack, shell finalization, footer) are rendered from Go templates during `build init`. Claude Code copies these snippets verbatim and only generates the variable parts (tool installs, plugin commands, user settings) between them. This keeps the structural layers deterministic across builds.
+
+For OpenShell targets, the build also generates a `policy.yaml` with network restrictions based on `allowed_domains` and detected tools. Package registry endpoints (crates.io, proxy.golang.org, npmjs.org, pypi.org) are added automatically when the corresponding tools appear in the manifest. Claude Code and GitHub endpoints are always included.
+
+**Credentials** for OpenShell workspaces are declared in the manifest without storing secrets:
+
+```yaml
+credentials:
+  - type: claude-vertex
+  - type: github
+```
+
+At `ws new` time, cc-deck resolves values from your host environment and creates OpenShell providers on the gateway. Missing env vars produce a warning but do not block workspace creation. Supported types: `claude`, `claude-vertex`, `github`, `gitlab`, `openai`, `nvidia`, `vertex`, `generic`. Use `/cc-deck.capture --all` to auto-detect credentials without prompting.
+
+### Network filtering
+
+Containerized sessions can restrict outbound network access to only the domains your project needs. Domain groups (`python`, `nodejs`, `rust`, `golang`, `github`) describe allowed domains by ecosystem instead of listing individual hosts.
+
+```bash
+cc-deck ws new my-session --type compose --allowed-domains python,github
+```
+
+A tinyproxy sidecar enforces the allowlist in Podman deployments. NetworkPolicy and EgressFirewall resources handle Kubernetes and OpenShift. Run `cc-deck config domains list` to see all built-in groups.
+
+### Voice relay
+
+Voice relay lets you dictate into any workspace session using local speech-to-text via whisper.cpp. Audio stays on your machine. A note indicator in the sidebar shows connection status. Toggle mute from the sidebar (`Alt+v`) or the voice TUI (`m`). Say "send" to submit a prompt.
+
+```bash
+brew install whisper-cpp
+cc-deck ws voice --setup
+cc-deck ws voice my-project
+```
+
+### Multi-platform
+
+Run cc-deck locally with Zellij, in Podman containers, or on Kubernetes clusters with persistent StatefulSet-backed workspaces. OpenShift is detected automatically. The sidebar works the same everywhere.
+
+---
 
 ## Usage
 
@@ -143,7 +164,7 @@ Or set as default in `~/.config/zellij/config.kdl`:
 default_layout "cc-deck"
 ```
 
-## Layout Variants
+## Layout variants
 
 Three layout styles are installed:
 
@@ -159,7 +180,7 @@ To change the default variant:
 cc-deck config plugin install --layout minimal --force
 ```
 
-## Keyboard Shortcuts
+## Keyboard shortcuts
 
 ### Global (from any tab)
 
@@ -169,7 +190,7 @@ cc-deck config plugin install --layout minimal --force
 | `Alt+a` | Jump to next session needing attention |
 | `Alt+w` | Jump to next working session |
 
-### Session List (navigation mode)
+### Session list (navigation mode)
 
 | Key | Action |
 |-----|--------|
@@ -192,9 +213,9 @@ cc-deck config plugin install --layout minimal --force
 | Right-click session | Rename session |
 | Click [+] | New tab |
 
-## Customizing Keybindings
+## Customizing keybindings
 
-### Plugin Shortcuts (Alt+s, Alt+a)
+### Plugin shortcuts (Alt+s, Alt+a)
 
 Edit the plugin config in the layout file (`~/.config/zellij/layouts/cc-deck.kdl`):
 
@@ -204,7 +225,7 @@ plugin location="file:~/.config/zellij/plugins/cc_deck.wasm" {
     navigate_key "Super s"    // default: "Alt s"
     attend_key "Super n"      // default: "Alt a"
     working_key "Alt w"       // default: "Alt w"
-    done_timeout "300"        // seconds before Working→Done and Done→Idle (default: 300)
+    done_timeout "300"        // seconds before Working->Done and Done->Idle (default: 300)
     idle_fade_secs "3600"     // idle indicator fade duration in seconds (default: 3600)
     auto_pause_secs "3600"    // auto-pause after idle for this many seconds (default: 3600, 0 to disable)
     attend_cycle_ms "2000"    // rapid-cycle window for attend/working in ms (default: 2000, 0 to disable)
@@ -217,15 +238,15 @@ After editing, restart Zellij to apply.
 
 > **Note**: `make install` overwrites the managed layout files (`cc-deck.kdl`, `cc-deck-standard.kdl`, `cc-deck-clean.kdl`). Use a **personal layout file** to preserve custom keybindings across reinstalls.
 
-### Personal Layout (Recommended)
+### Personal layout (recommended)
 
-Create a personal layout that won't be overwritten by `make install`:
+Create a personal layout that will not be overwritten by `make install`:
 
 ```bash
 cp ~/.config/zellij/layouts/cc-deck.kdl ~/.config/zellij/layouts/cc-deck-personal.kdl
 ```
 
-Edit `~/.config/zellij/layouts/cc-deck-personal.kdl` and add your custom keys to the plugin blocks:
+Edit `~/.config/zellij/layouts/cc-deck-personal.kdl` with your custom keys:
 
 ```kdl
 plugin location="file:~/.config/zellij/plugins/cc_deck.wasm" {
@@ -241,9 +262,7 @@ Then set it as default in `~/.config/zellij/config.kdl`:
 default_layout "cc-deck-personal"
 ```
 
-Now `zellij` (without `--layout`) uses your personal keybindings automatically.
-
-### Using Cmd Keys (macOS + Ghostty)
+### Using Cmd keys (macOS + Ghostty)
 
 To use Cmd-based shortcuts, configure Ghostty to pass Cmd keys through to Zellij:
 
@@ -254,63 +273,63 @@ keybind = cmd+s=unbind
 keybind = cmd+n=unbind
 ```
 
-## Session States
+## Session states
 
 | Icon | State | Description |
 |------|-------|-------------|
-| ○ | Init | Session detected, Claude Code not yet producing output |
+| ○ | Init | Session detected, not yet producing output |
 | ● | Working | Actively generating output or calling tools |
 | ⚠ | Waiting (Permission) | Needs user permission to proceed (highest attend priority) |
 | ⚠ | Waiting (Notification) | Paused with informational notification |
 | ✓ | Done | Task completed (green, fades to grey over 5 minutes) |
 | ✓ | Agent Done | Sub-agent completed |
-| ○ | Idle | Running but waiting for user input (fades to dark grey over 1 hour) |
+| ○ | Idle | Waiting for user input (fades to dark grey over 1 hour) |
 | ⏸︎ | Paused | Excluded from attend cycling, name dimmed |
 
-### Session Lifecycle
+### Session lifecycle
 
-Sessions progress through states automatically based on activity timeouts:
+Sessions progress through states based on activity timeouts:
 
 ```
 Working ──[5m idle]──> Done ──[5m]──> Idle ──[1h]──> Paused
 ```
 
-- **Working to Done**: When no hook events arrive for 5 minutes, the session is considered complete. This acts as a fallback since Claude Code's `Stop` hook does not always fire on natural response completion.
+- **Working to Done**: When no hook events arrive for 5 minutes, the session is considered complete. This is a fallback since Claude Code does not always fire the `Stop` hook on natural response completion.
 - **Done to Idle**: After 5 more minutes, the green checkmark fades to a grey circle.
 - **Idle to Paused**: After 1 hour of inactivity, the session auto-pauses. Paused sessions are excluded from attend cycling and hook processing.
-- **Auto-unpause**: Switching to a paused session (via click, navigate, or attend) automatically unpauses it.
+- **Auto-unpause**: Switching to a paused session (via click, navigate, or attend) unpauses it automatically.
 
-### Fading Indicators
+### Fading indicators
 
-Session indicators use time-aware color fading to show freshness at a glance:
+Session indicators use time-aware color fading to show freshness:
 
 - **Done** (✓): Fades from bright green to light grey over 5 minutes
 - **Idle** (○): Fades from light grey to dark grey over 1 hour
 
-The fade uses a square-root curve, so changes are most visible in the first few minutes and taper off gradually.
+The fade follows a square-root curve: changes are most visible in the first few minutes and taper off.
 
-## Smart Attend (Alt+a)
+## Smart attend (Alt+a)
 
 Uses exclusive tiers. Only the highest non-empty tier is cycled:
 
-1. **⚠ Waiting** (permission first, then notification, oldest first). When waiting sessions exist, Alt+a cycles ONLY among those.
+1. **⚠ Waiting** (permission first, then notification, oldest first). When waiting sessions exist, Alt+a cycles only among those.
 2. **✓ Done** (most recently finished first). Only used when no waiting sessions exist.
 3. **○ Idle/Init** (tab order). Only used when nothing else needs attention.
 4. **Skips**: Working and Paused sessions are never attended.
 
 Subsequent presses round-robin within the selected tier. If the current session is already the attend target, it skips to the next candidate.
 
-## Working Jump (Alt+w)
+## Working jump (Alt+w)
 
-Cycles through sessions that are actively running, ordered by most recently active first. Only Working sessions (purple `●`) are included. Waiting sessions are excluded since they need attention, which is Alt+a's job.
+Cycles through sessions that are actively running, ordered by most recently active first. Only Working sessions (purple ●) are included. Waiting sessions are excluded because they need attention, which is Alt+a's job.
 
 Rapid presses within 2 seconds cycle through all working sessions without revisiting. After a 2-second pause, the next press resets to the most recent working session.
 
-## Network Filtering
+## Network filtering
 
-Containerized sessions can be restricted to only the network domains your project needs, preventing code or secret exfiltration from YOLO-mode agents.
+Containerized sessions can restrict outbound network access to specific domains, preventing code or secret exfiltration from YOLO-mode agents.
 
-### Quick Setup
+### Quick setup
 
 Add a `network` section to your `cc-deck-image.yaml`:
 
@@ -328,9 +347,9 @@ Then create a compose workspace with network filtering:
 cc-deck ws new my-session --type compose --allowed-domains python,github
 ```
 
-The session container is placed on an internal network with all traffic routed through a tinyproxy sidecar that only allows the specified domains.
+The session container runs on an internal network with all traffic routed through a tinyproxy sidecar that only allows the specified domains.
 
-### Domain Groups
+### Domain groups
 
 Built-in groups cover common ecosystems. Run `cc-deck config domains list` to see all available groups:
 
@@ -347,7 +366,7 @@ Built-in groups cover common ecosystems. Run `cc-deck config domains list` to se
 
 Backend domains (Anthropic or Vertex AI) are included automatically.
 
-### Customizing Domain Groups
+### Customizing domain groups
 
 Create `~/.config/cc-deck/domains.yaml` to extend or override built-in groups:
 
@@ -369,7 +388,7 @@ company:
     - git.internal.corp
 ```
 
-### Create-Time Domain Overrides
+### Create-time domain overrides
 
 ```bash
 # Specify domain groups when creating a compose workspace
@@ -380,7 +399,7 @@ cc-deck config domains add my-session rust
 cc-deck config domains remove my-session docker
 ```
 
-### Debugging Blocked Domains
+### Debugging blocked domains
 
 ```bash
 cc-deck config domains blocked my-session        # Show denied requests
@@ -388,14 +407,14 @@ cc-deck config domains add my-session pypi.org   # Add domain at runtime
 cc-deck config domains show python               # Inspect a group's domains
 ```
 
-## Workspace Management
+## Workspace management
 
-The `cc-deck ws` command group provides a unified interface for managing Claude Code sessions across all supported backends (local, Podman, Kubernetes).
+The `cc-deck ws` command group manages Claude Code sessions across all supported backends.
 
 | Subcommand | Description |
 |------------|-------------|
-| `cc-deck ws new` | Create a new workspace (scaffolds definition if needed, then provisions) |
-| `cc-deck ws attach` | Attach to a workspace (auto-starts infrastructure if needed, creates session with layout) |
+| `cc-deck ws new` | Create a new workspace |
+| `cc-deck ws attach` | Attach to a workspace (auto-starts infrastructure if needed) |
 | `cc-deck ws kill-session` | Kill the Zellij session without affecting infrastructure |
 | `cc-deck ws start` | Start infrastructure for container/compose/k8s workspaces |
 | `cc-deck ws stop` | Stop infrastructure (kills session first, then stops container/pod) |
@@ -404,19 +423,19 @@ The `cc-deck ws` command group provides a unified interface for managing Claude 
 | `cc-deck ws status` | Show detailed status of a workspace |
 | `cc-deck ws prune` | Remove stale project registry entries |
 
-### Project-Local Configuration
+### Project-local configuration
 
-Workspace definitions can live inside the project repository in a `.cc-deck/` directory at the git root. This allows team members to clone and create matching workspaces without manual flag passing.
+Workspace definitions can live inside the project repository in a `.cc-deck/` directory at the git root. Team members can clone and create matching workspaces without manual flag passing.
 
 ```bash
-# Set up a new project (scaffolds definition + provisions)
+# Set up a new project
 cc-deck ws new --type compose --image quay.io/cc-deck/cc-deck-demo:latest
 git add .cc-deck/ && git commit -m "Add cc-deck workspace config"
 
-# Team member clones and creates without any flags
+# Team member clones and gets the same environment
 git clone git@github.com:org/my-api.git && cd my-api
 cc-deck ws new     # reads .cc-deck/environment.yaml
-cc-deck ws attach     # no name needed inside the project
+cc-deck ws attach  # no name needed inside the project
 ```
 
 The `.cc-deck/` directory separates committed artifacts from runtime state:
@@ -430,44 +449,32 @@ The `.cc-deck/` directory separates committed artifacts from runtime state:
   run/                # Gitignored: generated compose files
 ```
 
-When no workspace name is provided, `cc-deck` looks for `.cc-deck/environment.yaml` at the git root, then walks up the directory tree for workspace-level definitions. This supports both single-repo projects and multi-repo workspaces. All lifecycle commands (attach, status, start, stop, kill) support this implicit resolution.
+When no workspace name is provided, `cc-deck` looks for `.cc-deck/environment.yaml` at the git root, then walks up the directory tree. All lifecycle commands (attach, status, start, stop, kill) support this implicit resolution.
 
-### Compose Workspaces
+### Compose workspaces
 
 Compose workspaces use `podman-compose` for multi-container orchestration. They generate runtime artifacts in `.cc-deck/run/` within the project directory.
 
 ```bash
-# Create a compose workspace in the current project
 cc-deck ws new --type compose
-
-# Create with network filtering (proxy sidecar)
 cc-deck ws new --type compose --allowed-domains anthropic,github
-
-# Attach to the workspace
 cc-deck ws attach
 ```
 
-The project directory is bind-mounted at `/workspace` by default, providing immediate bidirectional file sync.
+The project directory is bind-mounted at `/workspace` by default for bidirectional file sync.
 
-### SSH Workspaces
+### SSH workspaces
 
 SSH workspaces run Zellij sessions on persistent remote machines. You connect over SSH, work inside the remote Zellij session, and detach when finished. The session continues running on the remote host.
 
 ```bash
-# Create an SSH workspace
 cc-deck ws new remote-dev --type ssh --host user@dev.example.com
-
-# Attach to the remote Zellij session
 cc-deck attach remote-dev
-
-# Refresh credentials without attaching
 cc-deck ws refresh-creds remote-dev
-
-# Push files to the remote workspace
 cc-deck ws push remote-dev ./src
 ```
 
-Pre-flight checks during creation verify SSH connectivity and offer to install missing tools (Zellij, Claude Code, cc-deck) on the remote.
+Pre-flight checks during creation verify SSH connectivity and offer to install missing tools on the remote.
 
 ### Variants
 
@@ -478,18 +485,7 @@ cc-deck ws new --variant auth    # container: cc-deck-my-api-auth
 cc-deck ws new --variant bugfix  # container: cc-deck-my-api-bugfix
 ```
 
-## Build from Source
-
-```bash
-# Prerequisites
-rustup target add wasm32-wasip1
-# Go 1.22+ required
-
-# Build and install
-make install
-```
-
-## Test Coverage
+## Test coverage
 
 Coverage measurement for the Rust plugin uses [cargo-llvm-cov](https://github.com/taiki-e/cargo-llvm-cov). Install prerequisites first:
 
@@ -506,32 +502,17 @@ Then use the Makefile targets:
 | `make coverage-summary` | Print a per-module coverage table to the terminal |
 | `make coverage-json` | Write machine-readable JSON to `cc-zellij-plugin/target/llvm-cov/coverage.json` |
 
-Coverage runs tests on the native target, not wasm32. Code behind `#[cfg(target_family = "wasm")]` guards is unreachable during measurement. The no-op stubs in `wasm_compat.rs` and `debug.rs` are covered instead.
+Coverage runs tests on the native target, not wasm32. Code behind `#[cfg(target_family = "wasm")]` guards is unreachable during measurement.
 
-### Integration Tests
+### Integration tests
 
-The plugin includes integration tests that exercise `SidebarRendererPlugin` and `ControllerPlugin` through their `ZellijPlugin` trait methods (`load`, `update`, `pipe`) with synthetic events. These tests verify the full event dispatch chain (pipe message arrives, state updates, assertions confirm the change) without requiring a running Zellij instance.
+The plugin includes integration tests that exercise `SidebarRendererPlugin` and `ControllerPlugin` through their `ZellijPlugin` trait methods (`load`, `update`, `pipe`) with synthetic events. These tests verify the full event dispatch chain without a running Zellij instance.
 
-Integration tests cover:
-
-- **Render payload pipeline**: Sidebar receives, replaces, and filters render payloads from the controller
-- **Hook event processing**: Controller creates and updates sessions from CLI hook events (SessionStart, PreToolUse, Stop)
-- **Discovery protocol**: SidebarHello/SidebarInit handshake between controller and sidebar
-- **Action dispatch**: Pause, attend, and other action messages processed through the controller pipe interface
-- **Permission deferral**: Events queued before permissions are granted and replayed afterward
-- **Mode transitions**: Sidebar navigation mode triggered through pipe messages
-- **Error handling**: Malformed JSON and unknown pipe names handled gracefully without panics
-- **Protocol roundtrips**: Serialization fidelity verified for RenderPayload and ActionMessage through the pipe interface
-
-Test files live alongside the code they test:
-
-- `cc-zellij-plugin/src/sidebar_plugin/integration_tests.rs`
-- `cc-zellij-plugin/src/controller/integration_tests.rs`
-
-Run all tests (including integration tests) with `make test`. To run only integration tests:
+Integration tests cover render payload pipeline, hook event processing, discovery protocol handshake, action dispatch, permission deferral, mode transitions, error handling, and protocol roundtrips.
 
 ```bash
-cargo test --lib integration_tests
+make test              # all tests
+cargo test --lib integration_tests   # integration tests only
 ```
 
 ## Uninstall
@@ -540,7 +521,7 @@ cargo test --lib integration_tests
 cc-deck config plugin remove
 ```
 
-## Project Structure
+## Project structure
 
 ```
 cc-zellij-plugin/   Zellij sidebar plugin (Rust, WASM)
@@ -552,21 +533,21 @@ base-image/         Base container image build
 specs/              Feature specifications (SDD)
 ```
 
-## Known Issues
+## Known issues
 
-### Duplicate Controller Instances (Zellij Bug)
+### Duplicate controller instances (Zellij bug)
 
-Zellij versions 0.43 and 0.44 occasionally create two WASM instances of a background plugin when `load_plugins` races with the `AddClient` event. This produced duplicate keybinding registrations and render broadcasts, causing navigation mode to jump two positions per keypress and the voice indicator to flicker during tab switches.
+Zellij 0.43 and 0.44 occasionally create two WASM instances of a background plugin when `load_plugins` races with the `AddClient` event. This causes duplicate keybinding registrations and render broadcasts.
 
-cc-deck mitigates this with a leader election protocol. On startup, each controller instance broadcasts a probe message containing its plugin ID and enters a dormant state. The instance with the lowest plugin ID wins the election and activates within two seconds. The losing instance stays dormant, ignoring all events except election protocol messages. The leader sends a periodic heartbeat (every 30 seconds) so the dormant instance can detect a leader failure and re-activate if needed.
+cc-deck mitigates this with a leader election protocol. On startup, each controller broadcasts a probe with its plugin ID. The instance with the lowest ID activates within two seconds; the other stays dormant. The leader sends a periodic heartbeat (every 30 seconds) so the dormant instance can detect failure and re-activate.
 
-This approach is invisible in normal operation. The only observable effect is a brief two-second delay before keybindings become active on a fresh Zellij start, which overlaps with the time Zellij needs to initialize its own UI.
+The only visible effect is a two-second delay before keybindings become active on a fresh Zellij start, which overlaps with Zellij's own initialization time.
 
 ## Contributing
 
-Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the development process, including how we use Spec-Driven Development for larger changes.
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the development process, including how Spec-Driven Development is used for larger changes.
 
-## Feature Specifications
+## Feature specifications
 
 cc-deck follows [Spec-Driven Development](CONTRIBUTING.md#spec-driven-development). Each feature starts with a specification before implementation. Current specs:
 
@@ -585,22 +566,22 @@ cc-deck follows [Spec-Driven Development](CONTRIBUTING.md#spec-driven-developmen
 | [021](specs/021-release-process/) | Release Process | Implemented |
 | [022](specs/022-network-filtering/) | Network Security & Domain Filtering | In Progress |
 | [023](specs/023-env-interface/) | Environment Interface and CLI | Planned |
-| [024](specs/024-container-env/) | Container Environment | `podman run` lifecycle, definition/state separation, podman package | Implemented |
+| [024](specs/024-container-env/) | Container Environment | Implemented |
 | [025](specs/025-sidebar-state-refresh/) | Sidebar State Refresh on Reattach | In Progress |
-| [025](specs/025-compose-env/) | Compose Environment | Multi-container orchestration via `podman-compose`, optional network filtering | In Progress |
-| [026](specs/026-project-local-config/) | Project-Local Config | `.cc-deck/` directory with shareable definitions, implicit name resolution, workspace support | Implemented |
-| [027](specs/027-cli-restructuring/) | CLI Command Restructuring | Promote daily commands to top level, remove legacy K8s commands, organize help groups | In Progress |
-| [028](specs/028-k8s-deploy/) | K8s Deploy Environment | Persistent Kubernetes workspaces with StatefulSet, credentials, NetworkPolicy, MCP sidecars, OpenShift | Implemented |
-| [030](specs/030-single-instance-arch/) | Single Instance Architecture | Controller + sidebar plugin split for scalable multi-tab performance | Implemented |
-| [031](specs/031-single-binary-merge/) | Single Binary Merge | Merge controller + sidebar into one WASM binary with runtime mode selection | Implemented |
-| [033](specs/033-ssh-environment/) | SSH Remote Execution | Remote Zellij sessions over SSH with pre-flight bootstrap, credential forwarding, and file sync | In Progress |
-| [034](specs/034-unified-setup-command/) | Build Command | Single `cc-deck build` command with shared manifest, Claude Code slash commands, and Ansible-based SSH provisioning | Planned |
-| [036](specs/036-setup-run-command/) | Setup Run Command | `cc-deck build run` executes pre-generated build artifacts (container build or Ansible playbook) directly from the CLI | Implemented |
-| [037](specs/037-env-lifecycle-fixes/) | Environment Lifecycle Fixes | Fix type resolution for global definitions, SSH delete cleanup, SOURCE column in list, `--global`/`--local` flags | In Progress |
-| [038](specs/038-workspace-repos/) | Workspace Repos | Auto-clone git repos into remote workspaces during `ws new`, with credential transport and CLI flags | In Progress |
-| [039](specs/039-cli-rename-ws-build/) | CLI Rename: Workspace & Build | Rename `env` to `ws`, `setup` to `build`, new `config` parent, promote `attach`/`ls`/`exec` to top level | In Progress |
-| [041](specs/041-workspace-channels/) | Workspace Channels | Typed channel abstractions (Pipe, Data, Git) for unified local-to-remote transport across all workspace types | In Progress |
-| [042](specs/042-voice-relay/) | Voice Relay | Local speech-to-text dictation into remote agent sessions via whisper.cpp, VAD, and permission safety | Implemented |
-| [045](specs/045-voice-sidebar-integration/) | Voice Sidebar Integration | Sidebar ♫ indicator, bidirectional mute toggle, `[[command]]` protocol, PTT removal | In Progress |
-| [056](specs/056-openshell-build-target/) | OpenShell Build Target | Generate OpenShell sandbox images from build manifest with auto-generated security policies | In Progress |
-| [058](specs/058-openshell-credential-injection/) | OpenShell Credential Injection | Bridge cc-deck credential system to OpenShell provider architecture for sandbox workspaces | In Progress |
+| [025](specs/025-compose-env/) | Compose Environment | In Progress |
+| [026](specs/026-project-local-config/) | Project-Local Config | Implemented |
+| [027](specs/027-cli-restructuring/) | CLI Command Restructuring | In Progress |
+| [028](specs/028-k8s-deploy/) | K8s Deploy Environment | Implemented |
+| [030](specs/030-single-instance-arch/) | Single Instance Architecture | Implemented |
+| [031](specs/031-single-binary-merge/) | Single Binary Merge | Implemented |
+| [033](specs/033-ssh-environment/) | SSH Remote Execution | In Progress |
+| [034](specs/034-unified-setup-command/) | Build Command | Planned |
+| [036](specs/036-setup-run-command/) | Setup Run Command | Implemented |
+| [037](specs/037-env-lifecycle-fixes/) | Environment Lifecycle Fixes | In Progress |
+| [038](specs/038-workspace-repos/) | Workspace Repos | In Progress |
+| [039](specs/039-cli-rename-ws-build/) | CLI Rename: Workspace & Build | In Progress |
+| [041](specs/041-workspace-channels/) | Workspace Channels | In Progress |
+| [042](specs/042-voice-relay/) | Voice Relay | Implemented |
+| [045](specs/045-voice-sidebar-integration/) | Voice Sidebar Integration | In Progress |
+| [056](specs/056-openshell-build-target/) | OpenShell Build Target | In Progress |
+| [058](specs/058-openshell-credential-injection/) | OpenShell Credential Injection | In Progress |
