@@ -56,10 +56,11 @@ type VoiceRelay struct {
 	pipe        PipeSender
 	events      chan RelayEvent
 
-	mu          sync.Mutex
-	running     bool
-	muted       bool
-	recording   bool
+	mu              sync.Mutex
+	running         bool
+	muted           bool
+	recording       bool
+	savedThreshold  float64
 	parentCtx   context.Context
 	ctx         context.Context
 	cancel      context.CancelFunc
@@ -93,9 +94,18 @@ func (r *VoiceRelay) IsRecording() bool {
 }
 
 // SetRecording sets the transcript recording state.
+// When recording starts, the VAD threshold is saved and set to 0
+// so all audio is captured without filtering. When recording stops,
+// the previous threshold is restored.
 func (r *VoiceRelay) SetRecording(on bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if on && !r.recording {
+		r.savedThreshold = r.config.VADConfig.Threshold
+		r.config.VADConfig.Threshold = PercentToThreshold(0)
+	} else if !on && r.recording {
+		r.config.VADConfig.Threshold = r.savedThreshold
+	}
 	r.recording = on
 }
 

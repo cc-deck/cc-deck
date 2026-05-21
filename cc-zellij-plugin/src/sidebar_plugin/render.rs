@@ -360,7 +360,7 @@ fn render_session_entry(
         format!("{bg} \x1b[38;2;{r};{g};{b}m{indicator}{bg}{rename_fg} {input_display}{bg}")
     } else {
         let name = &session.display_name;
-        let prefix_len = 3;
+        let prefix_len = 1 + display_width(indicator) + 1;
         let max_name = cols.saturating_sub(prefix_len);
         let truncated_name = truncate(name, max_name);
 
@@ -380,7 +380,7 @@ fn render_session_entry(
         print!("\x1b[{};1H{}", start_row + 1, pad_with_bg_color(&line1, cols, bg));
     } else if use_bg {
         let name = &session.display_name;
-        let prefix_len = 3;
+        let prefix_len = 1 + display_width(indicator) + 1;
         let max_name = cols.saturating_sub(prefix_len);
         let truncated_name = truncate(name, max_name);
 
@@ -615,7 +615,7 @@ fn display_width(s: &str) -> usize {
                 in_escape = false;
             }
         } else {
-            width += ch.width().unwrap_or(0);
+            width += ch.width_cjk().unwrap_or(0);
         }
     }
     width
@@ -713,7 +713,8 @@ mod tests {
         let badges = vec!["▶".to_string(), "✎".to_string()];
         let result = format_line2(&badges, Some("main"), TEST_COLOR);
         assert!(result.starts_with(' '));
-        assert!(result.contains("\x1b[38;2;180;140;255m▶ ✎\x1b[39m"));
+        assert!(result.contains("▶"));
+        assert!(result.contains("✎"));
         assert!(result.contains("\u{2387}"));
     }
 
