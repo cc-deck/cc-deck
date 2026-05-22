@@ -34,6 +34,44 @@ func TestDefaultPolicy(t *testing.T) {
 	assert.Contains(t, p.NetworkPolicies, "github")
 }
 
+func TestDefaultPolicy_RestEndpointsHaveAccess(t *testing.T) {
+	p := DefaultPolicy()
+
+	for key, np := range p.NetworkPolicies {
+		for i, ep := range np.Endpoints {
+			if ep.Protocol == "rest" {
+				hasAccess := ep.Access != ""
+				hasRules := len(ep.Rules) > 0
+				assert.True(t, hasAccess || hasRules,
+					"%s.endpoints[%d] (%s): protocol=rest requires access or rules (OpenShell 0.0.46+)",
+					key, i, ep.Host)
+			}
+		}
+	}
+}
+
+func TestMarshalPolicy_RestFieldsPreserved(t *testing.T) {
+	p := DefaultPolicy()
+	data, err := MarshalPolicy(p)
+	require.NoError(t, err)
+
+	var parsed PolicyFile
+	require.NoError(t, yaml.Unmarshal(data, &parsed))
+
+	claude := parsed.NetworkPolicies["claude_code"]
+	require.NotEmpty(t, claude.Endpoints)
+	assert.Equal(t, "rest", claude.Endpoints[0].Protocol)
+	assert.Equal(t, "full", claude.Endpoints[0].Access)
+
+	github := parsed.NetworkPolicies["github"]
+	for _, ep := range github.Endpoints {
+		if ep.Host == "api.github.com" {
+			assert.Equal(t, "rest", ep.Protocol)
+			assert.Equal(t, "full", ep.Access)
+		}
+	}
+}
+
 func TestGeneratePolicy_EmptyDomains(t *testing.T) {
 	m := &Manifest{Version: 3}
 
@@ -216,8 +254,8 @@ func TestGeneratePolicy_VertexCredentialAddsGCPEndpoints(t *testing.T) {
 	vertex, ok := p.NetworkPolicies["vertex_ai"]
 	require.True(t, ok, "expected vertex_ai policy")
 	assert.True(t, len(vertex.Endpoints) > 2, "expected multiple region endpoints")
-	assert.Equal(t, "global-aiplatform.googleapis.com", vertex.Endpoints[0].Host)
-	assert.Equal(t, "oauth2.googleapis.com", vertex.Endpoints[len(vertex.Endpoints)-1].Host)
+	assert.Equal(t, "aiplatform.googleapis.com", vertex.Endpoints[0].Host)
+	assert.Equal(t, "accounts.google.com", vertex.Endpoints[len(vertex.Endpoints)-1].Host)
 }
 
 func TestGeneratePolicy_ClaudeVertexCredentialAddsGCPEndpoints(t *testing.T) {
@@ -234,8 +272,8 @@ func TestGeneratePolicy_ClaudeVertexCredentialAddsGCPEndpoints(t *testing.T) {
 	vertex, ok := p.NetworkPolicies["vertex_ai"]
 	require.True(t, ok, "expected vertex_ai policy")
 	assert.True(t, len(vertex.Endpoints) > 2, "expected multiple region endpoints")
-	assert.Equal(t, "global-aiplatform.googleapis.com", vertex.Endpoints[0].Host)
-	assert.Equal(t, "oauth2.googleapis.com", vertex.Endpoints[len(vertex.Endpoints)-1].Host)
+	assert.Equal(t, "aiplatform.googleapis.com", vertex.Endpoints[0].Host)
+	assert.Equal(t, "accounts.google.com", vertex.Endpoints[len(vertex.Endpoints)-1].Host)
 }
 
 func TestGeneratePolicy_GenericCredentialAddsCustomEndpoints(t *testing.T) {
@@ -301,7 +339,7 @@ func TestGeneratePolicy_CredentialsAndDomainsCombined(t *testing.T) {
 	// Should have vertex entry with region endpoints.
 	vertex, hasVertex := p.NetworkPolicies["vertex_ai"]
 	assert.True(t, hasVertex, "expected vertex_ai policy entry")
-	assert.Equal(t, "global-aiplatform.googleapis.com", vertex.Endpoints[0].Host)
+	assert.Equal(t, "aiplatform.googleapis.com", vertex.Endpoints[0].Host)
 }
 
 func TestSlugify(t *testing.T) {

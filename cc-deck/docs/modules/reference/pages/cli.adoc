@@ -21,6 +21,18 @@ Scaffold a new build directory with a `build.yaml` manifest and Claude Code comm
 
 The `--target openshell` option creates an `openshell/` directory and uncomments the `targets.openshell` section in the manifest template.
 
+=== `cc-deck build refresh`
+
+Re-extract Containerfile snippets, Claude Code commands, and scripts from the current `cc-deck` binary without touching `build.yaml` or any user-customized configuration.
+Run this after upgrading cc-deck to pick up template changes (such as new image layers or security fixes) without losing your manifest settings.
+
+The command reads the existing manifest to determine which targets are configured and re-renders only their snippet files.
+
+[source,bash]
+----
+cc-deck build refresh
+----
+
 === `cc-deck build run`
 
 Execute pre-generated build artifacts directly from the CLI.

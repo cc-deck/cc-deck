@@ -105,7 +105,9 @@ Git repos are cloned into the workspace automatically when you pass `--repo` fla
 
 Capture once, build for any target. The manifest (`build.yaml`) stores tool requirements, settings paths, network domain groups, and credential declarations. After generating artifacts, `cc-deck build run` executes them without Claude Code. Use `/cc-deck.capture --all` to auto-accept all proposals without prompting.
 
-Fixed Containerfile layers (the cc-deck/Zellij/Claude Code stack, shell finalization, footer) are rendered from Go templates during `build init`. Claude Code copies these snippets verbatim and generates only the variable parts between them, keeping structural layers deterministic across builds.
+Fixed Containerfile layers (the cc-deck/Zellij/Claude Code stack, shell finalization, footer) are rendered from Go templates during `build init`. Claude Code copies these snippets verbatim and generates only the variable parts between them, keeping structural layers deterministic across builds. After upgrading cc-deck, run `cc-deck build refresh` to re-extract updated snippets without overwriting your manifest.
+
+For OpenShell targets, a `getifaddrs` shim is compiled into the image automatically. The shim works around the OpenShell supervisor's seccomp filter that blocks `AF_NETLINK` sockets, which would otherwise cause Claude Code (Node.js) to crash with `getifaddrs returned an error` on API calls.
 
 For OpenShell targets, the build generates a `policy.yaml` with network restrictions. Package registry endpoints (crates.io, proxy.golang.org, npmjs.org, pypi.org) are added automatically when the corresponding tools appear in the manifest. Credentials for OpenShell are declared in the manifest without storing secrets (`credentials: [{type: claude-vertex}, {type: github}]`). At `ws new` time, cc-deck resolves values from your host environment and creates OpenShell providers on the gateway. Supported types: `claude`, `claude-vertex`, `github`, `gitlab`, `openai`, `nvidia`, `vertex`, `generic`.
 

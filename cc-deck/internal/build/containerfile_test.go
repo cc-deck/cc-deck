@@ -79,8 +79,9 @@ func TestRenderSnippets_Container(t *testing.T) {
 	assert.Contains(t, snippets["03-mandatory-stack"], "HOME=/home/dev")
 	assert.Contains(t, snippets["03-mandatory-stack"], "claude.ai/install.sh")
 
-	// OpenShell-specific snippets are empty for container.
+	// OpenShell-specific snippets are empty for container (no shim, no shell finalize).
 	assert.Equal(t, "\n", snippets["04-openshell-extras"])
+	assert.NotContains(t, snippets["04-openshell-extras"], "getifaddrs")
 	assert.Equal(t, "\n", snippets["05-shell-finalize"])
 
 	// Footer has container CMD.
@@ -117,6 +118,8 @@ func TestRenderSnippets_OpenShell(t *testing.T) {
 	assert.Contains(t, snippets["04-openshell-extras"], "skills")
 	assert.Contains(t, snippets["04-openshell-extras"], "policy.yaml")
 	assert.Contains(t, snippets["04-openshell-extras"], `ENV SHELL="/bin/zsh"`)
+	assert.Contains(t, snippets["04-openshell-extras"], "getifaddrs_shim")
+	assert.Contains(t, snippets["04-openshell-extras"], "/etc/ld.so.preload")
 
 	// Shell finalize has starship and Zellij auto-start.
 	assert.Contains(t, snippets["05-shell-finalize"], "starship init")
