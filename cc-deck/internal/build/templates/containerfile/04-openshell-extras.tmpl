@@ -8,6 +8,41 @@ RUN mkdir -p {{.HomeDir}}/.agents/skills/ {{.HomeDir}}/.claude/skills/ && \
 RUN mkdir -p /etc/openshell
 COPY openshell/policy.yaml /etc/openshell/policy.yaml
 
+# Layer: getifaddrs shim (works around OpenShell seccomp AF_NETLINK block)
+# The supervisor blocks AF_NETLINK sockets via seccomp. Node.js (Claude Code)
+# calls getifaddrs() which needs AF_NETLINK, causing a fatal error. This shim
+# intercepts getifaddrs at the glibc level and returns a synthetic loopback
+# entry without ever attempting the blocked syscall.
+RUN cat > /tmp/getifaddrs_shim.c << 'SHIM_EOF' && \
+    gcc -shared -fPIC -o /usr/local/lib/getifaddrs_shim.so /tmp/getifaddrs_shim.c && \
+    rm /tmp/getifaddrs_shim.c
+#include <ifaddrs.h>
+#include <net/if.h>
+#include <netinet/in.h>
+static struct sockaddr_in lo_addr = {
+    .sin_family = AF_INET,
+    .sin_addr.s_addr = 0x0100007f
+};
+static struct sockaddr_in lo_mask = {
+    .sin_family = AF_INET,
+    .sin_addr.s_addr = 0xffffffff
+};
+static struct ifaddrs lo_entry = {
+    .ifa_next = 0, .ifa_name = "lo",
+    .ifa_flags = IFF_UP | IFF_LOOPBACK | IFF_RUNNING,
+    .ifa_addr = (struct sockaddr *)&lo_addr,
+    .ifa_netmask = (struct sockaddr *)&lo_mask,
+    .ifa_broadaddr = 0, .ifa_data = 0
+};
+int getifaddrs(struct ifaddrs **ifap) { *ifap = &lo_entry; return 0; }
+void freeifaddrs(struct ifaddrs *ifa) { (void)ifa; }
+SHIM_EOF
+
+# Register the shim via ld.so.preload so it loads for ALL processes,
+# including those started by the OpenShell supervisor (which does not
+# inherit Dockerfile ENV variables).
+RUN echo /usr/local/lib/getifaddrs_shim.so > /etc/ld.so.preload
+
 # Layer: Shell environment
 ENV SHELL="/bin/{{.Shell}}"
 {{- end}}

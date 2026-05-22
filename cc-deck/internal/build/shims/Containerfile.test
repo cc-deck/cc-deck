@@ -1,0 +1,13 @@
+FROM registry.fedoraproject.org/fedora:44
+
+RUN dnf install -y gcc nodejs && dnf clean all
+
+COPY getifaddrs_shim.c /tmp/
+RUN gcc -shared -fPIC -o /usr/local/lib/getifaddrs_shim.so /tmp/getifaddrs_shim.c && \
+    rm /tmp/getifaddrs_shim.c
+
+COPY test-shim.js /opt/test-shim.js
+
+# Verify the shim library was built correctly
+RUN ls -la /usr/local/lib/getifaddrs_shim.so && \
+    ldd /usr/local/lib/getifaddrs_shim.so || true

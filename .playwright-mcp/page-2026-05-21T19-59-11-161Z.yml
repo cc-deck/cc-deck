@@ -1,0 +1,592 @@
+- generic [ref=e2]:
+  - generic:
+    - generic:
+      - tooltip "This user is the author of this issue"
+    - generic:
+      - tooltip "This user is the author of this issue"
+    - generic:
+      - tooltip "This user is the author of this issue"
+  - generic [ref=e3]:
+    - link "Skip to content" [ref=e4] [cursor=pointer]:
+      - /url: "#start-of-content"
+    - banner [ref=e6]:
+      - heading "Navigation Menu" [level=2] [ref=e7]
+      - generic [ref=e8]:
+        - link "Homepage" [ref=e10] [cursor=pointer]:
+          - /url: /
+          - img [ref=e11]
+        - generic [ref=e13]:
+          - navigation "Global" [ref=e16]:
+            - list [ref=e17]:
+              - listitem [ref=e18]:
+                - button "Platform" [ref=e20] [cursor=pointer]:
+                  - text: Platform
+                  - img [ref=e21]
+              - listitem [ref=e23]:
+                - button "Solutions" [ref=e25] [cursor=pointer]:
+                  - text: Solutions
+                  - img [ref=e26]
+              - listitem [ref=e28]:
+                - button "Resources" [ref=e30] [cursor=pointer]:
+                  - text: Resources
+                  - img [ref=e31]
+              - listitem [ref=e33]:
+                - button "Open Source" [ref=e35] [cursor=pointer]:
+                  - text: Open Source
+                  - img [ref=e36]
+              - listitem [ref=e38]:
+                - button "Enterprise" [ref=e40] [cursor=pointer]:
+                  - text: Enterprise
+                  - img [ref=e41]
+              - listitem [ref=e43]:
+                - link "Pricing" [ref=e44] [cursor=pointer]:
+                  - /url: https://github.com/pricing
+                  - generic [ref=e45]: Pricing
+          - generic [ref=e46]:
+            - button "Search or jump to…" [ref=e49] [cursor=pointer]:
+              - img [ref=e51]
+            - link "Sign in" [ref=e54] [cursor=pointer]:
+              - /url: /login?return_to=https%3A%2F%2Fgithub.com%2FNVIDIA%2FOpenShell%2Fissues%2F955
+            - link "Sign up" [ref=e55] [cursor=pointer]:
+              - /url: /signup?ref_cta=Sign+up&ref_loc=header+logged+out&ref_page=%2F%3Cuser-name%3E%2F%3Crepo-name%3E%2Fvoltron%2Fissues_fragments%2Fissue_layout&source=header-repo&source_repo=NVIDIA%2FOpenShell
+            - button "Appearance settings" [disabled] [ref=e58]:
+              - img
+  - main [ref=e62]:
+    - generic [ref=e63]:
+      - generic [ref=e64]:
+        - generic [ref=e66]:
+          - img [ref=e67]
+          - link "NVIDIA" [ref=e70] [cursor=pointer]:
+            - /url: /NVIDIA
+          - generic [ref=e71]: /
+          - strong [ref=e72]:
+            - link "OpenShell" [ref=e73] [cursor=pointer]:
+              - /url: /NVIDIA/OpenShell
+          - generic [ref=e74]: Public
+        - generic [ref=e75]:
+          - list:
+            - listitem [ref=e76]:
+              - link "You must be signed in to change notification settings" [ref=e77] [cursor=pointer]:
+                - /url: /login?return_to=%2FNVIDIA%2FOpenShell
+                - img [ref=e78]
+                - text: Notifications
+            - listitem [ref=e80]:
+              - link "Fork 724" [ref=e81] [cursor=pointer]:
+                - /url: /login?return_to=%2FNVIDIA%2FOpenShell
+                - img [ref=e82]
+                - text: Fork
+                - generic "724" [ref=e84]
+            - listitem [ref=e85]:
+              - link "You must be signed in to star a repository" [ref=e87] [cursor=pointer]:
+                - /url: /login?return_to=%2FNVIDIA%2FOpenShell
+                - img [ref=e88]
+                - text: Star
+                - generic "6147 users starred this repository" [ref=e90]: 6.1k
+      - navigation "Repository" [ref=e91]:
+        - list [ref=e92]:
+          - listitem [ref=e93]:
+            - link "Code" [ref=e94] [cursor=pointer]:
+              - /url: /NVIDIA/OpenShell
+              - img [ref=e95]
+              - generic [ref=e97]: Code
+          - listitem [ref=e98]:
+            - link "Issues 131" [ref=e99] [cursor=pointer]:
+              - /url: /NVIDIA/OpenShell/issues
+              - img [ref=e100]
+              - generic [ref=e103]: Issues
+              - generic "131" [ref=e104]
+          - listitem [ref=e105]:
+            - link "Pull requests 50" [ref=e106] [cursor=pointer]:
+              - /url: /NVIDIA/OpenShell/pulls
+              - img [ref=e107]
+              - generic [ref=e109]: Pull requests
+              - generic "50" [ref=e110]
+          - listitem [ref=e111]:
+            - link "Discussions" [ref=e112] [cursor=pointer]:
+              - /url: /NVIDIA/OpenShell/discussions
+              - img [ref=e113]
+              - generic [ref=e115]: Discussions
+          - listitem [ref=e116]:
+            - link "Actions" [ref=e117] [cursor=pointer]:
+              - /url: /NVIDIA/OpenShell/actions
+              - img [ref=e118]
+              - generic [ref=e120]: Actions
+          - listitem [ref=e121]:
+            - link "Projects" [ref=e122] [cursor=pointer]:
+              - /url: /NVIDIA/OpenShell/projects
+              - img [ref=e123]
+              - generic [ref=e125]: Projects
+          - listitem [ref=e126]:
+            - link "Security and quality" [ref=e127] [cursor=pointer]:
+              - /url: /NVIDIA/OpenShell/security
+              - img [ref=e128]
+              - generic [ref=e130]: Security and quality
+          - listitem [ref=e131]:
+            - link "Insights" [ref=e132] [cursor=pointer]:
+              - /url: /NVIDIA/OpenShell/pulse
+              - img [ref=e133]
+              - generic [ref=e135]: Insights
+    - generic [ref=e143]:
+      - region "Header" [ref=e145]:
+        - generic [ref=e146]:
+          - 'heading "Node.js os.networkInterfaces() fails with EINVAL inside sandbox (uv_interface_addresses Unknown system error 1) #955" [level=1] [ref=e148]'
+          - generic [ref=e150]:
+            - button "New issue" [ref=e152] [cursor=pointer]:
+              - generic [ref=e154]: New issue
+            - button "Copy link" [ref=e155] [cursor=pointer]:
+              - img [ref=e156]
+      - generic [ref=e164]:
+        - img "Issue" [ref=e165]
+        - text: Closed
+      - generic [ref=e169]:
+        - generic [ref=e170]:
+          - generic [ref=e172]:
+            - link "@derekhsu's profile" [ref=e173] [cursor=pointer]:
+              - /url: https://github.com/derekhsu
+              - img "@derekhsu" [ref=e174]
+            - generic [ref=e175]:
+              - heading "Description" [level=2] [ref=e176]
+              - generic [ref=e178]:
+                - generic [ref=e180]:
+                  - generic [ref=e181]:
+                    - link "derekhsu" [ref=e183] [cursor=pointer]:
+                      - /url: https://github.com/derekhsu
+                    - generic [ref=e184]:
+                      - text: opened
+                      - link "on Apr 24, 2026last month" [ref=e185] [cursor=pointer]:
+                        - /url: https://github.com/NVIDIA/OpenShell/issues/955#issue-4320290595
+                        - generic "Apr 24, 2026, 5:24 AM GMT+2" [ref=e186]: on Apr 24, 2026last month
+                  - button "Issue body actions" [ref=e190] [cursor=pointer]:
+                    - img [ref=e191]
+                - generic [ref=e193]:
+                  - generic [ref=e195]:
+                    - heading "Bug Summary" [level=2] [ref=e196]
+                    - paragraph [ref=e197]:
+                      - text: When OpenClaw Gateway runs inside an OpenShell sandbox,
+                      - code [ref=e198]: os.networkInterfaces()
+                      - text: "fails with:"
+                    - generic [ref=e199]:
+                      - code [ref=e201]: "Unhandled promise rejection: SystemError: A system error occurred: uv_interface_addresses returned Unknown system error 1 (Unknown system error 1) at Object.networkInterfaces (node:os:218:16) at Function.assumeNetworkInterfaceNames (/usr/lib/node_modules/openclaw/node_modules/@homebridge/ciao/src/NetworkManager.ts:527:23) at NetworkManager.getCurrentNetworkInterfaces (/usr/lib/node_modules/openclaw/node_modules/@homebridge/ciao/src/NetworkManager.ts:370:32)"
+                      - button "Copy code to clipboard" [ref=e203] [cursor=pointer]:
+                        - img [ref=e204]
+                    - paragraph [ref=e207]:
+                      - text: The error originates from Node.js's
+                      - code [ref=e208]: os.networkInterfaces()
+                      - text: → libuv's
+                      - code [ref=e209]: uv_interface_addresses()
+                      - text: →
+                      - code [ref=e210]: getifaddrs()
+                      - text: system call returning
+                      - code [ref=e211]: EINVAL
+                      - text: (error code 1) inside the sandbox environment.
+                    - heading "Environment" [level=2] [ref=e212]
+                    - list [ref=e213]:
+                      - listitem [ref=e214]: OpenClaw Gateway running inside OpenShell sandbox (proxy mode, network namespace isolated)
+                      - listitem [ref=e215]: The sandbox uses a network namespace with veth pair (10.200.0.1 host side, 10.200.0.2 sandbox side)
+                      - listitem [ref=e216]:
+                        - text: "After process startup, the following restrictions are applied in order:"
+                        - list [ref=e217]:
+                          - listitem [ref=e218]:
+                            - code [ref=e219]: setns(CLONE_NEWNET)
+                            - text: to enter the network namespace
+                          - listitem [ref=e220]:
+                            - code [ref=e221]: prctl(PR_SET_DUMPABLE, 0)
+                            - text: (via
+                            - code [ref=e222]: harden_child_process()
+                            - text: )
+                          - listitem [ref=e223]: Landlock filesystem restrictions
+                          - listitem [ref=e224]:
+                            - text: seccomp filter (blocks
+                            - code [ref=e225]: AF_INET
+                            - text: /
+                            - code [ref=e226]: AF_INET6
+                            - text: socket domains in proxy mode)
+                    - heading "Root Cause Analysis" [level=2] [ref=e227]
+                    - paragraph [ref=e228]:
+                      - text: The error
+                      - code [ref=e229]: "\"Unknown system error 1\""
+                      - text: corresponds to
+                      - code [ref=e230]: EINVAL
+                      - text: (error code 1 on Linux). The
+                      - code [ref=e231]: getifaddrs()
+                      - text: "system call fails inside the sandbox environment, likely due to one of:"
+                    - list [ref=e232]:
+                      - listitem [ref=e233]:
+                        - paragraph [ref=e234]:
+                          - strong [ref=e235]: PR_SET_DUMPABLE=0 interaction
+                          - text: ": After"
+                          - code [ref=e236]: harden_child_process()
+                          - text: sets
+                          - code [ref=e237]: PR_SET_DUMPABLE=0
+                          - text: ", the process cannot access"
+                          - code [ref=e238]: "/proc/{pid}/net/"
+                          - text: in the normal way. This is because when
+                          - code [ref=e239]: dumpable=0
+                          - text: ", the"
+                          - code [ref=e240]: gid
+                          - text: /
+                          - code [ref=e241]: uid
+                          - text: privilege checks for
+                          - code [ref=e242]: /proc
+                          - text: filesystem access behave differently.
+                      - listitem [ref=e243]:
+                        - paragraph [ref=e244]:
+                          - strong [ref=e245]: Network namespace state
+                          - text: ": The sandbox's network namespace has only"
+                          - code [ref=e246]: lo
+                          - text: and
+                          - code [ref=e247]: "veth-s-{id}"
+                          - text: interfaces. The
+                          - code [ref=e248]: getifaddrs()
+                          - text: call may encounter an unexpected kernel state when enumerating interfaces in this minimal namespace.
+                      - listitem [ref=e249]:
+                        - paragraph [ref=e250]:
+                          - strong [ref=e251]: Seccomp filter side effect
+                          - text: ": While the seccomp filter only blocks"
+                          - code [ref=e252]: AF_INET
+                          - text: /
+                          - code [ref=e253]: AF_INET6
+                          - text: socket syscalls (not
+                          - code [ref=e254]: getifaddrs
+                          - text: ), there may be an indirect interaction when the filter is applied after
+                          - code [ref=e255]: PR_SET_DUMPABLE=0
+                          - text: .
+                    - paragraph [ref=e256]:
+                      - text: The error is
+                      - strong [ref=e257]: not
+                      - text: directly caused by seccomp blocking
+                      - code [ref=e258]: getifaddrs()
+                      - text: — the syscall itself is allowed. The problem is an environment mismatch where
+                      - code [ref=e259]: getifaddrs()
+                      - text: returns
+                      - code [ref=e260]: EINVAL
+                      - text: inside the sandbox.
+                    - heading "Impact" [level=2] [ref=e261]
+                    - list [ref=e262]:
+                      - listitem [ref=e263]:
+                        - text: OpenClaw Gateway fails to start inside the sandbox because
+                        - code [ref=e264]: "@homebridge/ciao"
+                        - text: (mDNS advertiser) requires
+                        - code [ref=e265]: os.networkInterfaces()
+                        - text: to function
+                      - listitem [ref=e266]:
+                        - text: The ciao
+                        - code [ref=e267]: NetworkManager.getCurrentNetworkInterfaces()
+                        - text: is called during initialization and throws an unhandled promise rejection
+                    - heading "Related Issues in openclaw/openclaw" [level=2] [ref=e268]
+                    - paragraph [ref=e269]:
+                      - text: The OpenClaw repo has several related issues about
+                      - code [ref=e270]: "@homebridge/ciao"
+                      - text: "crashing:"
+                    - list [ref=e271]:
+                      - listitem [ref=e272]: "#70232: Bonjour mDNS crashes Gateway on VPS/cloud (\"CIAO PROBING CANCELLED\")"
+                      - listitem [ref=e273]: "#70197: ciao arp -a probe flashes cmd.exe window on Windows"
+                      - listitem [ref=e274]: "#67578: ciao assertion failure on malformed mDNS packet"
+                    - paragraph [ref=e275]:
+                      - text: None of these are the same issue — this is specifically about
+                      - code [ref=e276]: getifaddrs()
+                      - text: returning
+                      - code [ref=e277]: EINVAL
+                      - text: in a network namespace environment.
+                    - heading "Questions for Investigation" [level=2] [ref=e278]
+                    - list [ref=e279]:
+                      - listitem [ref=e280]:
+                        - text: Does
+                        - code [ref=e281]: getifaddrs()
+                        - text: work correctly inside a network namespace when
+                        - code [ref=e282]: PR_SET_DUMPABLE=0
+                        - text: "?"
+                      - listitem [ref=e283]:
+                        - text: Is there a way to make the sandbox environment more compatible with
+                        - code [ref=e284]: getifaddrs()
+                        - text: "?"
+                      - listitem [ref=e285]:
+                        - text: Should OpenShell provide a fallback or workaround when
+                        - code [ref=e286]: getifaddrs()
+                        - text: fails inside the sandbox?
+                    - heading "References" [level=2] [ref=e287]
+                    - list [ref=e288]:
+                      - listitem [ref=e289]:
+                        - text: Node.js
+                        - code [ref=e290]: os.networkInterfaces()
+                        - text: ":"
+                        - link "https://nodejs.org/api/os.html#osnetworkinterfaces" [ref=e291] [cursor=pointer]:
+                          - /url: https://nodejs.org/api/os.html#osnetworkinterfaces
+                      - listitem [ref=e292]:
+                        - text: libuv
+                        - code [ref=e293]: uv_interface_addresses()
+                        - text: ":"
+                        - link "https://github.com/libuv/libuv/blob/main/src/unix/getifaddrs.c" [ref=e294] [cursor=pointer]:
+                          - /url: https://github.com/libuv/libuv/blob/main/src/unix/getifaddrs.c
+                      - listitem [ref=e295]:
+                        - code [ref=e296]: PR_SET_DUMPABLE
+                        - text: "man page:"
+                        - link "https://man7.org/linux/man-pages/man2/prctl.2.html" [ref=e297] [cursor=pointer]:
+                          - /url: https://man7.org/linux/man-pages/man2/prctl.2.html
+                  - generic:
+                    - toolbar "Reactions"
+          - generic [ref=e299]:
+            - generic [ref=e300]:
+              - heading "Activity" [level=2] [ref=e301]
+              - generic [ref=e302]:
+                - generic [ref=e303]:
+                  - link "@derekhsu's profile" [ref=e304] [cursor=pointer]:
+                    - /url: https://github.com/derekhsu
+                    - img "derekhsu" [ref=e305]
+                  - generic [ref=e312]:
+                    - generic [ref=e314]:
+                      - heading "derekhsu commented on Apr 24, 2026 last month" [level=3] [ref=e315]:
+                        - text: derekhsu commented
+                        - generic "Apr 24, 2026, 5:30 AM GMT+2" [ref=e316]: on Apr 24, 2026 last month
+                      - generic [ref=e317]:
+                        - link "derekhsu" [ref=e319] [cursor=pointer]:
+                          - /url: /derekhsu
+                        - link "on Apr 24, 2026last month" [ref=e322] [cursor=pointer]:
+                          - /url: https://github.com/NVIDIA/OpenShell/issues/955#issuecomment-4310418304
+                          - generic "Apr 24, 2026, 5:30 AM GMT+2" [ref=e323]: on Apr 24, 2026last month
+                      - generic [ref=e325]:
+                        - generic "This user is the author of this issue" [ref=e327]: Author
+                        - button "Actions for derekhsu's comment, 5:30 AM on April 24" [ref=e329] [cursor=pointer]:
+                          - img [ref=e330]
+                    - generic [ref=e332]:
+                      - generic [ref=e334]:
+                        - heading "Workaround" [level=2] [ref=e335]
+                        - paragraph [ref=e336]:
+                          - text: Setting
+                          - code [ref=e337]: OPENCLAW_DISABLE_BONJOUR=1
+                          - text: in the sandbox environment prevents
+                          - code [ref=e338]: "@homebridge/ciao"
+                          - text: from initializing, which avoids the
+                          - code [ref=e339]: getifaddrs()
+                          - text: "failure entirely:"
+                        - generic [ref=e340]:
+                          - generic [ref=e341]: openshell sandbox create \ --name <tenant_name> \ --from openclaw \ --forward <local_port>:18789 \ --env OPENCLAW_DISABLE_BONJOUR=1 \ --provider <provider_name>
+                          - button "Copy code to clipboard" [ref=e343] [cursor=pointer]:
+                            - img [ref=e344]
+                        - paragraph [ref=e347]:
+                          - text: This works because the ciao
+                          - code [ref=e348]: NetworkManager
+                          - text: that calls
+                          - code [ref=e349]: os.networkInterfaces()
+                          - text: is only instantiated when Bonjour/mDNS advertising is enabled. Disabling it bypasses the problematic code path entirely.
+                        - paragraph [ref=e350]:
+                          - text: "Note: Issue #70232 in openclaw/openclaw reports that"
+                          - code [ref=e351]: OPENCLAW_DISABLE_BONJOUR=1
+                          - text: was not recognized in v2026.4.21, so the workaround may depend on the OpenClaw version being used. If the env var is not effective, disabling via
+                          - code [ref=e352]: "gateway.mdns.mode: \"off\""
+                          - text: "in openclaw.json should also work (though #70232 also notes this config may be ignored)."
+                      - toolbar "Reactions"
+                - generic [ref=e353]:
+                  - link "@derekhsu's profile" [ref=e354] [cursor=pointer]:
+                    - /url: https://github.com/derekhsu
+                    - img "derekhsu" [ref=e355]
+                  - generic [ref=e362]:
+                    - generic [ref=e364]:
+                      - heading "derekhsu commented on Apr 27, 2026 3 weeks ago" [level=3] [ref=e365]:
+                        - text: derekhsu commented
+                        - generic "Apr 27, 2026, 5:28 PM GMT+2" [ref=e366]: on Apr 27, 2026 3 weeks ago
+                      - generic [ref=e367]:
+                        - link "derekhsu" [ref=e369] [cursor=pointer]:
+                          - /url: /derekhsu
+                        - link "on Apr 27, 20263 weeks ago" [ref=e372] [cursor=pointer]:
+                          - /url: https://github.com/NVIDIA/OpenShell/issues/955#issuecomment-4328264687
+                          - generic "Apr 27, 2026, 5:28 PM GMT+2" [ref=e373]: on Apr 27, 20263 weeks ago
+                      - generic [ref=e375]:
+                        - generic "This user is the author of this issue" [ref=e377]: Author
+                        - button "Actions for derekhsu's comment, 5:28 PM on April 27" [ref=e379] [cursor=pointer]:
+                          - img [ref=e380]
+                    - generic [ref=e382]:
+                      - generic [ref=e384]:
+                        - paragraph [ref=e385]:
+                          - strong [ref=e386]: "Additional findings after further investigation:"
+                        - paragraph [ref=e387]:
+                          - strong [ref=e388]:
+                            - text: "1."
+                            - code [ref=e389]: openshell sandbox create
+                            - text: does not support
+                            - code [ref=e390]: "--env"
+                            - text: flag
+                        - paragraph [ref=e391]:
+                          - text: The
+                          - code [ref=e392]: "--env KEY=VALUE"
+                          - text: flag exists only on
+                          - code [ref=e393]: openshell sandbox exec
+                          - text: (for running commands in already-running sandboxes), not on
+                          - code [ref=e394]: sandbox create
+                          - text: . See Issue
+                          - link "#750" [ref=e395] [cursor=pointer]:
+                            - /url: https://github.com/NVIDIA/OpenShell/issues/750
+                          - text: .
+                        - paragraph [ref=e396]:
+                          - strong [ref=e397]: "Workaround: use the provider system to inject environment variables:"
+                        - generic [ref=e398]:
+                          - generic [ref=e399]:
+                            - generic [ref=e400]: "# Create a generic provider with the env var"
+                            - text: openshell provider create \ --name openclaw-bonjour-off \ --type generic \ --credential OPENCLAW_DISABLE_BONJOUR=1
+                            - generic [ref=e401]: "# Attach it when creating the sandbox"
+                            - text: openshell sandbox create \ --name <sandbox_name> \ --from openclaw \ --provider openclaw-bonjour-off \ --forward:18789
+                          - button "Copy code to clipboard" [ref=e403] [cursor=pointer]:
+                            - img [ref=e404]
+                        - paragraph [ref=e407]:
+                          - text: Alternatively, disable mDNS via
+                          - code [ref=e408]: openclaw.json
+                          - text: ":"
+                          - code [ref=e409]: "gateway.mdns.mode: \"off\""
+                          - text: "(note: may be affected by issue #70232 in openclaw/openclaw)."
+                        - paragraph [ref=e410]:
+                          - strong [ref=e411]: 2. Seccomp hardening timeline
+                        - paragraph [ref=e412]:
+                          - text: The sandbox seccomp denylist was significantly expanded in v0.0.29 (commit
+                          - code [ref=e413]: 1cabd256
+                          - text: — "harden seccomp denylist, SSRF protection, and inference policy enforcement"). This version also introduced
+                          - code [ref=e414]: PR_SET_DUMPABLE=0
+                          - text: application to all network modes. The v0.0.33 release further "强化 seccomp" (commit
+                          - code [ref=e415]: "fix(sandbox): 强化 seccomp、inference 路由与行程限制"
+                          - text: ).
+                        - paragraph [ref=e416]:
+                          - text: The
+                          - code [ref=e417]: getifaddrs()
+                          - text: failure is likely a regression introduced by these hardening changes, possibly the combination of
+                          - code [ref=e418]: PR_SET_DUMPABLE=0
+                          - text: + minimal network namespace state.
+                      - toolbar "Reactions"
+                - region "Events" [ref=e419]:
+                  - generic [ref=e426]:
+                    - img [ref=e430]
+                    - generic [ref=e434]:
+                      - link "derekhsu" [ref=e436] [cursor=pointer]:
+                        - /url: /derekhsu
+                        - generic [ref=e437]: derekhsu
+                      - text: closed this as
+                      - link "completed" [ref=e438] [cursor=pointer]:
+                        - /url: /NVIDIA/OpenShell/issues?q=is%3Aissue%20state%3Aclosed%20archived%3Afalse%20reason%3Acompleted
+                      - link "on May 5, 20262 weeks ago" [ref=e439] [cursor=pointer]:
+                        - /url: https://github.com/NVIDIA/OpenShell/issues/955#event-25169243662
+                        - generic "May 5, 2026, 11:21 AM GMT+2" [ref=e440]: on May 5, 20262 weeks ago
+                - generic [ref=e441]:
+                  - link "@derekhsu's profile" [ref=e442] [cursor=pointer]:
+                    - /url: https://github.com/derekhsu
+                    - img "derekhsu" [ref=e443]
+                  - generic [ref=e450]:
+                    - generic [ref=e452]:
+                      - heading "derekhsu commented on May 5, 2026 2 weeks ago" [level=3] [ref=e453]:
+                        - text: derekhsu commented
+                        - generic "May 5, 2026, 11:22 AM GMT+2" [ref=e454]: on May 5, 2026 2 weeks ago
+                      - generic [ref=e455]:
+                        - link "derekhsu" [ref=e457] [cursor=pointer]:
+                          - /url: /derekhsu
+                        - link "on May 5, 20262 weeks ago" [ref=e460] [cursor=pointer]:
+                          - /url: https://github.com/NVIDIA/OpenShell/issues/955#issuecomment-4377996851
+                          - generic "May 5, 2026, 11:22 AM GMT+2" [ref=e461]: on May 5, 20262 weeks ago
+                      - generic [ref=e463]:
+                        - generic "This user is the author of this issue" [ref=e465]: Author
+                        - button "Actions for derekhsu's comment, 11:22 AM on May 5" [ref=e467] [cursor=pointer]:
+                          - img [ref=e468]
+                    - generic [ref=e470]:
+                      - paragraph [ref=e473]: Confirmed fixed in OpenClaw 2026.5.4. Closing.
+                      - toolbar "Reactions"
+                - region "Events" [ref=e474]:
+                  - generic [ref=e481]:
+                    - img [ref=e485]
+                    - generic [ref=e487]:
+                      - generic [ref=e489]:
+                        - link "sauagarwa" [ref=e491] [cursor=pointer]:
+                          - /url: /sauagarwa
+                          - generic [ref=e492]: sauagarwa
+                        - text: mentioned this
+                        - link "on May 9, 20262 weeks ago" [ref=e493] [cursor=pointer]:
+                          - /url: https://github.com/NVIDIA/OpenShell/issues/955#event-6494438907
+                          - generic "May 9, 2026, 7:48 PM GMT+2" [ref=e494]: on May 9, 20262 weeks ago
+                      - region "Issues mentioned" [ref=e497]:
+                        - list [ref=e498]:
+                          - listitem [ref=e499]:
+                            - generic [ref=e500]:
+                              - img "Completed" [ref=e501]
+                              - 'link "bug: AF_NETLINK seccomp block prevents Node.js workloads from starting in sandbox #1295" [ref=e504] [cursor=pointer]':
+                                - /url: https://github.com/NVIDIA/OpenShell/issues/1295
+                                - text: "bug: AF_NETLINK seccomp block prevents Node.js workloads from starting in sandbox"
+                                - generic [ref=e505]: "#1295"
+            - generic [ref=e506]:
+              - link "Sign up for free" [ref=e507] [cursor=pointer]:
+                - /url: /signup?return_to=https://github.com/NVIDIA/OpenShell/issues/955
+                - generic [ref=e509]: Sign up for free
+              - generic [ref=e510]:
+                - strong [ref=e511]: to join this conversation on GitHub.
+                - text: Already have an account?
+              - link "Sign in to comment" [ref=e512] [cursor=pointer]:
+                - /url: /login?return_to=https://github.com/NVIDIA/OpenShell/issues/955
+        - generic [ref=e514]:
+          - heading "Metadata" [level=2] [ref=e515]
+          - generic [ref=e517]:
+            - generic [ref=e519]:
+              - generic [ref=e520]:
+                - heading "Assignees" [level=3]
+              - generic [ref=e521]: No one assigned
+            - generic [ref=e523]:
+              - generic [ref=e524]:
+                - heading "Labels" [level=3]
+              - generic [ref=e525]: No labels
+            - generic [ref=e527]:
+              - generic [ref=e528]:
+                - heading "Type" [level=3]
+              - generic [ref=e529]: No type
+            - generic [ref=e530]:
+              - generic [ref=e532]:
+                - heading "Fields" [level=3] [ref=e533]
+                - link "Give feedback" [ref=e534] [cursor=pointer]:
+                  - /url: https://github.com/orgs/community/discussions/189141
+              - generic [ref=e536]: No fields configured for issues without a type.
+            - generic [ref=e538]:
+              - generic [ref=e539]:
+                - heading "Projects" [level=3]
+              - generic [ref=e540]: No projects
+            - generic [ref=e542]:
+              - generic [ref=e543]:
+                - heading "Milestone" [level=3]
+              - generic [ref=e544]: No milestone
+            - generic [ref=e546]:
+              - generic [ref=e547]:
+                - heading "Relationships" [level=3]
+              - generic [ref=e548]: None yet
+            - generic [ref=e550]:
+              - generic [ref=e551]:
+                - heading "Development" [level=3]
+              - generic [ref=e552]: No branches or pull requests
+            - heading "Issue actions" [level=2] [ref=e553]
+            - list
+  - contentinfo [ref=e554]:
+    - heading "Footer" [level=2] [ref=e555]
+    - generic [ref=e556]:
+      - generic [ref=e557]:
+        - link "GitHub Homepage" [ref=e558] [cursor=pointer]:
+          - /url: https://github.com
+          - img [ref=e559]
+        - generic [ref=e561]: © 2026 GitHub, Inc.
+      - navigation "Footer" [ref=e562]:
+        - heading "Footer navigation" [level=3] [ref=e563]
+        - list "Footer navigation" [ref=e564]:
+          - listitem [ref=e565]:
+            - link "Terms" [ref=e566] [cursor=pointer]:
+              - /url: https://docs.github.com/site-policy/github-terms/github-terms-of-service
+          - listitem [ref=e567]:
+            - link "Privacy" [ref=e568] [cursor=pointer]:
+              - /url: https://docs.github.com/site-policy/privacy-policies/github-privacy-statement
+          - listitem [ref=e569]:
+            - link "Security" [ref=e570] [cursor=pointer]:
+              - /url: https://github.com/security
+          - listitem [ref=e571]:
+            - link "Status" [ref=e572] [cursor=pointer]:
+              - /url: https://www.githubstatus.com/
+          - listitem [ref=e573]:
+            - link "Community" [ref=e574] [cursor=pointer]:
+              - /url: https://github.community/
+          - listitem [ref=e575]:
+            - link "Docs" [ref=e576] [cursor=pointer]:
+              - /url: https://docs.github.com/
+          - listitem [ref=e577]:
+            - link "Contact" [ref=e578] [cursor=pointer]:
+              - /url: https://support.github.com?tags=dotcom-footer
+          - listitem [ref=e579]:
+            - button "Manage cookies" [ref=e581] [cursor=pointer]
+          - listitem [ref=e582]:
+            - button "Do not share my personal information" [ref=e584] [cursor=pointer]

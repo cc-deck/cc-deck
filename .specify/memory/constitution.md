@@ -12,8 +12,9 @@ A feature is NOT complete until:
 5. Configuration reference (`docs/modules/reference/pages/configuration.adoc`) covers new config options or file locations
 6. All documentation uses the prose plugin with the `cc-deck` voice profile
 
-Documentation updates MUST happen as part of the same branch or commit that delivers the feature, not as a follow-up task.
-When a substantial feature is merged without documentation, treat it as a blocking issue before the next feature begins.
+Documentation updates MUST happen as part of the same branch or commit that delivers the change, not as a follow-up task.
+This applies to ALL user-visible changes, not just spec-driven features: new CLI subcommands, new flags, changed default behavior, new image layers, workarounds baked into generated artifacts, and bug fixes that alter observable behavior.
+When a user-visible change is merged without documentation, treat it as a blocking issue before the next change begins.
 
 ### II. Interface implementations MUST satisfy behavioral contracts
 
