@@ -41,9 +41,26 @@ type NetworkPolicy struct {
 }
 
 // PolicyEndpoint is a host:port pair for network access control.
+// For endpoints with protocol: rest, OpenShell 0.0.46+ requires either
+// an "access" field (e.g., "full") or explicit "rules".
 type PolicyEndpoint struct {
-	Host string `yaml:"host"`
-	Port int    `yaml:"port"`
+	Host        string        `yaml:"host"`
+	Port        int           `yaml:"port"`
+	Protocol    string        `yaml:"protocol,omitempty"`
+	Enforcement string        `yaml:"enforcement,omitempty"`
+	Access      string        `yaml:"access,omitempty"`
+	Rules       []PolicyRule  `yaml:"rules,omitempty"`
+}
+
+// PolicyRule defines an L7 allow/deny rule for rest protocol endpoints.
+type PolicyRule struct {
+	Allow *PolicyRuleMatch `yaml:"allow,omitempty"`
+}
+
+// PolicyRuleMatch matches HTTP method and path patterns.
+type PolicyRuleMatch struct {
+	Method string `yaml:"method"`
+	Path   string `yaml:"path"`
 }
 
 // PolicyBinary restricts network access to a specific binary path.
@@ -80,16 +97,23 @@ func DefaultPolicy() *PolicyFile {
 			"claude_code": {
 				Name: "Claude Code",
 				Endpoints: []PolicyEndpoint{
-					{Host: "api.anthropic.com", Port: 443},
+					{Host: "api.anthropic.com", Port: 443, Protocol: "rest", Access: "full"},
 					{Host: "statsig.anthropic.com", Port: 443},
 					{Host: "sentry.io", Port: 443},
+					{Host: "downloads.claude.ai", Port: 443},
+					{Host: "raw.githubusercontent.com", Port: 443},
 				},
+				Binaries: claudeCodeBinaries(),
 			},
 			"github": {
 				Name: "GitHub",
 				Endpoints: []PolicyEndpoint{
 					{Host: "github.com", Port: 443},
-					{Host: "api.github.com", Port: 443},
+					{Host: "api.github.com", Port: 443, Protocol: "rest", Access: "full"},
+				},
+				Binaries: []PolicyBinary{
+					{Path: "/usr/bin/git"},
+					{Path: "/usr/bin/gh"},
 				},
 			},
 		},
@@ -128,8 +152,9 @@ func GeneratePolicy(manifest *Manifest) (*PolicyFile, error) {
 		switch cred.Type {
 		case "claude-vertex", "vertex":
 			policy.NetworkPolicies["vertex_ai"] = NetworkPolicy{
-				Name: "Vertex AI",
+				Name:      "Vertex AI",
 				Endpoints: vertexEndpoints(),
+				Binaries:  claudeCodeBinaries(),
 			}
 		case "generic":
 			// Add custom endpoints from the credential entry.
@@ -205,6 +230,17 @@ func addToolEndpoints(policy *PolicyFile, toolName string) {
 	}
 }
 
+// claudeCodeBinaries returns the binary paths that Claude Code uses.
+// Includes the glob pattern for the versioned binary directory.
+func claudeCodeBinaries() []PolicyBinary {
+	return []PolicyBinary{
+		{Path: "/usr/local/bin/claude"},
+		{Path: "/sandbox/.local/bin/claude"},
+		{Path: "/sandbox/.local/share/claude/**"},
+		{Path: "/usr/bin/node"},
+	}
+}
+
 // vertexEndpoints returns the network policy endpoints for Google Vertex AI.
 // Wildcards don't work because the hostname pattern is {region}-aiplatform
 // (prefix, not subdomain). All standard Vertex AI regions are listed.
@@ -221,11 +257,16 @@ func vertexEndpoints() []PolicyEndpoint {
 		"me-central1", "me-central2", "me-west1",
 		"northamerica-northeast1", "southamerica-east1",
 	}
-	endpoints := make([]PolicyEndpoint, 0, len(regions)+1)
+	endpoints := make([]PolicyEndpoint, 0, len(regions)+4)
+	endpoints = append(endpoints, PolicyEndpoint{Host: "aiplatform.googleapis.com", Port: 443})
 	for _, r := range regions {
 		endpoints = append(endpoints, PolicyEndpoint{Host: r + "-aiplatform.googleapis.com", Port: 443})
 	}
-	endpoints = append(endpoints, PolicyEndpoint{Host: "oauth2.googleapis.com", Port: 443})
+	endpoints = append(endpoints,
+		PolicyEndpoint{Host: "oauth2.googleapis.com", Port: 443},
+		PolicyEndpoint{Host: "www.googleapis.com", Port: 443},
+		PolicyEndpoint{Host: "accounts.google.com", Port: 443},
+	)
 	return endpoints
 }
 

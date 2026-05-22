@@ -25,6 +25,7 @@ func NewBuildCmd(flags *GlobalFlags) *cobra.Command {
 	}
 
 	cmd.AddCommand(newBuildInitCmd(flags))
+	cmd.AddCommand(newBuildRefreshCmd(flags))
 	cmd.AddCommand(newBuildRunCmd(flags))
 	cmd.AddCommand(newBuildVerifyCmd(flags))
 	cmd.AddCommand(newBuildDiffCmd(flags))
@@ -96,6 +97,72 @@ After initialization, start Claude Code from the project directory and use:
 
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "Overwrite existing build directory")
 	cmd.Flags().StringVar(&target, "target", "", "Targets to scaffold: container, ssh, openshell, or comma-separated (default: container,ssh)")
+
+	return cmd
+}
+
+func newBuildRefreshCmd(_ *GlobalFlags) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "refresh [dir]",
+		Short: "Re-extract snippets and commands without touching the manifest",
+		Long: `Refresh pre-rendered Containerfile snippets and Claude Code commands
+from the current cc-deck binary. This updates the template fragments
+(e.g., after upgrading cc-deck) without overwriting build.yaml or any
+user-customized configuration.
+
+Reads the existing build.yaml to determine which targets are configured
+and re-renders their snippet files.`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			dir, projectRoot := resolveBuildDirAndRoot(args)
+
+			manifestPath := filepath.Join(dir, "build.yaml")
+			m, err := build.LoadManifest(manifestPath)
+			if err != nil {
+				return fmt.Errorf("reading manifest: %w (run 'cc-deck build init' first)", err)
+			}
+
+			refreshed := 0
+
+			if m.Targets != nil && m.Targets.Container != nil && m.Targets.Container.Name != "" {
+				data := build.ContainerDataForTarget(m, "container")
+				snippetDir := filepath.Join(dir, "container", "snippets")
+				if err := build.ExtractContainerfileSnippets(snippetDir, data); err != nil {
+					return fmt.Errorf("refreshing container snippets: %w", err)
+				}
+				fmt.Printf("  Refreshed: %s/container/snippets/\n", dir)
+				refreshed++
+			}
+
+			if m.Targets != nil && m.Targets.OpenShell != nil && m.Targets.OpenShell.Name != "" {
+				data := build.ContainerDataForTarget(m, "openshell")
+				snippetDir := filepath.Join(dir, "openshell", "snippets")
+				if err := build.ExtractContainerfileSnippets(snippetDir, data); err != nil {
+					return fmt.Errorf("refreshing openshell snippets: %w", err)
+				}
+				fmt.Printf("  Refreshed: %s/openshell/snippets/\n", dir)
+				refreshed++
+			}
+
+			commandsDir := filepath.Join(projectRoot, ".claude", "commands")
+			if err := build.ExtractCommands(commandsDir); err != nil {
+				return fmt.Errorf("refreshing commands: %w", err)
+			}
+			fmt.Printf("  Refreshed: %s/.claude/commands/\n", projectRoot)
+
+			scriptsDir := filepath.Join(projectRoot, ".claude", "scripts")
+			if err := build.ExtractScripts(scriptsDir); err != nil {
+				return fmt.Errorf("refreshing scripts: %w", err)
+			}
+			fmt.Printf("  Refreshed: %s/.claude/scripts/\n", projectRoot)
+
+			if refreshed == 0 {
+				fmt.Println("  No target snippets to refresh (no targets configured in manifest)")
+			}
+
+			return nil
+		},
+	}
 
 	return cmd
 }

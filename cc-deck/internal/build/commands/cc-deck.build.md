@@ -710,6 +710,36 @@ Generate the OpenShell policy from `network.allowed_domains` with the default po
    - For each domain, create an entry with slug key, name, endpoint (host:443)
    - Associate discovered binary paths with the appropriate entries based on which tools logically use which domains (inferred from the tool install instructions you wrote in C2)
 
+   **MANDATORY policy rules (OpenShell 0.0.46+)**:
+
+   a. **Binary glob for Claude Code**: Claude Code installs a versioned binary at `/sandbox/.local/share/claude/versions/<ver>`. The wrapper at `/usr/local/bin/claude` is NOT the process that makes network calls. EVERY policy entry that Claude Code uses MUST include this glob:
+      ```yaml
+      binaries:
+        - { path: /usr/local/bin/claude }
+        - { path: /sandbox/.local/bin/claude }
+        - { path: "/sandbox/.local/share/claude/**" }
+        - { path: /usr/bin/node }
+      ```
+
+   b. **`access` on REST endpoints**: Any endpoint with `protocol: rest` MUST include either `access: full` or explicit `rules`. Without one, the supervisor rejects the policy. Use `access: full` for API endpoints. Use `rules` with method/path patterns for scoped access (e.g., git-over-HTTPS). Endpoints without `protocol` do not need `access`.
+
+   c. **Do NOT use deprecated fields**: `tls: terminate` and `enforcement: enforce` are deprecated in 0.0.46. Omit them.
+
+   d. **Required Claude Code endpoints** (always include in `claude_code` policy):
+      - `api.anthropic.com:443` (protocol: rest, access: full)
+      - `statsig.anthropic.com:443`
+      - `sentry.io:443`
+      - `downloads.claude.ai:443` (auto-update)
+      - `raw.githubusercontent.com:443` (skill/plugin fetching)
+
+   e. **Vertex AI endpoints** (include when credentials contain `claude-vertex` or `vertex`):
+      - `aiplatform.googleapis.com:443` (bare, used as CONNECT target)
+      - `global-aiplatform.googleapis.com:443` and regional endpoints
+      - `oauth2.googleapis.com:443` (token refresh)
+      - `www.googleapis.com:443` (token info)
+      - `accounts.google.com:443` (auth)
+      All with the Claude Code binary glob from (a).
+
 3. If `targets.openshell.policy` is defined, apply merge semantics:
    - If overrides has `filesystem_policy`, `landlock`, or `process`: replace the default section entirely
    - For `network_policies`: match explicit entries against auto-generated entries by endpoint host. Explicit entries replace matched auto-generated entries. Entries for hosts not in `allowed_domains` are additive. Auto-generated entries for non-overridden hosts are preserved.
