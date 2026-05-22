@@ -952,7 +952,7 @@ Then perform the write:
 7. Update `credentials` section with selected credential providers
 8. Copy selected config files to `<setup-dir>/config/`
 9. Write repos to `.cc-deck/workspace.yaml` if target is SSH
-10. If an OpenShell target is configured, fetch the policy component catalog from the configured catalog repo URL and cache components in `<setup-dir>/openshell/components/`. On network failure, warn and continue without updating the cache.
+10. If an OpenShell target is configured, fetch the policy component catalog by running `cc-deck build catalog-update <setup-dir>`. On network failure, the command warns and continues without updating the cache.
 11. Report what was written
 
 ---

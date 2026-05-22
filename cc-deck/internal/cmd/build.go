@@ -26,6 +26,7 @@ func NewBuildCmd(flags *GlobalFlags) *cobra.Command {
 
 	cmd.AddCommand(newBuildInitCmd(flags))
 	cmd.AddCommand(newBuildRefreshCmd(flags))
+	cmd.AddCommand(newBuildCatalogUpdateCmd(flags))
 	cmd.AddCommand(newBuildRunCmd(flags))
 	cmd.AddCommand(newBuildVerifyCmd(flags))
 	cmd.AddCommand(newBuildDiffCmd(flags))
@@ -168,6 +169,39 @@ and re-renders their snippet files.`,
 			return nil
 		},
 	}
+
+	return cmd
+}
+
+func newBuildCatalogUpdateCmd(_ *GlobalFlags) *cobra.Command {
+	var indexURL string
+	var baseURL string
+
+	cmd := &cobra.Command{
+		Use:   "catalog-update [dir]",
+		Short: "Fetch policy components from the remote catalog",
+		Long: `Download policy component files from the remote catalog repository
+and cache them in <dir>/openshell/components/.
+
+The cached components are used by 'build refresh' when assembling the
+OpenShell network policy. On network failure, the command warns and
+continues (offline fallback to embedded components).`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			dir := resolveBuildDir(args)
+			cacheDir := filepath.Join(dir, "openshell", "components")
+
+			fmt.Printf("  Fetching catalog from %s\n", indexURL)
+			if err := build.FetchAndCacheCatalog(indexURL, baseURL, cacheDir); err != nil {
+				return err
+			}
+			fmt.Printf("  Cached: %s\n", cacheDir)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&indexURL, "index-url", build.DefaultCatalogIndexURL, "Catalog index URL")
+	cmd.Flags().StringVar(&baseURL, "base-url", build.DefaultCatalogBaseURL, "Base URL for component downloads")
 
 	return cmd
 }
