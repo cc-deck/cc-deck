@@ -97,18 +97,60 @@ The starship init and Zellij auto-start must come AFTER all user config COPY/RUN
 ### Zellij version
 `--install-zellij` now queries GitHub for the latest release instead of hardcoding the SDK version. The plugin SDK version (0.44) and the Zellij binary version (0.44.3) are independent.
 
+## LD_PRELOAD shim (validated 2026-05-22)
+
+### Approach
+
+A 40-line C library intercepts `getifaddrs()` at the glibc level via `LD_PRELOAD`, returning a synthetic loopback interface without ever attempting the `AF_NETLINK` socket syscall. The real `getifaddrs` in glibc opens an `AF_NETLINK` socket to enumerate interfaces; the shim replaces that entire code path with a static struct.
+
+### Implementation
+
+Source: `cc-deck/internal/build/shims/getifaddrs_shim.c`
+
+Compile: `gcc -shared -fPIC -o /usr/local/lib/getifaddrs_shim.so getifaddrs_shim.c`
+
+Deploy: `ENV LD_PRELOAD=/usr/local/lib/getifaddrs_shim.so` in Containerfile.
+
+**Integrated into Containerfile generation:** The shim is now embedded in the `04-openshell-extras.tmpl` template. Every `cc-deck build --target openshell` image automatically includes the shim, compiled inline during the build via a heredoc. The `LD_PRELOAD` env var is set globally so the shim is active for all processes.
+
+Validated on both Fedora 44 (test harness) and the real OpenShell base image (`ghcr.io/nvidia/openshell-community/sandboxes/base:latest`). Uses `/usr/local/lib/` for cross-distro compatibility (the OpenShell base is Ubuntu, which lacks `/usr/lib64/`).
+
+Claude Code 2.1.140 `--version` succeeds under seccomp AF_NETLINK block with the shim active.
+
+### Test results
+
+Tested with podman + a custom seccomp profile that blocks `AF_NETLINK` (simulating OpenShell's supervisor). All 5 tests pass:
+
+1. **Baseline (no seccomp)**: `os.networkInterfaces()` works normally (lo + eth0)
+2. **Seccomp, no shim**: Reproduces the exact error: `uv_interface_addresses returned Unknown system error 1`
+3. **Seccomp + shim**: `os.networkInterfaces()` succeeds AND HTTPS requests work (HTTP 404 from api.anthropic.com confirms TCP/TLS stack is unaffected)
+4. **Shim returns correct data**: Returns `{"lo":[{"address":"127.0.0.1",...}]}` which is what code inspecting interfaces expects
+5. **Memory safety**: 1000 repeated calls, no leaks or crashes (static storage, no heap allocations)
+
+Test harness: `cc-deck/internal/build/shims/test-shim.sh`
+
+### Why this is safe
+
+The shim does not weaken security:
+- The information `getifaddrs` returns (interface names, IPs) is meaningless inside OpenShell's network namespace; the sandbox only has a `lo` and a `veth` anyway.
+- The seccomp block exists because `AF_NETLINK` sockets could theoretically be used for more than interface enumeration (routing table manipulation, etc.). The shim avoids the syscall entirely, so no `AF_NETLINK` socket is ever created.
+- The shim returns a single loopback entry, which is truthful: inside the netns, `lo` is the primary interface.
+
+### Florent mystery resolved
+
+Florent runs `podman run --rm -it --entrypoint=claude ghcr.io/nvidia/openshell-community/sandboxes/base`, which is plain podman without the OpenShell supervisor. No supervisor means no seccomp filter, so `getifaddrs` works. He is not running inside an OpenShell sandbox.
+
 ## Next steps
 
-1. **Try `LD_PRELOAD` shim** from inside the sandbox (compile a C shim that stubs `getifaddrs`, set `LD_PRELOAD` in shell rc, test with `claude`)
-2. **If shim works**: Bake it into the Containerfile (compile during build, add `LD_PRELOAD` to shell rc)
-3. **File OpenShell issue** for 0.0.46 macOS bridge network regression
-4. **Stay on 0.0.41** until macOS is fixed
-5. **Consider contributing** the AF_NETLINK fix upstream (re-submit PR #1006 or a variant)
-6. **Test with API key auth** (not Vertex) to check if `getifaddrs` is Vertex-specific or affects all auth modes
+1. ~~**Bake the shim into cc-deck's Containerfile generation**~~ DONE. Template `04-openshell-extras.tmpl` now includes the shim. All openshell images get it automatically.
+2. **Test with API key auth** (not Vertex) inside a real OpenShell sandbox to confirm the shim fixes the issue for all auth modes, not just Vertex.
+3. **File OpenShell issue** for 0.0.46 macOS bridge network regression.
+4. **Stay on 0.0.41** until macOS is fixed.
+5. **Push for upstream fix**: Red Hat has 3 maintainers who can vouch for re-submitting PR #1006 (or submit a cleaner variant that allows `AF_NETLINK` by default, as Colin Walters suggested).
+6. **Add integration test tier**: Mock-based tests for the workspace lifecycle using the `Client` interface, plus gateway smoke tests on a Linux CI runner using Adam's copr builds.
 
 ## Open Questions
 
-- Does `getifaddrs` fail with API key auth too, or only Vertex? The Vertex code path in the Anthropic SDK may be the only one calling `os.networkInterfaces()`.
-- Is Florent running a patched supervisor, or does his setup differ in a way that avoids the seccomp filter?
+- Does `getifaddrs` fail with API key auth too, or only Vertex? The shim should fix both, but the Vertex code path in the Anthropic SDK may be the only one calling `os.networkInterfaces()`. Needs testing.
 - When will OpenShell fix the macOS bridge networking in 0.0.46+?
-- Should cc-deck provide an `--openshell-version` flag to pin the supervisor version in the image?
+- Should cc-deck auto-detect the need for the shim (check if the target is OpenShell) or always include it?
