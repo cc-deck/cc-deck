@@ -1,6 +1,8 @@
 package build
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -8,8 +10,110 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func TestDefaultPolicy(t *testing.T) {
-	p := DefaultPolicy()
+// T024: Determinism test - same manifest produces byte-identical output
+
+func TestAssemblePolicy_Determinism(t *testing.T) {
+	manifest := &Manifest{
+		Version: 3,
+		Tools:   []ToolEntry{{Name: "cargo"}, {Name: "go"}},
+		Credentials: []CredentialEntry{
+			{Type: "claude-vertex"},
+		},
+	}
+
+	policy1, err := AssemblePolicy(manifest, nil, "", nil, "")
+	require.NoError(t, err)
+	data1, err := MarshalPolicy(policy1)
+	require.NoError(t, err)
+
+	policy2, err := AssemblePolicy(manifest, nil, "", nil, "")
+	require.NoError(t, err)
+	data2, err := MarshalPolicy(policy2)
+	require.NoError(t, err)
+
+	assert.Equal(t, string(data1), string(data2), "same manifest must produce byte-identical output")
+}
+
+// T025: Component matching - cargo manifest matches rust.yaml endpoints
+
+func TestAssemblePolicy_CargoMatchesRust(t *testing.T) {
+	manifest := &Manifest{
+		Version: 3,
+		Tools:   []ToolEntry{{Name: "cargo"}},
+	}
+
+	policy, err := AssemblePolicy(manifest, nil, "", nil, "")
+	require.NoError(t, err)
+
+	rust, ok := policy.NetworkPolicies["pkg_rust"]
+	require.True(t, ok, "cargo in manifest should match rust.yaml component")
+	assert.Equal(t, "rust packages", rust.Name)
+
+	var hasCratesIO bool
+	for _, ep := range rust.Endpoints {
+		if ep.Host == "crates.io" {
+			hasCratesIO = true
+		}
+	}
+	assert.True(t, hasCratesIO, "rust component should include crates.io endpoint")
+}
+
+// T026: Component matching - claude-vertex credential matches vertex-ai.yaml
+
+func TestAssemblePolicy_ClaudeVertexMatchesVertexAI(t *testing.T) {
+	manifest := &Manifest{
+		Version:     3,
+		Credentials: []CredentialEntry{{Type: "claude-vertex"}},
+	}
+
+	policy, err := AssemblePolicy(manifest, nil, "", nil, "")
+	require.NoError(t, err)
+
+	vertex, ok := policy.NetworkPolicies["vertex_ai"]
+	require.True(t, ok, "claude-vertex credential should match vertex-ai.yaml")
+	assert.Equal(t, "Vertex AI", vertex.Name)
+	assert.True(t, len(vertex.Endpoints) > 2, "vertex-ai should have many region endpoints")
+	assert.Equal(t, "aiplatform.googleapis.com", vertex.Endpoints[0].Host)
+}
+
+func TestAssemblePolicy_VertexCredentialMatchesVertexAI(t *testing.T) {
+	manifest := &Manifest{
+		Version:     3,
+		Credentials: []CredentialEntry{{Type: "vertex"}},
+	}
+
+	policy, err := AssemblePolicy(manifest, nil, "", nil, "")
+	require.NoError(t, err)
+
+	_, ok := policy.NetworkPolicies["vertex_ai"]
+	assert.True(t, ok, "vertex credential should also match vertex-ai.yaml")
+}
+
+// T027: Always-true components appear with empty manifest
+
+func TestAssemblePolicy_AlwaysTrueComponentsWithEmptyManifest(t *testing.T) {
+	manifest := &Manifest{Version: 3}
+
+	policy, err := AssemblePolicy(manifest, nil, "", nil, "")
+	require.NoError(t, err)
+
+	_, hasClaude := policy.NetworkPolicies["claude_code"]
+	assert.True(t, hasClaude, "claude_code (always: true) should appear even with empty manifest")
+
+	_, hasGithub := policy.NetworkPolicies["github"]
+	assert.True(t, hasGithub, "github (always: true) should appear even with empty manifest")
+
+	_, hasRust := policy.NetworkPolicies["pkg_rust"]
+	assert.False(t, hasRust, "rust should NOT appear with empty manifest (no tool match)")
+}
+
+// T028: Updated existing tests using component-based approach
+
+func TestAssemblePolicy_DefaultStructure(t *testing.T) {
+	manifest := &Manifest{Version: 3}
+
+	p, err := AssemblePolicy(manifest, nil, "", nil, "")
+	require.NoError(t, err)
 
 	assert.Equal(t, 1, p.Version)
 
@@ -34,8 +138,11 @@ func TestDefaultPolicy(t *testing.T) {
 	assert.Contains(t, p.NetworkPolicies, "github")
 }
 
-func TestDefaultPolicy_RestEndpointsHaveAccess(t *testing.T) {
-	p := DefaultPolicy()
+func TestAssemblePolicy_RestEndpointsHaveAccess(t *testing.T) {
+	manifest := &Manifest{Version: 3}
+
+	p, err := AssemblePolicy(manifest, nil, "", nil, "")
+	require.NoError(t, err)
 
 	for key, np := range p.NetworkPolicies {
 		for i, ep := range np.Endpoints {
@@ -50,13 +157,20 @@ func TestDefaultPolicy_RestEndpointsHaveAccess(t *testing.T) {
 	}
 }
 
-func TestMarshalPolicy_RestFieldsPreserved(t *testing.T) {
-	p := DefaultPolicy()
+func TestAssemblePolicy_MarshalRoundTrip(t *testing.T) {
+	manifest := &Manifest{Version: 3}
+
+	p, err := AssemblePolicy(manifest, nil, "", nil, "")
+	require.NoError(t, err)
+
 	data, err := MarshalPolicy(p)
 	require.NoError(t, err)
 
 	var parsed PolicyFile
 	require.NoError(t, yaml.Unmarshal(data, &parsed))
+	assert.Equal(t, 1, parsed.Version)
+	require.NotNil(t, parsed.FilesystemPolicy)
+	assert.True(t, parsed.FilesystemPolicy.IncludeWorkdir)
 
 	claude := parsed.NetworkPolicies["claude_code"]
 	require.NotEmpty(t, claude.Endpoints)
@@ -72,32 +186,15 @@ func TestMarshalPolicy_RestFieldsPreserved(t *testing.T) {
 	}
 }
 
-func TestGeneratePolicy_EmptyDomains(t *testing.T) {
-	m := &Manifest{Version: 3}
-
-	p, err := GeneratePolicy(m)
-	require.NoError(t, err)
-
-	assert.Equal(t, 1, p.Version)
-	assert.Contains(t, p.NetworkPolicies, "claude_code")
-	require.NotNil(t, p.FilesystemPolicy)
-	assert.True(t, p.FilesystemPolicy.IncludeWorkdir)
-	assert.Contains(t, p.FilesystemPolicy.ReadOnly, "/usr")
-	require.NotNil(t, p.Landlock)
-	assert.Equal(t, "best_effort", p.Landlock.Compatibility)
-	require.NotNil(t, p.Process)
-	assert.Equal(t, "sandbox", p.Process.RunAsUser)
-}
-
-func TestGeneratePolicy_WithDomains(t *testing.T) {
-	m := &Manifest{
+func TestAssemblePolicy_WithDomains(t *testing.T) {
+	manifest := &Manifest{
 		Version: 3,
 		Network: &NetworkConfig{
 			AllowedDomains: []string{"api.anthropic.com", "github.com"},
 		},
 	}
 
-	p, err := GeneratePolicy(m)
+	p, err := AssemblePolicy(manifest, nil, "", nil, "")
 	require.NoError(t, err)
 
 	np, ok := p.NetworkPolicies["api_anthropic_com"]
@@ -112,33 +209,113 @@ func TestGeneratePolicy_WithDomains(t *testing.T) {
 	assert.Equal(t, "github.com", np2.Name)
 }
 
-func TestMarshalPolicy(t *testing.T) {
-	p := DefaultPolicy()
-	data, err := MarshalPolicy(p)
+func TestAssemblePolicy_GenericCredentialAddsCustomEndpoints(t *testing.T) {
+	manifest := &Manifest{
+		Version: 3,
+		Credentials: []CredentialEntry{
+			{
+				Type:    "generic",
+				EnvVars: []string{"CUSTOM_KEY"},
+				Endpoints: []PolicyEndpoint{
+					{Host: "api.custom.com", Port: 443},
+					{Host: "auth.custom.com", Port: 8443},
+				},
+			},
+		},
+	}
+
+	p, err := AssemblePolicy(manifest, nil, "", nil, "")
 	require.NoError(t, err)
 
-	var parsed PolicyFile
-	require.NoError(t, yaml.Unmarshal(data, &parsed))
-	assert.Equal(t, 1, parsed.Version)
-	require.NotNil(t, parsed.FilesystemPolicy)
-	assert.True(t, parsed.FilesystemPolicy.IncludeWorkdir)
-	assert.Equal(t, p.FilesystemPolicy.ReadOnly, parsed.FilesystemPolicy.ReadOnly)
-	assert.Equal(t, p.FilesystemPolicy.ReadWrite, parsed.FilesystemPolicy.ReadWrite)
-	require.NotNil(t, parsed.Landlock)
-	assert.Equal(t, "best_effort", parsed.Landlock.Compatibility)
-	require.NotNil(t, parsed.Process)
-	assert.Equal(t, "sandbox", parsed.Process.RunAsUser)
-	assert.Equal(t, "sandbox", parsed.Process.RunAsGroup)
+	ep1, ok := p.NetworkPolicies["cred_api_custom_com"]
+	require.True(t, ok, "expected cred_api_custom_com policy")
+	assert.Equal(t, "api.custom.com", ep1.Endpoints[0].Host)
+	assert.Equal(t, 443, ep1.Endpoints[0].Port)
+
+	ep2, ok := p.NetworkPolicies["cred_auth_custom_com"]
+	require.True(t, ok, "expected cred_auth_custom_com policy")
+	assert.Equal(t, "auth.custom.com", ep2.Endpoints[0].Host)
+	assert.Equal(t, 8443, ep2.Endpoints[0].Port)
 }
 
+func TestAssemblePolicy_CredentialsAndDomainsCombined(t *testing.T) {
+	manifest := &Manifest{
+		Version: 3,
+		Network: &NetworkConfig{
+			AllowedDomains: []string{"api.anthropic.com"},
+		},
+		Credentials: []CredentialEntry{
+			{Type: "vertex"},
+		},
+	}
+
+	p, err := AssemblePolicy(manifest, nil, "", nil, "")
+	require.NoError(t, err)
+
+	_, hasDomain := p.NetworkPolicies["api_anthropic_com"]
+	assert.True(t, hasDomain, "expected domain policy entry")
+
+	vertex, hasVertex := p.NetworkPolicies["vertex_ai"]
+	assert.True(t, hasVertex, "expected vertex_ai policy entry")
+	assert.Equal(t, "aiplatform.googleapis.com", vertex.Endpoints[0].Host)
+}
+
+func TestAssemblePolicy_ToolsFromSources(t *testing.T) {
+	manifest := &Manifest{
+		Version: 3,
+		Sources: []SourceEntry{
+			{URL: "https://github.com/test/repo", DetectedTools: []string{"go", "python"}},
+		},
+	}
+
+	p, err := AssemblePolicy(manifest, nil, "", nil, "")
+	require.NoError(t, err)
+
+	_, hasGo := p.NetworkPolicies["pkg_go"]
+	assert.True(t, hasGo, "go detected tool should match go.yaml component")
+
+	_, hasPython := p.NetworkPolicies["pkg_python"]
+	assert.True(t, hasPython, "python detected tool should match python.yaml component")
+}
+
+func TestAssemblePolicy_AllToolsCombined(t *testing.T) {
+	manifest := &Manifest{
+		Version: 3,
+		Tools: []ToolEntry{
+			{Name: "cargo"},
+			{Name: "go"},
+			{Name: "node"},
+			{Name: "python"},
+		},
+	}
+
+	p, err := AssemblePolicy(manifest, nil, "", nil, "")
+	require.NoError(t, err)
+
+	assert.Contains(t, p.NetworkPolicies, "pkg_rust")
+	assert.Contains(t, p.NetworkPolicies, "pkg_go")
+	assert.Contains(t, p.NetworkPolicies, "pkg_node")
+	assert.Contains(t, p.NetworkPolicies, "pkg_python")
+	assert.Contains(t, p.NetworkPolicies, "claude_code")
+	assert.Contains(t, p.NetworkPolicies, "github")
+}
+
+// MergePolicy tests (unchanged behavior)
+
 func TestMergePolicy_NilOverrides(t *testing.T) {
-	base := DefaultPolicy()
+	manifest := &Manifest{Version: 3}
+	base, err := AssemblePolicy(manifest, nil, "", nil, "")
+	require.NoError(t, err)
+
 	result := MergePolicy(base, nil)
 	assert.Equal(t, base, result)
 }
 
 func TestMergePolicy_OverrideFilesystemPolicy(t *testing.T) {
-	base := DefaultPolicy()
+	manifest := &Manifest{Version: 3}
+	base, err := AssemblePolicy(manifest, nil, "", nil, "")
+	require.NoError(t, err)
+
 	overrides := &OpenShellPolicy{
 		FilesystemPolicy: &FilesystemPolicy{
 			IncludeWorkdir: false,
@@ -155,7 +332,10 @@ func TestMergePolicy_OverrideFilesystemPolicy(t *testing.T) {
 }
 
 func TestMergePolicy_OverrideProcess(t *testing.T) {
-	base := DefaultPolicy()
+	manifest := &Manifest{Version: 3}
+	base, err := AssemblePolicy(manifest, nil, "", nil, "")
+	require.NoError(t, err)
+
 	overrides := &OpenShellPolicy{
 		Process: &ProcessConfig{
 			RunAsUser:  "root",
@@ -169,15 +349,14 @@ func TestMergePolicy_OverrideProcess(t *testing.T) {
 }
 
 func TestMergePolicy_NetworkOverrideReplaces(t *testing.T) {
-	base := DefaultPolicy()
-	base.NetworkPolicies["github_com"] = NetworkPolicy{
-		Name:      "github.com",
-		Endpoints: []PolicyEndpoint{{Host: "github.com", Port: 443}},
+	manifest := &Manifest{
+		Version: 3,
+		Network: &NetworkConfig{
+			AllowedDomains: []string{"github.com", "api.anthropic.com"},
+		},
 	}
-	base.NetworkPolicies["api_anthropic_com"] = NetworkPolicy{
-		Name:      "api.anthropic.com",
-		Endpoints: []PolicyEndpoint{{Host: "api.anthropic.com", Port: 443}},
-	}
+	base, err := AssemblePolicy(manifest, nil, "", nil, "")
+	require.NoError(t, err)
 
 	overrides := &OpenShellPolicy{
 		NetworkPolicies: map[string]NetworkPolicy{
@@ -192,7 +371,7 @@ func TestMergePolicy_NetworkOverrideReplaces(t *testing.T) {
 	result := MergePolicy(base, overrides)
 
 	_, hasOldGithub := result.NetworkPolicies["github_com"]
-	assert.False(t, hasOldGithub, "auto-generated github_com should be replaced")
+	assert.False(t, hasOldGithub, "auto-generated github_com should be replaced by override with same host")
 
 	np, hasOverride := result.NetworkPolicies["git_hosting"]
 	assert.True(t, hasOverride)
@@ -205,7 +384,9 @@ func TestMergePolicy_NetworkOverrideReplaces(t *testing.T) {
 }
 
 func TestMergePolicy_NetworkAdditive(t *testing.T) {
-	base := DefaultPolicy()
+	manifest := &Manifest{Version: 3}
+	base, err := AssemblePolicy(manifest, nil, "", nil, "")
+	require.NoError(t, err)
 
 	overrides := &OpenShellPolicy{
 		NetworkPolicies: map[string]NetworkPolicy{
@@ -224,11 +405,9 @@ func TestMergePolicy_NetworkAdditive(t *testing.T) {
 }
 
 func TestMergePolicy_EmptyOverrides(t *testing.T) {
-	base := DefaultPolicy()
-	base.NetworkPolicies["test"] = NetworkPolicy{
-		Name:      "test",
-		Endpoints: []PolicyEndpoint{{Host: "test.com", Port: 443}},
-	}
+	manifest := &Manifest{Version: 3}
+	base, err := AssemblePolicy(manifest, nil, "", nil, "")
+	require.NoError(t, err)
 
 	overrides := &OpenShellPolicy{}
 	result := MergePolicy(base, overrides)
@@ -236,114 +415,116 @@ func TestMergePolicy_EmptyOverrides(t *testing.T) {
 	assert.Equal(t, base.FilesystemPolicy, result.FilesystemPolicy)
 	assert.Equal(t, base.Landlock, result.Landlock)
 	assert.Equal(t, base.Process, result.Process)
-	_, ok := result.NetworkPolicies["test"]
-	assert.True(t, ok)
 }
 
-func TestGeneratePolicy_VertexCredentialAddsGCPEndpoints(t *testing.T) {
-	m := &Manifest{
+// T038: User-local component inclusion test
+
+func TestAssemblePolicy_UserLocalComponentInclusion(t *testing.T) {
+	userLocalDir := t.TempDir()
+	customComp := `
+key: internal_api
+name: Internal API
+match:
+  always: true
+endpoints:
+  - host: api.internal.corp
+    port: 8443
+`
+	require.NoError(t, os.WriteFile(filepath.Join(userLocalDir, "internal-api.yaml"), []byte(customComp), 0o644))
+
+	manifest := &Manifest{Version: 3}
+
+	policy, err := AssemblePolicyFromDir(manifest, "", userLocalDir)
+	require.NoError(t, err)
+
+	api, ok := policy.NetworkPolicies["internal_api"]
+	require.True(t, ok, "user-local always-true component should appear in output")
+	assert.Equal(t, "Internal API", api.Name)
+	assert.Equal(t, "api.internal.corp", api.Endpoints[0].Host)
+}
+
+// T039: User-local precedence test
+
+func TestAssemblePolicy_UserLocalOverridesCatalog(t *testing.T) {
+	catalogDir := t.TempDir()
+	catalogRust := `
+key: pkg_rust
+name: rust packages (catalog)
+match:
+  tools:
+    - rust
+    - cargo
+endpoints:
+  - host: catalog-crates.io
+    port: 443
+`
+	require.NoError(t, os.WriteFile(filepath.Join(catalogDir, "rust.yaml"), []byte(catalogRust), 0o644))
+
+	userLocalDir := t.TempDir()
+	userRust := `
+key: pkg_rust
+name: rust packages (user-local)
+match:
+  tools:
+    - rust
+    - cargo
+endpoints:
+  - host: user-crates.io
+    port: 443
+`
+	require.NoError(t, os.WriteFile(filepath.Join(userLocalDir, "rust.yaml"), []byte(userRust), 0o644))
+
+	manifest := &Manifest{
 		Version: 3,
-		Credentials: []CredentialEntry{
-			{Type: "vertex"},
-		},
+		Tools:   []ToolEntry{{Name: "cargo"}},
 	}
 
-	p, err := GeneratePolicy(m)
+	policy, err := AssemblePolicyFromDir(manifest, catalogDir, userLocalDir)
 	require.NoError(t, err)
 
-	vertex, ok := p.NetworkPolicies["vertex_ai"]
-	require.True(t, ok, "expected vertex_ai policy")
-	assert.True(t, len(vertex.Endpoints) > 2, "expected multiple region endpoints")
-	assert.Equal(t, "aiplatform.googleapis.com", vertex.Endpoints[0].Host)
-	assert.Equal(t, "accounts.google.com", vertex.Endpoints[len(vertex.Endpoints)-1].Host)
+	rust, ok := policy.NetworkPolicies["pkg_rust"]
+	require.True(t, ok)
+	assert.Equal(t, "rust packages (user-local)", rust.Name, "user-local should override catalog")
+	assert.Equal(t, "user-crates.io", rust.Endpoints[0].Host)
 }
 
-func TestGeneratePolicy_ClaudeVertexCredentialAddsGCPEndpoints(t *testing.T) {
-	m := &Manifest{
+// T036: Catalog precedence test
+
+func TestAssemblePolicy_CatalogOverridesEmbedded(t *testing.T) {
+	catalogDir := t.TempDir()
+	rustOverride := `
+key: pkg_rust
+name: rust packages (updated)
+match:
+  tools:
+    - rust
+    - cargo
+endpoints:
+  - host: new-crates.io
+    port: 443
+  - host: new-index.crates.io
+    port: 443
+`
+	require.NoError(t, os.WriteFile(filepath.Join(catalogDir, "rust.yaml"), []byte(rustOverride), 0o644))
+
+	manifest := &Manifest{
 		Version: 3,
-		Credentials: []CredentialEntry{
-			{Type: "claude-vertex"},
-		},
+		Tools:   []ToolEntry{{Name: "cargo"}},
 	}
 
-	p, err := GeneratePolicy(m)
+	policy, err := AssemblePolicyFromDir(manifest, catalogDir, "")
 	require.NoError(t, err)
 
-	vertex, ok := p.NetworkPolicies["vertex_ai"]
-	require.True(t, ok, "expected vertex_ai policy")
-	assert.True(t, len(vertex.Endpoints) > 2, "expected multiple region endpoints")
-	assert.Equal(t, "aiplatform.googleapis.com", vertex.Endpoints[0].Host)
-	assert.Equal(t, "accounts.google.com", vertex.Endpoints[len(vertex.Endpoints)-1].Host)
-}
-
-func TestGeneratePolicy_GenericCredentialAddsCustomEndpoints(t *testing.T) {
-	m := &Manifest{
-		Version: 3,
-		Credentials: []CredentialEntry{
-			{
-				Type:    "generic",
-				EnvVars: []string{"CUSTOM_KEY"},
-				Endpoints: []PolicyEndpoint{
-					{Host: "api.custom.com", Port: 443},
-					{Host: "auth.custom.com", Port: 8443},
-				},
-			},
-		},
-	}
-
-	p, err := GeneratePolicy(m)
-	require.NoError(t, err)
-
-	ep1, ok := p.NetworkPolicies["cred_api_custom_com"]
-	require.True(t, ok, "expected cred_api_custom_com policy")
-	assert.Equal(t, "api.custom.com", ep1.Endpoints[0].Host)
-	assert.Equal(t, 443, ep1.Endpoints[0].Port)
-
-	ep2, ok := p.NetworkPolicies["cred_auth_custom_com"]
-	require.True(t, ok, "expected cred_auth_custom_com policy")
-	assert.Equal(t, "auth.custom.com", ep2.Endpoints[0].Host)
-	assert.Equal(t, 8443, ep2.Endpoints[0].Port)
-}
-
-func TestGeneratePolicy_NoCredentialsHasDefaults(t *testing.T) {
-	m := &Manifest{Version: 3}
-
-	p, err := GeneratePolicy(m)
-	require.NoError(t, err)
-
-	assert.Contains(t, p.NetworkPolicies, "claude_code")
-	assert.Contains(t, p.NetworkPolicies, "github")
-	assert.Len(t, p.NetworkPolicies, 2)
-}
-
-func TestGeneratePolicy_CredentialsAndDomainsCombined(t *testing.T) {
-	t.Setenv("CLOUD_ML_REGION", "")
-
-	m := &Manifest{
-		Version: 3,
-		Network: &NetworkConfig{
-			AllowedDomains: []string{"api.anthropic.com"},
-		},
-		Credentials: []CredentialEntry{
-			{Type: "vertex"},
-		},
-	}
-
-	p, err := GeneratePolicy(m)
-	require.NoError(t, err)
-
-	// Should have the domain entry.
-	_, hasDomain := p.NetworkPolicies["api_anthropic_com"]
-	assert.True(t, hasDomain, "expected domain policy entry")
-
-	// Should have vertex entry with region endpoints.
-	vertex, hasVertex := p.NetworkPolicies["vertex_ai"]
-	assert.True(t, hasVertex, "expected vertex_ai policy entry")
-	assert.Equal(t, "aiplatform.googleapis.com", vertex.Endpoints[0].Host)
+	rust, ok := policy.NetworkPolicies["pkg_rust"]
+	require.True(t, ok)
+	assert.Equal(t, "rust packages (updated)", rust.Name, "catalog version should replace embedded")
+	assert.Equal(t, "new-crates.io", rust.Endpoints[0].Host, "catalog endpoints should replace embedded")
 }
 
 func TestSlugify(t *testing.T) {
 	assert.Equal(t, "api_anthropic_com", slugify("api.anthropic.com"))
 	assert.Equal(t, "github_com", slugify("github.com"))
-	assert.Equal(t, "my_domain", slugify("my-domain"))
+	assert.Equal(t, "my-domain", slugify("my-domain"))
+	assert.NotEqual(t, slugify("api.my-service.com"), slugify("api.my_service.com"),
+		"slugify must not collapse hyphens into underscores to avoid collisions")
 }

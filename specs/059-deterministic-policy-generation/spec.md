@@ -79,24 +79,34 @@ A developer has internal MCP servers and custom APIs that need policy entries. T
 - What happens when the manifest has no tools and no credentials? Only `always: true` components (claude-code, git-hosting) are included.
 - What happens when `targets.openshell.policy` is set in the manifest? Explicit overrides are merged on top of the assembled policy using existing merge semantics (replace by host match).
 
+## Clarifications
+
+### Session 2026-05-22
+
+- Q: What does the `features` match condition in FR-003 refer to? → A: Matches feature flags declared in the manifest (e.g., `features: [mcp, remote-agents]`), enabling components to activate based on optional capabilities beyond tools/credentials.
+- Q: How should policy sections be ordered in the generated policy to guarantee determinism (FR-001)? → A: Alphabetical by component name.
+- Q: What defines component identity for precedence resolution? → A: Filename stem (e.g., `claude-code.yaml` identifies as `claude-code`).
+- Q: Does `cc-deck.capture` download all catalog components or only those matching the manifest? → A: Download all catalog components (no manifest filtering), refreshing the local cache on every capture run.
+- Q: Where does the output policy section name (e.g., `claude_code`, `rust_crates`) come from? → A: A `key` field inside the component YAML (e.g., `key: claude_code`), decoupling output name from filename.
+
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
 
-- **FR-001**: Policy generation MUST be deterministic: the same manifest and component files MUST produce byte-identical output on every run.
+- **FR-001**: Policy generation MUST be deterministic: the same manifest and component files MUST produce byte-identical output on every run. Policy sections MUST be ordered alphabetically by component name in the generated output.
 - **FR-002**: Endpoints and binary paths MUST NOT be hardcoded in Go source code. They MUST be defined in declarative YAML component files.
-- **FR-003**: Each component file MUST declare its own match conditions (`always`, `tools`, `credentials`, `features`) and the system MUST evaluate them against the manifest.
+- **FR-003**: Each component file MUST declare its own match conditions (`always`, `tools`, `credentials`, `features`) and the system MUST evaluate them against the manifest. The `features` condition matches optional feature flags declared in the manifest (e.g., `features: [mcp, remote-agents]`), enabling components to activate based on capabilities beyond tools and credentials.
 - **FR-004**: Each component file MUST declare its own binary paths. The system MUST NOT assume which binaries use which endpoints.
 - **FR-005**: `cc-deck build refresh` MUST regenerate `openshell/policy.yaml` from components when an openshell target is configured in the manifest.
-- **FR-006**: Component resolution MUST follow the precedence order: embedded (lowest) < cached catalog < user-local (highest).
-- **FR-007**: `cc-deck.capture` MUST attempt to fetch the catalog index from the remote repo when network is available, and cache matching components locally.
+- **FR-006**: Component resolution MUST follow the precedence order: embedded (lowest) < cached catalog < user-local (highest). Component identity for precedence is determined by the filename stem (e.g., `claude-code.yaml` identifies as `claude-code`). When multiple tiers contain a component with the same filename stem, the higher-precedence tier's version replaces the lower one entirely.
+- **FR-007**: `cc-deck.capture` MUST attempt to fetch the catalog index from the remote repo when network is available, download all available components (not filtered by the current manifest), and update the local cache on every run.
 - **FR-008**: When the catalog is unreachable, capture MUST warn and continue. `build refresh` MUST fall back to embedded components.
 - **FR-009**: The `/cc-deck.build` command MUST NOT generate policy. It MUST use the pre-rendered `openshell/policy.yaml` produced by `build refresh`.
 - **FR-010**: The generated policy MUST comply with OpenShell 0.0.46 requirements: `rest` protocol endpoints MUST have `access` or `rules`, deprecated fields (`tls: terminate`, `enforcement: enforce`) MUST NOT appear.
 
 ### Key Entities
 
-- **Component File**: A YAML document declaring a named policy fragment with match conditions, endpoints, and binary paths. Lives embedded in the binary, in the catalog repo, or in the user's project.
+- **Component File**: A YAML document declaring a named policy fragment with a `key` field (the output section name, e.g., `claude_code`), match conditions, endpoints, and binary paths. Identity for precedence is the filename stem. Lives embedded in the binary, in the catalog repo, or in the user's project.
 - **Catalog**: A GitHub repo serving as a versioned registry of component files. Contains a `catalog.yaml` index and individual component files.
 - **Manifest**: The `build.yaml` file containing tool, credential, and domain declarations that drive component matching.
 - **Policy File**: The assembled `openshell/policy.yaml` output, ready for COPY into the container image.

@@ -254,6 +254,27 @@ cc-deck build init --target container,ssh
 | Provisioning targets to generate: `container`, `ssh`, or `container,ssh` (default: `container`)
 |===
 
+==== build refresh
+
+Re-extract Containerfile snippets, Claude Code commands, and policy files from the current `cc-deck` binary.
+This updates template fragments (for example, after upgrading cc-deck) without overwriting `build.yaml` or user-customized configuration.
+
+When an OpenShell target is configured, `build refresh` also assembles `openshell/policy.yaml` deterministically from policy component files.
+Components are loaded from three tiers in precedence order (highest wins):
+
+1. **User-local** (`.cc-deck/setup/openshell/policies/*.yaml`)
+2. **Cached catalog** (`.cc-deck/setup/openshell/components/*.yaml`)
+3. **Embedded** (built into the binary)
+
+The assembled policy includes only components whose match conditions are satisfied by the manifest.
+Explicit overrides from `targets.openshell.policy` in the manifest are applied after assembly via `MergePolicy`.
+
+[source,bash]
+----
+cc-deck build refresh                 # defaults to .cc-deck/setup/
+cc-deck build refresh my-team-setup
+----
+
 ==== build run
 
 Execute pre-generated build artifacts directly from the CLI.

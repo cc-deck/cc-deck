@@ -1,0 +1,11 @@
+key: pkg_node
+name: node packages
+match:
+  tools:
+    - node
+    - npm
+endpoints:
+  - host: registry.npmjs.org
+    port: 443
+  - host: npmjs.org
+    port: 443

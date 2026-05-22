@@ -1,0 +1,76 @@
+key: vertex_ai
+name: Vertex AI
+match:
+  credentials:
+    - claude-vertex
+    - vertex
+endpoints:
+  - host: aiplatform.googleapis.com
+    port: 443
+  - host: global-aiplatform.googleapis.com
+    port: 443
+  - host: us-central1-aiplatform.googleapis.com
+    port: 443
+  - host: us-east1-aiplatform.googleapis.com
+    port: 443
+  - host: us-east4-aiplatform.googleapis.com
+    port: 443
+  - host: us-east5-aiplatform.googleapis.com
+    port: 443
+  - host: us-south1-aiplatform.googleapis.com
+    port: 443
+  - host: us-west1-aiplatform.googleapis.com
+    port: 443
+  - host: us-west4-aiplatform.googleapis.com
+    port: 443
+  - host: europe-west1-aiplatform.googleapis.com
+    port: 443
+  - host: europe-west2-aiplatform.googleapis.com
+    port: 443
+  - host: europe-west3-aiplatform.googleapis.com
+    port: 443
+  - host: europe-west4-aiplatform.googleapis.com
+    port: 443
+  - host: europe-west6-aiplatform.googleapis.com
+    port: 443
+  - host: europe-west8-aiplatform.googleapis.com
+    port: 443
+  - host: europe-west9-aiplatform.googleapis.com
+    port: 443
+  - host: asia-east1-aiplatform.googleapis.com
+    port: 443
+  - host: asia-east2-aiplatform.googleapis.com
+    port: 443
+  - host: asia-northeast1-aiplatform.googleapis.com
+    port: 443
+  - host: asia-northeast3-aiplatform.googleapis.com
+    port: 443
+  - host: asia-south1-aiplatform.googleapis.com
+    port: 443
+  - host: asia-southeast1-aiplatform.googleapis.com
+    port: 443
+  - host: asia-southeast2-aiplatform.googleapis.com
+    port: 443
+  - host: australia-southeast1-aiplatform.googleapis.com
+    port: 443
+  - host: me-central1-aiplatform.googleapis.com
+    port: 443
+  - host: me-central2-aiplatform.googleapis.com
+    port: 443
+  - host: me-west1-aiplatform.googleapis.com
+    port: 443
+  - host: northamerica-northeast1-aiplatform.googleapis.com
+    port: 443
+  - host: southamerica-east1-aiplatform.googleapis.com
+    port: 443
+  - host: oauth2.googleapis.com
+    port: 443
+  - host: www.googleapis.com
+    port: 443
+  - host: accounts.google.com
+    port: 443
+binaries:
+  - path: /usr/local/bin/claude
+  - path: /sandbox/.local/bin/claude
+  - path: /sandbox/.local/share/claude/**
+  - path: /usr/bin/node
