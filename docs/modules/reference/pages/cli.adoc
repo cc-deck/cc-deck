@@ -275,6 +275,33 @@ cc-deck build refresh                 # defaults to .cc-deck/setup/
 cc-deck build refresh my-team-setup
 ----
 
+==== build catalog-update
+
+Fetch policy component files from the remote catalog repository and cache them locally.
+The cached components are used by `build refresh` when assembling the OpenShell network policy.
+
+On network failure, the command warns and continues (offline fallback to embedded components).
+
+[source,bash]
+----
+cc-deck build catalog-update
+cc-deck build catalog-update .cc-deck/setup/
+----
+
+[cols="1,3"]
+|===
+| Flag | Description
+
+| `--index-url`
+| Catalog index URL (default: `+https://raw.githubusercontent.com/cc-deck/openshell-policies/main/catalog.yaml+`)
+
+| `--base-url`
+| Base URL for downloading component files (default: `+https://raw.githubusercontent.com/cc-deck/openshell-policies/main+`)
+|===
+
+Components are cached in `<dir>/openshell/components/`.
+Run `build refresh` after updating to regenerate the policy.
+
 ==== build run
 
 Execute pre-generated build artifacts directly from the CLI.

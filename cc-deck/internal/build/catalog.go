@@ -19,8 +19,13 @@ type CatalogIndex struct {
 	BaseURL    string   `yaml:"base_url,omitempty"`
 }
 
-const maxCatalogIndexSize = 64 * 1024  // 64 KB
-const maxComponentFileSize = 512 * 1024 // 512 KB
+const (
+	DefaultCatalogIndexURL = "https://raw.githubusercontent.com/cc-deck/openshell-policies/main/catalog.yaml"
+	DefaultCatalogBaseURL  = "https://raw.githubusercontent.com/cc-deck/openshell-policies/main"
+
+	maxCatalogIndexSize  = 64 * 1024  // 64 KB
+	maxComponentFileSize = 512 * 1024 // 512 KB
+)
 
 // FetchCatalogIndex downloads and parses the catalog index from the given URL.
 func FetchCatalogIndex(indexURL string) (*CatalogIndex, error) {
