@@ -262,30 +262,94 @@ The workspace still starts, but the corresponding service will not be available.
 Use `/cc-deck.capture` to detect available credentials automatically.
 Use `/cc-deck.capture --all` to auto-accept all proposals without prompting.
 
-=== Automatic Network Policy Endpoints
+=== Policy Component System
 
-The OpenShell build command generates a `policy.yaml` that always includes Claude Code endpoints (`api.anthropic.com`, `statsig.anthropic.com`, `sentry.io`) and GitHub (`github.com`, `api.github.com`).
+The `build refresh` command assembles `openshell/policy.yaml` deterministically from YAML component files.
+Each component file defines a set of network endpoints, match conditions, and optional binary restrictions.
 
-Additional endpoints are auto-injected based on detected tools in the manifest:
+==== Component File Locations
 
-[cols="1,3"]
+Components are loaded from three tiers in precedence order.
+A component at a higher tier replaces one with the same filename stem entirely (no merging).
+
+[cols="1,2,1"]
 |===
-| Tool | Endpoints added
+| Tier | Path | Precedence
 
-| Rust / Cargo
+| Embedded
+| Built into the `cc-deck` binary
+| Lowest
+
+| Cached catalog
+| `.cc-deck/setup/openshell/components/*.yaml`
+| Middle
+
+| User-local
+| `.cc-deck/setup/openshell/policies/*.yaml`
+| Highest
+|===
+
+The `capture` command fetches catalog components from the remote catalog repo and caches them in the middle tier.
+User-local components can be created manually for project-specific endpoints.
+
+==== Built-in Components
+
+The following components are embedded in the `cc-deck` binary:
+
+[cols="1,1,3"]
+|===
+| Component | Match | Endpoints
+
+| `claude-code.yaml`
+| Always included
+| `api.anthropic.com`, `statsig.anthropic.com`, `sentry.io`, `downloads.claude.ai`, `raw.githubusercontent.com`
+
+| `git-hosting.yaml`
+| Always included
+| `github.com`, `api.github.com`
+
+| `rust.yaml`
+| Tools: `rust`, `cargo`
 | `crates.io`, `index.crates.io`, `static.crates.io`
 
-| Go
+| `go.yaml`
+| Tools: `go`
 | `proxy.golang.org`, `sum.golang.org`, `storage.googleapis.com`
 
-| Node / npm
+| `node.yaml`
+| Tools: `node`, `npm`
 | `registry.npmjs.org`, `npmjs.org`
 
-| Python / pip / uv
+| `python.yaml`
+| Tools: `python`, `pip`, `uv`
 | `pypi.org`, `files.pythonhosted.org`
+
+| `vertex-ai.yaml`
+| Credentials: `claude-vertex`, `vertex`
+| All Vertex AI regional endpoints, `oauth2.googleapis.com`, `accounts.google.com`
 |===
 
-These are added automatically when the corresponding tool names appear in the manifest's `tools` section or in `sources[].detected_tools`.
+Components with `always: true` in their match conditions are always included regardless of the manifest.
+Tool and credential matches use OR semantics: any single condition match includes the component.
+
+==== Custom Component File Format
+
+Create a YAML file in `.cc-deck/setup/openshell/policies/` with this schema:
+
+[source,yaml]
+----
+key: internal_api
+name: Internal API
+match:
+  always: true
+endpoints:
+  - host: api.internal.corp
+    port: 8443
+----
+
+Required fields: `key`, `name`, `match` (with at least one condition), `endpoints` (at least one entry).
+Each endpoint requires `host` and `port`.
+Endpoints with `protocol: rest` must also have `access` or `rules` (OpenShell 0.0.46 compliance).
 
 === Containerfile Template Snippets
 

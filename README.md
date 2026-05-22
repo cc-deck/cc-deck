@@ -386,6 +386,32 @@ cc-deck config domains add my-session pypi.org   # Add domain at runtime
 cc-deck config domains show python               # Inspect a group's domains
 ```
 
+### OpenShell policy components
+
+For OpenShell targets, `build refresh` assembles `openshell/policy.yaml` from declarative YAML component files. Components are loaded from three tiers in precedence order:
+
+1. **Embedded** (built into the binary): Claude Code, GitHub, and package registry endpoints
+2. **Cached catalog** (`.cc-deck/setup/openshell/components/`): fetched by `capture`
+3. **User-local** (`.cc-deck/setup/openshell/policies/`): project-specific custom endpoints
+
+The assembly is deterministic: the same manifest with the same components always produces identical output. Components declare match conditions (`always`, `tools`, `credentials`) and are included only when their conditions match the manifest.
+
+```bash
+cc-deck build refresh    # Assemble policy from components + manifest
+```
+
+To add custom endpoints, create a component file in `.cc-deck/setup/openshell/policies/`:
+
+```yaml
+key: internal_api
+name: Internal API
+match:
+  always: true
+endpoints:
+  - host: api.internal.corp
+    port: 8443
+```
+
 ## Workspace management
 
 The `cc-deck ws` command group manages Claude Code sessions across all supported backends.

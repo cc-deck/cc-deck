@@ -1,0 +1,14 @@
+key: github
+name: GitHub
+match:
+  always: true
+endpoints:
+  - host: github.com
+    port: 443
+  - host: api.github.com
+    port: 443
+    protocol: rest
+    access: full
+binaries:
+  - path: /usr/bin/git
+  - path: /usr/bin/gh

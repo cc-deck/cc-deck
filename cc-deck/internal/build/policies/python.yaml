@@ -1,0 +1,12 @@
+key: pkg_python
+name: python packages
+match:
+  tools:
+    - python
+    - pip
+    - uv
+endpoints:
+  - host: pypi.org
+    port: 443
+  - host: files.pythonhosted.org
+    port: 443

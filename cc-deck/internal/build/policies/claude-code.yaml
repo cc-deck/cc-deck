@@ -1,0 +1,22 @@
+key: claude_code
+name: Claude Code
+match:
+  always: true
+endpoints:
+  - host: api.anthropic.com
+    port: 443
+    protocol: rest
+    access: full
+  - host: statsig.anthropic.com
+    port: 443
+  - host: sentry.io
+    port: 443
+  - host: downloads.claude.ai
+    port: 443
+  - host: raw.githubusercontent.com
+    port: 443
+binaries:
+  - path: /usr/local/bin/claude
+  - path: /sandbox/.local/bin/claude
+  - path: /sandbox/.local/share/claude/**
+  - path: /usr/bin/node

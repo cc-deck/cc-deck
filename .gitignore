@@ -36,6 +36,7 @@ dist/
 
 # Claude Code local settings (any level)
 **/.claude/
-# spex: generated/local files
+# spex: generated/local files (only constitution is committed)
 **/.specify/**
-!**/.specify/feature.json
+!**/.specify/memory/
+!**/.specify/memory/constitution.md
