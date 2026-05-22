@@ -1,6 +1,6 @@
 # Brainstorm Overview
 
-Last updated: 2026-05-19 (credential injection session)
+Last updated: 2026-05-22 (deterministic policy generation, OpenShell testing findings)
 
 ## Active Brainstorms
 
@@ -23,6 +23,8 @@ Last updated: 2026-05-19 (credential injection session)
 | 056 | 2026-05-18 | Sidebar badges | active | - |
 | 058 | 2026-05-19 | Image tool plugins | parked | - |
 | 059 | 2026-05-19 | OpenShell credential injection | active | - |
+| 060 | 2026-05-22 | OpenShell testing findings | active | - |
+| 061 | 2026-05-22 | Deterministic policy generation | active | - |
 
 ## Open Threads
 
@@ -41,6 +43,8 @@ Last updated: 2026-05-19 (credential injection session)
 - Sidebar badges: badge evaluation caching, max badge count, YAML format support, dot-path array handling (from #056)
 - OpenShell credential injection: missing credential error handling (error vs warn vs prompt), provider idempotency (reuse existing?), Vertex migration path when OpenShell adds native support, custom provider types beyond known profiles, credential refresh for OpenShell workspaces (from #059)
 - Unified credential handling: refactor credential injection across all workspace types (container/SSH/K8s/compose/OpenShell) into shared interface (from #059, future brainstorm)
+- OpenShell testing: LD_PRELOAD shim validated but temporary (needs upstream AF_NETLINK fix via PR #1006), macOS bridge networking workaround documented, policy binary glob pattern for Claude Code versioned binary (from #060)
+- Deterministic policy generation: catalog repo name TBD, MCP server endpoint extraction format, component dependency model, supply chain signing deferred (from #061)
 
 ## Parked Ideas
 
