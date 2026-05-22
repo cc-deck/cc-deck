@@ -2,6 +2,9 @@ package build
 
 import (
 	"fmt"
+	"io/fs"
+	"os"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -77,8 +80,84 @@ type PolicyFile struct {
 	NetworkPolicies  map[string]NetworkPolicy `yaml:"network_policies"`
 }
 
-// DefaultPolicy returns a PolicyFile with the FR-013/FR-014/FR-015 defaults.
-func DefaultPolicy() *PolicyFile {
+// AssemblePolicy builds a PolicyFile from component files across multiple tiers.
+// It loads embedded components, optional catalog and user-local components,
+// resolves precedence by filename stem, filters by manifest match conditions,
+// and produces a deterministic PolicyFile with alphabetically sorted keys.
+func AssemblePolicy(manifest *Manifest, catalogFS fs.FS, catalogRoot string, userLocalFS fs.FS, userLocalRoot string) (*PolicyFile, error) {
+	embedded, embWarnings := LoadEmbeddedComponents()
+	for _, w := range embWarnings {
+		fmt.Printf("WARNING: embedded component: %v\n", w)
+	}
+
+	var catalogTier map[string]PolicyComponent
+	if catalogFS != nil {
+		var catWarnings []error
+		catalogTier, catWarnings = LoadComponentTier(catalogFS, catalogRoot)
+		for _, w := range catWarnings {
+			fmt.Printf("WARNING: catalog component: %v\n", w)
+		}
+	}
+
+	var userLocalTier map[string]PolicyComponent
+	if userLocalFS != nil {
+		var ulWarnings []error
+		userLocalTier, ulWarnings = LoadComponentTier(userLocalFS, userLocalRoot)
+		for _, w := range ulWarnings {
+			fmt.Printf("WARNING: user-local component: %v\n", w)
+		}
+	}
+
+	resolved := ResolveComponents(embedded, catalogTier, userLocalTier)
+
+	var matched []PolicyComponent
+	for i := range resolved {
+		if MatchComponent(&resolved[i], manifest) {
+			matched = append(matched, resolved[i])
+		}
+	}
+
+	sort.Slice(matched, func(i, j int) bool {
+		return matched[i].Key < matched[j].Key
+	})
+
+	networkPolicies := make(map[string]NetworkPolicy, len(matched))
+	for _, comp := range matched {
+		networkPolicies[comp.Key] = NetworkPolicy{
+			Name:      comp.Name,
+			Endpoints: comp.Endpoints,
+			Binaries:  comp.Binaries,
+		}
+	}
+
+	// Add allowed_domains from manifest.network as direct entries.
+	if manifest.Network != nil {
+		for _, domain := range manifest.Network.AllowedDomains {
+			slug := slugify(domain)
+			networkPolicies[slug] = NetworkPolicy{
+				Name: domain,
+				Endpoints: []PolicyEndpoint{
+					{Host: domain, Port: 443},
+				},
+			}
+		}
+	}
+
+	// Add generic credential endpoints.
+	for _, cred := range manifest.Credentials {
+		if cred.Type == "generic" {
+			for _, ep := range cred.Endpoints {
+				slug := slugify(ep.Host)
+				networkPolicies["cred_"+slug] = NetworkPolicy{
+					Name: ep.Host,
+					Endpoints: []PolicyEndpoint{
+						{Host: ep.Host, Port: ep.Port},
+					},
+				}
+			}
+		}
+	}
+
 	return &PolicyFile{
 		Version: 1,
 		FilesystemPolicy: &FilesystemPolicy{
@@ -93,181 +172,33 @@ func DefaultPolicy() *PolicyFile {
 			RunAsUser:  "sandbox",
 			RunAsGroup: "sandbox",
 		},
-		NetworkPolicies: map[string]NetworkPolicy{
-			"claude_code": {
-				Name: "Claude Code",
-				Endpoints: []PolicyEndpoint{
-					{Host: "api.anthropic.com", Port: 443, Protocol: "rest", Access: "full"},
-					{Host: "statsig.anthropic.com", Port: 443},
-					{Host: "sentry.io", Port: 443},
-					{Host: "downloads.claude.ai", Port: 443},
-					{Host: "raw.githubusercontent.com", Port: 443},
-				},
-				Binaries: claudeCodeBinaries(),
-			},
-			"github": {
-				Name: "GitHub",
-				Endpoints: []PolicyEndpoint{
-					{Host: "github.com", Port: 443},
-					{Host: "api.github.com", Port: 443, Protocol: "rest", Access: "full"},
-				},
-				Binaries: []PolicyBinary{
-					{Path: "/usr/bin/git"},
-					{Path: "/usr/bin/gh"},
-				},
-			},
-		},
-	}
+		NetworkPolicies: networkPolicies,
+	}, nil
 }
 
-// GeneratePolicy builds a policy from defaults and auto-generates network_policies
-// entries from the manifest's allowed_domains and credential endpoints.
-func GeneratePolicy(manifest *Manifest) (*PolicyFile, error) {
-	policy := DefaultPolicy()
-
-	if manifest.Network != nil {
-		for _, domain := range manifest.Network.AllowedDomains {
-			slug := slugify(domain)
-			policy.NetworkPolicies[slug] = NetworkPolicy{
-				Name: domain,
-				Endpoints: []PolicyEndpoint{
-					{Host: domain, Port: 443},
-				},
-			}
+// AssemblePolicyFromDir is a convenience wrapper that loads catalog and
+// user-local component tiers from filesystem directories. Pass empty strings
+// to skip a tier.
+func AssemblePolicyFromDir(manifest *Manifest, catalogDir string, userLocalDir string) (*PolicyFile, error) {
+	var catalogFSys fs.FS
+	var catalogRoot string
+	if catalogDir != "" {
+		if info, err := os.Stat(catalogDir); err == nil && info.IsDir() {
+			catalogFSys = os.DirFS(catalogDir)
+			catalogRoot = "."
 		}
 	}
 
-	// Add package registry endpoints based on detected tools.
-	for _, tool := range manifest.Tools {
-		addToolEndpoints(policy, tool.Name)
-	}
-	for _, src := range manifest.Sources {
-		for _, t := range src.DetectedTools {
-			addToolEndpoints(policy, t)
+	var userLocalFSys fs.FS
+	var userLocalRoot string
+	if userLocalDir != "" {
+		if info, err := os.Stat(userLocalDir); err == nil && info.IsDir() {
+			userLocalFSys = os.DirFS(userLocalDir)
+			userLocalRoot = "."
 		}
 	}
 
-	// Add credential-specific endpoints.
-	for _, cred := range manifest.Credentials {
-		switch cred.Type {
-		case "claude-vertex", "vertex":
-			policy.NetworkPolicies["vertex_ai"] = NetworkPolicy{
-				Name:      "Vertex AI",
-				Endpoints: vertexEndpoints(),
-				Binaries:  claudeCodeBinaries(),
-			}
-		case "generic":
-			// Add custom endpoints from the credential entry.
-			for _, ep := range cred.Endpoints {
-				slug := slugify(ep.Host)
-				policy.NetworkPolicies["cred_"+slug] = NetworkPolicy{
-					Name: ep.Host,
-					Endpoints: []PolicyEndpoint{
-						{Host: ep.Host, Port: ep.Port},
-					},
-				}
-			}
-		}
-	}
-
-	return policy, nil
-}
-
-// toolEndpoints maps tool name keywords to package registry endpoints that
-// need to be allowed in the network policy for builds and package installs.
-var toolEndpoints = map[string][]PolicyEndpoint{
-	"rust": {
-		{Host: "crates.io", Port: 443},
-		{Host: "index.crates.io", Port: 443},
-		{Host: "static.crates.io", Port: 443},
-	},
-	"cargo": {
-		{Host: "crates.io", Port: 443},
-		{Host: "index.crates.io", Port: 443},
-		{Host: "static.crates.io", Port: 443},
-	},
-	"go": {
-		{Host: "proxy.golang.org", Port: 443},
-		{Host: "sum.golang.org", Port: 443},
-		{Host: "storage.googleapis.com", Port: 443},
-	},
-	"node": {
-		{Host: "registry.npmjs.org", Port: 443},
-		{Host: "npmjs.org", Port: 443},
-	},
-	"npm": {
-		{Host: "registry.npmjs.org", Port: 443},
-		{Host: "npmjs.org", Port: 443},
-	},
-	"python": {
-		{Host: "pypi.org", Port: 443},
-		{Host: "files.pythonhosted.org", Port: 443},
-	},
-	"pip": {
-		{Host: "pypi.org", Port: 443},
-		{Host: "files.pythonhosted.org", Port: 443},
-	},
-	"uv": {
-		{Host: "pypi.org", Port: 443},
-		{Host: "files.pythonhosted.org", Port: 443},
-	},
-}
-
-// addToolEndpoints checks a tool name against known package registries and
-// adds the corresponding endpoints to the policy if not already present.
-func addToolEndpoints(policy *PolicyFile, toolName string) {
-	lower := strings.ToLower(toolName)
-	for keyword, endpoints := range toolEndpoints {
-		if strings.Contains(lower, keyword) {
-			slug := "pkg_" + keyword
-			if _, exists := policy.NetworkPolicies[slug]; !exists {
-				policy.NetworkPolicies[slug] = NetworkPolicy{
-					Name:      keyword + " packages",
-					Endpoints: endpoints,
-				}
-			}
-		}
-	}
-}
-
-// claudeCodeBinaries returns the binary paths that Claude Code uses.
-// Includes the glob pattern for the versioned binary directory.
-func claudeCodeBinaries() []PolicyBinary {
-	return []PolicyBinary{
-		{Path: "/usr/local/bin/claude"},
-		{Path: "/sandbox/.local/bin/claude"},
-		{Path: "/sandbox/.local/share/claude/**"},
-		{Path: "/usr/bin/node"},
-	}
-}
-
-// vertexEndpoints returns the network policy endpoints for Google Vertex AI.
-// Wildcards don't work because the hostname pattern is {region}-aiplatform
-// (prefix, not subdomain). All standard Vertex AI regions are listed.
-func vertexEndpoints() []PolicyEndpoint {
-	regions := []string{
-		"global",
-		"us-central1", "us-east1", "us-east4", "us-east5",
-		"us-south1", "us-west1", "us-west4",
-		"europe-west1", "europe-west2", "europe-west3", "europe-west4",
-		"europe-west6", "europe-west8", "europe-west9",
-		"asia-east1", "asia-east2", "asia-northeast1", "asia-northeast3",
-		"asia-south1", "asia-southeast1", "asia-southeast2",
-		"australia-southeast1",
-		"me-central1", "me-central2", "me-west1",
-		"northamerica-northeast1", "southamerica-east1",
-	}
-	endpoints := make([]PolicyEndpoint, 0, len(regions)+4)
-	endpoints = append(endpoints, PolicyEndpoint{Host: "aiplatform.googleapis.com", Port: 443})
-	for _, r := range regions {
-		endpoints = append(endpoints, PolicyEndpoint{Host: r + "-aiplatform.googleapis.com", Port: 443})
-	}
-	endpoints = append(endpoints,
-		PolicyEndpoint{Host: "oauth2.googleapis.com", Port: 443},
-		PolicyEndpoint{Host: "www.googleapis.com", Port: 443},
-		PolicyEndpoint{Host: "accounts.google.com", Port: 443},
-	)
-	return endpoints
+	return AssemblePolicy(manifest, catalogFSys, catalogRoot, userLocalFSys, userLocalRoot)
 }
 
 // MarshalPolicy serializes a PolicyFile to YAML.
@@ -342,21 +273,9 @@ func MergePolicy(base *PolicyFile, overrides *OpenShellPolicy) *PolicyFile {
 	return &result
 }
 
-// WellKnownBinaries maps tool names to their expected binary paths.
-// Used as a reference by the AI command spec during policy generation.
-var WellKnownBinaries = map[string]string{
-	"git":        "/usr/bin/git",
-	"node":       "/usr/bin/node",
-	"nodejs":     "/usr/bin/node",
-	"python3":    "/usr/bin/python3",
-	"go":         "/usr/bin/go",
-	"claude":     "/usr/local/bin/claude",
-	"Claude Code": "/usr/local/bin/claude",
-}
-
 // slugify converts a domain name to a YAML-safe key.
+// Only dots are replaced with underscores; hyphens are preserved
+// to avoid collisions between domains that differ only in dot/hyphen.
 func slugify(domain string) string {
-	s := strings.ReplaceAll(domain, ".", "_")
-	s = strings.ReplaceAll(s, "-", "_")
-	return s
+	return strings.ReplaceAll(domain, ".", "_")
 }

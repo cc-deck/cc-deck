@@ -2,7 +2,6 @@ package openshell
 
 import (
 	"context"
-	_ "embed"
 	"fmt"
 	"log"
 	"net"
@@ -11,9 +10,6 @@ import (
 	"strings"
 	"time"
 )
-
-//go:embed default-policy.yaml
-var defaultPolicy []byte
 
 // SandboxState represents the lifecycle state of an OpenShell sandbox.
 type SandboxState string
@@ -94,23 +90,14 @@ func (c *cliClient) Address() string {
 }
 
 // CreateSandbox provisions a new sandbox on the OpenShell gateway.
+// The policy parameter must be a path to a generated policy.yaml file
+// (produced by build refresh). An empty policy path is an error.
 func (c *cliClient) CreateSandbox(ctx context.Context, image, command, policy string, providers []string) (string, error) {
 	start := time.Now()
-	policyPath := policy
-	if policyPath == "" {
-		tmp, writeErr := os.CreateTemp("", "openshell-policy-*.yaml")
-		if writeErr != nil {
-			return "", fmt.Errorf("writing default policy: %w", writeErr)
-		}
-		defer os.Remove(tmp.Name())
-		if _, writeErr = tmp.Write(defaultPolicy); writeErr != nil {
-			tmp.Close()
-			return "", fmt.Errorf("writing default policy: %w", writeErr)
-		}
-		tmp.Close()
-		policyPath = tmp.Name()
+	if policy == "" {
+		return "", fmt.Errorf("policy file path is required (run 'cc-deck build refresh' to generate openshell/policy.yaml)")
 	}
-	args := []string{"sandbox", "create", "--from", image, "--policy", policyPath}
+	args := []string{"sandbox", "create", "--from", image, "--policy", policy}
 	for _, p := range providers {
 		if p != "" {
 			args = append(args, "--provider", p)

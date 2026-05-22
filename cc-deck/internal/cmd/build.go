@@ -142,6 +142,11 @@ and re-renders their snippet files.`,
 				}
 				fmt.Printf("  Refreshed: %s/openshell/snippets/\n", dir)
 				refreshed++
+
+				if err := refreshOpenShellPolicy(dir, m); err != nil {
+					return fmt.Errorf("refreshing openshell policy: %w", err)
+				}
+				fmt.Printf("  Refreshed: %s/openshell/policy.yaml\n", dir)
 			}
 
 			commandsDir := filepath.Join(projectRoot, ".claude", "commands")
@@ -811,6 +816,34 @@ func diffSSH(dir string, m *build.Manifest) error {
 	}
 
 	return nil
+}
+
+// refreshOpenShellPolicy assembles a deterministic policy from component files
+// and writes it to openshell/policy.yaml. Applies manifest-level overrides
+// from targets.openshell.policy after assembly.
+func refreshOpenShellPolicy(dir string, m *build.Manifest) error {
+	catalogDir := filepath.Join(dir, "openshell", "components")
+	userLocalDir := filepath.Join(dir, "openshell", "policies")
+
+	policy, err := build.AssemblePolicyFromDir(m, catalogDir, userLocalDir)
+	if err != nil {
+		return err
+	}
+
+	if m.Targets != nil && m.Targets.OpenShell != nil {
+		policy = build.MergePolicy(policy, m.Targets.OpenShell.Policy)
+	}
+
+	data, err := build.MarshalPolicy(policy)
+	if err != nil {
+		return err
+	}
+
+	policyPath := filepath.Join(dir, "openshell", "policy.yaml")
+	if err := os.MkdirAll(filepath.Dir(policyPath), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(policyPath, data, 0o644)
 }
 
 func fileExists(path string) bool {

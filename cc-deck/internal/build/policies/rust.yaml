@@ -1,0 +1,13 @@
+key: pkg_rust
+name: rust packages
+match:
+  tools:
+    - rust
+    - cargo
+endpoints:
+  - host: crates.io
+    port: 443
+  - host: index.crates.io
+    port: 443
+  - host: static.crates.io
+    port: 443

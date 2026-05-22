@@ -1,0 +1,136 @@
+= Policy Components
+
+Network policy in OpenShell sandbox environments determines which hosts your session can reach.
+Rather than maintaining hardcoded endpoint lists in Go source code, cc-deck uses declarative YAML component files.
+The `build refresh` command assembles these components into a deterministic `openshell/policy.yaml` that produces identical output for the same inputs, every time.
+
+== How Assembly Works
+
+When you run `cc-deck build refresh` with an OpenShell target configured, the assembly pipeline follows these steps:
+
+1. Load component files from all three tiers (embedded, cached catalog, user-local).
+2. Resolve precedence by filename stem.
+Higher tiers replace lower ones entirely.
+3. Evaluate each component's match conditions against the manifest.
+4. Sort matching components alphabetically by key.
+5. Apply any explicit overrides from `targets.openshell.policy` in the manifest.
+6. Write `openshell/policy.yaml`.
+
+The output is deterministic because every step uses stable ordering.
+No timestamps, random IDs, or runtime-dependent values enter the pipeline.
+
+== Component Tiers
+
+Components are loaded from three locations.
+When multiple tiers contain a file with the same stem (for example, `rust.yaml`), the highest-precedence tier wins.
+The lower version is replaced entirely, not merged.
+
+=== Embedded (lowest precedence)
+
+Built into the `cc-deck` binary.
+These provide sensible defaults for common tools and services like Claude Code, GitHub, and standard package registries.
+They are updated by upgrading the binary.
+
+=== Cached Catalog (middle precedence)
+
+Stored in `.cc-deck/setup/openshell/components/`.
+The `cc-deck capture` command fetches these from the remote catalog repo.
+This allows endpoint definitions to be updated without a binary release.
+
+=== User-Local (highest precedence)
+
+Stored in `.cc-deck/setup/openshell/policies/`.
+You create these for project-specific endpoints.
+They always take precedence over embedded and catalog components.
+
+== Adding Custom Endpoints
+
+Create a YAML file in `.cc-deck/setup/openshell/policies/`:
+
+[source,yaml]
+----
+key: internal_api
+name: Internal API
+match:
+  always: true
+endpoints:
+  - host: api.internal.corp
+    port: 8443
+----
+
+Then run `cc-deck build refresh` to include it in the generated policy.
+
+The component file requires four fields: `key` (the output section name), `name` (a human-readable label), `match` (at least one condition), and `endpoints` (at least one entry).
+For the full schema, see xref:reference:configuration.adoc#_custom_component_file_format[Configuration Reference].
+
+== Match Conditions
+
+Each component declares when it should be included.
+Evaluation uses OR semantics: a single condition match is enough to include the component.
+
+`always: true`::
+The component is included regardless of the manifest.
+Used for universal services like Claude Code and GitHub.
+
+`tools: [name1, name2]`::
+Included if any listed tool name appears in the manifest's `tools` section or in `sources[].detected_tools`.
+Matching is case-insensitive substring.
+For example, `rust` matches a manifest tool named `Rust Analyzer`.
+
+`credentials: [type1, type2]`::
+Included if any listed credential type appears in the manifest's `credentials` section.
+Uses exact match on the credential `type` field.
+
+`features: [flag1, flag2]`::
+Reserved for future use.
+
+== Overriding an Embedded Component
+
+To replace an embedded component with your own version, create a file with the same filename stem in the user-local directory.
+For example, to override the built-in `rust.yaml` with a custom set of Rust registry endpoints:
+
+[source,yaml]
+----
+# .cc-deck/setup/openshell/policies/rust.yaml
+key: pkg_rust
+name: Custom Rust Registries
+match:
+  tools:
+    - rust
+    - cargo
+endpoints:
+  - host: my-registry.corp
+    port: 443
+  - host: crates.io
+    port: 443
+----
+
+The user-local version replaces the embedded one entirely.
+
+== Updating the Catalog
+
+The `capture` command fetches updated components from the remote catalog repo:
+
+[source,bash]
+----
+cc-deck capture
+----
+
+This downloads component files to `.cc-deck/setup/openshell/components/`.
+If the network is unavailable, the operation warns and continues with whatever is already cached.
+
+After updating the catalog, run `build refresh` to regenerate the policy with the new components.
+
+== Verifying Determinism
+
+Run `build refresh` twice and compare the output:
+
+[source,bash]
+----
+cc-deck build refresh
+cp .cc-deck/setup/openshell/policy.yaml /tmp/policy-1.yaml
+cc-deck build refresh
+diff .cc-deck/setup/openshell/policy.yaml /tmp/policy-1.yaml
+----
+
+There should be no differences.
