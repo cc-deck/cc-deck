@@ -590,6 +590,7 @@ cc-deck ws new mydev --type ssh --repo https://github.com/org/repo.git --branch 
 |
 | Force resolution from project-local definition (mutually exclusive with `--global`)
 
+
 | `--namespace`
 | `-n`
 | Kubernetes namespace (k8s-deploy)
