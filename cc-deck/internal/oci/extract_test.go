@@ -177,12 +177,10 @@ func TestExtractViaLayerScan_UnlabeledMultiLayerImage(t *testing.T) {
 
 	img := buildTestImage(t, baseLayer, toolsLayer, policyLayer, topLayer)
 
-	// No label on the image, simulating a pre-labeling build.
-	_ = func() {
-		cfg, err := img.ConfigFile()
-		require.NoError(t, err)
-		assert.Empty(t, cfg.Config.Labels)
-	}
+	// Verify: no labels on the image, simulating a pre-labeling build.
+	cfg, err := img.ConfigFile()
+	require.NoError(t, err)
+	assert.Empty(t, cfg.Config.Labels)
 
 	data, err := extractViaLayerScan(img, "/etc/openshell/policy.yaml")
 	require.NoError(t, err)
