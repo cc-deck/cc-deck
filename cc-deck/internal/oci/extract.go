@@ -22,7 +22,7 @@ import (
 // specific layer for faster retrieval. If the label is missing, invalid, or the
 // labeled layer does not contain the file, it falls back to a reverse layer scan.
 func ExtractFileFromImage(imageRef, filePath string) ([]byte, error) {
-	ref, err := name.ParseReference(imageRef)
+	ref, err := name.ParseReference(imageRef, name.WithDefaultRegistry(""))
 	if err != nil {
 		return nil, fmt.Errorf("parsing image reference %q: %w", imageRef, err)
 	}
