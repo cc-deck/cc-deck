@@ -563,46 +563,7 @@ On success, show:
 - Number of retry attempts (if any)
 - Summary of role fixes made (if any)
 - Note that playbooks can be re-run standalone
-
-### B9: Register workspace
-
-After SSH provisioning succeeds, automatically register the provisioned host as a workspace so `cc-deck attach` works immediately.
-
-1. **Derive workspace name** from the SSH host:
-   - Parse `targets.ssh.host` (e.g., `root@marovo` -> hostname `marovo`)
-   - If the host is an IP address, use `ssh-<ip-with-dashes>` (e.g., `10.0.1.5` -> `ssh-10-0-1-5`)
-   - If the host has no `@`, use the hostname directly
-
-2. **Determine effective host** for the workspace:
-   - If `create_user` is true and `targets.ssh.user` is set, the workspace host is `<user>@<hostname>` (developers SSH as the created user, not root)
-   - Otherwise, use `targets.ssh.host` as-is
-
-3. **Register the workspace** using `--update` for idempotency.
-
-   **IMPORTANT**: Run from the **project root** (not from `.cc-deck/setup/`), otherwise cc-deck refuses to create a workspace inside a `.cc-deck/` directory.
-
-   **IMPORTANT**: If the workspace path contains `~`, expand it to the absolute path on the remote (e.g., `~/workspace` -> `/home/<user>/workspace`). The `~` must NOT be passed to the shell because it would expand to the local home directory.
-
-   ```bash
-   cd <project-root> && \
-   cc-deck ws new <name> --type ssh \
-     --host <effective-host> \
-     [--ssh-port <port>] \
-     [--identity-file <identity_file>] \
-     [--workspace <absolute-remote-path>] \
-     [--repo <url> ...] \
-     --update
-   ```
-   Only include optional flags whose values are set in the manifest (not commented out).
-   For `--repo` flags: include one `--repo <url>` for each entry in the `sources` section that has a `url` field.
-
-   Also write the cloned repos to `.cc-deck/workspace.yaml` so `cc-deck ws update --sync-repos` can sync them later.
-
-4. **Report** the registration:
-   ```
-   Workspace "<name>" registered. Attach with:
-     cc-deck attach <name>
-   ```
+- Next steps hint: `Register as workspace: cc-deck ws new <hostname> --type ssh --host <effective-host> [--workspace <path>]`
 
 ---
 
@@ -797,32 +758,7 @@ Make the script executable.
 
 Same pattern as A8. Check `targets.openshell.registry` is set, tag with full registry reference, push.
 
-### C9: Register workspace
-
-After a successful build, register an OpenShell workspace so the user can immediately attach.
-
-1. **Derive workspace name** from the image name (e.g., `cc-deck` -> `cc-deck-openshell`, or use the project directory name with `-openshell` suffix).
-
-2. **Build the `ws new` command** with repos from the manifest:
-
-   **IMPORTANT**: Run from the **project root** (not from `.cc-deck/setup/`).
-
-   ```bash
-   cd <project-root> && \
-   cc-deck ws new <name> --type openshell \
-     --image <image-name>:<tag> \
-     [--repo <url> ...] \
-     --update
-   ```
-   For `--repo` flags: include one `--repo <url>` for each entry in the `sources` section that has a `url` field.
-
-3. **Report** the registration:
-   ```
-   Workspace "<name>" registered. Attach with:
-     cc-deck attach <name>
-   ```
-
-### C10: Report results
+### C9: Report results
 
 On success, show:
 - Image name:tag
@@ -832,7 +768,7 @@ On success, show:
 - Note that `openshell/build.sh` was generated for CLI rebuilds
 - If pushed: the full registry reference
 - Policy summary: number of network_policies entries, whether explicit overrides were applied
-- Workspace name and attach command
+- Next steps hint: `Create a workspace: cc-deck ws new <name> --type openshell --image <image-name>:<tag>`
 
 ---
 
