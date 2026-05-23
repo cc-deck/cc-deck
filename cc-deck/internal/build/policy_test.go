@@ -3,6 +3,7 @@ package build
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -527,4 +528,120 @@ func TestSlugify(t *testing.T) {
 	assert.Equal(t, "my-domain", slugify("my-domain"))
 	assert.NotEqual(t, slugify("api.my-service.com"), slugify("api.my_service.com"),
 		"slugify must not collapse hyphens into underscores to avoid collisions")
+}
+
+func TestAssemblePolicy_DomainGroupSkippedWhenCatalogCovers(t *testing.T) {
+	// The embedded git-hosting.yaml has key "github" with match.always=true,
+	// so it's always included. Adding "github" to AllowedDomains should NOT
+	// overwrite the catalog entry.
+	manifest := &Manifest{
+		Version: 3,
+		Network: &NetworkConfig{
+			AllowedDomains: []string{"github"},
+		},
+	}
+
+	p, err := AssemblePolicy(manifest, nil, "", nil, "")
+	require.NoError(t, err)
+
+	np, ok := p.NetworkPolicies["github"]
+	require.True(t, ok, "github policy entry must exist")
+	assert.Equal(t, "GitHub", np.Name, "should retain catalog name, not group name")
+
+	var hosts []string
+	for _, ep := range np.Endpoints {
+		hosts = append(hosts, ep.Host)
+	}
+	assert.Contains(t, hosts, "github.com", "catalog endpoint preserved")
+	assert.Contains(t, hosts, "api.github.com", "catalog endpoint preserved")
+	assert.NotContains(t, hosts, "github", "literal group name must not appear as hostname")
+}
+
+func TestAssemblePolicy_DomainGroupExpandedWhenNoCatalog(t *testing.T) {
+	// "nodejs" has no embedded/catalog component, so it should be expanded
+	// from the built-in domain group definition.
+	manifest := &Manifest{
+		Version: 3,
+		Network: &NetworkConfig{
+			AllowedDomains: []string{"nodejs"},
+		},
+	}
+
+	p, err := AssemblePolicy(manifest, nil, "", nil, "")
+	require.NoError(t, err)
+
+	np, ok := p.NetworkPolicies["nodejs"]
+	require.True(t, ok, "nodejs policy entry must exist")
+
+	var hosts []string
+	for _, ep := range np.Endpoints {
+		hosts = append(hosts, ep.Host)
+	}
+	assert.Contains(t, hosts, "registry.npmjs.org")
+	assert.Contains(t, hosts, "npmjs.com")
+	// Wildcard entries like ".npmjs.org" should be excluded.
+	for _, h := range hosts {
+		assert.False(t, strings.HasPrefix(h, "."),
+			"wildcard domain %q should not appear in policy endpoints", h)
+	}
+}
+
+func TestAssemblePolicy_LiteralDomainNotInCatalog(t *testing.T) {
+	manifest := &Manifest{
+		Version: 3,
+		Network: &NetworkConfig{
+			AllowedDomains: []string{"custom.internal.corp"},
+		},
+	}
+
+	p, err := AssemblePolicy(manifest, nil, "", nil, "")
+	require.NoError(t, err)
+
+	np, ok := p.NetworkPolicies["custom_internal_corp"]
+	require.True(t, ok)
+	assert.Equal(t, "custom.internal.corp", np.Name)
+	require.Len(t, np.Endpoints, 1)
+	assert.Equal(t, "custom.internal.corp", np.Endpoints[0].Host)
+	assert.Equal(t, 443, np.Endpoints[0].Port)
+}
+
+func TestAssemblePolicy_UnknownDomainGroupErrors(t *testing.T) {
+	manifest := &Manifest{
+		Version: 3,
+		Network: &NetworkConfig{
+			AllowedDomains: []string{"nonexistent_group"},
+		},
+	}
+
+	_, err := AssemblePolicy(manifest, nil, "", nil, "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "nonexistent_group")
+}
+
+func TestAssemblePolicy_MixedGroupsAndLiterals(t *testing.T) {
+	manifest := &Manifest{
+		Version: 3,
+		Network: &NetworkConfig{
+			AllowedDomains: []string{"github", "nodejs", "api.custom.com"},
+		},
+	}
+
+	p, err := AssemblePolicy(manifest, nil, "", nil, "")
+	require.NoError(t, err)
+
+	// github: covered by embedded catalog, should keep catalog entry
+	gh, ok := p.NetworkPolicies["github"]
+	require.True(t, ok)
+	assert.Equal(t, "GitHub", gh.Name)
+
+	// nodejs: no catalog, should be expanded from built-in group
+	node, ok := p.NetworkPolicies["nodejs"]
+	require.True(t, ok)
+	assert.Greater(t, len(node.Endpoints), 1, "nodejs should have multiple expanded endpoints")
+
+	// api.custom.com: literal domain
+	custom, ok := p.NetworkPolicies["api_custom_com"]
+	require.True(t, ok)
+	require.Len(t, custom.Endpoints, 1)
+	assert.Equal(t, "api.custom.com", custom.Endpoints[0].Host)
 }
