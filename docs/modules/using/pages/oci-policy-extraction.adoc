@@ -1,0 +1,61 @@
+= OCI Policy Extraction
+
+When creating an OpenShell sandbox with `cc-deck ws new --type openshell`, the security policy file is extracted directly from the OCI image.
+This removes the requirement to have the original build directory available on the host.
+
+== How It Works
+
+Policy extraction has two parts: build-time labeling and runtime extraction.
+
+=== Build-Time Labeling
+
+When you build an OpenShell image with `cc-deck build run --target openshell`, the build process stamps the image with a `dev.cc-deck.policy-layer` label.
+This label records the diff ID of the image layer that contains `/etc/openshell/policy.yaml`.
+
+The label is a config-only metadata change that does not create additional image layers or increase image size.
+If the policy file is not found in the built image, a warning is logged but the build still succeeds.
+
+=== Runtime Extraction
+
+When you run `cc-deck ws new --type openshell` without an explicit `policy` in your workspace definition, cc-deck extracts the policy with this strategy:
+
+. Check the image config for the `dev.cc-deck.policy-layer` label.
+. If the label is present, fetch only the labeled layer and extract the policy file from it.
+. If the label is missing, invalid, or the labeled layer does not contain the file, fall back to scanning all layers in reverse order (topmost first).
+. Write the extracted policy to a temporary file and pass it to the sandbox creation command.
+. Clean up the temporary file after sandbox creation completes (whether it succeeds or fails).
+
+The reverse layer scan order matches how container filesystems resolve overlapping paths: later layers override earlier ones.
+
+== Backward Compatibility
+
+Images built before the labeling feature existed (or built by third-party tools) still work.
+The fallback layer scan finds the policy file regardless of whether the image has a label.
+
+The only difference is performance: labeled images require fetching a single layer blob, while unlabeled images require scanning all layers.
+
+== Manual Override
+
+If automatic extraction fails (for example, the image does not contain a policy file), provide the policy file manually:
+
+[source,yaml]
+----
+# In workspaces.yaml
+workspaces:
+  - name: my-sandbox
+    type: openshell
+    sandbox-image: registry.example.com/my-image:latest
+    policy: /path/to/policy.yaml
+----
+
+When an explicit `policy` path is set in the workspace definition, OCI extraction is skipped entirely.
+
+== Diagnostics
+
+Policy extraction logs at two levels.
+
+INFO level covers extraction outcomes: success (with source, either "labeled layer" or "layer scan"), failure (with reason).
+
+DEBUG level covers layer scan progress: which layers were inspected, label lookup results, and individual layer scan results.
+
+Use `cc-deck --verbose ws new` to see DEBUG-level output during sandbox creation.

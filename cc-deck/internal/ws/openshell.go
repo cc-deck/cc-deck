@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cc-deck/cc-deck/internal/build"
+	"github.com/cc-deck/cc-deck/internal/oci"
 	"github.com/cc-deck/cc-deck/internal/openshell"
 )
 
@@ -101,17 +102,21 @@ func (w *OpenShellWorkspace) resolveGatewayConfig() openshell.GatewayConfig {
 	return openshell.ResolveGatewayConfig(defGw)
 }
 
-func (w *OpenShellWorkspace) resolveSandboxConfig() SandboxConfig {
+// policyFilePath is the well-known location of the policy file inside
+// OpenShell sandbox images.
+const policyFilePath = "/etc/openshell/policy.yaml"
+
+func (w *OpenShellWorkspace) resolveSandboxConfig() (SandboxConfig, error) {
 	cfg := SandboxConfig{
 		Image:   defaultSandboxImage,
 		Command: defaultSandboxCommand,
 	}
 	if w.defs == nil {
-		return cfg
+		return cfg, nil
 	}
 	def, err := w.defs.FindByName(w.name)
 	if err != nil || def == nil {
-		return cfg
+		return cfg, nil
 	}
 	if def.SandboxImage != "" {
 		cfg.Image = def.SandboxImage
@@ -123,7 +128,30 @@ func (w *OpenShellWorkspace) resolveSandboxConfig() SandboxConfig {
 	if def.Provider != "" {
 		cfg.Providers = []string{def.Provider}
 	}
-	return cfg
+
+	// If no explicit policy is set and we have an image reference, attempt
+	// to extract the policy file directly from the OCI image.
+	if cfg.Policy == "" && cfg.Image != "" {
+		policyBytes, extractErr := oci.ExtractFileFromImage(cfg.Image, policyFilePath)
+		if extractErr != nil {
+			return cfg, fmt.Errorf("extracting policy from image %s: %w\n\nTo provide the policy file manually, use the --policy flag", cfg.Image, extractErr)
+		}
+
+		tmpFile, tmpErr := os.CreateTemp("", "cc-deck-policy-*.yaml")
+		if tmpErr != nil {
+			return cfg, fmt.Errorf("creating temp file for extracted policy: %w", tmpErr)
+		}
+		if _, writeErr := tmpFile.Write(policyBytes); writeErr != nil {
+			tmpFile.Close()
+			os.Remove(tmpFile.Name())
+			return cfg, fmt.Errorf("writing extracted policy to temp file: %w", writeErr)
+		}
+		tmpFile.Close()
+		cfg.Policy = tmpFile.Name()
+		log.Printf("INFO: oci: extracted policy to %s", tmpFile.Name())
+	}
+
+	return cfg, nil
 }
 
 // loadSandboxID restores the sandbox ID from the state store.
@@ -245,7 +273,20 @@ func (w *OpenShellWorkspace) Create(ctx context.Context, _ CreateOpts) error {
 		return err
 	}
 
-	sbCfg := w.resolveSandboxConfig()
+	sbCfg, cfgErr := w.resolveSandboxConfig()
+	if cfgErr != nil {
+		return cfgErr
+	}
+
+	// Clean up any temp policy file extracted from the OCI image after
+	// sandbox creation completes (success or failure).
+	if sbCfg.Policy != "" {
+		if _, statErr := os.Stat(sbCfg.Policy); statErr == nil {
+			if matched, _ := filepath.Match("cc-deck-policy-*.yaml", filepath.Base(sbCfg.Policy)); matched {
+				defer os.Remove(sbCfg.Policy)
+			}
+		}
+	}
 
 	// Resolve credentials from manifest and create providers.
 	credInputs := w.loadManifestCredentials()

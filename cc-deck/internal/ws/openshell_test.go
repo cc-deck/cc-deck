@@ -40,7 +40,8 @@ func TestAttachState_IsAlive_DeadProcess(t *testing.T) {
 
 func TestResolveSandboxConfig_Defaults(t *testing.T) {
 	w := &OpenShellWorkspace{name: "test-ws"}
-	cfg := w.resolveSandboxConfig()
+	cfg, err := w.resolveSandboxConfig()
+	require.NoError(t, err)
 	assert.Equal(t, defaultSandboxImage, cfg.Image)
 	assert.Equal(t, defaultSandboxCommand, cfg.Command)
 	assert.Empty(t, cfg.Policy)
@@ -62,7 +63,8 @@ workspaces:
 
 	defs := NewDefinitionStore(defPath)
 	w := &OpenShellWorkspace{name: "test-ws", defs: defs}
-	cfg := w.resolveSandboxConfig()
+	cfg, err := w.resolveSandboxConfig()
+	require.NoError(t, err)
 	assert.Equal(t, "custom/image:v1", cfg.Image)
 	assert.Equal(t, "tmux", cfg.Command)
 	assert.Equal(t, "/etc/policy.yaml", cfg.Policy)
@@ -399,6 +401,54 @@ workspaces:
 	w := &OpenShellWorkspace{name: "test-ws", defs: defs}
 	result := w.loadManifestCredentials()
 	assert.Nil(t, result)
+}
+
+func TestResolveSandboxConfig_NoPolicyNoImage(t *testing.T) {
+	// When no definition store is set, resolveSandboxConfig should return
+	// defaults without attempting OCI extraction.
+	w := &OpenShellWorkspace{name: "test-ws"}
+	cfg, err := w.resolveSandboxConfig()
+	require.NoError(t, err)
+	assert.Empty(t, cfg.Policy, "policy should be empty without OCI extraction")
+}
+
+func TestResolveSandboxConfig_ExplicitPolicySkipsOCI(t *testing.T) {
+	// When an explicit policy path is set in the definition, OCI extraction
+	// should be skipped entirely.
+	dir := t.TempDir()
+	defPath := filepath.Join(dir, "workspaces.yaml")
+	os.WriteFile(defPath, []byte(`version: 3
+workspaces:
+  - name: test-ws
+    type: openshell
+    sandbox-image: my-registry/sandbox:v1
+    policy: /explicit/policy.yaml
+`), 0644)
+
+	defs := NewDefinitionStore(defPath)
+	w := &OpenShellWorkspace{name: "test-ws", defs: defs}
+	cfg, err := w.resolveSandboxConfig()
+	require.NoError(t, err)
+	assert.Equal(t, "/explicit/policy.yaml", cfg.Policy, "explicit policy should be used as-is")
+}
+
+func TestResolveSandboxConfig_OCIExtractionErrorIncludesSuggestion(t *testing.T) {
+	// When OCI extraction fails (image not found), the error should suggest
+	// using the --policy flag as a manual alternative.
+	dir := t.TempDir()
+	defPath := filepath.Join(dir, "workspaces.yaml")
+	os.WriteFile(defPath, []byte(`version: 3
+workspaces:
+  - name: test-ws
+    type: openshell
+    sandbox-image: nonexistent-registry.invalid/no-such-image:v999
+`), 0644)
+
+	defs := NewDefinitionStore(defPath)
+	w := &OpenShellWorkspace{name: "test-ws", defs: defs}
+	_, err := w.resolveSandboxConfig()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--policy")
 }
 
 func infraPtr(v InfraStateValue) *InfraStateValue { return &v }
