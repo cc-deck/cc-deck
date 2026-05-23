@@ -709,13 +709,20 @@ Write the resulting policy YAML to `openshell/policy.yaml`.
 
 ### C5: Build the image
 
-Detect the container runtime (prefer `podman`, fall back to `docker`).
+Use `cc-deck build run` to build the image. This handles container runtime detection, the podman build, and post-build label stamping (stamping the `dev.cc-deck.policy-layer` label so runtime policy extraction can use the fast path).
 
 **IMPORTANT**: Use a 10-minute timeout (600000ms) for the build command.
 
 ```bash
-podman build -t <name>:<tag> -f openshell/Containerfile .
+cc-deck build run <setup-dir> --target openshell
 ```
+
+If `--push` was specified, add it:
+```bash
+cc-deck build run <setup-dir> --target openshell --push
+```
+
+When using `cc-deck build run`, skip step C8 (push) since the CLI handles it.
 
 ### C6: Handle build failures (self-correction loop)
 
