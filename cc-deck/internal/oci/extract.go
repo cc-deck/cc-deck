@@ -15,25 +15,42 @@ import (
 )
 
 // ExtractFileFromImage extracts the contents of a file at the given path from
-// an OCI image. It first tries the local container daemon, then falls back to
-// a remote registry.
+// an OCI image.
 //
-// If the image has a "dev.cc-deck.policy-layer" label, extraction targets that
-// specific layer for faster retrieval. If the label is missing, invalid, or the
-// labeled layer does not contain the file, it falls back to a reverse layer scan.
+// For local daemon images, it reads only the image config (a few KB) to check
+// for the policy layer label. If the label exists, it fetches just that single
+// layer. If the label is missing, it falls back to a reverse layer scan with
+// buffered access (single image export).
+//
+// For remote registry images, all access is lazy (per-layer fetch from the
+// registry), so only the layers actually inspected are downloaded.
 func ExtractFileFromImage(imageRef, filePath string) ([]byte, error) {
 	ref, err := name.ParseReference(imageRef, name.WithDefaultRegistry(""))
 	if err != nil {
 		return nil, fmt.Errorf("parsing image reference %q: %w", imageRef, err)
 	}
 
-	img, source, err := resolveImage(ref)
-	if err != nil {
-		return nil, fmt.Errorf("resolving image %s: %w\n\nTo provide the policy file manually, use the --policy flag", imageRef, err)
+	// Try local daemon first (config-only, no full export yet).
+	img, err := daemon.Image(ref)
+	if err == nil {
+		log.Printf("INFO: oci: resolved image %s from local daemon", imageRef)
+		return extractFromImage(img, imageRef, filePath, true)
 	}
-	log.Printf("INFO: oci: resolved image %s from %s", imageRef, source)
+	log.Printf("DEBUG: oci: local daemon lookup failed: %v, trying remote registry", err)
 
-	// Try fast path: check for the policy layer label.
+	// Fall back to remote registry (lazy per-layer access).
+	img, err = remote.Image(ref)
+	if err != nil {
+		return nil, fmt.Errorf("image %s not found locally or in remote registry: %w\n\nTo provide the policy file manually, use the --policy flag", imageRef, err)
+	}
+	log.Printf("INFO: oci: resolved image %s from remote registry", imageRef)
+	return extractFromImage(img, imageRef, filePath, false)
+}
+
+// extractFromImage extracts a file from a resolved image. For local daemon
+// images, if the fast label path fails it re-opens the image with buffering
+// to avoid repeated full exports during the layer scan.
+func extractFromImage(img v1.Image, imageRef, filePath string, isLocal bool) ([]byte, error) {
 	data, err := extractViaLabel(img, filePath)
 	if err == nil {
 		log.Printf("INFO: oci: extracted %s from labeled layer", filePath)
@@ -41,32 +58,22 @@ func ExtractFileFromImage(imageRef, filePath string) ([]byte, error) {
 	}
 	log.Printf("DEBUG: oci: label-based extraction failed: %v, falling back to layer scan", err)
 
-	// Fallback: scan all layers in reverse order.
+	if isLocal {
+		// Re-open with buffering: exports the image once into memory so the
+		// layer scan doesn't trigger a separate full export per layer.
+		ref, _ := name.ParseReference(imageRef, name.WithDefaultRegistry(""))
+		buffered, err := daemon.Image(ref, daemon.WithBufferedOpener())
+		if err == nil {
+			img = buffered
+		}
+	}
+
 	data, err = extractViaLayerScan(img, filePath)
 	if err != nil {
 		return nil, fmt.Errorf("file %s not found in image %s: %w\n\nTo provide the policy file manually, use the --policy flag", filePath, imageRef, err)
 	}
 	log.Printf("INFO: oci: extracted %s via layer scan (fallback)", filePath)
 	return data, nil
-}
-
-// resolveImage attempts to load the image from the local daemon first,
-// then falls back to a remote registry.
-func resolveImage(ref name.Reference) (v1.Image, string, error) {
-	// Try local daemon first. Buffer the image tarball in memory so layer
-	// access doesn't re-export the full image for every layer read.
-	img, err := daemon.Image(ref, daemon.WithBufferedOpener())
-	if err == nil {
-		return img, "local daemon", nil
-	}
-	log.Printf("DEBUG: oci: local daemon lookup failed: %v, trying remote registry", err)
-
-	// Fall back to remote registry.
-	img, err = remote.Image(ref)
-	if err != nil {
-		return nil, "", fmt.Errorf("image not found locally or in remote registry: %w", err)
-	}
-	return img, "remote registry", nil
 }
 
 // extractViaLabel attempts to extract a file from the layer identified by the
@@ -88,7 +95,6 @@ func extractViaLabel(img v1.Image, filePath string) ([]byte, error) {
 		return nil, fmt.Errorf("invalid label value %q: %w", labelValue, err)
 	}
 
-	// Find the layer matching the labeled diff ID.
 	layers, err := img.Layers()
 	if err != nil {
 		return nil, fmt.Errorf("reading layers: %w", err)
