@@ -88,7 +88,7 @@ func layerContainsFile(layer v1.Layer, normalizedPath string) (bool, error) {
 // The mutated image is written back to the local daemon. Returns nil if the
 // policy file is not found in the image (logs a warning instead of failing).
 func StampPolicyLabel(imageRef, filePath string) error {
-	ref, err := name.ParseReference(imageRef)
+	ref, err := name.ParseReference(imageRef, name.WithDefaultRegistry(""))
 	if err != nil {
 		return fmt.Errorf("parsing image reference %q: %w", imageRef, err)
 	}
