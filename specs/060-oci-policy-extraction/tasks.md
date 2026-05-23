@@ -13,8 +13,8 @@
 
 **Purpose**: Add go-containerregistry dependency and create the new package structure
 
-- [ ] T001 Add `github.com/google/go-containerregistry` dependency via `go get github.com/google/go-containerregistry` in cc-deck/
-- [ ] T002 Create package directory `cc-deck/internal/oci/` with doc.go containing package documentation
+- [x] T001 Add `github.com/google/go-containerregistry` dependency via `go get github.com/google/go-containerregistry` in cc-deck/
+- [x] T002 Create package directory `cc-deck/internal/oci/` with doc.go containing package documentation
 
 ---
 
@@ -22,11 +22,11 @@
 
 **Purpose**: Implement the `internal/oci/` package that both user stories depend on
 
-- [ ] T003 [P] Implement `FindLayerContaining(img v1.Image, filePath string) (v1.Hash, error)` in `cc-deck/internal/oci/label.go` that walks image layers in reverse order, opens each as a tar archive, and returns the diff ID of the first layer containing the specified file path
-- [ ] T004 [P] Implement `AddLabel(imageRef, key, value string) error` in `cc-deck/internal/oci/label.go` that loads an image from the local podman daemon via `daemon.Image`, mutates the config to add the label using `mutate.Config`, and writes the image back via `daemon.Write`
-- [ ] T005 Implement `ExtractFileFromImage(imageRef, filePath string) ([]byte, error)` in `cc-deck/internal/oci/extract.go` that: (1) resolves the image from local daemon or remote registry, (2) checks for `dev.cc-deck.policy-layer` label, (3) if found, extracts file from that layer, (4) if not found or file missing, falls back to `FindLayerContaining` and extracts from the matched layer, (5) logs extraction source and outcome at INFO/DEBUG level
-- [ ] T006 [P] Write unit tests for `FindLayerContaining` and `AddLabel` in `cc-deck/internal/oci/label_test.go` using test images created via `mutate.AppendLayer` with synthetic tar layers containing test files
-- [ ] T007 [P] Write unit tests for `ExtractFileFromImage` in `cc-deck/internal/oci/extract_test.go` covering: labeled image (fast path), unlabeled image (fallback scan), missing file (error), and stale label (fallback)
+- [x] T003 [P] Implement `FindLayerContaining(img v1.Image, filePath string) (v1.Hash, error)` in `cc-deck/internal/oci/label.go` that walks image layers in reverse order, opens each as a tar archive, and returns the diff ID of the first layer containing the specified file path
+- [x] T004 [P] Implement `AddLabel(imageRef, key, value string) error` in `cc-deck/internal/oci/label.go` that loads an image from the local podman daemon via `daemon.Image`, mutates the config to add the label using `mutate.Config`, and writes the image back via `daemon.Write`
+- [x] T005 Implement `ExtractFileFromImage(imageRef, filePath string) ([]byte, error)` in `cc-deck/internal/oci/extract.go` that: (1) resolves the image from local daemon or remote registry, (2) checks for `dev.cc-deck.policy-layer` label, (3) if found, extracts file from that layer, (4) if not found or file missing, falls back to `FindLayerContaining` and extracts from the matched layer, (5) logs extraction source and outcome at INFO/DEBUG level
+- [x] T006 [P] Write unit tests for `FindLayerContaining` and `AddLabel` in `cc-deck/internal/oci/label_test.go` using test images created via `mutate.AppendLayer` with synthetic tar layers containing test files
+- [x] T007 [P] Write unit tests for `ExtractFileFromImage` in `cc-deck/internal/oci/extract_test.go` covering: labeled image (fast path), unlabeled image (fallback scan), missing file (error), and stale label (fallback)
 
 **Checkpoint**: The `internal/oci/` package is complete and tested. Both user stories can now proceed.
 
@@ -40,11 +40,11 @@
 
 ### Implementation for User Story 1
 
-- [ ] T008 [US1] Modify `resolveSandboxConfig()` in `cc-deck/internal/ws/openshell.go` to call `oci.ExtractFileFromImage(def.SandboxImage, "/etc/openshell/policy.yaml")` when `def.Policy` is empty and `def.SandboxImage` is set, write the extracted bytes to a temp file via `os.CreateTemp`, and set `cfg.Policy` to the temp file path
-- [ ] T009 [US1] Add temp file cleanup in the `Create()` method of `cc-deck/internal/ws/openshell.go` using `defer os.Remove(tempPolicyPath)` after `resolveSandboxConfig` returns, ensuring cleanup on both success and failure
-- [ ] T010 [US1] Update error handling in `cc-deck/internal/ws/openshell.go` to produce a clear message when extraction fails, suggesting the `--policy` flag as a manual alternative (FR-010)
-- [ ] T011 [US1] Remove the existing host-path auto-resolution code for policy files in `cc-deck/internal/ws/openshell.go` (FR-011), replacing any `filepath.Join(projectRoot, ...)` policy resolution with the new OCI extraction path
-- [ ] T012 [US1] Write a unit test in `cc-deck/internal/ws/openshell_test.go` that verifies `resolveSandboxConfig` calls OCI extraction when no explicit policy is set, using a mock or test image
+- [x] T008 [US1] Modify `resolveSandboxConfig()` in `cc-deck/internal/ws/openshell.go` to call `oci.ExtractFileFromImage(def.SandboxImage, "/etc/openshell/policy.yaml")` when `def.Policy` is empty and `def.SandboxImage` is set, write the extracted bytes to a temp file via `os.CreateTemp`, and set `cfg.Policy` to the temp file path
+- [x] T009 [US1] Add temp file cleanup in the `Create()` method of `cc-deck/internal/ws/openshell.go` using `defer os.Remove(tempPolicyPath)` after `resolveSandboxConfig` returns, ensuring cleanup on both success and failure
+- [x] T010 [US1] Update error handling in `cc-deck/internal/ws/openshell.go` to produce a clear message when extraction fails, suggesting the `--policy` flag as a manual alternative (FR-010)
+- [x] T011 [US1] Verify that `resolveSandboxConfig()` in `cc-deck/internal/ws/openshell.go` no longer relies on host-path resolution for policy files (FR-011). The current code sets `cfg.Policy = def.Policy` from the definition; confirm that no other code path resolves policy via filesystem lookup, and that the new OCI extraction path in T008 is the sole automatic resolution mechanism
+- [x] T012 [US1] Write a unit test in `cc-deck/internal/ws/openshell_test.go` that verifies `resolveSandboxConfig` calls OCI extraction when no explicit policy is set, using a mock or test image
 
 **Checkpoint**: User Story 1 is complete. `ws new --type openshell` can extract policies from images.
 
@@ -58,9 +58,9 @@
 
 ### Implementation for User Story 2
 
-- [ ] T013 [US2] Modify `runOpenShellBuild()` in `cc-deck/internal/cmd/build.go` to call `oci.FindLayerContaining` and `oci.AddLabel` after the `podman build` succeeds but before the optional push step, using the built image reference and the key `dev.cc-deck.policy-layer`
-- [ ] T014 [US2] Add error handling in `cc-deck/internal/cmd/build.go` so that if the policy file is not found in the built image, a warning is logged but the build does not fail
-- [ ] T015 [US2] Write a unit test in `cc-deck/internal/cmd/build_test.go` that verifies label stamping is called after a successful openshell build
+- [x] T013 [US2] Modify `runOpenShellBuild()` in `cc-deck/internal/cmd/build.go` to call `oci.FindLayerContaining` and `oci.AddLabel` after the `podman build` succeeds but before the optional push step, using the built image reference and the key `dev.cc-deck.policy-layer`
+- [x] T014 [US2] Add error handling in `cc-deck/internal/cmd/build.go` so that if the policy file is not found in the built image, a warning is logged but the build does not fail
+- [x] T015 [US2] Write a unit test in `cc-deck/internal/cmd/build_test.go` that verifies label stamping is called after a successful openshell build
 
 **Checkpoint**: User Story 2 is complete. Built openshell images have the policy layer label.
 
@@ -74,7 +74,7 @@
 
 ### Implementation for User Story 3
 
-- [ ] T016 [US3] Verify the fallback path in `ExtractFileFromImage` handles unlabeled images correctly by adding a dedicated integration-style test in `cc-deck/internal/oci/extract_test.go` that creates a multi-layer test image without labels and confirms the correct file is extracted from the topmost layer
+- [x] T016 [US3] Verify the fallback path in `ExtractFileFromImage` handles unlabeled images correctly by adding a dedicated integration-style test in `cc-deck/internal/oci/extract_test.go` that creates a multi-layer test image without labels and confirms the correct file is extracted from the topmost layer
 
 **Checkpoint**: All three user stories are complete and independently testable.
 
@@ -84,11 +84,11 @@
 
 **Purpose**: Documentation, cleanup, and cross-story validation
 
-- [ ] T017 [P] Update README.md with information about automatic policy extraction from OCI images during `ws new --type openshell`
-- [ ] T018 [P] Update CLI reference in `docs/modules/reference/pages/cli.adoc` to document the automatic policy extraction behavior of `ws new` and the label stamping behavior of `build run --target openshell`
-- [ ] T019 [P] Update configuration reference in `docs/modules/reference/pages/configuration.adoc` if any new configuration options or file locations are introduced
-- [ ] T020 [P] Create Antora guide page at `docs/modules/guides/pages/oci-policy-extraction.adoc` explaining the two-phase approach (build-time labeling, runtime extraction) and the fallback behavior
-- [ ] T021 Run `make test` and `make lint` to verify all tests pass and code is clean
+- [x] T017 [P] Update README.md with information about automatic policy extraction from OCI images during `ws new --type openshell`
+- [x] T018 [P] Update CLI reference in `docs/modules/reference/pages/cli.adoc` to document the automatic policy extraction behavior of `ws new` and the label stamping behavior of `build run --target openshell`
+- [x] T019 [P] Update configuration reference in `docs/modules/reference/pages/configuration.adoc` if any new configuration options or file locations are introduced
+- [x] T020 [P] Create Antora guide page at `docs/modules/using/pages/oci-policy-extraction.adoc` explaining the two-phase approach (build-time labeling, runtime extraction) and the fallback behavior
+- [x] T021 Run `make test` and `make lint` to verify all tests pass and code is clean
 
 ---
 

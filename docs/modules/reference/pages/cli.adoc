@@ -303,11 +303,15 @@ cc-deck build run --push
 | Flag | Description
 
 | `--target`
-| Force target type: `container` or `ssh` (auto-detected if omitted)
+| Force target type: `container`, `ssh`, or `openshell` (auto-detected if omitted)
 
 | `--push`
-| Push container image after successful build (container targets only, requires `targets.container.registry` in manifest)
+| Push container image after successful build (container and openshell targets only, requires registry in manifest)
 |===
+
+For openshell targets, after a successful build the image is stamped with a `dev.cc-deck.policy-layer` label that records the diff ID of the layer containing `/etc/openshell/policy.yaml`.
+This label enables fast policy extraction at runtime (see <<ws new>>).
+If the policy file is not found in the built image, a warning is logged but the build does not fail.
 
 Exit codes from the underlying build tool (podman, ansible-playbook) are passed through.
 
@@ -656,6 +660,11 @@ When run inside a git repo, the current project is auto-detected and included.
 | Branch for the most recent `--repo` flag, repeatable.
 Requires a preceding `--repo`.
 |===
+
+For openshell workspaces, when no explicit `policy` is set in the workspace definition, the policy file is extracted directly from the OCI image at `/etc/openshell/policy.yaml`.
+If the image has a `dev.cc-deck.policy-layer` label (added by `build run`), only the labeled layer is fetched for faster extraction.
+For unlabeled images (built before this feature or by third-party tools), all layers are scanned in reverse order.
+If no policy file is found in the image, the command fails with a message suggesting the `--policy` flag as a manual alternative.
 
 ==== ws attach
 

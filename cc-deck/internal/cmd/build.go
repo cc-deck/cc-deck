@@ -12,8 +12,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/cc-deck/cc-deck/internal/project"
 	"github.com/cc-deck/cc-deck/internal/build"
+	"github.com/cc-deck/cc-deck/internal/oci"
+	"github.com/cc-deck/cc-deck/internal/project"
 	"github.com/cc-deck/cc-deck/internal/ssh"
 )
 
@@ -361,6 +362,13 @@ func runOpenShellBuild(dir string, push bool) error {
 
 	if err := buildCmd.Run(); err != nil {
 		return exitError(err)
+	}
+
+	// Stamp the built image with a label identifying the layer that contains
+	// the policy file. This enables fast policy extraction at runtime.
+	if err := oci.StampPolicyLabel(imageRef, "/etc/openshell/policy.yaml"); err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: failed to stamp policy label: %v\n", err)
+		// Non-fatal: the build succeeded, label stamping is an optimization.
 	}
 
 	if push {
