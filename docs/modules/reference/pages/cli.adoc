@@ -259,7 +259,7 @@ cc-deck build init --target container,ssh
 Re-extract Containerfile snippets, Claude Code commands, and policy files from the current `cc-deck` binary.
 This updates template fragments (for example, after upgrading cc-deck) without overwriting `build.yaml` or user-customized configuration.
 
-When an OpenShell target is configured, `build refresh` also assembles `openshell/policy.yaml` deterministically from policy component files.
+When an OpenShell target is configured, `build refresh` first fetches updated policy components from the remote catalog (https://github.com/cc-deck/openshell-policies[cc-deck/openshell-policies]), then assembles `openshell/policy.yaml` deterministically from all tiers.
 Components are loaded from three tiers in precedence order (highest wins):
 
 1. **User-local** (`.cc-deck/setup/openshell/policies/*.yaml`)
@@ -267,40 +267,22 @@ Components are loaded from three tiers in precedence order (highest wins):
 3. **Embedded** (built into the binary)
 
 The assembled policy includes only components whose match conditions are satisfied by the manifest.
-Explicit overrides from `targets.openshell.policy` in the manifest are applied after assembly via `MergePolicy`.
+Explicit overrides from `targets.openshell.policy` in the manifest are applied after assembly.
 
 [source,bash]
 ----
 cc-deck build refresh                 # defaults to .cc-deck/setup/
 cc-deck build refresh my-team-setup
-----
-
-==== build catalog-update
-
-Fetch policy component files from the remote catalog repository and cache them locally.
-The cached components are used by `build refresh` when assembling the OpenShell network policy.
-
-On network failure, the command warns and continues (offline fallback to embedded components).
-
-[source,bash]
-----
-cc-deck build catalog-update
-cc-deck build catalog-update .cc-deck/setup/
+cc-deck build refresh --no-fetch      # skip catalog fetch (offline)
 ----
 
 [cols="1,3"]
 |===
 | Flag | Description
 
-| `--index-url`
-| Catalog index URL (default: `+https://raw.githubusercontent.com/cc-deck/openshell-policies/main/catalog.yaml+`)
-
-| `--base-url`
-| Base URL for downloading component files (default: `+https://raw.githubusercontent.com/cc-deck/openshell-policies/main+`)
+| `--no-fetch`
+| Skip fetching catalog components from the remote repository (use cached or embedded only)
 |===
-
-Components are cached in `<dir>/openshell/components/`.
-Run `build refresh` after updating to regenerate the policy.
 
 ==== build run
 
