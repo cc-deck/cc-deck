@@ -1,5 +1,5 @@
 ---
-description: "Capture workspace: scan repos, tools, and settings into build.yaml"
+description: "Capture workspace: scan repos, tools, and settings into build.yaml [--all] [--fresh]"
 ---
 
 ## User Input
