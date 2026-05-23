@@ -75,6 +75,7 @@ A developer uses an image that was built before the labeling feature was introdu
 - **FR-009**: System MUST clean up extracted temporary policy files after sandbox creation completes or fails.
 - **FR-010**: System MUST report a clear error when no policy file is found in any layer, suggesting the `--policy` flag as a manual alternative.
 - **FR-011**: System MUST remove the existing host-path auto-resolution approach for locating policy files, replacing it with OCI extraction.
+- **FR-012**: System MUST log extraction outcomes at INFO level (success with extraction source, failure with reason) and layer scan progress at DEBUG level.
 
 ### Key Entities
 
@@ -92,6 +93,12 @@ A developer uses an image that was built before the labeling feature was introdu
 - **SC-003**: Images built before this feature (without the label) continue to work for sandbox creation via the fallback layer scan.
 - **SC-004**: Build-time label stamping adds less than 2 seconds to the openshell build process.
 - **SC-005**: All extraction paths (labeled, fallback, error) are covered by automated tests.
+
+## Clarifications
+
+### Session 2026-05-23
+
+- Q: Should extraction operations produce diagnostic log output? → A: Yes, log at INFO level for extraction outcomes (success with source, failure with reason) and at DEBUG level for layer scan progress (which layers inspected, label lookup result).
 
 ## Assumptions
 
