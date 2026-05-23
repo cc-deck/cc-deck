@@ -53,8 +53,9 @@ func ExtractFileFromImage(imageRef, filePath string) ([]byte, error) {
 // resolveImage attempts to load the image from the local daemon first,
 // then falls back to a remote registry.
 func resolveImage(ref name.Reference) (v1.Image, string, error) {
-	// Try local daemon first.
-	img, err := daemon.Image(ref)
+	// Try local daemon first. Buffer the image tarball in memory so layer
+	// access doesn't re-export the full image for every layer read.
+	img, err := daemon.Image(ref, daemon.WithBufferedOpener())
 	if err == nil {
 		return img, "local daemon", nil
 	}
