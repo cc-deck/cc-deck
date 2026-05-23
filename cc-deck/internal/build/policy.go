@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/cc-deck/cc-deck/internal/network"
 )
 
 // OpenShellPolicy defines explicit OpenShell policy overrides.
@@ -130,15 +132,39 @@ func AssemblePolicy(manifest *Manifest, catalogFS fs.FS, catalogRoot string, use
 		}
 	}
 
-	// Add allowed_domains from manifest.network as direct entries.
+	// Add allowed_domains from manifest.network. Catalog/embedded components
+	// take precedence: if a component already covers a domain group, skip it.
 	if manifest.Network != nil {
-		for _, domain := range manifest.Network.AllowedDomains {
-			slug := slugify(domain)
-			networkPolicies[slug] = NetworkPolicy{
-				Name: domain,
-				Endpoints: []PolicyEndpoint{
-					{Host: domain, Port: 443},
-				},
+		resolver := network.NewResolver(nil)
+		for _, entry := range manifest.Network.AllowedDomains {
+			slug := slugify(entry)
+			if _, exists := networkPolicies[slug]; exists {
+				continue
+			}
+
+			if !strings.Contains(entry, ".") {
+				// Group name: expand to actual domains.
+				domains, err := resolver.ExpandGroup(entry)
+				if err != nil {
+					return nil, fmt.Errorf("expanding domain group %q: %w", entry, err)
+				}
+				var endpoints []PolicyEndpoint
+				for _, d := range domains {
+					if strings.HasPrefix(d, ".") {
+						continue
+					}
+					endpoints = append(endpoints, PolicyEndpoint{Host: d, Port: 443})
+				}
+				networkPolicies[slug] = NetworkPolicy{
+					Name:      entry,
+					Endpoints: endpoints,
+				}
+			} else {
+				// Literal domain: use as-is.
+				networkPolicies[slug] = NetworkPolicy{
+					Name:      entry,
+					Endpoints: []PolicyEndpoint{{Host: entry, Port: 443}},
+				}
 			}
 		}
 	}
