@@ -815,6 +815,21 @@ The `credentials` section stores only env var names, never actual values. Values
 
 Configure the build targets (SSH, container, and/or OpenShell). This step populates the `targets` section of the manifest.
 
+**Re-run detection**: Before presenting options, read the existing manifest's `targets` section. If targets are already configured:
+
+- Show existing targets with their current settings
+- Pre-select them in the options (mark with `(configured)` in the label)
+- In `--all` mode: keep existing targets unchanged, skip all target prompts entirely
+
+```
+## Step 11/11: Target Configuration
+
+Existing targets in manifest:
+  - OpenShell: cc-deck (ghcr.io/nvidia/openshell-community/sandboxes/base:latest)
+```
+
+If no targets exist, or the user wants to change them:
+
 ```json
 {
   "questions": [{
@@ -822,13 +837,15 @@ Configure the build targets (SSH, container, and/or OpenShell). This step popula
     "header": "Targets",
     "multiSelect": true,
     "options": [
+      {"label": "OpenShell (configured)", "description": "Build an OpenShell sandbox image with security policies"},
       {"label": "SSH remote", "description": "Provision an existing remote machine via Ansible"},
-      {"label": "Container", "description": "Build a container image with podman"},
-      {"label": "OpenShell", "description": "Build an OpenShell sandbox image with security policies"}
+      {"label": "Container", "description": "Build a container image with podman"}
     ]
   }]
 }
 ```
+
+Pre-selected (configured) targets preserve their existing settings (name, base image, host) unless the user explicitly changes them. Only prompt for sub-settings (image name, base image, host) when a target is newly added.
 
 **STOP. Wait for user response.**
 
@@ -970,3 +987,5 @@ Then perform the write:
 - Show file sizes and line counts to help users decide what to include
 - If a file or directory does not exist, silently skip that step (do not error, adjust step count accordingly)
 - Re-running this command should show current selections and allow modifications
+- **Existing manifest values are preserved by default**: When re-running capture on a manifest that already has values (targets, tools, credentials, etc.), show the existing values and default to keeping them. Only prompt for changes if the user explicitly asks. In `--all` mode, always keep existing values unchanged.
+- **`build refresh` is mandatory after target changes**: After writing the manifest (step 10), always run `cc-deck build refresh <setup-dir>` if an OpenShell target is configured. This fetches the catalog and regenerates the policy in one step.
