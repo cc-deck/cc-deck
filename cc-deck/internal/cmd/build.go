@@ -77,6 +77,15 @@ After initialization, start Claude Code from the project directory and use:
 			fmt.Printf("Build directory initialized: %s\n\n", dir)
 			fmt.Printf("  Manifest:  %s/build.yaml\n", dir)
 			fmt.Printf("  Commands:  %s/.claude/commands/cc-deck.*.md\n", projectRoot)
+
+			for _, t := range targets {
+				if t == "openshell" {
+					if err := refreshAfterInit(dir, "openshell"); err != nil {
+						fmt.Fprintf(os.Stderr, "  Warning: openshell refresh failed: %v\n", err)
+					}
+					break
+				}
+			}
 			fmt.Println()
 			fmt.Println("Next steps:")
 			fmt.Printf("  cd %s\n", projectRoot)
@@ -833,6 +842,40 @@ func diffSSH(dir string, m *build.Manifest) error {
 		fmt.Println("\nNo differences detected. Manifest and role tasks appear in sync.")
 	} else {
 		fmt.Println("\nRegenerate with: claude /cc-deck.build --target ssh")
+	}
+
+	return nil
+}
+
+// refreshAfterInit runs the refresh logic for a target immediately after
+// build init, so artifacts like snippets, catalog, and policy are ready
+// without a separate "build refresh" step.
+func refreshAfterInit(dir, target string) error {
+	manifestPath := filepath.Join(dir, "build.yaml")
+	m, err := build.LoadManifest(manifestPath)
+	if err != nil {
+		return fmt.Errorf("reading manifest: %w", err)
+	}
+
+	switch target {
+	case "openshell":
+		if m.Targets == nil || m.Targets.OpenShell == nil {
+			return nil
+		}
+		data := build.ContainerDataForTarget(m, "openshell")
+		snippetDir := filepath.Join(dir, "openshell", "snippets")
+		if err := build.ExtractContainerfileSnippets(snippetDir, data); err != nil {
+			return fmt.Errorf("extracting snippets: %w", err)
+		}
+		fmt.Printf("  Refreshed: %s/openshell/snippets/\n", dir)
+
+		cacheDir := filepath.Join(dir, "openshell", "components")
+		build.FetchAndCacheCatalog(build.DefaultCatalogIndexURL, build.DefaultCatalogBaseURL, cacheDir)
+
+		if err := refreshOpenShellPolicy(dir, m); err != nil {
+			return fmt.Errorf("assembling policy: %w", err)
+		}
+		fmt.Printf("  Refreshed: %s/openshell/policy.yaml\n", dir)
 	}
 
 	return nil
