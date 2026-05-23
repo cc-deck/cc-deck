@@ -6,73 +6,122 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
-	"github.com/google/go-containerregistry/pkg/v1/daemon"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 )
 
 // ExtractFileFromImage extracts the contents of a file at the given path from
 // an OCI image.
 //
-// For local daemon images, it reads only the image config (a few KB) to check
-// for the policy layer label. If the label exists, it fetches just that single
-// layer. If the label is missing, it falls back to a reverse layer scan with
-// buffered access (single image export).
+// For local images it uses the container runtime's cp command (podman/docker),
+// which reads from the overlay filesystem without exporting the full image.
 //
-// For remote registry images, all access is lazy (per-layer fetch from the
-// registry), so only the layers actually inspected are downloaded.
+// For remote registry images it uses go-containerregistry with lazy per-layer
+// fetching, using the policy layer label for single-layer access when available.
 func ExtractFileFromImage(imageRef, filePath string) ([]byte, error) {
+	data, err := extractLocal(imageRef, filePath)
+	if err == nil {
+		return data, nil
+	}
+	log.Printf("DEBUG: oci: local extraction failed: %v, trying remote registry", err)
+
+	return extractRemote(imageRef, filePath)
+}
+
+// extractLocal extracts a file from a local image by creating a temporary
+// container and copying the file from its overlay filesystem. This never
+// exports the full image, making it fast even for multi-GB images.
+func extractLocal(imageRef, filePath string) ([]byte, error) {
+	runtime, err := detectRuntime()
+	if err != nil {
+		return nil, err
+	}
+
+	// Verify the image exists locally before creating a container.
+	checkCmd := exec.Command(runtime, "image", "exists", imageRef)
+	if err := checkCmd.Run(); err != nil {
+		return nil, fmt.Errorf("image %s not found in local %s daemon", imageRef, runtime)
+	}
+
+	// Create a container without starting it (instant, no image export).
+	createCmd := exec.Command(runtime, "create", imageRef, "true")
+	output, err := createCmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("%s create failed: %s", runtime, strings.TrimSpace(string(output)))
+	}
+	cid := strings.TrimSpace(string(output))
+	defer func() {
+		rmCmd := exec.Command(runtime, "rm", cid)
+		rmCmd.Run()
+	}()
+
+	log.Printf("INFO: oci: extracting %s from %s via %s cp", filePath, imageRef, runtime)
+
+	tmpFile, err := os.CreateTemp("", "oci-extract-*")
+	if err != nil {
+		return nil, fmt.Errorf("creating temp file: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	tmpFile.Close()
+	defer os.Remove(tmpPath)
+
+	cpCmd := exec.Command(runtime, "cp", cid+":"+filePath, tmpPath)
+	if cpOut, err := cpCmd.CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("file %s not found in image: %s", filePath, strings.TrimSpace(string(cpOut)))
+	}
+
+	data, err := os.ReadFile(tmpPath)
+	if err != nil {
+		return nil, fmt.Errorf("reading extracted file: %w", err)
+	}
+
+	log.Printf("INFO: oci: extracted %s from local image %s (%d bytes)", filePath, imageRef, len(data))
+	return data, nil
+}
+
+func detectRuntime() (string, error) {
+	if _, err := exec.LookPath("podman"); err == nil {
+		return "podman", nil
+	}
+	if _, err := exec.LookPath("docker"); err == nil {
+		return "docker", nil
+	}
+	return "", fmt.Errorf("neither podman nor docker found")
+}
+
+// extractRemote extracts a file from a remote registry image using
+// go-containerregistry. Layer access is lazy, so only inspected layers are
+// downloaded. If the image has the policy layer label, only that single layer
+// is fetched.
+func extractRemote(imageRef, filePath string) ([]byte, error) {
 	ref, err := name.ParseReference(imageRef, name.WithDefaultRegistry(""))
 	if err != nil {
 		return nil, fmt.Errorf("parsing image reference %q: %w", imageRef, err)
 	}
 
-	// Try local daemon first (config-only, no full export yet).
-	img, err := daemon.Image(ref)
-	if err == nil {
-		log.Printf("INFO: oci: resolved image %s from local daemon", imageRef)
-		return extractFromImage(img, imageRef, filePath, true)
-	}
-	log.Printf("DEBUG: oci: local daemon lookup failed: %v, trying remote registry", err)
-
-	// Fall back to remote registry (lazy per-layer access).
-	img, err = remote.Image(ref)
+	img, err := remote.Image(ref)
 	if err != nil {
-		return nil, fmt.Errorf("image %s not found locally or in remote registry: %w\n\nTo provide the policy file manually, use the --policy flag", imageRef, err)
+		return nil, fmt.Errorf("image %s not found in remote registry: %w\n\nTo provide the policy file manually, use the --policy flag", imageRef, err)
 	}
 	log.Printf("INFO: oci: resolved image %s from remote registry", imageRef)
-	return extractFromImage(img, imageRef, filePath, false)
-}
 
-// extractFromImage extracts a file from a resolved image. For local daemon
-// images, if the fast label path fails it re-opens the image with buffering
-// to avoid repeated full exports during the layer scan.
-func extractFromImage(img v1.Image, imageRef, filePath string, isLocal bool) ([]byte, error) {
 	data, err := extractViaLabel(img, filePath)
 	if err == nil {
-		log.Printf("INFO: oci: extracted %s from labeled layer", filePath)
+		log.Printf("INFO: oci: extracted %s from labeled layer (remote)", filePath)
 		return data, nil
 	}
 	log.Printf("DEBUG: oci: label-based extraction failed: %v, falling back to layer scan", err)
-
-	if isLocal {
-		// Re-open with buffering: exports the image once into memory so the
-		// layer scan doesn't trigger a separate full export per layer.
-		ref, _ := name.ParseReference(imageRef, name.WithDefaultRegistry(""))
-		buffered, err := daemon.Image(ref, daemon.WithBufferedOpener())
-		if err == nil {
-			img = buffered
-		}
-	}
 
 	data, err = extractViaLayerScan(img, filePath)
 	if err != nil {
 		return nil, fmt.Errorf("file %s not found in image %s: %w\n\nTo provide the policy file manually, use the --policy flag", filePath, imageRef, err)
 	}
-	log.Printf("INFO: oci: extracted %s via layer scan (fallback)", filePath)
+	log.Printf("INFO: oci: extracted %s via layer scan (remote, fallback)", filePath)
 	return data, nil
 }
 
