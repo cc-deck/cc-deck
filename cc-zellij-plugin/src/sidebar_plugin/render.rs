@@ -284,16 +284,8 @@ fn render_header(state: &super::state::SidebarState, payload: &cc_deck::RenderPa
         ""
     };
 
-    if payload.total == 0 {
-        let header = " \x1b[38;2;255;170;50m\u{2731}\x1b[0m \x1b[1mClaude Code\x1b[0m".to_string();
-        if voice_indicator.is_empty() {
-            print!("\x1b[1;1H{}", pad(&header, cols));
-        } else {
-            let left = header.to_string();
-            let left_width = display_width(&left);
-            let pad_count = cols.saturating_sub(left_width + 2);
-            print!("\x1b[1;1H{}{}{}", left, " ".repeat(pad_count), voice_indicator);
-        }
+    let header = if payload.total == 0 {
+        " \x1b[38;2;255;170;50m\u{2731}\x1b[0m \x1b[1mClaude Code\x1b[0m".to_string()
     } else {
         let mut status_parts = Vec::new();
         if payload.waiting > 0 {
@@ -311,14 +303,14 @@ fn render_header(state: &super::state::SidebarState, payload: &cc_deck::RenderPa
         } else {
             format!("{} \x1b[2m\u{2502}\x1b[0m {}", payload.total, status_parts.join(" "))
         };
-        let header = format!(" \x1b[38;2;255;170;50m\u{2731}\x1b[0m {status}");
-        if voice_indicator.is_empty() {
-            print!("\x1b[1;1H{}", pad(&header, cols));
-        } else {
-            let left_width = display_width(&header);
-            let pad_count = cols.saturating_sub(left_width + 2);
-            print!("\x1b[1;1H{}{}{}", header, " ".repeat(pad_count), voice_indicator);
-        }
+        format!(" \x1b[38;2;255;170;50m\u{2731}\x1b[0m {status}")
+    };
+
+    if voice_indicator.is_empty() {
+        print!("\x1b[1;1H{}", pad(&header, cols));
+    } else {
+        // Pad header to cols-1, then place ♫ at a fixed column
+        print!("\x1b[1;1H{}\x1b[1;{}H{}", pad(&header, cols), cols, voice_indicator);
     }
 
     let sep: String = "\u{2500}".repeat(cols.min(40));
