@@ -1,0 +1,59 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - heading "superterm" [level=1] [ref=e5]:
+        - img [ref=e6]
+        - text: superterm
+      - generic [ref=e10]:
+        - button "Search (Ctrl+P)" [ref=e11] [cursor=pointer]: ">_"
+        - button "Coding Agent Usage" [ref=e12] [cursor=pointer]:
+          - img [ref=e13]
+        - button "Private Stats" [ref=e16] [cursor=pointer]:
+          - img [ref=e17]
+        - button "Toggle sidebar" [ref=e21] [cursor=pointer]: «
+    - button "1. Test [8m6s] Pin session 2.1.150" [ref=e323] [cursor=pointer]:
+      - generic [ref=e324]:
+        - generic [ref=e327]: 1. Test [8m6s]
+        - button "Pin session" [ref=e335]: ☆
+      - generic [ref=e337]:
+        - img [ref=e338]
+        - text: 2.1.150
+    - generic [ref=e23]:
+      - generic [ref=e24]:
+        - button "Create a new session" [ref=e25] [cursor=pointer]: + Session
+        - button "Show only pinned sessions" [ref=e26] [cursor=pointer]: Focus
+      - generic [ref=e27]: Cmd+1-9, 0
+  - generic [ref=e29]:
+    - generic [ref=e30]:
+      - generic [ref=e31]: Test
+      - generic "Terminal connected" [ref=e78]
+      - generic [ref=e33]:
+        - button "Enter tmux buffer and scroll mode" [ref=e79] [cursor=pointer]: Scroll
+        - button "Claude keyboard shortcuts" [ref=e80] [cursor=pointer]: ⌨
+        - button "✎" [ref=e34] [cursor=pointer]
+        - button "⛶" [ref=e35] [cursor=pointer]
+    - textbox "Terminal input" [active] [ref=e84]
+  - generic [ref=e37]:
+    - generic [ref=e38]:
+      - generic [ref=e39]:
+        - generic [ref=e40]: Logbook
+        - generic [ref=e41]: No session selected
+      - button ">>" [ref=e42] [cursor=pointer]
+    - generic [ref=e43]:
+      - button "Notes" [ref=e44] [cursor=pointer]
+      - button "Journal" [ref=e45] [cursor=pointer]
+      - button "Prompts" [ref=e46] [cursor=pointer]
+    - generic [ref=e47]:
+      - textbox "# Session notes Use Markdown." [ref=e48]:
+        - /placeholder: "# Session notes\n\nUse Markdown."
+      - generic [ref=e49]: Autosaves to ~/.superterm/sessions/<session>/notes.md
+  - generic [ref=e50]:
+    - generic [ref=e51]:
+      - generic [ref=e52]:
+        - generic [ref=e53]:
+          - generic [ref=e54]: Private Stats
+          - generic "Data is local-only and stored in SQLite on your machine." [ref=e55]: (i)
+        - generic [ref=e56]: All-time usage metrics
+      - button ">>" [ref=e58] [cursor=pointer]
+    - generic [ref=e60]: Loading…
+  - generic: Entering full screen mode hit [Esc] to return
