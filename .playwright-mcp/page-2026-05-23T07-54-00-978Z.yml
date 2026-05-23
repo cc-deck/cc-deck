@@ -1,0 +1,30 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e4]:
+    - generic [ref=e5]: ">_"
+    - generic [ref=e6]: No active sessions
+    - generic [ref=e7]: Create a new session to get started
+    - button "+ New Session" [ref=e8] [cursor=pointer]
+  - generic [ref=e49]:
+    - generic [ref=e50]:
+      - generic [ref=e51]:
+        - generic [ref=e52]: Logbook
+        - generic [ref=e53]: No session selected
+      - button ">>" [ref=e54] [cursor=pointer]
+    - generic [ref=e55]:
+      - button "Notes" [ref=e56] [cursor=pointer]
+      - button "Journal" [ref=e57] [cursor=pointer]
+      - button "Prompts" [ref=e58] [cursor=pointer]
+    - generic [ref=e59]:
+      - textbox "# Session notes Use Markdown." [ref=e60]:
+        - /placeholder: "# Session notes\n\nUse Markdown."
+      - generic [ref=e61]: Autosaves to ~/.superterm/sessions/<session>/notes.md
+  - generic [ref=e62]:
+    - generic [ref=e63]:
+      - generic [ref=e64]:
+        - generic [ref=e65]:
+          - generic [ref=e66]: Private Stats
+          - generic "Data is local-only and stored in SQLite on your machine." [ref=e67]: (i)
+        - generic [ref=e68]: All-time usage metrics
+      - button ">>" [ref=e70] [cursor=pointer]
+    - generic [ref=e72]: Loading…
+  - generic: Entering full screen mode hit [Esc] to return

@@ -1,0 +1,13 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - img [ref=e4]
+    - text: superterm
+  - generic [ref=e6]:
+    - generic [ref=e7]: Token
+    - textbox "Paste token from ~/.superterm/token" [active] [ref=e8]
+    - button "Sign in" [ref=e9] [cursor=pointer]
+  - generic [ref=e10]:
+    - text: "Find your token:"
+    - code [ref=e11]: cat ~/.superterm/token
+  - generic [ref=e12]: or
+  - button "Login with code" [ref=e13] [cursor=pointer]
