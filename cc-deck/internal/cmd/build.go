@@ -26,7 +26,6 @@ func NewBuildCmd(flags *GlobalFlags) *cobra.Command {
 
 	cmd.AddCommand(newBuildInitCmd(flags))
 	cmd.AddCommand(newBuildRefreshCmd(flags))
-	cmd.AddCommand(newBuildCatalogUpdateCmd(flags))
 	cmd.AddCommand(newBuildRunCmd(flags))
 	cmd.AddCommand(newBuildVerifyCmd(flags))
 	cmd.AddCommand(newBuildDiffCmd(flags))
@@ -103,13 +102,18 @@ After initialization, start Claude Code from the project directory and use:
 }
 
 func newBuildRefreshCmd(_ *GlobalFlags) *cobra.Command {
+	var noFetch bool
+
 	cmd := &cobra.Command{
 		Use:   "refresh [dir]",
-		Short: "Re-extract snippets and commands without touching the manifest",
-		Long: `Refresh pre-rendered Containerfile snippets and Claude Code commands
-from the current cc-deck binary. This updates the template fragments
-(e.g., after upgrading cc-deck) without overwriting build.yaml or any
-user-customized configuration.
+		Short: "Fetch catalog and re-extract snippets, policy, and commands",
+		Long: `Refresh pre-rendered Containerfile snippets, Claude Code commands, and
+OpenShell policy from the current cc-deck binary and remote catalog.
+
+When an OpenShell target is configured, refresh first fetches updated
+policy components from the remote catalog (cc-deck/openshell-policies),
+then assembles the deterministic policy from all tiers. Use --no-fetch
+to skip the catalog fetch (offline mode).
 
 Reads the existing build.yaml to determine which targets are configured
 and re-renders their snippet files.`,
@@ -144,6 +148,11 @@ and re-renders their snippet files.`,
 				fmt.Printf("  Refreshed: %s/openshell/snippets/\n", dir)
 				refreshed++
 
+				if !noFetch {
+					cacheDir := filepath.Join(dir, "openshell", "components")
+					build.FetchAndCacheCatalog(build.DefaultCatalogIndexURL, build.DefaultCatalogBaseURL, cacheDir)
+				}
+
 				if err := refreshOpenShellPolicy(dir, m); err != nil {
 					return fmt.Errorf("refreshing openshell policy: %w", err)
 				}
@@ -170,38 +179,7 @@ and re-renders their snippet files.`,
 		},
 	}
 
-	return cmd
-}
-
-func newBuildCatalogUpdateCmd(_ *GlobalFlags) *cobra.Command {
-	var indexURL string
-	var baseURL string
-
-	cmd := &cobra.Command{
-		Use:   "catalog-update [dir]",
-		Short: "Fetch policy components from the remote catalog",
-		Long: `Download policy component files from the remote catalog repository
-and cache them in <dir>/openshell/components/.
-
-The cached components are used by 'build refresh' when assembling the
-OpenShell network policy. On network failure, the command warns and
-continues (offline fallback to embedded components).`,
-		Args: cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			dir := resolveBuildDir(args)
-			cacheDir := filepath.Join(dir, "openshell", "components")
-
-			fmt.Printf("  Fetching catalog from %s\n", indexURL)
-			if err := build.FetchAndCacheCatalog(indexURL, baseURL, cacheDir); err != nil {
-				return err
-			}
-			fmt.Printf("  Cached: %s\n", cacheDir)
-			return nil
-		},
-	}
-
-	cmd.Flags().StringVar(&indexURL, "index-url", build.DefaultCatalogIndexURL, "Catalog index URL")
-	cmd.Flags().StringVar(&baseURL, "base-url", build.DefaultCatalogBaseURL, "Base URL for component downloads")
+	cmd.Flags().BoolVar(&noFetch, "no-fetch", false, "Skip fetching catalog components from the remote repository")
 
 	return cmd
 }
