@@ -522,32 +522,26 @@ endpoints:
 	assert.Equal(t, "new-crates.io", rust.Endpoints[0].Host, "catalog endpoints should replace embedded")
 }
 
-// T009: Integration test - AssemblePolicy resolves tool binaries from manifest
+// After removing the well-known paths table, AssemblePolicy no longer resolves
+// binary paths. Binary paths are now populated during the two-pass probe flow.
 
-func TestAssemblePolicy_ResolvesToolBinaries(t *testing.T) {
+func TestAssemblePolicy_ToolMatchedComponentHasEmptyBinaries(t *testing.T) {
 	manifest := &Manifest{
 		Version: 3,
 		Tools: []ToolEntry{
 			{Name: "cargo", Install: "package"},
-			{Name: "mytool", Install: "github-release", Repo: "owner/mytool", InstallPath: "/usr/local/bin/mytool"},
 		},
 	}
 
 	policy, err := AssemblePolicy(manifest, nil, "", nil, "")
 	require.NoError(t, err)
 
-	// Verify pkg_rust gets cargo binary paths
 	rust, ok := policy.NetworkPolicies["pkg_rust"]
 	require.True(t, ok, "cargo in manifest should match rust component")
-
-	rustPaths := policyBinaryPaths(rust.Binaries)
-	assert.Contains(t, rustPaths, "/usr/bin/cargo", "should have /usr/bin/cargo from package resolution")
-	assert.Contains(t, rustPaths, "/sandbox/.cargo/bin/cargo", "should have well-known cargo path")
+	assert.Empty(t, rust.Binaries, "binaries should be empty without probe")
 }
 
-// T010: Embedded component without binaries gets resolved paths
-
-func TestAssemblePolicy_ComponentWithoutBinariesGetsResolved(t *testing.T) {
+func TestAssemblePolicy_ComponentWithoutProbeHasEmptyBinaries(t *testing.T) {
 	manifest := &Manifest{
 		Version: 3,
 		Tools:   []ToolEntry{{Name: "go", Install: "package"}},
@@ -558,11 +552,7 @@ func TestAssemblePolicy_ComponentWithoutBinariesGetsResolved(t *testing.T) {
 
 	goPolicy, ok := policy.NetworkPolicies["pkg_go"]
 	require.True(t, ok, "go tool should match go.yaml component")
-
-	goPaths := policyBinaryPaths(goPolicy.Binaries)
-	assert.Contains(t, goPaths, "/usr/bin/go", "should resolve /usr/bin/go from manifest")
-	assert.Contains(t, goPaths, "/usr/local/go/bin/go", "should include well-known go path")
-	assert.Contains(t, goPaths, "/sandbox/go/bin/go", "should include well-known go path")
+	assert.Empty(t, goPolicy.Binaries, "binaries should be empty without probe")
 }
 
 // T011: Explicit binaries in user-local components are preserved
@@ -700,6 +690,186 @@ func TestAssemblePolicy_UnknownDomainGroupErrors(t *testing.T) {
 	_, err := AssemblePolicy(manifest, nil, "", nil, "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "nonexistent_group")
+}
+
+// T016: applyProbeResults and stripBinaries tests
+
+func TestApplyProbeResults_ExplicitBinariesPreserved(t *testing.T) {
+	components := []PolicyComponent{
+		{
+			Key:      "claude_code",
+			Binaries: []PolicyBinary{{Path: "/usr/local/bin/claude"}},
+		},
+	}
+	report := &ProbeReport{
+		Results: map[string][]ProbeResult{
+			"claude_code": {{Binary: "claude", Path: "/usr/bin/claude", Method: "which"}},
+		},
+	}
+
+	result := applyProbeResults(components, report)
+	require.Len(t, result[0].Binaries, 1)
+	assert.Equal(t, "/usr/local/bin/claude", result[0].Binaries[0].Path)
+}
+
+func TestStripBinaries_ExplicitBinariesPreserved(t *testing.T) {
+	components := []PolicyComponent{
+		{
+			Key:      "claude_code",
+			Binaries: []PolicyBinary{{Path: "/usr/local/bin/claude"}},
+		},
+		{
+			Key:  "pkg_go",
+			Match: MatchCondition{Tools: []string{"go"}},
+		},
+	}
+
+	result := stripBinaries(components)
+	require.Len(t, result[0].Binaries, 1, "explicit binaries preserved")
+	assert.Equal(t, "/usr/local/bin/claude", result[0].Binaries[0].Path)
+	assert.Nil(t, result[1].Binaries, "non-explicit binaries stripped")
+}
+
+func TestStripBinaries_ClearsNonExplicit(t *testing.T) {
+	components := []PolicyComponent{
+		{
+			Key:   "pkg_rust",
+			Match: MatchCondition{Tools: []string{"cargo"}},
+		},
+	}
+
+	result := stripBinaries(components)
+	assert.Nil(t, result[0].Binaries)
+}
+
+func TestApplyProbeResults_PopulatesFromReport(t *testing.T) {
+	components := []PolicyComponent{
+		{
+			Key:   "pkg_python",
+			Match: MatchCondition{Tools: []string{"python"}},
+		},
+	}
+	report := &ProbeReport{
+		Results: map[string][]ProbeResult{
+			"pkg_python": {
+				{Binary: "pip", Path: "/usr/bin/pip", Method: "which"},
+				{Binary: "pip3", Path: "/usr/bin/pip3", Method: "which"},
+			},
+		},
+	}
+
+	result := applyProbeResults(components, report)
+	require.Len(t, result[0].Binaries, 2)
+	assert.Equal(t, "/usr/bin/pip", result[0].Binaries[0].Path)
+	assert.Equal(t, "/usr/bin/pip3", result[0].Binaries[1].Path)
+}
+
+func TestApplyProbeResults_MergesRuntimeGlobs(t *testing.T) {
+	components := []PolicyComponent{
+		{
+			Key:          "pkg_python",
+			Match:        MatchCondition{Tools: []string{"python"}},
+			RuntimeGlobs: []string{"/sandbox/**/bin/pip", "/sandbox/**/bin/pip3"},
+		},
+	}
+	report := &ProbeReport{
+		Results: map[string][]ProbeResult{
+			"pkg_python": {
+				{Binary: "pip", Path: "/usr/bin/pip", Method: "which"},
+			},
+		},
+	}
+
+	result := applyProbeResults(components, report)
+	paths := policyBinaryPaths(result[0].Binaries)
+	assert.Contains(t, paths, "/usr/bin/pip")
+	assert.Contains(t, paths, "/sandbox/**/bin/pip")
+	assert.Contains(t, paths, "/sandbox/**/bin/pip3")
+}
+
+func TestApplyProbeResults_DeduplicatesPaths(t *testing.T) {
+	components := []PolicyComponent{
+		{
+			Key:          "pkg_python",
+			Match:        MatchCondition{Tools: []string{"python"}},
+			RuntimeGlobs: []string{"/usr/bin/pip"},
+		},
+	}
+	report := &ProbeReport{
+		Results: map[string][]ProbeResult{
+			"pkg_python": {
+				{Binary: "pip", Path: "/usr/bin/pip", Method: "which"},
+			},
+		},
+	}
+
+	result := applyProbeResults(components, report)
+	paths := policyBinaryPaths(result[0].Binaries)
+	count := 0
+	for _, p := range paths {
+		if p == "/usr/bin/pip" {
+			count++
+		}
+	}
+	assert.Equal(t, 1, count, "duplicate paths should be deduplicated")
+}
+
+func TestApplyProbeResults_NotFoundGetsOnlyGlobs(t *testing.T) {
+	components := []PolicyComponent{
+		{
+			Key:          "pkg_python",
+			Match:        MatchCondition{Tools: []string{"python"}},
+			RuntimeGlobs: []string{"/sandbox/**/bin/uv"},
+		},
+	}
+	report := &ProbeReport{
+		Results: map[string][]ProbeResult{
+			"pkg_python": {
+				{Binary: "uv", Path: "", Method: "not-found"},
+			},
+		},
+	}
+
+	result := applyProbeResults(components, report)
+	paths := policyBinaryPaths(result[0].Binaries)
+	assert.Equal(t, []string{"/sandbox/**/bin/uv"}, paths)
+}
+
+func TestAssemblePolicyWithOptions_StripBinaries(t *testing.T) {
+	manifest := &Manifest{
+		Version: 3,
+		Tools:   []ToolEntry{{Name: "cargo"}},
+	}
+
+	result, err := AssemblePolicyWithOptions(manifest, nil, "", nil, "", AssemblyOptions{StripBinaries: true})
+	require.NoError(t, err)
+
+	rust, ok := result.Policy.NetworkPolicies["pkg_rust"]
+	require.True(t, ok)
+	assert.Empty(t, rust.Binaries, "strip mode should produce empty binaries on tool-matched components")
+
+	claude, ok := result.Policy.NetworkPolicies["claude_code"]
+	require.True(t, ok)
+	assert.NotEmpty(t, claude.Binaries, "explicit binaries should be preserved in strip mode")
+}
+
+func TestAssemblePolicyWithOptions_ReturnsMatchedComponents(t *testing.T) {
+	manifest := &Manifest{
+		Version: 3,
+		Tools:   []ToolEntry{{Name: "cargo"}},
+	}
+
+	result, err := AssemblePolicyWithOptions(manifest, nil, "", nil, "", AssemblyOptions{StripBinaries: true})
+	require.NoError(t, err)
+	require.NotEmpty(t, result.MatchedComponents)
+
+	var hasRust bool
+	for _, comp := range result.MatchedComponents {
+		if comp.Key == "pkg_rust" {
+			hasRust = true
+		}
+	}
+	assert.True(t, hasRust, "matched components should include rust")
 }
 
 func TestAssemblePolicy_MixedGroupsAndLiterals(t *testing.T) {
