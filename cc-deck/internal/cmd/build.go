@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -163,7 +164,7 @@ and re-renders their snippet files.`,
 					build.FetchAndCacheCatalog(build.DefaultCatalogIndexURL, build.DefaultCatalogBaseURL, cacheDir)
 				}
 
-				if err := refreshOpenShellPolicy(dir, m); err != nil {
+				if err := refreshOpenShellPolicy(dir, m, nil); err != nil {
 					return fmt.Errorf("refreshing openshell policy: %w", err)
 				}
 				fmt.Printf("  Refreshed: %s/openshell/policy.yaml\n", dir)
@@ -363,21 +364,19 @@ func runOpenShellBuild(dir string, push bool) error {
 
 	fmt.Printf("Building OpenShell image: %s\n", imageRef)
 
-	buildCmd := exec.Command(runtime, "build", "-t", imageRef, "-f", "openshell/Containerfile", ".")
-	buildCmd.Dir = dir
-	buildCmd.Stdout = os.Stdout
-	buildCmd.Stderr = os.Stderr
-	buildCmd.Stdin = os.Stdin
-
-	if err := buildCmd.Run(); err != nil {
-		return exitError(err)
+	needsProbe, err := componentsNeedProbing(dir, m)
+	if err != nil {
+		return err
 	}
 
-	// Stamp the built image with a label identifying the layer that contains
-	// the policy file. This enables fast policy extraction at runtime.
-	if err := oci.StampPolicyLabel(imageRef, "/etc/openshell/policy.yaml"); err != nil {
-		fmt.Fprintf(os.Stderr, "WARNING: failed to stamp policy label: %v\n", err)
-		// Non-fatal: the build succeeded, label stamping is an optimization.
+	if needsProbe {
+		if err := runTwoPassBuild(dir, m, runtime, imageRef); err != nil {
+			return err
+		}
+	} else {
+		if err := runSinglePassBuild(dir, runtime, imageRef); err != nil {
+			return err
+		}
 	}
 
 	if push {
@@ -403,6 +402,136 @@ func runOpenShellBuild(dir string, push bool) error {
 			return exitError(err)
 		}
 	}
+
+	return nil
+}
+
+func componentsNeedProbing(dir string, m *build.Manifest) (bool, error) {
+	catalogDir := filepath.Join(dir, "openshell", "components")
+	userLocalDir := filepath.Join(dir, "openshell", "policies")
+	catFS, catRoot := optionalDirFS(catalogDir)
+	ulFS, ulRoot := optionalDirFS(userLocalDir)
+	result, err := build.AssemblePolicyWithOptions(m, catFS, catRoot, ulFS, ulRoot, build.AssemblyOptions{StripBinaries: true})
+	if err != nil {
+		return false, err
+	}
+	for _, comp := range result.MatchedComponents {
+		if len(comp.Binaries) == 0 && (len(comp.Match.Tools) > 0 || len(comp.ProbeBinaries) > 0) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func optionalDirFS(dir string) (fs.FS, string) {
+	if dir == "" {
+		return nil, ""
+	}
+	if info, err := os.Stat(dir); err == nil && info.IsDir() {
+		return os.DirFS(dir), "."
+	}
+	return nil, ""
+}
+
+func runSinglePassBuild(dir string, runtime string, imageRef string) error {
+	buildCmd := exec.Command(runtime, "build", "-t", imageRef, "-f", "openshell/Containerfile", ".")
+	buildCmd.Dir = dir
+	buildCmd.Stdout = os.Stdout
+	buildCmd.Stderr = os.Stderr
+	buildCmd.Stdin = os.Stdin
+	if err := buildCmd.Run(); err != nil {
+		return exitError(err)
+	}
+
+	if err := oci.StampPolicyLabel(imageRef, "/etc/openshell/policy.yaml"); err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: failed to stamp policy label: %v\n", err)
+	}
+	return nil
+}
+
+func runTwoPassBuild(dir string, m *build.Manifest, runtime string, imageRef string) error {
+	imageName := imageRef
+	if idx := strings.LastIndex(imageRef, ":"); idx > strings.LastIndex(imageRef, "/") {
+		imageName = imageRef[:idx]
+	}
+	probeTag := imageName + ":probe-build"
+	debugTag := imageName + ":probe-debug"
+
+	// First pass: build with stripped binaries
+	fmt.Println("  Pass 1: building with stripped binary restrictions...")
+	firstPassStart := time.Now()
+	if err := refreshOpenShellPolicy(dir, m, nil); err != nil {
+		return fmt.Errorf("first-pass policy refresh: %w", err)
+	}
+
+	buildCmd := exec.Command(runtime, "build", "-t", probeTag, "-f", "openshell/Containerfile", ".")
+	buildCmd.Dir = dir
+	buildCmd.Stdout = os.Stdout
+	buildCmd.Stderr = os.Stderr
+	buildCmd.Stdin = os.Stdin
+	if err := buildCmd.Run(); err != nil {
+		return exitError(err)
+	}
+	fmt.Printf("  First pass: %s\n", time.Since(firstPassStart).Truncate(time.Millisecond))
+
+	// Probe: discover binary paths inside the first-pass image
+	fmt.Println("  Probing binary paths in image...")
+	probeStart := time.Now()
+	catalogDir := filepath.Join(dir, "openshell", "components")
+	userLocalDir := filepath.Join(dir, "openshell", "policies")
+	catFS, catRoot := optionalDirFS(catalogDir)
+	ulFS, ulRoot := optionalDirFS(userLocalDir)
+	assemblyResult, err := build.AssemblePolicyWithOptions(m, catFS, catRoot, ulFS, ulRoot, build.AssemblyOptions{StripBinaries: true})
+	if err != nil {
+		return fmt.Errorf("assembly for probe: %w", err)
+	}
+
+	retainDebugImage := func(msg string) {
+		retagCmd := exec.Command(runtime, "tag", probeTag, debugTag)
+		_ = retagCmd.Run()
+		rmiProbe := exec.Command(runtime, "rmi", probeTag)
+		_ = rmiProbe.Run()
+		fmt.Fprintf(os.Stderr, "%s First-pass image retained as %s for debugging.\n", msg, debugTag)
+	}
+
+	ctx := context.Background()
+	report, err := build.ProbeBinaries(ctx, runtime, probeTag, assemblyResult.MatchedComponents)
+	if err != nil {
+		retainDebugImage("Probe failed.")
+		return fmt.Errorf("probe step failed: %w", err)
+	}
+	fmt.Printf("  Probe: %s\n", time.Since(probeStart).Truncate(time.Millisecond))
+
+	for _, w := range report.Warnings {
+		fmt.Printf("  WARNING: %s\n", w)
+	}
+
+	// Second pass: rebuild with probed binary paths
+	fmt.Println("  Pass 2: rebuilding with probed binary paths...")
+	secondPassStart := time.Now()
+	if err := refreshOpenShellPolicy(dir, m, report); err != nil {
+		retainDebugImage("Second-pass policy refresh failed.")
+		return fmt.Errorf("second-pass policy refresh: %w", err)
+	}
+
+	buildCmd2 := exec.Command(runtime, "build", "-t", imageRef, "-f", "openshell/Containerfile", ".")
+	buildCmd2.Dir = dir
+	buildCmd2.Stdout = os.Stdout
+	buildCmd2.Stderr = os.Stderr
+	buildCmd2.Stdin = os.Stdin
+	if err := buildCmd2.Run(); err != nil {
+		retainDebugImage("Second-pass build failed.")
+		return exitError(err)
+	}
+	fmt.Printf("  Second pass: %s\n", time.Since(secondPassStart).Truncate(time.Millisecond))
+
+	if err := oci.StampPolicyLabel(imageRef, "/etc/openshell/policy.yaml"); err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: failed to stamp policy label: %v\n", err)
+	}
+
+	// Cleanup: remove probe-build image
+	rmiCmd := exec.Command(runtime, "rmi", probeTag)
+	_ = rmiCmd.Run()
 
 	return nil
 }
@@ -872,7 +1001,7 @@ func refreshAfterInit(dir, target string) error {
 		cacheDir := filepath.Join(dir, "openshell", "components")
 		build.FetchAndCacheCatalog(build.DefaultCatalogIndexURL, build.DefaultCatalogBaseURL, cacheDir)
 
-		if err := refreshOpenShellPolicy(dir, m); err != nil {
+		if err := refreshOpenShellPolicy(dir, m, nil); err != nil {
 			return fmt.Errorf("assembling policy: %w", err)
 		}
 		fmt.Printf("  Refreshed: %s/openshell/policy.yaml\n", dir)
@@ -884,15 +1013,25 @@ func refreshAfterInit(dir, target string) error {
 // refreshOpenShellPolicy assembles a deterministic policy from component files
 // and writes it to openshell/policy.yaml. Applies manifest-level overrides
 // from targets.openshell.policy after assembly.
-func refreshOpenShellPolicy(dir string, m *build.Manifest) error {
+func refreshOpenShellPolicy(dir string, m *build.Manifest, report *build.ProbeReport) error {
 	catalogDir := filepath.Join(dir, "openshell", "components")
 	userLocalDir := filepath.Join(dir, "openshell", "policies")
 
-	policy, err := build.AssemblePolicyFromDir(m, catalogDir, userLocalDir)
+	opts := build.AssemblyOptions{}
+	if report == nil {
+		opts.StripBinaries = true
+	} else {
+		opts.ProbeReport = report
+	}
+
+	catFS, catRoot := optionalDirFS(catalogDir)
+	ulFS, ulRoot := optionalDirFS(userLocalDir)
+	result, err := build.AssemblePolicyWithOptions(m, catFS, catRoot, ulFS, ulRoot, opts)
 	if err != nil {
 		return err
 	}
 
+	policy := result.Policy
 	if m.Targets != nil && m.Targets.OpenShell != nil {
 		policy = build.MergePolicy(policy, m.Targets.OpenShell.Policy)
 	}
@@ -908,6 +1047,7 @@ func refreshOpenShellPolicy(dir string, m *build.Manifest) error {
 	}
 	return os.WriteFile(policyPath, data, 0o644)
 }
+
 
 func fileExists(path string) bool {
 	_, err := os.Stat(path)

@@ -83,10 +83,10 @@ A developer iterates on their manifest, adding and removing tools. Each build ru
 
 - **FR-001**: The build process MUST execute in two passes for OpenShell targets: a first pass that builds the image without binary restrictions, and a second pass that rebuilds with probed binary paths in the policy.
 - **FR-002**: The first-pass policy MUST contain all endpoint definitions but MUST leave the `binaries` field empty on all entries. This allows the image to build successfully since the OpenShell supervisor is not running during the build.
-- **FR-003**: After the first pass, the system MUST create a temporary container from the built image and probe for binary paths by running `which <tool>` for each tool listed in the manifest's tools section and each tool referenced in `match.tools` of matched policy components.
-- **FR-004**: When `which` fails to locate a tool, the system MUST fall back to `find / -name <tool> -type f -executable` inside the container.
+- **FR-003**: After the first pass, the system MUST create a temporary container from the built image and probe for binary paths by running `which <binary>` for each binary listed in the `probe_binaries` field of matched policy components. The `probe_binaries` field is an explicit list of binary names to search for (e.g., `[pip, pip3, uv]`), separate from `match.tools` which controls component matching. If a component has no `probe_binaries` field, the system falls back to probing each entry in `match.tools`.
+- **FR-004**: When `which` fails to locate a tool, the system MUST fall back to `find / -name <tool> -type f -executable` inside the container. Each individual binary probe (`which` + optional `find` fallback) MUST time out after 30 seconds. The total probe step (all binaries combined) MUST time out after 5 minutes. Timed-out binaries are treated as not found (same as FR-005 behavior).
 - **FR-005**: When both `which` and `find` fail for a tool, the system MUST log a warning and continue. That tool's policy entry receives only glob patterns (if applicable) and no exact path.
-- **FR-006**: The system MUST add tool-specific glob patterns alongside probed paths for tools known to create binaries at runtime:
+- **FR-006**: The system MUST add tool-specific glob patterns alongside probed paths for tools known to create binaries at runtime. Glob patterns MUST be defined in the policy component YAML files (e.g., a `runtime_globs` field), making each component self-contained. Adding a new tool with runtime binaries requires only a component YAML change, no Go code changes. Examples of expected globs:
   - Python: `/sandbox/**/bin/pip`, `/sandbox/**/bin/pip3`, `/sandbox/**/bin/uv`, `/sandbox/**/bin/python`, `/sandbox/**/bin/python3`
   - Rust: `/sandbox/.rustup/toolchains/*/bin/cargo`, `/sandbox/.rustup/toolchains/*/bin/rustc`
   - Node: `/sandbox/**/node_modules/.bin/*`
@@ -97,12 +97,14 @@ A developer iterates on their manifest, adding and removing tools. Each build ru
 - **FR-010**: Label stamping (`oci.StampPolicyLabel`) MUST run after the second build, labeling the final image.
 - **FR-011**: Components with explicit binaries (e.g., claude-code.yaml, vertex-ai.yaml, git-hosting.yaml) MUST NOT be overwritten by probe results. Explicit binaries always take precedence.
 - **FR-012**: The probe step MUST NOT apply to non-OpenShell targets. Container and SSH targets are unaffected by this change.
+- **FR-013**: On a successful second-pass build, the system MUST remove the first-pass intermediate image and the probe container. On failure (probe error or second-pass build error), the first-pass image MUST be retained with a distinct tag (e.g., `<name>:probe-debug`) so the developer can inspect it for debugging.
 
 ### Key Entities
 
 - **First-Pass Image**: The intermediate image built with all tools installed but with a binaries-less policy. Used only as a probe target, not shipped.
 - **Probe Container**: A temporary container created from the first-pass image. Runs `which` and `find` commands to discover binary paths. Destroyed after probing.
-- **Runtime Glob Pattern**: A filesystem glob added to policy entries for tools that create binaries after the image is built (venvs, toolchain installs, npx).
+- **Probe Binaries**: An explicit list of binary names in a policy component YAML (`probe_binaries` field) that the probe step searches for via `which`/`find`. Separate from `match.tools` (which controls component selection). Falls back to `match.tools` if absent.
+- **Runtime Glob Pattern**: A filesystem glob defined in a policy component YAML (`runtime_globs` field) for tools that create binaries after the image is built (venvs, toolchain installs, npx).
 - **Second-Pass Image**: The final image rebuilt with the corrected policy containing probed paths and globs. This is the image that gets labeled and shipped.
 
 ## Success Criteria *(mandatory)*
@@ -115,6 +117,15 @@ A developer iterates on their manifest, adding and removing tools. Each build ru
 - **SC-004**: Adding a new tool to the manifest and rebuilding results in correct binary paths without any code changes to the path resolution logic.
 - **SC-005**: All existing tests continue to pass after removing the well-known paths table.
 - **SC-006**: The total build time overhead from the two-pass approach is less than 30 seconds compared to a single-pass build.
+
+## Clarifications
+
+### Session 2026-05-24
+
+- Q: Where should runtime glob patterns be defined (Go code table vs. policy component YAML vs. manifest)? → A: In policy component YAML files, making each component self-contained.
+- Q: How does the system know which binary names to probe for a tool (e.g., pip vs pip3)? → A: Explicit `probe_binaries` list in the component YAML, separate from `match.tools`.
+- Q: What timeout should the probe step enforce per binary lookup? → A: 30 seconds per binary, 5 minutes total probe step.
+- Q: What happens to the first-pass image after the second pass? → A: Remove automatically on successful second pass; keep on failure for debugging.
 
 ## Assumptions
 

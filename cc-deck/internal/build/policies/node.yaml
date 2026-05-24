@@ -4,6 +4,12 @@ match:
   tools:
     - node
     - npm
+probe_binaries:
+  - node
+  - npm
+  - npx
+runtime_globs:
+  - /sandbox/**/node_modules/.bin/*
 endpoints:
   - host: registry.npmjs.org
     port: 443
