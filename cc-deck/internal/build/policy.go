@@ -123,6 +123,9 @@ func AssemblePolicy(manifest *Manifest, catalogFS fs.FS, catalogRoot string, use
 		return matched[i].Key < matched[j].Key
 	})
 
+	// Resolve binary paths from manifest tool data and well-known paths table.
+	matched = resolveBinaries(matched, manifest)
+
 	networkPolicies := make(map[string]NetworkPolicy, len(matched))
 	for _, comp := range matched {
 		networkPolicies[comp.Key] = NetworkPolicy{

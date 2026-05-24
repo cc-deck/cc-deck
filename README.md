@@ -396,6 +396,8 @@ For OpenShell targets, `build refresh` assembles `openshell/policy.yaml` from de
 
 The assembly is deterministic: the same manifest with the same components always produces identical output. Components declare match conditions (`always`, `tools`, `credentials`) and are included only when their conditions match the manifest.
 
+Binary paths for network policy entries are resolved automatically at assembly time. For each component's `match.tools`, the system looks up the manifest's `tools` section to determine install paths (package tools get `/usr/bin/<name>`, github-release tools use their `install_path`), then adds well-known alternative paths from an internal table. Components with explicit `binaries` fields are preserved as-is, providing an override mechanism for custom installations.
+
 ```bash
 cc-deck build refresh    # Assemble policy from components + manifest
 ```
