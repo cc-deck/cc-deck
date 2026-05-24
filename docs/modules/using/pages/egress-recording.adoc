@@ -1,0 +1,95 @@
+= Egress Recording
+
+Egress recording captures which external domains your workspace tools contact at runtime.
+Rather than manually researching domain lists for each tool, you run one interactive session and cc-deck logs everything.
+
+== When to Use Recording Mode
+
+Use `build record` when:
+
+* Setting up cc-deck for a new project with unknown network dependencies
+* Adding a new tool or language runtime to an existing workspace
+* Debugging network policy issues where you need to see exactly which domains a workflow contacts
+* Checking whether your configured policy covers all required endpoints
+
+== Prerequisites
+
+Build the workspace image before recording.
+The recording session runs the same image that `build run` produces.
+
+[source,bash]
+----
+cc-deck build run --target openshell
+----
+
+Podman must be installed and available in your PATH.
+
+== Running a Recording Session
+
+Start the recording session from your project directory:
+
+[source,bash]
+----
+cc-deck build record
+----
+
+This creates a Podman pod with two containers sharing a network namespace:
+
+1. Your built workspace image, with full internet access
+2. A CoreDNS sidecar that writes every DNS query to a log file
+
+You are attached interactively to the workspace container.
+Work normally: install dependencies, run builds, use Claude Code, test your tools.
+
+Exit when done with `Ctrl+D` or `exit`.
+
+== Understanding the Output
+
+After you exit, cc-deck processes the DNS log and prints a summary:
+
+* Total DNS queries: raw count of all captured queries
+* Filtered as noise: infrastructure queries removed (Podman internals, mDNS, reverse DNS)
+* Already covered: domains matched against existing catalog components or `allowed_domains`
+* New domains added: previously unknown domains, now appended to `build.yaml`
+
+Domains that match catalog components (for example, `pypi.org` matching the `python` component) appear as "already covered" because the catalog handles them.
+Only domains not covered elsewhere are added to `network.allowed_domains`.
+
+== After Recording
+
+Regenerate the policy to pick up the newly discovered domains:
+
+[source,bash]
+----
+cc-deck build refresh
+----
+
+This assembles the updated `openshell/policy.yaml` with network policies for the recorded domains (port 443 for each).
+
+You can verify the result by inspecting the generated policy:
+
+[source,bash]
+----
+cat .cc-deck/setup/openshell/policy.yaml
+----
+
+== Multiple Recording Sessions
+
+Each session appends only new domains to `allowed_domains`.
+Domains already present from prior sessions or manual additions are not duplicated.
+Run as many sessions as needed to build a complete domain list.
+
+== Noise Filtering
+
+The following patterns are automatically filtered from the output:
+
+* Domains ending in `.local`, `.internal`, `.podman`, or `.localhost`
+* The literal domain `localhost`
+* Reverse DNS lookups (`.in-addr.arpa`, `.ip6.arpa`)
+* AAAA-only queries with no corresponding A record for the same domain
+
+The filter is conservative: legitimate egress domains are preserved while container infrastructure noise is removed.
+
+NOTE: Domains ending in `.internal` are filtered.
+If your organization uses `.internal` as a real TLD for internal services, those domains will not appear in the output.
+Add them manually to `network.allowed_domains` in `build.yaml`.

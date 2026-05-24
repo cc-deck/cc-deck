@@ -363,6 +363,47 @@ cc-deck build diff my-team-setup --target ssh
 
 Reports tools, plugins, MCP servers, and other components that are in the manifest but not reflected in the generated provisioning artifacts.
 
+==== build record
+
+Launch an interactive recording session to discover egress domains.
+Creates a Podman pod with the workspace image and a CoreDNS sidecar that captures all DNS queries.
+On exit, the captured domains are deduplicated, filtered for infrastructure noise, matched against existing catalog components, and new domains are appended to `build.yaml` `network.allowed_domains`.
+
+[source,bash]
+----
+cc-deck build record                  # defaults to .cc-deck/setup/
+cc-deck build record my-team-setup
+----
+
+The workspace image must be built before recording.
+Run `cc-deck build run --target openshell` first if the image does not exist.
+
+After a recording session completes, run `cc-deck build refresh` to regenerate the policy with the newly discovered domains.
+
+.Example output
+----
+=== Recording Session Summary ===
+
+  Total DNS queries:    47
+  Filtered as noise:    12
+  Unique domains:       8
+  Already covered:      3
+    - pypi.org (by python packages)
+    - crates.io (by rust packages)
+    - api.github.com (by GitHub)
+  New domains added:    5
+    + files.pythonhosted.org
+    + registry.npmjs.org
+    + objects.githubusercontent.com
+    + dl.google.com
+    + storage.googleapis.com
+
+  Updated: .cc-deck/setup/build.yaml
+  Run 'cc-deck build refresh' to regenerate the policy.
+----
+
+The noise filter removes infrastructure domains that do not represent meaningful egress: `.local`, `.podman`, `.internal`, and `.localhost` suffixes, `localhost`, reverse DNS lookups (`.in-addr.arpa`, `.ip6.arpa`), and AAAA-only queries with no corresponding A record.
+
 === profile
 
 Manage credential profiles for AI backends.
