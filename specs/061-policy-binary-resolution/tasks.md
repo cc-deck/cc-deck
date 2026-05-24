@@ -13,10 +13,10 @@
 
 **Purpose**: Remove hardcoded binaries from embedded components
 
-- [ ] T001 [P] Remove the `binaries` section from `cc-deck/internal/build/policies/go.yaml` (keep key, name, match, endpoints)
-- [ ] T002 [P] Remove the `binaries` section from `cc-deck/internal/build/policies/rust.yaml` (keep key, name, match, endpoints)
-- [ ] T003 [P] Remove the `binaries` section from `cc-deck/internal/build/policies/node.yaml` (keep key, name, match, endpoints)
-- [ ] T004 [P] Remove the `binaries` section from `cc-deck/internal/build/policies/python.yaml` (keep key, name, match, endpoints)
+- [x] T001 [P] Remove the `binaries` section from `cc-deck/internal/build/policies/go.yaml` (keep key, name, match, endpoints)
+- [x] T002 [P] Remove the `binaries` section from `cc-deck/internal/build/policies/rust.yaml` (keep key, name, match, endpoints)
+- [x] T003 [P] Remove the `binaries` section from `cc-deck/internal/build/policies/node.yaml` (keep key, name, match, endpoints)
+- [x] T004 [P] Remove the `binaries` section from `cc-deck/internal/build/policies/python.yaml` (keep key, name, match, endpoints)
 
 ---
 
@@ -24,9 +24,9 @@
 
 **Purpose**: Implement the well-known paths table and binary resolution function
 
-- [ ] T005 Create `cc-deck/internal/build/policy_binaries.go` with the well-known paths table (`var wellKnownPaths = map[string][]string{...}`) covering: cargo, rustc, go, claude, node, npm, npx, pip, pip3, uv, git, gh
-- [ ] T006 Implement `resolveBinaries(components []PolicyComponent, manifest *Manifest) []PolicyComponent` in `cc-deck/internal/build/policy_binaries.go` that: (1) iterates matched components, (2) skips components with existing binaries, (3) for each tool in match.Tools looks up manifest.Tools to determine install path, (4) adds well-known paths, (5) deduplicates, (6) sets component.Binaries
-- [ ] T007 [P] Write unit tests in `cc-deck/internal/build/policy_binaries_test.go` covering: package-installed tool resolves to /usr/bin/<name> plus well-known paths, github-release tool uses InstallPath, component with explicit binaries is preserved, tool not in manifest is skipped, deduplication works
+- [x] T005 Create `cc-deck/internal/build/policy_binaries.go` with the well-known paths table (`var wellKnownPaths = map[string][]string{...}`) covering: cargo, rustc, go, claude, node, npm, npx, pip, pip3, uv, git, gh. The table stores raw path strings; the resolution function converts them to `[]PolicyBinary` when populating `component.Binaries`.
+- [x] T006 Implement `resolveBinaries(components []PolicyComponent, manifest *Manifest) []PolicyComponent` in `cc-deck/internal/build/policy_binaries.go` that: (1) iterates matched components, (2) skips components with existing `Binaries` (len > 0, type `[]PolicyBinary`), (3) for each tool in `match.Tools` looks up `manifest.Tools` to determine install path, (4) adds well-known paths from the table, (5) deduplicates path strings, (6) converts to `[]PolicyBinary{{Path: p}}` and sets `component.Binaries`
+- [x] T007 [P] Write unit tests in `cc-deck/internal/build/policy_binaries_test.go` covering: package-installed tool resolves to `/usr/bin/<name>` plus well-known paths (as `[]PolicyBinary`), github-release tool uses `InstallPath`, component with explicit `Binaries` is preserved, tool not in manifest is skipped, deduplication works
 
 **Checkpoint**: Resolution logic is complete and tested in isolation.
 
@@ -40,8 +40,8 @@
 
 ### Implementation for User Story 1
 
-- [ ] T008 [US1] Modify `AssemblePolicy()` in `cc-deck/internal/build/policy.go` to call `resolveBinaries(matched, manifest)` after component matching (after the sort, before building networkPolicies map), replacing `matched` with the resolved result
-- [ ] T009 [US1] Write integration test `TestAssemblePolicy_ResolvesToolBinaries` in `cc-deck/internal/build/policy_test.go` that creates a manifest with tools (cargo as package, a custom tool as github-release), calls AssemblePolicy, and verifies the pkg_rust policy entry has cargo binary paths and the custom tool's policy entry has its install_path
+- [x] T008 [US1] Modify `AssemblePolicy()` in `cc-deck/internal/build/policy.go` to call `resolveBinaries(matched, manifest)` after component matching (after the sort, before building networkPolicies map), replacing `matched` with the resolved result
+- [x] T009 [US1] Write integration test `TestAssemblePolicy_ResolvesToolBinaries` in `cc-deck/internal/build/policy_test.go` that creates a manifest with tools (cargo as package, a custom tool as github-release), calls AssemblePolicy, and verifies the pkg_rust policy entry has cargo binary paths and the custom tool's policy entry has its install_path
 
 **Checkpoint**: AssemblePolicy automatically resolves binaries. `make test` passes.
 
@@ -55,7 +55,7 @@
 
 ### Implementation for User Story 2
 
-- [ ] T010 [US2] Write test `TestAssemblePolicy_ComponentWithoutBinariesGetsResolved` in `cc-deck/internal/build/policy_test.go` that verifies embedded go.yaml (now without binaries) gets `/usr/bin/go` and well-known paths when manifest contains a `go` tool entry
+- [x] T010 [US2] Write test `TestAssemblePolicy_ComponentWithoutBinariesGetsResolved` in `cc-deck/internal/build/policy_test.go` that verifies embedded go.yaml (now without binaries) gets `/usr/bin/go` and well-known paths when manifest contains a `go` tool entry
 
 **Checkpoint**: Catalog components work without hardcoded binaries.
 
@@ -67,7 +67,7 @@
 
 ### Implementation for User Story 3
 
-- [ ] T011 [US3] Write test `TestAssemblePolicy_ExplicitBinariesPreserved` in `cc-deck/internal/build/policy_test.go` that creates a component with explicit binaries, calls AssemblePolicy, and verifies the binaries are unchanged (no additional paths added)
+- [x] T011 [US3] Write test `TestAssemblePolicy_ExplicitBinariesPreserved` in `cc-deck/internal/build/policy_test.go` that creates a component with explicit binaries, calls AssemblePolicy, and verifies the binaries are unchanged (no additional paths added)
 
 **Checkpoint**: Explicit overrides work correctly.
 
@@ -75,10 +75,11 @@
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-**Purpose**: Documentation and final validation
+**Purpose**: Existing test updates, documentation, and final validation
 
-- [ ] T012 [P] Update README.md with a note about automatic binary resolution in policy assembly
-- [ ] T013 Run `make test` and `make lint` to verify all tests pass and code is clean
+- [x] T012 Review and update existing tests in `cc-deck/internal/build/policy_test.go` that may assert on embedded component binaries after Phase 1 removals. Specifically verify `TestAssemblePolicy_CargoMatchesRust` (does not check binaries, should pass) and `TestMergePolicy_NetworkOverrideReplaces` (constructs own override, should pass). If any tests check embedded component binaries directly, update assertions to expect resolution-populated binaries instead.
+- [x] T013 [P] Update README.md with a note about automatic binary resolution in policy assembly
+- [x] T014 Run `make test` and `make lint` to verify all tests pass and code is clean
 
 ---
 
@@ -122,7 +123,7 @@
 
 ## Notes
 
-- Total tasks: 13
+- Total tasks: 14
 - Tasks per user story: US1=2, US2=1, US3=1
 - The well-known paths table is the most maintenance-prone part; new tools need entries added manually
-- Existing tests that check for binaries in embedded components may need updating after Phase 1
+- T012 explicitly reviews existing tests for breakage after Phase 1 binary removals

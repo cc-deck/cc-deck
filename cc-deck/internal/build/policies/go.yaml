@@ -10,7 +10,3 @@ endpoints:
     port: 443
   - host: storage.googleapis.com
     port: 443
-binaries:
-  - path: /usr/bin/go
-  - path: /usr/local/go/bin/go
-  - path: /sandbox/go/bin/go

@@ -70,7 +70,7 @@ Takes the matched components and manifest, returns components with binaries popu
 
 ### D2: Well-Known Paths Table
 
-Package-level `var wellKnownPaths = map[string][]string{...}` in `policy_binaries.go`. Each entry maps a tool name to additional paths beyond `/usr/bin/<name>`. Includes glob patterns where appropriate (e.g., `/sandbox/.rustup/toolchains/*/bin/cargo`).
+Package-level `var wellKnownPaths = map[string][]string{...}` in `policy_binaries.go`. Each entry maps a tool name to additional path strings beyond `/usr/bin/<name>`. Includes glob patterns where appropriate (e.g., `/sandbox/.rustup/toolchains/*/bin/cargo`). Note: the table stores raw path strings; the resolution function converts them to `[]PolicyBinary` structs when setting `component.Binaries`.
 
 ### D3: Resolution Priority
 

@@ -522,6 +522,90 @@ endpoints:
 	assert.Equal(t, "new-crates.io", rust.Endpoints[0].Host, "catalog endpoints should replace embedded")
 }
 
+// T009: Integration test - AssemblePolicy resolves tool binaries from manifest
+
+func TestAssemblePolicy_ResolvesToolBinaries(t *testing.T) {
+	manifest := &Manifest{
+		Version: 3,
+		Tools: []ToolEntry{
+			{Name: "cargo", Install: "package"},
+			{Name: "mytool", Install: "github-release", Repo: "owner/mytool", InstallPath: "/usr/local/bin/mytool"},
+		},
+	}
+
+	policy, err := AssemblePolicy(manifest, nil, "", nil, "")
+	require.NoError(t, err)
+
+	// Verify pkg_rust gets cargo binary paths
+	rust, ok := policy.NetworkPolicies["pkg_rust"]
+	require.True(t, ok, "cargo in manifest should match rust component")
+
+	rustPaths := policyBinaryPaths(rust.Binaries)
+	assert.Contains(t, rustPaths, "/usr/bin/cargo", "should have /usr/bin/cargo from package resolution")
+	assert.Contains(t, rustPaths, "/sandbox/.cargo/bin/cargo", "should have well-known cargo path")
+}
+
+// T010: Embedded component without binaries gets resolved paths
+
+func TestAssemblePolicy_ComponentWithoutBinariesGetsResolved(t *testing.T) {
+	manifest := &Manifest{
+		Version: 3,
+		Tools:   []ToolEntry{{Name: "go", Install: "package"}},
+	}
+
+	policy, err := AssemblePolicy(manifest, nil, "", nil, "")
+	require.NoError(t, err)
+
+	goPolicy, ok := policy.NetworkPolicies["pkg_go"]
+	require.True(t, ok, "go tool should match go.yaml component")
+
+	goPaths := policyBinaryPaths(goPolicy.Binaries)
+	assert.Contains(t, goPaths, "/usr/bin/go", "should resolve /usr/bin/go from manifest")
+	assert.Contains(t, goPaths, "/usr/local/go/bin/go", "should include well-known go path")
+	assert.Contains(t, goPaths, "/sandbox/go/bin/go", "should include well-known go path")
+}
+
+// T011: Explicit binaries in user-local components are preserved
+
+func TestAssemblePolicy_ExplicitBinariesPreserved(t *testing.T) {
+	userLocalDir := t.TempDir()
+	customRust := `
+key: pkg_rust
+name: rust packages (custom)
+match:
+  tools:
+    - cargo
+endpoints:
+  - host: crates.io
+    port: 443
+binaries:
+  - path: /opt/custom/bin/cargo
+`
+	require.NoError(t, os.WriteFile(filepath.Join(userLocalDir, "rust.yaml"), []byte(customRust), 0o644))
+
+	manifest := &Manifest{
+		Version: 3,
+		Tools:   []ToolEntry{{Name: "cargo", Install: "package"}},
+	}
+
+	policy, err := AssemblePolicyFromDir(manifest, "", userLocalDir)
+	require.NoError(t, err)
+
+	rust, ok := policy.NetworkPolicies["pkg_rust"]
+	require.True(t, ok)
+	require.Len(t, rust.Binaries, 1, "explicit binaries should be preserved, not augmented")
+	assert.Equal(t, "/opt/custom/bin/cargo", rust.Binaries[0].Path)
+}
+
+// policyBinaryPaths extracts path strings from NetworkPolicy binaries.
+func policyBinaryPaths(binaries []PolicyBinary) []string {
+	paths := make([]string, len(binaries))
+	for i, b := range binaries {
+		paths[i] = b.Path
+	}
+	return paths
+}
+
 func TestSlugify(t *testing.T) {
 	assert.Equal(t, "api_anthropic_com", slugify("api.anthropic.com"))
 	assert.Equal(t, "github_com", slugify("github.com"))

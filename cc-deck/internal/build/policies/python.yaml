@@ -10,11 +10,3 @@ endpoints:
     port: 443
   - host: files.pythonhosted.org
     port: 443
-binaries:
-  - path: /usr/bin/pip
-  - path: /usr/bin/pip3
-  - path: /usr/local/bin/pip
-  - path: /usr/local/bin/uv
-  - path: /sandbox/.venv/bin/pip
-  - path: /sandbox/.venv/bin/uv
-  - path: /sandbox/.local/bin/uv
