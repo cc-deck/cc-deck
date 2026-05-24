@@ -5,6 +5,17 @@ match:
     - python
     - pip
     - uv
+probe_binaries:
+  - pip
+  - pip3
+  - uv
+  - python3
+runtime_globs:
+  - /sandbox/**/bin/pip
+  - /sandbox/**/bin/pip3
+  - /sandbox/**/bin/uv
+  - /sandbox/**/bin/python
+  - /sandbox/**/bin/python3
 endpoints:
   - host: pypi.org
     port: 443
