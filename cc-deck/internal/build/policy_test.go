@@ -899,3 +899,32 @@ func TestAssemblePolicy_MixedGroupsAndLiterals(t *testing.T) {
 	require.Len(t, custom.Endpoints, 1)
 	assert.Equal(t, "api.custom.com", custom.Endpoints[0].Host)
 }
+
+func TestAssemblePolicy_RecordingStyleDomains(t *testing.T) {
+	// Verify that domains added by the recording feature (literal domains
+	// appended to allowed_domains) are correctly picked up by policy assembly.
+	manifest := &Manifest{
+		Version: 3,
+		Network: &NetworkConfig{
+			AllowedDomains: []string{
+				"pypi.org",
+				"files.pythonhosted.org",
+				"internal-api.corp.example.com",
+			},
+		},
+	}
+
+	p, err := AssemblePolicy(manifest, nil, "", nil, "")
+	require.NoError(t, err)
+
+	// Each literal domain should produce a network policy with port 443.
+	for _, domain := range manifest.Network.AllowedDomains {
+		slug := strings.ReplaceAll(domain, ".", "_")
+		np, ok := p.NetworkPolicies[slug]
+		require.True(t, ok, "domain %s should produce network policy with slug %s", domain, slug)
+		assert.Equal(t, domain, np.Name)
+		require.Len(t, np.Endpoints, 1)
+		assert.Equal(t, domain, np.Endpoints[0].Host)
+		assert.Equal(t, 443, np.Endpoints[0].Port)
+	}
+}

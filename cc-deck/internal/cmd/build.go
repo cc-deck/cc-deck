@@ -16,6 +16,7 @@ import (
 	"github.com/cc-deck/cc-deck/internal/build"
 	"github.com/cc-deck/cc-deck/internal/oci"
 	"github.com/cc-deck/cc-deck/internal/project"
+	"github.com/cc-deck/cc-deck/internal/record"
 	"github.com/cc-deck/cc-deck/internal/ssh"
 )
 
@@ -31,6 +32,7 @@ func NewBuildCmd(flags *GlobalFlags) *cobra.Command {
 	cmd.AddCommand(newBuildRunCmd(flags))
 	cmd.AddCommand(newBuildVerifyCmd(flags))
 	cmd.AddCommand(newBuildDiffCmd(flags))
+	cmd.AddCommand(newBuildRecordCmd(flags))
 
 	return cmd
 }
@@ -1048,6 +1050,64 @@ func refreshOpenShellPolicy(dir string, m *build.Manifest, report *build.ProbeRe
 	return os.WriteFile(policyPath, data, 0o644)
 }
 
+
+func newBuildRecordCmd(_ *GlobalFlags) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "record [dir]",
+		Short: "Record egress domains from an interactive session",
+		Long: `Launch an interactive Podman pod with the workspace image and a
+DNS logger sidecar to capture all DNS queries. On exit, the captured
+domains are deduplicated, filtered for noise, matched against existing
+catalog components, and new domains are appended to build.yaml
+network.allowed_domains.
+
+When no directory is specified, defaults to .cc-deck/setup/.
+
+Prerequisites:
+  - Podman must be installed and available
+  - The workspace image must be built (run 'cc-deck build run --target openshell' first)`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			dir := resolveBuildDir(args)
+			manifestPath := filepath.Join(dir, "build.yaml")
+
+			m, err := build.LoadManifest(manifestPath)
+			if err != nil {
+				return fmt.Errorf("loading manifest: %w", err)
+			}
+
+			imageRef := m.OpenShellImageRef()
+			if imageRef == "" {
+				return fmt.Errorf("no OpenShell target configured in %s", manifestPath)
+			}
+
+			ctx := cmd.Context()
+			cfg := record.SessionConfig{
+				WorkspaceImage: imageRef,
+			}
+
+			result, err := record.RunRecordingSession(ctx, cfg)
+			if err != nil {
+				return err
+			}
+
+			catalogDir := filepath.Join(dir, "openshell", "components")
+			userLocalDir := filepath.Join(dir, "openshell", "policies")
+			result = record.MatchAgainstCatalog(result, m, catalogDir, userLocalDir)
+
+			if len(result.NewDomains) > 0 {
+				if err := record.UpdateManifest(manifestPath, result.NewDomains); err != nil {
+					return fmt.Errorf("updating manifest: %w", err)
+				}
+			}
+
+			record.PrintSummary(result, manifestPath)
+			return nil
+		},
+	}
+
+	return cmd
+}
 
 func fileExists(path string) bool {
 	_, err := os.Stat(path)

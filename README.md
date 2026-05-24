@@ -404,6 +404,19 @@ Each component YAML can optionally declare `probe_binaries` (binary names to sea
 cc-deck build refresh    # Assemble policy from components + manifest
 ```
 
+### Egress recording
+
+If you are unsure which domains your tools contact at runtime, `build record` launches an interactive session with a DNS logger sidecar that captures all outbound queries. On exit, cc-deck deduplicates the domains, filters out infrastructure noise (Podman internals, mDNS, reverse DNS), matches them against the catalog, and appends any new domains to `build.yaml` `network.allowed_domains`. Run `build refresh` afterward to regenerate the policy.
+
+```bash
+cc-deck build record     # Start a recording session
+cc-deck build refresh    # Regenerate policy with recorded domains
+```
+
+See the [egress recording guide](docs/modules/using/pages/egress-recording.adoc) for a full walkthrough.
+
+### Custom endpoints
+
 To add custom endpoints, create a component file in `.cc-deck/setup/openshell/policies/`:
 
 ```yaml

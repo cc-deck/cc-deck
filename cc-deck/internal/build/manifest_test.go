@@ -609,6 +609,50 @@ tools:
 	assert.Empty(t, m.Credentials)
 }
 
+func TestSaveManifest_RoundTrip(t *testing.T) {
+	m := &Manifest{
+		Version: 3,
+		Tools:   []ToolEntry{{Name: "ripgrep"}},
+		Network: &NetworkConfig{
+			AllowedDomains: []string{"pypi.org", "files.pythonhosted.org"},
+		},
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "build.yaml")
+	require.NoError(t, SaveManifest(m, path))
+
+	loaded, err := LoadManifest(path)
+	require.NoError(t, err)
+	assert.Equal(t, 3, loaded.Version)
+	require.Len(t, loaded.Tools, 1)
+	assert.Equal(t, "ripgrep", loaded.Tools[0].Name)
+	require.NotNil(t, loaded.Network)
+	assert.Equal(t, []string{"pypi.org", "files.pythonhosted.org"}, loaded.Network.AllowedDomains)
+}
+
+func TestSaveManifest_AppendDomains(t *testing.T) {
+	m := &Manifest{
+		Version: 3,
+		Network: &NetworkConfig{
+			AllowedDomains: []string{"existing.com"},
+		},
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "build.yaml")
+	require.NoError(t, SaveManifest(m, path))
+
+	loaded, err := LoadManifest(path)
+	require.NoError(t, err)
+	loaded.Network.AllowedDomains = append(loaded.Network.AllowedDomains, "new-domain.org")
+	require.NoError(t, SaveManifest(loaded, path))
+
+	reloaded, err := LoadManifest(path)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"existing.com", "new-domain.org"}, reloaded.Network.AllowedDomains)
+}
+
 func TestManifest_BaseImage(t *testing.T) {
 	tests := []struct {
 		name string
