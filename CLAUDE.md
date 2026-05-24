@@ -84,7 +84,7 @@ Rust (stable, latest edition 2021+): Follow standard conventions
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan at
-`specs/062-egress-recording-mode/plan.md`
+`specs/063-mcp-endpoint-policy/plan.md`
 <!-- SPECKIT END -->
 
 <!-- MANUAL ADDITIONS START -->

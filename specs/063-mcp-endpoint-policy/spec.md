@@ -57,10 +57,18 @@ When the policy includes the `pkg_node` component (for npm registry access), the
 
 ### Edge Cases
 
-- What happens when an MCP endpoint has no explicit port? The system should use the default port for the protocol (443 for HTTPS, 80 for HTTP).
+- What happens when an MCP endpoint has no explicit port? The `endpoint` field requires `host:port` format. The capture command always extracts both values, so a missing port in the manifest is a validation error and the entry should be skipped with a warning.
 - What happens when an MCP entry has a malformed endpoint string? The system should skip the entry and log a warning rather than failing the entire policy assembly.
 - What happens when two MCP servers share the same endpoint host but different ports? Each should produce its own separate policy entry with a unique key.
 - What happens when a manifest has no MCP entries at all? Policy assembly should proceed normally with no MCP-related entries, maintaining backward compatibility.
+
+## Clarifications
+
+### Session 2026-05-24
+
+- Q: How should the MCP server name be slugified for the policy key `mcp_<slugified-name>`? → A: Replace hyphens, spaces, and non-alphanumeric characters with underscores, then lowercase. For example, `google-work` becomes `google_work`.
+- Q: Is the port always required in the `endpoint` field, or can it be omitted to use protocol defaults? → A: Port is always required. The `host:port` format is mandatory. The capture command always extracts both host and port explicitly, so there is no ambiguity at policy assembly time.
+- Q: What happens if the Claude Code component definition (`claude-code.yaml`) is not found during policy assembly? → A: Skip MCP policy entry generation entirely and log a warning. Do not fail the assembly. The remaining policy entries are still valid without MCP entries.
 
 ## Requirements *(mandatory)*
 
@@ -78,6 +86,9 @@ When the policy includes the `pkg_node` component (for npm registry access), the
 - **FR-010**: Policy assembly MUST append Claude Code binary paths to the `pkg_node` component's binary list when `pkg_node` is a matched component.
 - **FR-011**: Existing manifests without MCP endpoint fields MUST continue to work without modification (backward compatibility).
 - **FR-012**: The `endpoint` field MUST only affect OpenShell targets. Container and SSH targets MUST remain unaffected.
+- **FR-013**: Slugification of the MCP server name for the policy key MUST replace hyphens, spaces, and non-alphanumeric characters with underscores and lowercase the result (e.g., `google-work` becomes `mcp_google_work`).
+- **FR-014**: If the Claude Code component definition is not available during policy assembly, MCP policy entry generation MUST be skipped with a warning. The assembly MUST NOT fail.
+- **FR-015**: MCP entries with a malformed `endpoint` value (missing port or unparseable format) MUST be skipped with a warning rather than failing the entire policy assembly.
 
 ### Key Entities
 
@@ -96,7 +107,7 @@ When the policy includes the `pkg_node` component (for npm registry access), the
 ## Assumptions
 
 - MCP servers configured in the manifest have stable, known endpoints that do not change dynamically at runtime.
-- The Claude Code component definition (`claude-code.yaml`) is always available during policy assembly and contains the correct binary paths.
+- The Claude Code component definition (`claude-code.yaml`) is expected to be available during policy assembly. If missing, FR-014 defines the fallback behavior.
 - The `host:port` format is sufficient for all MCP endpoint specifications (no path-based routing is needed at the network policy level).
 - The `pkg_node` component, when present, already handles npm registry endpoint resolution. Only the binary list needs augmentation.
 - This feature only affects OpenShell targets. Container and SSH targets do not use the supervisor-based network policy mechanism.
