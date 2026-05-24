@@ -684,7 +684,13 @@ Directory-based plugins are included in the manifest with `source: directory` so
 2. `~/.claude/settings.json` (Claude Code MCP settings under `mcpServers`)
 3. Project-level `.claude/settings.json` if present
 
-**Present** as a categorized text list:
+**Endpoint extraction**: For each discovered MCP server, attempt to extract the network endpoint (host:port) for OpenShell policy generation:
+
+- **HTTP/SSE servers** with a `url` field: Parse the URL, extract the host and port. If no explicit port, use 443 for HTTPS or 80 for HTTP. Example: `https://mcp-google-work.int-tichny.org:8443/mcp` yields `mcp-google-work.int-tichny.org:8443`.
+- **Stdio servers using `mcp-remote`**: Scan the `args` array for HTTPS URLs (strings starting with `https://`). Parse the first match to extract host:port. Example: `npx @anthropic-ai/mcp-remote https://mcp.atlassian.com:443` yields `mcp.atlassian.com:443`.
+- **Local stdio servers** (no URL in config or args): No endpoint extracted.
+
+**Present** as a categorized text list, including extracted endpoints:
 
 ```
 ## Step 9/11: MCP Servers
@@ -696,8 +702,13 @@ Directory-based plugins are included in the manifest with `source: directory` so
   From Claude settings:
     3. playwright (npx @playwright/mcp@latest, stdio)
     4. readwise (http, mcp-readwise.int-tichny.org)
+       endpoint: mcp-readwise.int-tichny.org:443
     5. google-private (http, mcp-google-private.int-tichny.org)
+       endpoint: mcp-google-private.int-tichny.org:8443
     6. slack-redhat (sse, mcp-slack.int-tichny.org)
+       endpoint: mcp-slack.int-tichny.org:443
+    7. jira-redhat (npx mcp-remote https://mcp.atlassian.com, stdio)
+       endpoint: mcp.atlassian.com:443
 ```
 
 Then use `AskUserQuestion`:
@@ -748,6 +759,23 @@ If user selects "Exclude some", ask which items to remove by number or name.
   ```
 
 - **cc-setup cache**: If the user selects MCP servers from cc-setup, copy the relevant entries from `~/.config/cc-setup/mcp.json` to `<setup-dir>/config/` as `cc-setup-mcp.json`. The Containerfile will place it at `/home/dev/.config/cc-setup/mcp.json`.
+
+- **Endpoint writing**: For each selected MCP server that has an extracted endpoint, write the `endpoint` field to the manifest's `mcp` entry. This endpoint is used during OpenShell policy assembly to generate network policy entries allowing Claude Code to reach the MCP server. Example manifest output with endpoints:
+  ```yaml
+  mcp:
+    - name: google-work
+      transport: http
+      endpoint: mcp-google-work.int-tichny.org:8443
+      description: "Google Workspace (work)"
+    - name: jira-redhat
+      transport: stdio
+      endpoint: mcp.atlassian.com:443
+      description: "Red Hat Jira (npx mcp-remote)"
+    - name: playwright
+      transport: stdio
+      description: "Browser automation via Playwright (npx)"
+  ```
+  The `endpoint` field uses `host:port` format. Servers without an extracted endpoint (like `playwright` above) omit the field entirely. The user can modify or remove extracted endpoints during confirmation.
 
 ---
 
