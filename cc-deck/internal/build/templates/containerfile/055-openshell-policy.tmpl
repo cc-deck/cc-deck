@@ -1,0 +1,6 @@
+{{- if eq .Target "openshell"}}
+
+# Layer: OpenShell policy (placed late for two-pass build cache efficiency)
+RUN mkdir -p /etc/openshell
+COPY openshell/policy.yaml /etc/openshell/policy.yaml
+{{- end}}
