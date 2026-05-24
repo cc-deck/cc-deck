@@ -262,6 +262,36 @@ The workspace still starts, but the corresponding service will not be available.
 Use `/cc-deck.capture` to detect available credentials automatically.
 Use `/cc-deck.capture --all` to auto-accept all proposals without prompting.
 
+=== Network Configuration
+
+The `network` section of the build manifest controls domain-level egress filtering for containerized sessions.
+
+[source,yaml]
+----
+network:
+  allowed_domains:
+    - pypi.org
+    - files.pythonhosted.org
+    - crates.io
+    - github       # expands to domain group
+----
+
+==== `network.allowed_domains`
+
+A list of domain names or domain group names that should be permitted for outbound network access.
+Each entry produces a network policy in the assembled `openshell/policy.yaml` with port 443.
+
+Entries can be:
+
+* **Literal domains** (contain a dot): Used as-is with port 443. Example: `pypi.org`.
+* **Domain group names** (no dot): Expanded to the set of domains defined in `~/.config/cc-deck/domains.yaml`. Example: `github` expands to `github.com`, `api.github.com`, etc.
+
+Domains already covered by catalog components are not duplicated.
+If a catalog component (e.g., `python`) already includes `pypi.org` in its endpoints, adding `pypi.org` to `allowed_domains` has no effect.
+
+This field is populated automatically by `cc-deck build record`, which captures DNS queries during an interactive session and appends new domains.
+It can also be edited manually.
+
 === Policy Component System
 
 The `build refresh` command assembles `openshell/policy.yaml` deterministically from YAML component files.

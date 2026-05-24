@@ -7,4 +7,5 @@
 * xref:voice.adoc[Voice Relay]
 * xref:build.adoc[Build Command]
 * xref:policy-components.adoc[Policy Components]
+* xref:egress-recording.adoc[Egress Recording]
 * xref:oci-policy-extraction.adoc[OCI Policy Extraction]
