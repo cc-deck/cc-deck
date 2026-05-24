@@ -15,11 +15,11 @@
 
 **Purpose**: Add the Endpoint field to the manifest schema and create helper functions used by all user stories
 
-- [ ] T001 Add `Endpoint string` field with `yaml:"endpoint,omitempty"` tag to `MCPEntry` struct in cc-deck/internal/build/manifest.go
-- [ ] T002 [P] Add `slugifyMCPName()` function in cc-deck/internal/build/policy.go that replaces hyphens, spaces, and non-alphanumeric characters with underscores and lowercases the result
-- [ ] T003 [P] Add `parseMCPEndpoint()` function in cc-deck/internal/build/policy.go that splits a `host:port` string, validates both parts, and returns (host string, port int, error)
-- [ ] T004 [P] Add unit tests for `slugifyMCPName()` in cc-deck/internal/build/policy_test.go: test hyphen replacement (`google-work` -> `google_work`), spaces, mixed case, non-alphanumeric characters
-- [ ] T005 [P] Add unit tests for `parseMCPEndpoint()` in cc-deck/internal/build/policy_test.go: valid `host:port`, missing port (error), malformed string (error), port as non-number (error)
+- [x] T001 Add `Endpoint string` field with `yaml:"endpoint,omitempty"` tag to `MCPEntry` struct in cc-deck/internal/build/manifest.go
+- [x] T002 [P] Add `slugifyMCPName()` function in cc-deck/internal/build/policy.go that replaces hyphens, spaces, and non-alphanumeric characters with underscores and lowercases the result
+- [x] T003 [P] Add `parseMCPEndpoint()` function in cc-deck/internal/build/policy.go that splits a `host:port` string, validates both parts, and returns (host string, port int, error)
+- [x] T004 [P] Add unit tests for `slugifyMCPName()` in cc-deck/internal/build/policy_test.go: test hyphen replacement (`google-work` -> `google_work`), spaces, mixed case, non-alphanumeric characters
+- [x] T005 [P] Add unit tests for `parseMCPEndpoint()` in cc-deck/internal/build/policy_test.go: valid `host:port`, missing port (error), malformed string (error), port as non-number (error)
 
 **Checkpoint**: Helper functions ready and tested. `make test` passes.
 
@@ -33,13 +33,14 @@
 
 ### Implementation for User Story 1
 
-- [ ] T006 [US1] Add MCP endpoint processing block in `assemblePolicyCore()` in cc-deck/internal/build/policy.go: after the credentials block (~line 242), iterate `manifest.MCP` entries with non-empty `Endpoint`, parse endpoint, look up `claude_code` component binaries from `matched` slice, generate `NetworkPolicy` keyed as `mcp_<slugifyMCPName(name)>` with description as name (fallback to name field)
-- [ ] T007 [P] [US1] Add test `TestAssemblePolicy_MCPEndpointGeneratesPolicy` in cc-deck/internal/build/policy_test.go: manifest with MCP entry having endpoint `mcp-google-work.int-tichny.org:8443`, verify policy has key `mcp_google_work` with correct host, port, and claude_code binaries
-- [ ] T008 [P] [US1] Add test `TestAssemblePolicy_MCPWithoutEndpointSkipped` in cc-deck/internal/build/policy_test.go: manifest with MCP entry having empty endpoint (like `playwright`), verify no MCP policy entry generated
-- [ ] T009 [P] [US1] Add test `TestAssemblePolicy_MCPMultipleEntries` in cc-deck/internal/build/policy_test.go: manifest with 3 MCP entries (2 with endpoints, 1 without), verify exactly 2 MCP policy entries with correct keys
-- [ ] T010 [P] [US1] Add test `TestAssemblePolicy_MCPMalformedEndpointSkipped` in cc-deck/internal/build/policy_test.go: manifest with MCP entry having malformed endpoint (no port), verify entry skipped without error (warning logged)
-- [ ] T011 [P] [US1] Add test `TestAssemblePolicy_MCPDeterminismWithMCP` in cc-deck/internal/build/policy_test.go: manifest with MCP entries produces byte-identical output across multiple runs
-- [ ] T012 [US1] Run `make test` and `make lint` to verify all tests pass with no regressions
+- [x] T006 [US1] Add MCP endpoint processing block in `assemblePolicyCore()` in cc-deck/internal/build/policy.go: after the credentials block (~line 242), iterate `manifest.MCP` entries with non-empty `Endpoint`, parse endpoint, look up `claude_code` component binaries from `matched` slice, generate `NetworkPolicy` keyed as `mcp_<slugifyMCPName(name)>` with description as name (fallback to name field)
+- [x] T007 [P] [US1] Add test `TestAssemblePolicy_MCPEndpointGeneratesPolicy` in cc-deck/internal/build/policy_test.go: manifest with MCP entry having endpoint `mcp-google-work.int-tichny.org:8443`, verify policy has key `mcp_google_work` with correct host, port, and claude_code binaries
+- [x] T008 [P] [US1] Add test `TestAssemblePolicy_MCPWithoutEndpointSkipped` in cc-deck/internal/build/policy_test.go: manifest with MCP entry having empty endpoint (like `playwright`), verify no MCP policy entry generated
+- [x] T009 [P] [US1] Add test `TestAssemblePolicy_MCPMultipleEntries` in cc-deck/internal/build/policy_test.go: manifest with 3 MCP entries (2 with endpoints, 1 without), verify exactly 2 MCP policy entries with correct keys
+- [x] T010 [P] [US1] Add test `TestAssemblePolicy_MCPMalformedEndpointSkipped` in cc-deck/internal/build/policy_test.go: manifest with MCP entry having malformed endpoint (no port), verify entry skipped without error (warning logged)
+- [x] T011 [P] [US1] Add test `TestAssemblePolicy_MCPDeterminismWithMCP` in cc-deck/internal/build/policy_test.go: manifest with MCP entries produces byte-identical output across multiple runs
+- [x] T011b [P] [US1] Add test `TestAssemblePolicy_MCPSkippedWhenClaudeCodeMissing` in cc-deck/internal/build/policy_test.go: use a custom catalog-only setup where `claude_code` component is not present, verify MCP entries are skipped gracefully without error
+- [x] T012 [US1] Run `make test` and `make lint` to verify all tests pass with no regressions
 
 **Checkpoint**: MCP policy entries are generated correctly. US1 is independently testable.
 
@@ -53,11 +54,11 @@
 
 ### Implementation for User Story 3
 
-- [ ] T013 [US3] Add `pkg_node` binary augmentation in `assemblePolicyCore()` in cc-deck/internal/build/policy.go: after MCP processing, if `pkg_node` exists in `networkPolicies` and manifest has MCP entries with endpoints, append `claude_code` binaries to `pkg_node`'s binary list with path deduplication
-- [ ] T014 [P] [US3] Add test `TestAssemblePolicy_PkgNodeAugmentedWithMCP` in cc-deck/internal/build/policy_test.go: manifest with node tool and MCP entries with endpoints, verify `pkg_node` binaries include claude_code paths
-- [ ] T015 [P] [US3] Add test `TestAssemblePolicy_PkgNodeNotAugmentedWithoutMCP` in cc-deck/internal/build/policy_test.go: manifest with node tool but no MCP entries, verify `pkg_node` binaries unchanged
-- [ ] T016 [P] [US3] Add test `TestAssemblePolicy_NoPkgNodeNoAugmentation` in cc-deck/internal/build/policy_test.go: manifest with MCP entries but no node tool, verify no `pkg_node` key and no error
-- [ ] T017 [US3] Run `make test` and `make lint` to verify all tests pass
+- [x] T013 [US3] Add `pkg_node` binary augmentation in `assemblePolicyCore()` in cc-deck/internal/build/policy.go: after MCP processing, if `pkg_node` exists in `networkPolicies` and manifest has MCP entries with endpoints, append `claude_code` binaries to `pkg_node`'s binary list with path deduplication
+- [x] T014 [P] [US3] Add test `TestAssemblePolicy_PkgNodeAugmentedWithMCP` in cc-deck/internal/build/policy_test.go: manifest with node tool and MCP entries with endpoints, verify `pkg_node` binaries include claude_code paths
+- [x] T015 [P] [US3] Add test `TestAssemblePolicy_PkgNodeNotAugmentedWithoutMCP` in cc-deck/internal/build/policy_test.go: manifest with node tool but no MCP entries, verify `pkg_node` binaries unchanged
+- [x] T016 [P] [US3] Add test `TestAssemblePolicy_NoPkgNodeNoAugmentation` in cc-deck/internal/build/policy_test.go: manifest with MCP entries but no node tool, verify no `pkg_node` key and no error
+- [x] T017 [US3] Run `make test` and `make lint` to verify all tests pass
 
 **Checkpoint**: pkg_node augmentation works correctly. US3 is independently testable.
 
@@ -71,9 +72,10 @@
 
 ### Implementation for User Story 2
 
-- [ ] T018 [US2] Extend Step 9 in cc-deck/internal/build/commands/cc-deck.capture.md: after discovering MCP servers, extract endpoint from HTTP/SSE servers by parsing the `url` field (extract host:port), from stdio servers with `mcp-remote` by scanning `args` for HTTPS URLs, present extracted endpoints alongside server info for user confirmation, write confirmed endpoints to manifest `mcp[].endpoint` field
+- [x] T018 [US2] Extend Step 9 in cc-deck/internal/build/commands/cc-deck.capture.md: after discovering MCP servers, extract endpoint from HTTP/SSE servers by parsing the `url` field (extract host:port), from stdio servers with `mcp-remote` by scanning `args` for HTTPS URLs, present extracted endpoints alongside server info for user confirmation, write confirmed endpoints to manifest `mcp[].endpoint` field
+- [x] T018b [US2] Manual verification of capture command: the capture command is a Claude Code command (Markdown), not Go code, so it has no automated unit tests. Verify by reviewing the updated Step 9 logic for correctness against the acceptance scenarios in spec.md
 
-**Checkpoint**: Capture command extracts and writes MCP endpoints. US2 is independently testable.
+**Checkpoint**: Capture command extracts and writes MCP endpoints. US2 is independently testable (manual verification).
 
 ---
 
@@ -81,9 +83,9 @@
 
 **Purpose**: Documentation and final validation
 
-- [ ] T019 [P] Document the `endpoint` field in docs/modules/reference/pages/configuration.adoc: add endpoint field description in the MCP entry section, include example showing MCP entries with and without endpoints, use prose plugin with cc-deck voice profile
-- [ ] T020 [P] Update README.md with MCP endpoint policy feature description
-- [ ] T021 Run full validation: `make test` and `make lint`, verify backward compatibility by assembling policy from a manifest with no MCP endpoint fields
+- [x] T019 [P] Document the `endpoint` field in docs/modules/reference/pages/configuration.adoc and docs/modules/reference/pages/manifest-schema.adoc (if it exists): add endpoint field description in the MCP entry section, include example showing MCP entries with and without endpoints, use prose plugin with cc-deck voice profile
+- [x] T020 [P] Update README.md with MCP endpoint policy feature description
+- [x] T021 Run full validation: `make test` and `make lint`, verify backward compatibility by assembling policy from a manifest with no MCP endpoint fields
 
 ---
 

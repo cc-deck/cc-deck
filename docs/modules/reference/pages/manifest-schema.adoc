@@ -137,6 +137,13 @@ Optional.
 | `description`
 | string
 | Human-readable description
+
+| `endpoint`
+| string
+| Network endpoint in `host:port` format for OpenShell policy generation.
+When set, a network policy entry is created allowing Claude Code to reach this MCP server.
+Entries without an endpoint are skipped during policy assembly.
+The capture command extracts this automatically from HTTP/SSE server URLs and stdio servers using `mcp-remote`.
 |===
 
 == github_tools
