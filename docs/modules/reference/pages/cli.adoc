@@ -309,9 +309,14 @@ cc-deck build run --push
 | Push container image after successful build (container and openshell targets only, requires registry in manifest)
 |===
 
-For openshell targets, after a successful build the image is stamped with a `dev.cc-deck.policy-layer` label that records the diff ID of the layer containing `/etc/openshell/policy.yaml`.
+For openshell targets, the build uses a two-pass probe process.
+The first pass builds the image without binary restrictions in the policy.
+A probe step then runs inside the built image to discover actual binary paths via `which` and `find`.
+The second pass rebuilds with the corrected policy containing probed paths and runtime glob patterns.
+Build timing for each phase (first pass, probe, second pass) is printed to stdout.
+If the probe or second-pass build fails, the first-pass image is retained with a `:probe-debug` tag for inspection.
+After a successful build, the image is stamped with a `dev.cc-deck.policy-layer` label that records the diff ID of the layer containing `/etc/openshell/policy.yaml`.
 This label enables fast policy extraction at runtime (see <<ws new>>).
-If the policy file is not found in the built image, a warning is logged but the build does not fail.
 
 Exit codes from the underlying build tool (podman, ansible-playbook) are passed through.
 

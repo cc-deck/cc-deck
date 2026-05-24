@@ -528,3 +528,172 @@ func TestResolveComponents_EmptyAndNonEmptyTiers(t *testing.T) {
 	require.Len(t, result, 1)
 	assert.Equal(t, "test", result[0].Key)
 }
+
+// T003: ProbeBinaries and RuntimeGlobs field parsing and validation tests
+
+func TestLoadComponentsFromFS_ProbeBinariesParsed(t *testing.T) {
+	fsys := newTestFS(map[string]string{
+		"policies/python.yaml": `
+key: pkg_python
+name: python packages
+match:
+  tools:
+    - python
+endpoints:
+  - host: pypi.org
+    port: 443
+probe_binaries:
+  - pip
+  - pip3
+  - uv
+`,
+	})
+
+	comps, warnings := LoadComponentsFromFS(fsys, "policies")
+	assert.Empty(t, warnings)
+	require.Len(t, comps, 1)
+	assert.Equal(t, []string{"pip", "pip3", "uv"}, comps[0].ProbeBinaries)
+}
+
+func TestLoadComponentsFromFS_RuntimeGlobsParsed(t *testing.T) {
+	fsys := newTestFS(map[string]string{
+		"policies/python.yaml": `
+key: pkg_python
+name: python packages
+match:
+  tools:
+    - python
+endpoints:
+  - host: pypi.org
+    port: 443
+runtime_globs:
+  - /sandbox/**/bin/pip
+  - /sandbox/**/bin/pip3
+`,
+	})
+
+	comps, warnings := LoadComponentsFromFS(fsys, "policies")
+	assert.Empty(t, warnings)
+	require.Len(t, comps, 1)
+	assert.Equal(t, []string{"/sandbox/**/bin/pip", "/sandbox/**/bin/pip3"}, comps[0].RuntimeGlobs)
+}
+
+func TestValidateComponent_ProbeBinariesWithSlashFails(t *testing.T) {
+	comp := &PolicyComponent{
+		Key:   "test",
+		Name:  "Test",
+		Match: MatchCondition{Always: true},
+		Endpoints: []PolicyEndpoint{
+			{Host: "example.com", Port: 443},
+		},
+		ProbeBinaries: []string{"/usr/bin/pip"},
+	}
+	err := ValidateComponent(comp, "test.yaml")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "probe_binaries")
+	assert.Contains(t, err.Error(), "must not contain path separators")
+}
+
+func TestValidateComponent_ProbeBinariesWithShellMetacharsFails(t *testing.T) {
+	cases := []string{"pip;rm", "pip$(whoami)", "pip|cat", "pip&bg", "pip`id`"}
+	for _, name := range cases {
+		comp := &PolicyComponent{
+			Key:   "test",
+			Name:  "Test",
+			Match: MatchCondition{Always: true},
+			Endpoints: []PolicyEndpoint{
+				{Host: "example.com", Port: 443},
+			},
+			ProbeBinaries: []string{name},
+		}
+		err := ValidateComponent(comp, "test.yaml")
+		require.Error(t, err, "expected error for probe_binaries entry %q", name)
+		assert.Contains(t, err.Error(), "invalid characters")
+	}
+}
+
+func TestValidateComponent_ProbeBinariesWithBackslashFails(t *testing.T) {
+	comp := &PolicyComponent{
+		Key:   "test",
+		Name:  "Test",
+		Match: MatchCondition{Always: true},
+		Endpoints: []PolicyEndpoint{
+			{Host: "example.com", Port: 443},
+		},
+		ProbeBinaries: []string{`pip\bin`},
+	}
+	err := ValidateComponent(comp, "test.yaml")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "path separators")
+}
+
+func TestValidateComponent_RuntimeGlobsWithoutSlashFails(t *testing.T) {
+	comp := &PolicyComponent{
+		Key:   "test",
+		Name:  "Test",
+		Match: MatchCondition{Always: true},
+		Endpoints: []PolicyEndpoint{
+			{Host: "example.com", Port: 443},
+		},
+		RuntimeGlobs: []string{"sandbox/**/bin/pip"},
+	}
+	err := ValidateComponent(comp, "test.yaml")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "runtime_globs")
+	assert.Contains(t, err.Error(), "must start with /")
+}
+
+func TestEmbeddedComponents_ProbeBinariesAndRuntimeGlobs(t *testing.T) {
+	comps, warnings := LoadEmbeddedComponents()
+	assert.Empty(t, warnings)
+
+	compsByKey := make(map[string]PolicyComponent)
+	for _, stem := range []string{"python", "rust", "node", "go", "claude-code", "git-hosting", "vertex-ai"} {
+		if comp, ok := comps[stem]; ok {
+			compsByKey[comp.Key] = comp
+		}
+	}
+
+	python := compsByKey["pkg_python"]
+	assert.Equal(t, []string{"pip", "pip3", "uv", "python3"}, python.ProbeBinaries)
+	assert.Contains(t, python.RuntimeGlobs, "/sandbox/**/bin/pip")
+	assert.Contains(t, python.RuntimeGlobs, "/sandbox/**/bin/python3")
+
+	rust := compsByKey["pkg_rust"]
+	assert.Equal(t, []string{"cargo", "rustc"}, rust.ProbeBinaries)
+	assert.Contains(t, rust.RuntimeGlobs, "/sandbox/.rustup/toolchains/*/bin/cargo")
+
+	node := compsByKey["pkg_node"]
+	assert.Equal(t, []string{"node", "npm", "npx"}, node.ProbeBinaries)
+	assert.Contains(t, node.RuntimeGlobs, "/sandbox/**/node_modules/.bin/*")
+
+	goComp := compsByKey["pkg_go"]
+	assert.Equal(t, []string{"go"}, goComp.ProbeBinaries)
+	assert.Contains(t, goComp.RuntimeGlobs, "/sandbox/go/bin/*")
+
+	claude := compsByKey["claude_code"]
+	assert.Empty(t, claude.ProbeBinaries)
+	assert.Empty(t, claude.RuntimeGlobs)
+
+	github := compsByKey["github"]
+	assert.Empty(t, github.ProbeBinaries)
+	assert.Empty(t, github.RuntimeGlobs)
+
+	vertex := compsByKey["vertex_ai"]
+	assert.Empty(t, vertex.ProbeBinaries)
+	assert.Empty(t, vertex.RuntimeGlobs)
+}
+
+func TestValidateComponent_BothFieldsOmittedPasses(t *testing.T) {
+	comp := &PolicyComponent{
+		Key:   "test",
+		Name:  "Test",
+		Match: MatchCondition{Always: true},
+		Endpoints: []PolicyEndpoint{
+			{Host: "example.com", Port: 443},
+		},
+	}
+	assert.NoError(t, ValidateComponent(comp, "test.yaml"))
+	assert.Empty(t, comp.ProbeBinaries)
+	assert.Empty(t, comp.RuntimeGlobs)
+}
