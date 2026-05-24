@@ -156,6 +156,15 @@ type ToolConfig struct {
 	Target string `yaml:"target,omitempty"`
 }
 
+// SaveManifest marshals the Manifest struct and writes it to the given path.
+func SaveManifest(m *Manifest, path string) error {
+	data, err := yaml.Marshal(m)
+	if err != nil {
+		return fmt.Errorf("marshaling manifest: %w", err)
+	}
+	return os.WriteFile(path, data, 0o644)
+}
+
 // LoadManifest reads and parses a build.yaml file.
 func LoadManifest(path string) (*Manifest, error) {
 	data, err := os.ReadFile(path)
