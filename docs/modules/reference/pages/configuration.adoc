@@ -426,6 +426,39 @@ Required fields: `key`, `name`, `match` (with at least one condition), `endpoint
 Each endpoint requires `host` and `port`.
 Endpoints with `protocol: rest` must also have `access` or `rules` (OpenShell 0.0.46 compliance).
 
+==== MCP Endpoint Policy Entries
+
+MCP servers configured in the manifest can include an optional `endpoint` field in `host:port` format.
+During policy assembly, each MCP entry with a non-empty endpoint generates a network policy entry keyed as `mcp_<slugified_name>`.
+This allows Claude Code to connect to remote MCP servers at startup without being blocked by the OpenShell supervisor.
+
+The `capture` command extracts endpoints automatically from HTTP/SSE MCP servers (via the `url` field) and from stdio servers that use `mcp-remote` (by scanning arguments for HTTPS URLs).
+Local stdio servers without a URL produce no endpoint.
+
+[source,yaml]
+----
+mcp:
+  - name: google-work
+    transport: http
+    endpoint: mcp-google-work.int-tichny.org:8443
+    description: "Google Workspace (work)"
+  - name: jira-redhat
+    transport: stdio
+    endpoint: mcp.atlassian.com:443
+    description: "Red Hat Jira (npx mcp-remote)"
+  - name: playwright
+    transport: stdio
+    description: "Browser automation via Playwright"
+----
+
+The generated policy entries use the `claude_code` component's binary paths, since Claude Code is the process that connects to MCP servers.
+
+When the `pkg_node` component is also present (because `node` or `npm` is in the tools list), Claude Code binary paths are appended to its binary list.
+This allows Claude Code to spawn `npx` processes that download and run npm packages for MCP stdio proxies.
+
+MCP entries without an endpoint, or with a malformed endpoint (missing port), are skipped with a warning during policy assembly.
+If the `claude_code` component is not available, all MCP policy entries are skipped gracefully.
+
 === Containerfile Template Snippets
 
 The `cc-deck build init` command renders fixed Containerfile layers into snippet files at `<target>/snippets/`.

@@ -104,6 +104,7 @@ type MCPEntry struct {
 	Port        int     `yaml:"port,omitempty"`
 	Auth        MCPAuth `yaml:"auth,omitempty"`
 	Description string  `yaml:"description,omitempty"`
+	Endpoint    string  `yaml:"endpoint,omitempty"`
 }
 
 // MCPAuth describes authentication requirements for an MCP server.

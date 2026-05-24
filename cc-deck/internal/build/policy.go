@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -241,6 +243,70 @@ func assemblePolicyCore(manifest *Manifest, catalogFS fs.FS, catalogRoot string,
 		}
 	}
 
+	// Add MCP endpoint entries.
+	// Each MCP entry with a non-empty Endpoint generates a network policy
+	// keyed as mcp_<slugified_name> using claude_code component binaries.
+	var claudeCodeBinaries []PolicyBinary
+	for _, comp := range matched {
+		if comp.Key == "claude_code" {
+			claudeCodeBinaries = comp.Binaries
+			break
+		}
+	}
+	hasMCPEndpoints := false
+	if claudeCodeBinaries != nil {
+		for _, mcp := range manifest.MCP {
+			if mcp.Endpoint == "" {
+				continue
+			}
+			host, port, err := parseMCPEndpoint(mcp.Endpoint)
+			if err != nil {
+				fmt.Printf("WARNING: MCP %q: %v, skipping\n", mcp.Name, err)
+				continue
+			}
+			hasMCPEndpoints = true
+			name := mcp.Description
+			if name == "" {
+				name = mcp.Name
+			}
+			key := "mcp_" + slugifyMCPName(mcp.Name)
+			networkPolicies[key] = NetworkPolicy{
+				Name: name,
+				Endpoints: []PolicyEndpoint{
+					{Host: host, Port: port},
+				},
+				Binaries: claudeCodeBinaries,
+			}
+		}
+	} else if len(manifest.MCP) > 0 {
+		// Check if any MCP entries have endpoints before warning
+		for _, mcp := range manifest.MCP {
+			if mcp.Endpoint != "" {
+				fmt.Println("WARNING: claude_code component not found, skipping MCP policy entries")
+				break
+			}
+		}
+	}
+
+	// Augment pkg_node binaries with claude_code binaries when MCP
+	// endpoints exist. This allows Claude Code to spawn npx processes
+	// that access the npm registry for MCP stdio proxies.
+	if hasMCPEndpoints {
+		if pkgNode, ok := networkPolicies["pkg_node"]; ok && claudeCodeBinaries != nil {
+			seen := make(map[string]bool)
+			for _, b := range pkgNode.Binaries {
+				seen[b.Path] = true
+			}
+			for _, b := range claudeCodeBinaries {
+				if !seen[b.Path] {
+					pkgNode.Binaries = append(pkgNode.Binaries, b)
+					seen[b.Path] = true
+				}
+			}
+			networkPolicies["pkg_node"] = pkgNode
+		}
+	}
+
 	return &PolicyFile{
 		Version: 1,
 		FilesystemPolicy: &FilesystemPolicy{
@@ -420,4 +486,38 @@ func stripBinaries(components []PolicyComponent) []PolicyComponent {
 // to avoid collisions between domains that differ only in dot/hyphen.
 func slugify(domain string) string {
 	return strings.ReplaceAll(domain, ".", "_")
+}
+
+// slugifyMCPName converts an MCP server name to a YAML-safe key.
+// Hyphens, spaces, and non-alphanumeric characters are replaced with
+// underscores and the result is lowercased. This is distinct from slugify()
+// which only replaces dots (used for domain names).
+var nonAlphanumRe = regexp.MustCompile(`[^a-zA-Z0-9]+`)
+
+func slugifyMCPName(name string) string {
+	slug := nonAlphanumRe.ReplaceAllString(name, "_")
+	slug = strings.Trim(slug, "_")
+	return strings.ToLower(slug)
+}
+
+// parseMCPEndpoint splits a "host:port" string, validates both parts, and
+// returns the host, port, and any error. The port must be a positive integer.
+func parseMCPEndpoint(endpoint string) (string, int, error) {
+	idx := strings.LastIndex(endpoint, ":")
+	if idx < 0 {
+		return "", 0, fmt.Errorf("missing port in endpoint %q", endpoint)
+	}
+	host := endpoint[:idx]
+	portStr := endpoint[idx+1:]
+	if host == "" {
+		return "", 0, fmt.Errorf("empty host in endpoint %q", endpoint)
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return "", 0, fmt.Errorf("invalid port %q in endpoint %q: %w", portStr, endpoint, err)
+	}
+	if port <= 0 || port > 65535 {
+		return "", 0, fmt.Errorf("port %d out of range in endpoint %q", port, endpoint)
+	}
+	return host, port, nil
 }
