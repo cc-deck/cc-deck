@@ -11,8 +11,3 @@ endpoints:
     port: 443
   - host: static.crates.io
     port: 443
-binaries:
-  - path: /usr/bin/cargo
-  - path: /usr/local/bin/cargo
-  - path: /sandbox/.cargo/bin/cargo
-  - path: /sandbox/.rustup/toolchains/*/bin/cargo
