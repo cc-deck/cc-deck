@@ -3,6 +3,10 @@ name: go packages
 match:
   tools:
     - go
+probe_binaries:
+  - go
+runtime_globs:
+  - /sandbox/go/bin/*
 endpoints:
   - host: proxy.golang.org
     port: 443

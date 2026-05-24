@@ -82,11 +82,40 @@ type PolicyFile struct {
 	NetworkPolicies  map[string]NetworkPolicy `yaml:"network_policies"`
 }
 
+// AssemblyOptions controls how policy assembly resolves binary paths.
+type AssemblyOptions struct {
+	StripBinaries bool
+	ProbeReport   *ProbeReport
+}
+
+// AssemblyResult holds both the assembled policy and the matched components.
+type AssemblyResult struct {
+	Policy            *PolicyFile
+	MatchedComponents []PolicyComponent
+}
+
+// AssemblePolicyWithOptions builds a PolicyFile with control over binary handling.
+// When opts.StripBinaries is true, non-explicit binaries are cleared (first-pass mode).
+// When opts.ProbeReport is non-nil, probe results and runtime globs are applied.
+// Returns both the policy and the matched components for probing.
+func AssemblePolicyWithOptions(manifest *Manifest, catalogFS fs.FS, catalogRoot string, userLocalFS fs.FS, userLocalRoot string, opts AssemblyOptions) (*AssemblyResult, error) {
+	policy, matched, err := assemblePolicyCore(manifest, catalogFS, catalogRoot, userLocalFS, userLocalRoot, opts)
+	if err != nil {
+		return nil, err
+	}
+	return &AssemblyResult{Policy: policy, MatchedComponents: matched}, nil
+}
+
 // AssemblePolicy builds a PolicyFile from component files across multiple tiers.
 // It loads embedded components, optional catalog and user-local components,
 // resolves precedence by filename stem, filters by manifest match conditions,
 // and produces a deterministic PolicyFile with alphabetically sorted keys.
 func AssemblePolicy(manifest *Manifest, catalogFS fs.FS, catalogRoot string, userLocalFS fs.FS, userLocalRoot string) (*PolicyFile, error) {
+	policy, _, err := assemblePolicyCore(manifest, catalogFS, catalogRoot, userLocalFS, userLocalRoot, AssemblyOptions{})
+	return policy, err
+}
+
+func assemblePolicyCore(manifest *Manifest, catalogFS fs.FS, catalogRoot string, userLocalFS fs.FS, userLocalRoot string, opts AssemblyOptions) (*PolicyFile, []PolicyComponent, error) {
 	embedded, embWarnings := LoadEmbeddedComponents()
 	for _, w := range embWarnings {
 		fmt.Printf("WARNING: embedded component: %v\n", w)
@@ -123,8 +152,12 @@ func AssemblePolicy(manifest *Manifest, catalogFS fs.FS, catalogRoot string, use
 		return matched[i].Key < matched[j].Key
 	})
 
-	// Resolve binary paths from manifest tool data and well-known paths table.
-	matched = resolveBinaries(matched, manifest)
+	// Apply binary resolution based on assembly options.
+	if opts.StripBinaries {
+		matched = stripBinaries(matched)
+	} else if opts.ProbeReport != nil {
+		matched = applyProbeResults(matched, opts.ProbeReport)
+	}
 
 	networkPolicies := make(map[string]NetworkPolicy, len(matched))
 	for _, comp := range matched {
@@ -149,7 +182,7 @@ func AssemblePolicy(manifest *Manifest, catalogFS fs.FS, catalogRoot string, use
 				// Group name: expand to actual domains.
 				domains, err := resolver.ExpandGroup(entry)
 				if err != nil {
-					return nil, fmt.Errorf("expanding domain group %q: %w", entry, err)
+					return nil, nil, fmt.Errorf("expanding domain group %q: %w", entry, err)
 				}
 				var endpoints []PolicyEndpoint
 				for _, d := range domains {
@@ -202,7 +235,7 @@ func AssemblePolicy(manifest *Manifest, catalogFS fs.FS, catalogRoot string, use
 			RunAsGroup: "sandbox",
 		},
 		NetworkPolicies: networkPolicies,
-	}, nil
+	}, matched, nil
 }
 
 // AssemblePolicyFromDir is a convenience wrapper that loads catalog and
@@ -300,6 +333,65 @@ func MergePolicy(base *PolicyFile, overrides *OpenShellPolicy) *PolicyFile {
 	}
 
 	return &result
+}
+
+// applyProbeResults populates the Binaries field on matched components using
+// probe results and runtime globs from the component YAML. Components with
+// explicit binaries (len > 0) are preserved unchanged.
+func applyProbeResults(components []PolicyComponent, report *ProbeReport) []PolicyComponent {
+	result := make([]PolicyComponent, len(components))
+	for i, comp := range components {
+		result[i] = comp
+
+		if len(comp.Binaries) > 0 {
+			continue
+		}
+
+		seen := make(map[string]bool)
+		var paths []string
+
+		if report != nil {
+			if probeResults, ok := report.Results[comp.Key]; ok {
+				for _, pr := range probeResults {
+					if pr.Method != "not-found" && pr.Path != "" && !seen[pr.Path] {
+						seen[pr.Path] = true
+						paths = append(paths, pr.Path)
+					}
+				}
+			}
+		}
+
+		for _, glob := range comp.RuntimeGlobs {
+			if !seen[glob] {
+				seen[glob] = true
+				paths = append(paths, glob)
+			}
+		}
+
+		if len(paths) > 0 {
+			binaries := make([]PolicyBinary, len(paths))
+			for j, p := range paths {
+				binaries[j] = PolicyBinary{Path: p}
+			}
+			result[i].Binaries = binaries
+		}
+	}
+	return result
+}
+
+// stripBinaries returns a shallow copy of components with Binaries normalized.
+// Components with explicit binaries (from YAML) keep theirs per FR-011.
+// Components without explicit binaries have Binaries set to nil, ensuring
+// the first-pass policy has no binary restrictions.
+func stripBinaries(components []PolicyComponent) []PolicyComponent {
+	result := make([]PolicyComponent, len(components))
+	for i, comp := range components {
+		result[i] = comp
+		if len(comp.Binaries) == 0 {
+			result[i].Binaries = nil
+		}
+	}
+	return result
 }
 
 // slugify converts a domain name to a YAML-safe key.

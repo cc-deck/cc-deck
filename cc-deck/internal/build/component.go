@@ -4,20 +4,29 @@ import (
 	"fmt"
 	"io/fs"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 )
 
+var validBinaryNameRe = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
+
+func isValidBinaryName(name string) bool {
+	return validBinaryNameRe.MatchString(name)
+}
+
 // PolicyComponent is a self-contained policy fragment loaded from a YAML file.
 // Each component produces one entry in the output PolicyFile.network_policies map.
 type PolicyComponent struct {
-	Key       string           `yaml:"key"`
-	Name      string           `yaml:"name"`
-	Match     MatchCondition   `yaml:"match"`
-	Endpoints []PolicyEndpoint `yaml:"endpoints"`
-	Binaries  []PolicyBinary   `yaml:"binaries,omitempty"`
+	Key           string           `yaml:"key"`
+	Name          string           `yaml:"name"`
+	Match         MatchCondition   `yaml:"match"`
+	Endpoints     []PolicyEndpoint `yaml:"endpoints"`
+	Binaries      []PolicyBinary   `yaml:"binaries,omitempty"`
+	ProbeBinaries []string         `yaml:"probe_binaries,omitempty"`
+	RuntimeGlobs  []string         `yaml:"runtime_globs,omitempty"`
 }
 
 // MatchCondition determines whether a component is included in the assembled policy.
@@ -83,6 +92,19 @@ func ValidateComponent(comp *PolicyComponent, filename string) error {
 	}
 	if len(comp.Endpoints) == 0 {
 		return fmt.Errorf("validating %s: endpoints must contain at least one entry", filename)
+	}
+	for _, pb := range comp.ProbeBinaries {
+		if strings.ContainsAny(pb, `/\`) {
+			return fmt.Errorf("validating %s: probe_binaries entry %q must not contain path separators", filename, pb)
+		}
+		if !isValidBinaryName(pb) {
+			return fmt.Errorf("validating %s: probe_binaries entry %q contains invalid characters (only alphanumeric, dots, underscores, hyphens allowed)", filename, pb)
+		}
+	}
+	for _, rg := range comp.RuntimeGlobs {
+		if !strings.HasPrefix(rg, "/") {
+			return fmt.Errorf("validating %s: runtime_globs entry %q must start with /", filename, rg)
+		}
 	}
 	for i, ep := range comp.Endpoints {
 		if ep.Host == "" {

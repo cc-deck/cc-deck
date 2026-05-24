@@ -396,7 +396,9 @@ For OpenShell targets, `build refresh` assembles `openshell/policy.yaml` from de
 
 The assembly is deterministic: the same manifest with the same components always produces identical output. Components declare match conditions (`always`, `tools`, `credentials`) and are included only when their conditions match the manifest.
 
-Binary paths for network policy entries are resolved automatically at assembly time. For each component's `match.tools`, the system looks up the manifest's `tools` section to determine install paths (package tools get `/usr/bin/<name>`, github-release tools use their `install_path`), then adds well-known alternative paths from an internal table. Components with explicit `binaries` fields are preserved as-is, providing an override mechanism for custom installations.
+Binary paths for network policy entries are discovered automatically using a two-pass build process. The first pass builds the image without binary restrictions. A probe step then runs `which` and `find` inside the built image to discover actual binary locations. The second pass rebuilds with the corrected policy containing probed paths and runtime glob patterns. This approach works regardless of install method, base image, or tool version. Components with explicit `binaries` fields are preserved as-is, providing an override mechanism for custom installations.
+
+Each component YAML can optionally declare `probe_binaries` (binary names to search for) and `runtime_globs` (glob patterns for binaries created at runtime, such as Python venvs or Rust toolchains). If a probe or second-pass build fails, the first-pass image is retained with a `:probe-debug` tag for inspection.
 
 ```bash
 cc-deck build refresh    # Assemble policy from components + manifest
