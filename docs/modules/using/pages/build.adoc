@@ -1,10 +1,8 @@
 = Build Command
 
 The `cc-deck build` command provisions developer environments from a declarative manifest.
-It supports two targets: container images built with Podman, and remote machines provisioned over SSH with Ansible.
+It supports three targets: container images built with Podman, OpenShell sandbox images with security policies, and remote machines provisioned over SSH with Ansible.
 A single manifest captures your local tools, shell configuration, Claude Code plugins, and MCP servers, then generates the correct artifacts for whichever target you choose.
-
-This command replaces the previous `cc-deck image` command with a unified interface that covers both container and SSH workflows.
 
 == Prerequisites
 
@@ -205,16 +203,128 @@ If any tool is missing, the command fails with a message directing you to run `c
 
 See xref:running:ssh-environments.adoc[] for details on attaching to SSH environments.
 
+== OpenShell Workflow
+
+The OpenShell workflow builds a sandbox container image with a security policy that controls network access per binary.
+Unlike the container workflow, OpenShell images include a policy file (`/etc/openshell/policy.yaml`) that maps each tool to the endpoints it is allowed to reach.
+
+The build uses a two-pass process to discover where tools are actually installed inside the image.
+This removes the need for a static lookup table and produces correct binary paths regardless of install method or base image.
+
+=== 1. Initialize the Build Directory
+
+[source,bash]
+----
+cd your-project
+cc-deck build init --target openshell
+----
+
+This creates a `.cc-deck/setup/` directory containing:
+
+* `build.yaml` (manifest template with the OpenShell target section enabled)
+* `openshell/snippets/` (pre-rendered Containerfile fragments)
+* `openshell/components/` (cached catalog policy components, fetched from the remote repository)
+* `openshell/policy.yaml` (assembled security policy)
+
+It also installs the Claude Code slash commands into `.claude/commands/`.
+
+=== 2. Capture Your Environment
+
+Run the capture command inside Claude Code:
+
+[source]
+----
+/cc-deck.capture
+----
+
+Capture works the same way across all targets.
+It populates the shared manifest sections (tools, settings, plugins, MCP servers) and leaves the target-specific sections untouched.
+
+=== 3. Build the Image
+
+Run the build command inside Claude Code:
+
+[source]
+----
+/cc-deck.build --target openshell
+----
+
+Claude generates a Containerfile from the manifest snippets, builds the image using Podman, and reports the result.
+If the build fails, Claude reads the error output, fixes the Containerfile, and retries automatically.
+
+==== Two-Pass Binary Probing
+
+When the manifest includes tool-matched components (such as Python, Rust, Go, or Node), the build runs in two passes:
+
+Pass 1::
+The image is built with all tools installed but without binary restrictions in the policy.
+Every network policy entry has its endpoints defined but its `binaries` field left empty.
+This allows the image to build successfully because the OpenShell supervisor is not running during the build.
+
+Probe::
+A temporary container is created from the first-pass image.
+Inside this container, `which <binary>` runs for each binary listed in the component's `probe_binaries` field.
+If `which` fails, a `find / -name <binary> -type f -executable` search runs as a fallback.
+Each binary probe times out after 30 seconds.
+The total probe step times out after 5 minutes.
+
+Pass 2::
+The policy is regenerated with the probed binary paths and any `runtime_globs` patterns defined in the component YAML.
+The image is rebuilt with this corrected policy.
+Because all tool installation layers are cached from the first pass, only the policy COPY layer and later layers are rebuilt.
+The second pass typically completes in under 10 seconds.
+
+The expected output looks like this:
+
+[source]
+----
+Building OpenShell image: my-image:latest
+  Pass 1: building with stripped binary restrictions...
+  First pass: 45.2s
+  Probing binary paths in image...
+  Probe: 1.8s
+  WARNING: binary "uv" not found in image for component pkg_python
+  Pass 2: rebuilding with probed binary paths...
+  Second pass: 3.1s
+----
+
+When no tool-matched components need probing (for example, if only `always: true` components are present, or all components have explicit `binaries` fields), the build runs as a single pass without the probe step.
+
+For details on how policy components define `probe_binaries` and `runtime_globs`, see xref:policy-components.adoc[Policy Components].
+
+=== 4. Verify the Image
+
+[source,bash]
+----
+cc-deck build verify --target openshell
+----
+
+The verify command runs checks inside the built image to confirm that expected tools are present.
+
+=== 5. Create a Workspace
+
+After a successful build, create a workspace from the image:
+
+[source,bash]
+----
+cc-deck ws new my-sandbox --type openshell --image my-image:latest
+----
+
+The security policy is extracted automatically from the image.
+See xref:oci-policy-extraction.adoc[OCI Policy Extraction] for details on how extraction works.
+
 == Dual-Target Workflow
 
-To maintain both a container image and an SSH-provisioned remote from the same project, initialize with both targets:
+To maintain multiple target types from the same project, initialize with the targets you need:
 
 [source,bash]
 ----
 cc-deck build init --target container,ssh
+cc-deck build init --target container,openshell
+cc-deck build init --target container,ssh,openshell
 ----
 
-This scaffolds the container build-context directory and Ansible role skeletons side by side.
+This scaffolds the artifact directories for each target side by side.
 
 Capture your environment once:
 
@@ -229,10 +339,11 @@ Then build for each target separately:
 ----
 /cc-deck.build --target container
 /cc-deck.build --target ssh
+/cc-deck.build --target openshell
 ----
 
-Both targets draw from the same shared manifest sections.
-The container backend generates a Containerfile while the SSH backend generates Ansible playbooks, but both install the same set of tools and configuration.
+All targets draw from the same shared manifest sections.
+Each backend generates its own artifacts (Containerfile, Ansible playbooks, or Containerfile with policy), but all install the same set of tools and configuration.
 
 == Detecting Manifest Drift
 
@@ -281,6 +392,43 @@ If you run build for a target that is not configured in the manifest, the comman
 
 When you re-run `/cc-deck.build` after playbooks or a Containerfile have been modified, Claude shows a diff of the changed files and asks you to choose: use the newly generated content, keep the existing version, or stop.
 This prevents accidental overwrites of manual edits.
+
+=== Probe step fails
+
+If the probe container cannot start or the probe commands fail, the build stops with an error.
+The first-pass image is retained with a `:probe-debug` tag so you can inspect it:
+
+[source,bash]
+----
+podman run --rm -it my-image:probe-debug sh
+which cargo
+find / -name cargo -type f -executable
+----
+
+Common causes: the base image lacks `which` or `find`, or the container runtime cannot create containers from the first-pass image.
+
+=== Binary not found during probing
+
+When `which` and `find` both fail to locate a binary, the build logs a warning and continues:
+
+[source]
+----
+WARNING: binary "uv" not found in image for component pkg_python
+----
+
+The tool's policy entry receives only runtime glob patterns (if defined in the component YAML) and no exact path.
+This is normal for tools that are installed at runtime rather than at build time.
+If the tool should be present in the image, check that it is correctly installed in the Containerfile.
+
+=== No two-pass output visible
+
+If the build runs without showing "Pass 1" / "Probe" / "Pass 2" output, the single-pass path was used.
+This happens when no tool-matched components need probing, which means either:
+
+* The manifest has no tools that match any component's `match.tools` field
+* All matched components already have explicit `binaries` defined in their YAML
+
+To force two-pass behavior, ensure at least one tool in the manifest matches a component that has `probe_binaries` or `match.tools` defined.
 
 === Verify reports missing tools
 

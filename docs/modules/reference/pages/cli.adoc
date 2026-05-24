@@ -317,6 +317,8 @@ Build timing for each phase (first pass, probe, second pass) is printed to stdou
 If the probe or second-pass build fails, the first-pass image is retained with a `:probe-debug` tag for inspection.
 After a successful build, the image is stamped with a `dev.cc-deck.policy-layer` label that records the diff ID of the layer containing `/etc/openshell/policy.yaml`.
 This label enables fast policy extraction at runtime (see <<ws new>>).
+For a walkthrough of the full OpenShell build workflow, see xref:using:build.adoc#_openshell_workflow[Build Command: OpenShell Workflow].
+For details on how policy components define probe targets and runtime globs, see xref:using:policy-components.adoc#_binary_path_resolution[Policy Components: Binary Path Resolution].
 
 Exit codes from the underlying build tool (podman, ansible-playbook) are passed through.
 
