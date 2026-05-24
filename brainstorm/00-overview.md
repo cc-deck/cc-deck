@@ -1,6 +1,6 @@
 # Brainstorm Overview
 
-Last updated: 2026-05-22 (deterministic policy generation, OpenShell testing findings)
+Last updated: 2026-05-24 (egress recording mode)
 
 ## Active Brainstorms
 
@@ -25,6 +25,10 @@ Last updated: 2026-05-22 (deterministic policy generation, OpenShell testing fin
 | 059 | 2026-05-19 | OpenShell credential injection | active | - |
 | 060 | 2026-05-22 | OpenShell testing findings | active | - |
 | 061 | 2026-05-22 | Deterministic policy generation | active | - |
+| 062 | 2026-05-22 | OCI policy extraction | active | 060 |
+| 063 | 2026-05-23 | Policy binary resolution | active | 061 |
+| 064 | 2026-05-24 | Two-pass binary probing | active | - |
+| 065 | 2026-05-24 | Egress recording mode | active | - |
 
 ## Open Threads
 
@@ -45,6 +49,10 @@ Last updated: 2026-05-22 (deterministic policy generation, OpenShell testing fin
 - Unified credential handling: refactor credential injection across all workspace types (container/SSH/K8s/compose/OpenShell) into shared interface (from #059, future brainstorm)
 - OpenShell testing: LD_PRELOAD shim validated but temporary (needs upstream AF_NETLINK fix via PR #1006), macOS bridge networking workaround documented, policy binary glob pattern for Claude Code versioned binary (from #060)
 - Deterministic policy generation: catalog repo name TBD, MCP server endpoint extraction format, component dependency model, supply chain signing deferred (from #061)
+- OCI policy extraction: go-containerregistry integration for runtime policy extraction from image layers (from #062)
+- Policy binary resolution: well-known paths table vs manifest-driven resolution at assembly time (from #063)
+- Two-pass binary probing: probe built image for actual binary paths, remove hardcoded well-known paths table (from #064)
+- Egress recording mode: CoreDNS sidecar image, non-interactive/CI mode, DNS noise filtering, merge vs replace strategy for recorded domains, OpenShell OCSF enhancement (from #065)
 
 ## Parked Ideas
 
