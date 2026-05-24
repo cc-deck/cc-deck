@@ -114,17 +114,21 @@ func TestRenderSnippets_OpenShell(t *testing.T) {
 	assert.Contains(t, snippets["03-mandatory-stack"], "/sandbox/.claude")
 	assert.Contains(t, snippets["03-mandatory-stack"], "HOME=/sandbox")
 
-	// OpenShell extras present.
+	// OpenShell extras present (policy COPY moved to 055-openshell-policy).
 	assert.Contains(t, snippets["04-openshell-extras"], "skills")
-	assert.Contains(t, snippets["04-openshell-extras"], "policy.yaml")
 	assert.Contains(t, snippets["04-openshell-extras"], `ENV SHELL="/bin/zsh"`)
 	assert.Contains(t, snippets["04-openshell-extras"], "getifaddrs_shim")
 	assert.Contains(t, snippets["04-openshell-extras"], "/etc/ld.so.preload")
+	assert.NotContains(t, snippets["04-openshell-extras"], "policy.yaml")
 
 	// Shell finalize has starship and Zellij auto-start.
 	assert.Contains(t, snippets["05-shell-finalize"], "starship init")
 	assert.Contains(t, snippets["05-shell-finalize"], "exec zellij --layout cc-deck")
 	assert.Contains(t, snippets["05-shell-finalize"], "FINAL SHELL SETUP")
+
+	// Policy COPY is in its own late snippet for two-pass cache efficiency.
+	assert.Contains(t, snippets["055-openshell-policy"], "policy.yaml")
+	assert.Contains(t, snippets["055-openshell-policy"], "/etc/openshell")
 
 	// Footer has chown and ENTRYPOINT.
 	assert.Contains(t, snippets["06-footer"], "chown -R sandbox:sandbox /sandbox")

@@ -27,6 +27,7 @@ var snippetOrder = []string{
 	"03-mandatory-stack",
 	"04-openshell-extras",
 	"05-shell-finalize",
+	"055-openshell-policy",
 	"06-footer",
 }
 
