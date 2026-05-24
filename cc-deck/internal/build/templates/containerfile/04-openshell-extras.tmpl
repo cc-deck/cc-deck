@@ -4,10 +4,6 @@
 RUN mkdir -p {{.HomeDir}}/.agents/skills/ {{.HomeDir}}/.claude/skills/ && \
     chown -R {{.User}}:{{.User}} {{.HomeDir}}/.agents {{.HomeDir}}/.claude
 
-# Layer: OpenShell policy
-RUN mkdir -p /etc/openshell
-COPY openshell/policy.yaml /etc/openshell/policy.yaml
-
 # Layer: getifaddrs shim (works around OpenShell seccomp AF_NETLINK block)
 # The supervisor blocks AF_NETLINK sockets via seccomp. Node.js (Claude Code)
 # calls getifaddrs() which needs AF_NETLINK, causing a fatal error. This shim
