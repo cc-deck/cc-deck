@@ -398,7 +398,7 @@ The assembly is deterministic: the same manifest with the same components always
 
 Binary paths for network policy entries are discovered automatically using a two-pass build process. The first pass builds the image without binary restrictions. A probe step then runs `which` and `find` inside the built image to discover actual binary locations. The second pass rebuilds with the corrected policy containing probed paths and runtime glob patterns. This approach works regardless of install method, base image, or tool version. Components with explicit `binaries` fields are preserved as-is, providing an override mechanism for custom installations.
 
-Each component YAML can optionally declare `probe_binaries` (binary names to search for) and `runtime_globs` (glob patterns for binaries created at runtime, such as Python venvs or Rust toolchains). If a probe or second-pass build fails, the first-pass image is retained with a `:probe-debug` tag for inspection.
+Each component YAML can optionally declare `probe_binaries` (binary names to search for) and `runtime_globs` (glob patterns for binaries created at runtime, such as Python venvs or Rust toolchains). If a probe or second-pass build fails, the first-pass image is retained with a `:probe-debug` tag for inspection. For the full workflow and troubleshooting, see the [Build Command](docs/modules/using/pages/build.adoc) and [Policy Components](docs/modules/using/pages/policy-components.adoc) guides.
 
 ```bash
 cc-deck build refresh    # Assemble policy from components + manifest

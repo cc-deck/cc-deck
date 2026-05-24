@@ -168,9 +168,18 @@ func assemblePolicyCore(manifest *Manifest, catalogFS fs.FS, catalogRoot string,
 		}
 	}
 
-	// Add allowed_domains from manifest.network. Catalog/embedded components
-	// take precedence: if a component already covers a domain group, skip it.
+	// Add allowed_domains from manifest.network. Skip entries whose hosts
+	// are already covered by matched components (host-based dedup, not just
+	// slug-based) to avoid creating unrestricted duplicates that bypass
+	// binary restrictions from the probe step.
 	if manifest.Network != nil {
+		coveredHosts := make(map[string]bool)
+		for _, np := range networkPolicies {
+			for _, ep := range np.Endpoints {
+				coveredHosts[ep.Host] = true
+			}
+		}
+
 		resolver := network.NewResolver(nil)
 		for _, entry := range manifest.Network.AllowedDomains {
 			slug := slugify(entry)
@@ -191,12 +200,24 @@ func assemblePolicyCore(manifest *Manifest, catalogFS fs.FS, catalogRoot string,
 					}
 					endpoints = append(endpoints, PolicyEndpoint{Host: d, Port: 443})
 				}
+				allCovered := len(endpoints) > 0
+				for _, ep := range endpoints {
+					if !coveredHosts[ep.Host] {
+						allCovered = false
+						break
+					}
+				}
+				if allCovered {
+					continue
+				}
 				networkPolicies[slug] = NetworkPolicy{
 					Name:      entry,
 					Endpoints: endpoints,
 				}
 			} else {
-				// Literal domain: use as-is.
+				if coveredHosts[entry] {
+					continue
+				}
 				networkPolicies[slug] = NetworkPolicy{
 					Name:      entry,
 					Endpoints: []PolicyEndpoint{{Host: entry, Port: 443}},

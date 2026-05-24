@@ -191,23 +191,23 @@ func TestAssemblePolicy_WithDomains(t *testing.T) {
 	manifest := &Manifest{
 		Version: 3,
 		Network: &NetworkConfig{
-			AllowedDomains: []string{"api.anthropic.com", "github.com"},
+			AllowedDomains: []string{"api.custom.corp", "metrics.internal.io"},
 		},
 	}
 
 	p, err := AssemblePolicy(manifest, nil, "", nil, "")
 	require.NoError(t, err)
 
-	np, ok := p.NetworkPolicies["api_anthropic_com"]
+	np, ok := p.NetworkPolicies["api_custom_corp"]
 	require.True(t, ok)
-	assert.Equal(t, "api.anthropic.com", np.Name)
+	assert.Equal(t, "api.custom.corp", np.Name)
 	require.Len(t, np.Endpoints, 1)
-	assert.Equal(t, "api.anthropic.com", np.Endpoints[0].Host)
+	assert.Equal(t, "api.custom.corp", np.Endpoints[0].Host)
 	assert.Equal(t, 443, np.Endpoints[0].Port)
 
-	np2, ok := p.NetworkPolicies["github_com"]
+	np2, ok := p.NetworkPolicies["metrics_internal_io"]
 	require.True(t, ok)
-	assert.Equal(t, "github.com", np2.Name)
+	assert.Equal(t, "metrics.internal.io", np2.Name)
 }
 
 func TestAssemblePolicy_GenericCredentialAddsCustomEndpoints(t *testing.T) {
@@ -243,7 +243,7 @@ func TestAssemblePolicy_CredentialsAndDomainsCombined(t *testing.T) {
 	manifest := &Manifest{
 		Version: 3,
 		Network: &NetworkConfig{
-			AllowedDomains: []string{"api.anthropic.com"},
+			AllowedDomains: []string{"api.custom.corp"},
 		},
 		Credentials: []CredentialEntry{
 			{Type: "vertex"},
@@ -253,7 +253,7 @@ func TestAssemblePolicy_CredentialsAndDomainsCombined(t *testing.T) {
 	p, err := AssemblePolicy(manifest, nil, "", nil, "")
 	require.NoError(t, err)
 
-	_, hasDomain := p.NetworkPolicies["api_anthropic_com"]
+	_, hasDomain := p.NetworkPolicies["api_custom_corp"]
 	assert.True(t, hasDomain, "expected domain policy entry")
 
 	vertex, hasVertex := p.NetworkPolicies["vertex_ai"]
@@ -353,7 +353,7 @@ func TestMergePolicy_NetworkOverrideReplaces(t *testing.T) {
 	manifest := &Manifest{
 		Version: 3,
 		Network: &NetworkConfig{
-			AllowedDomains: []string{"github.com", "api.anthropic.com"},
+			AllowedDomains: []string{"api.custom.corp", "metrics.internal.io"},
 		},
 	}
 	base, err := AssemblePolicy(manifest, nil, "", nil, "")
@@ -361,27 +361,27 @@ func TestMergePolicy_NetworkOverrideReplaces(t *testing.T) {
 
 	overrides := &OpenShellPolicy{
 		NetworkPolicies: map[string]NetworkPolicy{
-			"git_hosting": {
-				Name:      "git-hosting",
-				Endpoints: []PolicyEndpoint{{Host: "github.com", Port: 443}},
-				Binaries:  []PolicyBinary{{Path: "/usr/bin/git"}},
+			"custom_override": {
+				Name:      "custom-override",
+				Endpoints: []PolicyEndpoint{{Host: "api.custom.corp", Port: 443}},
+				Binaries:  []PolicyBinary{{Path: "/usr/bin/curl"}},
 			},
 		},
 	}
 
 	result := MergePolicy(base, overrides)
 
-	_, hasOldGithub := result.NetworkPolicies["github_com"]
-	assert.False(t, hasOldGithub, "auto-generated github_com should be replaced by override with same host")
+	_, hasOldCustom := result.NetworkPolicies["api_custom_corp"]
+	assert.False(t, hasOldCustom, "auto-generated api_custom_corp should be replaced by override with same host")
 
-	np, hasOverride := result.NetworkPolicies["git_hosting"]
+	np, hasOverride := result.NetworkPolicies["custom_override"]
 	assert.True(t, hasOverride)
-	assert.Equal(t, "git-hosting", np.Name)
+	assert.Equal(t, "custom-override", np.Name)
 	require.Len(t, np.Binaries, 1)
-	assert.Equal(t, "/usr/bin/git", np.Binaries[0].Path)
+	assert.Equal(t, "/usr/bin/curl", np.Binaries[0].Path)
 
-	_, hasAnthropic := result.NetworkPolicies["api_anthropic_com"]
-	assert.True(t, hasAnthropic, "non-overridden entry should be preserved")
+	_, hasMetrics := result.NetworkPolicies["metrics_internal_io"]
+	assert.True(t, hasMetrics, "non-overridden entry should be preserved")
 }
 
 func TestMergePolicy_NetworkAdditive(t *testing.T) {
@@ -632,8 +632,8 @@ func TestAssemblePolicy_DomainGroupSkippedWhenCatalogCovers(t *testing.T) {
 }
 
 func TestAssemblePolicy_DomainGroupExpandedWhenNoCatalog(t *testing.T) {
-	// "nodejs" has no embedded/catalog component, so it should be expanded
-	// from the built-in domain group definition.
+	// "nodejs" has no embedded/catalog component and no tool match,
+	// so it should be expanded from the built-in domain group definition.
 	manifest := &Manifest{
 		Version: 3,
 		Network: &NetworkConfig{
@@ -658,6 +658,68 @@ func TestAssemblePolicy_DomainGroupExpandedWhenNoCatalog(t *testing.T) {
 		assert.False(t, strings.HasPrefix(h, "."),
 			"wildcard domain %q should not appear in policy endpoints", h)
 	}
+}
+
+func TestAssemblePolicy_DomainGroupSkippedWhenHostsCoveredByComponent(t *testing.T) {
+	// When tools in the manifest match a component (e.g., "go" matches
+	// pkg_go), and AllowedDomains contains a group whose hosts overlap
+	// (e.g., "golang" expands to the same hosts as pkg_go), the domain
+	// group entry must be suppressed to avoid creating an unrestricted
+	// duplicate that bypasses binary restrictions.
+	manifest := &Manifest{
+		Version: 3,
+		Tools:   []ToolEntry{{Name: "go"}},
+		Network: &NetworkConfig{
+			AllowedDomains: []string{"golang"},
+		},
+	}
+
+	p, err := AssemblePolicy(manifest, nil, "", nil, "")
+	require.NoError(t, err)
+
+	_, hasPkgGo := p.NetworkPolicies["pkg_go"]
+	assert.True(t, hasPkgGo, "pkg_go should exist from tool match")
+
+	_, hasGolang := p.NetworkPolicies["golang"]
+	assert.False(t, hasGolang, "golang domain group should be suppressed when pkg_go covers the same hosts")
+}
+
+func TestAssemblePolicy_LiteralDomainSkippedWhenHostCoveredByComponent(t *testing.T) {
+	// A literal domain in AllowedDomains should be skipped if the host
+	// is already covered by a matched component's endpoints.
+	manifest := &Manifest{
+		Version: 3,
+		Tools:   []ToolEntry{{Name: "cargo"}},
+		Network: &NetworkConfig{
+			AllowedDomains: []string{"crates.io"},
+		},
+	}
+
+	p, err := AssemblePolicy(manifest, nil, "", nil, "")
+	require.NoError(t, err)
+
+	_, hasPkgRust := p.NetworkPolicies["pkg_rust"]
+	assert.True(t, hasPkgRust, "pkg_rust should exist from tool match")
+
+	_, hasCratesIO := p.NetworkPolicies["crates_io"]
+	assert.False(t, hasCratesIO, "crates.io literal domain should be suppressed when pkg_rust covers the host")
+}
+
+func TestAssemblePolicy_DomainGroupKeptWhenPartialOverlap(t *testing.T) {
+	// If a domain group has hosts NOT covered by any component, the
+	// group entry should still be added.
+	manifest := &Manifest{
+		Version: 3,
+		Network: &NetworkConfig{
+			AllowedDomains: []string{"nodejs"},
+		},
+	}
+
+	p, err := AssemblePolicy(manifest, nil, "", nil, "")
+	require.NoError(t, err)
+
+	_, hasNodejs := p.NetworkPolicies["nodejs"]
+	assert.True(t, hasNodejs, "nodejs group should be kept when no component covers its hosts")
 }
 
 func TestAssemblePolicy_LiteralDomainNotInCatalog(t *testing.T) {

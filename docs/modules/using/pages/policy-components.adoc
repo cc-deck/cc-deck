@@ -84,6 +84,118 @@ Uses exact match on the credential `type` field.
 `features: [flag1, flag2]`::
 Reserved for future use.
 
+== Binary Path Resolution
+
+The OpenShell supervisor restricts network access per binary.
+For each network policy entry, the `binaries` field lists which executables are allowed to reach the entry's endpoints.
+Binary paths come from three sources, applied in this order:
+
+=== Explicit Binaries
+
+Components can declare fixed binary paths directly in their YAML:
+
+[source,yaml]
+----
+binaries:
+  - path: /usr/local/bin/claude
+  - path: /sandbox/.local/bin/claude
+----
+
+Explicit binaries are always preserved.
+The probe step never overwrites them.
+The embedded `claude-code.yaml` and `git-hosting.yaml` components use this approach because their binary locations are known and stable.
+
+=== Probed Paths
+
+For tool-matched components without explicit binaries, the build discovers paths by probing the built image.
+The `probe_binaries` field lists the binary names to search for:
+
+[source,yaml]
+----
+probe_binaries:
+  - pip
+  - pip3
+  - uv
+  - python3
+----
+
+During the build, `which <name>` runs inside the image for each listed binary.
+If `which` fails, a `find / -name <name> -type f -executable` search runs as a fallback.
+Found paths are added to the component's `binaries` field in the generated policy.
+
+If `probe_binaries` is omitted, the system falls back to probing each entry in `match.tools`.
+
+=== Runtime Glob Patterns
+
+Some tools create new binaries after the image is built.
+Python virtual environments, Rust toolchain installs via rustup, and npx all produce executables that did not exist at build time.
+The `runtime_globs` field covers these locations with filesystem glob patterns:
+
+[source,yaml]
+----
+runtime_globs:
+  - /sandbox/**/bin/pip
+  - /sandbox/**/bin/pip3
+  - /sandbox/**/bin/python3
+----
+
+Runtime globs are merged into the `binaries` field alongside probed paths.
+Duplicate paths are deduplicated automatically.
+Glob patterns that match no files at runtime are ignored by the OpenShell supervisor.
+
+=== Example: Component Input to Policy Output
+
+A Python component YAML defines match conditions, probe targets, and globs:
+
+[source,yaml]
+----
+key: pkg_python
+name: python packages
+match:
+  tools:
+    - python
+    - pip
+    - uv
+probe_binaries:
+  - pip
+  - pip3
+  - uv
+  - python3
+runtime_globs:
+  - /sandbox/**/bin/pip
+  - /sandbox/**/bin/pip3
+  - /sandbox/**/bin/python3
+endpoints:
+  - host: pypi.org
+    port: 443
+  - host: files.pythonhosted.org
+    port: 443
+----
+
+After the two-pass build probes the image and finds pip at `/usr/bin/pip` and pip3 at `/usr/bin/pip3`, the generated policy entry looks like this:
+
+[source,yaml]
+----
+pkg_python:
+  name: python packages
+  endpoints:
+    - host: pypi.org
+      port: 443
+    - host: files.pythonhosted.org
+      port: 443
+  binaries:
+    - path: /usr/bin/pip
+    - path: /usr/bin/pip3
+    - path: /sandbox/**/bin/pip
+    - path: /sandbox/**/bin/pip3
+    - path: /sandbox/**/bin/python3
+----
+
+The probed paths cover the binaries installed at build time.
+The glob patterns cover binaries created later when a developer sets up a virtual environment inside the sandbox.
+
+For the full two-pass build process, see xref:build.adoc#_two_pass_binary_probing[Build Command].
+
 == Overriding an Embedded Component
 
 To replace an embedded component with your own version, create a file with the same filename stem in the user-local directory.

@@ -102,7 +102,7 @@ func ProbeBinaries(ctx context.Context, runtime string, imageRef string, compone
 	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
-	cmd := exec.CommandContext(probeCtx, runtime, "run", "--rm", imageRef, "/bin/sh", "-c", script)
+	cmd := exec.CommandContext(probeCtx, runtime, "run", "--rm", "--entrypoint", "", imageRef, "/bin/sh", "-c", script)
 	cmd.Stderr = os.Stderr
 
 	start := time.Now()
