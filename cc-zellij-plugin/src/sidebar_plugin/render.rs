@@ -607,7 +607,7 @@ fn display_width(s: &str) -> usize {
                 in_escape = false;
             }
         } else {
-            width += ch.width_cjk().unwrap_or(0);
+            width += ch.width().unwrap_or(0);
         }
     }
     width
@@ -681,6 +681,9 @@ mod tests {
         assert_eq!(display_width("🚢"), 2);
         assert_eq!(display_width("🚢 ✅"), 5);
         assert_eq!(display_width("\u{2387}"), 1);
+        // East Asian Ambiguous characters (activity indicators) must be width 1
+        assert_eq!(display_width("○"), 1); // U+25CB WHITE CIRCLE (Idle)
+        assert_eq!(display_width("●"), 1); // U+25CF BLACK CIRCLE (Working)
     }
 
     const TEST_COLOR: (u8, u8, u8) = (180, 140, 255);
