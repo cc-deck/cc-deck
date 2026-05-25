@@ -45,8 +45,9 @@ build-wasm:  ## Build WASM plugin (release, wasm-opt if available)
 	cd cc-zellij-plugin && cargo build --target $(WASM_TARGET) --release
 	@if command -v wasm-opt >/dev/null 2>&1; then \
 		echo "Running wasm-opt on binary..."; \
-		wasm-opt -Oz --zero-filled-memory --enable-bulk-memory-opt $(WASM_SRC) -o $(WASM_SRC) 2>/dev/null \
-		|| wasm-opt -Oz --zero-filled-memory $(WASM_SRC) -o $(WASM_SRC); \
+		wasm-opt -Oz --zero-filled-memory --enable-bulk-memory --enable-sign-ext $(WASM_SRC) -o $(WASM_SRC) 2>/dev/null \
+		|| wasm-opt -Oz --zero-filled-memory $(WASM_SRC) -o $(WASM_SRC) 2>/dev/null \
+		|| echo "wasm-opt failed (version too old?), skipping optimization"; \
 	fi
 
 build-wasm-debug:  ## Build WASM plugin (dev-opt: opt-level=1 for wasmi performance)
