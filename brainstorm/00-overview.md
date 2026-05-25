@@ -1,6 +1,6 @@
 # Brainstorm Overview
 
-Last updated: 2026-05-24 (egress recording mode)
+Last updated: 2026-05-25 (tool PATH restoration)
 
 ## Active Brainstorms
 
@@ -27,8 +27,10 @@ Last updated: 2026-05-24 (egress recording mode)
 | 061 | 2026-05-22 | Deterministic policy generation | active | - |
 | 062 | 2026-05-22 | OCI policy extraction | active | 060 |
 | 063 | 2026-05-23 | Policy binary resolution | active | 061 |
+| 063 | 2026-05-24 | MCP endpoint policy | spec-created | 063 |
 | 064 | 2026-05-24 | Two-pass binary probing | active | - |
 | 065 | 2026-05-24 | Egress recording mode | active | - |
+| 066 | 2026-05-25 | Tool PATH restoration | active | - |
 
 ## Open Threads
 
@@ -53,6 +55,7 @@ Last updated: 2026-05-24 (egress recording mode)
 - Policy binary resolution: well-known paths table vs manifest-driven resolution at assembly time (from #063)
 - Two-pass binary probing: probe built image for actual binary paths, remove hardcoded well-known paths table (from #064)
 - Egress recording mode: CoreDNS sidecar image, non-interactive/CI mode, DNS noise filtering, merge vs replace strategy for recorded domains, OpenShell OCSF enhancement (from #065)
+- Tool PATH restoration: registry format (Go map vs YAML), user-relative paths with {{.HomeDir}}, directory guards, curated zshrc dedup of tool paths (from #066)
 
 ## Parked Ideas
 
