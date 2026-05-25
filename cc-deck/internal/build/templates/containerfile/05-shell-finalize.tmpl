@@ -1,3 +1,12 @@
+{{- if .ToolPaths}}
+
+# Tool PATH restoration (auto-generated from manifest tools)
+RUN for RC in {{.HomeDir}}/.bashrc {{.HomeDir}}/.zshrc; do \
+      if [ -f "$RC" ]; then \
+        sed -i '1i export PATH="{{range $i, $p := .ToolPaths}}{{if $i}}:{{end}}{{$p}}{{end}}:$PATH"' "$RC"; \
+      fi; \
+    done
+{{- end}}
 {{- if eq .Target "openshell"}}
 
 # ============================================================

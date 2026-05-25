@@ -15,12 +15,12 @@
 
 **Purpose**: Add the tool path registry and resolution function
 
-- [ ] T001 Add `toolPathRegistry` map constant in cc-deck/internal/build/containerfile.go: map `"go"` to `"/usr/local/go/bin"`, `"cargo"` to `"{home}/.cargo/bin"`, `"rust"` to `"{home}/.cargo/bin"`
-- [ ] T002 Add `ResolveToolPaths(m *Manifest, homeDir string) []string` function in cc-deck/internal/build/containerfile.go: iterate manifest tools, match against registry keys using case-insensitive `strings.Contains`, replace `{home}` with homeDir, deduplicate results preserving order
-- [ ] T003 Add `ToolPaths []string` field to `ContainerfileData` struct in cc-deck/internal/build/containerfile.go
-- [ ] T004 Update `ContainerDataForTarget()` in cc-deck/internal/build/containerfile.go: call `ResolveToolPaths(m, homeDir)` and set the result on `ContainerfileData.ToolPaths` for both "container" and "openshell" targets
-- [ ] T005 [P] Add unit tests for `ResolveToolPaths` in cc-deck/internal/build/containerfile_test.go: test Go tool match ("Go >= 1.25.0" matches "go" key), Rust/cargo match, no matches returns empty slice, deduplication (cargo+rust both map to same path), case-insensitive matching, home directory substitution for openshell (/sandbox) and container (/home/dev)
-- [ ] T006 Run `make test` and `make lint` to verify foundational changes
+- [x] T001 Add `toolPathRegistry` map constant in cc-deck/internal/build/containerfile.go: map `"go"` to `"/usr/local/go/bin"`, `"cargo"` to `"{home}/.cargo/bin"`, `"rust"` to `"{home}/.cargo/bin"`
+- [x] T002 Add `ResolveToolPaths(m *Manifest, homeDir string) []string` function in cc-deck/internal/build/containerfile.go: iterate manifest tools, match against registry keys using case-insensitive word-boundary matching (not substring, to avoid "cargo" matching "go"), replace `{home}` with homeDir, deduplicate results preserving order
+- [x] T003 Add `ToolPaths []string` field to `ContainerfileData` struct in cc-deck/internal/build/containerfile.go
+- [x] T004 Update `ContainerDataForTarget()` in cc-deck/internal/build/containerfile.go: call `ResolveToolPaths(m, homeDir)` and set the result on `ContainerfileData.ToolPaths` for both "container" and "openshell" targets
+- [x] T005 Add unit tests for `ResolveToolPaths` in cc-deck/internal/build/containerfile_test.go: test Go tool match ("Go >= 1.25.0" matches "go" key), Rust/cargo match, no matches returns empty slice, deduplication (cargo+rust both map to same path), case-insensitive matching, home directory substitution for openshell (/sandbox) and container (/home/dev). Depends on T001-T002 (needs registry and function to exist).
+- [x] T006 Run `make test` and `make lint` to verify foundational changes
 
 **Checkpoint**: Registry and resolution function ready and tested.
 
@@ -34,10 +34,10 @@
 
 ### Implementation
 
-- [ ] T007 [US1] Add PATH prepend block at the top of cc-deck/internal/build/templates/containerfile/05-shell-finalize.tmpl: conditional on `.ToolPaths` being non-empty, generate a single `RUN` step that iterates `.bashrc` and `.zshrc` in `{{.HomeDir}}` and uses `sed -i '1i export PATH="<joined-paths>:$PATH"'` to prepend. No target gate (works for both openshell and container).
-- [ ] T008 [P] [US1] Add test for template rendering with tool paths in cc-deck/internal/build/containerfile_test.go: render `05-shell-finalize` with ToolPaths populated, verify output contains the `sed` command with correct paths
-- [ ] T009 [P] [US1] Add test for template rendering without tool paths in cc-deck/internal/build/containerfile_test.go: render `05-shell-finalize` with empty ToolPaths, verify no PATH prepend block is generated
-- [ ] T010 [US1] Run `make test` and `make lint` to verify template changes
+- [x] T007 [US1] Add PATH prepend block at the top of cc-deck/internal/build/templates/containerfile/05-shell-finalize.tmpl: conditional on `.ToolPaths` being non-empty, generate a single `RUN` step that iterates `.bashrc` and `.zshrc` in `{{.HomeDir}}` and uses `sed -i '1i export PATH="<joined-paths>:$PATH"'` to prepend. No target gate (works for both openshell and container).
+- [x] T008 [P] [US1] Add test for template rendering with tool paths in cc-deck/internal/build/containerfile_test.go: render `05-shell-finalize` with ToolPaths populated, verify output contains the `sed` command with correct paths
+- [x] T009 [P] [US1] Add test for template rendering without tool paths in cc-deck/internal/build/containerfile_test.go: render `05-shell-finalize` with empty ToolPaths, verify no PATH prepend block is generated
+- [x] T010 [US1] Run `make test` and `make lint` to verify template changes
 
 **Checkpoint**: Tool paths are prepended to shell rc files. US1 and US2 are independently testable.
 
@@ -47,9 +47,9 @@
 
 **Purpose**: Documentation, cleanup, and final validation
 
-- [ ] T011 [P] Update README.md with tool PATH restoration feature description
-- [ ] T012 [P] Remove the manually added `/usr/local/go/bin` from the curated zshrc at /Users/rhuss/Development/ai/cc-deck/.cc-deck/setup/config/zshrc (line 19: replace `export PATH="/usr/local/go/bin:$GOPATH/bin:$PATH"` with `export PATH="$GOPATH/bin:$PATH"` since the build system now handles the Go install path)
-- [ ] T013 Run full validation: `make test` and `make lint`, verify no regressions
+- [x] T011 [P] Update README.md with tool PATH restoration feature description
+- [x] T012 [P] Remove the manually added `/usr/local/go/bin` from the curated zshrc at `../../.cc-deck/setup/config/zshrc` (project root: `.cc-deck/setup/config/zshrc`). Replace `export PATH="/usr/local/go/bin:$GOPATH/bin:$PATH"` with `export PATH="$GOPATH/bin:$PATH"` since the build system now handles the Go install path. Note: the openshell context copy at `.cc-deck/setup/openshell/context/zshrc` already omits `/usr/local/go/bin` and needs no change.
+- [x] T013 Run full validation: `make test` and `make lint`, verify no regressions
 
 ---
 
@@ -63,7 +63,7 @@
 
 ### Parallel Opportunities
 
-- T005 can run in parallel with T001-T004 (test file vs source file, but tests depend on the functions existing)
+- T005 runs after T001-T002 (tests depend on the registry and resolution function existing)
 - T008, T009 can run in parallel (independent test functions)
 - T011, T012 can run in parallel (different files)
 
