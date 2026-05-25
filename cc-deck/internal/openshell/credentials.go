@@ -66,6 +66,7 @@ var KnownProviderProfiles = map[string]KnownProviderProfile{
 			{Host: "oauth2.googleapis.com", Port: 443},
 		},
 		ExtraEnvVars: []string{"CLOUD_ML_REGION", "ANTHROPIC_MODEL"},
+		FileVar:      "GOOGLE_APPLICATION_CREDENTIALS",
 	},
 	"anthropic": {
 		Type:         "anthropic",
@@ -190,6 +191,24 @@ func ResolveCredentials(entries []CredentialInput, wsName string) []ProviderConf
 					cfg.EnvVarsToInject[v] = val
 				}
 			}
+
+			// Resolve GCP credential file for Vertex AI authentication.
+			fileVar := profile.FileVar
+			if fileVar != "" {
+				filePath := os.Getenv(fileVar)
+				if filePath == "" {
+					home, _ := os.UserHomeDir()
+					defaultADC := home + "/.config/gcloud/application_default_credentials.json"
+					if _, err := os.Stat(defaultADC); err == nil {
+						filePath = defaultADC
+					}
+				}
+				if filePath != "" {
+					cfg.FileVar = fileVar
+					cfg.FilePath = filePath
+				}
+			}
+
 			configs = append(configs, cfg)
 			continue
 		}
