@@ -40,16 +40,27 @@ type Utterance struct {
 
 // VADConfig controls voice activity detection parameters.
 type VADConfig struct {
-	Threshold            float64 // RMS energy threshold for speech detection (default 0.015)
+	Threshold            float64 // RMS energy threshold for speech onset (default 0.015)
+	OffsetRatio          float64 // Fraction of Threshold used to detect speech offset (default 0.5)
 	PreRollDuration      float64 // Seconds of audio to keep before speech onset (default 0.3)
 	SilenceDuration      float64 // Seconds of silence to end an utterance (default 2.5)
 	MaxUtteranceDuration float64 // Maximum utterance length in seconds (default 30)
+}
+
+// OffsetThreshold returns the RMS level below which speech is considered ended.
+func (c *VADConfig) OffsetThreshold() float64 {
+	t := c.Threshold * c.OffsetRatio
+	if t < vadRMSMin {
+		return vadRMSMin
+	}
+	return t
 }
 
 // DefaultVADConfig returns the default VAD configuration.
 func DefaultVADConfig() VADConfig {
 	return VADConfig{
 		Threshold:            0.015,
+		OffsetRatio:          0.5,
 		PreRollDuration:      0.3,
 		SilenceDuration:      2.5,
 		MaxUtteranceDuration: 30,
