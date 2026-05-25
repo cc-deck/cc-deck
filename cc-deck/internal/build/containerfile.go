@@ -10,14 +10,84 @@ import (
 	"text/template"
 )
 
+// toolPathRegistry maps tool name keywords (matched case-insensitively using
+// word-boundary matching against manifest tool names) to their non-standard
+// install paths. The {home} placeholder is replaced with the actual home
+// directory at resolution time.
+var toolPathRegistry = map[string]string{
+	"go":    "/usr/local/go/bin",
+	"cargo": "{home}/.cargo/bin",
+	"rust":  "{home}/.cargo/bin",
+}
+
+// ResolveToolPaths returns the list of non-standard install paths needed by
+// the manifest's tools. Each manifest tool name is checked against the
+// registry keys using case-insensitive word-boundary matching: the key must
+// appear as a standalone word in the tool name (bounded by start/end of
+// string, spaces, or non-alphanumeric characters). The {home} placeholder
+// in matched paths is replaced with homeDir. Results are deduplicated while
+// preserving insertion order.
+func ResolveToolPaths(m *Manifest, homeDir string) []string {
+	if m == nil || len(m.Tools) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]bool)
+	var paths []string
+
+	for _, tool := range m.Tools {
+		nameLower := strings.ToLower(tool.Name)
+		for key, pathTmpl := range toolPathRegistry {
+			if containsWord(nameLower, key) {
+				resolved := strings.ReplaceAll(pathTmpl, "{home}", homeDir)
+				if !seen[resolved] {
+					seen[resolved] = true
+					paths = append(paths, resolved)
+				}
+			}
+		}
+	}
+
+	// Sort for deterministic output.
+	sort.Strings(paths)
+	return paths
+}
+
+// containsWord checks whether the word appears in s as a standalone token,
+// bounded by non-alphanumeric characters or string boundaries.
+func containsWord(s, word string) bool {
+	idx := 0
+	for {
+		pos := strings.Index(s[idx:], word)
+		if pos < 0 {
+			return false
+		}
+		start := idx + pos
+		end := start + len(word)
+
+		leftOK := start == 0 || !isAlphaNum(s[start-1])
+		rightOK := end == len(s) || !isAlphaNum(s[end])
+
+		if leftOK && rightOK {
+			return true
+		}
+		idx = start + 1
+	}
+}
+
+func isAlphaNum(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9')
+}
+
 // ContainerfileData holds the variables for rendering Containerfile templates.
 type ContainerfileData struct {
-	Target     string // "container" or "openshell"
-	User       string // "dev" or "sandbox"
-	HomeDir    string // "/home/dev" or "/sandbox"
-	ContextDir string // "container" or "openshell"
-	BaseImage  string // from manifest targets
-	Shell      string // from settings or "zsh"
+	Target     string   // "container" or "openshell"
+	User       string   // "dev" or "sandbox"
+	HomeDir    string   // "/home/dev" or "/sandbox"
+	ContextDir string   // "container" or "openshell"
+	BaseImage  string   // from manifest targets
+	Shell      string   // from settings or "zsh"
+	ToolPaths  []string // resolved non-standard tool install paths for PATH restoration
 }
 
 // snippetOrder defines the rendering order for Containerfile template snippets.
@@ -40,22 +110,26 @@ func ContainerDataForTarget(m *Manifest, target string) *ContainerfileData {
 
 	switch target {
 	case "container":
+		homeDir := "/home/dev"
 		return &ContainerfileData{
 			Target:     "container",
 			User:       "dev",
-			HomeDir:    "/home/dev",
+			HomeDir:    homeDir,
 			ContextDir: "container",
 			BaseImage:  m.BaseImage(),
 			Shell:      shell,
+			ToolPaths:  ResolveToolPaths(m, homeDir),
 		}
 	case "openshell":
+		homeDir := "/sandbox"
 		return &ContainerfileData{
 			Target:     "openshell",
 			User:       "sandbox",
-			HomeDir:    "/sandbox",
+			HomeDir:    homeDir,
 			ContextDir: "openshell",
 			BaseImage:  m.OpenShellBaseImage(),
 			Shell:      shell,
+			ToolPaths:  ResolveToolPaths(m, homeDir),
 		}
 	default:
 		return nil

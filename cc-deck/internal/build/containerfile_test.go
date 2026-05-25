@@ -40,6 +40,112 @@ func TestContainerDataForTarget_Invalid(t *testing.T) {
 	assert.Nil(t, ContainerDataForTarget(m, "invalid"))
 }
 
+// --- ResolveToolPaths tests ---
+
+func TestResolveToolPaths_GoTool(t *testing.T) {
+	m := &Manifest{
+		Tools: []ToolEntry{{Name: "Go >= 1.25.0"}},
+	}
+	paths := ResolveToolPaths(m, "/sandbox")
+	assert.Equal(t, []string{"/usr/local/go/bin"}, paths)
+}
+
+func TestResolveToolPaths_RustCargo(t *testing.T) {
+	m := &Manifest{
+		Tools: []ToolEntry{{Name: "Rust stable (edition 2021)"}},
+	}
+	paths := ResolveToolPaths(m, "/sandbox")
+	assert.Equal(t, []string{"/sandbox/.cargo/bin"}, paths)
+}
+
+func TestResolveToolPaths_CargoAlias(t *testing.T) {
+	m := &Manifest{
+		Tools: []ToolEntry{{Name: "cargo"}},
+	}
+	paths := ResolveToolPaths(m, "/home/dev")
+	assert.Equal(t, []string{"/home/dev/.cargo/bin"}, paths)
+}
+
+func TestResolveToolPaths_NoMatches(t *testing.T) {
+	m := &Manifest{
+		Tools: []ToolEntry{{Name: "Node.js 20"}},
+	}
+	paths := ResolveToolPaths(m, "/sandbox")
+	assert.Empty(t, paths)
+}
+
+func TestResolveToolPaths_Deduplication(t *testing.T) {
+	m := &Manifest{
+		Tools: []ToolEntry{
+			{Name: "cargo"},
+			{Name: "Rust stable"},
+		},
+	}
+	paths := ResolveToolPaths(m, "/sandbox")
+	// Both "cargo" and "rust" map to the same path; it should appear only once.
+	assert.Equal(t, []string{"/sandbox/.cargo/bin"}, paths)
+}
+
+func TestResolveToolPaths_CaseInsensitive(t *testing.T) {
+	m := &Manifest{
+		Tools: []ToolEntry{{Name: "GO >= 1.25"}},
+	}
+	paths := ResolveToolPaths(m, "/sandbox")
+	assert.Equal(t, []string{"/usr/local/go/bin"}, paths)
+}
+
+func TestResolveToolPaths_HomeDirSubstitution_Container(t *testing.T) {
+	m := &Manifest{
+		Tools: []ToolEntry{{Name: "cargo"}},
+	}
+	paths := ResolveToolPaths(m, "/home/dev")
+	assert.Equal(t, []string{"/home/dev/.cargo/bin"}, paths)
+}
+
+func TestResolveToolPaths_HomeDirSubstitution_OpenShell(t *testing.T) {
+	m := &Manifest{
+		Tools: []ToolEntry{{Name: "cargo"}},
+	}
+	paths := ResolveToolPaths(m, "/sandbox")
+	assert.Equal(t, []string{"/sandbox/.cargo/bin"}, paths)
+}
+
+func TestResolveToolPaths_MultipleTools(t *testing.T) {
+	m := &Manifest{
+		Tools: []ToolEntry{
+			{Name: "Go >= 1.25.0"},
+			{Name: "Rust stable (edition 2021)"},
+		},
+	}
+	paths := ResolveToolPaths(m, "/sandbox")
+	// Sorted deterministically.
+	assert.Equal(t, []string{"/sandbox/.cargo/bin", "/usr/local/go/bin"}, paths)
+}
+
+func TestResolveToolPaths_NilManifest(t *testing.T) {
+	paths := ResolveToolPaths(nil, "/sandbox")
+	assert.Nil(t, paths)
+}
+
+func TestResolveToolPaths_EmptyTools(t *testing.T) {
+	m := &Manifest{}
+	paths := ResolveToolPaths(m, "/sandbox")
+	assert.Nil(t, paths)
+}
+
+func TestContainerDataForTarget_ToolPaths(t *testing.T) {
+	m := &Manifest{
+		Tools: []ToolEntry{{Name: "Go >= 1.25.0"}},
+	}
+	data := ContainerDataForTarget(m, "container")
+	require.NotNil(t, data)
+	assert.Equal(t, []string{"/usr/local/go/bin"}, data.ToolPaths)
+
+	data = ContainerDataForTarget(m, "openshell")
+	require.NotNil(t, data)
+	assert.Equal(t, []string{"/usr/local/go/bin"}, data.ToolPaths)
+}
+
 func TestContainerDataForTarget_CustomBaseImage(t *testing.T) {
 	m := &Manifest{
 		Targets: &TargetsConfig{
@@ -134,6 +240,93 @@ func TestRenderSnippets_OpenShell(t *testing.T) {
 	assert.Contains(t, snippets["06-footer"], "chown -R sandbox:sandbox /sandbox")
 	assert.Contains(t, snippets["06-footer"], `ENTRYPOINT ["/bin/bash"]`)
 	assert.NotContains(t, snippets["06-footer"], "sleep")
+}
+
+func TestRenderSnippets_WithToolPaths(t *testing.T) {
+	data := &ContainerfileData{
+		Target:     "openshell",
+		User:       "sandbox",
+		HomeDir:    "/sandbox",
+		ContextDir: "openshell",
+		BaseImage:  "ghcr.io/nvidia/openshell-community/sandboxes/base:latest",
+		Shell:      "zsh",
+		ToolPaths:  []string{"/sandbox/.cargo/bin", "/usr/local/go/bin"},
+	}
+
+	snippets, err := RenderContainerfileSnippets(data)
+	require.NoError(t, err)
+
+	shellFinalize := snippets["05-shell-finalize"]
+	// The PATH prepend block should be present.
+	assert.Contains(t, shellFinalize, "Tool PATH restoration")
+	assert.Contains(t, shellFinalize, `sed -i '1i export PATH="/sandbox/.cargo/bin:/usr/local/go/bin:$PATH"'`)
+	assert.Contains(t, shellFinalize, "/sandbox/.bashrc")
+	assert.Contains(t, shellFinalize, "/sandbox/.zshrc")
+	// Starship and Zellij should still be present (openshell target).
+	assert.Contains(t, shellFinalize, "starship init")
+}
+
+func TestRenderSnippets_WithToolPaths_Container(t *testing.T) {
+	data := &ContainerfileData{
+		Target:     "container",
+		User:       "dev",
+		HomeDir:    "/home/dev",
+		ContextDir: "container",
+		BaseImage:  "quay.io/cc-deck/cc-deck-base:latest",
+		Shell:      "zsh",
+		ToolPaths:  []string{"/home/dev/.cargo/bin", "/usr/local/go/bin"},
+	}
+
+	snippets, err := RenderContainerfileSnippets(data)
+	require.NoError(t, err)
+
+	shellFinalize := snippets["05-shell-finalize"]
+	// Container target should also get PATH restoration.
+	assert.Contains(t, shellFinalize, "Tool PATH restoration")
+	assert.Contains(t, shellFinalize, `/home/dev/.cargo/bin:/usr/local/go/bin`)
+	// But not starship/Zellij (openshell only).
+	assert.NotContains(t, shellFinalize, "starship init")
+}
+
+func TestRenderSnippets_WithoutToolPaths(t *testing.T) {
+	data := &ContainerfileData{
+		Target:     "openshell",
+		User:       "sandbox",
+		HomeDir:    "/sandbox",
+		ContextDir: "openshell",
+		BaseImage:  "ghcr.io/nvidia/openshell-community/sandboxes/base:latest",
+		Shell:      "zsh",
+		ToolPaths:  nil,
+	}
+
+	snippets, err := RenderContainerfileSnippets(data)
+	require.NoError(t, err)
+
+	shellFinalize := snippets["05-shell-finalize"]
+	// No PATH prepend block should be generated.
+	assert.NotContains(t, shellFinalize, "Tool PATH restoration")
+	assert.NotContains(t, shellFinalize, "sed -i")
+	// Starship and Zellij should still be present.
+	assert.Contains(t, shellFinalize, "starship init")
+}
+
+func TestRenderSnippets_EmptyToolPaths(t *testing.T) {
+	data := &ContainerfileData{
+		Target:     "container",
+		User:       "dev",
+		HomeDir:    "/home/dev",
+		ContextDir: "container",
+		BaseImage:  "quay.io/cc-deck/cc-deck-base:latest",
+		Shell:      "zsh",
+		ToolPaths:  []string{},
+	}
+
+	snippets, err := RenderContainerfileSnippets(data)
+	require.NoError(t, err)
+
+	shellFinalize := snippets["05-shell-finalize"]
+	// Empty slice should not generate a PATH prepend block.
+	assert.NotContains(t, shellFinalize, "Tool PATH restoration")
 }
 
 func TestSnippets_NoTemplateSyntaxLeaks(t *testing.T) {
