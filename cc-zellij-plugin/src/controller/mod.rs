@@ -694,8 +694,8 @@ impl ControllerPlugin {
         let sanitized = crate::sanitize_voice_text(text);
         let sessions = &self.state.sessions;
         let is_session = |id: &u32| sessions.contains_key(id);
-        let target = self.state.last_attended_pane_id.filter(&is_session)
-            .or(self.state.focused_pane_id.filter(&is_session))
+        let target = self.state.focused_pane_id.filter(&is_session)
+            .or(self.state.last_attended_pane_id.filter(&is_session))
             .or_else(|| sessions.keys().next().copied());
         if let Some(pane_id) = target {
             write_chars_to_pane(pane_id, &sanitized);
