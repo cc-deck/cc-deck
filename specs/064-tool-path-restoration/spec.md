@@ -61,6 +61,13 @@ When a new tool with a non-standard install path is added to the build pipeline,
 - What happens when the home directory varies between targets (e.g., `/sandbox` for OpenShell, `/home/dev` for container)? The registry uses a placeholder that is resolved to the actual home directory at build time.
 - What happens when the base image's `.zshrc` or `.bashrc` does not exist yet? The build step creates it before prepending.
 
+## Clarifications
+
+### Session 2026-05-25
+
+- Q: Should the registry match exact tool names or substring patterns against manifest tool names? → A: Case-insensitive substring matching. The registry key "go" matches manifest entries like "Go >= 1.25.0". The registry also supports alias keys so "cargo" and "rust" both map to the same path.
+- Q: Should registry paths use literal home directories or a template placeholder? → A: Use the `HomeDir` value from `ContainerfileData` to resolve paths at build time. Registry entries store paths with a placeholder (e.g., `{home}/.cargo/bin`) that is replaced with the actual home directory during resolution.
+
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
