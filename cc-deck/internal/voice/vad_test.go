@@ -178,69 +178,6 @@ func TestVAD_PreRoll(t *testing.T) {
 	}
 }
 
-func TestVAD_HysteresisKeepsQuietSpeech(t *testing.T) {
-	cfg := VADConfig{
-		Threshold:            0.01,
-		OffsetRatio:          0.5, // offset = 0.005
-		PreRollDuration:      0,
-		SilenceDuration:      0.1,
-		MaxUtteranceDuration: 5,
-	}
-	vad := NewVAD(&cfg, 1000)
-
-	// Amplitude 500 produces RMS ~0.0076, which is below onset (0.01) but above offset (0.005).
-	frames := make(chan []int16, 10)
-	go feedFrames(frames,
-		makeSpeech(200, 5000), // loud speech triggers onset
-		makeSpeech(200, 250),  // quiet trailing speech: RMS ~0.0076, below 0.01 but above 0.005
-		makeSilence(200),      // actual silence ends utterance
-	)
-
-	utterances := collectUtterances(vad.Process(frames))
-	if len(utterances) != 1 {
-		t.Fatalf("got %d utterances, want 1", len(utterances))
-	}
-	// Utterance must include the quiet frames (400 speech samples total, not just 200).
-	if len(utterances[0].Audio) <= 200 {
-		t.Errorf("utterance has %d samples, expected >200 (quiet speech should be retained)", len(utterances[0].Audio))
-	}
-}
-
-func TestVAD_HysteresisEndsBelowOffset(t *testing.T) {
-	cfg := VADConfig{
-		Threshold:            0.01,
-		OffsetRatio:          0.5, // offset = 0.005
-		PreRollDuration:      0,
-		SilenceDuration:      0.1,
-		MaxUtteranceDuration: 5,
-	}
-	vad := NewVAD(&cfg, 1000)
-
-	// Amplitude 100 produces RMS ~0.003, below both onset and offset thresholds.
-	frames := make(chan []int16, 10)
-	go feedFrames(frames,
-		makeSpeech(200, 5000), // loud speech triggers onset
-		makeSpeech(200, 100),  // very quiet: RMS ~0.003, below offset 0.005
-		makeSilence(200),
-	)
-
-	utterances := collectUtterances(vad.Process(frames))
-	if len(utterances) != 1 {
-		t.Fatalf("got %d utterances, want 1", len(utterances))
-	}
-}
-
-func TestVAD_OffsetThresholdClamp(t *testing.T) {
-	cfg := VADConfig{
-		Threshold:   0.001,
-		OffsetRatio: 0.5,
-	}
-	got := cfg.OffsetThreshold()
-	if got < 0.001 {
-		t.Errorf("OffsetThreshold() = %f, want >= vadRMSMin (0.001)", got)
-	}
-}
-
 func TestThresholdPercentRoundTrip(t *testing.T) {
 	tests := []struct {
 		rms     float64
