@@ -59,8 +59,7 @@ func (v *VAD) Process(frames <-chan []int16) <-chan Utterance {
 			} else {
 				utterance = append(utterance, frame...)
 
-				// Use offset threshold (lower) so quiet trailing speech stays above the bar.
-				if frameRMS < v.config.OffsetThreshold() {
+				if frameSilent {
 					silenceSmpCnt += len(frame)
 				} else {
 					silenceSmpCnt = 0
