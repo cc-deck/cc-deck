@@ -60,7 +60,7 @@ func (c *VADConfig) OffsetThreshold() float64 {
 func DefaultVADConfig() VADConfig {
 	return VADConfig{
 		Threshold:            0.015,
-		OffsetRatio:          0.7,
+		OffsetRatio:          1.0,
 		PreRollDuration:      0.3,
 		SilenceDuration:      1.8,
 		MaxUtteranceDuration: 30,
