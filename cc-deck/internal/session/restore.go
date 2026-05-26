@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
-	"strings"
 	"time"
 )
 
@@ -51,11 +50,9 @@ func Restore(name string, w io.Writer) error {
 		// responds, it is ready to handle events.
 		waitForPluginReady(3 * time.Second)
 
-		// Change to the working directory, preferring git root so that
-		// claude --resume finds the session in the correct project.
+		// Change to the original working directory where the session ran.
 		if entry.WorkingDir != "" {
-			dir := resolveProjectDir(entry.WorkingDir)
-			writeChars(fmt.Sprintf("cd %q\n", dir))
+			writeChars(fmt.Sprintf("cd %q\n", entry.WorkingDir))
 			time.Sleep(200 * time.Millisecond)
 		}
 
@@ -110,20 +107,6 @@ func writeChars(text string) {
 	exec.Command("zellij", "action", "write-chars", text).Run()
 }
 
-// resolveProjectDir returns the git root of dir if it's inside a git repo,
-// otherwise returns dir unchanged. This ensures claude --resume finds
-// sessions stored under the project root rather than a subdirectory.
-func resolveProjectDir(dir string) string {
-	out, err := exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel").Output()
-	if err != nil {
-		return dir
-	}
-	if root := strings.TrimSpace(string(out)); root != "" {
-		return root
-	}
-	return dir
-}
-
 // pendingOverride is the JSON structure sent to the plugin for restore metadata.
 type pendingOverride struct {
 	DisplayName string `json:"display_name"`
@@ -139,8 +122,7 @@ func sendPendingOverrides(sessions []SessionEntry) {
 		if entry.WorkingDir == "" {
 			continue
 		}
-		dir := resolveProjectDir(entry.WorkingDir)
-		overrides[dir] = append(overrides[dir], pendingOverride{
+		overrides[entry.WorkingDir] = append(overrides[entry.WorkingDir], pendingOverride{
 			DisplayName: entry.DisplayName,
 			Paused:      entry.Paused,
 		})
