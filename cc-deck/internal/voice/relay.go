@@ -61,6 +61,7 @@ type VoiceRelay struct {
 	muted           bool
 	recording       bool
 	savedThreshold  float64
+	savedMuted      bool
 	parentCtx   context.Context
 	ctx         context.Context
 	cancel      context.CancelFunc
@@ -95,18 +96,41 @@ func (r *VoiceRelay) IsRecording() bool {
 
 // SetRecording sets the transcript recording state.
 // When recording starts, the VAD threshold is saved and set to 0
-// so all audio is captured without filtering. When recording stops,
-// the previous threshold is restored.
+// so all audio is captured without filtering, and the relay is
+// automatically muted so transcriptions are recorded but not
+// delivered to the pipe. When recording stops, both threshold
+// and mute state are restored.
 func (r *VoiceRelay) SetRecording(on bool) {
+	var muteChanged bool
+	var nowMuted bool
+
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	if on && !r.recording {
 		r.savedThreshold = r.config.VADConfig.Threshold
 		r.config.VADConfig.Threshold = PercentToThreshold(0)
+		r.savedMuted = r.muted
+		if !r.muted {
+			r.muted = true
+			muteChanged = true
+		}
 	} else if !on && r.recording {
 		r.config.VADConfig.Threshold = r.savedThreshold
+		if r.muted != r.savedMuted {
+			r.muted = r.savedMuted
+			muteChanged = true
+		}
 	}
+	nowMuted = r.muted
 	r.recording = on
+	r.mu.Unlock()
+
+	if muteChanged {
+		if nowMuted {
+			r.sendEvent(RelayEvent{Type: "muted"})
+		} else {
+			r.sendEvent(RelayEvent{Type: "unmuted"})
+		}
+	}
 }
 
 // SendMuteCommand sends a mute/unmute protocol message to the plugin
