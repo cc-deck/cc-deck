@@ -51,15 +51,12 @@ sudo apt install ./cc-deck_*.deb
 
 Download RPM and DEB packages from [GitHub Releases](https://github.com/cc-deck/cc-deck/releases). After installing, run `cc-deck config plugin install` to set up the Zellij plugin and hooks.
 
-### Try without installing
+### Container workspace
 
 ```bash
-podman run -it --rm \
-  -e ANTHROPIC_API_KEY=sk-ant-... \
-  quay.io/cc-deck/cc-deck-demo:latest
+cc-deck ws new demo --type container --image quay.io/cc-deck/cc-deck-demo
+cc-deck ws attach demo
 ```
-
-Docker works too: replace `podman` with `docker`.
 
 ### Build from source
 
