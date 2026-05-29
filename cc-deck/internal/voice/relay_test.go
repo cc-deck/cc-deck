@@ -774,6 +774,105 @@ func TestVoiceRelay_DiscardsWhileMutedNotRecording(t *testing.T) {
 	}
 }
 
+func TestVoiceRelay_SetRecordingAutoMutes(t *testing.T) {
+	audio := newMockAudioSource()
+	transcriber := &mockTranscriber{}
+	pipe := &mockPipeSender{}
+
+	config := DefaultRelayConfig()
+	relay := NewVoiceRelay(config, audio, transcriber, pipe)
+
+	// Start unmuted
+	if relay.IsMuted() {
+		t.Fatal("expected unmuted initially")
+	}
+
+	// Recording should auto-mute
+	relay.SetRecording(true)
+	if !relay.IsMuted() {
+		t.Error("expected muted after SetRecording(true)")
+	}
+	if !relay.IsRecording() {
+		t.Error("expected recording after SetRecording(true)")
+	}
+
+	// Stop recording should restore unmuted
+	relay.SetRecording(false)
+	if relay.IsMuted() {
+		t.Error("expected unmuted after SetRecording(false)")
+	}
+	if relay.IsRecording() {
+		t.Error("expected not recording after SetRecording(false)")
+	}
+}
+
+func TestVoiceRelay_SetRecordingPreservesMuted(t *testing.T) {
+	audio := newMockAudioSource()
+	transcriber := &mockTranscriber{}
+	pipe := &mockPipeSender{}
+
+	config := DefaultRelayConfig()
+	relay := NewVoiceRelay(config, audio, transcriber, pipe)
+
+	// Start already muted
+	relay.mu.Lock()
+	relay.muted = true
+	relay.mu.Unlock()
+
+	// Recording should keep muted
+	relay.SetRecording(true)
+	if !relay.IsMuted() {
+		t.Error("expected muted after SetRecording(true) when already muted")
+	}
+
+	// Stop recording should stay muted (was muted before)
+	relay.SetRecording(false)
+	if !relay.IsMuted() {
+		t.Error("expected still muted after SetRecording(false) when was muted before")
+	}
+}
+
+func TestVoiceRelay_SetRecordingEmitsMuteEvent(t *testing.T) {
+	audio := newMockAudioSource()
+	transcriber := &mockTranscriber{}
+	pipe := &mockPipeSender{}
+
+	config := DefaultRelayConfig()
+	relay := NewVoiceRelay(config, audio, transcriber, pipe)
+
+	relay.SetRecording(true)
+
+	// Drain the muted event
+	var gotMuted bool
+	timeout := time.After(500 * time.Millisecond)
+	for !gotMuted {
+		select {
+		case ev := <-relay.Events():
+			if ev.Type == "muted" {
+				gotMuted = true
+			}
+		case <-timeout:
+			t.Fatal("expected muted event after SetRecording(true)")
+		}
+	}
+
+	relay.SetRecording(false)
+
+	// Drain the unmuted event
+	var gotUnmuted bool
+	timeout = time.After(500 * time.Millisecond)
+	for !gotUnmuted {
+		select {
+		case ev := <-relay.Events():
+			if ev.Type == "unmuted" {
+				gotUnmuted = true
+			}
+		case <-timeout:
+			t.Fatal("expected unmuted event after SetRecording(false)")
+		}
+	}
+}
+
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && searchString(s, substr)
 }
