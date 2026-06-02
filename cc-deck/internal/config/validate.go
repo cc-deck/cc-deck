@@ -111,29 +111,16 @@ func parseBadgeValue(value string) (color string, icon string, ok bool) {
 	return value[:colonIdx+1], value[colonIdx+1:], true
 }
 
-// isEmoji returns true if the rune is an emoji character that typically
-// renders as 2 columns wide in terminals.
+// isEmoji returns true if the rune is an emoji character that always
+// renders as 2 columns wide in terminals. Only supplementary plane
+// emoji (U+1F000+) qualify, as they have default emoji presentation.
+// BMP characters (U+0000-U+FFFF) in ranges like Miscellaneous Symbols
+// (U+2600-U+26FF) and Dingbats (U+2700-U+27BF) are NOT flagged here
+// because terminals render them as 1 column (text presentation) unless
+// followed by VS16 (U+FE0F), which badge values never include.
 func isEmoji(r rune) bool {
-	// Emoji presentation sequences (U+1F000-U+1FFFF)
+	// Supplementary plane emoji (always 2 columns)
 	if r >= 0x1F000 && r <= 0x1FFFF {
-		return true
-	}
-	// Miscellaneous Symbols and Dingbats with emoji presentation
-	if r >= 0x2600 && r <= 0x27BF {
-		// Only those that commonly have emoji presentation
-		switch {
-		case r >= 0x2600 && r <= 0x26FF: // Miscellaneous Symbols
-			return true
-		case r >= 0x2700 && r <= 0x27BF: // Dingbats
-			return true
-		}
-	}
-	// Transport and Map Symbols
-	if r >= 0x1F680 && r <= 0x1F6FF {
-		return true
-	}
-	// Regional indicator symbols
-	if r >= 0x1F1E0 && r <= 0x1F1FF {
 		return true
 	}
 	return false
