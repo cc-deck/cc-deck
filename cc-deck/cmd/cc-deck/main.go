@@ -11,6 +11,7 @@ import (
 
 	"github.com/cc-deck/cc-deck/internal/build"
 	"github.com/cc-deck/cc-deck/internal/cmd"
+	"github.com/cc-deck/cc-deck/internal/config"
 	"github.com/cc-deck/cc-deck/internal/ws"
 	"github.com/cc-deck/cc-deck/internal/xdg"
 )
@@ -44,6 +45,21 @@ provisioning SSH remotes for Claude Code workspaces.`,
 	cobra.OnInitialize(func() {
 		initConfig(gf)
 	})
+
+	// Add load-time config validation for all commands except
+	// 'config check' (which prints its own detailed report) and 'hook'
+	// (internal, no user-facing output).
+	rootCmd.PersistentPreRun = func(cmd *cobra.Command, args []string) {
+		// Walk up the command tree to detect config-check and hook
+		for c := cmd; c != nil; c = c.Parent() {
+			if c.Name() == "check" || c.Name() == "hook" {
+				return
+			}
+		}
+		if cfg, err := config.Load(gf.ConfigFile); err == nil {
+			cfg.ValidateAndWarn()
+		}
+	}
 
 	rootCmd.AddGroup(
 		&cobra.Group{ID: "workspace", Title: "Workspace:"},
