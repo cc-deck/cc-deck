@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"unicode"
 	"unicode/utf8"
 )
 
@@ -238,16 +237,29 @@ func isEastAsianAmbiguous(r rune) bool {
 	return false
 }
 
+// narrowAlternatives maps wide or ambiguous characters to semantically
+// similar narrow replacements. Keys are runes that may be flagged by
+// the icon width check; values are the suggestion text.
+var narrowAlternatives = map[rune]string{
+	'▶': "try › (U+203A SINGLE RIGHT ANGLE QUOTATION) or > (U+003E)",            // play/arrow
+	'◀': "try ‹ (U+2039 SINGLE LEFT ANGLE QUOTATION) or < (U+003C)",             // reverse
+	'◆': "try ♦ (U+2666 BLACK DIAMOND SUIT) or * (U+002A)",                       // diamond -> card suit (Narrow in most terminals)
+	'◇': "try ◇ is also Ambiguous; use • (U+2022 BULLET) instead",           // open diamond
+	'▦': "try ≡ (U+2261 IDENTICAL TO) or # (U+0023)",                             // grid/plan
+	'◉': "try ⊙ (U+2299 CIRCLED DOT OPERATOR) or @ (U+0040)",                     // target/dot
+	'■': "try ▪ (U+25AA BLACK SMALL SQUARE) or • (U+2022 BULLET)",           // solid square
+	'□': "try ▫ (U+25AB WHITE SMALL SQUARE) or - (U+002D)",                        // open square
+	'●': "try • (U+2022 BULLET)",                                                  // filled circle
+	'○': "try ◦ (U+25E6 WHITE BULLET) or · (U+00B7 MIDDLE DOT)",             // open circle
+	'☰': "try ⋮ (U+22EE VERTICAL ELLIPSIS) or = (U+003D)",                        // trigram/hamburger
+}
+
 // suggestedReplacement returns a narrow-width alternative icon for a wide or ambiguous character.
 func suggestedReplacement(r rune) string {
-	// Common replacements for wide/emoji characters
-	if unicode.Is(unicode.So, r) || isEmoji(r) || isEastAsianWide(r) {
-		return "use a Narrow character like ⋮ (U+22EE VERTICAL ELLIPSIS) or │ (U+2502 BOX DRAWINGS LIGHT VERTICAL)"
+	if alt, ok := narrowAlternatives[r]; ok {
+		return alt
 	}
-	if isEastAsianAmbiguous(r) {
-		return "use a Narrow character like ⋮ (U+22EE VERTICAL ELLIPSIS) or · (U+00B7 MIDDLE DOT)"
-	}
-	return ""
+	return "use a Narrow (East Asian Width N) character to avoid layout issues"
 }
 
 // validateBadges checks badge rules for structural issues and icon width problems.
