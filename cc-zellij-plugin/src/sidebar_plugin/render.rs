@@ -639,17 +639,19 @@ fn truncate(s: &str, max: usize) -> String {
     if max <= 3 {
         return ".".repeat(max);
     }
-    let char_count = s.chars().count();
-    if char_count <= max {
+    if display_width(s) <= max {
         return s.to_string();
     }
     let mut result = String::new();
-    for (i, ch) in s.chars().enumerate() {
-        if i + 4 > max {
+    let mut width = 0;
+    for ch in s.chars() {
+        let cw = ch.width().unwrap_or(0);
+        if width + cw + 3 > max {
             result.push_str("...");
             break;
         }
         result.push(ch);
+        width += cw;
     }
     result
 }
@@ -728,10 +730,30 @@ mod tests {
     }
 
     #[test]
+    fn test_display_width_wide_chars() {
+        // U+2630 TRIGRAM FOR HEAVEN: unicode_width 0.1.x returns 1 but many
+        // terminals render it as 2 columns. Avoid using it in badge icons.
+        // Badge icons with known safe widths (Narrow, always 1 column)
+        assert_eq!(display_width("⋮"), 1); // U+22EE, Narrow
+        assert_eq!(display_width("✎"), 1); // U+270E, Narrow
+        assert_eq!(display_width("⚙"), 1); // U+2699, Narrow
+        assert_eq!(display_width("▶"), 1); // U+25B6, Ambiguous (width 1 in unicode_width)
+        assert_eq!(display_width("◆"), 1); // U+25C6, Ambiguous (width 1 in unicode_width)
+    }
+
+    #[test]
     fn test_truncate() {
         assert_eq!(truncate("short", 10), "short");
         assert_eq!(truncate("a-very-long-name", 10), "a-very-...");
         assert_eq!(truncate("ab", 2), "..");
+    }
+
+    #[test]
+    fn test_truncate_wide_chars() {
+        // Wide char (width 2) should be counted as 2 columns
+        let s = "a☰bcdefgh"; // 'a'=1, '☰'=2, rest=1 each -> total width 10
+        let result = truncate(s, 8);
+        assert_eq!(display_width(&result), 8); // "a☰bc..."
     }
 
     #[test]

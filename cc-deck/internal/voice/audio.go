@@ -43,6 +43,7 @@ type VADConfig struct {
 	Threshold            float64 // RMS energy threshold for speech detection (default 0.015)
 	PreRollDuration      float64 // Seconds of audio to keep before speech onset (default 0.3)
 	SilenceDuration      float64 // Seconds of silence to end an utterance (default 2.5)
+	HangoverDuration     float64 // Seconds of below-threshold audio to keep after last loud frame (default 0.3)
 	MaxUtteranceDuration float64 // Maximum utterance length in seconds (default 30)
 }
 
@@ -52,6 +53,7 @@ func DefaultVADConfig() VADConfig {
 		Threshold:            0.015,
 		PreRollDuration:      0.3,
 		SilenceDuration:      2.5,
+		HangoverDuration:     0.3,
 		MaxUtteranceDuration: 30,
 	}
 }

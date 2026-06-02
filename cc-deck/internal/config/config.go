@@ -54,6 +54,9 @@ type Defaults struct {
 // VoiceDefaults holds default values for the voice relay.
 type VoiceDefaults struct {
 	Threshold *int                `yaml:"threshold,omitempty"`
+	Silence   *float64            `yaml:"silence,omitempty"`
+	PreRoll   *float64            `yaml:"pre_roll,omitempty"`
+	Hangover  *float64            `yaml:"hangover,omitempty"`
 	Commands  map[string][]string `yaml:"commands,omitempty"`
 }
 
