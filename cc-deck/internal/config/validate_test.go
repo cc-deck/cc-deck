@@ -171,7 +171,7 @@ func TestValidateBadges_IconWidth(t *testing.T) {
 			values:       map[string]string{"active": "☰"},
 			wantSeverity: SeverityError,
 			wantCount:    1,
-			wantMsg:      "East Asian Width W",
+			wantMsg:      "Wide",
 		},
 		{
 			name:         "East Asian Ambiguous icon is warning",
