@@ -356,7 +356,7 @@ func validateBadges(badges []BadgeRule) []Finding {
 }
 
 // checkIconWidth checks a single icon string for width issues.
-func checkIconWidth(prefix, badgeName, key, icon string) []Finding {
+func checkIconWidth(_, badgeName, key, icon string) []Finding {
 	var findings []Finding
 	r, _ := utf8.DecodeRuneInString(icon)
 	if r == utf8.RuneError {
@@ -367,24 +367,24 @@ func checkIconWidth(prefix, badgeName, key, icon string) []Finding {
 		findings = append(findings, Finding{
 			Severity: SeverityError,
 			Category: CategoryBadges,
-			Message: fmt.Sprintf("%s (%s): value %q icon %q (U+%04X) has East Asian Width W and renders as 2 columns",
-				prefix, badgeName, key, string(r), r),
+			Message: fmt.Sprintf("%s.%s.%s: %s (U+%04X) is Wide, always 2 columns",
+				badgeName, key, string(r), string(r), r),
 			Suggestion: suggestedReplacement(r),
 		})
 	} else if isEmoji(r) {
 		findings = append(findings, Finding{
 			Severity: SeverityError,
 			Category: CategoryBadges,
-			Message: fmt.Sprintf("%s (%s): value %q icon %q (U+%04X) is an emoji and renders as 2 columns",
-				prefix, badgeName, key, string(r), r),
+			Message: fmt.Sprintf("%s.%s: %s (U+%04X) is emoji, always 2 columns",
+				badgeName, key, string(r), r),
 			Suggestion: suggestedReplacement(r),
 		})
 	} else if isEastAsianAmbiguous(r) {
 		findings = append(findings, Finding{
 			Severity: SeverityWarning,
 			Category: CategoryBadges,
-			Message: fmt.Sprintf("%s (%s): value %q icon %q (U+%04X) has East Asian Width Ambiguous and may render as 2 columns in some terminals",
-				prefix, badgeName, key, string(r), r),
+			Message: fmt.Sprintf("%s.%s: %s (U+%04X) is Ambiguous, may be 2 columns",
+				badgeName, key, string(r), r),
 			Suggestion: suggestedReplacement(r),
 		})
 	}

@@ -58,15 +58,18 @@ func runCheck(gf *GlobalFlags) error {
 	var errors int
 	for _, cat := range categories {
 		fmt.Printf("\n[%s]\n", cat)
-		for _, f := range grouped[cat] {
+		for i, f := range grouped[cat] {
 			marker := "warning"
 			if f.Severity == config.SeverityError {
 				marker = "error"
 				errors++
 			}
-			fmt.Printf("  %s: %s\n", marker, f.Message)
+			fmt.Printf("  %s  %s\n", marker, f.Message)
 			if f.Suggestion != "" {
-				fmt.Printf("    fix: %s\n", f.Suggestion)
+				fmt.Printf("         %s\n", f.Suggestion)
+			}
+			if i < len(grouped[cat])-1 {
+				fmt.Println()
 			}
 		}
 	}
