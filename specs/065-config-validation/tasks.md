@@ -13,8 +13,8 @@
 
 **Purpose**: Create validation types and foundational structures
 
-- [ ] T001 [P] Define Finding, Severity, and Category types in cc-deck/internal/config/validate.go
-- [ ] T002 [P] Create cc-deck/internal/config/validate_test.go with test helpers and table-driven test scaffold
+- [x] T001 [P] Define Finding, Severity, and Category types in cc-deck/internal/config/validate.go
+- [x] T002 [P] Create cc-deck/internal/config/validate_test.go with test helpers and table-driven test scaffold
 
 ---
 
@@ -22,10 +22,10 @@
 
 **Purpose**: Core Unicode width analysis that badge validation depends on
 
-- [ ] T003 Implement icon width classification functions (isEmoji, isEastAsianWide, isEastAsianAmbiguous) using Go unicode stdlib in cc-deck/internal/config/validate.go
-- [ ] T004 Implement parseBadgeColor to extract icon from `#RRGGBB:icon` format in cc-deck/internal/config/validate.go
-- [ ] T005 [P] Add unit tests for icon width classification (emoji, Wide, Ambiguous, Narrow codepoints) in cc-deck/internal/config/validate_test.go
-- [ ] T006 [P] Add unit tests for parseBadgeColor with valid/invalid color prefixes in cc-deck/internal/config/validate_test.go
+- [x] T003 Implement icon width classification functions (isEmoji, isEastAsianWide, isEastAsianAmbiguous) using Go unicode stdlib in cc-deck/internal/config/validate.go
+- [x] T004 Implement parseBadgeColor to extract icon from `#RRGGBB:icon` format in cc-deck/internal/config/validate.go
+- [x] T005 [P] Add unit tests for icon width classification (emoji, Wide, Ambiguous, Narrow codepoints) in cc-deck/internal/config/validate_test.go
+- [x] T006 [P] Add unit tests for parseBadgeColor with valid/invalid color prefixes in cc-deck/internal/config/validate_test.go
 
 **Checkpoint**: Icon width analysis is tested and ready for badge validation
 
@@ -39,11 +39,11 @@
 
 ### Implementation
 
-- [ ] T007 [US1] Implement validateBadges() checking icon width (emoji=error, Wide=error, Ambiguous=warning) with suggested replacements in cc-deck/internal/config/validate.go
-- [ ] T008 [US1] Implement Config.Validate() calling validateBadges and returning []Finding in cc-deck/internal/config/validate.go
-- [ ] T009 [US1] Add unit tests for validateBadges with emoji, Wide, Ambiguous, Narrow, and color-prefixed badge values in cc-deck/internal/config/validate_test.go
-- [ ] T010 [US1] Create cc-deck config check command in cc-deck/internal/cmd/config_check.go with formatted output and exit code logic
-- [ ] T011 [US1] Register NewCheckCmd in cc-deck/internal/cmd/config.go
+- [x] T007 [US1] Implement validateBadges() checking icon width (emoji=error, Wide=error, Ambiguous=warning) with suggested replacements in cc-deck/internal/config/validate.go
+- [x] T008 [US1] Implement Config.Validate() calling validateBadges and returning []Finding in cc-deck/internal/config/validate.go
+- [x] T009 [US1] Add unit tests for validateBadges with emoji, Wide, Ambiguous, Narrow, and color-prefixed badge values in cc-deck/internal/config/validate_test.go
+- [x] T010 [US1] Create cc-deck config check command in cc-deck/internal/cmd/config_check.go with formatted output and exit code logic
+- [x] T011 [US1] Register NewCheckCmd in cc-deck/internal/cmd/config.go
 
 **Checkpoint**: `cc-deck config check` reports badge icon width issues with fix suggestions
 
@@ -57,9 +57,9 @@
 
 ### Implementation
 
-- [ ] T012 [P] [US4] Add badge structure validation (name, file, extract required; format must be "json") to validateBadges() in cc-deck/internal/config/validate.go
-- [ ] T013 [P] [US4] Add color prefix syntax validation (hex must be 6 valid hex chars) to validateBadges() in cc-deck/internal/config/validate.go
-- [ ] T014 [US4] Add unit tests for badge structure and color prefix validation in cc-deck/internal/config/validate_test.go
+- [x] T012 [P] [US4] Add badge structure validation (name, file, extract required; format must be "json") to validateBadges() in cc-deck/internal/config/validate.go
+- [x] T013 [P] [US4] Add color prefix syntax validation (hex must be 6 valid hex chars) to validateBadges() in cc-deck/internal/config/validate.go
+- [x] T014 [US4] Add unit tests for badge structure and color prefix validation in cc-deck/internal/config/validate_test.go
 
 **Checkpoint**: Badge rules with structural issues are caught
 
@@ -73,9 +73,9 @@
 
 ### Implementation
 
-- [ ] T015 [US5] Implement validateProfiles() wrapping Profile.Validate() errors as Findings and checking default_profile in cc-deck/internal/config/validate.go
-- [ ] T016 [US5] Add validateProfiles call to Config.Validate() in cc-deck/internal/config/validate.go
-- [ ] T017 [US5] Add unit tests for profile validation (missing api_key_secret, missing project, dangling default_profile) in cc-deck/internal/config/validate_test.go
+- [x] T015 [US5] Implement validateProfiles() wrapping Profile.Validate() errors as Findings and checking default_profile in cc-deck/internal/config/validate.go
+- [x] T016 [US5] Add validateProfiles call to Config.Validate() in cc-deck/internal/config/validate.go
+- [x] T017 [US5] Add unit tests for profile validation (missing api_key_secret, missing project, dangling default_profile) in cc-deck/internal/config/validate_test.go
 
 **Checkpoint**: Profile misconfigurations are caught
 
@@ -89,9 +89,9 @@
 
 ### Implementation
 
-- [ ] T018 [US6] Implement validateVoice() checking threshold range, positivity, and extreme values in cc-deck/internal/config/validate.go
-- [ ] T019 [US6] Add validateVoice call to Config.Validate() in cc-deck/internal/config/validate.go
-- [ ] T020 [US6] Add unit tests for voice validation (out-of-range, negative, extreme, valid values) in cc-deck/internal/config/validate_test.go
+- [x] T018 [US6] Implement validateVoice() checking threshold range, positivity, and extreme values in cc-deck/internal/config/validate.go
+- [x] T019 [US6] Add validateVoice call to Config.Validate() in cc-deck/internal/config/validate.go
+- [x] T020 [US6] Add unit tests for voice validation (out-of-range, negative, extreme, valid values) in cc-deck/internal/config/validate_test.go
 
 **Checkpoint**: Voice parameter issues are caught
 
@@ -105,9 +105,9 @@
 
 ### Implementation
 
-- [ ] T021 [US2] Implement ValidateAndWarn() helper that calls Validate() and prints one-line summary to stderr in cc-deck/internal/config/validate.go
-- [ ] T022 [US2] Integrate ValidateAndWarn() into config loading path used by ws, voice, and other config-dependent commands in cc-deck/internal/cmd/ws.go
-- [ ] T023 [US2] Add unit test for ValidateAndWarn output formatting (error+warning counts, no output when clean) in cc-deck/internal/config/validate_test.go
+- [x] T021 [US2] Implement ValidateAndWarn() helper that calls Validate() and prints one-line summary to stderr in cc-deck/internal/config/validate.go
+- [x] T022 [US2] Integrate ValidateAndWarn() into config loading path used by ws, voice, and other config-dependent commands in cc-deck/cmd/cc-deck/main.go (PersistentPreRun on root command)
+- [x] T023 [US2] Add unit test for ValidateAndWarn output formatting (error+warning counts, no output when clean) in cc-deck/internal/config/validate_test.go
 
 **Checkpoint**: Users are passively notified of config issues during normal usage
 
@@ -117,9 +117,9 @@
 
 **Purpose**: Documentation and cleanup
 
-- [ ] T024 [P] Update CLI reference with config check command documentation in docs/modules/reference/pages/cli.adoc
-- [ ] T025 [P] Update configuration reference with validation behavior in docs/modules/reference/pages/configuration.adoc
-- [ ] T026 Run make test and make lint to verify all tests pass and code is clean
+- [x] T024 [P] Update CLI reference with config check command documentation in docs/modules/reference/pages/cli.adoc
+- [x] T025 [P] Update configuration reference with validation behavior in docs/modules/reference/pages/configuration.adoc
+- [x] T026 Run make test and make lint to verify all tests pass and code is clean
 
 ---
 

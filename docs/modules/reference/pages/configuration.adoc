@@ -60,6 +60,46 @@ Words embedded in longer sentences are treated as normal dictation.
 When you set `commands` in the config, it replaces the defaults entirely.
 Each action can have multiple trigger words, and you can change the defaults to avoid conflicts with your natural speech patterns.
 
+== Config Validation
+
+The `cc-deck config check` command validates the configuration file and reports issues with fix suggestions.
+Validation covers badge icon widths, profile required fields, voice parameter ranges, and badge rule structure.
+
+Every cc-deck command that loads the config also runs a quick validation check.
+When issues are found, a one-line summary is printed to stderr pointing to `cc-deck config check` for details.
+This passive check does not affect command behavior or exit codes.
+
+=== Badge Icon Width
+
+Badge icons appear in the sidebar, which expects single-column characters.
+Emoji and East Asian Wide characters render as 2 columns in most terminals, breaking alignment.
+
+* **Error**: Emoji characters (always 2 columns)
+* **Error**: East Asian Width W characters (always 2 columns)
+* **Warning**: East Asian Width Ambiguous characters (may be 2 columns in some terminals)
+
+Safe icons include characters like `⋮` (U+22EE VERTICAL ELLIPSIS) or `│` (U+2502 BOX DRAWINGS LIGHT VERTICAL).
+
+=== Badge Color Prefix
+
+Badge values may include a color prefix in `#RRGGBB:icon` format.
+The hex portion must be exactly 6 valid hexadecimal characters.
+
+=== Severity Levels
+
+[cols="1,1,3"]
+|===
+| Severity | Exit code | Meaning
+
+| error
+| 1
+| Will break something (layout misalignment, deployment failure, missing functionality)
+
+| warning
+| 0
+| May cause issues in some environments but is not guaranteed to break
+|===
+
 == Environment Variables
 
 [cols="1,3"]

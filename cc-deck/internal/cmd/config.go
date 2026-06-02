@@ -14,6 +14,7 @@ func NewConfigCmd(gf *GlobalFlags) *cobra.Command {
 		Long:  "Commands for managing plugins, profiles, domain groups, and shell completions.",
 	}
 
+	cmd.AddCommand(NewCheckCmd(gf))
 	cmd.AddCommand(NewPluginCmd(gf))
 	cmd.AddCommand(NewProfileCmd(gf))
 	cmd.AddCommand(NewDomainsCmd(gf))
