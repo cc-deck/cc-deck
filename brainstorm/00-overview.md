@@ -1,6 +1,6 @@
 # Brainstorm Overview
 
-Last updated: 2026-05-25 (tool PATH restoration)
+Last updated: 2026-06-02 (config validation)
 
 ## Active Brainstorms
 
@@ -31,6 +31,7 @@ Last updated: 2026-05-25 (tool PATH restoration)
 | 064 | 2026-05-24 | Two-pass binary probing | active | - |
 | 065 | 2026-05-24 | Egress recording mode | active | - |
 | 066 | 2026-05-25 | Tool PATH restoration | active | - |
+| 067 | 2026-06-02 | Config validation | active | - |
 
 ## Open Threads
 
@@ -56,6 +57,7 @@ Last updated: 2026-05-25 (tool PATH restoration)
 - Two-pass binary probing: probe built image for actual binary paths, remove hardcoded well-known paths table (from #064)
 - Egress recording mode: CoreDNS sidecar image, non-interactive/CI mode, DNS noise filtering, merge vs replace strategy for recorded domains, OpenShell OCSF enhancement (from #065)
 - Tool PATH restoration: registry format (Go map vs YAML), user-relative paths with {{.HomeDir}}, directory guards, curated zshrc dedup of tool paths (from #066)
+- Config validation: load-time warning suppression mechanism, curated safe icon list vs constraint description (from #067)
 
 ## Parked Ideas
 
