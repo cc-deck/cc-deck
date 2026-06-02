@@ -24,6 +24,9 @@ func newWsVoiceCmd(_ *GlobalFlags) *cobra.Command {
 		listDevices bool
 		serverPort  int
 		threshold   int
+		silence     float64
+		preRoll     float64
+		hangover    float64
 	)
 	verbose := true
 
@@ -44,24 +47,40 @@ activity detection (VAD) with mute/unmute toggle.`,
 			if len(args) == 0 {
 				return fmt.Errorf("workspace name required (or use --setup / --list-devices)")
 			}
-			return runVoiceRelay(args[0], model, verbose, serverPort, threshold)
+			vadFlags := vadOverrides{
+				threshold: threshold,
+				silence:   silence,
+				preRoll:   preRoll,
+				hangover:  hangover,
+			}
+			return runVoiceRelay(args[0], model, verbose, serverPort, vadFlags)
 		},
 	}
 
 	cmd.Flags().StringVar(&model, "model", "base.en", "whisper model name")
-cmd.Flags().BoolVar(&setup, "setup", false, "check dependencies and download model")
+	cmd.Flags().BoolVar(&setup, "setup", false, "check dependencies and download model")
 	cmd.Flags().BoolVar(&listDevices, "list-devices", false, "list audio input devices")
 	cmd.Flags().IntVar(&serverPort, "port", 8234, "whisper-server port")
 	cmd.Flags().IntVar(&threshold, "threshold", -1, "VAD sensitivity (0-100, logarithmic); overrides config file")
+	cmd.Flags().Float64Var(&silence, "silence", -1, "seconds of silence before ending utterance (default 2.5)")
+	cmd.Flags().Float64Var(&preRoll, "pre-roll", -1, "seconds of audio to keep before speech onset (default 0.3)")
+	cmd.Flags().Float64Var(&hangover, "hangover", -1, "seconds of trailing audio to keep after speech drops (default 0.3)")
 
 	return cmd
+}
+
+type vadOverrides struct {
+	threshold int
+	silence   float64
+	preRoll   float64
+	hangover  float64
 }
 
 func voiceLogPath() string {
 	return filepath.Join(xdg.StateHome, "cc-deck", "voice.log")
 }
 
-func runVoiceRelay(wsName, modelName string, verbose bool, port int, thresholdFlag int) error {
+func runVoiceRelay(wsName, modelName string, verbose bool, port int, flags vadOverrides) error {
 	var logPath string
 	if verbose {
 		logPath = voiceLogPath()
@@ -112,10 +131,20 @@ func runVoiceRelay(wsName, modelName string, verbose bool, port int, thresholdFl
 	config := voice.DefaultRelayConfig()
 	config.Verbose = verbose
 
+	// Apply config file values (lowest priority)
 	thresholdPct := voice.ThresholdToPercent(config.VADConfig.Threshold)
 	if cfg, err := ccconfig.Load(""); err == nil {
 		if cfg.Defaults.Voice.Threshold != nil {
 			thresholdPct = *cfg.Defaults.Voice.Threshold
+		}
+		if cfg.Defaults.Voice.Silence != nil {
+			config.VADConfig.SilenceDuration = *cfg.Defaults.Voice.Silence
+		}
+		if cfg.Defaults.Voice.PreRoll != nil {
+			config.VADConfig.PreRollDuration = *cfg.Defaults.Voice.PreRoll
+		}
+		if cfg.Defaults.Voice.Hangover != nil {
+			config.VADConfig.HangoverDuration = *cfg.Defaults.Voice.Hangover
 		}
 		if len(cfg.Defaults.Voice.Commands) > 0 {
 			merged := make(map[string][]string)
@@ -128,10 +157,29 @@ func runVoiceRelay(wsName, modelName string, verbose bool, port int, thresholdFl
 			config.Commands = voice.BuildCommandMap(merged)
 		}
 	}
-	if thresholdFlag >= 0 {
-		thresholdPct = thresholdFlag
+
+	// Apply CLI flags (highest priority)
+	if flags.threshold >= 0 {
+		thresholdPct = flags.threshold
 	}
 	config.VADConfig.Threshold = voice.PercentToThreshold(thresholdPct)
+	if flags.silence >= 0 {
+		config.VADConfig.SilenceDuration = flags.silence
+	}
+	if flags.preRoll >= 0 {
+		config.VADConfig.PreRollDuration = flags.preRoll
+	}
+	if flags.hangover >= 0 {
+		config.VADConfig.HangoverDuration = flags.hangover
+	}
+
+	if verbose {
+		log.Printf("[voice] VAD config: threshold=%d%% silence=%.1fs pre-roll=%.1fs hangover=%.1fs",
+			voice.ThresholdToPercent(config.VADConfig.Threshold),
+			config.VADConfig.SilenceDuration,
+			config.VADConfig.PreRollDuration,
+			config.VADConfig.HangoverDuration)
+	}
 
 	relay := voice.NewVoiceRelay(config, audio, transcriber, &pipeAdapter{
 		ch: ch, verbose: verbose,

@@ -234,6 +234,62 @@ func TestRMSToLogScale(t *testing.T) {
 	}
 }
 
+func TestVAD_HangoverKeepsTrailingAudio(t *testing.T) {
+	cfg := VADConfig{
+		Threshold:            0.01,
+		PreRollDuration:      0,
+		SilenceDuration:      0.2,
+		HangoverDuration:     0.1,
+		MaxUtteranceDuration: 5,
+	}
+	vad := NewVAD(&cfg, 1000)
+
+	// 200 samples speech, then 300 samples silence (triggers at 200 silence samples).
+	// With 100-sample hangover, the utterance should keep 100 samples of
+	// trailing "silence" (which may contain low-energy speech in practice).
+	frames := make(chan []int16, 10)
+	go feedFrames(frames,
+		makeSpeech(200, 5000),
+		makeSilence(300),
+	)
+
+	utterances := collectUtterances(vad.Process(frames))
+	if len(utterances) != 1 {
+		t.Fatalf("got %d utterances, want 1", len(utterances))
+	}
+	// Without hangover: 200 samples (speech only, silence trimmed).
+	// With hangover of 0.1s at 1000Hz = 100 samples kept: 200 + 100 = 300.
+	if len(utterances[0].Audio) <= 200 {
+		t.Errorf("utterance has %d samples, expected >200 (hangover should keep trailing audio)", len(utterances[0].Audio))
+	}
+}
+
+func TestVAD_ZeroHangoverTrimsAll(t *testing.T) {
+	cfg := VADConfig{
+		Threshold:            0.01,
+		PreRollDuration:      0,
+		SilenceDuration:      0.2,
+		HangoverDuration:     0,
+		MaxUtteranceDuration: 5,
+	}
+	vad := NewVAD(&cfg, 1000)
+
+	frames := make(chan []int16, 10)
+	go feedFrames(frames,
+		makeSpeech(200, 5000),
+		makeSilence(300),
+	)
+
+	utterances := collectUtterances(vad.Process(frames))
+	if len(utterances) != 1 {
+		t.Fatalf("got %d utterances, want 1", len(utterances))
+	}
+	// Zero hangover trims all trailing silence, so only speech remains.
+	if len(utterances[0].Audio) != 200 {
+		t.Errorf("utterance has %d samples, expected 200 (zero hangover should trim all silence)", len(utterances[0].Audio))
+	}
+}
+
 func TestUtteranceDuration(t *testing.T) {
 	u := Utterance{Audio: make([]int16, 16000), SampleRate: 16000}
 	d := UtteranceDuration(u)

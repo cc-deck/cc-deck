@@ -468,6 +468,7 @@ func (r *VoiceRelay) handleUtterance(ctx context.Context, u Utterance) {
 
 	text = strings.Join(strings.Fields(text), " ")
 	text = sanitizeTerminalText(text)
+	text = stripBracketedAnnotations(text)
 	if r.config.Verbose {
 		log.Printf("[voice] transcribed: %q", text)
 	}
@@ -545,6 +546,12 @@ func (r *VoiceRelay) handleUtterance(ctx context.Context, u Utterance) {
 }
 
 var termEscapeRe = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
+var bracketAnnotationRe = regexp.MustCompile(`\[[^\[\]]*\]`)
+
+func stripBracketedAnnotations(text string) string {
+	result := bracketAnnotationRe.ReplaceAllString(text, "")
+	return strings.Join(strings.Fields(result), " ")
+}
 
 func sanitizeTerminalText(text string) string {
 	text = termEscapeRe.ReplaceAllString(text, "")

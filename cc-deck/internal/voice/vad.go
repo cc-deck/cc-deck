@@ -26,6 +26,7 @@ func (v *VAD) Process(frames <-chan []int16) <-chan Utterance {
 
 	preRollSamples := int(v.config.PreRollDuration * float64(v.sampleRate))
 	silenceSamples := int(v.config.SilenceDuration * float64(v.sampleRate))
+	hangoverSamples := int(v.config.HangoverDuration * float64(v.sampleRate))
 	maxSamples := int(v.config.MaxUtteranceDuration * float64(v.sampleRate))
 
 	go func() {
@@ -66,8 +67,13 @@ func (v *VAD) Process(frames <-chan []int16) <-chan Utterance {
 				}
 
 				if silenceSmpCnt >= silenceSamples || len(utterance) >= maxSamples {
-					if silenceSmpCnt < len(utterance) {
-						trimmed := utterance[:len(utterance)-silenceSmpCnt]
+					// Keep hangover audio after the last loud frame
+					// instead of trimming all trailing silence. This
+					// preserves low-energy trailing speech that fell
+					// below the VAD threshold.
+					trimSamples := silenceSmpCnt - hangoverSamples
+					if trimSamples > 0 && trimSamples < len(utterance) {
+						trimmed := utterance[:len(utterance)-trimSamples]
 						if len(trimmed) > 0 {
 							utterance = trimmed
 						}

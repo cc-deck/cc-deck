@@ -873,6 +873,59 @@ func TestVoiceRelay_SetRecordingEmitsMuteEvent(t *testing.T) {
 	}
 }
 
+func TestStripBracketedAnnotations(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"no brackets", "hello world", "hello world"},
+		{"typing annotation", "hello [typing] world", "hello world"},
+		{"multiple annotations", "one [typing] two [silence] three", "one two three"},
+		{"annotation at start", "[typing] hello", "hello"},
+		{"annotation at end", "hello [typing]", "hello"},
+		{"only annotation", "[typing]", ""},
+		{"empty brackets", "hello [] world", "hello world"},
+		{"nested text preserved", "use array[0] here", "use array here"},
+		{"no extra whitespace", "a  [x]  b", "a b"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := stripBracketedAnnotations(tt.input)
+			if got != tt.want {
+				t.Errorf("stripBracketedAnnotations(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestVoiceRelay_BracketAnnotationStripped(t *testing.T) {
+	audio := newMockAudioSource(makeSpeech(500, 5000), makeSilence(500))
+	transcriber := &mockTranscriber{results: []string{"hello [typing] world"}}
+	pipe := &mockPipeSender{}
+
+	config := DefaultRelayConfig()
+	config.VADConfig.Threshold = 0.01
+	config.VADConfig.SilenceDuration = 0.1
+	config.VADConfig.PreRollDuration = 0
+
+	relay := NewVoiceRelay(config, audio, transcriber, pipe)
+	if err := relay.Start(context.Background()); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+
+	collectEvents(relay.Events(), 2*time.Second)
+	relay.Stop()
+
+	sent := filterNonProtocol(pipe.getSent())
+	if len(sent) == 0 {
+		t.Fatal("expected at least one text send")
+	}
+	if sent[0].payload != "hello world " {
+		t.Errorf("payload = %q, want %q", sent[0].payload, "hello world ")
+	}
+}
+
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && searchString(s, substr)
 }
