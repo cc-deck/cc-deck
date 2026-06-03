@@ -546,7 +546,7 @@ func TestValidateAndWarn_NoIssues(t *testing.T) {
 	}
 }
 
-func TestValidateAndWarn_WithIssues(t *testing.T) {
+func TestValidateAndWarn_WithErrors(t *testing.T) {
 	oldStderr := os.Stderr
 	r, w, _ := os.Pipe()
 	os.Stderr = w
@@ -556,8 +556,8 @@ func TestValidateAndWarn_WithIssues(t *testing.T) {
 			{
 				Name: "test", File: "f", Extract: "e", Format: "json",
 				Values: map[string]string{
-					"wide": "☰",  // error
-					"amb":  "▶",  // warning
+					"wide": "☰",  // error (East Asian Wide)
+					"amb":  "▶",  // warning (Ambiguous)
 				},
 			},
 			{Name: "", File: "f", Extract: "e", Format: "json"}, // error (missing name)
@@ -583,12 +583,35 @@ func TestValidateAndWarn_WithIssues(t *testing.T) {
 	}
 
 	errors := countBySeverity(findings, SeverityError)
-	warnings := countBySeverity(findings, SeverityWarning)
-
 	if errors > 0 && !strings.Contains(output, fmt.Sprintf("%d error", errors)) {
 		t.Errorf("expected error count in stderr, got %q", output)
 	}
-	if warnings > 0 && !strings.Contains(output, fmt.Sprintf("%d warning", warnings)) {
-		t.Errorf("expected warning count in stderr, got %q", output)
+}
+
+func TestValidateAndWarn_WarningsOnly_Silent(t *testing.T) {
+	oldStderr := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+
+	cfg := &Config{
+		Badges: []BadgeRule{
+			{
+				Name: "test", File: "f", Extract: "e", Format: "json",
+				Values: map[string]string{"amb": "▶"}, // warning only
+			},
+		},
+	}
+	findings := cfg.ValidateAndWarn()
+
+	w.Close()
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+	os.Stderr = oldStderr
+
+	if len(findings) == 0 {
+		t.Error("expected warning findings")
+	}
+	if buf.Len() != 0 {
+		t.Errorf("expected no stderr for warnings-only, got %q", buf.String())
 	}
 }

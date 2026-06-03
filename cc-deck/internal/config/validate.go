@@ -51,32 +51,22 @@ func (c *Config) ValidateAndWarn() []Finding {
 		return nil
 	}
 
-	var errors, warnings int
+	var errors int
 	for _, f := range findings {
-		switch f.Severity {
-		case SeverityError:
+		if f.Severity == SeverityError {
 			errors++
-		case SeverityWarning:
-			warnings++
 		}
 	}
 
-	parts := []string{}
-	if errors > 0 {
-		parts = append(parts, fmt.Sprintf("%d error", errors))
-		if errors > 1 {
-			parts[len(parts)-1] += "s"
-		}
-	}
-	if warnings > 0 {
-		parts = append(parts, fmt.Sprintf("%d warning", warnings))
-		if warnings > 1 {
-			parts[len(parts)-1] += "s"
-		}
+	if errors == 0 {
+		return findings
 	}
 
-	fmt.Fprintf(os.Stderr, "config: %d issues found (%s), run cc-deck config check for details\n",
-		len(findings), strings.Join(parts, ", "))
+	fmt.Fprintf(os.Stderr, "config: %d error", errors)
+	if errors > 1 {
+		fmt.Fprint(os.Stderr, "s")
+	}
+	fmt.Fprintln(os.Stderr, " found, run cc-deck config check for details")
 
 	return findings
 }
