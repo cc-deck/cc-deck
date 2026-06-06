@@ -762,4 +762,34 @@ mod tests {
             Activity::Waiting(crate::session::WaitReason::Permission)
         );
     }
+
+    #[test]
+    fn test_process_hook_stores_agent_name() {
+        let mut state = ControllerState::default();
+        let mut hook = make_hook(42, "SessionStart");
+        hook.agent = Some("claude".to_string());
+
+        process_hook(&mut state, hook);
+        assert_eq!(
+            state.sessions[&42].agent_name,
+            Some("claude".to_string())
+        );
+    }
+
+    #[test]
+    fn test_process_hook_agent_name_set_once() {
+        let mut state = ControllerState::default();
+        let mut hook1 = make_hook(42, "SessionStart");
+        hook1.agent = Some("claude".to_string());
+        process_hook(&mut state, hook1);
+
+        let mut hook2 = make_hook(42, "PreToolUse");
+        hook2.agent = Some("opencode".to_string());
+        process_hook(&mut state, hook2);
+
+        assert_eq!(
+            state.sessions[&42].agent_name,
+            Some("claude".to_string())
+        );
+    }
 }

@@ -11,7 +11,11 @@ func ClaudeSettingsPath() string {
 	if a == nil {
 		return ""
 	}
-	return a.DetectConfig() + "/settings.json"
+	dir := a.DetectConfig()
+	if dir == "" {
+		return ""
+	}
+	return dir + "/settings.json"
 }
 
 // RegisterHooks adds cc-deck hook entries to settings.json.
