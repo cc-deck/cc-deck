@@ -53,7 +53,7 @@ func runHookRaw(stdin io.Reader, stderr io.Writer) {
 		"--name", "cc-deck:hook",
 		"--", string(payloadJSON))
 	if err := pipeCmd.Run(); err != nil {
-		fmt.Fprintf(stderr, "warning: failed to send pipe message: %v\n", err)
+		fmt.Fprintf(stderr, "error: failed to send pipe message: %v\n", err)
 		os.Exit(1)
 	}
 

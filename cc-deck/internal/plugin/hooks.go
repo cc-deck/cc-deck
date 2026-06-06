@@ -1,6 +1,8 @@
 package plugin
 
 import (
+	"path/filepath"
+
 	"github.com/cc-deck/cc-deck/internal/agent"
 )
 
@@ -15,7 +17,7 @@ func ClaudeSettingsPath() string {
 	if dir == "" {
 		return ""
 	}
-	return dir + "/settings.json"
+	return filepath.Join(dir, "settings.json")
 }
 
 // RegisterHooks adds cc-deck hook entries to settings.json.
