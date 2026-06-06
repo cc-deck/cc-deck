@@ -418,7 +418,7 @@ fn render_session_entry(
     Some((start_row, session.pane_id, session.tab_index))
 }
 
-/// Render the empty state (no Claude sessions).
+/// Render the empty state (no active sessions).
 fn render_empty_state(state: &super::state::SidebarState, payload: &cc_deck::RenderPayload, rows: usize, cols: usize) -> Vec<ClickRegion> {
     render_header(state, payload, cols);
     let mut click_regions = Vec::new();
@@ -427,7 +427,7 @@ fn render_empty_state(state: &super::state::SidebarState, payload: &cc_deck::Ren
         print_line(2, cols, "", Style::Normal);
     }
     if rows > 3 {
-        print_line(3, cols, "  No Claude sessions", Style::Dim);
+        print_line(3, cols, "  No active sessions", Style::Dim);
     }
     if rows > 4 {
         print_line(4, cols, "", Style::Normal);
