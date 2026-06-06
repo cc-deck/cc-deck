@@ -24,6 +24,15 @@ pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
     let done_timeout = state.config.done_timeout;
     let idle_fade_secs = state.config.idle_fade_secs;
 
+    // Count distinct agent types to decide whether to show indicators
+    let mut agent_types = std::collections::HashSet::new();
+    for s in &sessions {
+        if let Some(ref name) = s.agent_name {
+            agent_types.insert(name.clone());
+        }
+    }
+    let show_agent_indicators = agent_types.len() > 1;
+
     let render_sessions: Vec<RenderSession> = sessions
         .iter()
         .map(|s| {
@@ -32,10 +41,15 @@ pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
                 Activity::Working => working += 1,
                 Activity::Idle | Activity::Init => idle += 1,
                 Activity::Done | Activity::AgentDone => {
-                    // Done/AgentDone count as idle for summary purposes
                     idle += 1;
                 }
             }
+
+            let agent_indicator = if show_agent_indicators {
+                Some(agent_name_to_indicator(s.agent_name.as_deref()))
+            } else {
+                None
+            };
 
             RenderSession {
                 pane_id: s.pane_id,
@@ -53,6 +67,7 @@ pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
                 paused: s.paused,
                 done_attended: s.done_attended,
                 badges: s.badges.clone(),
+                agent_indicator,
             }
         })
         .collect();
@@ -72,6 +87,20 @@ pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
         controller_plugin_id: state.plugin_id,
         voice_connected: state.voice_enabled,
         voice_muted: state.voice_muted,
+        show_agent_indicators,
+    }
+}
+
+/// Map an agent name to a short indicator string for sidebar display.
+fn agent_name_to_indicator(name: Option<&str>) -> String {
+    match name {
+        Some("claude") => "CC".to_string(),
+        Some("opencode") => "OC".to_string(),
+        Some(other) => {
+            let upper: String = other.chars().take(2).collect::<String>().to_uppercase();
+            if upper.is_empty() { "??".to_string() } else { upper }
+        }
+        None => "??".to_string(),
     }
 }
 

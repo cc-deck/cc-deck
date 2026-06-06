@@ -24,6 +24,8 @@ pub struct RenderSession {
     pub done_attended: bool,
     #[serde(default)]
     pub badges: Vec<String>,
+    #[serde(default)]
+    pub agent_indicator: Option<String>,
 }
 
 /// Complete render payload broadcast by the controller to all sidebars.
@@ -44,6 +46,8 @@ pub struct RenderPayload {
     pub voice_connected: bool,
     #[serde(default)]
     pub voice_muted: bool,
+    #[serde(default)]
+    pub show_agent_indicators: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -112,6 +116,7 @@ mod protocol_tests {
                 paused: false,
                 done_attended: false,
                 badges: vec![],
+                agent_indicator: None,
             }],
             focused_pane_id: Some(1),
             active_tab_index: 0,
@@ -124,6 +129,7 @@ mod protocol_tests {
             controller_plugin_id: 42,
             voice_connected: false,
             voice_muted: false,
+            show_agent_indicators: false,
         };
         let json = serde_json::to_string(&payload).unwrap();
         let restored: RenderPayload = serde_json::from_str(&json).unwrap();
@@ -197,6 +203,7 @@ mod protocol_tests {
             controller_plugin_id: 1,
             voice_connected: true,
             voice_muted: false,
+            show_agent_indicators: false,
         };
         let json = serde_json::to_string(&payload).unwrap();
         let restored: RenderPayload = serde_json::from_str(&json).unwrap();
@@ -228,6 +235,7 @@ mod protocol_tests {
             controller_plugin_id: 1,
             voice_connected: false,
             voice_muted: false,
+            show_agent_indicators: false,
         };
         let json = serde_json::to_string(&payload).unwrap();
         let restored: RenderPayload = serde_json::from_str(&json).unwrap();

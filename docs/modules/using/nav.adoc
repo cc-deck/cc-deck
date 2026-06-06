@@ -3,6 +3,7 @@
 * xref:navigation.adoc[Keyboard Navigation]
 * xref:attend.adoc[Smart Attend]
 * xref:sessions.adoc[Session Management]
+* xref:multi-agent.adoc[Multi-Agent Setup]
 * xref:configuration.adoc[Configuration]
 * xref:voice.adoc[Voice Relay]
 * xref:build.adoc[Build Command]
