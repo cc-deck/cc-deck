@@ -47,11 +47,15 @@ func (o *OpenCodeAgent) InstallHooks() error {
 	if err := fileutil.AtomicWrite(pluginPath, opencodePluginTemplate, 0o644); err != nil {
 		return fmt.Errorf("writing OpenCode plugin: %w", err)
 	}
+	if err := registerPluginInConfig(pluginPath); err != nil {
+		return fmt.Errorf("registering plugin in opencode config: %w", err)
+	}
 	return nil
 }
 
 func (o *OpenCodeAgent) UninstallHooks() error {
 	pluginPath := opencodePluginPath()
+	_ = unregisterPluginFromConfig(pluginPath)
 	if err := os.Remove(pluginPath); err != nil {
 		if os.IsNotExist(err) {
 			return nil
@@ -92,6 +96,104 @@ func (o *OpenCodeAgent) TranslateEvent(input []byte) (*NormalizedPayload, error)
 	}, nil
 }
 
+// --- OpenCode config (opencode.json) management ---
+
+const pluginEntry = "~/.config/opencode/plugins/cc-deck.ts"
+
+// registerPluginInConfig adds the cc-deck plugin to the "plugin" array
+// in opencode.json if not already present.
+func registerPluginInConfig(pluginPath string) error {
+	configPath := opencodeConfigPath()
+	config, err := readOpencodeConfig(configPath)
+	if err != nil {
+		return err
+	}
+
+	plugins, _ := config["plugin"].([]any)
+
+	for _, p := range plugins {
+		if s, ok := p.(string); ok && (s == pluginEntry || s == pluginPath) {
+			return nil
+		}
+	}
+
+	plugins = append(plugins, pluginEntry)
+	config["plugin"] = plugins
+	return writeOpencodeConfig(configPath, config)
+}
+
+// unregisterPluginFromConfig removes the cc-deck plugin entry from
+// the "plugin" array in opencode.json.
+func unregisterPluginFromConfig(pluginPath string) error {
+	configPath := opencodeConfigPath()
+	config, err := readOpencodeConfig(configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+
+	plugins, _ := config["plugin"].([]any)
+	if len(plugins) == 0 {
+		return nil
+	}
+
+	var filtered []any
+	for _, p := range plugins {
+		s, ok := p.(string)
+		if ok && (s == pluginEntry || s == pluginPath) {
+			continue
+		}
+		filtered = append(filtered, p)
+	}
+
+	if len(filtered) == len(plugins) {
+		return nil
+	}
+
+	if filtered == nil {
+		filtered = []any{}
+	}
+	config["plugin"] = filtered
+	return writeOpencodeConfig(configPath, config)
+}
+
+func readOpencodeConfig(path string) (map[string]any, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return map[string]any{
+				"$schema": "https://opencode.ai/config.json",
+			}, nil
+		}
+		return nil, err
+	}
+	if len(data) == 0 {
+		return map[string]any{
+			"$schema": "https://opencode.ai/config.json",
+		}, nil
+	}
+	var config map[string]any
+	if err := json.Unmarshal(data, &config); err != nil {
+		return nil, fmt.Errorf("parsing opencode.json: %w", err)
+	}
+	return config, nil
+}
+
+func writeOpencodeConfig(path string, config map[string]any) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("creating config directory %s: %w", dir, err)
+	}
+	data, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encoding opencode.json: %w", err)
+	}
+	data = append(data, '\n')
+	return fileutil.AtomicWrite(path, data, 0o644)
+}
+
 var opencodeConfigDirFunc = defaultOpencodeConfigDir
 
 func opencodeConfigDir() string {
@@ -111,4 +213,14 @@ func opencodePluginPath() string {
 
 func defaultOpencodePluginPath() string {
 	return filepath.Join(opencodeConfigDir(), "plugins", "cc-deck.ts")
+}
+
+var opencodeConfigPathFunc = defaultOpencodeConfigPath
+
+func opencodeConfigPath() string {
+	return opencodeConfigPathFunc()
+}
+
+func defaultOpencodeConfigPath() string {
+	return filepath.Join(opencodeConfigDir(), "opencode.json")
 }
