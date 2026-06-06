@@ -134,7 +134,7 @@ fn lerp_color_i(from: (u8, u8, u8), to: (u8, u8, u8), t: u32) -> (u8, u8, u8) {
     (lerp(from.0, to.0), lerp(from.1, to.1), lerp(from.2, to.2))
 }
 
-/// A single Claude Code session running in a Zellij tab.
+/// A single AI agent session running in a Zellij tab.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Session {
     pub pane_id: u32,
@@ -165,6 +165,10 @@ pub struct Session {
     pub pending_tab_rename: bool,
     #[serde(default)]
     pub badges: Vec<String>,
+    /// Agent type for this session (e.g., "claude", "opencode").
+    /// Set from the first hook event's agent field.
+    #[serde(default)]
+    pub agent_name: Option<String>,
 }
 
 impl Session {
@@ -185,6 +189,7 @@ impl Session {
             done_attended: false,
             pending_tab_rename: false,
             badges: Vec::new(),
+            agent_name: None,
         }
     }
 

@@ -1,5 +1,3 @@
-// T023: cc-deck hook subcommand - forward Claude Code hook events to Zellij plugin
-
 package cmd
 
 import (
@@ -15,65 +13,53 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/cc-deck/cc-deck/internal/agent"
 	"github.com/cc-deck/cc-deck/internal/badge"
 	"github.com/cc-deck/cc-deck/internal/config"
 	"github.com/cc-deck/cc-deck/internal/session"
 	"github.com/cc-deck/cc-deck/internal/xdg"
 )
 
-// hookPayload represents the JSON structure from Claude Code hook events.
-type hookPayload struct {
-	SessionID string `json:"session_id,omitempty"`
-	HookEvent string `json:"hook_event_name"`
-	ToolName  string `json:"tool_name,omitempty"`
-	CWD       string `json:"cwd,omitempty"`
-	AgentID   string `json:"agent_id,omitempty"`
-}
-
-// pipePayload is what we send to the Zellij plugin via pipe.
-type pipePayload struct {
-	SessionID string `json:"session_id,omitempty"`
-	PaneID    uint32 `json:"pane_id"`
-	HookEvent string `json:"hook_event_name"`
-	ToolName  string `json:"tool_name,omitempty"`
-	CWD       string   `json:"cwd,omitempty"`
-	AgentID   string   `json:"agent_id,omitempty"`
-	Badges    []string `json:"badges,omitempty"`
-}
-
 // NewHookCmd creates the hook cobra command.
 func NewHookCmd() *cobra.Command {
 	var paneIDStr string
+	var agentName string
+	var rawMode bool
 
 	cmd := &cobra.Command{
 		Use:   "hook",
-		Short: "Forward Claude Code hook events to the Zellij plugin",
-		Long: `Reads Claude Code hook JSON from stdin and forwards it as a pipe message
-to the cc-deck Zellij plugin. Designed to be registered in
-~/.claude/settings.json as a hook command.
+		Short: "Forward AI agent hook events to the Zellij plugin",
+		Long: `Reads hook event JSON from stdin and forwards it as a pipe message
+to the cc-deck Zellij plugin. Designed to be registered as a hook command
+in an AI agent's configuration.
 
+The --agent flag identifies the calling agent (default: "claude").
+The --raw flag accepts pre-normalized JSON payloads and forwards them
+directly, skipping TranslateEvent().
 The --pane-id flag should use shell expansion ($ZELLIJ_PANE_ID) so the
-shell resolves it before the binary runs, since Claude Code strips
-Zellij environment variables from hook subprocesses.
+shell resolves it before the binary runs.
 
 Exits silently (code 0) if not inside Zellij (empty pane-id),
-input is malformed, or any error occurs. Never disrupts Claude Code.`,
+input is malformed, or any error occurs. Never disrupts the agent.`,
 		Args:   cobra.NoArgs,
-		Hidden: true, // Not intended for direct user invocation
+		Hidden: true,
 		Run: func(cmd *cobra.Command, _ []string) {
-			runHook(os.Stdin, paneIDStr)
+			if rawMode {
+				runHookRaw(os.Stdin, os.Stderr)
+			} else {
+				runHook(os.Stdin, paneIDStr, agentName)
+			}
 		},
 	}
 
 	cmd.Flags().StringVar(&paneIDStr, "pane-id", "", "Zellij pane ID (use $ZELLIJ_PANE_ID for shell expansion)")
+	cmd.Flags().StringVar(&agentName, "agent", "claude", "Agent name (claude, opencode)")
+	cmd.Flags().BoolVar(&rawMode, "raw", false, "Accept pre-normalized JSON payload (skip TranslateEvent)")
 
 	return cmd
 }
 
 // paneMapFile is the path for the session_id -> pane_id cache.
-// Claude Code strips ZELLIJ env vars from hook subprocesses, so $ZELLIJ_PANE_ID
-// is often empty. When we DO get a pane_id, we cache it keyed by session_id so
-// subsequent events for the same session can recover the pane_id.
 var hookStateDir = filepath.Join(xdg.StateHome, "cc-deck")
 
 var paneMapFile = filepath.Join(hookStateDir, "pane-map.json")
@@ -96,25 +82,31 @@ func savePaneMap(m map[string]uint32) {
 	_ = os.WriteFile(paneMapFile, data, 0600)
 }
 
-func runHook(stdin io.Reader, paneIDStr string) {
-	// Check if zellij CLI is available first (fast exit if not in Zellij)
+func runHook(stdin io.Reader, paneIDStr string, agentName string) {
 	zellijPath, err := exec.LookPath("zellij")
 	if err != nil {
 		return
 	}
 
-	// Read hook JSON from stdin
-	var hook hookPayload
-	decoder := json.NewDecoder(stdin)
-	if err := decoder.Decode(&hook); err != nil {
+	input, err := io.ReadAll(stdin)
+	if err != nil || len(input) == 0 {
 		return
 	}
 
-	if hook.HookEvent == "" {
+	a := agent.Get(agentName)
+	if a == nil {
 		return
 	}
 
-	// Resolve pane_id: prefer flag, fallback to session_id cache
+	normalized, err := a.TranslateEvent(input)
+	if err != nil || normalized == nil {
+		return
+	}
+
+	if normalized.HookEvent == "" {
+		return
+	}
+
 	var paneID uint32
 	if paneIDStr != "" {
 		paneID64, err := strconv.ParseUint(paneIDStr, 10, 32)
@@ -122,54 +114,36 @@ func runHook(stdin io.Reader, paneIDStr string) {
 			return
 		}
 		paneID = uint32(paneID64)
-		// Cache successful mapping for future calls
-		if hook.SessionID != "" {
+		if normalized.SessionID != "" {
 			m := loadPaneMap()
-			m[hook.SessionID] = paneID
+			m[normalized.SessionID] = paneID
 			savePaneMap(m)
 		}
-	} else if hook.SessionID != "" {
-		// Pane ID missing (CC stripped env vars). Try cache lookup.
+	} else if normalized.SessionID != "" {
 		m := loadPaneMap()
-		cached, ok := m[hook.SessionID]
+		cached, ok := m[normalized.SessionID]
 		if !ok {
 			return
 		}
 		paneID = cached
 	} else {
-		// No pane_id and no session_id: nothing we can do
 		return
 	}
 
-	// Evaluate badge rules against the session's working directory
-	var badges []string
-	if hook.CWD != "" {
+	normalized.PaneID = paneID
+
+	if normalized.Cwd != "" {
 		cfg, _ := config.Load("")
 		if cfg != nil && len(cfg.Badges) > 0 {
-			badges = badge.Evaluate(cfg.Badges, hook.CWD)
+			normalized.Badges = badge.Evaluate(cfg.Badges, normalized.Cwd)
 		}
 	}
 
-	// Build pipe payload
-	payload := pipePayload{
-		SessionID: hook.SessionID,
-		PaneID:    paneID,
-		HookEvent: hook.HookEvent,
-		ToolName:  hook.ToolName,
-		CWD:       hook.CWD,
-		AgentID:   hook.AgentID,
-		Badges:    badges,
-	}
-
-	payloadJSON, err := json.Marshal(payload)
+	payloadJSON, err := json.Marshal(normalized)
 	if err != nil {
 		return
 	}
 
-	// Send hook event via broadcast pipe. All running plugins receive it;
-	// the controller processes cc-deck:hook, sidebars ignore it.
-	// Broadcast avoids creating a second controller instance when the
-	// --plugin-configuration doesn't exactly match the load_plugins config.
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
@@ -178,17 +152,11 @@ func runHook(stdin io.Reader, paneIDStr string) {
 		"--", string(payloadJSON))
 	_ = cmd.Run()
 
-	// Auto-save session state (5-minute cooldown, rolling retention).
-	// cooldownElapsed() returns immediately most of the time; only every 5 min
-	// does the full save (zellij pipe + file write) run.
 	session.AutoSave()
 
-	// Clean up cache on session end only. Do NOT clean on Stop because
-	// SessionEnd fires after Stop and needs the cached pane_id mapping
-	// (Claude Code strips $ZELLIJ_PANE_ID from hook subprocesses).
-	if hook.HookEvent == "SessionEnd" && hook.SessionID != "" {
+	if normalized.HookEvent == "SessionEnd" && normalized.SessionID != "" {
 		m := loadPaneMap()
-		delete(m, hook.SessionID)
+		delete(m, normalized.SessionID)
 		savePaneMap(m)
 	}
 }
@@ -197,16 +165,16 @@ func runHook(stdin io.Reader, paneIDStr string) {
 func FormatHookUsage() string {
 	return fmt.Sprintf(`To register hooks in ~/.claude/settings.json:
 
-  cc-deck config plugin install
+  cc-deck plugin install
 
 Or manually add to settings.json:
 
   {
     "hooks": {
-      "PermissionRequest": [{"matcher": "", "hooks": [{"type": "command", "command": "cc-deck hook --pane-id \"$ZELLIJ_PANE_ID\""}]}],
-      "Notification": [{"matcher": "", "hooks": [{"type": "command", "command": "cc-deck hook --pane-id \"$ZELLIJ_PANE_ID\""}]}],
-      "Stop": [{"hooks": [{"type": "command", "command": "cc-deck hook --pane-id \"$ZELLIJ_PANE_ID\""}]}],
-      "SubagentStop": [{"hooks": [{"type": "command", "command": "cc-deck hook --pane-id \"$ZELLIJ_PANE_ID\""}]}]
+      "PermissionRequest": [{"matcher": "", "hooks": [{"type": "command", "command": "cc-deck hook --agent claude --pane-id \"$ZELLIJ_PANE_ID\""}]}],
+      "Notification": [{"matcher": "", "hooks": [{"type": "command", "command": "cc-deck hook --agent claude --pane-id \"$ZELLIJ_PANE_ID\""}]}],
+      "Stop": [{"hooks": [{"type": "command", "command": "cc-deck hook --agent claude --pane-id \"$ZELLIJ_PANE_ID\""}]}],
+      "SubagentStop": [{"hooks": [{"type": "command", "command": "cc-deck hook --agent claude --pane-id \"$ZELLIJ_PANE_ID\""}]}]
     }
   }
 `)

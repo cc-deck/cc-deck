@@ -8,7 +8,7 @@
 [![License](https://img.shields.io/github/license/cc-deck/cc-deck)](LICENSE)
 [![Beta](https://img.shields.io/badge/status-beta-orange)](https://github.com/cc-deck/cc-deck)
 
-**The TweetDeck for Claude Code.** A [Zellij](https://zellij.dev) sidebar plugin that monitors, attends to, and orchestrates multiple Claude Code sessions from a single terminal view. Zellij is a modern terminal multiplexer (like tmux, but with a plugin system and built-in layout management).
+**The TweetDeck for AI coding agents.** A [Zellij](https://zellij.dev) sidebar plugin that monitors, attends to, and orchestrates multiple AI agent sessions from a single terminal view. Supports Claude Code, OpenCode, and other agents through a pluggable Agent interface. Zellij is a modern terminal multiplexer (like tmux, but with a plugin system and built-in layout management).
 
 > [!WARNING]
 > **Beta software.** APIs, configuration formats, and behavior may change between releases. The author uses it daily for real work and it generally does what it promises. Bug reports and feedback are welcome.
@@ -123,6 +123,19 @@ brew install whisper-cpp
 cc-deck ws voice --setup
 cc-deck ws voice my-project
 ```
+
+### Multi-agent support
+
+cc-deck supports multiple AI coding agents through a pluggable Agent interface. Each agent gets automatic detection, hook installation, and event translation.
+
+| Agent | Indicator | Integration |
+|-------|-----------|-------------|
+| Claude Code | `[CC]` | Hook events via `settings.json` |
+| OpenCode | `[OC]` | TypeScript plugin via `~/.config/opencode/plugins/` |
+
+When sessions from different agents are active, the sidebar shows agent indicators (`[CC]`, `[OC]`) before each session name. With a single agent type, indicators are hidden.
+
+Use `cc-deck hook --raw` to send pre-normalized JSON payloads from custom integrations.
 
 ### Multi-platform
 

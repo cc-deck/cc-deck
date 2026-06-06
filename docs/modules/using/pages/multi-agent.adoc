@@ -1,0 +1,92 @@
+= Multi-Agent Setup
+:description: Configure cc-deck to work with multiple AI coding agents
+
+cc-deck supports multiple AI coding agents through a pluggable Agent interface.
+Each agent gets automatic detection, hook installation, and event translation.
+
+== Supported Agents
+
+[cols="1,1,2"]
+|===
+| Agent | Indicator | Integration Method
+
+| Claude Code
+| `[CC]`
+| Hook entries in `~/.claude/settings.json`
+
+| OpenCode
+| `[OC]`
+| TypeScript plugin in `~/.config/opencode/plugins/cc-deck.ts`
+|===
+
+== Installing Hooks
+
+The `plugin install` command auto-detects all installed agents and configures hooks for each.
+
+[source,bash]
+----
+cc-deck config plugin install
+----
+
+To install hooks for a specific agent only:
+
+[source,bash]
+----
+cc-deck config plugin install --agents opencode
+----
+
+== Checking Status
+
+View which agents are detected and whether their hooks are installed:
+
+[source,bash]
+----
+cc-deck config plugin status
+----
+
+The output shows each agent's detection state, hook installation state, and configuration path.
+
+== Uninstalling Hooks
+
+Remove hooks for all agents:
+
+[source,bash]
+----
+cc-deck config plugin remove
+----
+
+Remove hooks for a specific agent:
+
+[source,bash]
+----
+cc-deck config plugin remove --agents opencode
+----
+
+== Sidebar Indicators
+
+When sessions from multiple agent types are active, the sidebar shows agent indicators before each session name.
+For example, `[CC] api-server` and `[OC] frontend`.
+
+When all sessions use the same agent type, indicators are hidden to save horizontal space.
+
+== Custom Integrations
+
+Use `cc-deck hook --raw` to send pre-normalized JSON payloads from any external process:
+
+[source,bash]
+----
+echo '{"hook_event_name":"SessionStart","agent":"custom","pane_id":1,"session_id":"s1"}' | cc-deck hook --raw
+----
+
+The `--raw` flag accepts the normalized payload format directly, skipping agent-specific translation.
+This allows any tool to feed events into the cc-deck sidebar.
+
+== Hook Command
+
+Each agent's hook installation registers a command that calls `cc-deck hook --agent <name>`.
+The agent adapter translates the agent-specific payload into the normalized format before forwarding to the Zellij plugin.
+
+[source,text]
+----
+Agent emits event --> cc-deck hook --agent <name> --> TranslateEvent() --> NormalizedPayload --> Zellij pipe --> Sidebar
+----

@@ -6,6 +6,8 @@ use serde::Deserialize;
 /// Hook event payload received from `cc-deck hook` CLI via pipe.
 #[derive(Debug, Deserialize)]
 pub struct HookPayload {
+    #[serde(default)]
+    pub agent: Option<String>,
     pub session_id: Option<String>,
     pub pane_id: u32,
     pub hook_event_name: String,
