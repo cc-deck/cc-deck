@@ -106,6 +106,8 @@ func runHook(stdin io.Reader, paneIDStr string, agentName string) {
 		return
 	}
 
+	normalized.AgentIndicator = a.Indicator()
+
 	var paneID uint32
 	if paneIDStr != "" {
 		paneID64, err := strconv.ParseUint(paneIDStr, 10, 32)

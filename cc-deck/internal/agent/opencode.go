@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+
+	"github.com/cc-deck/cc-deck/internal/fileutil"
 )
 
 //go:embed opencode_plugin.ts
@@ -42,7 +44,7 @@ func (o *OpenCodeAgent) InstallHooks() error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("creating OpenCode plugins directory %s: %w", dir, err)
 	}
-	if err := atomicWriteFile(pluginPath, opencodePluginTemplate, 0o644); err != nil {
+	if err := fileutil.AtomicWrite(pluginPath, opencodePluginTemplate, 0o644); err != nil {
 		return fmt.Errorf("writing OpenCode plugin: %w", err)
 	}
 	return nil

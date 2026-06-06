@@ -39,14 +39,15 @@ type Agent interface {
 // NormalizedPayload is the common format sent to the Zellij plugin via pipe message.
 // The PaneID and Badges fields are populated by the hook command after TranslateEvent returns.
 type NormalizedPayload struct {
-	Agent     string   `json:"agent"`
-	SessionID string   `json:"session_id,omitempty"`
-	PaneID    uint32   `json:"pane_id"`
-	HookEvent string   `json:"hook_event_name"`
-	ToolName  string   `json:"tool_name,omitempty"`
-	Cwd       string   `json:"cwd,omitempty"`
-	AgentID   string   `json:"agent_id,omitempty"`
-	Badges    []string `json:"badges,omitempty"`
+	Agent          string   `json:"agent"`
+	AgentIndicator string   `json:"agent_indicator,omitempty"`
+	SessionID      string   `json:"session_id,omitempty"`
+	PaneID         uint32   `json:"pane_id"`
+	HookEvent      string   `json:"hook_event_name"`
+	ToolName       string   `json:"tool_name,omitempty"`
+	Cwd            string   `json:"cwd,omitempty"`
+	AgentID        string   `json:"agent_id,omitempty"`
+	Badges         []string `json:"badges,omitempty"`
 }
 
 var (

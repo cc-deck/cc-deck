@@ -169,6 +169,10 @@ pub struct Session {
     /// Set from the first hook event's agent field.
     #[serde(default)]
     pub agent_name: Option<String>,
+    /// Agent indicator (e.g., "CC", "OC") from the Go CLI.
+    /// Single source of truth for sidebar display.
+    #[serde(default)]
+    pub agent_indicator: Option<String>,
 }
 
 impl Session {
@@ -190,6 +194,7 @@ impl Session {
             pending_tab_rename: false,
             badges: Vec::new(),
             agent_name: None,
+            agent_indicator: None,
         }
     }
 

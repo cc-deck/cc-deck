@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/cc-deck/cc-deck/internal/fileutil"
 )
 
 // ClaudeAgent implements the Agent interface for Claude Code.
@@ -311,34 +313,6 @@ func writeClaudeSettings(path string, settings map[string]any) error {
 		return fmt.Errorf("encoding settings: %w", err)
 	}
 	data = append(data, '\n')
-	return atomicWriteFile(path, data, 0o644)
+	return fileutil.AtomicWrite(path, data, 0o644)
 }
 
-func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
-	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, ".cc-deck-*.tmp")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		os.Remove(tmpName)
-		return err
-	}
-	if err := tmp.Chmod(perm); err != nil {
-		tmp.Close()
-		os.Remove(tmpName)
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmpName)
-		return err
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		os.Remove(tmpName)
-		return err
-	}
-	return nil
-}

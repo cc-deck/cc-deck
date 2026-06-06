@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+
+	"github.com/cc-deck/cc-deck/internal/agent"
 )
 
 // RemoveOptions configures the remove command.
@@ -29,10 +31,15 @@ func Remove(opts RemoveOptions) error {
 	pInfo := EmbeddedPlugin()
 	state := DetectInstallState(zInfo, pInfo)
 
-	settingsPath := ClaudeSettingsPath()
-	hasHooks := HasHooks(settingsPath)
+	hasAnyHooks := false
+	for _, a := range agent.All() {
+		if a.HooksInstalled() {
+			hasAnyHooks = true
+			break
+		}
+	}
 
-	if !state.PluginInstalled && !state.LayoutInstalled && !state.DefaultInjected && !hasHooks {
+	if !state.PluginInstalled && !state.LayoutInstalled && !state.DefaultInjected && !hasAnyHooks {
 		fmt.Fprintln(opts.Stdout, "Nothing to remove. cc-deck is not installed.")
 		return nil
 	}
@@ -82,19 +89,16 @@ func Remove(opts RemoveOptions) error {
 		fmt.Fprintf(opts.Stdout, "  Reverted: %s (plugin pane removed)\n", tildeHome(state.DefaultLayoutPath))
 	}
 
-	// Remove hooks from settings.json (with backup)
-	if hasHooks {
-		backupPath, err := BackupFile(settingsPath, opts.SkipBackup)
-		if err != nil {
-			fmt.Fprintf(opts.Stderr, "Warning: Could not backup settings.json: %v\n", err)
+	// Remove hooks for all agents
+	for _, a := range agent.All() {
+		if !a.HooksInstalled() {
+			continue
 		}
-		if err := RemoveHooks(settingsPath); err != nil {
-			return fmt.Errorf("removing hooks: %w", err)
+		if err := a.UninstallHooks(); err != nil {
+			fmt.Fprintf(opts.Stderr, "Warning: Could not remove hooks for %s: %v\n", a.DisplayName(), err)
+			continue
 		}
-		fmt.Fprintf(opts.Stdout, "  Hooks:   removed from %s\n", tildeHome(settingsPath))
-		if backupPath != "" {
-			fmt.Fprintf(opts.Stdout, "  Backup:  %s\n", tildeHome(backupPath))
-		}
+		fmt.Fprintf(opts.Stdout, "  Hooks:   removed for %s\n", a.DisplayName())
 	}
 
 	if isZellijRunning() {
@@ -105,13 +109,6 @@ func Remove(opts RemoveOptions) error {
 	return nil
 }
 
-// RunRemove is the command runner function for the remove command.
-func RunRemove(stdout, stderr io.Writer) error {
-	return Remove(RemoveOptions{
-		Stdout: stdout,
-		Stderr: stderr,
-	})
-}
 
 // cleanupPluginSymlinks removes any symlinks in the plugins directory that
 // point to cc_deck.wasm.
