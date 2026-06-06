@@ -1,12 +1,12 @@
 # Brainstorm Overview
 
-Last updated: 2026-06-02 (config validation)
+Last updated: 2026-06-06 (multi-agent abstraction revisit)
 
 ## Active Brainstorms
 
 | # | Date | Topic | Status | Spec |
 |---|------|-------|--------|------|
-| 022 | 2026-03-19 | Multi-agent support | brainstorm | - |
+| 022 | 2026-03-19 | Multi-agent support | active | - |
 | 023 | 2026-03-12 | Git workflow | brainstorm | - |
 | 025 | 2026-03-12 | Security model | brainstorm | - |
 | 040 | 2026-04-21 | Workspace channels | specified | 041 |
@@ -35,7 +35,7 @@ Last updated: 2026-06-02 (config validation)
 
 ## Open Threads
 
-- Multi-agent support: Agent adapter protocol, unified hook interface for Claude/Codex/Gemini, agent wrapper for hookless agents, credential transport design (from #022)
+- Multi-agent support: Pure Go Agent interface, Claude + OpenCode adapters as first spec, cc-deck-agent-wrapper for hookless agents, Rust plugin generalization. Follow-up specs: network policy, credential transport, build system, Codex/Gemini/Cline/OpenClaw adapters (from #022)
 - Voice relay: speech-to-text relay via PipeChannel, plugin-side handler, local capture strategy (from #042, depends on spec 041)
 - Voice sidebar integration: ♫ indicator, mute toggle, [[command]] protocol, PTT removal, bidirectional state sync (from #045)
 - Voice attend stop word: whether additional voice actions beyond "submit" and "attend" will be needed (from #046)
