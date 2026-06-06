@@ -5,11 +5,11 @@
 import type { Plugin } from "@opencode-ai/plugin";
 
 const plugin: Plugin = async (input) => {
-  const { $ } = input;
+  const { $, directory } = input;
 
   async function sendHook(payload: Record<string, unknown>) {
     try {
-      const json = JSON.stringify(payload);
+      const json = JSON.stringify({ ...payload, cwd: directory });
       await $`echo ${json} | cc-deck hook --agent opencode --pane-id "$ZELLIJ_PANE_ID"`;
     } catch {
       // Fail silently: cc-deck may not be in PATH or Zellij may not be running.

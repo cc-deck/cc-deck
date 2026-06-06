@@ -139,11 +139,11 @@ func TestOpenCodeAgentInstallHooks(t *testing.T) {
 	for _, want := range []string{
 		"@opencode-ai/plugin",
 		"cc-deck hook --agent opencode",
-		"session.next.step.started",
-		"session.next.step.ended",
+		"session.created",
+		"session.idle",
 		"tool.execute.before",
 		"tool.execute.after",
-		"permission.ask",
+		"permission.asked",
 	} {
 		if !strings.Contains(string(content), want) {
 			t.Errorf("plugin file missing %q", want)

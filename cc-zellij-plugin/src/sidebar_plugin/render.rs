@@ -388,9 +388,9 @@ fn render_session_entry(
         let prefix_len = 1 + display_width(indicator) + 1 + agent_prefix_len;
         let max_name = cols.saturating_sub(prefix_len);
         let truncated_name = truncate(&session.display_name, max_name);
-        let agent_part = if agent_prefix.is_empty() { String::new() } else { format!("\x1b[2m{agent_prefix}\x1b[0m ") };
+        let agent_part = if agent_prefix.is_empty() { String::new() } else { format!("\x1b[2m{agent_prefix}{bg}{fg} ") };
         let bold_or_dim = if session.paused { "\x1b[2m" } else { "\x1b[1m" };
-        let styled_line1 = format!("{bg} \x1b[38;2;{r};{g};{b}m{indicator}{fg}{bold_or_dim} {agent_part}{truncated_name}{RESET}");
+        let styled_line1 = format!("{bg} \x1b[38;2;{r};{g};{b}m{indicator}{fg} {agent_part}{bold_or_dim}{truncated_name}{RESET}");
         print!("\x1b[{};1H{}", start_row + 1, pad_with_bg_color(&styled_line1, cols, bg));
     } else {
         print!("\x1b[{};1H{}", start_row + 1, pad(&line1, cols));

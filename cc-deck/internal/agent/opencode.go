@@ -78,6 +78,7 @@ type opencodeHookPayload struct {
 	HookEvent string `json:"hook_event_name"`
 	SessionID string `json:"session_id,omitempty"`
 	ToolName  string `json:"tool_name,omitempty"`
+	Cwd       string `json:"cwd,omitempty"`
 }
 
 func (o *OpenCodeAgent) TranslateEvent(input []byte) (*NormalizedPayload, error) {
@@ -93,6 +94,7 @@ func (o *OpenCodeAgent) TranslateEvent(input []byte) (*NormalizedPayload, error)
 		SessionID: hook.SessionID,
 		HookEvent: hook.HookEvent,
 		ToolName:  hook.ToolName,
+		Cwd:       hook.Cwd,
 	}, nil
 }
 
