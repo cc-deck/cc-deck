@@ -378,23 +378,17 @@ fn render_session_entry(
     };
 
     if rename_state.is_some() {
-        // Rename mode: keep bg color, cursor uses reverse video within it
         print!("\x1b[{};1H{}", start_row + 1, pad_with_bg_color(&line1, cols, bg));
     } else if use_bg {
+        // Rebuild line1 with background/foreground colors applied
         let agent_prefix = session.agent_indicator.as_ref()
             .map(|ai| format!("[{ai}]"))
             .unwrap_or_default();
-        let name = &session.display_name;
         let agent_prefix_len = if agent_prefix.is_empty() { 0 } else { display_width(&agent_prefix) + 1 };
         let prefix_len = 1 + display_width(indicator) + 1 + agent_prefix_len;
         let max_name = cols.saturating_sub(prefix_len);
-        let truncated_name = truncate(name, max_name);
-        let agent_part = if agent_prefix.is_empty() {
-            String::new()
-        } else {
-            format!("\x1b[2m{agent_prefix}\x1b[0m ")
-        };
-
+        let truncated_name = truncate(&session.display_name, max_name);
+        let agent_part = if agent_prefix.is_empty() { String::new() } else { format!("\x1b[2m{agent_prefix}\x1b[0m ") };
         let bold_or_dim = if session.paused { "\x1b[2m" } else { "\x1b[1m" };
         let styled_line1 = format!("{bg} \x1b[38;2;{r};{g};{b}m{indicator}{fg}{bold_or_dim} {agent_part}{truncated_name}{RESET}");
         print!("\x1b[{};1H{}", start_row + 1, pad_with_bg_color(&styled_line1, cols, bg));

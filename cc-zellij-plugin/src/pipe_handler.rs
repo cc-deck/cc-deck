@@ -212,6 +212,20 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_hook_payload_with_agent() {
+        let json = r#"{"pane_id":42,"hook_event_name":"PreToolUse","agent":"opencode"}"#;
+        let payload: HookPayload = serde_json::from_str(json).unwrap();
+        assert_eq!(payload.agent.as_deref(), Some("opencode"));
+    }
+
+    #[test]
+    fn test_parse_hook_payload_without_agent() {
+        let json = r#"{"pane_id":1,"hook_event_name":"Stop"}"#;
+        let payload: HookPayload = serde_json::from_str(json).unwrap();
+        assert!(payload.agent.is_none());
+    }
+
+    #[test]
     fn test_parse_hook_payload_with_badges() {
         let json = r#"{"pane_id":42,"hook_event_name":"PreToolUse","badges":["🚢","✅"]}"#;
         let payload: HookPayload = serde_json::from_str(json).unwrap();

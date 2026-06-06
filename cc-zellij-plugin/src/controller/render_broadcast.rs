@@ -388,4 +388,57 @@ mod tests {
         assert!(payload.voice_connected);
         assert!(!payload.voice_muted);
     }
+
+    #[test]
+    fn test_agent_name_to_indicator_known() {
+        assert_eq!(agent_name_to_indicator(Some("claude")), "CC");
+        assert_eq!(agent_name_to_indicator(Some("opencode")), "OC");
+    }
+
+    #[test]
+    fn test_agent_name_to_indicator_unknown() {
+        assert_eq!(agent_name_to_indicator(Some("foo")), "FO");
+        assert_eq!(agent_name_to_indicator(None), "??");
+        assert_eq!(agent_name_to_indicator(Some("")), "??");
+    }
+
+    #[test]
+    fn test_build_render_payload_shows_indicators_when_mixed_agents() {
+        let mut state = ControllerState::default();
+        let mut s1 = make_session(1, "api", Activity::Working);
+        s1.agent_name = Some("claude".to_string());
+        let mut s2 = make_session(2, "web", Activity::Working);
+        s2.agent_name = Some("opencode".to_string());
+        state.sessions.insert(1, s1);
+        state.sessions.insert(2, s2);
+
+        let payload = build_render_payload(&state);
+        assert!(payload.show_agent_indicators);
+        assert!(payload.sessions.iter().all(|s| s.agent_indicator.is_some()));
+    }
+
+    #[test]
+    fn test_build_render_payload_hides_indicators_when_same_agent() {
+        let mut state = ControllerState::default();
+        let mut s1 = make_session(1, "api", Activity::Working);
+        s1.agent_name = Some("claude".to_string());
+        let mut s2 = make_session(2, "web", Activity::Working);
+        s2.agent_name = Some("claude".to_string());
+        state.sessions.insert(1, s1);
+        state.sessions.insert(2, s2);
+
+        let payload = build_render_payload(&state);
+        assert!(!payload.show_agent_indicators);
+        assert!(payload.sessions.iter().all(|s| s.agent_indicator.is_none()));
+    }
+
+    #[test]
+    fn test_build_render_payload_hides_indicators_when_no_agent() {
+        let mut state = ControllerState::default();
+        state.sessions.insert(1, make_session(1, "api", Activity::Working));
+        state.sessions.insert(2, make_session(2, "web", Activity::Working));
+
+        let payload = build_render_payload(&state);
+        assert!(!payload.show_agent_indicators);
+    }
 }

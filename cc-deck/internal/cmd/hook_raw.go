@@ -40,11 +40,6 @@ func runHookRaw(stdin io.Reader, stderr io.Writer) {
 		os.Exit(1)
 	}
 
-	if payload.PaneID == 0 {
-		fmt.Fprintln(stderr, "error: missing required field 'pane_id'")
-		os.Exit(1)
-	}
-
 	payloadJSON, err := json.Marshal(payload)
 	if err != nil {
 		fmt.Fprintf(stderr, "error: encoding payload: %v\n", err)

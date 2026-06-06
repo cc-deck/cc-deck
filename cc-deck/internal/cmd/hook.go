@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -161,21 +160,3 @@ func runHook(stdin io.Reader, paneIDStr string, agentName string) {
 	}
 }
 
-// FormatHookUsage returns help text showing how to register the hook.
-func FormatHookUsage() string {
-	return fmt.Sprintf(`To register hooks in ~/.claude/settings.json:
-
-  cc-deck plugin install
-
-Or manually add to settings.json:
-
-  {
-    "hooks": {
-      "PermissionRequest": [{"matcher": "", "hooks": [{"type": "command", "command": "cc-deck hook --agent claude --pane-id \"$ZELLIJ_PANE_ID\""}]}],
-      "Notification": [{"matcher": "", "hooks": [{"type": "command", "command": "cc-deck hook --agent claude --pane-id \"$ZELLIJ_PANE_ID\""}]}],
-      "Stop": [{"hooks": [{"type": "command", "command": "cc-deck hook --agent claude --pane-id \"$ZELLIJ_PANE_ID\""}]}],
-      "SubagentStop": [{"hooks": [{"type": "command", "command": "cc-deck hook --agent claude --pane-id \"$ZELLIJ_PANE_ID\""}]}]
-    }
-  }
-`)
-}
