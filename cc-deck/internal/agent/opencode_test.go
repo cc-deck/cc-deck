@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -99,13 +100,26 @@ func TestOpenCodeAgentTranslateEventMalformed(t *testing.T) {
 	}
 }
 
-func TestOpenCodeAgentInstallHooks(t *testing.T) {
+func setupOpenCodeTestDir(t *testing.T) (cleanup func()) {
+	t.Helper()
 	dir := t.TempDir()
 	pluginPath := filepath.Join(dir, "plugins", "cc-deck.ts")
+	configPath := filepath.Join(dir, "opencode.json")
 
-	origFunc := opencodePluginPathFunc
+	origPlugin := opencodePluginPathFunc
+	origConfig := opencodeConfigPathFunc
 	opencodePluginPathFunc = func() string { return pluginPath }
-	defer func() { opencodePluginPathFunc = origFunc }()
+	opencodeConfigPathFunc = func() string { return configPath }
+
+	return func() {
+		opencodePluginPathFunc = origPlugin
+		opencodeConfigPathFunc = origConfig
+	}
+}
+
+func TestOpenCodeAgentInstallHooks(t *testing.T) {
+	cleanup := setupOpenCodeTestDir(t)
+	defer cleanup()
 
 	a := &OpenCodeAgent{}
 
@@ -117,41 +131,61 @@ func TestOpenCodeAgentInstallHooks(t *testing.T) {
 		t.Error("HooksInstalled() = false after InstallHooks()")
 	}
 
-	content, err := os.ReadFile(pluginPath)
+	content, err := os.ReadFile(opencodePluginPath())
 	if err != nil {
 		t.Fatalf("reading plugin file: %v", err)
 	}
 
-	if !strings.Contains(string(content), "@opencode-ai/plugin") {
-		t.Error("plugin file missing @opencode-ai/plugin import")
+	for _, want := range []string{
+		"@opencode-ai/plugin",
+		"cc-deck hook --agent opencode",
+		"session.next.step.started",
+		"session.next.step.ended",
+		"tool.execute.before",
+		"tool.execute.after",
+		"permission.ask",
+	} {
+		if !strings.Contains(string(content), want) {
+			t.Errorf("plugin file missing %q", want)
+		}
 	}
-	if !strings.Contains(string(content), "cc-deck hook --agent opencode") {
-		t.Error("plugin file missing cc-deck hook command")
+}
+
+func TestOpenCodeAgentInstallHooksRegistersInConfig(t *testing.T) {
+	cleanup := setupOpenCodeTestDir(t)
+	defer cleanup()
+
+	a := &OpenCodeAgent{}
+
+	if err := a.InstallHooks(); err != nil {
+		t.Fatalf("InstallHooks() error: %v", err)
 	}
-	if !strings.Contains(string(content), "session.next.step.started") {
-		t.Error("plugin file missing session.next.step.started handler")
+
+	data, err := os.ReadFile(opencodeConfigPath())
+	if err != nil {
+		t.Fatalf("reading config: %v", err)
 	}
-	if !strings.Contains(string(content), "session.next.step.ended") {
-		t.Error("plugin file missing session.next.step.ended handler")
+
+	var config map[string]any
+	if err := json.Unmarshal(data, &config); err != nil {
+		t.Fatalf("parsing config: %v", err)
 	}
-	if !strings.Contains(string(content), "tool.execute.before") {
-		t.Error("plugin file missing tool.execute.before handler")
+
+	plugins, _ := config["plugin"].([]any)
+	found := false
+	for _, p := range plugins {
+		if s, ok := p.(string); ok && s == pluginEntry {
+			found = true
+		}
 	}
-	if !strings.Contains(string(content), "tool.execute.after") {
-		t.Error("plugin file missing tool.execute.after handler")
-	}
-	if !strings.Contains(string(content), "permission.ask") {
-		t.Error("plugin file missing permission.ask handler")
+	if !found {
+		t.Errorf("plugin entry %q not found in config plugins: %v", pluginEntry, plugins)
 	}
 }
 
 func TestOpenCodeAgentInstallHooksIdempotent(t *testing.T) {
-	dir := t.TempDir()
-	pluginPath := filepath.Join(dir, "plugins", "cc-deck.ts")
-
-	origFunc := opencodePluginPathFunc
-	opencodePluginPathFunc = func() string { return pluginPath }
-	defer func() { opencodePluginPathFunc = origFunc }()
+	cleanup := setupOpenCodeTestDir(t)
+	defer cleanup()
 
 	a := &OpenCodeAgent{}
 
@@ -165,15 +199,61 @@ func TestOpenCodeAgentInstallHooksIdempotent(t *testing.T) {
 	if !a.HooksInstalled() {
 		t.Error("HooksInstalled() = false after second InstallHooks()")
 	}
+
+	data, err := os.ReadFile(opencodeConfigPath())
+	if err != nil {
+		t.Fatalf("reading config: %v", err)
+	}
+	var config map[string]any
+	json.Unmarshal(data, &config)
+	plugins, _ := config["plugin"].([]any)
+	count := 0
+	for _, p := range plugins {
+		if s, ok := p.(string); ok && s == pluginEntry {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("expected 1 plugin entry, got %d", count)
+	}
+}
+
+func TestOpenCodeAgentInstallHooksPreservesExistingConfig(t *testing.T) {
+	cleanup := setupOpenCodeTestDir(t)
+	defer cleanup()
+
+	existing := map[string]any{
+		"$schema":  "https://opencode.ai/config.json",
+		"model":    "google-vertex/claude-opus-4-6@20250610",
+		"plugin":   []any{"some-other-plugin@latest"},
+	}
+	data, _ := json.MarshalIndent(existing, "", "  ")
+	configPath := opencodeConfigPath()
+	os.MkdirAll(filepath.Dir(configPath), 0o755)
+	os.WriteFile(configPath, data, 0o644)
+
+	a := &OpenCodeAgent{}
+	if err := a.InstallHooks(); err != nil {
+		t.Fatalf("InstallHooks() error: %v", err)
+	}
+
+	updated, _ := os.ReadFile(configPath)
+	var config map[string]any
+	json.Unmarshal(updated, &config)
+
+	if config["model"] != "google-vertex/claude-opus-4-6@20250610" {
+		t.Error("existing model config was overwritten")
+	}
+
+	plugins, _ := config["plugin"].([]any)
+	if len(plugins) != 2 {
+		t.Fatalf("expected 2 plugins, got %d: %v", len(plugins), plugins)
+	}
 }
 
 func TestOpenCodeAgentUninstallHooks(t *testing.T) {
-	dir := t.TempDir()
-	pluginPath := filepath.Join(dir, "plugins", "cc-deck.ts")
-
-	origFunc := opencodePluginPathFunc
-	opencodePluginPathFunc = func() string { return pluginPath }
-	defer func() { opencodePluginPathFunc = origFunc }()
+	cleanup := setupOpenCodeTestDir(t)
+	defer cleanup()
 
 	a := &OpenCodeAgent{}
 
@@ -190,5 +270,18 @@ func TestOpenCodeAgentUninstallHooks(t *testing.T) {
 
 	if a.HooksInstalled() {
 		t.Error("HooksInstalled() = true after UninstallHooks()")
+	}
+
+	data, err := os.ReadFile(opencodeConfigPath())
+	if err != nil {
+		t.Fatalf("reading config: %v", err)
+	}
+	var config map[string]any
+	json.Unmarshal(data, &config)
+	plugins, _ := config["plugin"].([]any)
+	for _, p := range plugins {
+		if s, ok := p.(string); ok && s == pluginEntry {
+			t.Error("plugin entry still present in config after UninstallHooks()")
+		}
 	}
 }
