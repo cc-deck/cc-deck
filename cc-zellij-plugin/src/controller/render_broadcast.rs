@@ -46,7 +46,9 @@ pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
             }
 
             let agent_indicator = if show_agent_indicators {
-                Some(agent_name_to_indicator(s.agent_name.as_deref()))
+                Some(s.agent_indicator.clone().unwrap_or_else(|| {
+                    agent_name_to_indicator(s.agent_name.as_deref())
+                }))
             } else {
                 None
             };

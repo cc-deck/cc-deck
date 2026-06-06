@@ -170,11 +170,12 @@ pub fn process_hook(state: &mut ControllerState, hook: HookPayload) -> bool {
         }
     }
 
-    // Store agent name from the first hook event
+    // Store agent name and indicator from the first hook event
     if hook.agent.is_some() {
         if let Some(s) = state.sessions.get_mut(&hook.pane_id) {
             if s.agent_name.is_none() {
                 s.agent_name = hook.agent.clone();
+                s.agent_indicator = hook.agent_indicator.clone();
             }
         }
     }
@@ -361,6 +362,7 @@ mod tests {
     fn make_hook(pane_id: u32, event: &str) -> HookPayload {
         HookPayload {
             agent: None,
+            agent_indicator: None,
             session_id: Some("test-session".to_string()),
             pane_id,
             hook_event_name: event.to_string(),
@@ -374,6 +376,7 @@ mod tests {
     fn make_subagent_hook(pane_id: u32, event: &str) -> HookPayload {
         HookPayload {
             agent: None,
+            agent_indicator: None,
             session_id: Some("test-session".to_string()),
             pane_id,
             hook_event_name: event.to_string(),
@@ -531,6 +534,7 @@ mod tests {
 
         let hook = HookPayload {
             agent: None,
+            agent_indicator: None,
             session_id: Some("test".to_string()),
             pane_id: 42,
             hook_event_name: "PreToolUse".to_string(),
@@ -557,6 +561,7 @@ mod tests {
 
         let hook = HookPayload {
             agent: None,
+            agent_indicator: None,
             session_id: Some("test".to_string()),
             pane_id: 42,
             hook_event_name: "PreToolUse".to_string(),
@@ -584,6 +589,7 @@ mod tests {
 
         let hook = HookPayload {
             agent: None,
+            agent_indicator: None,
             session_id: Some("new-session".to_string()),
             pane_id: 42,
             hook_event_name: "SessionStart".to_string(),
@@ -617,6 +623,7 @@ mod tests {
 
         let hook = HookPayload {
             agent: None,
+            agent_indicator: None,
             session_id: Some("test".to_string()),
             pane_id: 42,
             hook_event_name: "PreToolUse".to_string(),
@@ -747,6 +754,7 @@ mod tests {
 
         let hook = HookPayload {
             agent: None,
+            agent_indicator: None,
             session_id: Some("test-session".to_string()),
             pane_id: 42,
             hook_event_name: "PostToolUse".to_string(),
