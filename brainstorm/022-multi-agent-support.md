@@ -1,7 +1,7 @@
 # Brainstorm: Multi-Agent Support for cc-deck
 
-**Date:** 2026-03-19 (updated 2026-04-23)
-**Status:** Brainstorm
+**Date:** 2026-03-19 (updated 2026-06-06)
+**Status:** active
 **Trigger:** Competitive analysis of [cmux](https://github.com/manaflow-ai/cmux) and its agent-agnostic notification approach
 **Updated:** Comparative analysis with [lince](https://github.com/RisorseArtificiali/lince), a Zellij-based multi-agent dashboard with sandboxing
 
@@ -541,3 +541,93 @@ cc-deck's domain group system (brainstorm 22) should adopt this. The agent adapt
 8. **lince interoperability:** lince uses `claude-status` as its pipe name for Claude Code hooks. If a user has both lince and cc-deck installed, hook conflicts could arise. Our pipe namespace (`cc-deck:hook`) avoids this, but worth documenting.
 
 9. **Git-push restriction as workspace flag:** Should `restrict-push: true` be a workspace-level setting or an agent-level setting? Workspace-level makes more sense (you restrict the execution context, not the agent type).
+
+---
+
+## Revisit: 2026-06-06
+
+### Updated Hook Ecosystem Research
+
+The hook landscape has expanded since the original brainstorm. Three additional tools now have documented hook systems:
+
+**Cline (v3.36+):** 6 events (PreToolUse, PostToolUse, UserPromptSubmit, TaskStart, TaskResume, TaskCancel). JSON-on-stdin, exit-code blocking. Scripts live in `~/Documents/Cline/Rules/Hooks/` or `.clinerules/hooks/`. macOS/Linux only. Follows the same JSON-stdin pattern as Claude/Codex/Gemini.
+
+**OpenCode:** 20+ events via TypeScript plugin system. In-process execution (not shell-invocable). Plugins register in `.opencode/plugin/` or `~/.config/opencode/plugin/`. Event model is the most granular (LSP diagnostics, message parts). Completely different architecture from the JSON-stdin family. This makes it the ideal stress-test canary for the abstraction.
+
+**OpenClaw:** 12 events via hybrid HOOK.md + plugin API. In-process TypeScript for the plugin API, YAML frontmatter-based HOOK.md for simpler hooks. Multi-channel aware (Telegram, Discord, Slack, WhatsApp). Security note: CVE-2026-41336 and CVE-2026-25253 disclosed in early 2026.
+
+**No common standard exists.** A March 2026 cross-ecosystem analysis concludes that "any abstraction spanning multiple platforms must adapt to each model rather than assume a common interface." However, de facto convergence is clear: PreToolUse/PostToolUse, SessionStart, and Stop appear in nearly every implementation. JSON-on-stdin with exit-code blocking (exit 2 = block) is the dominant out-of-process protocol.
+
+### Updated Codebase Coupling Analysis
+
+A thorough scan of the cc-deck codebase identified 70+ Claude Code coupling points:
+
+**Hooks (very tight):** 11 hardcoded Claude event names in `internal/plugin/hooks.go:24-36`. `ClaudeSettingsPath()` hardcoded to `~/.claude/settings.json`. All 6 plugin package files reference this path.
+
+**Credentials (very tight):** `ANTHROPIC_API_KEY` referenced in 9+ files. `CLAUDE_CODE_USE_VERTEX` and `CLAUDE_CODE_USE_BEDROCK` flags in 5+ files. Claude-specific credential profiles in `internal/openshell/credentials.go` and `internal/ssh/credentials.go`.
+
+**Network policies (very tight):** `claude_code` component in `internal/build/policies/claude-code.yaml` with `match: always: true`. Hardcoded anthropic domains in `internal/network/builtin.go`. Explicit `if comp.Key == "claude_code"` check in `internal/build/policy.go:251`.
+
+**Binary discovery (tight):** Hardcoded paths `/usr/local/bin/claude`, `/sandbox/.local/bin/claude`. Probe check `claude --version` in `internal/cmd/build.go:703`.
+
+**Rust plugin (tight):** `HookPayload` struct and `hook_event_to_activity()` mapping in `cc-zellij-plugin/src/pipe_handler.rs`. Hardcoded "Claude Code" UI text in `cc-zellij-plugin/src/sidebar_plugin/render.rs`.
+
+**Branding:** "Manage Claude Code workspaces" in `cmd/cc-deck/main.go:30`.
+
+### Architecture Decision: Pure Go Interface (No Config File)
+
+The original brainstorm proposed a hybrid config + interface approach (agents.yaml for display, Go interface for behavior). After analysis, we decided on a **pure Go interface** with no agents.yaml config file.
+
+**Rationale:**
+- The config file solves a flexibility problem that doesn't exist for a curated product with first-class agent support
+- Config files add failure modes (malformed YAML, schema skew, silent misconfiguration) without adding functionality for built-in agents
+- All agent properties (events, config paths, display labels, credential env vars) are static and well-defined
+- The `cc-deck-agent-wrapper` script serves as the extension mechanism for arbitrary/unknown agents without requiring any config
+- Pure Go structs give type safety, easier testing (no config file fixtures), and compiler-enforced interface compliance
+
+**What stays from the original design:**
+- The `Agent` interface concept (identity, detection, hook lifecycle, event translation)
+- The agent registry (Go map)
+- The two-tier status model (Tier 1: native hooks, Tier 2: wrapper only)
+- The `cc-deck-agent-wrapper` script concept
+- The `cc-deck hook --raw` command for normalized payloads
+
+**What changes:**
+- No `agents.yaml` config file
+- Display properties (label, color, indicator) are methods on the Go struct, not config values
+- Event mapping is code, not config overrides
+- Runtime configurability is deferred until a real need emerges
+
+### First Spec Scope: Core Abstraction Layer
+
+The first specification from this brainstorm covers:
+
+1. **Go `Agent` interface** definition with methods for identity, detection, hook lifecycle, event translation, pane identification
+2. **Agent registry** (Go map, built-in agents register at init)
+3. **`ClaudeAgent` adapter** (refactor existing hardcoded Claude logic into an interface implementation)
+4. **`OpenCodeAgent` adapter** (stress-test canary, validates the abstraction handles in-process/TypeScript hook agents via wrapper approach)
+5. **`cc-deck-agent-wrapper` script** for hookless or differently-hooked agents
+6. **`cc-deck hook --raw` command** to accept normalized payloads from wrappers
+7. **Rust plugin generalization:** `agent` field in `HookPayload`, agent indicator `[C]`/`[O]` in sidebar, remove hardcoded "Claude Code" text
+
+**Why OpenCode as the canary (not Codex or Gemini):** OpenCode's in-process TypeScript plugin system is architecturally the furthest from Claude Code's JSON-stdin shell hooks. Codex and Gemini use the same JSON-stdin pattern as Claude, so they'd test "similar but different," not "genuinely different." OpenCode forces the abstraction to handle the wrapper/bridge path from day one, proving the two-tier model works. If the abstraction handles both Claude (full hooks, Tier 1) and OpenCode (wrapper, Tier 2), adding Codex and Gemini becomes straightforward.
+
+### Deferred to Follow-Up Specs
+
+These areas are explicitly out of scope for the first spec:
+
+1. **Network policy generalization** (per-agent domain declarations, removing `match: always: true` for claude_code)
+2. **Credential transport abstraction** (per-agent/per-provider credential model, provider separation inspired by paude)
+3. **Build system multi-agent support** (manifest `agents` section, multi-agent Containerfile generation, per-agent install scripts)
+4. **Additional agent adapters** (Codex, Gemini, Cline, OpenClaw)
+5. **Naming/branding** is kept as "cc-deck"; just clean up help text where it implies Claude Code exclusivity
+
+### Updated Open Questions
+
+10. **OpenCode bridge mechanism:** How does cc-deck get lifecycle events from OpenCode? Options: (a) wrapper script emitting Init/End only, (b) a TypeScript OpenCode plugin that calls `cc-deck hook --raw` on relevant events, giving richer status. The first spec should support both.
+
+11. **Agent detection order:** When multiple agents are installed, should `cc-deck plugin install` hook all of them or ask? Original decision: hook all, show a report. Still valid.
+
+12. **Wrapper PID tracking:** The agent wrapper needs to track the child process PID for clean shutdown. If the wrapped agent is killed, the wrapper must emit the End event. Signal handling in the wrapper script.
+
+13. **Pane-to-agent association persistence:** When a session starts, cc-deck learns which pane runs which agent via hook events. If the plugin restarts (Zellij reload), this association is lost. Should it be persisted to WASI `/cache/` alongside sessions.json?
