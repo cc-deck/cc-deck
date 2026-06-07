@@ -15,8 +15,8 @@ func TestClaudeAgentIdentity(t *testing.T) {
 	if a.DisplayName() != "Claude Code" {
 		t.Errorf("DisplayName() = %q, want %q", a.DisplayName(), "Claude Code")
 	}
-	if a.Indicator() != "CC" {
-		t.Errorf("Indicator() = %q, want %q", a.Indicator(), "CC")
+	if a.Indicator() != "✳" {
+		t.Errorf("Indicator() = %q, want %q", a.Indicator(), "✳")
 	}
 }
 

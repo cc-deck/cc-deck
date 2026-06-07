@@ -16,8 +16,8 @@ func TestOpenCodeAgentIdentity(t *testing.T) {
 	if a.DisplayName() != "OpenCode" {
 		t.Errorf("DisplayName() = %q, want %q", a.DisplayName(), "OpenCode")
 	}
-	if a.Indicator() != "OC" {
-		t.Errorf("Indicator() = %q, want %q", a.Indicator(), "OC")
+	if a.Indicator() != "▶" {
+		t.Errorf("Indicator() = %q, want %q", a.Indicator(), "▶")
 	}
 }
 

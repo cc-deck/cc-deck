@@ -96,13 +96,13 @@ pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
 /// Map an agent name to a short indicator string for sidebar display.
 fn agent_name_to_indicator(name: Option<&str>) -> String {
     match name {
-        Some("claude") => "CC".to_string(),
-        Some("opencode") => "OC".to_string(),
+        Some("claude") => "\u{2733}".to_string(),  // ✳
+        Some("opencode") => "\u{25b6}".to_string(), // ▶
         Some(other) => {
             let upper: String = other.chars().take(2).collect::<String>().to_uppercase();
-            if upper.is_empty() { "??".to_string() } else { upper }
+            if upper.is_empty() { "?".to_string() } else { upper }
         }
-        None => "??".to_string(),
+        None => "?".to_string(),
     }
 }
 
@@ -393,15 +393,15 @@ mod tests {
 
     #[test]
     fn test_agent_name_to_indicator_known() {
-        assert_eq!(agent_name_to_indicator(Some("claude")), "CC");
-        assert_eq!(agent_name_to_indicator(Some("opencode")), "OC");
+        assert_eq!(agent_name_to_indicator(Some("claude")), "\u{2733}");  // ✳
+        assert_eq!(agent_name_to_indicator(Some("opencode")), "\u{25b6}"); // ▶
     }
 
     #[test]
     fn test_agent_name_to_indicator_unknown() {
         assert_eq!(agent_name_to_indicator(Some("foo")), "FO");
-        assert_eq!(agent_name_to_indicator(None), "??");
-        assert_eq!(agent_name_to_indicator(Some("")), "??");
+        assert_eq!(agent_name_to_indicator(None), "?");
+        assert_eq!(agent_name_to_indicator(Some("")), "?");
     }
 
     #[test]
