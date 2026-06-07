@@ -170,6 +170,16 @@ pub fn process_hook(state: &mut ControllerState, hook: HookPayload) -> bool {
         }
     }
 
+    // Store agent name and indicator from the first hook event
+    if hook.agent.is_some() {
+        if let Some(s) = state.sessions.get_mut(&hook.pane_id) {
+            if s.agent_name.is_none() {
+                s.agent_name = hook.agent.clone();
+                s.agent_indicator = hook.agent_indicator.clone();
+            }
+        }
+    }
+
     // Process CWD changes
     if let Some(ref cwd) = hook.cwd {
         process_cwd_change(state, hook.pane_id, cwd);
@@ -351,6 +361,8 @@ mod tests {
 
     fn make_hook(pane_id: u32, event: &str) -> HookPayload {
         HookPayload {
+            agent: None,
+            agent_indicator: None,
             session_id: Some("test-session".to_string()),
             pane_id,
             hook_event_name: event.to_string(),
@@ -363,6 +375,8 @@ mod tests {
 
     fn make_subagent_hook(pane_id: u32, event: &str) -> HookPayload {
         HookPayload {
+            agent: None,
+            agent_indicator: None,
             session_id: Some("test-session".to_string()),
             pane_id,
             hook_event_name: event.to_string(),
@@ -519,6 +533,8 @@ mod tests {
             .insert(42, Session::new(42, "test".into()));
 
         let hook = HookPayload {
+            agent: None,
+            agent_indicator: None,
             session_id: Some("test".to_string()),
             pane_id: 42,
             hook_event_name: "PreToolUse".to_string(),
@@ -544,6 +560,8 @@ mod tests {
         state.sessions.insert(42, s);
 
         let hook = HookPayload {
+            agent: None,
+            agent_indicator: None,
             session_id: Some("test".to_string()),
             pane_id: 42,
             hook_event_name: "PreToolUse".to_string(),
@@ -570,6 +588,8 @@ mod tests {
         state.sessions.insert(42, s);
 
         let hook = HookPayload {
+            agent: None,
+            agent_indicator: None,
             session_id: Some("new-session".to_string()),
             pane_id: 42,
             hook_event_name: "SessionStart".to_string(),
@@ -602,6 +622,8 @@ mod tests {
         );
 
         let hook = HookPayload {
+            agent: None,
+            agent_indicator: None,
             session_id: Some("test".to_string()),
             pane_id: 42,
             hook_event_name: "PreToolUse".to_string(),
@@ -731,6 +753,8 @@ mod tests {
         state.sessions.insert(42, s);
 
         let hook = HookPayload {
+            agent: None,
+            agent_indicator: None,
             session_id: Some("test-session".to_string()),
             pane_id: 42,
             hook_event_name: "PostToolUse".to_string(),
@@ -744,6 +768,36 @@ mod tests {
         assert_eq!(
             state.sessions[&42].activity,
             Activity::Waiting(crate::session::WaitReason::Permission)
+        );
+    }
+
+    #[test]
+    fn test_process_hook_stores_agent_name() {
+        let mut state = ControllerState::default();
+        let mut hook = make_hook(42, "SessionStart");
+        hook.agent = Some("claude".to_string());
+
+        process_hook(&mut state, hook);
+        assert_eq!(
+            state.sessions[&42].agent_name,
+            Some("claude".to_string())
+        );
+    }
+
+    #[test]
+    fn test_process_hook_agent_name_set_once() {
+        let mut state = ControllerState::default();
+        let mut hook1 = make_hook(42, "SessionStart");
+        hook1.agent = Some("claude".to_string());
+        process_hook(&mut state, hook1);
+
+        let mut hook2 = make_hook(42, "PreToolUse");
+        hook2.agent = Some("opencode".to_string());
+        process_hook(&mut state, hook2);
+
+        assert_eq!(
+            state.sessions[&42].agent_name,
+            Some("claude".to_string())
         );
     }
 }

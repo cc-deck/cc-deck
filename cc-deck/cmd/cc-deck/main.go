@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	_ "github.com/cc-deck/cc-deck/internal/agent"
 	"github.com/cc-deck/cc-deck/internal/build"
 	"github.com/cc-deck/cc-deck/internal/cmd"
 	"github.com/cc-deck/cc-deck/internal/config"
@@ -27,11 +28,12 @@ func newRootCmd() *cobra.Command {
 
 	rootCmd := &cobra.Command{
 		Use:   appName,
-		Short: "Manage Claude Code workspaces with the Zellij sidebar plugin",
-		Long: `cc-deck manages Claude Code + Zellij sessions through a sidebar plugin
+		Short: "Manage AI agent workspaces with the Zellij sidebar plugin",
+		Long: `cc-deck manages AI agent sessions through a Zellij sidebar plugin
 that tracks session status, enables keyboard navigation, and provides
-session snapshots. It also supports building container images and
-provisioning SSH remotes for Claude Code workspaces.`,
+session snapshots. It supports multiple agents (Claude Code, OpenCode)
+and includes tools for building container images and provisioning
+SSH remotes for agent workspaces.`,
 		SilenceUsage: true,
 	}
 
