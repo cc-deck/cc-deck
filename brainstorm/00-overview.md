@@ -1,6 +1,6 @@
 # Brainstorm Overview
 
-Last updated: 2026-06-06 (multi-agent follow-up brainstorms)
+Last updated: 2026-06-07 (069 credential transport revisit)
 
 ## Active Brainstorms
 
@@ -40,7 +40,7 @@ Last updated: 2026-06-06 (multi-agent follow-up brainstorms)
 
 - Multi-agent support: Pure Go Agent interface, Claude + OpenCode adapters as first spec (066), cc-deck-agent-wrapper for hookless agents, Rust plugin generalization (from #022)
 - Network policy generalization: per-agent domain declarations, remove `match: always: true`, hybrid approach (Agent interface declares groups, YAML provides endpoint lists). Depends on #066 (from #068)
-- Credential transport: provider-level separation, multi-agent credential matrix, trust/onboarding suppression scripts, workspace-type-agnostic credential resolution. Depends on #066 (from #069)
+- Credential transport: **decided** hybrid with agent-heavy ownership. Agent interface declares `CredentialSpecs()` per auth mode. Thin shared `internal/credential` package for transport only. User-selectable auth mode with auto-detection fallback. Eager validation with "externally provided" escape for K8s/OpenShell. Ready for specification. (from #069, revisited 2026-06-07)
 - Build system multi-agent: manifest `agents` field, per-agent InstallScript/ConfigPaths/ProbeCommands, multi-agent Containerfile generation, pipefail + verification. Depends on #066, #068, #069 (from #070)
 - Voice relay: speech-to-text relay via PipeChannel, plugin-side handler, local capture strategy (from #042, depends on spec 041)
 - Voice sidebar integration: ♫ indicator, mute toggle, [[command]] protocol, PTT removal, bidirectional state sync (from #045)
