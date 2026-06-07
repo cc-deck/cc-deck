@@ -158,3 +158,4 @@ A user creates an SSH workspace for OpenCode (not Claude Code). The SSH credenti
 - The `cc-deck credentials check` standalone command is out of scope. Eager validation at workspace start covers the primary use case.
 - OAuth-based authentication flows (e.g., Claude Code's browser-based login) are out of scope. This feature handles env var and file-based credentials only.
 - The credential transport package does not validate that credentials are *correct* (e.g., that an API key is valid). It only checks that required values are present.
+- Per the project constitution, documentation updates (README.md, CLI reference for `--auth-mode` flag, configuration reference for workspace auth mode and "externally provided" markers) are required as part of this feature delivery.
