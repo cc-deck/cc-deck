@@ -18,7 +18,7 @@ const plugin: Plugin = async (input) => {
 
   return {
     event: async ({ event }) => {
-      if (event.type === "session.created") {
+      if (event.type === "server.connected" || event.type === "session.created") {
         await sendHook({
           hook_event_name: "SessionStart",
           session_id: event.properties?.sessionID ?? "",
