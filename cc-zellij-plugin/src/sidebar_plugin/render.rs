@@ -317,6 +317,15 @@ fn render_header(state: &super::state::SidebarState, payload: &cc_deck::RenderPa
     print!("\x1b[2;1H\x1b[2m{}\x1b[0m{}", sep, " ".repeat(cols.saturating_sub(sep.len())));
 }
 
+/// Map agent indicator icon to its brand color.
+fn agent_indicator_color(indicator: &str) -> (u8, u8, u8) {
+    match indicator {
+        "\u{2733}" => (255, 170, 50),  // ✳ Claude Code: orange
+        "\u{25b6}" => (60, 190, 190),  // ▶ OpenCode: dark cyan
+        _ => (180, 175, 195),          // fallback: light grey
+    }
+}
+
 /// Render a single session entry (3 lines: indicator+name, branch, blank).
 fn render_session_entry(
     session: &RenderSession,
@@ -362,7 +371,8 @@ fn render_session_entry(
         let agent_part = if agent_prefix.is_empty() {
             String::new()
         } else {
-            format!("\x1b[2m{agent_prefix}\x1b[0m ")
+            let (ar, ag, ab) = agent_indicator_color(&agent_prefix);
+            format!("\x1b[38;2;{ar};{ag};{ab}m{agent_prefix}\x1b[0m ")
         };
 
         let name_part = if session.paused {
@@ -379,14 +389,18 @@ fn render_session_entry(
     if rename_state.is_some() {
         print!("\x1b[{};1H{}", start_row + 1, pad_with_bg_color(&line1, cols, bg));
     } else if use_bg {
-        // Rebuild line1 with background/foreground colors applied
         let agent_prefix = session.agent_indicator.clone()
             .unwrap_or_default();
         let agent_prefix_len = if agent_prefix.is_empty() { 0 } else { display_width(&agent_prefix) + 1 };
         let prefix_len = 1 + display_width(indicator) + 1 + agent_prefix_len;
         let max_name = cols.saturating_sub(prefix_len);
         let truncated_name = truncate(&session.display_name, max_name);
-        let agent_part = if agent_prefix.is_empty() { String::new() } else { format!("\x1b[2m{agent_prefix}{bg}{fg} ") };
+        let agent_part = if agent_prefix.is_empty() {
+            String::new()
+        } else {
+            let (ar, ag, ab) = agent_indicator_color(&agent_prefix);
+            format!("\x1b[38;2;{ar};{ag};{ab}m{agent_prefix}{bg}{fg} ")
+        };
         let bold_or_dim = if session.paused { "\x1b[2m" } else { "\x1b[1m" };
         let styled_line1 = format!("{bg} \x1b[38;2;{r};{g};{b}m{indicator}{fg} {agent_part}{bold_or_dim}{truncated_name}{RESET}");
         print!("\x1b[{};1H{}", start_row + 1, pad_with_bg_color(&styled_line1, cols, bg));
