@@ -77,8 +77,80 @@ Not yet decided. Approach A (env vars) is the pragmatic starting point. Approach
 
 ## Open Questions
 
-- Should credential resolution be eager (fail fast at workspace start) or lazy (fail when agent tries to use API)?
-- How do we handle agents that support multiple providers (e.g., OpenCode can use OpenAI or Anthropic)?
-- Should there be a `cc-deck credentials check` command that verifies all required credentials are available before starting a workspace?
-- Credential rotation in long-running containers: if API keys expire, how do running containers pick up new credentials?
-- Should the credential broker support credential sharing (one Anthropic key used by both Claude Code and OpenCode)?
+- Should there be a `cc-deck credentials check` command that verifies all required credentials are available before starting a workspace? (May fall out naturally from eager validation.)
+- Credential rotation in long-running containers: if API keys expire, how do running containers pick up new credentials? (Claude Code has `gcpAuthRefresh` but this is agent-specific.)
+
+---
+
+## Revisit: 2026-06-07
+
+### Updated Problem Framing
+
+Research into actual agent credential requirements revealed that env var names are **not universal across agents** for the same provider. Vertex AI is the clearest example: Claude Code uses `ANTHROPIC_VERTEX_PROJECT_ID` + `CLOUD_ML_REGION`, Gemini CLI uses `GOOGLE_CLOUD_PROJECT` + `GOOGLE_CLOUD_LOCATION`, and OpenCode uses `GOOGLE_CLOUD_PROJECT` or `ANTHROPIC_VERTEX_PROJECT_ID` + `ANTHROPIC_VERTEX_REGION`. The JSON credential file (`GOOGLE_APPLICATION_CREDENTIALS`) is shared, but the companion env vars differ per agent. Codex CLI adds another wrinkle: its `env_key` config field makes the API key env var name itself configurable.
+
+This means a centralized "provider profile" registry cannot own the env var mapping. Each agent must declare its own credential shape.
+
+### Agent Credential Matrix (Researched)
+
+| Provider | Claude Code | OpenCode | Codex CLI | Gemini CLI |
+|----------|------------|----------|-----------|------------|
+| Anthropic API | `ANTHROPIC_API_KEY` | `ANTHROPIC_API_KEY` | N/A | N/A |
+| OpenAI API | N/A | `OPENAI_API_KEY` | configurable via `env_key` (defaults to `OPENAI_API_KEY`) | N/A |
+| Google/Gemini | N/A | `GOOGLE_API_KEY` | N/A | `GEMINI_API_KEY` or `GOOGLE_API_KEY` |
+| Vertex AI project | `ANTHROPIC_VERTEX_PROJECT_ID` | `GOOGLE_CLOUD_PROJECT` | N/A | `GOOGLE_CLOUD_PROJECT` |
+| Vertex AI region | `CLOUD_ML_REGION` | `ANTHROPIC_VERTEX_REGION` | N/A | `GOOGLE_CLOUD_LOCATION` |
+| Vertex AI file | `GOOGLE_APPLICATION_CREDENTIALS` | `GOOGLE_APPLICATION_CREDENTIALS` | N/A | `GOOGLE_APPLICATION_CREDENTIALS` |
+| Mode flag | `CLAUDE_CODE_USE_VERTEX=1` | N/A | N/A | must *unset* `GEMINI_API_KEY` |
+
+### New Approaches Considered
+
+The original four approaches (A: env vars only, B: secret mount, C: broker, D: proxy) remain valid as transport mechanisms. The key new insight is about **ownership**: who declares what credentials an agent needs.
+
+#### E: Hybrid with Agent-Heavy Ownership (chosen)
+
+Agent interface declares full credential specs per auth mode. A thin shared package handles only transport (file copying, env injection, path remapping). No centralized profile registry.
+
+- Pros: Adding a new agent means implementing `CredentialSpecs()` only, no touching registry or workspace types. Handles divergent env var names naturally. File credentials (Vertex JSON) are first-class.
+- Cons: Some duplication if two agents happen to use identical specs. Agents must be kept up to date when upstream agents change their env var expectations.
+
+### Updated Decision
+
+**Chosen: Approach E (hybrid with agent-heavy ownership)**
+
+The Agent interface gets `CredentialSpecs() []CredentialSpec`. Each CredentialSpec represents one auth mode and declares:
+
+- **Name**: human-readable mode identifier (e.g., "api", "vertex", "bedrock")
+- **EnvVars**: env var names the agent expects, with optional fixed values (e.g., `CLAUDE_CODE_USE_VERTEX=1`)
+- **FileCredential**: env var pointing to a file + default path on host (e.g., `GOOGLE_APPLICATION_CREDENTIALS` with default `~/.config/gcloud/application_default_credentials.json`)
+- **Endpoints**: host:port pairs for network policy generation (e.g., `oauth2.googleapis.com:443`)
+- **UnsetVars**: env vars that must be unset to avoid conflicts (e.g., Gemini CLI needs `GEMINI_API_KEY` unset when using Vertex)
+- **Priority**: ordering for auto-selection when user doesn't specify
+
+**Auth mode selection:**
+- `cc-deck ws new` detects which modes have credentials available on the host
+- If multiple match, prompt user to pick (or accept `--auth-mode` flag)
+- Chosen mode stored in workspace definition
+- `cc-deck ws ls` shows active auth mode per workspace (e.g., "claude/vertex", "opencode/api")
+- If no explicit choice, auto-select using agent-defined priority order
+
+**Credential validation:**
+- Eager by default: validate at workspace start that required env vars and files exist
+- Workspace definition can mark credentials as "externally provided" (skip host-side validation for K8s Secrets, OpenShell providers, etc.)
+
+**Shared package (`internal/credential`):**
+- File transport: copy credential files into containers, set permissions, remap paths
+- Env var injection: resolve from host env, inject into workspace
+- Existence checks: verify env vars are set, files exist at expected paths
+- No profile knowledge: doesn't know what "vertex" means, just moves data
+
+**Code changes:**
+- `openshell/credentials.go`: `KnownProviderProfiles` map replaced by agent-declared specs. `ResolveCredentials` and `DetectCredentials` move into shared credential package using agent specs as input.
+- `ssh/credentials.go`: `detectAuthMode()` and hardcoded switch statement removed. `BuildCredentialSet` iterates over active agent's credential specs instead.
+- `agent/agent.go`: Agent interface gains `CredentialSpecs() []CredentialSpec` method.
+- `agent/claude.go`: Declares API, Vertex, Bedrock credential specs.
+- `agent/opencode.go`: Declares OpenAI, Anthropic credential specs.
+
+### Open Threads
+- Credential sharing falls out naturally: if both Claude and OpenCode declare `ANTHROPIC_API_KEY`, the workspace resolves it once from the host env and injects for both.
+- `cc-deck credentials check` could be the eager validation extracted into a standalone command.
+- Credential rotation remains agent-specific (Claude has `gcpAuthRefresh`, others do not). May need a workspace-level refresh hook in the future.
