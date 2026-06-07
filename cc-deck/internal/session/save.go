@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -56,7 +57,11 @@ func QueryPluginStateCtx(ctx context.Context, name string) (*Snapshot, error) {
 			entry.TabName = *s.TabName
 		}
 		if s.WorkingDir != nil {
-			entry.WorkingDir = *s.WorkingDir
+			if resolved, err := filepath.EvalSymlinks(*s.WorkingDir); err == nil {
+				entry.WorkingDir = resolved
+			} else {
+				entry.WorkingDir = *s.WorkingDir
+			}
 		}
 		if s.GitBranch != nil {
 			entry.GitBranch = *s.GitBranch
