@@ -20,7 +20,7 @@ func init() {
 
 func (c *ClaudeAgent) Name() string        { return "claude" }
 func (c *ClaudeAgent) DisplayName() string { return "Claude Code" }
-func (c *ClaudeAgent) Indicator() string   { return "CC" }
+func (c *ClaudeAgent) Indicator() string   { return "✳" } // ✳
 
 func (c *ClaudeAgent) IsInstalled() bool {
 	_, err := exec.LookPath("claude")
