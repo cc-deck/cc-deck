@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/cc-deck/cc-deck/internal/agent"
 )
 
 // StatusReport holds the complete status of the cc-deck plugin installation.
@@ -74,9 +76,12 @@ func Status() StatusReport {
 	report.Layouts.CcDeckLayout = state.LayoutType
 	report.Layouts.DefaultInjected = state.DefaultInjected
 
-	settingsPath := ClaudeSettingsPath()
-	report.Hooks.Registered = HasHooks(settingsPath)
-	report.Hooks.EventCount = HookEventCount(settingsPath)
+	for _, a := range agent.All() {
+		if a.HooksInstalled() {
+			report.Hooks.Registered = true
+			report.Hooks.EventCount++
+		}
+	}
 
 	return report
 }

@@ -24,6 +24,15 @@ pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
     let done_timeout = state.config.done_timeout;
     let idle_fade_secs = state.config.idle_fade_secs;
 
+    // Count distinct agent types to decide whether to show indicators
+    let mut agent_types = std::collections::HashSet::new();
+    for s in &sessions {
+        if let Some(ref name) = s.agent_name {
+            agent_types.insert(name.clone());
+        }
+    }
+    let show_agent_indicators = agent_types.len() > 1;
+
     let render_sessions: Vec<RenderSession> = sessions
         .iter()
         .map(|s| {
@@ -32,10 +41,17 @@ pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
                 Activity::Working => working += 1,
                 Activity::Idle | Activity::Init => idle += 1,
                 Activity::Done | Activity::AgentDone => {
-                    // Done/AgentDone count as idle for summary purposes
                     idle += 1;
                 }
             }
+
+            let agent_indicator = if show_agent_indicators {
+                Some(s.agent_indicator.clone().unwrap_or_else(|| {
+                    agent_name_to_indicator(s.agent_name.as_deref())
+                }))
+            } else {
+                None
+            };
 
             RenderSession {
                 pane_id: s.pane_id,
@@ -53,6 +69,7 @@ pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
                 paused: s.paused,
                 done_attended: s.done_attended,
                 badges: s.badges.clone(),
+                agent_indicator,
             }
         })
         .collect();
@@ -72,6 +89,20 @@ pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
         controller_plugin_id: state.plugin_id,
         voice_connected: state.voice_enabled,
         voice_muted: state.voice_muted,
+        show_agent_indicators,
+    }
+}
+
+/// Map an agent name to a short indicator string for sidebar display.
+fn agent_name_to_indicator(name: Option<&str>) -> String {
+    match name {
+        Some("claude") => "\u{2733}".to_string(),  // ✳
+        Some("opencode") => "\u{25b6}".to_string(), // ▶
+        Some(other) => {
+            let upper: String = other.chars().take(2).collect::<String>().to_uppercase();
+            if upper.is_empty() { "?".to_string() } else { upper }
+        }
+        None => "?".to_string(),
     }
 }
 
@@ -358,5 +389,58 @@ mod tests {
         assert_eq!(payload.sessions.len(), 1);
         assert!(payload.voice_connected);
         assert!(!payload.voice_muted);
+    }
+
+    #[test]
+    fn test_agent_name_to_indicator_known() {
+        assert_eq!(agent_name_to_indicator(Some("claude")), "\u{2733}");  // ✳
+        assert_eq!(agent_name_to_indicator(Some("opencode")), "\u{25b6}"); // ▶
+    }
+
+    #[test]
+    fn test_agent_name_to_indicator_unknown() {
+        assert_eq!(agent_name_to_indicator(Some("foo")), "FO");
+        assert_eq!(agent_name_to_indicator(None), "?");
+        assert_eq!(agent_name_to_indicator(Some("")), "?");
+    }
+
+    #[test]
+    fn test_build_render_payload_shows_indicators_when_mixed_agents() {
+        let mut state = ControllerState::default();
+        let mut s1 = make_session(1, "api", Activity::Working);
+        s1.agent_name = Some("claude".to_string());
+        let mut s2 = make_session(2, "web", Activity::Working);
+        s2.agent_name = Some("opencode".to_string());
+        state.sessions.insert(1, s1);
+        state.sessions.insert(2, s2);
+
+        let payload = build_render_payload(&state);
+        assert!(payload.show_agent_indicators);
+        assert!(payload.sessions.iter().all(|s| s.agent_indicator.is_some()));
+    }
+
+    #[test]
+    fn test_build_render_payload_hides_indicators_when_same_agent() {
+        let mut state = ControllerState::default();
+        let mut s1 = make_session(1, "api", Activity::Working);
+        s1.agent_name = Some("claude".to_string());
+        let mut s2 = make_session(2, "web", Activity::Working);
+        s2.agent_name = Some("claude".to_string());
+        state.sessions.insert(1, s1);
+        state.sessions.insert(2, s2);
+
+        let payload = build_render_payload(&state);
+        assert!(!payload.show_agent_indicators);
+        assert!(payload.sessions.iter().all(|s| s.agent_indicator.is_none()));
+    }
+
+    #[test]
+    fn test_build_render_payload_hides_indicators_when_no_agent() {
+        let mut state = ControllerState::default();
+        state.sessions.insert(1, make_session(1, "api", Activity::Working));
+        state.sessions.insert(2, make_session(2, "web", Activity::Working));
+
+        let payload = build_render_payload(&state);
+        assert!(!payload.show_agent_indicators);
     }
 }

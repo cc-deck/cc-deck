@@ -21,6 +21,7 @@ pub fn make_payload(sessions: Vec<RenderSession>) -> RenderPayload {
         controller_plugin_id: 1,
         voice_connected: false,
         voice_muted: false,
+        show_agent_indicators: false,
     }
 }
 
@@ -36,6 +37,7 @@ pub fn make_session(pane_id: u32, name: &str, tab_index: usize) -> RenderSession
         paused: false,
         done_attended: false,
         badges: vec![],
+        agent_indicator: None,
     }
 }
 

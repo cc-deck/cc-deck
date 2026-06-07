@@ -10,15 +10,19 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/cc-deck/cc-deck/internal/agent"
+	"github.com/cc-deck/cc-deck/internal/fileutil"
 )
 
 // InstallOptions configures the install behavior.
 type InstallOptions struct {
 	Force         bool
 	SkipBackup    bool
-	Layout        string // layout name (currently only "cc-deck")
-	InstallZellij bool   // download and install Zellij binary
-	ZellijVersion string // explicit Zellij version (empty = latest release)
+	Layout        string            // layout name (currently only "cc-deck")
+	InstallZellij bool              // download and install Zellij binary
+	ZellijVersion string            // explicit Zellij version (empty = latest release)
+	AgentFilter   map[string]bool   // if non-nil, only install hooks for these agents
 	Stdout        io.Writer
 	Stderr        io.Writer
 	Stdin         io.Reader // for confirmation prompt
@@ -116,15 +120,8 @@ func Install(opts InstallOptions) error {
 	}
 	layoutPath := defaultLayoutPath
 
-	// 6. Register hooks in settings.json (with backup)
-	settingsPath := ClaudeSettingsPath()
-	backupPath, err := BackupFile(settingsPath, opts.SkipBackup)
-	if err != nil {
-		fmt.Fprintf(opts.Stderr, "Warning: Could not backup settings.json: %v\n", err)
-	}
-	if err := RegisterHooks(settingsPath); err != nil {
-		return fmt.Errorf("registering hooks: %w", err)
-	}
+	// 6. Register hooks for all detected agents
+	installedAgents := installAgentHooks(opts)
 
 	// 7. Print summary
 	fmt.Fprintln(opts.Stdout, "cc-deck installed successfully.")
@@ -132,10 +129,10 @@ func Install(opts InstallOptions) error {
 	sizeMB := float64(pInfo.BinarySize) / (1024 * 1024)
 	fmt.Fprintf(opts.Stdout, "  Plugin:   %s (%.1f MB)\n", tildeHome(pluginPath), sizeMB)
 	fmt.Fprintf(opts.Stdout, "  Layout:   %s (%s)\n", tildeHome(layoutPath), defaultVariant)
-	hookCount := HookEventCount(settingsPath)
-	fmt.Fprintf(opts.Stdout, "  Hooks:    registered (%d event types)\n", hookCount)
-	if backupPath != "" {
-		fmt.Fprintf(opts.Stdout, "  Backup:   %s\n", tildeHome(backupPath))
+	if len(installedAgents) > 0 {
+		fmt.Fprintf(opts.Stdout, "  Agents:   %s\n", strings.Join(installedAgents, ", "))
+	} else {
+		fmt.Fprintln(opts.Stdout, "  Agents:   none detected")
 	}
 	fmt.Fprintln(opts.Stdout)
 	fmt.Fprintln(opts.Stdout, "Start Zellij with the cc-deck layout:")
@@ -319,6 +316,26 @@ func installZellijBinary(opts InstallOptions) error {
 	return nil
 }
 
+// installAgentHooks iterates all registered agents, detects which are installed,
+// and installs hooks for each. Returns the names of agents that were configured.
+func installAgentHooks(opts InstallOptions) []string {
+	var installed []string
+	for _, a := range agent.All() {
+		if opts.AgentFilter != nil && !opts.AgentFilter[a.Name()] {
+			continue
+		}
+		if !a.IsInstalled() {
+			continue
+		}
+		if err := a.InstallHooks(); err != nil {
+			fmt.Fprintf(opts.Stderr, "Warning: Could not install hooks for %s: %v\n", a.DisplayName(), err)
+			continue
+		}
+		installed = append(installed, a.DisplayName())
+	}
+	return installed
+}
+
 // resolveLatestZellijVersion queries GitHub for the latest Zellij release tag.
 func resolveLatestZellijVersion() (string, error) {
 	client := &http.Client{
@@ -344,30 +361,5 @@ func resolveLatestZellijVersion() (string, error) {
 
 // atomicWrite writes data to a temporary file and renames it to the target path.
 func atomicWrite(path string, data []byte, perm os.FileMode) error {
-	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, ".cc-deck-*.tmp")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		os.Remove(tmpName)
-		return err
-	}
-	if err := tmp.Chmod(perm); err != nil {
-		tmp.Close()
-		os.Remove(tmpName)
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmpName)
-		return err
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		os.Remove(tmpName)
-		return err
-	}
-	return nil
+	return fileutil.AtomicWrite(path, data, perm)
 }

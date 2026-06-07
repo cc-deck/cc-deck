@@ -222,7 +222,7 @@ pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> Vec<Cli
 /// Render the "Connecting..." loading state.
 pub fn render_loading(rows: usize, cols: usize) -> Vec<ClickRegion> {
     // Orange star header
-    let header = " \x1b[38;2;255;170;50m\u{2731}\x1b[0m \x1b[1mClaude Code\x1b[0m".to_string();
+    let header = " \x1b[38;2;255;170;50m\u{2731}\x1b[0m \x1b[1mcc-deck\x1b[0m".to_string();
     print!("\x1b[1;1H{}", pad(&header, cols));
 
     let sep: String = "\u{2500}".repeat(cols.min(40));
@@ -241,7 +241,7 @@ pub fn render_loading(rows: usize, cols: usize) -> Vec<ClickRegion> {
 
 /// Render the permission prompt (shown before permissions are granted).
 pub fn render_permission_prompt(rows: usize, cols: usize) {
-    let header = " \x1b[38;2;255;170;50m\u{2731}\x1b[0m \x1b[1mClaude Code\x1b[0m".to_string();
+    let header = " \x1b[38;2;255;170;50m\u{2731}\x1b[0m \x1b[1mcc-deck\x1b[0m".to_string();
     print!("\x1b[1;1H{}", pad(&header, cols));
 
     let sep: String = "\u{2500}".repeat(cols.min(40));
@@ -285,7 +285,7 @@ fn render_header(state: &super::state::SidebarState, payload: &cc_deck::RenderPa
     };
 
     let header = if payload.total == 0 {
-        " \x1b[38;2;255;170;50m\u{2731}\x1b[0m \x1b[1mClaude Code\x1b[0m".to_string()
+        " \x1b[38;2;255;170;50m\u{2731}\x1b[0m \x1b[1mcc-deck\x1b[0m".to_string()
     } else {
         let mut status_parts = Vec::new();
         if payload.waiting > 0 {
@@ -315,6 +315,15 @@ fn render_header(state: &super::state::SidebarState, payload: &cc_deck::RenderPa
 
     let sep: String = "\u{2500}".repeat(cols.min(40));
     print!("\x1b[2;1H\x1b[2m{}\x1b[0m{}", sep, " ".repeat(cols.saturating_sub(sep.len())));
+}
+
+/// Map agent indicator icon to its brand color.
+fn agent_indicator_color(indicator: &str) -> (u8, u8, u8) {
+    match indicator {
+        "\u{2733}" => (255, 170, 50),  // ✳ Claude Code: orange
+        "\u{25b6}" => (60, 190, 190),  // ▶ OpenCode: dark cyan
+        _ => (180, 175, 195),          // fallback: light grey
+    }
 }
 
 /// Render a single session entry (3 lines: indicator+name, branch, blank).
@@ -351,10 +360,20 @@ fn render_session_entry(
         let input_display = rename::render_input(rs, max_input, rename_fg, bg);
         format!("{bg} \x1b[38;2;{r};{g};{b}m{indicator}{bg}{rename_fg} {input_display}{bg}")
     } else {
+        let agent_prefix = session.agent_indicator.clone()
+            .unwrap_or_default();
         let name = &session.display_name;
-        let prefix_len = 1 + display_width(indicator) + 1;
+        let agent_prefix_len = if agent_prefix.is_empty() { 0 } else { display_width(&agent_prefix) + 1 };
+        let prefix_len = 1 + display_width(indicator) + 1 + agent_prefix_len;
         let max_name = cols.saturating_sub(prefix_len);
         let truncated_name = truncate(name, max_name);
+
+        let agent_part = if agent_prefix.is_empty() {
+            String::new()
+        } else {
+            let (ar, ag, ab) = agent_indicator_color(&agent_prefix);
+            format!("\x1b[38;2;{ar};{ag};{ab}m{agent_prefix}\x1b[0m ")
+        };
 
         let name_part = if session.paused {
             format!("\x1b[2m{truncated_name}\x1b[0m")
@@ -364,20 +383,26 @@ fn render_session_entry(
             truncated_name.to_string()
         };
 
-        format!(" \x1b[38;2;{r};{g};{b}m{indicator}\x1b[0m {name_part}")
+        format!(" \x1b[38;2;{r};{g};{b}m{indicator}\x1b[0m {agent_part}{name_part}")
     };
 
     if rename_state.is_some() {
-        // Rename mode: keep bg color, cursor uses reverse video within it
         print!("\x1b[{};1H{}", start_row + 1, pad_with_bg_color(&line1, cols, bg));
     } else if use_bg {
-        let name = &session.display_name;
-        let prefix_len = 1 + display_width(indicator) + 1;
+        let agent_prefix = session.agent_indicator.clone()
+            .unwrap_or_default();
+        let agent_prefix_len = if agent_prefix.is_empty() { 0 } else { display_width(&agent_prefix) + 1 };
+        let prefix_len = 1 + display_width(indicator) + 1 + agent_prefix_len;
         let max_name = cols.saturating_sub(prefix_len);
-        let truncated_name = truncate(name, max_name);
-
+        let truncated_name = truncate(&session.display_name, max_name);
+        let agent_part = if agent_prefix.is_empty() {
+            String::new()
+        } else {
+            let (ar, ag, ab) = agent_indicator_color(&agent_prefix);
+            format!("\x1b[38;2;{ar};{ag};{ab}m{agent_prefix}{bg}{fg} ")
+        };
         let bold_or_dim = if session.paused { "\x1b[2m" } else { "\x1b[1m" };
-        let styled_line1 = format!("{bg} \x1b[38;2;{r};{g};{b}m{indicator}{fg}{bold_or_dim} {truncated_name}{RESET}");
+        let styled_line1 = format!("{bg} \x1b[38;2;{r};{g};{b}m{indicator}{fg} {agent_part}{bold_or_dim}{truncated_name}{RESET}");
         print!("\x1b[{};1H{}", start_row + 1, pad_with_bg_color(&styled_line1, cols, bg));
     } else {
         print!("\x1b[{};1H{}", start_row + 1, pad(&line1, cols));
@@ -399,7 +424,7 @@ fn render_session_entry(
     Some((start_row, session.pane_id, session.tab_index))
 }
 
-/// Render the empty state (no Claude sessions).
+/// Render the empty state (no active sessions).
 fn render_empty_state(state: &super::state::SidebarState, payload: &cc_deck::RenderPayload, rows: usize, cols: usize) -> Vec<ClickRegion> {
     render_header(state, payload, cols);
     let mut click_regions = Vec::new();
@@ -408,7 +433,7 @@ fn render_empty_state(state: &super::state::SidebarState, payload: &cc_deck::Ren
         print_line(2, cols, "", Style::Normal);
     }
     if rows > 3 {
-        print_line(3, cols, "  No Claude sessions", Style::Dim);
+        print_line(3, cols, "  No active sessions", Style::Dim);
     }
     if rows > 4 {
         print_line(4, cols, "", Style::Normal);
@@ -775,6 +800,7 @@ mod tests {
             paused: false,
             done_attended: false,
             badges: vec![],
+            agent_indicator: None,
         };
         let s2 = cc_deck::RenderSession {
             pane_id: 2,
@@ -787,6 +813,7 @@ mod tests {
             paused: false,
             done_attended: false,
             badges: vec![],
+            agent_indicator: None,
         };
         let sessions: Vec<&RenderSession> = vec![&s1, &s2];
         let (start, end, above, below) = visible_range(2, 5, None, &sessions);
@@ -807,6 +834,7 @@ mod tests {
                 paused: false,
                 done_attended: false,
                 badges: vec![],
+                agent_indicator: None,
             }
         }).collect();
         let refs: Vec<&RenderSession> = sessions_owned.iter().collect();

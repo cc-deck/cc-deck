@@ -6,6 +6,10 @@ use serde::Deserialize;
 /// Hook event payload received from `cc-deck hook` CLI via pipe.
 #[derive(Debug, Deserialize)]
 pub struct HookPayload {
+    #[serde(default)]
+    pub agent: Option<String>,
+    #[serde(default)]
+    pub agent_indicator: Option<String>,
     pub session_id: Option<String>,
     pub pane_id: u32,
     pub hook_event_name: String,
@@ -207,6 +211,20 @@ mod tests {
         let json = r#"{"pane_id":1,"hook_event_name":"PostToolUse"}"#;
         let payload: HookPayload = serde_json::from_str(json).unwrap();
         assert!(payload.agent_id.is_none());
+    }
+
+    #[test]
+    fn test_parse_hook_payload_with_agent() {
+        let json = r#"{"pane_id":42,"hook_event_name":"PreToolUse","agent":"opencode"}"#;
+        let payload: HookPayload = serde_json::from_str(json).unwrap();
+        assert_eq!(payload.agent.as_deref(), Some("opencode"));
+    }
+
+    #[test]
+    fn test_parse_hook_payload_without_agent() {
+        let json = r#"{"pane_id":1,"hook_event_name":"Stop"}"#;
+        let payload: HookPayload = serde_json::from_str(json).unwrap();
+        assert!(payload.agent.is_none());
     }
 
     #[test]

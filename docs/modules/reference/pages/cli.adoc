@@ -129,17 +129,19 @@ cc-deck version -o json
 
 === plugin
 
-Manage the Zellij plugin installation.
+Manage the Zellij plugin installation and agent hooks.
 
 ==== plugin install
 
-Install the WASM plugin, layouts, and Claude Code hooks.
+Install the WASM plugin, layouts, and hooks for all detected AI agents.
+The command auto-detects installed agents (Claude Code, OpenCode) and registers hooks for each.
 
 [source,bash]
 ----
 cc-deck config plugin install
 cc-deck config plugin install --layout minimal
 cc-deck config plugin install --force
+cc-deck config plugin install --agents claude
 cc-deck config plugin install --install-zellij
 ----
 
@@ -156,13 +158,16 @@ cc-deck config plugin install --install-zellij
 | `--layout`
 | Default layout variant: `standard` (default), `minimal`, `clean`
 
+| `--agents`
+| Comma-separated list of agent names to install hooks for (default: all detected)
+
 | `--install-zellij`
 | Download and install matching Zellij binary
 |===
 
 ==== plugin status
 
-Show current installation status.
+Show current installation status including per-agent hook state.
 
 [source,bash]
 ----
@@ -172,13 +177,52 @@ cc-deck config plugin status -o json
 
 ==== plugin remove
 
-Remove the plugin, layouts, and hooks.
+Remove the plugin, layouts, and agent hooks.
+Use `--agents` to remove hooks for specific agents only.
 
 [source,bash]
 ----
 cc-deck config plugin remove
+cc-deck config plugin remove --agents opencode
 cc-deck config plugin remove --skip-backup
 ----
+
+[cols="1,3"]
+|===
+| Flag | Description
+
+| `--skip-backup`
+| Skip creating backup of `settings.json`
+
+| `--agents`
+| Comma-separated list of agent names to remove hooks for (default: all)
+|===
+
+=== hook
+
+Forward AI agent hook events to the Zellij plugin.
+This command is normally called by agent hooks, not directly by users.
+Use `--raw` for custom integrations.
+
+[source,bash]
+----
+echo '{"hook_event_name":"PreToolUse","session_id":"abc"}' | cc-deck hook --agent claude --pane-id "$ZELLIJ_PANE_ID"
+echo '{"event":"SessionStart","agent":"custom","pane_id":1,"hook_event_name":"SessionStart"}' | cc-deck hook --raw
+----
+
+[cols="1,3"]
+|===
+| Flag | Description
+
+| `--agent`
+| Agent name: `claude` (default), `opencode`
+
+| `--pane-id`
+| Zellij pane ID (use `$ZELLIJ_PANE_ID` for shell expansion)
+
+| `--raw`
+| Accept pre-normalized JSON payload, skip TranslateEvent
+|===
 
 === snapshot
 
