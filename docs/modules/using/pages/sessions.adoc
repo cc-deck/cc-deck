@@ -67,6 +67,26 @@ To close a session and its tab:
 This closes the tab containing the session.
 If the tab has unsaved work in Claude Code, Claude Code handles its own save prompts.
 
+== Sort by Activity
+
+When you have many sessions open, sorting groups them by activity state so the busiest sessions appear at the top.
+
+1. Enter navigation mode (`Alt+s`)
+2. Press `S` (Shift+s)
+
+Sessions reorder into three tiers:
+
+* *Active* (Working, Waiting) at the top
+* *Inactive* (Idle, Done, AgentDone, Init) in the middle
+* *Paused* at the bottom
+
+Within each tier, the original tab order is preserved (stable sort).
+The sort physically moves Zellij tabs, so tab numbers and keyboard shortcuts stay consistent with the sidebar order.
+
+The cursor follows the session it was on before the sort, so you do not lose your place.
+
+Pressing `S` when sessions are already sorted by activity is a no-op.
+
 == New Tab
 
 Press `n` in navigation mode to open a new tab.
