@@ -470,6 +470,7 @@ const HELP_LINES: &[&str] = &[
     " \x1b[1mm\x1b[0m      Voice mute",
     " \x1b[1mn\x1b[0m      New tab",
     " \x1b[1mR\x1b[0m      Refresh sidebar",
+    " \x1b[1mS\x1b[0m      Sort by activity",
     " \x1b[1m/\x1b[0m      Search",
     " \x1b[1m?\x1b[0m      This help",
 ];

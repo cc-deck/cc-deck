@@ -193,6 +193,7 @@ cc-deck config plugin install --layout minimal --force
 | `d` | Delete session (with confirmation) |
 | `p` | Pause/unpause session |
 | `n` | New tab |
+| `S` | Sort sessions by activity |
 | `/` | Search/filter by name |
 | `?` | Show keyboard help |
 

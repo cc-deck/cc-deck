@@ -69,6 +69,7 @@ pub enum ActionType {
     NewSession,
     Refresh,
     VoiceMute,
+    Sort,
 }
 
 /// A user-initiated action sent from a sidebar to the controller.
@@ -258,6 +259,7 @@ mod protocol_tests {
             ActionType::NewSession,
             ActionType::Refresh,
             ActionType::VoiceMute,
+            ActionType::Sort,
         ];
         for action in types {
             let msg = ActionMessage {

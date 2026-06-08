@@ -446,6 +446,22 @@ fn handle_navigate_key(state: &mut SidebarState, key: KeyWithModifier) -> bool {
             send_action(state, ActionType::VoiceMute, None, None, None);
             true
         }
+        BareKey::Char('S') => {
+            // Sort sessions by activity tier.
+            // Store the pane_id at the cursor so the sidebar can relocate the
+            // cursor after the sort completes and a new render payload arrives.
+            let cursor = state.mode.cursor_index();
+            let cursor_pane_id = if cursor < sessions.len() {
+                Some(sessions[cursor].pane_id)
+            } else {
+                None
+            };
+            // Drop sessions borrow before mutating state
+            drop(sessions);
+            state.sort_cursor_pane_id = cursor_pane_id;
+            send_action(state, ActionType::Sort, cursor_pane_id, None, None);
+            true
+        }
         BareKey::Char('n') => {
             // New session: create tab and exit navigate without restoring focus
             send_action(state, ActionType::NewSession, None, None, None);
@@ -917,6 +933,36 @@ mod tests {
         assert!(handle_navigate_key(&mut state, bare(BareKey::Char('n'))));
         assert!(matches!(state.mode, SidebarMode::Passive));
         assert!(state.filter_text.is_empty());
+    }
+
+    #[test]
+    fn test_nav_s_sort_dispatches_sort_action() {
+        let mut state = make_nav_state(&[(10, "api", 0), (20, "web", 1)], 0);
+        assert!(handle_navigate_key(&mut state, bare(BareKey::Char('S'))));
+        // Sort should NOT exit navigate mode
+        assert!(state.mode.is_navigating());
+    }
+
+    #[test]
+    fn test_nav_s_sort_passes_cursor_pane_id() {
+        let mut state = make_nav_state(&[(10, "api", 0), (20, "web", 1)], 1);
+        // Cursor is on session "web" (pane_id=20)
+        assert!(handle_navigate_key(&mut state, bare(BareKey::Char('S'))));
+        assert!(state.mode.is_navigating());
+    }
+
+    #[test]
+    fn test_nav_s_sort_empty_sessions() {
+        let mut state = make_nav_state(&[], 0);
+        assert!(handle_navigate_key(&mut state, bare(BareKey::Char('S'))));
+        assert!(state.mode.is_navigating());
+    }
+
+    #[test]
+    fn test_passive_s_sort_ignored() {
+        let mut state = make_state_with_sessions(&[(1, "api", 0)]);
+        assert!(!handle_key(&mut state, bare(BareKey::Char('S'))));
+        assert!(matches!(state.mode, SidebarMode::Passive));
     }
 
     #[test]

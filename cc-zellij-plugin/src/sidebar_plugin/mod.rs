@@ -244,6 +244,12 @@ impl ZellijPlugin for SidebarRendererPlugin {
                         self.state.cached_payload = Some(render_payload);
                         self.state.initialized = true;
 
+                        // After a sort, relocate the cursor to track the
+                        // same session by pane_id instead of by index.
+                        if let Some(pane_id) = self.state.sort_cursor_pane_id.take() {
+                            self.state.track_cursor_by_pane_id(pane_id);
+                        }
+
                         // Preserve cursor position after payload update
                         self.state.preserve_cursor();
 
