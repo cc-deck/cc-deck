@@ -327,6 +327,26 @@ func TestAddWithCollisionHandling_ValidatesAutoSuffixedName(t *testing.T) {
 	assert.Contains(t, err.Error(), "auto-suffixed name")
 }
 
+func TestWorkspaceSpecYAML_AgentAndAuthMode(t *testing.T) {
+	store := newTestDefinitionStore(t)
+	def := &WorkspaceDefinition{
+		Name: "test-ws",
+		Type: WorkspaceTypeContainer,
+		WorkspaceSpec: WorkspaceSpec{
+			Agent:               "claude",
+			AuthMode:            "vertex",
+			ExternalCredentials: true,
+			Image:               "test-image",
+		},
+	}
+	require.NoError(t, store.Add(def))
+	loaded, err := store.FindByName("test-ws")
+	require.NoError(t, err)
+	assert.Equal(t, "claude", loaded.Agent)
+	assert.Equal(t, "vertex", loaded.AuthMode)
+	assert.True(t, loaded.ExternalCredentials)
+}
+
 func TestDefinitionSave_CreatesDirectories(t *testing.T) {
 	dir := t.TempDir()
 	store := NewDefinitionStore(filepath.Join(dir, "nested", "deep", "workspaces.yaml"))

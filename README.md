@@ -137,6 +137,32 @@ When sessions from different agents are active, the sidebar shows agent indicato
 
 Use `cc-deck hook --raw` to send pre-normalized JSON payloads from custom integrations.
 
+### Credential transport
+
+Each agent declares its supported auth modes via `CredentialSpecs()`.
+When creating a workspace, cc-deck detects which modes have credentials available on the host and lets you choose:
+
+```bash
+# Auto-detect auth mode (prompts if multiple available)
+cc-deck ws new my-project --type container --agent claude
+
+# Explicit auth mode
+cc-deck ws new my-project --type container --agent claude --auth-mode vertex
+
+# OpenCode with OpenAI credentials
+cc-deck ws new my-project --type container --agent opencode --auth-mode openai
+```
+
+The selected auth mode is persisted in the workspace definition and shown in `cc-deck ws ls`.
+Credentials are validated at workspace start before any container or remote session is created.
+To switch auth mode on an existing workspace:
+
+```bash
+cc-deck ws update my-project --auth-mode bedrock
+```
+
+For K8s workspaces where credentials come from Secrets or external providers, mark the workspace as externally provided to skip host-side validation.
+
 ### Multi-platform
 
 Run cc-deck locally with Zellij, in Podman containers, or on Kubernetes clusters with persistent StatefulSet-backed workspaces. OpenShift is detected automatically. The sidebar works the same everywhere.

@@ -9,6 +9,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/cc-deck/cc-deck/internal/agent"
+	"github.com/cc-deck/cc-deck/internal/credential"
 )
 
 // K8sDeployWorkspace manages a Kubernetes-based persistent development
@@ -143,19 +146,37 @@ func (e *K8sDeployWorkspace) Create(ctx context.Context, opts CreateOpts) error 
 		storageSize = defaultStorageSize
 	}
 
-	// Resolve credentials.
-	creds := e.Credentials
-	if creds == nil {
-		creds = make(map[string]string)
-	}
-
-	// Auth mode detection and credential injection.
-	authMode := e.Auth
-	if authMode == "" || authMode == AuthModeAuto {
-		authMode = DetectAuthMode()
-	}
-	if authMode != AuthModeNone {
-		DetectAuthCredentials(authMode, creds)
+	// Resolve credentials via credential package or legacy path.
+	creds := make(map[string]string)
+	if wsDef, _ := e.defs.FindByName(e.name); wsDef != nil && wsDef.AuthMode != "" && wsDef.Agent != "" {
+		a := agent.Get(wsDef.Agent)
+		if a != nil {
+			for _, spec := range a.CredentialSpecs() {
+				if spec.Name == wsDef.AuthMode {
+					resolved := credential.Resolve(spec)
+					for k, v := range resolved.EnvVars {
+						creds[k] = v
+					}
+					if resolved.FileCredential != nil {
+						creds[resolved.FileCredential.EnvVar] = resolved.FileCredential.LocalPath
+					}
+					break
+				}
+			}
+		}
+	} else {
+		if e.Credentials != nil {
+			for k, v := range e.Credentials {
+				creds[k] = v
+			}
+		}
+		authMode := e.Auth
+		if authMode == "" || authMode == AuthModeAuto {
+			authMode = DetectAuthMode()
+		}
+		if authMode != AuthModeNone {
+			DetectAuthCredentials(authMode, creds)
+		}
 	}
 
 	// Check ESO CRD availability (parameter validation done earlier).

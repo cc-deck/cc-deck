@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cc-deck/cc-deck/internal/agent"
+	"github.com/cc-deck/cc-deck/internal/credential"
 	"github.com/cc-deck/cc-deck/internal/ssh"
 )
 
@@ -189,8 +191,21 @@ func (e *SSHWorkspace) Attach(ctx context.Context) error {
 	client := e.newSSHClient(def)
 	client.AgentForwarding = true
 
-	// Write credentials to remote before attaching (unless auth=none).
-	if def.Auth != "none" {
+	// Write credentials to remote before attaching.
+	if def.AuthMode != "" && def.Agent != "" {
+		a := agent.Get(def.Agent)
+		if a != nil {
+			for _, spec := range a.CredentialSpecs() {
+				if spec.Name == def.AuthMode {
+					resolved := credential.Resolve(spec)
+					if writeErr := credential.InjectSSH(ctx, client, resolved); writeErr != nil {
+						log.Printf("WARNING: could not write credentials to remote: %v", writeErr)
+					}
+					break
+				}
+			}
+		}
+	} else if def.Auth != "none" {
 		creds, credErr := ssh.BuildCredentialSet(def.Auth, def.Credentials, def.Env)
 		if credErr != nil {
 			return fmt.Errorf("building credentials: %w", credErr)
