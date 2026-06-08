@@ -97,7 +97,7 @@ pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
 fn agent_name_to_indicator(name: Option<&str>) -> String {
     match name {
         Some("claude") => "\u{2733}".to_string(),  // ✳
-        Some("opencode") => "\u{25b6}".to_string(), // ▶
+        Some("opencode") => "\u{276f}".to_string(), // ❯
         Some(other) => {
             let upper: String = other.chars().take(2).collect::<String>().to_uppercase();
             if upper.is_empty() { "?".to_string() } else { upper }
@@ -394,7 +394,7 @@ mod tests {
     #[test]
     fn test_agent_name_to_indicator_known() {
         assert_eq!(agent_name_to_indicator(Some("claude")), "\u{2733}");  // ✳
-        assert_eq!(agent_name_to_indicator(Some("opencode")), "\u{25b6}"); // ▶
+        assert_eq!(agent_name_to_indicator(Some("opencode")), "\u{276f}"); // ❯
     }
 
     #[test]
