@@ -13,8 +13,8 @@
 
 **Purpose**: Add the Sort action type and WASM wrapper needed by all subsequent tasks
 
-- [ ] T001 Add `Sort` variant to `ActionType` enum in cc-zellij-plugin/src/lib.rs
-- [ ] T002 [P] Add `move_focus_or_tab_wasm` wrapper function in cc-zellij-plugin/src/wasm_compat.rs (WASM calls `move_focus_or_tab(direction)`, native stub is no-op)
+- [x] T001 Add `Sort` variant to `ActionType` enum in cc-zellij-plugin/src/lib.rs
+- [x] T002 [P] Add `move_focus_or_tab_wasm` wrapper function in cc-zellij-plugin/src/wasm_compat.rs (WASM calls `move_focus_or_tab(direction)`, native stub is no-op)
 
 **Checkpoint**: New action type compiles, WASM wrapper available
 
@@ -24,10 +24,10 @@
 
 **Purpose**: Implement the core sort logic in the controller that all user stories depend on
 
-- [ ] T003 Add `sort_tier(session: &Session) -> u8` helper function in cc-zellij-plugin/src/controller/actions.rs that returns 0 for Active (Working/Waiting and not paused), 1 for Inactive (Idle/Done/AgentDone/Init and not paused), 2 for Paused (session.paused == true)
-- [ ] T004 Add `handle_sort(state: &mut ControllerState)` function in cc-zellij-plugin/src/controller/actions.rs that: (1) snapshots sessions with tab indices and tiers, (2) computes target order via stable partition by tier, (3) executes swap sequence using switch_tab_to_wasm + move_focus_or_tab_wasm, (4) broadcasts render update
-- [ ] T005 Wire `ActionType::Sort` to `handle_sort` in the action dispatch match in cc-zellij-plugin/src/controller/actions.rs
-- [ ] T006 Add unit tests for `sort_tier` covering all Activity variants and paused combinations in cc-zellij-plugin/src/controller/actions.rs
+- [x] T003 Add `sort_tier(session: &Session) -> u8` helper function in cc-zellij-plugin/src/controller/actions.rs that returns 0 for Active (Working/Waiting and not paused), 1 for Inactive (Idle/Done/AgentDone/Init and not paused), 2 for Paused (session.paused == true)
+- [x] T004 Add `handle_sort(state: &mut ControllerState)` function in cc-zellij-plugin/src/controller/actions.rs that: (1) snapshots sessions with tab indices and tiers, (2) computes target order via stable partition by tier, (3) executes swap sequence using switch_tab_to_wasm + move_focus_or_tab_wasm, (4) broadcasts render update
+- [x] T005 Wire `ActionType::Sort` to `handle_sort` in the action dispatch match in cc-zellij-plugin/src/controller/actions.rs
+- [x] T006 Add unit tests for `sort_tier` covering all Activity variants and paused combinations in cc-zellij-plugin/src/controller/actions.rs
 
 **Checkpoint**: Controller can receive Sort action and reorder tabs. Core sort logic tested.
 
@@ -41,9 +41,9 @@
 
 ### Implementation for User Story 1
 
-- [ ] T007 [US1] Add `BareKey::Char('S')` handler in `handle_navigate_key()` in cc-zellij-plugin/src/sidebar_plugin/input.rs that sends `ActionType::Sort` via `send_action`
-- [ ] T008 [US1] Add unit test for S key in navigate mode dispatching Sort action in cc-zellij-plugin/src/sidebar_plugin/input.rs
-- [ ] T009 [US1] Add unit test verifying S key is ignored in Passive mode (no action sent) in cc-zellij-plugin/src/sidebar_plugin/input.rs
+- [x] T007 [US1] Add `BareKey::Char('S')` handler in `handle_navigate_key()` in cc-zellij-plugin/src/sidebar_plugin/input.rs that sends `ActionType::Sort` via `send_action`
+- [x] T008 [US1] Add unit test for S key in navigate mode dispatching Sort action in cc-zellij-plugin/src/sidebar_plugin/input.rs
+- [x] T009 [US1] Add unit test verifying S key is ignored in Passive mode (no action sent) in cc-zellij-plugin/src/sidebar_plugin/input.rs
 
 **Checkpoint**: S key in navigate mode triggers sort, tabs reorder by activity tier
 
@@ -57,10 +57,10 @@
 
 ### Implementation for User Story 2
 
-- [ ] T010 [US2] In `handle_sort()` in cc-zellij-plugin/src/controller/actions.rs, after computing target order and before executing the swap sequence, record the pane_id of the session that the navigate cursor is on (passed via `msg.pane_id` from the sidebar). After swaps complete and before broadcasting the render update, include a `sort_cursor_pane_id` field in the broadcast so the sidebar can relocate the cursor. Note: `preserve_cursor()` in state.rs only clamps the index to bounds; it does NOT track by pane_id. The sidebar must find the new index of the tracked pane_id in the updated session list and set `cursor_index` accordingly.
-- [ ] T010b [US2] In the S key handler in cc-zellij-plugin/src/sidebar_plugin/input.rs, pass the pane_id of the session at the current `cursor_index` as `msg.pane_id` in the Sort action message, so the controller knows which session the cursor is on.
-- [ ] T010c [US2] Handle navigate-mode-exit during sort: the sort swap sequence calls `switch_tab_to` on multiple tabs, which changes `active_tab_index`. When the render broadcast arrives, the sidebar detects the tab change and exits navigate mode (cc-zellij-plugin/src/sidebar_plugin/mod.rs lines 186-201). Fix by either: (a) extending the grace period when a Sort action is in flight, or (b) having the controller restore the original active tab after the swap sequence completes so the sidebar does not see a tab change. Approach (b) is preferred since the controller already owns the swap sequence.
-- [ ] T011 [US2] Add unit test verifying cursor follows session after sort reorders sessions in cc-zellij-plugin/src/sidebar_plugin/input.rs
+- [x] T010 [US2] In `handle_sort()` in cc-zellij-plugin/src/controller/actions.rs, after computing target order and before executing the swap sequence, record the pane_id of the session that the navigate cursor is on (passed via `msg.pane_id` from the sidebar). After swaps complete and before broadcasting the render update, include a `sort_cursor_pane_id` field in the broadcast so the sidebar can relocate the cursor. Note: `preserve_cursor()` in state.rs only clamps the index to bounds; it does NOT track by pane_id. The sidebar must find the new index of the tracked pane_id in the updated session list and set `cursor_index` accordingly.
+- [x] T010b [US2] In the S key handler in cc-zellij-plugin/src/sidebar_plugin/input.rs, pass the pane_id of the session at the current `cursor_index` as `msg.pane_id` in the Sort action message, so the controller knows which session the cursor is on.
+- [x] T010c [US2] Handle navigate-mode-exit during sort: the sort swap sequence calls `switch_tab_to` on multiple tabs, which changes `active_tab_index`. When the render broadcast arrives, the sidebar detects the tab change and exits navigate mode (cc-zellij-plugin/src/sidebar_plugin/mod.rs lines 186-201). Fix by either: (a) extending the grace period when a Sort action is in flight, or (b) having the controller restore the original active tab after the swap sequence completes so the sidebar does not see a tab change. Approach (b) is preferred since the controller already owns the swap sequence.
+- [x] T011 [US2] Add unit test verifying cursor follows session after sort reorders sessions in cc-zellij-plugin/src/sidebar_plugin/input.rs
 
 **Checkpoint**: Cursor tracks the same session across sort-induced position changes
 
@@ -74,7 +74,7 @@
 
 ### Implementation for User Story 3
 
-- [ ] T012 [US3] Add `" \x1b[1mS\x1b[0m      Sort by activity"` entry to `HELP_LINES` in the Actions section in cc-zellij-plugin/src/sidebar_plugin/render.rs
+- [x] T012 [US3] Add `" \x1b[1mS\x1b[0m      Sort by activity"` entry to `HELP_LINES` in the Actions section in cc-zellij-plugin/src/sidebar_plugin/render.rs
 
 **Checkpoint**: Help overlay includes S keybinding
 
@@ -84,10 +84,10 @@
 
 **Purpose**: Documentation, build verification, final cleanup
 
-- [ ] T013 Update README.md to document the S keybinding in navigate mode for sort-by-activity
-- [ ] T014 Update docs/modules/reference/pages/cli.adoc or the relevant Antora page documenting navigate-mode keybindings to include S (sort by activity)
-- [ ] T015 Run `make test` and `make lint` to verify all tests pass and no clippy warnings
-- [ ] T016 Run `make install` to verify WASM build succeeds
+- [x] T013 Update README.md to document the S keybinding in navigate mode for sort-by-activity
+- [x] T014 Update docs/modules/reference/pages/cli.adoc or the relevant Antora page documenting navigate-mode keybindings to include S (sort by activity)
+- [x] T015 Run `make test` and `make lint` to verify all tests pass and no clippy warnings
+- [x] T016 Run `make install` to verify WASM build succeeds
 
 ---
 
