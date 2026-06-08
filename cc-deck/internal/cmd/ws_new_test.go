@@ -1,15 +1,17 @@
 package cmd
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
 
+	"github.com/cc-deck/cc-deck/internal/agent"
+	"github.com/cc-deck/cc-deck/internal/ws"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/cc-deck/cc-deck/internal/ws"
 )
 
 func ensureZellijStub(t *testing.T) {
@@ -369,6 +371,69 @@ func TestRunWsNew_DifferentTypeAutoSuffix(t *testing.T) {
 	require.NoError(t, findErr)
 	assert.Equal(t, ws.WorkspaceTypeContainer, found.Type)
 }
+
+func TestWsListEntry_AuthField(t *testing.T) {
+	entry := wsListEntry{
+		Name: "test-ws",
+		Type: "container",
+		Auth: "claude/vertex opencode/openai",
+	}
+	data, err := json.Marshal(entry)
+	require.NoError(t, err)
+	var m map[string]any
+	require.NoError(t, json.Unmarshal(data, &m))
+	assert.Equal(t, "claude/vertex opencode/openai", m["auth"])
+}
+
+func TestResolveWorkspaceCredentials_NoCredentials(t *testing.T) {
+	agent.Reset()
+	t.Cleanup(agent.Reset)
+
+	agent.Register(newTestStubAgent("test", []agent.CredentialSpec{
+		{Name: "api", EnvVars: []agent.EnvVarSpec{{Name: "MISSING_KEY_XYZ_123", Required: true}}},
+	}))
+
+	err := resolveWorkspaceCredentials()
+	require.NoError(t, err)
+}
+
+func TestResolveWorkspaceCredentials_MultipleAgents(t *testing.T) {
+	agent.Reset()
+	t.Cleanup(agent.Reset)
+
+	t.Setenv("TEST_RC_KEY1", "val1")
+	t.Setenv("TEST_RC_KEY2", "val2")
+
+	agent.Register(newTestStubAgent("agentA", []agent.CredentialSpec{
+		{Name: "m1", EnvVars: []agent.EnvVarSpec{{Name: "TEST_RC_KEY1", Required: true}}},
+	}))
+	agent.Register(newTestStubAgent("agentB", []agent.CredentialSpec{
+		{Name: "m2", EnvVars: []agent.EnvVarSpec{{Name: "TEST_RC_KEY2", Required: true}}},
+	}))
+
+	err := resolveWorkspaceCredentials()
+	require.NoError(t, err)
+}
+
+type testStubAgent struct {
+	name  string
+	specs []agent.CredentialSpec
+}
+
+func newTestStubAgent(name string, specs []agent.CredentialSpec) *testStubAgent {
+	return &testStubAgent{name: name, specs: specs}
+}
+
+func (s *testStubAgent) Name() string                                         { return s.name }
+func (s *testStubAgent) DisplayName() string                                  { return s.name }
+func (s *testStubAgent) Indicator() string                                    { return s.name }
+func (s *testStubAgent) IsInstalled() bool                                    { return false }
+func (s *testStubAgent) DetectConfig() string                                 { return "" }
+func (s *testStubAgent) InstallHooks() error                                  { return nil }
+func (s *testStubAgent) UninstallHooks() error                                { return nil }
+func (s *testStubAgent) HooksInstalled() bool                                 { return false }
+func (s *testStubAgent) TranslateEvent(_ []byte) (*agent.NormalizedPayload, error) { return nil, nil }
+func (s *testStubAgent) CredentialSpecs() []agent.CredentialSpec              { return s.specs }
 
 func TestWsPrune_IsNoOp(t *testing.T) {
 	cmd := newWsPruneCmd()

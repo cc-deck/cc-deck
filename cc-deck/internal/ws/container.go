@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cc-deck/cc-deck/internal/credential"
 	"github.com/cc-deck/cc-deck/internal/podman"
 )
 
@@ -17,7 +18,7 @@ const (
 	defaultImage        = "quay.io/cc-deck/cc-deck-demo:latest"
 )
 
-// AuthMode controls how Claude Code authentication is detected and injected.
+// Deprecated: AuthMode is superseded by agent-declared CredentialSpecs and the credential package.
 type AuthMode string
 
 const (
@@ -123,33 +124,12 @@ func (e *ContainerWorkspace) Create(ctx context.Context, opts CreateOpts) error 
 		ports = def.Ports
 	}
 
-	// Resolve credentials: explicit --credential flags first.
-	creds := e.Credentials
-	if creds == nil {
-		creds = make(map[string]string)
-	}
-
-	// Resolve credentials from definition keys (fill from host env).
-	if def != nil {
-		for _, key := range def.Credentials {
-			if _, exists := creds[key]; !exists {
-				if val := os.Getenv(key); val != "" {
-					creds[key] = val
-				}
-			}
+	// Eager credential validation before provisioning infrastructure.
+	if def != nil && !def.ExternalCredentials {
+		modes := credential.DetectAll()
+		if valErr := credential.ValidateAll(modes, false); valErr != nil {
+			return valErr
 		}
-	}
-
-	// Auth mode: CLI flag > definition > auto-detect from host env.
-	authMode := e.Auth
-	if authMode == "" && def != nil && def.Auth != "" {
-		authMode = AuthMode(def.Auth)
-	}
-	if authMode == "" || authMode == AuthModeAuto {
-		authMode = DetectAuthMode()
-	}
-	if authMode != AuthModeNone {
-		DetectAuthCredentials(authMode, creds)
 	}
 
 	cName := containerName(e.name)
@@ -182,41 +162,64 @@ func (e *ContainerWorkspace) Create(ctx context.Context, opts CreateOpts) error 
 		}
 	}
 
-	// Create podman secrets for credentials.
+	// Resolve and inject credentials.
 	var secrets []podman.SecretMount
 	var envs []string
 	var credentialKeys []string
-	for key, val := range creds {
-		sName := secretName(e.name, key)
 
-		// Detect file-based credentials: if the value is a path to an
-		// existing file, read the file content into the secret and mount
-		// it as a file at /run/secrets/<name>. Set the env var to point
-		// to the mounted file path.
-		if info, statErr := os.Stat(val); statErr == nil && !info.IsDir() {
-			data, readErr := os.ReadFile(val)
-			if readErr != nil {
-				return fmt.Errorf("reading credential file %q: %w", val, readErr)
+	{
+		modes := credential.DetectAll()
+		if len(modes) > 0 {
+			for _, m := range modes {
+				mEnvs, mSecrets, mKeys, injectErr := credential.InjectContainer(ctx, e.name, m.Spec, m.Resolved)
+				if injectErr != nil {
+					return fmt.Errorf("injecting credentials: %w", injectErr)
+				}
+				envs = append(envs, mEnvs...)
+				secrets = append(secrets, mSecrets...)
+				credentialKeys = append(credentialKeys, mKeys...)
 			}
-			if err := podman.SecretCreate(ctx, sName, data); err != nil {
-				return fmt.Errorf("creating secret %q: %w", key, err)
-			}
-			secrets = append(secrets, podman.SecretMount{
-				Name:   sName,
-				AsFile: true,
-			})
-			envs = append(envs, fmt.Sprintf("%s=/run/secrets/%s", key, sName))
 		} else {
-			// Plain value: inject as env var via podman secret.
-			if err := podman.SecretCreate(ctx, sName, []byte(val)); err != nil {
-				return fmt.Errorf("creating secret %q: %w", key, err)
+			creds := e.Credentials
+			if creds == nil {
+				creds = make(map[string]string)
 			}
-			secrets = append(secrets, podman.SecretMount{
-				Name:   sName,
-				Target: key,
-			})
+			if def != nil {
+				for _, key := range def.Credentials {
+					if _, exists := creds[key]; !exists {
+						if val := os.Getenv(key); val != "" {
+							creds[key] = val
+						}
+					}
+				}
+			}
+			for key, val := range creds {
+				sName := secretName(e.name, key)
+				if info, statErr := os.Stat(val); statErr == nil && !info.IsDir() {
+					data, readErr := os.ReadFile(val)
+					if readErr != nil {
+						return fmt.Errorf("reading credential file %q: %w", val, readErr)
+					}
+					if err := podman.SecretCreate(ctx, sName, data); err != nil {
+						return fmt.Errorf("creating secret %q: %w", key, err)
+					}
+					secrets = append(secrets, podman.SecretMount{
+						Name:   sName,
+						AsFile: true,
+					})
+					envs = append(envs, fmt.Sprintf("%s=/run/secrets/%s", key, sName))
+				} else {
+					if err := podman.SecretCreate(ctx, sName, []byte(val)); err != nil {
+						return fmt.Errorf("creating secret %q: %w", key, err)
+					}
+					secrets = append(secrets, podman.SecretMount{
+						Name:   sName,
+						Target: key,
+					})
+				}
+				credentialKeys = append(credentialKeys, key)
+			}
 		}
-		credentialKeys = append(credentialKeys, key)
 	}
 
 	// Add mounts from definition (if not overridden by CLI).

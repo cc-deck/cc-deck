@@ -2,6 +2,42 @@
 
 The `cc-deck` command-line tool manages the plugin, sessions, snapshots, and workspace builds.
 
+== Workspace Commands
+
+=== `cc-deck ws new [name]`
+
+Create a new workspace.
+Credentials from all registered agents are detected automatically and injected into the workspace.
+
+[cols="1,3"]
+|===
+| Flag | Description
+
+| `--type`, `-t`
+| Workspace type: `local`, `container`, `compose`, `ssh`, `k8s-deploy`
+
+| `--credential`
+| Explicit credential as `KEY=VALUE` (repeatable)
+|===
+
+=== `cc-deck ws update [name]`
+
+Update an existing workspace.
+
+[cols="1,3"]
+|===
+| Flag | Description
+
+| `--sync-repos`
+| Clone missing repos from workspace definition
+|===
+
+=== `cc-deck ws ls [-v]`
+
+List workspaces.
+The default output does not include an AUTH column.
+Use `-v` for verbose output including the derived AUTH column showing `agent/mode` pairs.
+
 == Build Commands
 
 === `cc-deck build init`

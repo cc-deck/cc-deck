@@ -208,6 +208,23 @@ func TestClaudeAgentInstallHooksIdempotent(t *testing.T) {
 	}
 }
 
+func TestClaudeAgentCredentialSpecs(t *testing.T) {
+	a := &ClaudeAgent{}
+	specs := a.CredentialSpecs()
+	if len(specs) < 3 {
+		t.Fatalf("CredentialSpecs() returned %d specs, want at least 3", len(specs))
+	}
+	names := make(map[string]bool)
+	for _, s := range specs {
+		names[s.Name] = true
+	}
+	for _, required := range []string{"api", "vertex", "bedrock"} {
+		if !names[required] {
+			t.Errorf("missing %q credential spec", required)
+		}
+	}
+}
+
 func TestClaudeAgentUninstallHooksSafety(t *testing.T) {
 	dir := t.TempDir()
 	settingsPath := filepath.Join(dir, ".claude", "settings.json")

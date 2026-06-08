@@ -19,9 +19,10 @@ const (
 // and templates. Both WorkspaceDefinition (via embedding) and WorkspaceTemplate
 // variants use this type, ensuring fields stay in sync.
 type WorkspaceSpec struct {
-	Image          string            `yaml:"image,omitempty"`
-	Auth           string            `yaml:"auth,omitempty"`
-	Storage        *StorageConfig    `yaml:"storage,omitempty"`
+	Image               string            `yaml:"image,omitempty"`
+	Auth                string            `yaml:"auth,omitempty"`
+	ExternalCredentials bool              `yaml:"external-credentials,omitempty"`
+	Storage             *StorageConfig    `yaml:"storage,omitempty"`
 	Ports          []string          `yaml:"ports,omitempty"`
 	Credentials    []string          `yaml:"credentials,omitempty"`
 	Mounts         []string          `yaml:"mounts,omitempty"`

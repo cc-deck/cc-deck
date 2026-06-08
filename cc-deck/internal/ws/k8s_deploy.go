@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/cc-deck/cc-deck/internal/credential"
 )
 
 // K8sDeployWorkspace manages a Kubernetes-based persistent development
@@ -143,19 +145,28 @@ func (e *K8sDeployWorkspace) Create(ctx context.Context, opts CreateOpts) error 
 		storageSize = defaultStorageSize
 	}
 
-	// Resolve credentials.
-	creds := e.Credentials
-	if creds == nil {
-		creds = make(map[string]string)
-	}
-
-	// Auth mode detection and credential injection.
-	authMode := e.Auth
-	if authMode == "" || authMode == AuthModeAuto {
-		authMode = DetectAuthMode()
-	}
-	if authMode != AuthModeNone {
-		DetectAuthCredentials(authMode, creds)
+	// Resolve credentials via detect-all model.
+	creds := make(map[string]string)
+	{
+		modes := credential.DetectAll()
+		if len(modes) > 0 {
+			merged, mergeErr := credential.MergeCredentials(modes)
+			if mergeErr != nil {
+				return fmt.Errorf("merging credentials: %w", mergeErr)
+			}
+			for k, v := range merged.EnvVars {
+				creds[k] = v
+			}
+			for _, fc := range merged.FileCredentials {
+				creds[fc.EnvVar] = fc.LocalPath
+			}
+		} else {
+			if e.Credentials != nil {
+				for k, v := range e.Credentials {
+					creds[k] = v
+				}
+			}
+		}
 	}
 
 	// Check ESO CRD availability (parameter validation done earlier).
