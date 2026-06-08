@@ -1,6 +1,6 @@
 # Brainstorm Overview
 
-Last updated: 2026-06-07 (069 credential transport revisit)
+Last updated: 2026-06-08 (071 sidebar session sort)
 
 ## Active Brainstorms
 
@@ -35,6 +35,7 @@ Last updated: 2026-06-07 (069 credential transport revisit)
 | 068 | 2026-06-06 | Network policy generalization | active | - |
 | 069 | 2026-06-06 | Credential transport abstraction | active | - |
 | 070 | 2026-06-06 | Build system multi-agent | active | - |
+| 071 | 2026-06-08 | Sidebar session sort | active | - |
 
 ## Open Threads
 
@@ -64,6 +65,7 @@ Last updated: 2026-06-07 (069 credential transport revisit)
 - Egress recording mode: CoreDNS sidecar image, non-interactive/CI mode, DNS noise filtering, merge vs replace strategy for recorded domains, OpenShell OCSF enhancement (from #065)
 - Tool PATH restoration: registry format (Go map vs YAML), user-relative paths with {{.HomeDir}}, directory guards, curated zshrc dedup of tool paths (from #066)
 - Config validation: load-time warning suppression mechanism, curated safe icon list vs constraint description (from #067)
+- Sidebar session sort: move_focus_or_tab swap mechanics (focus requirement during sort sequence), controller vs sidebar sort computation, performance for 10+ sessions (from #071)
 
 ## Parked Ideas
 
