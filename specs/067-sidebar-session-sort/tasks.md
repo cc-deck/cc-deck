@@ -57,7 +57,9 @@
 
 ### Implementation for User Story 2
 
-- [ ] T010 [US2] After Sort action returns, update `cursor_index` in NavigateContext to match the new position of the pane_id the cursor was on before sort. Implement in the Sort response handling path in cc-zellij-plugin/src/sidebar_plugin/input.rs (the cursor recalculation happens when the next render broadcast arrives with updated session order; the sidebar already recalculates via `preserve_cursor()` in cc-zellij-plugin/src/sidebar_plugin/mod.rs)
+- [ ] T010 [US2] In `handle_sort()` in cc-zellij-plugin/src/controller/actions.rs, after computing target order and before executing the swap sequence, record the pane_id of the session that the navigate cursor is on (passed via `msg.pane_id` from the sidebar). After swaps complete and before broadcasting the render update, include a `sort_cursor_pane_id` field in the broadcast so the sidebar can relocate the cursor. Note: `preserve_cursor()` in state.rs only clamps the index to bounds; it does NOT track by pane_id. The sidebar must find the new index of the tracked pane_id in the updated session list and set `cursor_index` accordingly.
+- [ ] T010b [US2] In the S key handler in cc-zellij-plugin/src/sidebar_plugin/input.rs, pass the pane_id of the session at the current `cursor_index` as `msg.pane_id` in the Sort action message, so the controller knows which session the cursor is on.
+- [ ] T010c [US2] Handle navigate-mode-exit during sort: the sort swap sequence calls `switch_tab_to` on multiple tabs, which changes `active_tab_index`. When the render broadcast arrives, the sidebar detects the tab change and exits navigate mode (cc-zellij-plugin/src/sidebar_plugin/mod.rs lines 186-201). Fix by either: (a) extending the grace period when a Sort action is in flight, or (b) having the controller restore the original active tab after the swap sequence completes so the sidebar does not see a tab change. Approach (b) is preferred since the controller already owns the swap sequence.
 - [ ] T011 [US2] Add unit test verifying cursor follows session after sort reorders sessions in cc-zellij-plugin/src/sidebar_plugin/input.rs
 
 **Checkpoint**: Cursor tracks the same session across sort-induced position changes
@@ -82,8 +84,10 @@
 
 **Purpose**: Documentation, build verification, final cleanup
 
-- [ ] T013 Run `make test` and `make lint` to verify all tests pass and no clippy warnings
-- [ ] T014 Run `make install` to verify WASM build succeeds
+- [ ] T013 Update README.md to document the S keybinding in navigate mode for sort-by-activity
+- [ ] T014 Update docs/modules/reference/pages/cli.adoc or the relevant Antora page documenting navigate-mode keybindings to include S (sort by activity)
+- [ ] T015 Run `make test` and `make lint` to verify all tests pass and no clippy warnings
+- [ ] T016 Run `make install` to verify WASM build succeeds
 
 ---
 

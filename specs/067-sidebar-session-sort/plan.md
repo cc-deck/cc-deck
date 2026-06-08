@@ -62,3 +62,15 @@ cc-zellij-plugin/src/
 ## Complexity Tracking
 
 No constitution violations. No complexity justifications needed.
+
+## Known Risks
+
+### Navigate Mode Exit During Sort Swaps
+
+The sort swap sequence calls `switch_tab_to` on multiple tabs, which changes `active_tab_index`. When the render broadcast arrives after the sort, the sidebar detects the tab change (mod.rs lines 186-201) and exits navigate mode. The grace period (1500ms) may or may not cover the swap sequence duration.
+
+**Mitigation**: The controller must restore the original active tab index after the swap sequence completes, so the sidebar does not see a tab change in the render broadcast.
+
+### Cursor Tracking Limitation
+
+`preserve_cursor()` in state.rs only clamps the cursor index to bounds. It does NOT track by pane_id. The sidebar must explicitly find the new index of the previously-highlighted session's pane_id in the updated session list after the sort completes.
