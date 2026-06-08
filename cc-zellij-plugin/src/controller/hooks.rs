@@ -97,6 +97,7 @@ pub fn process_hook(state: &mut ControllerState, hook: HookPayload) -> bool {
             session.display_name = format!("session-{}", hook.pane_id);
             session.meta_ts = 0;
             session.done_attended = false;
+            session.pending_permissions = 0;
             session.working_dir = None;
         }
     }
@@ -110,21 +111,82 @@ pub fn process_hook(state: &mut ControllerState, hook: HookPayload) -> bool {
         }
     }
 
-    // Suppress Working transitions from subagent tool events when the session
-    // is waiting for permission. Subagent events carry agent_id; main-agent
-    // events do not. Only main-agent PostToolUse should clear Waiting.
-    if matches!(activity, Activity::Working) {
-        if let Some(s) = state.sessions.get(&hook.pane_id) {
-            if s.activity.is_waiting() && hook.agent_id.is_some() {
-                crate::debug_log(&format!(
-                    "CTRL HOOK: pane={} suppressing Working during Waiting (subagent event)",
-                    hook.pane_id,
-                ));
-                if let Some(s) = state.sessions.get_mut(&hook.pane_id) {
-                    s.last_event_ts = session::unix_now();
-                }
+    // Permission counter management:
+    // - PermissionRequest: increment pending_permissions, transition to Waiting
+    // - PermissionReply: decrement pending_permissions, transition to Working only when 0
+    // - Working (PreToolUse/PostToolUse): suppress while pending_permissions > 0
+    // - Done/Stop: reset counter, allow transition
+    if matches!(activity, Activity::Waiting(session::WaitReason::Permission)) {
+        if let Some(s) = state.sessions.get_mut(&hook.pane_id) {
+            s.pending_permissions = s.pending_permissions.saturating_add(1);
+            crate::debug_log(&format!(
+                "CTRL HOOK: pane={} PermissionRequest, pending_permissions={}",
+                hook.pane_id, s.pending_permissions,
+            ));
+        }
+    }
+
+    // PermissionReply: decrement counter. Only clear Waiting when all
+    // permission prompts have been answered (counter reaches 0).
+    if hook.hook_event_name == "PermissionReply" {
+        if let Some(s) = state.sessions.get_mut(&hook.pane_id) {
+            s.pending_permissions = s.pending_permissions.saturating_sub(1);
+            crate::debug_log(&format!(
+                "CTRL HOOK: pane={} PermissionReply, pending_permissions={}",
+                hook.pane_id, s.pending_permissions,
+            ));
+            if s.pending_permissions > 0 {
+                // More prompts outstanding; stay in Waiting.
+                s.last_event_ts = session::unix_now();
                 return false;
             }
+            // Counter reached 0: fall through to transition to Working.
+        }
+    }
+
+    // Suppress Working transitions while permission prompts are outstanding.
+    // For PostToolUse from main agent (no agent_id): treat as implicit
+    // PermissionReply for backward compatibility with Claude Code, which
+    // doesn't send explicit PermissionReply events.
+    // For PreToolUse or subagent events: always suppress while waiting.
+    if matches!(activity, Activity::Working) {
+        if let Some(s) = state.sessions.get(&hook.pane_id) {
+            if s.pending_permissions > 0 {
+                let is_main_agent_post = hook.hook_event_name == "PostToolUse"
+                    && hook.agent_id.is_none();
+                if is_main_agent_post {
+                    // Backward compat: PostToolUse from main agent acts as
+                    // implicit PermissionReply (Claude Code flow).
+                    if let Some(s) = state.sessions.get_mut(&hook.pane_id) {
+                        s.pending_permissions = s.pending_permissions.saturating_sub(1);
+                        crate::debug_log(&format!(
+                            "CTRL HOOK: pane={} PostToolUse as implicit PermissionReply, pending_permissions={}",
+                            hook.pane_id, s.pending_permissions,
+                        ));
+                        if s.pending_permissions > 0 {
+                            s.last_event_ts = session::unix_now();
+                            return false;
+                        }
+                        // Counter reached 0: fall through to transition to Working.
+                    }
+                } else {
+                    crate::debug_log(&format!(
+                        "CTRL HOOK: pane={} suppressing Working while {} permissions pending (event={})",
+                        hook.pane_id, s.pending_permissions, hook.hook_event_name,
+                    ));
+                    if let Some(s) = state.sessions.get_mut(&hook.pane_id) {
+                        s.last_event_ts = session::unix_now();
+                    }
+                    return false;
+                }
+            }
+        }
+    }
+
+    // Reset permission counter on session-ending events.
+    if matches!(activity, Activity::Done) {
+        if let Some(s) = state.sessions.get_mut(&hook.pane_id) {
+            s.pending_permissions = 0;
         }
     }
 
@@ -691,9 +753,10 @@ mod tests {
     #[test]
     fn test_waiting_preserved_when_subagent_event() {
         let mut state = ControllerState::default();
-        let mut s = Session::new(42, "test-session".into());
-        s.activity = Activity::Waiting(crate::session::WaitReason::Permission);
-        state.sessions.insert(42, s);
+        // Use PermissionRequest hook to enter Waiting and set counter.
+        state.sessions.insert(42, Session::new(42, "test-session".into()));
+        process_hook(&mut state, make_hook(42, "PermissionRequest"));
+        assert_eq!(state.sessions[&42].pending_permissions, 1);
 
         // PreToolUse from subagent should NOT clear Waiting
         let changed = process_hook(&mut state, make_subagent_hook(42, "PreToolUse"));
@@ -713,24 +776,27 @@ mod tests {
     }
 
     #[test]
-    fn test_waiting_clears_on_main_agent_event() {
+    fn test_waiting_clears_on_main_agent_post_tool_use() {
         let mut state = ControllerState::default();
-        let mut s = Session::new(42, "test-session".into());
-        s.activity = Activity::Waiting(crate::session::WaitReason::Permission);
-        state.sessions.insert(42, s);
+        // Enter Waiting via PermissionRequest (sets counter=1).
+        state.sessions.insert(42, Session::new(42, "test-session".into()));
+        process_hook(&mut state, make_hook(42, "PermissionRequest"));
+        assert_eq!(state.sessions[&42].pending_permissions, 1);
 
-        // PostToolUse from main agent (no agent_id) should clear Waiting
+        // PostToolUse from main agent (no agent_id) acts as implicit
+        // PermissionReply: decrements counter and clears Waiting.
         let changed = process_hook(&mut state, make_hook(42, "PostToolUse"));
         assert!(changed);
         assert_eq!(state.sessions[&42].activity, Activity::Working);
+        assert_eq!(state.sessions[&42].pending_permissions, 0);
     }
 
     #[test]
     fn test_waiting_clears_on_main_agent_even_with_subagents_running() {
         let mut state = ControllerState::default();
-        let mut s = Session::new(42, "test-session".into());
-        s.activity = Activity::Waiting(crate::session::WaitReason::Permission);
-        state.sessions.insert(42, s);
+        // Enter Waiting via PermissionRequest.
+        state.sessions.insert(42, Session::new(42, "test-session".into()));
+        process_hook(&mut state, make_hook(42, "PermissionRequest"));
 
         // Subagent events arrive (don't clear Waiting)
         process_hook(&mut state, make_subagent_hook(42, "PreToolUse"));
@@ -739,7 +805,7 @@ mod tests {
         process_hook(&mut state, make_subagent_hook(42, "PostToolUse"));
         assert!(state.sessions[&42].activity.is_waiting());
 
-        // Main agent PostToolUse arrives (clears Waiting)
+        // Main agent PostToolUse arrives (clears Waiting via implicit PermissionReply)
         let changed = process_hook(&mut state, make_hook(42, "PostToolUse"));
         assert!(changed);
         assert_eq!(state.sessions[&42].activity, Activity::Working);
@@ -748,10 +814,12 @@ mod tests {
     #[test]
     fn test_waiting_preserved_with_empty_agent_id() {
         let mut state = ControllerState::default();
-        let mut s = Session::new(42, "test-session".into());
-        s.activity = Activity::Waiting(crate::session::WaitReason::Permission);
-        state.sessions.insert(42, s);
+        // Enter Waiting via PermissionRequest.
+        state.sessions.insert(42, Session::new(42, "test-session".into()));
+        process_hook(&mut state, make_hook(42, "PermissionRequest"));
 
+        // PostToolUse with empty agent_id (treated as subagent) should
+        // NOT act as implicit PermissionReply.
         let hook = HookPayload {
             agent: None,
             agent_indicator: None,
@@ -769,6 +837,84 @@ mod tests {
             state.sessions[&42].activity,
             Activity::Waiting(crate::session::WaitReason::Permission)
         );
+    }
+
+    #[test]
+    fn test_parallel_permissions_not_cleared_by_pre_tool_use() {
+        // OpenCode parallel tool calls: 2nd PreToolUse must NOT clear Waiting
+        // set by 1st PermissionRequest.
+        let mut state = ControllerState::default();
+        state.sessions.insert(42, Session::new(42, "test-session".into()));
+
+        // Tool A fires PreToolUse
+        process_hook(&mut state, make_hook(42, "PreToolUse"));
+        assert_eq!(state.sessions[&42].activity, Activity::Working);
+
+        // Tool A hits permission
+        process_hook(&mut state, make_hook(42, "PermissionRequest"));
+        assert!(state.sessions[&42].activity.is_waiting());
+        assert_eq!(state.sessions[&42].pending_permissions, 1);
+
+        // Tool B fires PreToolUse (parallel, no agent_id) - must NOT clear Waiting
+        let changed = process_hook(&mut state, make_hook(42, "PreToolUse"));
+        assert!(!changed);
+        assert!(state.sessions[&42].activity.is_waiting());
+    }
+
+    #[test]
+    fn test_parallel_permissions_both_must_be_replied() {
+        // Two parallel PermissionRequests: both need PermissionReply to clear.
+        let mut state = ControllerState::default();
+        state.sessions.insert(42, Session::new(42, "test-session".into()));
+
+        // Two PermissionRequests
+        process_hook(&mut state, make_hook(42, "PermissionRequest"));
+        process_hook(&mut state, make_hook(42, "PermissionRequest"));
+        assert_eq!(state.sessions[&42].pending_permissions, 2);
+        assert!(state.sessions[&42].activity.is_waiting());
+
+        // First PermissionReply: counter decrements but stays in Waiting
+        let changed = process_hook(&mut state, make_hook(42, "PermissionReply"));
+        assert!(!changed);
+        assert!(state.sessions[&42].activity.is_waiting());
+        assert_eq!(state.sessions[&42].pending_permissions, 1);
+
+        // Second PermissionReply: counter reaches 0, transitions to Working
+        let changed = process_hook(&mut state, make_hook(42, "PermissionReply"));
+        assert!(changed);
+        assert_eq!(state.sessions[&42].activity, Activity::Working);
+        assert_eq!(state.sessions[&42].pending_permissions, 0);
+    }
+
+    #[test]
+    fn test_permission_counter_reset_on_done() {
+        let mut state = ControllerState::default();
+        state.sessions.insert(42, Session::new(42, "test-session".into()));
+
+        // Enter Waiting with 2 pending permissions
+        process_hook(&mut state, make_hook(42, "PermissionRequest"));
+        process_hook(&mut state, make_hook(42, "PermissionRequest"));
+        assert_eq!(state.sessions[&42].pending_permissions, 2);
+
+        // Stop event resets counter and transitions to Done
+        process_hook(&mut state, make_hook(42, "Stop"));
+        assert_eq!(state.sessions[&42].activity, Activity::Done);
+        assert_eq!(state.sessions[&42].pending_permissions, 0);
+    }
+
+    #[test]
+    fn test_post_tool_use_not_suppressed_when_no_pending_permissions() {
+        // When pending_permissions is 0 (e.g. manual state or already cleared),
+        // PostToolUse should transition normally.
+        let mut state = ControllerState::default();
+        let mut s = Session::new(42, "test-session".into());
+        s.activity = Activity::Waiting(crate::session::WaitReason::Permission);
+        s.pending_permissions = 0; // counter already at 0
+        state.sessions.insert(42, s);
+
+        let changed = process_hook(&mut state, make_hook(42, "PostToolUse"));
+        assert!(changed);
+        assert_eq!(state.sessions[&42].activity, Activity::Working);
     }
 
     #[test]

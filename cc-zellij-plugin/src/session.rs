@@ -173,6 +173,12 @@ pub struct Session {
     /// Single source of truth for sidebar display.
     #[serde(default)]
     pub agent_indicator: Option<String>,
+    /// Number of outstanding permission prompts the user has not yet answered.
+    /// Incremented on PermissionRequest, decremented on PermissionReply (or
+    /// main-agent PostToolUse for backward compatibility with Claude Code).
+    /// The session stays in Waiting as long as this counter is > 0.
+    #[serde(default)]
+    pub pending_permissions: u32,
 }
 
 impl Session {
@@ -195,6 +201,7 @@ impl Session {
             badges: Vec::new(),
             agent_name: None,
             agent_indicator: None,
+            pending_permissions: 0,
         }
     }
 
