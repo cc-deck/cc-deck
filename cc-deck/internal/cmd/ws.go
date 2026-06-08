@@ -1367,10 +1367,10 @@ func writeWsTableWithProjects(instances []*ws.WorkspaceInstance, allDefs []*ws.W
 				r.name, r.wsType, r.infra, r.session, r.proj, r.auth, r.storage, r.lastAttached, r.age, r.path)
 		}
 	} else {
-		fmt.Fprintln(tw, "NAME\tTYPE\tINFRA\tSESSION\tPROJECT\tAUTH\tSTORAGE\tLAST ATTACHED\tAGE")
+		fmt.Fprintln(tw, "NAME\tTYPE\tINFRA\tSESSION\tPROJECT\tSTORAGE\tLAST ATTACHED\tAGE")
 		for _, r := range rows {
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-				r.name, r.wsType, r.infra, r.session, r.proj, r.auth, r.storage, r.lastAttached, r.age)
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				r.name, r.wsType, r.infra, r.session, r.proj, r.storage, r.lastAttached, r.age)
 		}
 	}
 
