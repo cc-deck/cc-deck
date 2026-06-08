@@ -21,8 +21,6 @@ const (
 type WorkspaceSpec struct {
 	Image               string            `yaml:"image,omitempty"`
 	Auth                string            `yaml:"auth,omitempty"`
-	Agent               string            `yaml:"agent,omitempty"`
-	AuthMode            string            `yaml:"auth-mode,omitempty"`
 	ExternalCredentials bool              `yaml:"external-credentials,omitempty"`
 	Storage             *StorageConfig    `yaml:"storage,omitempty"`
 	Ports          []string          `yaml:"ports,omitempty"`

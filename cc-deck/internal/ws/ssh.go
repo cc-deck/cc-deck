@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cc-deck/cc-deck/internal/agent"
 	"github.com/cc-deck/cc-deck/internal/credential"
 	"github.com/cc-deck/cc-deck/internal/ssh"
 )
@@ -192,20 +191,13 @@ func (e *SSHWorkspace) Attach(ctx context.Context) error {
 	client.AgentForwarding = true
 
 	// Write credentials to remote before attaching.
-	if def.AuthMode != "" && def.Agent != "" {
-		a := agent.Get(def.Agent)
-		if a == nil {
-			log.Printf("WARNING: unknown agent %q, falling back to legacy credential injection", def.Agent)
-		} else {
-			for _, spec := range a.CredentialSpecs() {
-				if spec.Name == def.AuthMode {
-					resolved := credential.Resolve(spec)
-					if writeErr := credential.InjectSSH(ctx, client, resolved); writeErr != nil {
-						log.Printf("WARNING: could not write credentials to remote: %v", writeErr)
-					}
-					break
-				}
-			}
+	modes := credential.DetectAll()
+	if len(modes) > 0 {
+		merged, mergeErr := credential.MergeCredentials(modes)
+		if mergeErr != nil {
+			log.Printf("WARNING: could not merge credentials: %v", mergeErr)
+		} else if writeErr := credential.InjectSSH(ctx, client, merged); writeErr != nil {
+			log.Printf("WARNING: could not write credentials to remote: %v", writeErr)
 		}
 	} else if def.Auth != "none" {
 		creds, credErr := ssh.BuildCredentialSet(def.Auth, def.Credentials, def.Env)

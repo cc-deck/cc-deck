@@ -95,6 +95,57 @@ func TestValidate_FixedValueSkipped(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestValidateAll_AllPresent(t *testing.T) {
+	t.Setenv("VA_KEY1", "val1")
+	t.Setenv("VA_KEY2", "val2")
+
+	modes := []DetectedMode{
+		{
+			AgentName: "agent1",
+			Spec:      agent.CredentialSpec{Name: "m1", EnvVars: []agent.EnvVarSpec{{Name: "VA_KEY1", Required: true}}},
+		},
+		{
+			AgentName: "agent2",
+			Spec:      agent.CredentialSpec{Name: "m2", EnvVars: []agent.EnvVarSpec{{Name: "VA_KEY2", Required: true}}},
+		},
+	}
+
+	err := ValidateAll(modes, false)
+	assert.NoError(t, err)
+}
+
+func TestValidateAll_OneMissing(t *testing.T) {
+	t.Setenv("VA_PRESENT", "yes")
+
+	modes := []DetectedMode{
+		{
+			AgentName: "agent1",
+			Spec:      agent.CredentialSpec{Name: "ok", EnvVars: []agent.EnvVarSpec{{Name: "VA_PRESENT", Required: true}}},
+		},
+		{
+			AgentName: "agent2",
+			Spec:      agent.CredentialSpec{Name: "bad", EnvVars: []agent.EnvVarSpec{{Name: "VA_ABSENT_XYZ", Required: true}}},
+		},
+	}
+
+	err := ValidateAll(modes, false)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "agent2")
+	assert.Contains(t, err.Error(), "VA_ABSENT_XYZ")
+}
+
+func TestValidateAll_ExternalSkips(t *testing.T) {
+	modes := []DetectedMode{
+		{
+			AgentName: "a",
+			Spec:      agent.CredentialSpec{Name: "x", EnvVars: []agent.EnvVarSpec{{Name: "GONE", Required: true}}},
+		},
+	}
+
+	err := ValidateAll(modes, true)
+	assert.NoError(t, err)
+}
+
 func TestValidate_MultiMissing(t *testing.T) {
 	spec := agent.CredentialSpec{
 		Name: "bedrock",

@@ -255,6 +255,199 @@ func TestResolve_UnsetVars(t *testing.T) {
 	assert.Equal(t, []string{"GEMINI_API_KEY"}, resolved.UnsetVars)
 }
 
+// stubAgent is a minimal Agent for testing DetectAll and related functions.
+type stubAgent struct {
+	name  string
+	specs []agent.CredentialSpec
+}
+
+func (s *stubAgent) Name() string                                       { return s.name }
+func (s *stubAgent) DisplayName() string                                { return s.name }
+func (s *stubAgent) Indicator() string                                  { return s.name[:2] }
+func (s *stubAgent) IsInstalled() bool                                  { return false }
+func (s *stubAgent) DetectConfig() string                               { return "" }
+func (s *stubAgent) InstallHooks() error                                { return nil }
+func (s *stubAgent) UninstallHooks() error                              { return nil }
+func (s *stubAgent) HooksInstalled() bool                               { return false }
+func (s *stubAgent) TranslateEvent(_ []byte) (*agent.NormalizedPayload, error) { return nil, nil }
+func (s *stubAgent) CredentialSpecs() []agent.CredentialSpec             { return s.specs }
+
+func registerStubAgent(t *testing.T, name string, specs []agent.CredentialSpec) {
+	t.Helper()
+	agent.Register(&stubAgent{name: name, specs: specs})
+}
+
+func TestDetectAll_MultipleAgents(t *testing.T) {
+	agent.Reset()
+	t.Cleanup(agent.Reset)
+
+	t.Setenv("TEST_CLAUDE_KEY", "sk-claude")
+	t.Setenv("TEST_OC_KEY", "sk-opencode")
+
+	registerStubAgent(t, "claude", []agent.CredentialSpec{
+		{Name: "api", EnvVars: []agent.EnvVarSpec{{Name: "TEST_CLAUDE_KEY", Required: true}}},
+	})
+	registerStubAgent(t, "opencode", []agent.CredentialSpec{
+		{Name: "openai", EnvVars: []agent.EnvVarSpec{{Name: "TEST_OC_KEY", Required: true}}},
+	})
+
+	modes := DetectAll()
+	require.Len(t, modes, 2)
+	assert.Equal(t, "claude", modes[0].AgentName)
+	assert.Equal(t, "api", modes[0].Spec.Name)
+	assert.Equal(t, "opencode", modes[1].AgentName)
+	assert.Equal(t, "openai", modes[1].Spec.Name)
+}
+
+func TestDetectAll_SingleAgent(t *testing.T) {
+	agent.Reset()
+	t.Cleanup(agent.Reset)
+
+	t.Setenv("TEST_ONLY_KEY", "sk-test")
+
+	registerStubAgent(t, "solo", []agent.CredentialSpec{
+		{Name: "api", EnvVars: []agent.EnvVarSpec{{Name: "TEST_ONLY_KEY", Required: true}}},
+	})
+
+	modes := DetectAll()
+	require.Len(t, modes, 1)
+	assert.Equal(t, "solo", modes[0].AgentName)
+}
+
+func TestDetectAll_NoCredentials(t *testing.T) {
+	agent.Reset()
+	t.Cleanup(agent.Reset)
+
+	registerStubAgent(t, "empty", []agent.CredentialSpec{
+		{Name: "api", EnvVars: []agent.EnvVarSpec{{Name: "MISSING_KEY_12345", Required: true}}},
+	})
+
+	modes := DetectAll()
+	assert.Empty(t, modes)
+}
+
+func TestMergeCredentials_DisjointMerge(t *testing.T) {
+	modes := []DetectedMode{
+		{
+			AgentName: "claude",
+			Spec:      agent.CredentialSpec{Name: "api"},
+			Resolved: ResolvedCredentials{
+				EnvVars: map[string]string{"ANTHROPIC_API_KEY": "sk-1"},
+			},
+		},
+		{
+			AgentName: "opencode",
+			Spec:      agent.CredentialSpec{Name: "openai"},
+			Resolved: ResolvedCredentials{
+				EnvVars: map[string]string{"OPENAI_API_KEY": "sk-2"},
+			},
+		},
+	}
+
+	merged, err := MergeCredentials(modes)
+	require.NoError(t, err)
+	assert.Equal(t, "sk-1", merged.EnvVars["ANTHROPIC_API_KEY"])
+	assert.Equal(t, "sk-2", merged.EnvVars["OPENAI_API_KEY"])
+}
+
+func TestMergeCredentials_SameKeySameValueDedup(t *testing.T) {
+	modes := []DetectedMode{
+		{
+			AgentName: "a",
+			Spec:      agent.CredentialSpec{Name: "m1"},
+			Resolved:  ResolvedCredentials{EnvVars: map[string]string{"SHARED": "val"}},
+		},
+		{
+			AgentName: "b",
+			Spec:      agent.CredentialSpec{Name: "m2"},
+			Resolved:  ResolvedCredentials{EnvVars: map[string]string{"SHARED": "val"}},
+		},
+	}
+
+	merged, err := MergeCredentials(modes)
+	require.NoError(t, err)
+	assert.Equal(t, "val", merged.EnvVars["SHARED"])
+}
+
+func TestMergeCredentials_SameKeyDifferentValueError(t *testing.T) {
+	modes := []DetectedMode{
+		{
+			AgentName: "a",
+			Spec:      agent.CredentialSpec{Name: "m1"},
+			Resolved:  ResolvedCredentials{EnvVars: map[string]string{"KEY": "val1"}},
+		},
+		{
+			AgentName: "b",
+			Spec:      agent.CredentialSpec{Name: "m2"},
+			Resolved:  ResolvedCredentials{EnvVars: map[string]string{"KEY": "val2"}},
+		},
+	}
+
+	_, err := MergeCredentials(modes)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "conflicting env var")
+}
+
+func TestMergeCredentials_FileCredentialCollection(t *testing.T) {
+	modes := []DetectedMode{
+		{
+			AgentName: "claude",
+			Spec:      agent.CredentialSpec{Name: "vertex"},
+			Resolved: ResolvedCredentials{
+				EnvVars:        map[string]string{"V": "1"},
+				FileCredential: &ResolvedFile{EnvVar: "GOOGLE_CREDS", LocalPath: "/path/a"},
+			},
+		},
+		{
+			AgentName: "opencode",
+			Spec:      agent.CredentialSpec{Name: "gcp"},
+			Resolved: ResolvedCredentials{
+				EnvVars:        map[string]string{"O": "2"},
+				FileCredential: &ResolvedFile{EnvVar: "OTHER_CREDS", LocalPath: "/path/b"},
+			},
+		},
+	}
+
+	merged, err := MergeCredentials(modes)
+	require.NoError(t, err)
+	require.Len(t, merged.FileCredentials, 2)
+	assert.Equal(t, "GOOGLE_CREDS", merged.FileCredentials[0].EnvVar)
+	assert.Equal(t, "OTHER_CREDS", merged.FileCredentials[1].EnvVar)
+}
+
+func TestMergeCredentials_EmptyInput(t *testing.T) {
+	merged, err := MergeCredentials(nil)
+	require.NoError(t, err)
+	assert.Empty(t, merged.EnvVars)
+	assert.Nil(t, merged.FileCredential)
+	assert.Nil(t, merged.FileCredentials)
+	assert.Nil(t, merged.UnsetVars)
+
+	merged2, err2 := MergeCredentials([]DetectedMode{})
+	require.NoError(t, err2)
+	assert.Empty(t, merged2.EnvVars)
+}
+
+func TestMergeCredentials_UnsetVarsMerge(t *testing.T) {
+	modes := []DetectedMode{
+		{
+			AgentName: "a",
+			Spec:      agent.CredentialSpec{Name: "m1"},
+			Resolved:  ResolvedCredentials{EnvVars: map[string]string{}, UnsetVars: []string{"VAR_A"}},
+		},
+		{
+			AgentName: "b",
+			Spec:      agent.CredentialSpec{Name: "m2"},
+			Resolved:  ResolvedCredentials{EnvVars: map[string]string{}, UnsetVars: []string{"VAR_B"}},
+		},
+	}
+
+	merged, err := MergeCredentials(modes)
+	require.NoError(t, err)
+	assert.Contains(t, merged.UnsetVars, "VAR_A")
+	assert.Contains(t, merged.UnsetVars, "VAR_B")
+}
+
 func TestExpandTilde(t *testing.T) {
 	home, err := os.UserHomeDir()
 	require.NoError(t, err)
