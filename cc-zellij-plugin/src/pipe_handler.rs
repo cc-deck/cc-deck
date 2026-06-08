@@ -148,6 +148,10 @@ pub fn hook_event_to_activity(event: &str, _tool_name: Option<&str>) -> Option<A
         "SessionStart" => Some(Activity::Init),
         "PreToolUse" | "PostToolUse" | "PostToolUseFailure" | "UserPromptSubmit" | "SubagentStart" => Some(Activity::Working),
         "PermissionRequest" => Some(Activity::Waiting(WaitReason::Permission)),
+        // PermissionReply signals the user answered a permission prompt.
+        // Handled specially in hooks.rs: decrements pending_permissions counter
+        // and only transitions to Working when all prompts are answered.
+        "PermissionReply" => Some(Activity::Working),
         "Stop" => Some(Activity::Done),
         "SubagentStop" => Some(Activity::AgentDone),
         // Notification is informational (e.g., "task complete"), not a blocking state.
@@ -193,6 +197,7 @@ mod tests {
         assert_eq!(hook_event_to_activity("PreToolUse", Some("Bash")), Some(Activity::Working));
         assert_eq!(hook_event_to_activity("PostToolUse", None), Some(Activity::Working));
         assert_eq!(hook_event_to_activity("PermissionRequest", None), Some(Activity::Waiting(WaitReason::Permission)));
+        assert_eq!(hook_event_to_activity("PermissionReply", None), Some(Activity::Working));
         assert_eq!(hook_event_to_activity("Stop", None), Some(Activity::Done));
         assert_eq!(hook_event_to_activity("SubagentStop", None), Some(Activity::AgentDone));
         assert_eq!(hook_event_to_activity("Notification", None), None);

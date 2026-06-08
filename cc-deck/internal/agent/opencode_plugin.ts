@@ -38,6 +38,11 @@ const plugin: Plugin = async (input) => {
           hook_event_name: "PermissionRequest",
           session_id: event.properties?.sessionID ?? "",
         });
+      } else if (event.type === "permission.replied") {
+        await sendHook({
+          hook_event_name: "PermissionReply",
+          session_id: event.properties?.sessionID ?? "",
+        });
       }
     },
 
