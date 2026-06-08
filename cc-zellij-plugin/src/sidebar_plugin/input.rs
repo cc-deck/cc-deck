@@ -648,12 +648,12 @@ fn send_action_wasm(msg: &ActionMessage) {
 fn send_action_wasm(_msg: &ActionMessage) {}
 
 #[cfg(target_family = "wasm")]
-fn focus_self_wasm() {
+pub fn focus_self_wasm() {
     focus_plugin_pane(get_plugin_ids().plugin_id, true, false);
 }
 
 #[cfg(not(target_family = "wasm"))]
-fn focus_self_wasm() {}
+pub fn focus_self_wasm() {}
 
 #[cfg(test)]
 mod tests {

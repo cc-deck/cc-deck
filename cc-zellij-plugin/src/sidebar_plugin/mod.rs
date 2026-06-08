@@ -211,7 +211,16 @@ impl ZellijPlugin for SidebarRendererPlugin {
                         if let modes::SidebarMode::RenamePassive { ref rename, entered_at_ms } = self.state.mode {
                             let now_ms = crate::session::unix_now_ms();
                             let in_grace = now_ms.saturating_sub(entered_at_ms) < modes::ENTER_GRACE_MS;
-                            if !in_grace && render_payload.focused_pane_id != Some(rename.pane_id) {
+                            if in_grace {
+                                // Double-click enters RenamePassive right after
+                                // the first click sends a Switch action. The
+                                // controller processes Switch asynchronously and
+                                // calls focus_terminal_pane, stealing focus from
+                                // the sidebar. Re-assert focus so keystrokes
+                                // reach the rename input.
+                                crate::debug_log("SIDEBAR RENDER: re-asserting focus during RenamePassive grace");
+                                input::focus_self_wasm();
+                            } else if render_payload.focused_pane_id != Some(rename.pane_id) {
                                 crate::debug_log(&format!(
                                     "SIDEBAR RENDER: exiting RenamePassive, focus moved from {} to {:?}",
                                     rename.pane_id, render_payload.focused_pane_id,
