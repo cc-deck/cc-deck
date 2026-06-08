@@ -1,15 +1,16 @@
 package cmd
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
 
+	"github.com/cc-deck/cc-deck/internal/ws"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/cc-deck/cc-deck/internal/ws"
 )
 
 func ensureZellijStub(t *testing.T) {
@@ -51,6 +52,8 @@ func newTestNewCmd() (*cobra.Command, *newFlags) {
 	cmd.Flags().StringVar(&cf.namespace, "namespace", "", "")
 	cmd.Flags().StringVar(&cf.kubeconfig, "kubeconfig", "", "")
 	cmd.Flags().StringVar(&cf.k8sContext, "context", "", "")
+	cmd.Flags().StringVar(&cf.agentName, "agent", "claude", "")
+	cmd.Flags().StringVar(&cf.authMode, "auth-mode", "", "")
 	cmd.Flags().StringVar(&cf.storageSize, "storage-size", "", "")
 	cmd.Flags().StringVar(&cf.storageClass, "storage-class", "", "")
 	return cmd, &cf
@@ -368,6 +371,85 @@ func TestRunWsNew_DifferentTypeAutoSuffix(t *testing.T) {
 	found, findErr := defs.FindByName("my-ws-container")
 	require.NoError(t, findErr)
 	assert.Equal(t, ws.WorkspaceTypeContainer, found.Type)
+}
+
+func TestWsListEntry_AuthFields(t *testing.T) {
+	entry := wsListEntry{
+		Name:     "test-ws",
+		Type:     "container",
+		Agent:    "claude",
+		AuthMode: "vertex",
+		Auth:     "claude/vertex",
+	}
+	data, err := json.Marshal(entry)
+	require.NoError(t, err)
+	var m map[string]any
+	require.NoError(t, json.Unmarshal(data, &m))
+	assert.Equal(t, "claude", m["agent"])
+	assert.Equal(t, "vertex", m["auth_mode"])
+	assert.Equal(t, "claude/vertex", m["auth"])
+}
+
+func TestFormatAuthColumn(t *testing.T) {
+	tests := []struct {
+		info     authInfo
+		expected string
+	}{
+		{authInfo{Agent: "claude", AuthMode: "vertex"}, "claude/vertex"},
+		{authInfo{Agent: "opencode", AuthMode: "openai"}, "opencode/openai"},
+		{authInfo{}, "-"},
+		{authInfo{Agent: "claude"}, "claude"},
+		{authInfo{AuthMode: "api"}, "api"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.expected, func(t *testing.T) {
+			assert.Equal(t, tt.expected, formatAuthColumn(tt.info))
+		})
+	}
+}
+
+func TestSelectAuthMode_SingleAutoSelect(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	mode, err := selectAuthMode("claude", "", false)
+	require.NoError(t, err)
+	assert.Equal(t, "api", mode)
+}
+
+func TestSelectAuthMode_ExplicitMode(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	mode, err := selectAuthMode("claude", "api", true)
+	require.NoError(t, err)
+	assert.Equal(t, "api", mode)
+}
+
+func TestSelectAuthMode_ExplicitModeNotFound(t *testing.T) {
+	_, err := selectAuthMode("claude", "nonexistent", true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+}
+
+func TestSelectAuthMode_ExplicitModeNoCredentials(t *testing.T) {
+	_, err := selectAuthMode("claude", "api", true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "credentials are not available")
+}
+
+func TestSelectAuthMode_NoCredentials(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("CLAUDE_CODE_USE_VERTEX", "")
+	t.Setenv("ANTHROPIC_VERTEX_PROJECT_ID", "")
+	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", "")
+	t.Setenv("CLAUDE_CODE_USE_BEDROCK", "")
+	t.Setenv("AWS_REGION", "")
+	_, err := selectAuthMode("claude", "", false)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no credentials found")
+}
+
+func TestSelectAuthMode_UnknownAgent(t *testing.T) {
+	_, err := selectAuthMode("nonexistent-agent", "", false)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown agent")
 }
 
 func TestWsPrune_IsNoOp(t *testing.T) {

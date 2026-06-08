@@ -34,6 +34,9 @@ type Agent interface {
 	// TranslateEvent parses agent-specific JSON input and produces a NormalizedPayload.
 	// Sets the agent field to Name(). Returns an error for malformed input.
 	TranslateEvent(input []byte) (*NormalizedPayload, error)
+
+	// CredentialSpecs returns the auth modes this agent supports.
+	CredentialSpecs() []CredentialSpec
 }
 
 // NormalizedPayload is the common format sent to the Zellij plugin via pipe message.
