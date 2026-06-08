@@ -142,7 +142,6 @@ type SandboxFields struct {
 type WorkspaceInstance struct {
 	Name         string            `yaml:"name"`
 	Type         WorkspaceType     `yaml:"type"`
-	Agent        string            `yaml:"agent,omitempty"`
 	State        WorkspaceState    `yaml:"state,omitempty"`
 	InfraState   *InfraStateValue   `yaml:"infra_state,omitempty"`
 	SessionState SessionStateValue  `yaml:"session_state"`

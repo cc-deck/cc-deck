@@ -1,6 +1,7 @@
 package credential
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -76,6 +77,61 @@ func expandTilde(path string) string {
 		return path
 	}
 	return filepath.Join(home, path[1:])
+}
+
+// DetectAll scans all registered agents and returns every auth mode whose
+// required credentials are present on the host. Agents are scanned in stable
+// alphabetical order via agent.All().
+func DetectAll() []DetectedMode {
+	var modes []DetectedMode
+	for _, a := range agent.All() {
+		for _, spec := range a.CredentialSpecs() {
+			if _, ok := checkAvailability(spec); ok {
+				modes = append(modes, DetectedMode{
+					AgentName: a.Name(),
+					Spec:      spec,
+					Resolved:  Resolve(spec),
+				})
+			}
+		}
+	}
+	return modes
+}
+
+// MergeCredentials combines all detected modes into a single credential set
+// for workspace injection. Env vars with the same name and value are
+// deduplicated. Env vars with the same name but different values return an
+// error (should have been resolved by conflict detection). File credentials
+// and UnsetVars are collected from all modes.
+func MergeCredentials(modes []DetectedMode) (ResolvedCredentials, error) {
+	merged := ResolvedCredentials{
+		EnvVars: make(map[string]string),
+	}
+	var files []*ResolvedFile
+
+	for _, m := range modes {
+		for k, v := range m.Resolved.EnvVars {
+			if existing, ok := merged.EnvVars[k]; ok {
+				if existing != v {
+					return ResolvedCredentials{}, fmt.Errorf("conflicting env var %q: %s/%s and another mode set different values; use --exclude to resolve",
+						k, m.AgentName, m.Spec.Name)
+				}
+				continue
+			}
+			merged.EnvVars[k] = v
+		}
+		if m.Resolved.FileCredential != nil {
+			files = append(files, m.Resolved.FileCredential)
+		}
+		merged.UnsetVars = append(merged.UnsetVars, m.Resolved.UnsetVars...)
+	}
+
+	if len(files) > 0 {
+		merged.FileCredential = files[0]
+	}
+	merged.FileCredentials = files
+
+	return merged, nil
 }
 
 // Resolve produces a complete ResolvedCredentials for a single spec by reading

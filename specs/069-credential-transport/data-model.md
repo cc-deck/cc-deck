@@ -2,9 +2,9 @@
 
 ## Entities
 
-### CredentialSpec (new, in `internal/agent`)
+### CredentialSpec (existing, in `internal/agent`)
 
-Represents one auth mode for an agent. Declared statically at compile time.
+Represents one auth mode for an agent. Declared statically at compile time. **No changes from v1.**
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -15,9 +15,7 @@ Represents one auth mode for an agent. Declared statically at compile time.
 | UnsetVars | `[]string` | Env vars to explicitly unset in the workspace (e.g., GEMINI_API_KEY for Vertex mode) |
 | Priority | `int` | Prompt ordering priority (lower = higher priority, shown first) |
 
-### EnvVarSpec (new, in `internal/agent`)
-
-Describes a single environment variable within a credential spec.
+### EnvVarSpec (existing, in `internal/agent`)
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -25,53 +23,54 @@ Describes a single environment variable within a credential spec.
 | FixedValue | `string` | If non-empty, always inject this value (e.g., "1" for CLAUDE_CODE_USE_VERTEX) |
 | Required | `bool` | If true, this var must be present for the auth mode to be "available" |
 
-### FileCredentialSpec (new, in `internal/agent`)
-
-Describes a file-based credential within a credential spec.
+### FileCredentialSpec (existing, in `internal/agent`)
 
 | Field | Type | Description |
 |-------|------|-------------|
-| EnvVar | `string` | Env var that points to the file path (e.g., "GOOGLE_APPLICATION_CREDENTIALS") |
-| DefaultPath | `string` | Default path to check if env var is unset (e.g., "~/.config/gcloud/application_default_credentials.json") |
+| EnvVar | `string` | Env var that points to the file path |
+| DefaultPath | `string` | Default path to check if env var is unset (supports `~` expansion) |
 | Required | `bool` | If true, the file must exist for the auth mode to be "available" |
 
-### Endpoint (new, in `internal/agent`)
-
-A network endpoint needed by an auth mode.
+### Endpoint (existing, in `internal/agent`)
 
 | Field | Type | Description |
 |-------|------|-------------|
 | Host | `string` | Hostname (e.g., "oauth2.googleapis.com") |
 | Port | `int` | Port number (e.g., 443) |
 
+### DetectedMode (new, in `internal/credential`)
+
+Represents a detected auth mode from any agent, used in the detect-all flow.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| AgentName | `string` | Name of the agent that declares this mode (e.g., "claude") |
+| Spec | `CredentialSpec` | The credential spec for this mode |
+| Resolved | `ResolvedCredentials` | The resolved credential values from the host environment |
+
 ### WorkspaceSpec (modified, in `internal/ws`)
 
-Added fields to the existing struct:
+**Changed fields** (compared to v1):
 
-| Field | Type | YAML Key | Description |
-|-------|------|----------|-------------|
-| Agent | `string` | `agent` | Agent name (e.g., "claude", "opencode"). Links to agent registry. |
-| AuthMode | `string` | `auth-mode` | Selected CredentialSpec name. Replaces the meaning of existing `Auth` field. |
-| ExternalCredentials | `bool` | `external-credentials` | If true, skip host-side credential validation for this workspace (K8s Secrets, OpenShell providers). |
-
-The existing `Auth` field (YAML: `auth`) is deprecated in favor of `AuthMode`. During the transition, if `AuthMode` is empty and `Auth` is set, `Auth` is treated as the auth mode for backward compatibility.
+| Field | Type | YAML Key | Description | Change |
+|-------|------|----------|-------------|--------|
+| Agent | `string` | `agent` | ~~Agent name~~ | **REMOVE** (workspaces are not tied to a single agent) |
+| AuthMode | `string` | `auth-mode` | ~~Selected auth mode~~ | **REMOVE** (all modes auto-detected) |
+| ExternalCredentials | `bool` | `external-credentials` | If true, skip host-side credential validation | **KEEP** |
 
 ### WorkspaceInstance (modified, in `internal/ws`)
 
-Added field:
-
-| Field | Type | YAML Key | Description |
-|-------|------|----------|-------------|
-| Agent | `string` | `agent` | Agent name, copied from definition at creation time |
+| Field | Change |
+|-------|--------|
+| Agent | **REMOVE** (no single-agent binding) |
 
 ### wsListEntry (modified, in `internal/cmd`)
 
-Added fields for display:
-
-| Field | Type | JSON Key | Description |
-|-------|------|----------|-------------|
-| Agent | `string` | `agent` | Agent display indicator |
-| AuthMode | `string` | `auth_mode` | Selected auth mode name |
+| Field | Type | JSON Key | Description | Change |
+|-------|------|----------|-------------|--------|
+| Agent | `string` | `agent` | ~~Agent name~~ | **REMOVE** |
+| AuthMode | `string` | `auth_mode` | ~~Selected auth mode~~ | **REMOVE** |
+| Auth | `string` | `auth` | Comma-separated list of active auth modes (e.g., "claude/vertex, opencode/openai") | **MODIFY** (derived at display time) |
 
 ## Relationships
 
@@ -80,44 +79,30 @@ Agent 1──* CredentialSpec       (agent declares multiple auth modes)
 CredentialSpec 1──* EnvVarSpec  (each mode needs multiple env vars)
 CredentialSpec 0──1 FileCredentialSpec (some modes need a file)
 CredentialSpec 0──* Endpoint    (some modes need network access)
-WorkspaceDefinition *──1 Agent  (each workspace uses one agent)
-WorkspaceDefinition 1──1 CredentialSpec (selected auth mode)
+WorkspaceDefinition ──── ExternalCredentials (flag)
 ```
 
 ## State Transitions
 
-### Auth Mode Selection (during `ws new`)
+### Credential Detection (during `ws new`)
 
 ```text
-[Start] → Lookup agent by name
+[Start] → For each registered agent:
        → Query agent.CredentialSpecs()
        → For each spec, check host environment availability
-       → Filter to available specs
-       ├─ 0 available → ERROR: list required credentials
-       ├─ 1 available → Auto-select (no prompt)
-       └─ N available → Sort by priority, prompt user
-       → Persist selected mode in workspace definition
+       → Collect all DetectedModes
+       → Merge all modes into one credential set
+       → Inject into workspace
 ```
 
-### Auth Mode Switch (on existing workspace)
-
-```text
-[Start] → Lookup agent from workspace definition
-       → Query agent.CredentialSpecs()
-       → Validate new mode's credentials on host
-       ├─ Valid → Update workspace definition
-       └─ Invalid → ERROR: list missing credentials (no change)
-```
-
-### Credential Validation (at workspace start)
+### Credential Injection (at workspace start)
 
 ```text
 [Start] → Load workspace definition
        → Check ExternalCredentials flag
        ├─ true → Skip validation
-       └─ false → Lookup agent, get CredentialSpec for auth mode
-                → Check all required env vars present
-                → Check file credential exists (if any)
-                ├─ All present → Proceed to transport
+       └─ false → Detect all available modes
+                → Validate all modes
+                ├─ All present → Resolve and inject via transport
                 └─ Missing → ERROR: name missing credentials
 ```

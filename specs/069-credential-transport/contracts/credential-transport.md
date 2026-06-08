@@ -4,71 +4,77 @@
 
 Every registered Agent MUST implement `CredentialSpecs() []CredentialSpec`.
 
-### Behavioral Requirements
+### Behavioral Requirements (unchanged from v1)
 
-1. **Static return**: The method MUST return the same value on every call. Credential specs are compile-time constants.
-2. **Unique names**: Each CredentialSpec in the returned slice MUST have a unique `Name` within that agent.
-3. **At least one spec**: The slice MUST contain at least one entry. An agent without credentials is not supported by this system.
-4. **Priority uniqueness**: Priority values SHOULD be unique within the slice. If two specs share a priority, their prompt ordering is deterministic (alphabetical by name).
+1. **Static return**: The method MUST return the same value on every call.
+2. **Unique names**: Each CredentialSpec MUST have a unique `Name` within that agent.
+3. **At least one spec**: The slice MUST contain at least one entry.
+4. **Priority uniqueness**: Priority values SHOULD be unique. Ties broken alphabetically by name.
 
-### EnvVarSpec Requirements
+### EnvVarSpec Requirements (unchanged)
 
-1. A CredentialSpec with `Required: true` env vars is "available" only if ALL required env vars are set in the host environment.
-2. Env vars with `FixedValue` are always injected regardless of host environment.
-3. Non-required env vars are injected if present in the host environment but do not affect availability.
+1. Required env vars must be present for the mode to be "available".
+2. FixedValue vars are always injected regardless of host environment.
+3. Non-required vars are injected if present but do not affect availability.
 
-### FileCredentialSpec Requirements
+### FileCredentialSpec Requirements (unchanged)
 
-1. If `Required: true`, the file MUST exist at the env var path or `DefaultPath` for the auth mode to be "available".
-2. `DefaultPath` supports `~` expansion (resolved to `$HOME`).
-3. File-based credentials are copied to the workspace and the env var is repointed to the remote path.
+1. Required files must exist at env var path or DefaultPath for availability.
+2. `~` expansion resolved to `$HOME`.
+3. Files are copied to workspace and env var repointed to remote path.
 
 ## Credential Package Contract
 
-### resolve.Detect(specs []CredentialSpec) []AvailableMode
+### credential.DetectAll() []DetectedMode
 
-Returns the subset of specs whose required credentials are present on the host. Each AvailableMode includes the spec and a map of resolved credential values.
+Scans ALL registered agents, checks each spec against the host environment, returns all available modes grouped by agent.
 
 **Invariants**:
 - Never reads credential values into log output.
-- File existence is checked via `os.Stat`, not by reading content.
-- `~` in DefaultPath is expanded before checking.
+- Scans agents via `agent.All()` in stable alphabetical order.
+- Returns `DetectedMode` with agent name, spec, and resolved values.
+- An agent with zero available modes contributes nothing (no error).
 
-### validate.Check(spec CredentialSpec, externalCredentials bool) error
+### credential.MergeCredentials(modes []DetectedMode) ResolvedCredentials
 
-Returns nil if all required credentials for the spec are present. Returns a descriptive error listing each missing credential by env var name.
+Merges all detected modes into a single credential set for injection.
 
 **Invariants**:
-- If `externalCredentials` is true, returns nil immediately (skip validation).
-- Error messages name the missing env var or file path, never credential values.
+- Env vars with the same name and same value are deduplicated.
+- Env vars with the same name and different values are an error.
+- FileCredentials from different modes are collected into a list.
+- UnsetVars from all modes are merged.
+
+### credential.Validate(modes []DetectedMode, externalCredentials bool) error
+
+Returns nil if all required credentials for all modes are present.
+
+**Invariants**:
+- If `externalCredentials` is true, returns nil immediately.
+- Error messages name the missing env var or file path, never values.
 - Completes within 2 seconds (no network calls).
 
-### transport.Inject(ctx, workspace, spec, resolvedCreds) error
-
-Injects resolved credentials into a workspace according to its type.
-
-**Invariants per workspace type**:
+### Transport Functions (unchanged from v1)
 
 | Type | Env Vars | File Credentials | UnsetVars |
 |------|----------|-----------------|-----------|
-| local | Set in process environment | N/A (host path used directly) | Unset in process environment |
-| container | Podman secrets + env flags | Secret mounted at `/run/secrets/` | `--env KEY=` (empty value) |
-| compose | Environment section in compose YAML | Secret via compose secrets | Environment section with empty value |
-| ssh | Written to `~/.config/cc-deck/credentials.env` (0600) | Copied via SSH upload (0600) | Added as `unset KEY` in env file |
-| k8s-deploy | K8s Secret envFrom | K8s Secret with file data, volumeMount at `/run/secrets/` (defaultMode 0600) | Init container `unset` |
-| openshell | Injected into sandbox rc files | Uploaded to sandbox | Added as `unset KEY` in rc files |
+| local | Set in process environment | N/A | Unset in process |
+| container | Podman secrets + env flags | Secret mounted at `/run/secrets/` | `--env KEY=` |
+| compose | Environment section | Secret via compose secrets | Empty value |
+| ssh | Written to `credentials.env` (0600) | Copied via SSH (0600) | `unset KEY` |
+| k8s-deploy | K8s Secret envFrom | Secret with file data, volumeMount (0600) | Init container `unset` |
+| openshell | Injected into sandbox rc files | Uploaded to sandbox | `unset KEY` in rc |
 
 ## CLI Contract
 
-### `cc-deck ws new --agent <name> [--auth-mode <mode>]`
+### `cc-deck ws new [name]`
 
-- If `--agent` is omitted, defaults to "claude".
-- If `--auth-mode` is provided, validates that the mode exists in the agent's specs and that credentials are available. Errors if not.
-- If `--auth-mode` is omitted and multiple modes are available, prompts the user. Modes are sorted by priority (lower first). The first mode is marked as default.
-- If `--auth-mode` is omitted and exactly one mode is available, auto-selects it without prompting.
-- If no modes are available, exits with error listing required credentials for all modes.
+- Scans all registered agents for available credentials.
+- Injects all detected credentials without prompting.
+- If no credentials are available from any agent, warns but creates the workspace.
 
-### `cc-deck ws ls`
+### `cc-deck ws ls [-v]`
 
-- Displays an `AUTH` column showing `agent/mode` (e.g., "claude/vertex", "opencode/openai").
-- JSON/YAML output includes `agent` and `auth_mode` fields.
+- Default output: no AUTH column.
+- Verbose (`-v`): AUTH column shows derived `agent/mode` list for each workspace.
+- JSON/YAML output always includes `auth` field.

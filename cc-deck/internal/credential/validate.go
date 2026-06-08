@@ -8,6 +8,20 @@ import (
 	"github.com/cc-deck/cc-deck/internal/agent"
 )
 
+// ValidateAll checks that all required credentials for each detected mode
+// are present on the host. Returns nil if all are available.
+func ValidateAll(modes []DetectedMode, externalCredentials bool) error {
+	if externalCredentials {
+		return nil
+	}
+	for _, m := range modes {
+		if err := Validate(m.Spec, false); err != nil {
+			return fmt.Errorf("agent %s: %w", m.AgentName, err)
+		}
+	}
+	return nil
+}
+
 // Validate checks that all required credentials for the given spec are present
 // on the host. Returns nil if all credentials are available. Returns a
 // descriptive error listing each missing credential by name.

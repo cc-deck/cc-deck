@@ -19,7 +19,6 @@ import (
 	"github.com/spf13/pflag"
 	"gopkg.in/yaml.v3"
 
-	"github.com/cc-deck/cc-deck/internal/agent"
 	"github.com/cc-deck/cc-deck/internal/config"
 	"github.com/cc-deck/cc-deck/internal/credential"
 	"github.com/cc-deck/cc-deck/internal/project"
@@ -104,8 +103,6 @@ type newFlags struct {
 	credential     []string
 	mount          []string
 	auth           string
-	agentName      string
-	authMode       string
 	allowedDomains []string
 	gitignore      bool
 	variant        string
@@ -189,9 +186,7 @@ Workspace types (--type):
 	}
 
 	cmd.Flags().StringVarP(&cf.wsType, "type", "t", "", "Workspace type (local, container, compose, k8s-deploy, k8s-sandbox)")
-	cmd.Flags().StringVar(&cf.auth, "auth", "auto", "Auth mode: auto, none, api, vertex, bedrock (deprecated: use --auth-mode)")
-	cmd.Flags().StringVar(&cf.agentName, "agent", "claude", "Agent name (claude, opencode)")
-	cmd.Flags().StringVar(&cf.authMode, "auth-mode", "", "Auth mode for the agent (e.g., api, vertex, bedrock)")
+	cmd.Flags().StringVar(&cf.auth, "auth", "auto", "Auth mode: auto, none")
 	cmd.Flags().StringSliceVar(&cf.credential, "credential", nil, "Credential as KEY=VALUE, repeatable")
 	cmd.Flags().StringArrayVar(&cf.repos, "repo", nil, "Git repo URL to clone into workspace, repeatable")
 	cmd.Flags().StringArrayVar(&cf.branches, "branch", nil, "Branch for corresponding --repo, repeatable")
@@ -370,18 +365,10 @@ func runWsNew(gf *GlobalFlags, name string, cf *newFlags, cmd *cobra.Command) er
 	}
 	applyFlagOverrides(cmd, cf, activeDef)
 
-	// Resolve agent and auth mode.
-	agentName := cf.agentName
-	if activeDef.Agent != "" && !cmd.Flags().Changed("agent") {
-		agentName = activeDef.Agent
+	// Resolve credentials via detect-all model.
+	if resolveErr := resolveWorkspaceCredentials(); resolveErr != nil {
+		return resolveErr
 	}
-	activeDef.Agent = agentName
-
-	selectedMode, selectErr := selectAuthMode(agentName, cf.authMode, cmd.Flags().Changed("auth-mode"))
-	if selectErr != nil {
-		return selectErr
-	}
-	activeDef.AuthMode = selectedMode
 
 	// Set project-dir for all workspace types.
 	activeDef.ProjectDir = project.CanonicalPath(cwd)
@@ -560,12 +547,6 @@ func applyFlagOverrides(cmd *cobra.Command, cf *newFlags, def *ws.WorkspaceDefin
 	if cmd.Flags().Changed("auth") {
 		def.Auth = cf.auth
 	}
-	if cmd.Flags().Changed("agent") {
-		def.Agent = cf.agentName
-	}
-	if cmd.Flags().Changed("auth-mode") {
-		def.AuthMode = cf.authMode
-	}
 	if len(cf.allowedDomains) > 0 {
 		def.AllowedDomains = cf.allowedDomains
 	}
@@ -688,95 +669,24 @@ func setWorkspaceOptions(e ws.Workspace, cf *newFlags, cmd *cobra.Command, def *
 }
 
 // splitCredential splits a KEY=VALUE string. Returns nil if no '=' found.
-// selectAuthMode resolves the auth mode for a workspace being created.
-func selectAuthMode(agentName, authMode string, explicit bool) (string, error) {
-	a := agent.Get(agentName)
-	if a == nil {
-		return "", fmt.Errorf("unknown agent %q; registered agents: %s", agentName, registeredAgentNames())
+
+// resolveWorkspaceCredentials detects all available credentials from all
+// registered agents and logs what will be injected.
+func resolveWorkspaceCredentials() error {
+	modes := credential.DetectAll()
+
+	if len(modes) == 0 {
+		fmt.Fprintf(os.Stderr, "Warning: no agent credentials detected; workspace will have no credentials injected\n")
+		return nil
 	}
 
-	specs := a.CredentialSpecs()
-	if len(specs) == 0 {
-		return "", fmt.Errorf("agent %q declares no credential specs", agentName)
+	var modeNames []string
+	for _, m := range modes {
+		modeNames = append(modeNames, m.AgentName+"/"+m.Spec.Name)
 	}
+	fmt.Fprintf(os.Stderr, "Credentials: %s\n", strings.Join(modeNames, ", "))
 
-	if explicit {
-		for _, s := range specs {
-			if s.Name == authMode {
-				available := credential.Detect([]agent.CredentialSpec{s})
-				if len(available) == 0 {
-					return "", fmt.Errorf("auth mode %q selected but credentials are not available; check required env vars and files", authMode)
-				}
-				return authMode, nil
-			}
-		}
-		names := make([]string, len(specs))
-		for i, s := range specs {
-			names[i] = s.Name
-		}
-		return "", fmt.Errorf("auth mode %q not found for agent %q; available: %s", authMode, agentName, strings.Join(names, ", "))
-	}
-
-	available := credential.Detect(specs)
-	switch len(available) {
-	case 0:
-		var lines []string
-		for _, s := range specs {
-			var reqs []string
-			for _, ev := range s.EnvVars {
-				if ev.Required {
-					reqs = append(reqs, ev.Name)
-				}
-			}
-			if s.FileCredential != nil && s.FileCredential.Required {
-				reqs = append(reqs, s.FileCredential.EnvVar+" (file)")
-			}
-			lines = append(lines, fmt.Sprintf("  %s: requires %s", s.Name, strings.Join(reqs, ", ")))
-		}
-		return "", fmt.Errorf("no credentials found for agent %q; set one of:\n%s", agentName, strings.Join(lines, "\n"))
-
-	case 1:
-		fmt.Fprintf(os.Stderr, "Auto-selected auth mode: %s\n", available[0].Spec.Name)
-		return available[0].Spec.Name, nil
-
-	default:
-		sort.Slice(available, func(i, j int) bool {
-			return available[i].Spec.Priority < available[j].Spec.Priority
-		})
-
-		fmt.Fprintf(os.Stderr, "Multiple auth modes available for %s:\n", a.DisplayName())
-		for i, m := range available {
-			marker := "  "
-			if i == 0 {
-				marker = "* "
-			}
-			fmt.Fprintf(os.Stderr, "  %s[%d] %s\n", marker, i+1, m.Spec.Name)
-		}
-		fmt.Fprintf(os.Stderr, "Select mode (default: 1): ")
-
-		reader := bufio.NewReader(os.Stdin)
-		line, _ := reader.ReadString('\n')
-		line = strings.TrimSpace(line)
-
-		if line == "" {
-			return available[0].Spec.Name, nil
-		}
-
-		var idx int
-		if _, err := fmt.Sscanf(line, "%d", &idx); err != nil || idx < 1 || idx > len(available) {
-			return "", fmt.Errorf("invalid selection %q", line)
-		}
-		return available[idx-1].Spec.Name, nil
-	}
-}
-
-func registeredAgentNames() string {
-	all := agent.All()
-	names := make([]string, len(all))
-	for i, a := range all {
-		names[i] = a.Name()
-	}
-	return strings.Join(names, ", ")
+	return nil
 }
 
 func splitCredential(s string) []string {
@@ -863,7 +773,6 @@ func runWsAttach(name string) error {
 
 func newWsUpdateCmd(_ *GlobalFlags) *cobra.Command {
 	var syncRepos bool
-	var newAuthMode string
 
 	cmd := &cobra.Command{
 		Use:   "update [name]",
@@ -872,15 +781,9 @@ func newWsUpdateCmd(_ *GlobalFlags) *cobra.Command {
 
 When --sync-repos is set, reads repos from the workspace definition in the central store
 and clones any that don't exist on the remote. Already-cloned repos
-are skipped (idempotent).
-
-When --auth-mode is set, switches the workspace to a different auth mode.
-Validates that the required credentials are available before persisting.`,
+are skipped (idempotent).`,
 		Example: `  # Sync repos from workspace definition to the remote
   cc-deck ws update marovo --sync-repos
-
-  # Switch auth mode
-  cc-deck ws update myws --auth-mode vertex
 
   # Auto-resolve workspace name from project config
   cc-deck ws update --sync-repos`,
@@ -891,64 +794,13 @@ Validates that the required credentials are available before persisting.`,
 			if err != nil {
 				return err
 			}
-			if cmd.Flags().Changed("auth-mode") {
-				return runWsUpdateAuthMode(name, newAuthMode)
-			}
 			return runWsUpdate(name, syncRepos)
 		},
 	}
 
 	cmd.Flags().BoolVar(&syncRepos, "sync-repos", false, "Clone missing repos from workspace definition")
-	cmd.Flags().StringVar(&newAuthMode, "auth-mode", "", "Switch to a different auth mode (validates credentials)")
 
 	return cmd
-}
-
-func runWsUpdateAuthMode(name, newMode string) error {
-	defs := ws.NewDefinitionStore("")
-
-	def, err := defs.FindByName(name)
-	if err != nil {
-		return fmt.Errorf("workspace %q not found", name)
-	}
-
-	agentName := def.Agent
-	if agentName == "" {
-		agentName = "claude"
-	}
-
-	a := agent.Get(agentName)
-	if a == nil {
-		return fmt.Errorf("unknown agent %q", agentName)
-	}
-
-	var targetSpec *agent.CredentialSpec
-	for _, spec := range a.CredentialSpecs() {
-		if spec.Name == newMode {
-			s := spec
-			targetSpec = &s
-			break
-		}
-	}
-	if targetSpec == nil {
-		names := make([]string, 0)
-		for _, s := range a.CredentialSpecs() {
-			names = append(names, s.Name)
-		}
-		return fmt.Errorf("auth mode %q not found for agent %q; available: %s", newMode, agentName, strings.Join(names, ", "))
-	}
-
-	if valErr := credential.Validate(*targetSpec, def.ExternalCredentials); valErr != nil {
-		return valErr
-	}
-
-	def.AuthMode = newMode
-	if err := defs.Update(def); err != nil {
-		return fmt.Errorf("updating workspace definition: %w", err)
-	}
-
-	fmt.Fprintf(os.Stdout, "Auth mode switched to %q for workspace %q\n", newMode, name)
-	return nil
 }
 
 func runWsUpdate(name string, syncRepos bool) error {
@@ -1143,40 +995,26 @@ type wsListEntry struct {
 	Session      string `json:"session" yaml:"session"`
 	Project      string `json:"project" yaml:"project"`
 	Auth         string `json:"auth,omitempty" yaml:"auth,omitempty"`
-	Agent        string `json:"agent,omitempty" yaml:"agent,omitempty"`
-	AuthMode     string `json:"auth_mode,omitempty" yaml:"auth_mode,omitempty"`
 	Storage      string `json:"storage,omitempty" yaml:"storage,omitempty"`
 	Image        string `json:"image,omitempty" yaml:"image,omitempty"`
 	LastAttached string `json:"last_attached,omitempty" yaml:"last_attached,omitempty"`
 	Age          string `json:"age,omitempty" yaml:"age,omitempty"`
 }
 
-type authInfo struct {
-	Agent    string
-	AuthMode string
-}
-
-func buildAuthMap(allDefs []*ws.WorkspaceDefinition) map[string]authInfo {
-	authMap := make(map[string]authInfo)
-	for _, d := range allDefs {
-		if d.Agent != "" || d.AuthMode != "" {
-			authMap[d.Name] = authInfo{Agent: d.Agent, AuthMode: d.AuthMode}
+func buildAuthMap(allDefs []*ws.WorkspaceDefinition) map[string]string {
+	modes := credential.DetectAll()
+	authMap := make(map[string]string)
+	if len(modes) > 0 {
+		var names []string
+		for _, m := range modes {
+			names = append(names, m.AgentName+"/"+m.Spec.Name)
+		}
+		authStr := strings.Join(names, " ")
+		for _, d := range allDefs {
+			authMap[d.Name] = authStr
 		}
 	}
 	return authMap
-}
-
-func formatAuthColumn(info authInfo) string {
-	if info.Agent == "" && info.AuthMode == "" {
-		return "-"
-	}
-	if info.Agent != "" && info.AuthMode != "" {
-		return info.Agent + "/" + info.AuthMode
-	}
-	if info.AuthMode != "" {
-		return info.AuthMode
-	}
-	return info.Agent
 }
 
 // buildProjectMap builds a map from workspace name to project basename
@@ -1227,17 +1065,18 @@ func writeWsStructured(format string, instances []*ws.WorkspaceInstance, allDefs
 		if proj == "" {
 			proj = "-"
 		}
-		ai := authMap[inst.Name]
 		infraCol, sessCol := formatWorkspaceColumns(inst)
+		authStr := authMap[inst.Name]
+		if authStr == "" {
+			authStr = "-"
+		}
 		entries = append(entries, wsListEntry{
 			Name:         inst.Name,
 			Type:         instType,
 			Infra:        infraCol,
 			Session:      sessCol,
 			Project:      proj,
-			Auth:         formatAuthColumn(ai),
-			Agent:        ai.Agent,
-			AuthMode:     ai.AuthMode,
+			Auth:         authStr,
 			Storage:      storage,
 			Image:        image,
 			LastAttached: formatRelativeTime(inst.LastAttached),
@@ -1257,16 +1096,17 @@ func writeWsStructured(format string, instances []*ws.WorkspaceInstance, allDefs
 		if proj == "" {
 			proj = "-"
 		}
-		ai := authMap[def.Name]
+		authStr := authMap[def.Name]
+		if authStr == "" {
+			authStr = "-"
+		}
 		entries = append(entries, wsListEntry{
 			Name:     def.Name,
 			Type:     string(def.Type),
 			Infra:    "-",
 			Session:  "none",
 			Project:  proj,
-			Auth:     formatAuthColumn(ai),
-			Agent:    ai.Agent,
-			AuthMode: ai.AuthMode,
+			Auth:     authStr,
 			Storage:  "-",
 		})
 	}
@@ -1319,9 +1159,12 @@ func writeWsTableWithProjects(instances []*ws.WorkspaceInstance, allDefs []*ws.W
 		if proj == "" {
 			proj = "-"
 		}
-		ai := authMap[inst.Name]
+		authStr := authMap[inst.Name]
+		if authStr == "" {
+			authStr = "-"
+		}
 		infra, sess := formatWorkspaceColumns(inst)
-		r := row{inst.Name, string(instType), infra, sess, proj, formatAuthColumn(ai), storage,
+		r := row{inst.Name, string(instType), infra, sess, proj, authStr, storage,
 			formatRelativeTime(inst.LastAttached), formatDuration(time.Since(inst.CreatedAt)), ""}
 		if verbose && pathMap[inst.Name] != "" {
 			r.path = pathMap[inst.Name]
@@ -1347,8 +1190,11 @@ func writeWsTableWithProjects(instances []*ws.WorkspaceInstance, allDefs []*ws.W
 		if proj == "" {
 			proj = "-"
 		}
-		ai := authMap[d.Name]
-		r := row{d.Name, string(d.Type), "-", "none", proj, formatAuthColumn(ai), storage, "never", "-", ""}
+		authStr := authMap[d.Name]
+		if authStr == "" {
+			authStr = "-"
+		}
+		r := row{d.Name, string(d.Type), "-", "none", proj, authStr, storage, "never", "-", ""}
 		if verbose && pathMap[d.Name] != "" {
 			r.path = pathMap[d.Name]
 		}

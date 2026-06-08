@@ -59,3 +59,11 @@
 
 **Decision**: CredentialSpec.Priority is `int` (lower = higher priority). Used to sort available modes in the prompt. The first (highest priority) mode is marked as default.
 **Rationale**: Consistent with clarification Q1.
+
+## R-008: Single-agent vs. multi-agent workspace model
+
+**Finding**: The initial implementation tied each workspace to a single agent via `--agent` flag and `Agent`/`AuthMode` fields in the workspace definition. However, workspaces can host sessions from multiple agents simultaneously (e.g., Claude Code and OpenCode in the same container). A single-agent binding prevents multi-agent credential injection.
+
+**Decision**: Detect-all model. At workspace creation, scan all registered agents, detect all available credentials, inject everything. No conflict resolution or exclusion mechanism.
+**Rationale**: The common case (single credential set) requires zero user interaction. Multi-agent setups work automatically. Agents like OpenCode can hold multiple API keys simultaneously, so injecting everything maximizes flexibility.
+**Alternatives considered**: (1) Single-agent binding with `--agent` flag (rejected: blocks multi-agent workspaces). (2) Detect-all with conflict resolution and `--exclude` (rejected as premature: adds complexity without proven need).

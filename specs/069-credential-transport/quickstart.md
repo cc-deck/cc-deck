@@ -20,54 +20,55 @@ func (c *ClaudeAgent) CredentialSpecs() []CredentialSpec {
             EnvVars: []EnvVarSpec{
                 {Name: "CLAUDE_CODE_USE_VERTEX", FixedValue: "1"},
                 {Name: "ANTHROPIC_VERTEX_PROJECT_ID", Required: true},
-                {Name: "CLOUD_ML_REGION"},
-                {Name: "ANTHROPIC_MODEL"},
             },
             FileCredential: &FileCredentialSpec{
                 EnvVar:      "GOOGLE_APPLICATION_CREDENTIALS",
                 DefaultPath: "~/.config/gcloud/application_default_credentials.json",
-            },
-            Endpoints: []Endpoint{
-                {Host: "oauth2.googleapis.com", Port: 443},
             },
         },
     }
 }
 ```
 
-## Creating a workspace with auth mode selection
+That's it. No workspace type code changes needed. The detect-all system picks up the new agent's credentials automatically.
+
+## Creating a workspace (detect-all model)
 
 ```bash
-# Auto-detect (prompts if multiple modes available)
-cc-deck ws new myws --agent claude
+# All available credentials are auto-detected and injected
+cc-deck ws new myws --type container
+# Prints: "Credentials: claude/api, opencode/openai"
 
-# Explicit mode
-cc-deck ws new myws --agent claude --auth-mode vertex
+# All detected modes are injected, no prompting
+# If you have both Claude API key and Vertex credentials,
+# both are injected automatically
 
-# Check what's available
-cc-deck ws ls
-# NAME   TYPE       AUTH           PROJECT  ...
-# myws   container  claude/vertex  myproj   ...
+# Check what's injected (verbose mode)
+cc-deck ws ls -v
+# NAME   TYPE       INFRA    SESSION  PROJECT   AUTH                         ...
+# myws   container  running  none     myproj    claude/api opencode/openai   ...
 ```
 
-## Adding a new agent with custom credentials
-
-1. Create `internal/agent/newagent.go`
-2. Implement all Agent interface methods including `CredentialSpecs()`
-3. Register via `init()`: `Register(&NewAgent{})`
-4. No other code changes needed for credentials to work across all workspace types
-
-## Testing credential resolution
+## Testing credential detection
 
 ```go
-func TestCredentialDetection(t *testing.T) {
+func TestDetectAll(t *testing.T) {
     t.Setenv("ANTHROPIC_API_KEY", "test-key")
-    
-    agent := &ClaudeAgent{}
-    specs := agent.CredentialSpecs()
-    
-    available := credential.Detect(specs)
-    assert.Len(t, available, 1)
-    assert.Equal(t, "api", available[0].Spec.Name)
+    t.Setenv("OPENAI_API_KEY", "test-openai")
+
+    modes := credential.DetectAll()
+
+    // Should find Claude "api" and OpenCode "openai"
+    assert.Len(t, modes, 2)
+}
+
+func TestMultipleModesInjected(t *testing.T) {
+    t.Setenv("ANTHROPIC_API_KEY", "test-key")
+    t.Setenv("OPENAI_API_KEY", "test-openai")
+
+    modes := credential.DetectAll()
+
+    // All detected modes are injected, no conflict resolution
+    assert.Len(t, modes, 2)
 }
 ```

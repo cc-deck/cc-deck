@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cc-deck/cc-deck/internal/agent"
 	"github.com/cc-deck/cc-deck/internal/compose"
 	"github.com/cc-deck/cc-deck/internal/credential"
 	"github.com/cc-deck/cc-deck/internal/network"
@@ -143,49 +142,36 @@ func (e *ComposeWorkspace) Create(ctx context.Context, opts CreateOpts) error {
 		ports = def.Ports
 	}
 
-	// Resolve credentials via credential package or legacy path.
+	// Resolve credentials via detect-all model.
 	creds := make(map[string]string)
-	if def != nil && def.AuthMode != "" && def.Agent != "" {
-		a := agent.Get(def.Agent)
-		if a == nil {
-			return fmt.Errorf("unknown agent %q in workspace definition", def.Agent)
-		}
-		for _, spec := range a.CredentialSpecs() {
-			if spec.Name == def.AuthMode {
-				resolved := credential.Resolve(spec)
-				for k, v := range resolved.EnvVars {
-					creds[k] = v
-				}
-				if resolved.FileCredential != nil {
-					creds[resolved.FileCredential.EnvVar] = resolved.FileCredential.LocalPath
-				}
-				break
+	{
+		modes := credential.DetectAll()
+		if len(modes) > 0 {
+			merged, mergeErr := credential.MergeCredentials(modes)
+			if mergeErr != nil {
+				return fmt.Errorf("merging credentials: %w", mergeErr)
 			}
-		}
-	} else {
-		if e.Credentials != nil {
-			for k, v := range e.Credentials {
+			for k, v := range merged.EnvVars {
 				creds[k] = v
 			}
-		}
-		if def != nil {
-			for _, key := range def.Credentials {
-				if _, exists := creds[key]; !exists {
-					if val := os.Getenv(key); val != "" {
-						creds[key] = val
+			for _, fc := range merged.FileCredentials {
+				creds[fc.EnvVar] = fc.LocalPath
+			}
+		} else {
+			if e.Credentials != nil {
+				for k, v := range e.Credentials {
+					creds[k] = v
+				}
+			}
+			if def != nil {
+				for _, key := range def.Credentials {
+					if _, exists := creds[key]; !exists {
+						if val := os.Getenv(key); val != "" {
+							creds[key] = val
+						}
 					}
 				}
 			}
-		}
-		authMode := e.Auth
-		if authMode == "" && def != nil && def.Auth != "" {
-			authMode = AuthMode(def.Auth)
-		}
-		if authMode == "" || authMode == AuthModeAuto {
-			authMode = DetectAuthMode()
-		}
-		if authMode != AuthModeNone {
-			DetectAuthCredentials(authMode, creds)
 		}
 	}
 

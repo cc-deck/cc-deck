@@ -37,57 +37,6 @@ func TestRunWsUpdate_SyncRepos_NoRepos(t *testing.T) {
 	assert.Contains(t, err.Error(), "no repos defined in workspace definition")
 }
 
-func TestRunWsUpdateAuthMode_Success(t *testing.T) {
-	t.Setenv("ANTHROPIC_API_KEY", "test-key")
-	tmpDir := t.TempDir()
-	defFile := filepath.Join(tmpDir, "test-defs.yaml")
-	t.Setenv("CC_DECK_WORKSPACES_FILE", defFile)
-	defs := ws.NewDefinitionStore(defFile)
-	require.NoError(t, defs.Add(&ws.WorkspaceDefinition{
-		Name: "switch-ws",
-		Type: ws.WorkspaceTypeContainer,
-		WorkspaceSpec: ws.WorkspaceSpec{
-			Agent:    "claude",
-			AuthMode: "vertex",
-		},
-	}))
-	err := runWsUpdateAuthMode("switch-ws", "api")
-	require.NoError(t, err)
-	updated, _ := defs.FindByName("switch-ws")
-	assert.Equal(t, "api", updated.AuthMode)
-}
-
-func TestRunWsUpdateAuthMode_MissingCredentials(t *testing.T) {
-	t.Setenv("ANTHROPIC_API_KEY", "")
-	tmpDir := t.TempDir()
-	defFile := filepath.Join(tmpDir, "test-defs.yaml")
-	t.Setenv("CC_DECK_WORKSPACES_FILE", defFile)
-	defs := ws.NewDefinitionStore(defFile)
-	require.NoError(t, defs.Add(&ws.WorkspaceDefinition{
-		Name: "fail-ws",
-		Type: ws.WorkspaceTypeContainer,
-		WorkspaceSpec: ws.WorkspaceSpec{Agent: "claude", AuthMode: "vertex"},
-	}))
-	err := runWsUpdateAuthMode("fail-ws", "api")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "missing credentials")
-}
-
-func TestRunWsUpdateAuthMode_InvalidMode(t *testing.T) {
-	tmpDir := t.TempDir()
-	defFile := filepath.Join(tmpDir, "test-defs.yaml")
-	t.Setenv("CC_DECK_WORKSPACES_FILE", defFile)
-	defs := ws.NewDefinitionStore(defFile)
-	require.NoError(t, defs.Add(&ws.WorkspaceDefinition{
-		Name: "invalid-ws",
-		Type: ws.WorkspaceTypeContainer,
-		WorkspaceSpec: ws.WorkspaceSpec{Agent: "claude", AuthMode: "api"},
-	}))
-	err := runWsUpdateAuthMode("invalid-ws", "nonexistent")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not found")
-}
-
 func TestRunWsUpdate_SyncRepos_WithRepos(t *testing.T) {
 	tmpDir := t.TempDir()
 

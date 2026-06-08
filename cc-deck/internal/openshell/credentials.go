@@ -51,7 +51,8 @@ type DetectedCredential struct {
 	File    string
 }
 
-// KnownProviderProfiles defines the well-known credential provider profiles.
+// Deprecated: KnownProviderProfiles is superseded by agent-declared CredentialSpecs.
+// Use credential.DetectAll() for multi-agent credential detection.
 var KnownProviderProfiles = map[string]KnownProviderProfile{
 	"claude": {
 		Type:         "claude",
