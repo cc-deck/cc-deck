@@ -23,6 +23,7 @@ pub fn handle_action(state: &mut ControllerState, msg: ActionMessage) {
         ActionType::NewSession => handle_new_session(state),
         ActionType::Refresh => handle_refresh(state),
         ActionType::VoiceMute => handle_voice_mute(state),
+        ActionType::Sort => handle_sort(state),
     }
 }
 
@@ -254,6 +255,166 @@ fn handle_new_session(state: &mut ControllerState) {
         crate::config::NewSessionMode::Pane => new_session_pane_wasm(),
     }
 }
+
+// --- Sort by activity ---
+
+/// Classify a session into a sort tier.
+/// Tier 0 (Active): Working or Waiting, not paused.
+/// Tier 1 (Inactive): Idle, Done, AgentDone, Init, not paused.
+/// Tier 2 (Paused): paused == true, regardless of activity.
+fn sort_tier(session: &Session) -> u8 {
+    if session.paused {
+        return 2;
+    }
+    match session.activity {
+        Activity::Working | Activity::Waiting(_) => 0,
+        Activity::Idle | Activity::Done | Activity::AgentDone | Activity::Init => 1,
+    }
+}
+
+/// Sort sessions by activity tiers and physically reorder Zellij tabs.
+///
+/// The sort is stable within each tier (preserves relative tab order).
+/// After computing the target order, executes a swap sequence using
+/// switch_tab_to + move_focus_or_tab to bubble each tab into place.
+/// Restores focus to the original active tab after completion.
+///
+fn handle_sort(state: &mut ControllerState) {
+    let mut sessions: Vec<(u32, usize, u8)> = state
+        .sessions
+        .values()
+        .filter_map(|s| {
+            s.tab_index.map(|idx| (s.pane_id, idx, sort_tier(s)))
+        })
+        .collect();
+
+    if sessions.len() <= 1 {
+        return;
+    }
+
+    // Sort by current tab index first (to establish initial relative order)
+    sessions.sort_by_key(|&(_, idx, _)| idx);
+
+    // Stable sort by tier (preserves relative tab order within each tier)
+    sessions.sort_by_key(|&(_, _, tier)| tier);
+
+    // Build target mapping: target_position -> current_tab_index
+    let target_order: Vec<(u32, usize)> = sessions.iter().map(|&(pid, idx, _)| (pid, idx)).collect();
+
+    // Check if already sorted (no-op optimization): the sessions should end up
+    // in the same order as their
+    // current tab indices when the sort produces no changes
+    let current_indices: Vec<usize> = target_order.iter().map(|&(_, idx)| idx).collect();
+    let mut sorted_indices = current_indices.clone();
+    sorted_indices.sort();
+    let is_noop = current_indices == sorted_indices
+        && target_order
+            .windows(2)
+            .all(|w| sort_tier_by_pane(state, w[0].0) <= sort_tier_by_pane(state, w[1].0));
+
+    if is_noop {
+        return;
+    }
+
+    // Save the focused pane_id so we can restore focus to its new position
+    // after tabs have moved.
+    let focused_pane = state.focused_pane_id;
+
+    // Execute the swap sequence using bubble approach.
+    // We need to move tabs so that the tab at current_indices[i] ends up
+    // at the position occupied by sorted_indices[i].
+    //
+    // Build a working copy of current positions that we update as we swap.
+    let mut current_positions: Vec<usize> = target_order.iter().map(|&(_, idx)| idx).collect();
+
+    for target_pos in 0..current_positions.len() {
+        // Find which session should be at target_pos
+        // target_order[target_pos] tells us which pane_id should be here
+        // current_positions[target_pos] tells us where that pane currently is
+
+        let target_tab_idx = if target_pos == 0 {
+            // The first session should be at the smallest tab index
+            *current_positions.iter().min().unwrap_or(&0)
+        } else {
+            // Each subsequent session should be one position after the previous
+            current_positions[target_pos - 1] + 1
+        };
+
+        let current_tab_idx = current_positions[target_pos];
+
+        if current_tab_idx == target_tab_idx {
+            continue;
+        }
+
+        // Focus the tab we want to move
+        switch_tab_to_wasm(current_tab_idx);
+
+        // Move it left or right to the target position
+        if current_tab_idx > target_tab_idx {
+            for _ in 0..(current_tab_idx - target_tab_idx) {
+                move_focus_or_tab_wasm(zellij_tile::prelude::Direction::Left);
+            }
+        } else {
+            for _ in 0..(target_tab_idx - current_tab_idx) {
+                move_focus_or_tab_wasm(zellij_tile::prelude::Direction::Right);
+            }
+        }
+
+        // Update positions: the moved tab is now at target_tab_idx.
+        // All tabs between the old and new positions shifted by one.
+        let old_pos = current_tab_idx;
+        let new_pos = target_tab_idx;
+        for pos in current_positions.iter_mut() {
+            if *pos == old_pos {
+                *pos = new_pos;
+            } else if old_pos > new_pos && *pos >= new_pos && *pos < old_pos {
+                *pos += 1;
+            } else if old_pos < new_pos && *pos > old_pos && *pos <= new_pos {
+                *pos -= 1;
+            }
+        }
+    }
+
+    // Update session tab indices in state to reflect new positions.
+    // The controller will get fresh TabUpdate/PaneUpdate events from Zellij,
+    // but we update proactively for immediate render accuracy.
+    let base_idx = sessions.iter().map(|&(_, idx, _)| idx).min().unwrap_or(0);
+    for (i, &(pane_id, _, _)) in sessions.iter().enumerate() {
+        if let Some(session) = state.sessions.get_mut(&pane_id) {
+            session.tab_index = Some(base_idx + i);
+        }
+    }
+
+    // Restore focus to the originally focused pane's NEW tab index.
+    // This prevents the sidebar from seeing a tab change and exiting
+    // navigate mode (T010c).
+    if let Some(fpid) = focused_pane {
+        if let Some(new_tab) = state.sessions.get(&fpid).and_then(|s| s.tab_index) {
+            state.active_tab_index = Some(new_tab);
+            switch_tab_to_wasm(new_tab);
+        }
+    }
+
+    state.mark_render_dirty();
+}
+
+/// Helper to look up the sort tier for a pane_id from state.
+fn sort_tier_by_pane(state: &ControllerState, pane_id: u32) -> u8 {
+    state
+        .sessions
+        .get(&pane_id)
+        .map(sort_tier)
+        .unwrap_or(1)
+}
+
+/// WASM wrapper for move_focus_or_tab.
+#[cfg(target_family = "wasm")]
+fn move_focus_or_tab_wasm(direction: zellij_tile::prelude::Direction) {
+    zellij_tile::prelude::move_focus_or_tab(direction);
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn move_focus_or_tab_wasm(_direction: zellij_tile::prelude::Direction) {}
 
 // --- Tiered attend logic ---
 
@@ -632,5 +793,247 @@ mod tests {
         let mut state = ControllerState::default();
         // Just verify it does not panic
         handle_new_session(&mut state);
+    }
+
+    // --- sort_tier tests ---
+
+    #[test]
+    fn test_sort_tier_working_is_active() {
+        let mut s = Session::new(1, "test".into());
+        s.activity = Activity::Working;
+        assert_eq!(sort_tier(&s), 0);
+    }
+
+    #[test]
+    fn test_sort_tier_waiting_permission_is_active() {
+        let mut s = Session::new(1, "test".into());
+        s.activity = Activity::Waiting(WaitReason::Permission);
+        assert_eq!(sort_tier(&s), 0);
+    }
+
+    #[test]
+    fn test_sort_tier_waiting_notification_is_active() {
+        let mut s = Session::new(1, "test".into());
+        s.activity = Activity::Waiting(WaitReason::Notification);
+        assert_eq!(sort_tier(&s), 0);
+    }
+
+    #[test]
+    fn test_sort_tier_idle_is_inactive() {
+        let mut s = Session::new(1, "test".into());
+        s.activity = Activity::Idle;
+        assert_eq!(sort_tier(&s), 1);
+    }
+
+    #[test]
+    fn test_sort_tier_done_is_inactive() {
+        let mut s = Session::new(1, "test".into());
+        s.activity = Activity::Done;
+        assert_eq!(sort_tier(&s), 1);
+    }
+
+    #[test]
+    fn test_sort_tier_agent_done_is_inactive() {
+        let mut s = Session::new(1, "test".into());
+        s.activity = Activity::AgentDone;
+        assert_eq!(sort_tier(&s), 1);
+    }
+
+    #[test]
+    fn test_sort_tier_init_is_inactive() {
+        let s = Session::new(1, "test".into());
+        // Default activity is Init
+        assert_eq!(sort_tier(&s), 1);
+    }
+
+    #[test]
+    fn test_sort_tier_paused_working_is_paused() {
+        let mut s = Session::new(1, "test".into());
+        s.activity = Activity::Working;
+        s.paused = true;
+        assert_eq!(sort_tier(&s), 2);
+    }
+
+    #[test]
+    fn test_sort_tier_paused_idle_is_paused() {
+        let mut s = Session::new(1, "test".into());
+        s.activity = Activity::Idle;
+        s.paused = true;
+        assert_eq!(sort_tier(&s), 2);
+    }
+
+    #[test]
+    fn test_sort_tier_paused_waiting_is_paused() {
+        let mut s = Session::new(1, "test".into());
+        s.activity = Activity::Waiting(WaitReason::Permission);
+        s.paused = true;
+        assert_eq!(sort_tier(&s), 2);
+    }
+
+    // --- handle_sort tests ---
+
+    #[test]
+    fn test_handle_sort_reorders_by_tier() {
+        let mut state = ControllerState::default();
+        // Tab order: [Idle, Working, Paused, Done, Working]
+        let mut s0 = Session::new(10, "idle".into());
+        s0.activity = Activity::Idle;
+        s0.tab_index = Some(0);
+        let mut s1 = Session::new(20, "work1".into());
+        s1.activity = Activity::Working;
+        s1.tab_index = Some(1);
+        let mut s2 = Session::new(30, "paused".into());
+        s2.activity = Activity::Idle;
+        s2.paused = true;
+        s2.tab_index = Some(2);
+        let mut s3 = Session::new(40, "done".into());
+        s3.activity = Activity::Done;
+        s3.tab_index = Some(3);
+        let mut s4 = Session::new(50, "work2".into());
+        s4.activity = Activity::Working;
+        s4.tab_index = Some(4);
+
+        state.sessions.insert(10, s0);
+        state.sessions.insert(20, s1);
+        state.sessions.insert(30, s2);
+        state.sessions.insert(40, s3);
+        state.sessions.insert(50, s4);
+
+        handle_sort(&mut state);
+
+        // Expected order: Working(20), Working(50), Idle(10), Done(40), Paused(30)
+        let ordered: Vec<(u32, usize)> = {
+            let mut v: Vec<_> = state.sessions.values()
+                .map(|s| (s.pane_id, s.tab_index.unwrap_or(usize::MAX)))
+                .collect();
+            v.sort_by_key(|&(_, idx)| idx);
+            v
+        };
+        assert_eq!(ordered[0].0, 20, "First should be work1");
+        assert_eq!(ordered[1].0, 50, "Second should be work2");
+        assert_eq!(ordered[2].0, 10, "Third should be idle");
+        assert_eq!(ordered[3].0, 40, "Fourth should be done");
+        assert_eq!(ordered[4].0, 30, "Fifth should be paused");
+        assert!(state.render_dirty);
+    }
+
+    #[test]
+    fn test_handle_sort_already_sorted_is_noop() {
+        let mut state = ControllerState::default();
+        // Already in correct order: Working, Idle, Paused
+        let mut s0 = Session::new(10, "work".into());
+        s0.activity = Activity::Working;
+        s0.tab_index = Some(0);
+        let mut s1 = Session::new(20, "idle".into());
+        s1.activity = Activity::Idle;
+        s1.tab_index = Some(1);
+        let mut s2 = Session::new(30, "paused".into());
+        s2.activity = Activity::Idle;
+        s2.paused = true;
+        s2.tab_index = Some(2);
+
+        state.sessions.insert(10, s0);
+        state.sessions.insert(20, s1);
+        state.sessions.insert(30, s2);
+
+        handle_sort(&mut state);
+
+        // render_dirty should NOT be set since it was a no-op
+        assert!(!state.render_dirty);
+    }
+
+    #[test]
+    fn test_handle_sort_single_session_is_noop() {
+        let mut state = ControllerState::default();
+        let mut s = Session::new(10, "only".into());
+        s.tab_index = Some(0);
+        state.sessions.insert(10, s);
+
+        handle_sort(&mut state);
+        assert!(!state.render_dirty);
+    }
+
+    #[test]
+    fn test_handle_sort_empty_sessions_is_noop() {
+        let mut state = ControllerState::default();
+        handle_sort(&mut state);
+        assert!(!state.render_dirty);
+    }
+
+    #[test]
+    fn test_handle_sort_preserves_relative_order_within_tier() {
+        let mut state = ControllerState::default();
+        // Three Working sessions at tab positions 1, 4, 6
+        let mut s0 = Session::new(10, "idle1".into());
+        s0.activity = Activity::Idle;
+        s0.tab_index = Some(0);
+        let mut s1 = Session::new(20, "work-a".into());
+        s1.activity = Activity::Working;
+        s1.tab_index = Some(1);
+        let mut s2 = Session::new(30, "idle2".into());
+        s2.activity = Activity::Idle;
+        s2.tab_index = Some(2);
+        let mut s3 = Session::new(40, "idle3".into());
+        s3.activity = Activity::Idle;
+        s3.tab_index = Some(3);
+        let mut s4 = Session::new(50, "work-b".into());
+        s4.activity = Activity::Working;
+        s4.tab_index = Some(4);
+        let mut s5 = Session::new(60, "idle4".into());
+        s5.activity = Activity::Idle;
+        s5.tab_index = Some(5);
+        let mut s6 = Session::new(70, "work-c".into());
+        s6.activity = Activity::Working;
+        s6.tab_index = Some(6);
+
+        state.sessions.insert(10, s0);
+        state.sessions.insert(20, s1);
+        state.sessions.insert(30, s2);
+        state.sessions.insert(40, s3);
+        state.sessions.insert(50, s4);
+        state.sessions.insert(60, s5);
+        state.sessions.insert(70, s6);
+
+        handle_sort(&mut state);
+
+        let ordered: Vec<u32> = {
+            let mut v: Vec<_> = state.sessions.values()
+                .map(|s| (s.pane_id, s.tab_index.unwrap_or(usize::MAX)))
+                .collect();
+            v.sort_by_key(|&(_, idx)| idx);
+            v.into_iter().map(|(pid, _)| pid).collect()
+        };
+
+        // Working sessions should appear first, in their original relative order
+        assert_eq!(ordered[0], 20, "work-a should be first");
+        assert_eq!(ordered[1], 50, "work-b should be second");
+        assert_eq!(ordered[2], 70, "work-c should be third");
+        // Idle sessions follow, in their original relative order
+        assert_eq!(ordered[3], 10, "idle1 should be fourth");
+        assert_eq!(ordered[4], 30, "idle2 should be fifth");
+        assert_eq!(ordered[5], 40, "idle3 should be sixth");
+        assert_eq!(ordered[6], 60, "idle4 should be seventh");
+    }
+
+    #[test]
+    fn test_handle_sort_all_same_tier_is_noop() {
+        let mut state = ControllerState::default();
+        // All Working sessions
+        let mut s0 = Session::new(10, "w1".into());
+        s0.activity = Activity::Working;
+        s0.tab_index = Some(0);
+        let mut s1 = Session::new(20, "w2".into());
+        s1.activity = Activity::Working;
+        s1.tab_index = Some(1);
+        let mut s2 = Session::new(30, "w3".into());
+        s2.activity = Activity::Working;
+        s2.tab_index = Some(2);
+
+        state.sessions.insert(10, s0);
+        state.sessions.insert(20, s1);
+        state.sessions.insert(30, s2);
+
+        handle_sort(&mut state);
+        assert!(!state.render_dirty);
     }
 }
