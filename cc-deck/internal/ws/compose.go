@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cc-deck/cc-deck/internal/compose"
+	"github.com/cc-deck/cc-deck/internal/credential"
 	"github.com/cc-deck/cc-deck/internal/network"
 	"github.com/cc-deck/cc-deck/internal/podman"
 )
@@ -141,33 +142,37 @@ func (e *ComposeWorkspace) Create(ctx context.Context, opts CreateOpts) error {
 		ports = def.Ports
 	}
 
-	// Resolve credentials.
-	creds := e.Credentials
-	if creds == nil {
-		creds = make(map[string]string)
-	}
-
-	// Resolve credentials from definition keys.
-	if def != nil {
-		for _, key := range def.Credentials {
-			if _, exists := creds[key]; !exists {
-				if val := os.Getenv(key); val != "" {
-					creds[key] = val
+	// Resolve credentials via detect-all model.
+	creds := make(map[string]string)
+	{
+		modes := credential.DetectAll()
+		if len(modes) > 0 {
+			merged, mergeErr := credential.MergeCredentials(modes)
+			if mergeErr != nil {
+				return fmt.Errorf("merging credentials: %w", mergeErr)
+			}
+			for k, v := range merged.EnvVars {
+				creds[k] = v
+			}
+			for _, fc := range merged.FileCredentials {
+				creds[fc.EnvVar] = fc.LocalPath
+			}
+		} else {
+			if e.Credentials != nil {
+				for k, v := range e.Credentials {
+					creds[k] = v
+				}
+			}
+			if def != nil {
+				for _, key := range def.Credentials {
+					if _, exists := creds[key]; !exists {
+						if val := os.Getenv(key); val != "" {
+							creds[key] = val
+						}
+					}
 				}
 			}
 		}
-	}
-
-	// Auth mode detection.
-	authMode := e.Auth
-	if authMode == "" && def != nil && def.Auth != "" {
-		authMode = AuthMode(def.Auth)
-	}
-	if authMode == "" || authMode == AuthModeAuto {
-		authMode = DetectAuthMode()
-	}
-	if authMode != AuthModeNone {
-		DetectAuthCredentials(authMode, creds)
 	}
 
 	// Resolve allowed domains.

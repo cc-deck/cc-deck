@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cc-deck/cc-deck/internal/credential"
 	"github.com/cc-deck/cc-deck/internal/ssh"
 )
 
@@ -189,8 +190,16 @@ func (e *SSHWorkspace) Attach(ctx context.Context) error {
 	client := e.newSSHClient(def)
 	client.AgentForwarding = true
 
-	// Write credentials to remote before attaching (unless auth=none).
-	if def.Auth != "none" {
+	// Write credentials to remote before attaching.
+	modes := credential.DetectAll()
+	if len(modes) > 0 {
+		merged, mergeErr := credential.MergeCredentials(modes)
+		if mergeErr != nil {
+			log.Printf("WARNING: could not merge credentials: %v", mergeErr)
+		} else if writeErr := credential.InjectSSH(ctx, client, merged); writeErr != nil {
+			log.Printf("WARNING: could not write credentials to remote: %v", writeErr)
+		}
+	} else if def.Auth != "none" {
 		creds, credErr := ssh.BuildCredentialSet(def.Auth, def.Credentials, def.Env)
 		if credErr != nil {
 			return fmt.Errorf("building credentials: %w", credErr)

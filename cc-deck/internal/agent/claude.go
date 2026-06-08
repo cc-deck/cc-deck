@@ -159,6 +159,60 @@ func (c *ClaudeAgent) TranslateEvent(input []byte) (*NormalizedPayload, error) {
 	}, nil
 }
 
+func (c *ClaudeAgent) CredentialSpecs() []CredentialSpec {
+	return []CredentialSpec{
+		{
+			Name:     "api",
+			Priority: 10,
+			EnvVars: []EnvVarSpec{
+				{Name: "ANTHROPIC_API_KEY", Required: true},
+				{Name: "ANTHROPIC_DEFAULT_SONNET_MODEL"},
+				{Name: "ANTHROPIC_DEFAULT_OPUS_MODEL"},
+				{Name: "ANTHROPIC_DEFAULT_HAIKU_MODEL"},
+			},
+		},
+		{
+			Name:     "vertex",
+			Priority: 20,
+			EnvVars: []EnvVarSpec{
+				{Name: "CLAUDE_CODE_USE_VERTEX", FixedValue: "1"},
+				{Name: "ANTHROPIC_VERTEX_PROJECT_ID", Required: true},
+				{Name: "CLOUD_ML_REGION"},
+				{Name: "ANTHROPIC_MODEL"},
+				{Name: "ANTHROPIC_API_KEY"},
+				{Name: "ANTHROPIC_DEFAULT_SONNET_MODEL"},
+				{Name: "ANTHROPIC_DEFAULT_OPUS_MODEL"},
+				{Name: "ANTHROPIC_DEFAULT_HAIKU_MODEL"},
+			},
+			FileCredential: &FileCredentialSpec{
+				EnvVar:      "GOOGLE_APPLICATION_CREDENTIALS",
+				DefaultPath: "~/.config/gcloud/application_default_credentials.json",
+				Required:    true,
+			},
+			Endpoints: []Endpoint{
+				{Host: "oauth2.googleapis.com", Port: 443},
+			},
+		},
+		{
+			Name:     "bedrock",
+			Priority: 30,
+			EnvVars: []EnvVarSpec{
+				{Name: "CLAUDE_CODE_USE_BEDROCK", FixedValue: "1"},
+				{Name: "AWS_REGION", Required: true},
+				{Name: "AWS_ACCESS_KEY_ID"},
+				{Name: "AWS_SECRET_ACCESS_KEY"},
+				{Name: "AWS_SESSION_TOKEN"},
+				{Name: "AWS_PROFILE"},
+				{Name: "ANTHROPIC_MODEL"},
+				{Name: "ANTHROPIC_API_KEY"},
+				{Name: "ANTHROPIC_DEFAULT_SONNET_MODEL"},
+				{Name: "ANTHROPIC_DEFAULT_OPUS_MODEL"},
+				{Name: "ANTHROPIC_DEFAULT_HAIKU_MODEL"},
+			},
+		},
+	}
+}
+
 // HookEventCount returns how many hook events are registered for cc-deck.
 func (c *ClaudeAgent) HookEventCount() int {
 	settingsPath := claudeSettingsPath()

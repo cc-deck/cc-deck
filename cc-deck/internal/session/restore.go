@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"time"
 )
@@ -52,8 +53,13 @@ func Restore(name string, w io.Writer) error {
 
 		// Change to the original working directory where the session ran.
 		if entry.WorkingDir != "" {
-			writeChars(fmt.Sprintf("cd %q\n", entry.WorkingDir))
-			time.Sleep(200 * time.Millisecond)
+			if _, err := os.Stat(entry.WorkingDir); err == nil {
+				writeChars(fmt.Sprintf("cd %q\n", entry.WorkingDir))
+				time.Sleep(200 * time.Millisecond)
+			} else {
+				fmt.Fprintf(w, "  Warning: directory %s no longer exists, starting fresh session\n", entry.WorkingDir)
+				entry.SessionID = ""
+			}
 		}
 
 		// Start Claude with --resume, fall back to fresh start

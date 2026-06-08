@@ -189,6 +189,23 @@ func TestOpenCodeAgentInstallHooksRegistersInConfig(t *testing.T) {
 	}
 }
 
+func TestOpenCodeAgentCredentialSpecs(t *testing.T) {
+	a := &OpenCodeAgent{}
+	specs := a.CredentialSpecs()
+	if len(specs) < 2 {
+		t.Fatalf("CredentialSpecs() returned %d specs, want at least 2", len(specs))
+	}
+	names := make(map[string]bool)
+	for _, s := range specs {
+		names[s.Name] = true
+	}
+	for _, required := range []string{"openai", "anthropic"} {
+		if !names[required] {
+			t.Errorf("missing %q credential spec", required)
+		}
+	}
+}
+
 func TestOpenCodeAgentInstallHooksIdempotent(t *testing.T) {
 	cleanup := setupOpenCodeTestDir(t)
 	defer cleanup()

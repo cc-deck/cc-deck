@@ -7,8 +7,8 @@ import (
 	"strings"
 )
 
-// DetectAuthMode determines which Claude Code authentication mode the host
-// is using by checking environment variables.
+// Deprecated: DetectAuthMode is superseded by credential.Detect() with agent-declared specs.
+// Use agent.Get(name).CredentialSpecs() + credential.Detect() instead.
 func DetectAuthMode() AuthMode {
 	if os.Getenv("CLAUDE_CODE_USE_VERTEX") == "1" {
 		return AuthModeVertex
@@ -22,9 +22,8 @@ func DetectAuthMode() AuthMode {
 	return AuthModeNone
 }
 
-// DetectAuthCredentials populates the credentials map with the workspace
-// variables required for the given auth mode. Existing entries (from
-// explicit --credential flags) are not overwritten.
+// Deprecated: DetectAuthCredentials is superseded by credential.Resolve() with agent-declared specs.
+// Use credential.Resolve(spec) instead.
 func DetectAuthCredentials(mode AuthMode, creds map[string]string) {
 	inject := func(key string) {
 		if _, exists := creds[key]; !exists {

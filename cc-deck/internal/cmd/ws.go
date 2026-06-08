@@ -20,9 +20,10 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/cc-deck/cc-deck/internal/config"
-	"github.com/cc-deck/cc-deck/internal/ws"
+	"github.com/cc-deck/cc-deck/internal/credential"
 	"github.com/cc-deck/cc-deck/internal/project"
 	sshPkg "github.com/cc-deck/cc-deck/internal/ssh"
+	"github.com/cc-deck/cc-deck/internal/ws"
 )
 
 func NewWsCmd(gf *GlobalFlags) *cobra.Command {
@@ -185,7 +186,7 @@ Workspace types (--type):
 	}
 
 	cmd.Flags().StringVarP(&cf.wsType, "type", "t", "", "Workspace type (local, container, compose, k8s-deploy, k8s-sandbox)")
-	cmd.Flags().StringVar(&cf.auth, "auth", "auto", "Auth mode: auto, none, api, vertex, bedrock")
+	cmd.Flags().StringVar(&cf.auth, "auth", "auto", "Auth mode: auto, none")
 	cmd.Flags().StringSliceVar(&cf.credential, "credential", nil, "Credential as KEY=VALUE, repeatable")
 	cmd.Flags().StringArrayVar(&cf.repos, "repo", nil, "Git repo URL to clone into workspace, repeatable")
 	cmd.Flags().StringArrayVar(&cf.branches, "branch", nil, "Branch for corresponding --repo, repeatable")
@@ -363,6 +364,11 @@ func runWsNew(gf *GlobalFlags, name string, cf *newFlags, cmd *cobra.Command) er
 		activeDef.Type = wsType
 	}
 	applyFlagOverrides(cmd, cf, activeDef)
+
+	// Resolve credentials via detect-all model.
+	if resolveErr := resolveWorkspaceCredentials(); resolveErr != nil {
+		return resolveErr
+	}
 
 	// Set project-dir for all workspace types.
 	activeDef.ProjectDir = project.CanonicalPath(cwd)
@@ -663,6 +669,26 @@ func setWorkspaceOptions(e ws.Workspace, cf *newFlags, cmd *cobra.Command, def *
 }
 
 // splitCredential splits a KEY=VALUE string. Returns nil if no '=' found.
+
+// resolveWorkspaceCredentials detects all available credentials from all
+// registered agents and logs what will be injected.
+func resolveWorkspaceCredentials() error {
+	modes := credential.DetectAll()
+
+	if len(modes) == 0 {
+		fmt.Fprintf(os.Stderr, "Warning: no agent credentials detected; workspace will have no credentials injected\n")
+		return nil
+	}
+
+	var modeNames []string
+	for _, m := range modes {
+		modeNames = append(modeNames, m.AgentName+"/"+m.Spec.Name)
+	}
+	fmt.Fprintf(os.Stderr, "Credentials: %s\n", strings.Join(modeNames, ", "))
+
+	return nil
+}
+
 func splitCredential(s string) []string {
 	idx := -1
 	for i, c := range s {
@@ -968,10 +994,27 @@ type wsListEntry struct {
 	Infra        string `json:"infra" yaml:"infra"`
 	Session      string `json:"session" yaml:"session"`
 	Project      string `json:"project" yaml:"project"`
+	Auth         string `json:"auth,omitempty" yaml:"auth,omitempty"`
 	Storage      string `json:"storage,omitempty" yaml:"storage,omitempty"`
 	Image        string `json:"image,omitempty" yaml:"image,omitempty"`
 	LastAttached string `json:"last_attached,omitempty" yaml:"last_attached,omitempty"`
 	Age          string `json:"age,omitempty" yaml:"age,omitempty"`
+}
+
+func buildAuthMap(allDefs []*ws.WorkspaceDefinition) map[string]string {
+	modes := credential.DetectAll()
+	authMap := make(map[string]string)
+	if len(modes) > 0 {
+		var names []string
+		for _, m := range modes {
+			names = append(names, m.AgentName+"/"+m.Spec.Name)
+		}
+		authStr := strings.Join(names, " ")
+		for _, d := range allDefs {
+			authMap[d.Name] = authStr
+		}
+	}
+	return authMap
 }
 
 // buildProjectMap builds a map from workspace name to project basename
@@ -1000,6 +1043,7 @@ func buildProjectPathMap(allDefs []*ws.WorkspaceDefinition) map[string]string {
 
 func writeWsStructured(format string, instances []*ws.WorkspaceInstance, allDefs []*ws.WorkspaceDefinition, instanceNames map[string]bool, filterType string, projectMap map[string]string) error {
 	var entries []wsListEntry
+	authMap := buildAuthMap(allDefs)
 
 	for _, inst := range instances {
 		image := ""
@@ -1022,12 +1066,17 @@ func writeWsStructured(format string, instances []*ws.WorkspaceInstance, allDefs
 			proj = "-"
 		}
 		infraCol, sessCol := formatWorkspaceColumns(inst)
+		authStr := authMap[inst.Name]
+		if authStr == "" {
+			authStr = "-"
+		}
 		entries = append(entries, wsListEntry{
 			Name:         inst.Name,
 			Type:         instType,
 			Infra:        infraCol,
 			Session:      sessCol,
 			Project:      proj,
+			Auth:         authStr,
 			Storage:      storage,
 			Image:        image,
 			LastAttached: formatRelativeTime(inst.LastAttached),
@@ -1047,13 +1096,18 @@ func writeWsStructured(format string, instances []*ws.WorkspaceInstance, allDefs
 		if proj == "" {
 			proj = "-"
 		}
+		authStr := authMap[def.Name]
+		if authStr == "" {
+			authStr = "-"
+		}
 		entries = append(entries, wsListEntry{
-			Name:    def.Name,
-			Type:    string(def.Type),
-			Infra:   "-",
-			Session: "none",
-			Project: proj,
-			Storage: "-",
+			Name:     def.Name,
+			Type:     string(def.Type),
+			Infra:    "-",
+			Session:  "none",
+			Project:  proj,
+			Auth:     authStr,
+			Storage:  "-",
 		})
 	}
 
@@ -1071,13 +1125,15 @@ func writeWsStructured(format string, instances []*ws.WorkspaceInstance, allDefs
 func writeWsTableWithProjects(instances []*ws.WorkspaceInstance, allDefs []*ws.WorkspaceDefinition, instanceNames map[string]bool, filterType string, projectMap map[string]string, verbose bool) error {
 	tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 
+	authMap := buildAuthMap(allDefs)
+
 	var pathMap map[string]string
 	if verbose {
 		pathMap = buildProjectPathMap(allDefs)
 	}
 
 	type row struct {
-		name, wsType, infra, session, proj, storage, lastAttached, age, path string
+		name, wsType, infra, session, proj, auth, storage, lastAttached, age, path string
 	}
 	var rows []row
 
@@ -1103,8 +1159,12 @@ func writeWsTableWithProjects(instances []*ws.WorkspaceInstance, allDefs []*ws.W
 		if proj == "" {
 			proj = "-"
 		}
+		authStr := authMap[inst.Name]
+		if authStr == "" {
+			authStr = "-"
+		}
 		infra, sess := formatWorkspaceColumns(inst)
-		r := row{inst.Name, string(instType), infra, sess, proj, storage,
+		r := row{inst.Name, string(instType), infra, sess, proj, authStr, storage,
 			formatRelativeTime(inst.LastAttached), formatDuration(time.Since(inst.CreatedAt)), ""}
 		if verbose && pathMap[inst.Name] != "" {
 			r.path = pathMap[inst.Name]
@@ -1130,7 +1190,11 @@ func writeWsTableWithProjects(instances []*ws.WorkspaceInstance, allDefs []*ws.W
 		if proj == "" {
 			proj = "-"
 		}
-		r := row{d.Name, string(d.Type), "-", "none", proj, storage, "never", "-", ""}
+		authStr := authMap[d.Name]
+		if authStr == "" {
+			authStr = "-"
+		}
+		r := row{d.Name, string(d.Type), "-", "none", proj, authStr, storage, "never", "-", ""}
 		if verbose && pathMap[d.Name] != "" {
 			r.path = pathMap[d.Name]
 		}
@@ -1143,10 +1207,10 @@ func writeWsTableWithProjects(instances []*ws.WorkspaceInstance, allDefs []*ws.W
 	}
 
 	if verbose {
-		fmt.Fprintln(tw, "NAME\tTYPE\tINFRA\tSESSION\tPROJECT\tSTORAGE\tLAST ATTACHED\tAGE\tPROJECT PATH")
+		fmt.Fprintln(tw, "NAME\tTYPE\tINFRA\tSESSION\tPROJECT\tAUTH\tSTORAGE\tLAST ATTACHED\tAGE\tPROJECT PATH")
 		for _, r := range rows {
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-				r.name, r.wsType, r.infra, r.session, r.proj, r.storage, r.lastAttached, r.age, r.path)
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				r.name, r.wsType, r.infra, r.session, r.proj, r.auth, r.storage, r.lastAttached, r.age, r.path)
 		}
 	} else {
 		fmt.Fprintln(tw, "NAME\tTYPE\tINFRA\tSESSION\tPROJECT\tSTORAGE\tLAST ATTACHED\tAGE")

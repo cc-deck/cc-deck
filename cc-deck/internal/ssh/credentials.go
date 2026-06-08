@@ -9,8 +9,8 @@ import (
 	"strings"
 )
 
-// BuildCredentialSet resolves credentials based on auth mode and local environment.
-// Returns a map of environment variable names to their values.
+// Deprecated: BuildCredentialSet is superseded by credential.DetectAll() + credential.MergeCredentials().
+// Kept as legacy fallback for workspaces created before the detect-all model.
 func BuildCredentialSet(authMode string, credentials []string, envVars map[string]string) (map[string]string, error) {
 	creds := make(map[string]string)
 

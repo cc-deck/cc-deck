@@ -98,6 +98,25 @@ func (o *OpenCodeAgent) TranslateEvent(input []byte) (*NormalizedPayload, error)
 	}, nil
 }
 
+func (o *OpenCodeAgent) CredentialSpecs() []CredentialSpec {
+	return []CredentialSpec{
+		{
+			Name:     "openai",
+			Priority: 10,
+			EnvVars: []EnvVarSpec{
+				{Name: "OPENAI_API_KEY", Required: true},
+			},
+		},
+		{
+			Name:     "anthropic",
+			Priority: 20,
+			EnvVars: []EnvVarSpec{
+				{Name: "ANTHROPIC_API_KEY", Required: true},
+			},
+		},
+	}
+}
+
 // --- OpenCode config (opencode.json) management ---
 
 const pluginEntry = "~/.config/opencode/plugins/cc-deck.ts"
