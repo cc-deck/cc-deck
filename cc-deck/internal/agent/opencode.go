@@ -23,7 +23,7 @@ func init() {
 
 func (o *OpenCodeAgent) Name() string        { return "opencode" }
 func (o *OpenCodeAgent) DisplayName() string { return "OpenCode" }
-func (o *OpenCodeAgent) Indicator() string   { return "▶" } // ▶
+func (o *OpenCodeAgent) Indicator() string   { return "❯" }
 
 func (o *OpenCodeAgent) IsInstalled() bool {
 	_, err := exec.LookPath("opencode")

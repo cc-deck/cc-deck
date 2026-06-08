@@ -16,8 +16,8 @@ func TestOpenCodeAgentIdentity(t *testing.T) {
 	if a.DisplayName() != "OpenCode" {
 		t.Errorf("DisplayName() = %q, want %q", a.DisplayName(), "OpenCode")
 	}
-	if a.Indicator() != "▶" {
-		t.Errorf("Indicator() = %q, want %q", a.Indicator(), "▶")
+	if a.Indicator() != "❯" {
+		t.Errorf("Indicator() = %q, want %q", a.Indicator(), "❯")
 	}
 }
 
@@ -56,6 +56,11 @@ func TestOpenCodeAgentTranslateEvent(t *testing.T) {
 			name:      "PermissionRequest",
 			input:     `{"hook_event_name":"PermissionRequest","session_id":"oc-1"}`,
 			wantEvent: "PermissionRequest",
+		},
+		{
+			name:      "PermissionReply",
+			input:     `{"hook_event_name":"PermissionReply","session_id":"oc-1"}`,
+			wantEvent: "PermissionReply",
 		},
 	}
 
@@ -144,6 +149,7 @@ func TestOpenCodeAgentInstallHooks(t *testing.T) {
 		"tool.execute.before",
 		"tool.execute.after",
 		"permission.asked",
+		"permission.replied",
 	} {
 		if !strings.Contains(string(content), want) {
 			t.Errorf("plugin file missing %q", want)

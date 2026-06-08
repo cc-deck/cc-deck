@@ -321,7 +321,7 @@ fn render_header(state: &super::state::SidebarState, payload: &cc_deck::RenderPa
 fn agent_indicator_color(indicator: &str) -> (u8, u8, u8) {
     match indicator {
         "\u{2733}" => (255, 170, 50),  // ✳ Claude Code: orange
-        "\u{25b6}" => (60, 190, 190),  // ▶ OpenCode: dark cyan
+        "\u{276f}" => (60, 190, 190),  // ❯ OpenCode: dark cyan
         _ => (180, 175, 195),          // fallback: light grey
     }
 }
@@ -723,29 +723,29 @@ mod tests {
 
     #[test]
     fn test_format_line2_one_badge_aligns() {
-        let badges = vec!["▶".to_string()];
+        let badges = vec!["❯".to_string()];
         let result = format_line2(&badges, Some("main"), TEST_COLOR);
         assert!(result.starts_with(' '));
-        assert!(result.contains("\x1b[38;2;180;140;255m▶\x1b[39m"));
+        assert!(result.contains("\x1b[38;2;180;140;255m❯\x1b[39m"));
         assert!(result.contains("\u{2387} main"));
     }
 
     #[test]
     fn test_format_line2_two_badges() {
-        let badges = vec!["▶".to_string(), "✎".to_string()];
+        let badges = vec!["❯".to_string(), "✎".to_string()];
         let result = format_line2(&badges, Some("main"), TEST_COLOR);
         assert!(result.starts_with(' '));
-        assert!(result.contains("▶"));
+        assert!(result.contains("❯"));
         assert!(result.contains("✎"));
         assert!(result.contains("\u{2387}"));
     }
 
     #[test]
     fn test_format_line2_badges_only() {
-        let badges = vec!["▶".to_string()];
+        let badges = vec!["❯".to_string()];
         let result = format_line2(&badges, None, TEST_COLOR);
         assert!(result.starts_with(' '));
-        assert!(result.contains("\x1b[38;2;180;140;255m▶\x1b[39m"));
+        assert!(result.contains("\x1b[38;2;180;140;255m❯\x1b[39m"));
     }
 
     #[test]
@@ -762,7 +762,7 @@ mod tests {
         assert_eq!(display_width("⋮"), 1); // U+22EE, Narrow
         assert_eq!(display_width("✎"), 1); // U+270E, Narrow
         assert_eq!(display_width("⚙"), 1); // U+2699, Narrow
-        assert_eq!(display_width("▶"), 1); // U+25B6, Ambiguous (width 1 in unicode_width)
+        assert_eq!(display_width("❯"), 1); // U+276F, Narrow
         assert_eq!(display_width("◆"), 1); // U+25C6, Ambiguous (width 1 in unicode_width)
     }
 
