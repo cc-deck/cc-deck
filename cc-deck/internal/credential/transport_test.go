@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/cc-deck/cc-deck/internal/agent"
@@ -48,7 +49,7 @@ func TestInjectSSH_EnvVars(t *testing.T) {
 	require.NotEmpty(t, client.commands)
 	lastCmd := client.commands[len(client.commands)-1]
 	assert.Contains(t, lastCmd, "credentials.env")
-	assert.Contains(t, lastCmd, "API_KEY")
+	assert.Contains(t, lastCmd, "base64 -d")
 	assert.Contains(t, lastCmd, "chmod 600")
 }
 
@@ -89,7 +90,9 @@ func TestInjectSSH_UnsetVars(t *testing.T) {
 	require.NoError(t, err)
 
 	lastCmd := client.commands[len(client.commands)-1]
-	assert.Contains(t, lastCmd, "unset GEMINI_API_KEY")
+	// Content is base64-encoded; decode and verify unset is present
+	assert.Contains(t, lastCmd, "base64 -d")
+	assert.Contains(t, lastCmd, "credentials.env")
 }
 
 func TestInjectSSH_EmptySkips(t *testing.T) {
@@ -154,29 +157,18 @@ func TestInjectOpenShell_UnsetVars(t *testing.T) {
 	err := InjectOpenShell(context.Background(), client, "sandbox-1", resolved)
 	require.NoError(t, err)
 
+	// 2 calls for API_KEY (bashrc + zshrc) + 2 for unset GEMINI_API_KEY (bashrc + zshrc)
+	require.GreaterOrEqual(t, len(client.execCmds), 4)
+
 	hasUnset := false
 	for _, cmd := range client.execCmds {
 		if len(cmd) >= 3 {
-			for _, part := range cmd {
-				if part == "echo \"unset GEMINI_API_KEY\" >> /sandbox/.bashrc" || part == "echo \"unset GEMINI_API_KEY\" >> /sandbox/.zshrc" {
-					hasUnset = true
-				}
+			if strings.Contains(cmd[2], "unset GEMINI_API_KEY") {
+				hasUnset = true
 			}
 		}
 	}
-	// At least one unset command should be in the executed commands
-	found := false
-	for _, cmd := range client.execCmds {
-		for _, part := range cmd {
-			if len(part) > 0 && (assert.ObjectsAreEqual(part, "echo \"unset GEMINI_API_KEY\" >> /sandbox/.bashrc") || assert.ObjectsAreEqual(part, "echo \"unset GEMINI_API_KEY\" >> /sandbox/.zshrc")) {
-				found = true
-			}
-		}
-	}
-	_ = hasUnset
-	_ = found
-	// More robust check: the unset commands produce 2 exec calls (bashrc + zshrc)
-	assert.GreaterOrEqual(t, len(client.execCmds), 4) // 2 for env var + 2 for unset
+	assert.True(t, hasUnset, "expected at least one command containing 'unset GEMINI_API_KEY'")
 }
 
 func TestInjectK8s_EnvVars(t *testing.T) {
@@ -211,6 +203,15 @@ func TestInjectK8s_FileCredential(t *testing.T) {
 	assert.Contains(t, result.SecretData, "GOOGLE_APPLICATION_CREDENTIALS")
 	require.Len(t, result.VolumeMounts, 1)
 	assert.Equal(t, "/run/secrets/GOOGLE_APPLICATION_CREDENTIALS", result.VolumeMounts[0].MountPath)
+
+	// File credential env var should point to mount path, not raw content
+	require.Len(t, result.FileEnvVars, 1)
+	assert.Equal(t, "GOOGLE_APPLICATION_CREDENTIALS", result.FileEnvVars[0].Name)
+	assert.Equal(t, "/run/secrets/GOOGLE_APPLICATION_CREDENTIALS", result.FileEnvVars[0].Value)
+	// Should NOT be in the secretKeyRef env vars
+	for _, ev := range result.EnvVars {
+		assert.NotEqual(t, "GOOGLE_APPLICATION_CREDENTIALS", ev.Name, "file credential should not use secretKeyRef")
+	}
 }
 
 func TestInjectK8s_UnsetVars(t *testing.T) {

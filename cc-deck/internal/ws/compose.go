@@ -147,18 +147,19 @@ func (e *ComposeWorkspace) Create(ctx context.Context, opts CreateOpts) error {
 	creds := make(map[string]string)
 	if def != nil && def.AuthMode != "" && def.Agent != "" {
 		a := agent.Get(def.Agent)
-		if a != nil {
-			for _, spec := range a.CredentialSpecs() {
-				if spec.Name == def.AuthMode {
-					resolved := credential.Resolve(spec)
-					for k, v := range resolved.EnvVars {
-						creds[k] = v
-					}
-					if resolved.FileCredential != nil {
-						creds[resolved.FileCredential.EnvVar] = resolved.FileCredential.LocalPath
-					}
-					break
+		if a == nil {
+			return fmt.Errorf("unknown agent %q in workspace definition", def.Agent)
+		}
+		for _, spec := range a.CredentialSpecs() {
+			if spec.Name == def.AuthMode {
+				resolved := credential.Resolve(spec)
+				for k, v := range resolved.EnvVars {
+					creds[k] = v
 				}
+				if resolved.FileCredential != nil {
+					creds[resolved.FileCredential.EnvVar] = resolved.FileCredential.LocalPath
+				}
+				break
 			}
 		}
 	} else {

@@ -2,6 +2,7 @@ package credential
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"strings"
@@ -18,6 +19,9 @@ func InjectContainer(ctx context.Context, wsName string, spec agent.CredentialSp
 	var credentialKeys []string
 
 	for key, val := range resolved.EnvVars {
+		if resolved.FileCredential != nil && key == resolved.FileCredential.EnvVar {
+			continue
+		}
 		sName := containerSecretName(wsName, key)
 
 		if info, statErr := os.Stat(val); statErr == nil && !info.IsDir() {
@@ -135,9 +139,10 @@ func InjectSSH(ctx context.Context, client SSHClient, resolved ResolvedCredentia
 	}
 
 	content := strings.Join(lines, "\n") + "\n"
+	encoded := base64.StdEncoding.EncodeToString([]byte(content))
 	writeCmd := fmt.Sprintf(
-		"mkdir -p ~/.config/cc-deck && cat > ~/.config/cc-deck/credentials.env << 'CCDECK_CRED_EOF'\n%sCCDECK_CRED_EOF\nchmod 600 ~/.config/cc-deck/credentials.env",
-		content)
+		"mkdir -p ~/.config/cc-deck && echo %q | base64 -d > ~/.config/cc-deck/credentials.env && chmod 600 ~/.config/cc-deck/credentials.env",
+		encoded)
 
 	if _, err := client.Run(ctx, writeCmd); err != nil {
 		return fmt.Errorf("writing credential file on remote: %w", err)
@@ -150,14 +155,21 @@ func InjectSSH(ctx context.Context, client SSHClient, resolved ResolvedCredentia
 type K8sCredentialResult struct {
 	SecretData   map[string][]byte
 	EnvVars      []K8sEnvVar
+	FileEnvVars  []K8sFileEnvVar
 	VolumeMounts []K8sVolumeMount
 	UnsetVars    []string
 }
 
-// K8sEnvVar describes a Kubernetes env var reference.
+// K8sEnvVar describes a Kubernetes env var sourced from a Secret key.
 type K8sEnvVar struct {
 	Name      string
 	SecretKey string
+}
+
+// K8sFileEnvVar describes a Kubernetes env var with a fixed value (mount path).
+type K8sFileEnvVar struct {
+	Name  string
+	Value string
 }
 
 // K8sVolumeMount describes a volume mount for a file credential.
@@ -190,14 +202,15 @@ func InjectK8s(spec agent.CredentialSpec, resolved ResolvedCredentials) (*K8sCre
 			return nil, fmt.Errorf("reading credential file %q: %w", localPath, err)
 		}
 		result.SecretData[key] = data
+		mountPath := "/run/secrets/" + key
 		result.VolumeMounts = append(result.VolumeMounts, K8sVolumeMount{
 			Name:      "credentials",
-			MountPath: "/run/secrets/" + key,
+			MountPath: mountPath,
 			SubPath:   key,
 		})
-		result.EnvVars = append(result.EnvVars, K8sEnvVar{
-			Name:      key,
-			SecretKey: key,
+		result.FileEnvVars = append(result.FileEnvVars, K8sFileEnvVar{
+			Name:  key,
+			Value: mountPath,
 		})
 	}
 
