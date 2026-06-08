@@ -150,18 +150,19 @@ func (e *K8sDeployWorkspace) Create(ctx context.Context, opts CreateOpts) error 
 	creds := make(map[string]string)
 	if wsDef, _ := e.defs.FindByName(e.name); wsDef != nil && wsDef.AuthMode != "" && wsDef.Agent != "" {
 		a := agent.Get(wsDef.Agent)
-		if a != nil {
-			for _, spec := range a.CredentialSpecs() {
-				if spec.Name == wsDef.AuthMode {
-					resolved := credential.Resolve(spec)
-					for k, v := range resolved.EnvVars {
-						creds[k] = v
-					}
-					if resolved.FileCredential != nil {
-						creds[resolved.FileCredential.EnvVar] = resolved.FileCredential.LocalPath
-					}
-					break
+		if a == nil {
+			return fmt.Errorf("unknown agent %q in workspace definition", wsDef.Agent)
+		}
+		for _, spec := range a.CredentialSpecs() {
+			if spec.Name == wsDef.AuthMode {
+				resolved := credential.Resolve(spec)
+				for k, v := range resolved.EnvVars {
+					creds[k] = v
 				}
+				if resolved.FileCredential != nil {
+					creds[resolved.FileCredential.EnvVar] = resolved.FileCredential.LocalPath
+				}
+				break
 			}
 		}
 	} else {

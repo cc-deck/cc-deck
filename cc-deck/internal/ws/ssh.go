@@ -194,7 +194,9 @@ func (e *SSHWorkspace) Attach(ctx context.Context) error {
 	// Write credentials to remote before attaching.
 	if def.AuthMode != "" && def.Agent != "" {
 		a := agent.Get(def.Agent)
-		if a != nil {
+		if a == nil {
+			log.Printf("WARNING: unknown agent %q, falling back to legacy credential injection", def.Agent)
+		} else {
 			for _, spec := range a.CredentialSpecs() {
 				if spec.Name == def.AuthMode {
 					resolved := credential.Resolve(spec)

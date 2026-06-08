@@ -128,14 +128,15 @@ func (e *ContainerWorkspace) Create(ctx context.Context, opts CreateOpts) error 
 	// Eager credential validation before provisioning infrastructure.
 	if def != nil && def.AuthMode != "" && def.Agent != "" {
 		a := agent.Get(def.Agent)
-		if a != nil {
-			for _, spec := range a.CredentialSpecs() {
-				if spec.Name == def.AuthMode {
-					if valErr := credential.Validate(spec, def.ExternalCredentials); valErr != nil {
-						return valErr
-					}
-					break
+		if a == nil {
+			return fmt.Errorf("unknown agent %q in workspace definition", def.Agent)
+		}
+		for _, spec := range a.CredentialSpecs() {
+			if spec.Name == def.AuthMode {
+				if valErr := credential.Validate(spec, def.ExternalCredentials); valErr != nil {
+					return valErr
 				}
+				break
 			}
 		}
 	}
@@ -177,18 +178,18 @@ func (e *ContainerWorkspace) Create(ctx context.Context, opts CreateOpts) error 
 
 	if def != nil && def.AuthMode != "" && def.Agent != "" {
 		a := agent.Get(def.Agent)
-		if a != nil {
-			specs := a.CredentialSpecs()
-			for _, spec := range specs {
-				if spec.Name == def.AuthMode {
-					resolved := credential.Resolve(spec)
-					var injectErr error
-					envs, secrets, credentialKeys, injectErr = credential.InjectContainer(ctx, e.name, spec, resolved)
-					if injectErr != nil {
-						return fmt.Errorf("injecting credentials: %w", injectErr)
-					}
-					break
+		if a == nil {
+			return fmt.Errorf("unknown agent %q in workspace definition", def.Agent)
+		}
+		for _, spec := range a.CredentialSpecs() {
+			if spec.Name == def.AuthMode {
+				resolved := credential.Resolve(spec)
+				var injectErr error
+				envs, secrets, credentialKeys, injectErr = credential.InjectContainer(ctx, e.name, spec, resolved)
+				if injectErr != nil {
+					return fmt.Errorf("injecting credentials: %w", injectErr)
 				}
+				break
 			}
 		}
 	} else {
