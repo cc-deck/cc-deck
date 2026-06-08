@@ -64,7 +64,7 @@ The user presses ? in navigate mode to see the help overlay. The help text inclu
 ### Functional Requirements
 
 - **FR-001**: The sidebar MUST add a new S (Shift+s) keybinding in navigate mode that triggers a sort-by-activity action.
-- **FR-002**: The sort MUST group sessions into three tiers: Active (Working, Waiting) at top, Inactive (Idle, Done, AgentDone, Init) in middle, Paused at bottom.
+- **FR-002**: The sort MUST group sessions into three tiers: Active (Working, Waiting) at top, Inactive (Idle, Done, AgentDone, Init) in middle, Paused (`session.paused == true`, regardless of activity state) at bottom.
 - **FR-003**: The sort MUST be stable within each tier, preserving the relative tab order of sessions that belong to the same tier.
 - **FR-004**: The sort MUST physically reorder Zellij tabs so that sidebar position, tab indices, and keyboard shortcuts all remain consistent.
 - **FR-005**: The navigate mode cursor MUST follow the current session after the sort completes, updating its position to match the session's new index.
@@ -81,6 +81,14 @@ The user presses ? in navigate mode to see the help overlay. The help text inclu
 - **SC-003**: The cursor highlights the same session before and after the sort.
 - **SC-004**: The sort completes without user-visible delay for up to 15 sessions.
 - **SC-005**: Pressing S when sessions are already sorted produces no tab movement.
+
+## Out of Scope
+
+- Persistent sort preference (sort is one-shot, not remembered across sessions)
+- Auto-re-sort when session states change
+- Custom sort orders or user-defined tier assignments
+- Sort by other criteria (name, last activity time)
+- External documentation updates (handled by constitution enforcement in tasks)
 
 ## Assumptions
 
