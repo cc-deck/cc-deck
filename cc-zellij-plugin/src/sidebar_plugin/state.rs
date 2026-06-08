@@ -73,6 +73,10 @@ pub struct SidebarState {
 
     /// Timer tick counter since initialization, used for render request fallback.
     pub ticks_since_init: u8,
+
+    /// Pane ID to track the cursor to after the next render payload arrives.
+    /// Set when a Sort action is dispatched; consumed on the next payload update.
+    pub sort_cursor_pane_id: Option<u32>,
 }
 
 impl Default for SidebarState {
@@ -95,6 +99,7 @@ impl Default for SidebarState {
             local_mute_override: None,
             render_request_sent: false,
             ticks_since_init: 0,
+            sort_cursor_pane_id: None,
         }
     }
 }
@@ -166,6 +171,21 @@ impl SidebarState {
         }
     }
 
+    /// Track cursor by pane_id after a sort operation.
+    ///
+    /// When sessions are reordered, the cursor index may no longer point to
+    /// the same session. This method finds the new position of the session
+    /// that the cursor was on (by pane_id) and updates cursor_index.
+    pub fn track_cursor_by_pane_id(&mut self, pane_id: u32) {
+        let sessions = self.filtered_sessions();
+        if let Some(new_idx) = sessions.iter().position(|s| s.pane_id == pane_id) {
+            if let Some(ctx) = self.mode.nav_ctx_mut() {
+                ctx.cursor_index = new_idx;
+            }
+        }
+        // If pane_id not found, preserve_cursor() will clamp
+    }
+
     /// Clear expired notifications.
     pub fn clear_expired_notifications(&mut self) {
         if let Some(ref notif) = self.notification {
@@ -180,6 +200,7 @@ impl SidebarState {
 mod tests {
     use super::*;
     use super::super::test_helpers::{make_payload, make_session};
+    use super::super::modes::NavigateContext;
 
     #[test]
     fn test_filtered_sessions_no_payload() {
@@ -243,4 +264,52 @@ mod tests {
         assert_eq!(state.mode.cursor_index(), 0);
     }
 
+    #[test]
+    fn test_track_cursor_by_pane_id_finds_new_position() {
+        let mut state = SidebarState::default();
+        // Simulate post-sort session order: pane 20 moved from index 1 to index 0
+        state.cached_payload = Some(make_payload(vec![
+            make_session(20, "web", 0),  // was at index 1, now at 0
+            make_session(10, "api", 1),  // was at index 0, now at 1
+        ]));
+        state.mode = SidebarMode::Navigate(NavigateContext {
+            cursor_index: 1, // cursor was at old position of "web"
+            restore_pane_id: None,
+            restore_tab_index: None,
+            entered_at_ms: 0,
+        });
+
+        state.track_cursor_by_pane_id(20); // Track "web" by pane_id
+        assert_eq!(state.mode.cursor_index(), 0, "cursor should follow web to position 0");
+    }
+
+    #[test]
+    fn test_track_cursor_by_pane_id_session_not_found() {
+        let mut state = SidebarState::default();
+        state.cached_payload = Some(make_payload(vec![
+            make_session(10, "api", 0),
+        ]));
+        state.mode = SidebarMode::Navigate(NavigateContext {
+            cursor_index: 0,
+            restore_pane_id: None,
+            restore_tab_index: None,
+            entered_at_ms: 0,
+        });
+
+        // Track a pane_id that doesn't exist in the session list
+        state.track_cursor_by_pane_id(99);
+        // cursor_index should remain unchanged (preserve_cursor will clamp later)
+        assert_eq!(state.mode.cursor_index(), 0);
+    }
+
+    #[test]
+    fn test_track_cursor_by_pane_id_not_navigating() {
+        let mut state = SidebarState::default();
+        state.cached_payload = Some(make_payload(vec![
+            make_session(10, "api", 0),
+        ]));
+        // In passive mode, track_cursor_by_pane_id is a no-op
+        state.track_cursor_by_pane_id(10);
+        assert!(matches!(state.mode, SidebarMode::Passive));
+    }
 }
