@@ -28,9 +28,35 @@ When implementing a new backend for an existing interface (e.g., new Environment
 - XDG paths: Use `internal/xdg` package (NOT `adrg/xdg`). Paths are `~/.config/cc-deck/` and `~/.local/state/cc-deck/` on all platforms
 - Container runtime: Use `podman` exclusively (never Docker)
 
+### IV. Plugin debug logging
+
+The Zellij plugin uses opt-in debug logging via a WASI filesystem flag.
+
+**Enabling debug**:
+The `debug_enabled` marker file must exist in the plugin's WASI `/cache/` directory.
+On macOS the host path is:
+```
+~/Library/Caches/org.Zellij-Contributors.Zellij/file:~/.config/zellij/plugins/cc_deck.wasm/plugin_cache/debug_enabled
+```
+To enable: `touch` the file at the host path above (it already exists if debug was enabled before).
+To disable: remove the file. The flag is checked once on plugin load.
+
+**Log location**:
+Debug output is written to `/cache/debug.log` inside the WASI sandbox.
+On macOS the host path is:
+```
+~/Library/Caches/org.Zellij-Contributors.Zellij/file:~/.config/zellij/plugins/cc_deck.wasm/plugin_cache/debug.log
+```
+
+**Usage notes**:
+- Logging is buffered (flushed on timer tick or when buffer exceeds 50 lines)
+- Multiple plugin instances (controller + sidebars) share the same log file
+- Truncate with `: >` before reproducing an issue to keep output focused
+- The log can grow large quickly; disable when not actively debugging
+
 ## Governance
 
 Constitution principles are enforced in CLAUDE.md and apply to ALL code changes, whether from a spec workflow or ad-hoc.
 Amendments require updating both this file and the Constitution Principles section of CLAUDE.md.
 
-**Version**: 1.1 | **Ratified**: 2026-03-30 | **Last Amended**: 2026-04-28
+**Version**: 1.2 | **Ratified**: 2026-03-30 | **Last Amended**: 2026-06-08

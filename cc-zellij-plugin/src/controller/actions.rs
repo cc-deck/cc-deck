@@ -352,11 +352,11 @@ fn handle_sort(state: &mut ControllerState) {
         // Move it left or right to the target position
         if current_tab_idx > target_tab_idx {
             for _ in 0..(current_tab_idx - target_tab_idx) {
-                move_focus_or_tab_wasm(zellij_tile::prelude::Direction::Left);
+                move_tab_wasm(zellij_tile::prelude::Direction::Left);
             }
         } else {
             for _ in 0..(target_tab_idx - current_tab_idx) {
-                move_focus_or_tab_wasm(zellij_tile::prelude::Direction::Right);
+                move_tab_wasm(zellij_tile::prelude::Direction::Right);
             }
         }
 
@@ -407,14 +407,17 @@ fn sort_tier_by_pane(state: &ControllerState, pane_id: u32) -> u8 {
         .unwrap_or(1)
 }
 
-/// WASM wrapper for move_focus_or_tab.
+/// WASM wrapper for MoveTab action (physically reorders a tab).
 #[cfg(target_family = "wasm")]
-fn move_focus_or_tab_wasm(direction: zellij_tile::prelude::Direction) {
-    zellij_tile::prelude::move_focus_or_tab(direction);
+fn move_tab_wasm(direction: zellij_tile::prelude::Direction) {
+    zellij_tile::prelude::run_action(
+        zellij_utils::input::actions::Action::MoveTab { direction },
+        std::collections::BTreeMap::new(),
+    );
 }
 
 #[cfg(not(target_family = "wasm"))]
-fn move_focus_or_tab_wasm(_direction: zellij_tile::prelude::Direction) {}
+fn move_tab_wasm(_direction: zellij_tile::prelude::Direction) {}
 
 // --- Tiered attend logic ---
 

@@ -121,4 +121,11 @@ When implementing a new backend for an existing interface (e.g., new Environment
 - XDG paths: Use `internal/xdg` package (NOT `adrg/xdg`). Paths are `~/.config/cc-deck/` and `~/.local/state/cc-deck/` on all platforms
 - Container runtime: Use `podman` exclusively (never Docker)
 
+### Plugin debug logging
+
+- Enable: `touch ~/Library/Caches/org.Zellij-Contributors.Zellij/file:~/.config/zellij/plugins/cc_deck.wasm/plugin_cache/debug_enabled`
+- Log: `~/Library/Caches/org.Zellij-Contributors.Zellij/file:~/.config/zellij/plugins/cc_deck.wasm/plugin_cache/debug.log`
+- Truncate before reproducing: `: > <log path>`
+- Flag checked once on plugin load; requires Zellij restart to take effect
+
 <!-- MANUAL ADDITIONS END -->
