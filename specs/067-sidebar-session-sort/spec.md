@@ -93,6 +93,6 @@ The user presses ? in navigate mode to see the help overlay. The help text inclu
 ## Assumptions
 
 - The user is in navigate (amber) mode when pressing S. The keybinding has no effect in other modes.
-- Zellij's `move_focus_or_tab(Direction)` API is available and supports moving the currently focused tab by one position in a given direction. The sort algorithm uses this to swap tabs into their target positions.
+- Zellij's `Action::MoveTab { direction }` (dispatched via `run_action`) physically reorders the currently focused tab by one position. The sort algorithm uses this to swap tabs into their target positions.
 - The controller has access to session activity state and tab index for all sessions.
 - The sort is a one-shot action; it does not persist or automatically re-sort when session states change.
