@@ -276,7 +276,7 @@ fn sort_tier(session: &Session) -> u8 {
 ///
 /// The sort is stable within each tier (preserves relative tab order).
 /// After computing the target order, executes a swap sequence using
-/// switch_tab_to + move_focus_or_tab to bubble each tab into place.
+/// switch_tab_to + Action::MoveTab to bubble each tab into place.
 /// Restores focus to the original active tab after completion.
 ///
 fn handle_sort(state: &mut ControllerState) {
