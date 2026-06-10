@@ -459,6 +459,12 @@ fn handle_navigate_key(state: &mut SidebarState, key: KeyWithModifier) -> bool {
             // Drop sessions borrow before mutating state
             drop(sessions);
             state.sort_cursor_pane_id = cursor_pane_id;
+            // Reset the navigate grace period so the async swap sequence
+            // (which changes active_tab_index) doesn't cause the sidebar
+            // to exit navigate mode on the next render broadcast.
+            if let Some(ctx) = state.mode.nav_ctx_mut() {
+                ctx.entered_at_ms = unix_now_ms();
+            }
             send_action(state, ActionType::Sort, cursor_pane_id, None, None);
             true
         }
