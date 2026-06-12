@@ -251,6 +251,196 @@ func TestClaudeAgentUninstallHooksSafety(t *testing.T) {
 	}
 }
 
+func TestClaudeAgentInstallHooksPreservesExisting(t *testing.T) {
+	dir := t.TempDir()
+	settingsPath := filepath.Join(dir, ".claude", "settings.json")
+
+	origFunc := claudeSettingsPathFunc
+	claudeSettingsPathFunc = func() string { return settingsPath }
+	defer func() { claudeSettingsPathFunc = origFunc }()
+
+	// Pre-populate with a non-cc-deck hook on SessionEnd
+	initial := map[string]any{
+		"hooks": map[string]any{
+			"SessionEnd": []any{
+				map[string]any{
+					"hooks": []any{
+						map[string]any{
+							"type":    "command",
+							"command": "~/.claude/hooks/sync-memory-to-obsidian.sh",
+						},
+					},
+				},
+			},
+		},
+	}
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	data, _ := json.MarshalIndent(initial, "", "  ")
+	if err := os.WriteFile(settingsPath, data, 0o644); err != nil {
+		t.Fatalf("write initial settings: %v", err)
+	}
+
+	a := &ClaudeAgent{}
+	if err := a.InstallHooks(); err != nil {
+		t.Fatalf("InstallHooks() error: %v", err)
+	}
+
+	result, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatalf("reading settings: %v", err)
+	}
+	var settings map[string]any
+	if err := json.Unmarshal(result, &settings); err != nil {
+		t.Fatalf("parsing settings: %v", err)
+	}
+	hooks, _ := settings["hooks"].(map[string]any)
+	sessionEnd, _ := hooks["SessionEnd"].([]any)
+
+	// Must have exactly 2 entries: the obsidian hook + cc-deck hook
+	if len(sessionEnd) != 2 {
+		t.Fatalf("SessionEnd has %d entries, want 2; got: %v", len(sessionEnd), sessionEnd)
+	}
+
+	// Verify the obsidian hook survived
+	foundObsidian := false
+	for _, entry := range sessionEnd {
+		m, _ := entry.(map[string]any)
+		hooksArr, _ := m["hooks"].([]any)
+		for _, h := range hooksArr {
+			action, _ := h.(map[string]any)
+			if cmd, _ := action["command"].(string); cmd == "~/.claude/hooks/sync-memory-to-obsidian.sh" {
+				foundObsidian = true
+			}
+		}
+	}
+	if !foundObsidian {
+		t.Error("obsidian sync hook was lost after InstallHooks()")
+	}
+
+	// Verify PreToolUse has the rtk hook + cc-deck hook (not just cc-deck)
+	preToolUse, _ := hooks["PreToolUse"].([]any)
+	ccDeckCount := 0
+	for _, entry := range preToolUse {
+		if isCCDeckEntry(entry) {
+			ccDeckCount++
+		}
+	}
+	if ccDeckCount != 1 {
+		t.Errorf("PreToolUse has %d cc-deck entries, want 1", ccDeckCount)
+	}
+
+	// Run again to verify idempotency with existing hooks
+	if err := a.InstallHooks(); err != nil {
+		t.Fatalf("second InstallHooks() error: %v", err)
+	}
+
+	result, _ = os.ReadFile(settingsPath)
+	json.Unmarshal(result, &settings) //nolint:errcheck
+	hooks, _ = settings["hooks"].(map[string]any)
+	sessionEnd, _ = hooks["SessionEnd"].([]any)
+
+	if len(sessionEnd) != 2 {
+		t.Fatalf("after second install, SessionEnd has %d entries, want 2", len(sessionEnd))
+	}
+
+	// Verify other settings keys are preserved
+	if _, exists := settings["hooks"]; !exists {
+		t.Error("hooks key missing after install")
+	}
+}
+
+func TestClaudeAgentInstallHooksPreservesTopLevelKeys(t *testing.T) {
+	dir := t.TempDir()
+	settingsPath := filepath.Join(dir, ".claude", "settings.json")
+
+	origFunc := claudeSettingsPathFunc
+	claudeSettingsPathFunc = func() string { return settingsPath }
+	defer func() { claudeSettingsPathFunc = origFunc }()
+
+	// Pre-populate with permissions and allowedTools alongside hooks
+	initial := map[string]any{
+		"permissions": map[string]any{
+			"allow": []any{"Bash(*)", "Read(*)"},
+		},
+		"allowedTools": []any{"Bash", "Read"},
+		"hooks": map[string]any{
+			"SessionEnd": []any{
+				map[string]any{
+					"hooks": []any{
+						map[string]any{
+							"type":    "command",
+							"command": "~/.claude/hooks/sync-memory-to-obsidian.sh",
+						},
+					},
+				},
+			},
+			"PreToolUse": []any{
+				map[string]any{
+					"matcher": "Bash",
+					"hooks": []any{
+						map[string]any{
+							"type":    "command",
+							"command": "rtk hook claude",
+						},
+					},
+				},
+			},
+		},
+	}
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	data, _ := json.MarshalIndent(initial, "", "  ")
+	if err := os.WriteFile(settingsPath, data, 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	a := &ClaudeAgent{}
+	if err := a.InstallHooks(); err != nil {
+		t.Fatalf("InstallHooks() error: %v", err)
+	}
+
+	result, _ := os.ReadFile(settingsPath)
+	var settings map[string]any
+	json.Unmarshal(result, &settings) //nolint:errcheck
+
+	// permissions must survive
+	perms, _ := settings["permissions"].(map[string]any)
+	if perms == nil {
+		t.Fatal("permissions key was lost")
+	}
+	allow, _ := perms["allow"].([]any)
+	if len(allow) != 2 {
+		t.Errorf("permissions.allow has %d entries, want 2", len(allow))
+	}
+
+	// allowedTools must survive
+	tools, _ := settings["allowedTools"].([]any)
+	if len(tools) != 2 {
+		t.Errorf("allowedTools has %d entries, want 2", len(tools))
+	}
+
+	// rtk hook on PreToolUse must survive alongside cc-deck hook
+	hooks, _ := settings["hooks"].(map[string]any)
+	preToolUse, _ := hooks["PreToolUse"].([]any)
+	foundRTK := false
+	for _, entry := range preToolUse {
+		m, _ := entry.(map[string]any)
+		hooksArr, _ := m["hooks"].([]any)
+		for _, h := range hooksArr {
+			action, _ := h.(map[string]any)
+			if cmd, _ := action["command"].(string); cmd == "rtk hook claude" {
+				foundRTK = true
+			}
+		}
+	}
+	if !foundRTK {
+		t.Error("rtk hook was lost from PreToolUse after InstallHooks()")
+	}
+}
+
 func TestClaudeAgentHookEventCount(t *testing.T) {
 	dir := t.TempDir()
 	settingsPath := filepath.Join(dir, ".claude", "settings.json")
