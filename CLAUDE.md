@@ -83,8 +83,7 @@ Rust (stable, latest edition 2021+): Follow standard conventions
 
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
-shell commands, and other important information, read the current plan at
-`specs/067-sidebar-session-sort/plan.md`
+shell commands, and other important information, read the current plan
 <!-- SPECKIT END -->
 
 <!-- MANUAL ADDITIONS START -->
