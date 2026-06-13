@@ -176,6 +176,7 @@ dependencies = [
  "serde_json",
  "unicode-width",
  "zellij-tile",
+ "zellij-utils",
 ]
 
 [[package]]
