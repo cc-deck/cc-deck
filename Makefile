@@ -59,7 +59,6 @@ copy-wasm: $(WASM_SRC)  ## Copy WASM binary to Go embed location
 
 sync-embeds:  ## Sync repo-root assets into Go embed locations
 	cp base-images.yaml cc-deck/internal/build/base-images.yaml
-	cp -r .claude/skills/cc-deck-base-images cc-deck/internal/build/skills/
 
 build-cli: $(WASM_DST) sync-embeds  ## Build Go CLI (requires WASM to be copied first)
 	cd cc-deck && go build -ldflags "$(CLI_LDFLAGS)" -o cc-deck ./cmd/cc-deck

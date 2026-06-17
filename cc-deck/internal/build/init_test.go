@@ -339,15 +339,15 @@ func TestInitSetupDir_ExtractsBaseImagesAndSkill(t *testing.T) {
 	assert.NotEmpty(t, reg.OpenShell, "extracted registry should have openshell entries")
 	assert.NotEmpty(t, reg.Container, "extracted registry should have container entries")
 
-	// Discovery skill should be extracted to project root's .claude/skills/
-	skillPath := filepath.Join(projectRoot, ".claude", "skills", "cc-deck-base-images", "SKILL.md")
-	assert.FileExists(t, skillPath)
+	// Discovery command should be extracted to project root's .claude/commands/
+	cmdPath := filepath.Join(projectRoot, ".claude", "commands", "cc-deck.base-images.md")
+	assert.FileExists(t, cmdPath)
 
-	// Skill should contain the expected content
-	skillContent, err := os.ReadFile(skillPath)
+	// Command should contain the expected content
+	cmdContent, err := os.ReadFile(cmdPath)
 	require.NoError(t, err)
-	assert.Contains(t, string(skillContent), "Base Image Discovery")
-	assert.Contains(t, string(skillContent), "base-images.yaml")
+	assert.Contains(t, string(cmdContent), "Base Image Discovery")
+	assert.Contains(t, string(cmdContent), "base-images.yaml")
 }
 
 func TestInitSetupDir_ManifestTargetsSectionCommented(t *testing.T) {
