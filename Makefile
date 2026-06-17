@@ -33,7 +33,7 @@ CLI_LDFLAGS = -X github.com/cc-deck/cc-deck/internal/cmd.Version=$(VERSION)+$(GI
         test test-go test-rust test-e2e test-compose test-integration smoke lint lint-go lint-rust \
         coverage coverage-summary coverage-json \
         deploy-ssh install uninstall status \
-        test-image demo-image demo-image-push base-image base-image-push \
+        test-image test-images test-images-quick demo-image demo-image-push base-image base-image-push \
         demo-setup demo-record demo-gif demo-mp4 demo-clean \
         dev reload clean help
 
@@ -90,6 +90,12 @@ test-integration:  ## Run K8s integration tests (requires kind cluster named cc-
 
 smoke: build  ## Run smoke test script against compiled binary
 	./scripts/smoke-test-env.sh
+
+test-images: cross-cli  ## Run image probe suite against all base images
+	cd cc-deck && go test -tags e2e -run TestImageProbe -v -timeout 600s -count=1 ./internal/e2e/
+
+test-images-quick: cross-cli  ## Run image probe suite against default base images only
+	cd cc-deck && DEFAULTS_ONLY=1 go test -tags e2e -run TestImageProbe -v -timeout 300s -count=1 ./internal/e2e/
 
 ## -- Lint --------------------------------------------------
 
