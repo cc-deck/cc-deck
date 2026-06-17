@@ -125,10 +125,24 @@ func initConfig(gf *cmd.GlobalFlags) {
 	}
 }
 
+func findBaseImagesYAML() (string, error) {
+	cwd, err := os.Getwd()
+	if err == nil {
+		p := filepath.Join(cwd, "base-images.yaml")
+		if _, err := os.Stat(p); err == nil {
+			return p, nil
+		}
+	}
+	return "", fmt.Errorf("base-images.yaml not found")
+}
+
 func main() {
 	// Propagate build-time registry to the build package
 	if cmd.ImageRegistry != "" {
 		build.DefaultBaseImage = cmd.ImageRegistry + "/cc-deck-base:latest"
+	}
+	if registryPath, err := findBaseImagesYAML(); err == nil {
+		build.RegistryPath = registryPath
 	}
 
 	rootCmd := newRootCmd()

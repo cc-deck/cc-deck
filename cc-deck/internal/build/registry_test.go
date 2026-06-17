@@ -91,3 +91,42 @@ func TestBaseImageRegistry_EntriesForTarget(t *testing.T) {
 	entries = reg.EntriesForTarget("unknown")
 	assert.Nil(t, entries)
 }
+
+func TestResolveDefaultBaseImage(t *testing.T) {
+	content := `openshell:
+  - name: custom
+    ref: custom-openshell:v1
+    default: true
+container:
+  - name: custom
+    ref: custom-container:v1
+    default: true
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "base-images.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
+
+	ref := ResolveDefaultBaseImage(path, "openshell")
+	assert.Equal(t, "custom-openshell:v1", ref)
+
+	ref = ResolveDefaultBaseImage(path, "container")
+	assert.Equal(t, "custom-container:v1", ref)
+}
+
+func TestResolveDefaultBaseImage_FileNotFound(t *testing.T) {
+	ref := ResolveDefaultBaseImage("/nonexistent/path", "openshell")
+	assert.Equal(t, "", ref)
+}
+
+func TestResolveDefaultBaseImage_NoDefault(t *testing.T) {
+	content := `openshell:
+  - name: test
+    ref: test:latest
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "base-images.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
+
+	ref := ResolveDefaultBaseImage(path, "openshell")
+	assert.Equal(t, "", ref)
+}
