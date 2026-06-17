@@ -40,3 +40,6 @@ dist/
 **/.specify/**
 !**/.specify/memory/
 !**/.specify/memory/constitution.md
+
+# Base image digest tracking (local state)
+.base-images-digests.json
