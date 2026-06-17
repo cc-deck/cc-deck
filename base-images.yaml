@@ -1,0 +1,11 @@
+# Base image registry for cc-deck build pipeline.
+# Each entry lists a base image that cc-deck can build on top of.
+# The `default: true` entry is used when no `base:` is specified in the manifest.
+openshell:
+  - name: nvidia-upstream
+    ref: ghcr.io/nvidia/openshell-community/sandboxes/base:latest
+    default: true
+container:
+  - name: fedora-41
+    ref: registry.fedoraproject.org/fedora:41
+    default: true
