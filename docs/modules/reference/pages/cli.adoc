@@ -277,6 +277,14 @@ Valid targets are `container`, `ssh`, or both as `container,ssh`.
 Scaffold a setup directory with manifest and AI commands.
 When no directory is specified and the project has `.cc-deck/`, defaults to `.cc-deck/setup/`.
 
+The command extracts these artifacts from the binary:
+
+* `build.yaml` manifest template
+* Claude Code commands (`/cc-deck.build`, `/cc-deck.capture`, `/cc-deck.base-images`) to `.claude/commands/`
+* `base-images.yaml` registry listing available base images per target type
+* Containerfile snippets for each target
+* OpenShell policy components (when openshell target is selected)
+
 [source,bash]
 ----
 cc-deck build init my-team-setup
