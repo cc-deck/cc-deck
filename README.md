@@ -581,9 +581,16 @@ The plugin includes integration tests that exercise `SidebarRendererPlugin` and 
 Integration tests cover render payload pipeline, hook event processing, discovery protocol handshake, action dispatch, permission deferral, mode transitions, error handling, and protocol roundtrips.
 
 ```bash
-make test              # all tests
-cargo test --lib integration_tests   # integration tests only
+make test                # all tests (unit + Rust)
+make test-e2e            # CLI end-to-end tests
+make test-images         # build and probe all base images
+make test-images-quick   # probe default base images only
+make test-images-session # session smoke test (requires API key)
+cargo test --lib integration_tests   # plugin integration tests only
 ```
+
+The image probe suite builds container images from each entry in `base-images.yaml` and validates that key binaries, user setup, and permissions are correct.
+Filter to a single base with `make test-images BASE=nvidia-upstream`.
 
 ## Uninstall
 
@@ -600,6 +607,7 @@ docs/               Antora documentation source
 demos/              Demo recording system
 demo-image/         Demo container image build
 base-image/         Base container image build
+base-images.yaml    Base image registry (tested targets)
 specs/              Feature specifications (SDD)
 ```
 

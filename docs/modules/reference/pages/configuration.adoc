@@ -622,3 +622,46 @@ This produces a group containing all domains from `python`, `golang`, and `githu
 * If `extends: builtin` is set, the built-in domains are included as a base.
 * Circular includes are detected and reported as errors.
 * Source labels in `cc-deck config domains list` reflect the resolution: `builtin`, `user` (override or new), or `extended` (extends builtin).
+
+== Base Image Registry
+
+Location: `.cc-deck/setup/base-images.yaml` (extracted during `cc-deck build init`)
+
+The base image registry lists known base images grouped by target type.
+When a manifest does not specify a `base:` field, the build pipeline uses the `default: true` entry from this file.
+If the file is missing, hardcoded defaults compiled into the binary are used as a final fallback.
+
+[source,yaml]
+----
+openshell:
+  - name: nvidia-upstream
+    ref: ghcr.io/nvidia/openshell-community/sandboxes/base:latest
+    default: true
+  - name: rh-ubi-openshell
+    ref: quay.io/aipcc/openshell-base:latest
+container:
+  - name: fedora-41
+    ref: registry.fedoraproject.org/fedora:41
+    default: true
+----
+
+[cols="1,1,3"]
+|===
+| Field | Type | Description
+
+| `name`
+| string
+| Human-readable identifier, used in test output and Make target filtering
+
+| `ref`
+| string
+| Full container image reference
+
+| `default`
+| boolean
+| When `true`, this entry is used as the fallback base image for its target type.
+Exactly one entry per target type should be marked as default.
+|===
+
+The `/cc-deck.base-images` command checks upstream registries for new or updated images and helps maintain this file.
+Run `make test-images` after updating to validate that the build pipeline works with all listed base images.
