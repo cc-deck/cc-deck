@@ -267,6 +267,10 @@ func (m *Manifest) OpenShellImageRef() string {
 	return os.Name + ":" + tag
 }
 
+// RegistryPath is the path to base-images.yaml. Set by the CLI at startup
+// if the file exists. When empty, hardcoded defaults are used.
+var RegistryPath string
+
 // DefaultOpenShellBaseImage is the default base image for OpenShell sandboxes.
 var DefaultOpenShellBaseImage = "ghcr.io/nvidia/openshell-community/sandboxes/base:latest"
 
@@ -274,6 +278,11 @@ var DefaultOpenShellBaseImage = "ghcr.io/nvidia/openshell-community/sandboxes/ba
 func (m *Manifest) OpenShellBaseImage() string {
 	if m.Targets != nil && m.Targets.OpenShell != nil && m.Targets.OpenShell.Base != "" {
 		return m.Targets.OpenShell.Base
+	}
+	if RegistryPath != "" {
+		if ref := ResolveDefaultBaseImage(RegistryPath, "openshell"); ref != "" {
+			return ref
+		}
 	}
 	return DefaultOpenShellBaseImage
 }
@@ -286,6 +295,11 @@ var DefaultBaseImage = "quay.io/cc-deck/cc-deck-base:latest"
 func (m *Manifest) BaseImage() string {
 	if m.Targets != nil && m.Targets.Container != nil && m.Targets.Container.Base != "" {
 		return m.Targets.Container.Base
+	}
+	if RegistryPath != "" {
+		if ref := ResolveDefaultBaseImage(RegistryPath, "container"); ref != "" {
+			return ref
+		}
 	}
 	return DefaultBaseImage
 }

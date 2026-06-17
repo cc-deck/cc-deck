@@ -55,3 +55,15 @@ func (r *BaseImageRegistry) EntriesForTarget(target string) []BaseImageEntry {
 		return nil
 	}
 }
+
+// ResolveDefaultBaseImage loads the registry from the given path and returns
+// the default ref for the target type. Returns an empty string on any error
+// (file not found, parse error, no default set), allowing callers to fall
+// back to hardcoded constants.
+func ResolveDefaultBaseImage(registryPath string, target string) string {
+	reg, err := LoadBaseImageRegistry(registryPath)
+	if err != nil {
+		return ""
+	}
+	return reg.DefaultRef(target)
+}
