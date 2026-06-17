@@ -321,6 +321,35 @@ func TestContainsTarget_OpenShell(t *testing.T) {
 	assert.False(t, containsTarget([]string{"container", "ssh"}, "openshell"))
 }
 
+func TestInitSetupDir_ExtractsBaseImagesAndSkill(t *testing.T) {
+	dir := t.TempDir()
+	setupDir := filepath.Join(dir, "setup")
+	projectRoot := dir
+
+	err := InitSetupDir(setupDir, projectRoot, false, nil)
+	require.NoError(t, err)
+
+	// base-images.yaml should be extracted to setup dir
+	baseImagesPath := filepath.Join(setupDir, "base-images.yaml")
+	assert.FileExists(t, baseImagesPath)
+
+	// Should be valid and loadable
+	reg, err := LoadBaseImageRegistry(baseImagesPath)
+	require.NoError(t, err)
+	assert.NotEmpty(t, reg.OpenShell, "extracted registry should have openshell entries")
+	assert.NotEmpty(t, reg.Container, "extracted registry should have container entries")
+
+	// Discovery skill should be extracted to project root's .claude/skills/
+	skillPath := filepath.Join(projectRoot, ".claude", "skills", "cc-deck-base-images", "SKILL.md")
+	assert.FileExists(t, skillPath)
+
+	// Skill should contain the expected content
+	skillContent, err := os.ReadFile(skillPath)
+	require.NoError(t, err)
+	assert.Contains(t, string(skillContent), "Base Image Discovery")
+	assert.Contains(t, string(skillContent), "base-images.yaml")
+}
+
 func TestInitSetupDir_ManifestTargetsSectionCommented(t *testing.T) {
 	dir := t.TempDir()
 	setupDir := filepath.Join(dir, "setup")
