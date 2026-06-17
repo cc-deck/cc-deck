@@ -155,6 +155,21 @@ func InitSetupDir(dir string, projectRoot string, force bool, targets []string) 
 		return fmt.Errorf("extracting scripts: %w", err)
 	}
 
+	// Extract skills to project root's .claude/skills/
+	skillsDir := filepath.Join(projectRoot, ".claude", "skills")
+	if err := os.MkdirAll(skillsDir, 0o755); err != nil {
+		return fmt.Errorf("creating skills directory: %w", err)
+	}
+	if err := ExtractSkills(skillsDir); err != nil {
+		return fmt.Errorf("extracting skills: %w", err)
+	}
+
+	// Extract base-images.yaml to setup directory
+	baseImagesPath := filepath.Join(dir, "base-images.yaml")
+	if err := ExtractBaseImagesYAML(baseImagesPath); err != nil {
+		return fmt.Errorf("extracting base-images.yaml: %w", err)
+	}
+
 	// Write .gitignore in the setup dir
 	gitignorePath := filepath.Join(dir, ".gitignore")
 	if err := os.WriteFile(gitignorePath, []byte(gitignoreContent), 0o644); err != nil {

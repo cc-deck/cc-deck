@@ -2,6 +2,7 @@ package build
 
 import (
 	"embed"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -22,6 +23,12 @@ var embeddedContainerfileTemplates embed.FS
 //go:embed policies/*.yaml
 var embeddedPolicies embed.FS
 
+//go:embed base-images.yaml
+var embeddedBaseImages embed.FS
+
+//go:embed skills/cc-deck-base-images/SKILL.md
+var embeddedSkills embed.FS
+
 // ExtractCommands writes embedded command files to the target directory.
 func ExtractCommands(targetDir string) error {
 	return extractFS(embeddedCommands, "commands", targetDir)
@@ -30,6 +37,25 @@ func ExtractCommands(targetDir string) error {
 // ExtractScripts writes embedded script files to the target directory.
 func ExtractScripts(targetDir string) error {
 	return extractFS(embeddedScripts, "scripts", targetDir)
+}
+
+// ExtractSkills writes embedded skill files to the target directory.
+func ExtractSkills(targetDir string) error {
+	return extractFS(embeddedSkills, "skills", targetDir)
+}
+
+// ExtractBaseImagesYAML writes the embedded base-images.yaml to the target path.
+func ExtractBaseImagesYAML(targetPath string) error {
+	data, err := embeddedBaseImages.ReadFile("base-images.yaml")
+	if err != nil {
+		return fmt.Errorf("reading embedded base-images.yaml: %w", err)
+	}
+	return os.WriteFile(targetPath, data, 0o644)
+}
+
+// EmbeddedBaseImagesYAML returns the raw content of the embedded base-images.yaml.
+func EmbeddedBaseImagesYAML() ([]byte, error) {
+	return embeddedBaseImages.ReadFile("base-images.yaml")
 }
 
 // ManifestTemplate returns the manifest template content.
