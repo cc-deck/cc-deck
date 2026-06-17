@@ -411,7 +411,7 @@ fn sort_tier_by_pane(state: &ControllerState, pane_id: u32) -> u8 {
 #[cfg(target_family = "wasm")]
 fn move_tab_wasm(direction: zellij_tile::prelude::Direction) {
     zellij_tile::prelude::run_action(
-        zellij_utils::input::actions::Action::MoveTab { direction },
+        zellij_tile::prelude::actions::Action::MoveTab { direction },
         std::collections::BTreeMap::new(),
     );
 }

@@ -219,10 +219,13 @@ impl ZellijPlugin for ControllerPlugin {
 
         // Unblock CLI pipe input so `zellij pipe` does not hang.
         // DumpState handles its own unblock after sending output.
+        // For pipes with input payload, Zellij requires cli_pipe_output
+        // before unblock_cli_pipe_input to release the CLI process.
         #[cfg(target_family = "wasm")]
         if let PipeSource::Cli(ref pipe_id) = pipe_message.source {
             if !matches!(action, PipeAction::DumpState) {
-                zellij_tile::prelude::unblock_cli_pipe_input(pipe_id);
+                cli_pipe_output_wasm(pipe_id, "");
+                unblock_cli_pipe_input_wasm(pipe_id);
             }
         }
 

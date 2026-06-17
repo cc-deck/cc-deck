@@ -9,8 +9,7 @@ name = "cc_deck"
 path = "src/main.rs"
 
 [dependencies]
-zellij-tile = "0.44"
-zellij-utils = "0.44"
+zellij-tile = "=0.44.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 unicode-width = "0.1"
