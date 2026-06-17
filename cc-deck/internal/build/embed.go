@@ -26,8 +26,6 @@ var embeddedPolicies embed.FS
 //go:embed base-images.yaml
 var embeddedBaseImages embed.FS
 
-//go:embed skills/cc-deck-base-images/SKILL.md
-var embeddedSkills embed.FS
 
 // ExtractCommands writes embedded command files to the target directory.
 func ExtractCommands(targetDir string) error {
@@ -37,11 +35,6 @@ func ExtractCommands(targetDir string) error {
 // ExtractScripts writes embedded script files to the target directory.
 func ExtractScripts(targetDir string) error {
 	return extractFS(embeddedScripts, "scripts", targetDir)
-}
-
-// ExtractSkills writes embedded skill files to the target directory.
-func ExtractSkills(targetDir string) error {
-	return extractFS(embeddedSkills, "skills", targetDir)
 }
 
 // ExtractBaseImagesYAML writes the embedded base-images.yaml to the target path.

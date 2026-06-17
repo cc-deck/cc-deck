@@ -1,24 +1,22 @@
 ---
-name: cc-deck.base-images
-description: Check known sources for base image updates and maintain base-images.yaml
+description: "Check known sources for base image updates and maintain base-images.yaml"
 ---
 
-# Base Image Discovery
+## User Input
+
+$ARGUMENTS
+
+**Usage**: `/cc-deck.base-images` or `/cc-deck.base-images update`
+
+## Base Image Discovery
 
 Check upstream sources for new or updated base images and help maintain `base-images.yaml`.
 
-## Invocation
+### Step 1: Load current state
 
-- `/cc-deck.base-images` -- check all entries for updates, report findings
-- `/cc-deck.base-images update` -- check and offer to apply updates to `base-images.yaml`
+Read `base-images.yaml` from the setup directory (`.cc-deck/setup/base-images.yaml`). If `.base-images-digests.json` exists in the same directory, load the last-known digests.
 
-## Steps
-
-### 1. Load current state
-
-Read `base-images.yaml` from the repo root. If `.base-images-digests.json` exists, load the last-known digests.
-
-### 2. Check registry digests
+### Step 2: Check registry digests
 
 For each entry in `base-images.yaml`, run:
 
@@ -37,7 +35,7 @@ Compare against stored digests. Report changes:
 - "nvidia-upstream: unchanged"
 - "rh-ubi-openshell: image not found (may have been renamed or removed)"
 
-### 3. Check upstream repos for new images
+### Step 3: Check upstream repos for new images
 
 Check these GitHub sources for new base image references:
 
@@ -49,7 +47,7 @@ gh api repos/NVIDIA/OpenShell-Community/releases/latest --jq '.tag_name'
 gh api repos/red-hat-data-services/agentic-starter-kits/contents/ --jq '.[].name' 2>/dev/null
 ```
 
-### 4. Scan known registries
+### Step 4: Scan known registries
 
 Check for new tags in known registries:
 
@@ -63,16 +61,16 @@ skopeo list-tags docker://quay.io/aipcc/openshell-base 2>/dev/null | jq -r '.Tag
 
 Report any tags not currently tracked in `base-images.yaml`.
 
-### 5. Report findings
+### Step 5: Report findings
 
 Present a summary:
 - **Digest changes** for tracked entries
 - **New images** found in upstream repos or registries
 - **Stale entries** that could not be found
 
-### 6. Apply updates (if `update` argument)
+### Step 6: Apply updates (if `update` argument)
 
-If the user invoked with `update`:
+If `$ARGUMENTS` contains `update`:
 1. Show proposed changes to `base-images.yaml`
 2. Ask for confirmation before writing
 3. Update `.base-images-digests.json` with current digests
