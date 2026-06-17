@@ -56,12 +56,35 @@ func (r *BaseImageRegistry) EntriesForTarget(target string) []BaseImageEntry {
 	}
 }
 
-// ResolveDefaultBaseImage loads the registry from the given path and returns
-// the default ref for the target type. Returns an empty string on any error
-// (file not found, parse error, no default set), allowing callers to fall
-// back to hardcoded constants.
+// LoadBaseImageRegistryOrEmbedded tries the on-disk path first, then falls
+// back to the binary's embedded copy.
+func LoadBaseImageRegistryOrEmbedded(path string) (*BaseImageRegistry, error) {
+	if path != "" {
+		if reg, err := LoadBaseImageRegistry(path); err == nil {
+			return reg, nil
+		}
+	}
+	return LoadEmbeddedBaseImageRegistry()
+}
+
+// LoadEmbeddedBaseImageRegistry parses the base-images.yaml embedded in the binary.
+func LoadEmbeddedBaseImageRegistry() (*BaseImageRegistry, error) {
+	data, err := EmbeddedBaseImagesYAML()
+	if err != nil {
+		return nil, fmt.Errorf("reading embedded base image registry: %w", err)
+	}
+	var reg BaseImageRegistry
+	if err := yaml.Unmarshal(data, &reg); err != nil {
+		return nil, fmt.Errorf("parsing embedded base image registry: %w", err)
+	}
+	return &reg, nil
+}
+
+// ResolveDefaultBaseImage loads the registry from the given path (falling back
+// to the embedded copy) and returns the default ref for the target type.
+// Returns an empty string on any error.
 func ResolveDefaultBaseImage(registryPath string, target string) string {
-	reg, err := LoadBaseImageRegistry(registryPath)
+	reg, err := LoadBaseImageRegistryOrEmbedded(registryPath)
 	if err != nil {
 		return ""
 	}

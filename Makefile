@@ -29,7 +29,7 @@ CLI_LDFLAGS = -X github.com/cc-deck/cc-deck/internal/cmd.Version=$(VERSION)+$(GI
               -X github.com/cc-deck/cc-deck/internal/cmd.Date=$(BUILD_DATE) \
               -X github.com/cc-deck/cc-deck/internal/cmd.ImageRegistry=$(REGISTRY)
 
-.PHONY: build build-wasm build-wasm-debug copy-wasm build-cli cross-cli \
+.PHONY: build build-wasm build-wasm-debug copy-wasm sync-embeds build-cli cross-cli \
         test test-go test-rust test-e2e test-compose test-integration smoke lint lint-go lint-rust \
         coverage coverage-summary coverage-json \
         deploy-ssh install uninstall status \
@@ -57,10 +57,14 @@ copy-wasm: $(WASM_SRC)  ## Copy WASM binary to Go embed location
 	mkdir -p cc-deck/internal/plugin
 	cp $(WASM_SRC) $(WASM_DST)
 
-build-cli: $(WASM_DST)  ## Build Go CLI (requires WASM to be copied first)
+sync-embeds:  ## Sync repo-root assets into Go embed locations
+	cp base-images.yaml cc-deck/internal/build/base-images.yaml
+	cp -r .claude/skills/cc-deck-base-images cc-deck/internal/build/skills/
+
+build-cli: $(WASM_DST) sync-embeds  ## Build Go CLI (requires WASM to be copied first)
 	cd cc-deck && go build -ldflags "$(CLI_LDFLAGS)" -o cc-deck ./cmd/cc-deck
 
-cross-cli: $(WASM_DST)  ## Cross-compile CLI for linux/amd64 and linux/arm64
+cross-cli: $(WASM_DST) sync-embeds  ## Cross-compile CLI for linux/amd64 and linux/arm64
 	cd cc-deck && GOOS=linux GOARCH=amd64 go build -ldflags "$(CLI_LDFLAGS)" -o cc-deck-linux-amd64 ./cmd/cc-deck
 	cd cc-deck && GOOS=linux GOARCH=arm64 go build -ldflags "$(CLI_LDFLAGS)" -o cc-deck-linux-arm64 ./cmd/cc-deck
 

@@ -113,20 +113,30 @@ container:
 	assert.Equal(t, "custom-container:v1", ref)
 }
 
-func TestResolveDefaultBaseImage_FileNotFound(t *testing.T) {
+func TestResolveDefaultBaseImage_FileNotFound_FallsBackToEmbedded(t *testing.T) {
 	ref := ResolveDefaultBaseImage("/nonexistent/path", "openshell")
-	assert.Equal(t, "", ref)
+	assert.NotEmpty(t, ref, "should fall back to embedded default")
 }
 
-func TestResolveDefaultBaseImage_NoDefault(t *testing.T) {
+func TestResolveDefaultBaseImage_OnDiskOverridesEmbedded(t *testing.T) {
 	content := `openshell:
-  - name: test
-    ref: test:latest
+  - name: custom
+    ref: custom:override
+    default: true
 `
 	dir := t.TempDir()
 	path := filepath.Join(dir, "base-images.yaml")
 	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
 
 	ref := ResolveDefaultBaseImage(path, "openshell")
-	assert.Equal(t, "", ref)
+	assert.Equal(t, "custom:override", ref)
+}
+
+func TestLoadEmbeddedBaseImageRegistry(t *testing.T) {
+	reg, err := LoadEmbeddedBaseImageRegistry()
+	require.NoError(t, err)
+	assert.NotEmpty(t, reg.OpenShell, "embedded registry should have openshell entries")
+	assert.NotEmpty(t, reg.Container, "embedded registry should have container entries")
+	assert.NotEmpty(t, reg.DefaultRef("openshell"))
+	assert.NotEmpty(t, reg.DefaultRef("container"))
 }
