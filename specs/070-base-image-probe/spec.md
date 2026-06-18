@@ -62,27 +62,37 @@ Before generating the Containerfile, the build command prints a summary of what 
 - What happens when a tool exists in the base image but at an incompatible version (e.g., Go 1.21 when 1.25 is required)?
 - What happens when the base image has no package manager at all (distroless images)?
 
+## Clarifications
+
+### Session 2026-06-17
+
+- Q: What does "compatible version" mean for pre-installed tool detection? → A: Same or newer within the same major version (e.g., Go 1.25+ satisfies a Go 1.22 requirement, but Go 2.x does not)
+- Q: What tools should the probe check for? → A: Manifest-required tools plus a built-in default set derived from base-image/scripts/install-tools.sh (~30 developer tools). The default set is customizable via a `probe_tools:` key in the manifest. Tiered level selection deferred to a follow-up feature.
+- Q: Where should probe results be stored? → A: In the existing learnings file as a new `probe` section (single source of truth), not a separate probe-cache.json file.
+- Q: How should incompatible pre-installed tool versions be handled? → A: Shadow via PATH by installing the newer version to `/usr/local/bin` (higher priority than `/usr/bin`), leaving the base image's package-managed files untouched.
+- Q: How should the probe execute commands inside the base image? → A: Single `podman run --rm --entrypoint /bin/sh` invocation with a piped-in probe shell script. One container start, one invocation, simple timeout enforcement.
+
 ## Requirements
 
 ### Functional Requirements
 
-- **FR-001**: The build command MUST inspect the base image before generating Containerfile instructions, by running probe commands inside a temporary container
+- **FR-001**: The build command MUST inspect the base image before generating Containerfile instructions, by running a single `podman run --rm --entrypoint /bin/sh` invocation with a self-contained probe script piped via stdin (one container start, one invocation)
 - **FR-002**: The probe MUST detect the OS family (Fedora/RHEL, Debian/Ubuntu, Alpine) and available package manager (dnf, apt-get, apk)
-- **FR-003**: The probe MUST discover pre-installed tools by checking common binary locations and running version commands
+- **FR-003**: The probe MUST discover pre-installed tools by checking common binary locations and running version commands. The probe checks for: (a) all tools listed in the manifest's `tools:` section, and (b) a built-in default set of ~30 developer tools (derived from the cc-deck base image tool list: git, gh, curl, make, jq, yq, ripgrep, fzf, python3, nodejs, etc.). The default set can be overridden or extended via an optional `probe_tools:` key in the manifest
 - **FR-004**: The probe MUST detect the default non-root user, home directory, and available shells
 - **FR-005**: The Containerfile generator MUST use the probed package manager for install commands instead of assuming a fixed one
-- **FR-006**: The Containerfile generator MUST skip installation of tools that the probe confirmed are already present at a compatible version
-- **FR-007**: The probe results MUST be cached in a structured file (`probe-cache.json`) in the setup directory, keyed by base image reference and digest, so repeat builds skip the probe
+- **FR-006**: The Containerfile generator MUST skip installation of tools that the probe confirmed are already present at a compatible version (same or newer within the same major version; e.g., Go 1.25 satisfies a requirement for Go 1.22, but Go 1.21 does not satisfy Go 1.25, and Go 2.x does not satisfy Go 1.x)
+- **FR-007**: The probe results MUST be cached in the existing build learnings file as a new `probe` section, keyed by base image reference and digest, so repeat builds skip the probe
 - **FR-008**: The probe cache MUST be invalidated when the base image digest changes
 - **FR-009**: The probe MUST complete within 30 seconds per base image (timeout and fall back to defaults if exceeded)
 - **FR-010**: If the probe fails entirely (image pull failure, runtime error), the build MUST fall back to the current behavior (assume Fedora/dnf for container target, Debian/apt for OpenShell target)
-- **FR-011**: When a tool is present in the base image but at an incompatible version (older than what the manifest requires), the Containerfile MUST include an install step for the required version, overriding or shadowing the pre-installed one
+- **FR-011**: When a tool is present in the base image but at an incompatible version (different major version, or older minor version than required), the Containerfile MUST install the required version to `/usr/local/bin` (or equivalent higher-priority PATH location) to shadow the pre-installed version, leaving the base image's package-managed files untouched
 - **FR-012**: When the base image has no recognized package manager (distroless or minimal images), the probe MUST report this and the build MUST fall back to binary-only install methods (GitHub releases, curl downloads) or fail with a clear error if package-manager-only tools are required
 
 ### Key Entities
 
 - **ProbeResult**: What was discovered about a base image (OS family, package manager, installed tools with versions, user setup, shell availability)
-- **ProbeCache**: Stored probe results in `probe-cache.json`, keyed by image reference + digest, with a timestamp for staleness detection
+- **ProbeCache**: Stored probe results in the build learnings file under a `probe` section, keyed by image reference + digest, with a timestamp for staleness detection
 
 ## Success Criteria
 
