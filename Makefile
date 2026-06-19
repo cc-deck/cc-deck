@@ -30,7 +30,7 @@ CLI_LDFLAGS = -X github.com/cc-deck/cc-deck/internal/cmd.Version=$(VERSION)+$(GI
               -X github.com/cc-deck/cc-deck/internal/cmd.ImageRegistry=$(REGISTRY)
 
 .PHONY: build build-wasm build-wasm-debug copy-wasm sync-embeds build-cli cross-cli \
-        test test-go test-rust test-e2e test-compose test-integration smoke lint lint-go lint-rust \
+        verify test test-go test-rust test-e2e test-compose test-integration smoke lint lint-go lint-rust \
         coverage coverage-summary coverage-json \
         deploy-ssh install uninstall status \
         test-image test-images test-images-quick test-images-session demo-image demo-image-push base-image base-image-push \
@@ -73,6 +73,8 @@ $(WASM_DST):
 	@exit 1
 
 ## -- Test --------------------------------------------------
+
+verify: test lint  ## Run tests + lint (used by spex finish gate)
 
 test: test-go test-rust  ## Run all tests
 
