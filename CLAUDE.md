@@ -67,7 +67,12 @@ brainstorm/         # Design notes
 
 ## Commands
 
-cargo test [ONLY COMMANDS FOR ACTIVE TECHNOLOGIES][ONLY COMMANDS FOR ACTIVE TECHNOLOGIES] cargo clippy
+```bash
+make verify    # Run all tests + linting (Go and Rust)
+make test      # Run all tests only
+make lint      # Run all linters only
+make install   # Build and install plugin into Zellij
+```
 
 ## Code Style
 
