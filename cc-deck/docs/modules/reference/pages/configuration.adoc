@@ -1,0 +1,52 @@
+= Configuration Reference
+
+== Manifest (`build.yaml`)
+
+The `build.yaml` manifest is the central configuration file for cc-deck builds.
+It lives in the setup directory (`.cc-deck/setup/build.yaml`).
+
+=== `probe_tools`
+
+An optional list of additional tools to probe for when inspecting a base image.
+Each entry has a `name` and an optional `version` constraint.
+
+[source,yaml]
+----
+probe_tools:
+  - name: rustc
+    version: "1.78"
+  - name: cmake
+----
+
+When `probe_tools` is defined, these entries are merged with the default tool set (approximately 30 tools from the cc-deck base image).
+Manifest entries override defaults by name.
+Tools not in the default set are added to the probe.
+
+== Cache Files
+
+=== `probe-cache.json`
+
+Location: `<setup-dir>/probe-cache.json`
+
+A JSON file that caches the results of base image probes.
+Entries are keyed by image reference and invalidated when the image digest changes.
+
+[source,json]
+----
+{
+  "version": 1,
+  "entries": {
+    "registry.fedoraproject.org/fedora:41": {
+      "image_ref": "registry.fedoraproject.org/fedora:41",
+      "image_digest": "sha256:abc123...",
+      "os": { "id": "fedora", "name": "Fedora Linux 41" },
+      "package_manager": "dnf",
+      "tools": { ... }
+    }
+  }
+}
+----
+
+The cache is automatically managed by `cc-deck build probe` and the build skill.
+Use `--no-cache` to bypass it for a fresh probe.
+Delete the file to clear all cached results.

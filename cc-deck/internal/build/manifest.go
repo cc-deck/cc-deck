@@ -22,6 +22,7 @@ type CredentialEntry struct {
 type Manifest struct {
 	Version     int               `yaml:"version"`
 	Tools       []ToolEntry       `yaml:"tools,omitempty"`
+	ProbeTools  []ProbeToolEntry  `yaml:"probe_tools,omitempty"`
 	Sources     []SourceEntry     `yaml:"sources,omitempty"`
 	Plugins     []PluginEntry     `yaml:"plugins,omitempty"`
 	MCP         []MCPEntry        `yaml:"mcp,omitempty"`
@@ -29,6 +30,12 @@ type Manifest struct {
 	Network     *NetworkConfig    `yaml:"network,omitempty"`
 	Credentials []CredentialEntry `yaml:"credentials,omitempty"`
 	Targets     *TargetsConfig    `yaml:"targets,omitempty"`
+}
+
+// ProbeToolEntry declares a tool to check during base image probing.
+type ProbeToolEntry struct {
+	Name    string `yaml:"name"`
+	Version string `yaml:"version,omitempty"`
 }
 
 // ToolEntry describes a tool to install, either via package manager or GitHub release.
