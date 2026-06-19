@@ -68,7 +68,7 @@ Before generating the Containerfile, the build command prints a summary of what 
 
 - Q: What does "compatible version" mean for pre-installed tool detection? → A: Same or newer within the same major version (e.g., Go 1.25+ satisfies a Go 1.22 requirement, but Go 2.x does not)
 - Q: What tools should the probe check for? → A: Manifest-required tools plus a built-in default set derived from base-image/scripts/install-tools.sh (~30 developer tools). The default set is customizable via a `probe_tools:` key in the manifest. Tiered level selection deferred to a follow-up feature.
-- Q: Where should probe results be stored? → A: In the existing learnings file as a new `probe` section (single source of truth), not a separate probe-cache.json file.
+- Q: Where should probe results be stored? → A: In a dedicated `probe-cache.json` file in the setup directory, keyed by image reference. (Originally considered the build learnings file, but during planning the structured JSON cache was chosen as architecturally better: the learnings file is Markdown for AI self-correction, not a fit for machine-parsed structured data.)
 - Q: How should incompatible pre-installed tool versions be handled? → A: Shadow via PATH by installing the newer version to `/usr/local/bin` (higher priority than `/usr/bin`), leaving the base image's package-managed files untouched.
 - Q: How should the probe execute commands inside the base image? → A: Single `podman run --rm --entrypoint /bin/sh` invocation with a piped-in probe shell script. One container start, one invocation, simple timeout enforcement.
 
@@ -82,7 +82,7 @@ Before generating the Containerfile, the build command prints a summary of what 
 - **FR-004**: The probe MUST detect the default non-root user, home directory, and available shells
 - **FR-005**: The Containerfile generator MUST use the probed package manager for install commands instead of assuming a fixed one
 - **FR-006**: The Containerfile generator MUST skip installation of tools that the probe confirmed are already present at a compatible version (same or newer within the same major version; e.g., Go 1.25 satisfies a requirement for Go 1.22, but Go 1.21 does not satisfy Go 1.25, and Go 2.x does not satisfy Go 1.x)
-- **FR-007**: The probe results MUST be cached in the existing build learnings file as a new `probe` section, keyed by base image reference and digest, so repeat builds skip the probe
+- **FR-007**: The probe results MUST be cached in a dedicated `probe-cache.json` file in the setup directory, keyed by base image reference and digest, so repeat builds skip the probe
 - **FR-008**: The probe cache MUST be invalidated when the base image digest changes
 - **FR-009**: The probe MUST complete within 30 seconds per base image (timeout and fall back to defaults if exceeded)
 - **FR-010**: If the probe fails entirely (image pull failure, runtime error), the build MUST fall back to the current behavior (assume Fedora/dnf for container target, Debian/apt for OpenShell target)
