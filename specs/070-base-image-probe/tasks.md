@@ -15,11 +15,11 @@
 
 **Purpose**: Create the imageprobe package structure and shared data types
 
-- [ ] T001 Create `cc-deck/internal/build/imageprobe/` package directory
-- [ ] T002 [P] Define ProbeResult, OSInfo, ToolInfo, UserInfo structs in `cc-deck/internal/build/imageprobe/types.go` per data-model.md
-- [ ] T003 [P] Define default tool set (30 tools from base-image/scripts/install-tools.sh) and merge logic for manifest `probe_tools:` override in `cc-deck/internal/build/imageprobe/tools.go`
-- [ ] T004 [P] Implement semver-like version parsing and major.minor compatibility comparison in `cc-deck/internal/build/imageprobe/version.go` (same major, installed minor >= required minor)
-- [ ] T005 [P] Add `ProbeTools` field to Manifest struct (optional `probe_tools:` YAML key) in `cc-deck/internal/build/manifest.go`
+- [X] T001 Create `cc-deck/internal/build/imageprobe/` package directory
+- [X] T002 [P] Define ProbeResult, OSInfo, ToolInfo, UserInfo structs in `cc-deck/internal/build/imageprobe/types.go` per data-model.md
+- [X] T003 [P] Define default tool set (30 tools from base-image/scripts/install-tools.sh) and merge logic for manifest `probe_tools:` override in `cc-deck/internal/build/imageprobe/tools.go`
+- [X] T004 [P] Implement semver-like version parsing and major.minor compatibility comparison in `cc-deck/internal/build/imageprobe/version.go` (same major, installed minor >= required minor)
+- [X] T005 [P] Add `ProbeTools` field to Manifest struct (optional `probe_tools:` YAML key) in `cc-deck/internal/build/manifest.go`
 
 ---
 
@@ -29,12 +29,12 @@
 
 **CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T006 Implement probe shell script generator in `cc-deck/internal/build/imageprobe/probe.go`: generate a POSIX shell script that detects OS info (/etc/os-release), package manager (dnf/apt-get/apk/yum), tool presence+version, user info, and shell availability. Output is JSON-per-line per contracts/probe-script.md
-- [ ] T007 Implement probe output parser in `cc-deck/internal/build/imageprobe/parse.go`: parse JSON-per-line stdout into a ProbeResult struct. Silently skip non-JSON lines. Extract semver from version output strings using regex
-- [ ] T008 Implement probe executor in `cc-deck/internal/build/imageprobe/probe.go`: RunProbe function that calls `podman run --rm --entrypoint /bin/sh <image>` with the generated script piped via stdin, enforces timeout via context.WithTimeout, returns parsed ProbeResult or error
-- [ ] T009 [P] Write unit tests for probe script generation in `cc-deck/internal/build/imageprobe/probe_test.go`: verify script contains OS detection, package manager detection, tool checks for default set + manifest tools
-- [ ] T010 [P] Write unit tests for output parsing in `cc-deck/internal/build/imageprobe/parse_test.go`: verify parsing of all JSON line types (os, pkgmgr, tool, user, shells), handling of non-JSON noise, version extraction from various `--version` output formats
-- [ ] T011 [P] Write unit tests for version comparison in `cc-deck/internal/build/imageprobe/version_test.go`: same major + newer minor = compatible, different major = incompatible, older minor = incompatible, missing patch = 0, unparseable version = assume compatible
+- [X] T006 Implement probe shell script generator in `cc-deck/internal/build/imageprobe/probe.go`: generate a POSIX shell script that detects OS info (/etc/os-release), package manager (dnf/apt-get/apk/yum), tool presence+version, user info, and shell availability. Output is JSON-per-line per contracts/probe-script.md
+- [X] T007 Implement probe output parser in `cc-deck/internal/build/imageprobe/parse.go`: parse JSON-per-line stdout into a ProbeResult struct. Silently skip non-JSON lines. Extract semver from version output strings using regex
+- [X] T008 Implement probe executor in `cc-deck/internal/build/imageprobe/probe.go`: RunProbe function that calls `podman run --rm --entrypoint /bin/sh <image>` with the generated script piped via stdin, enforces timeout via context.WithTimeout, returns parsed ProbeResult or error
+- [X] T009 [P] Write unit tests for probe script generation in `cc-deck/internal/build/imageprobe/probe_test.go`: verify script contains OS detection, package manager detection, tool checks for default set + manifest tools
+- [X] T010 [P] Write unit tests for output parsing in `cc-deck/internal/build/imageprobe/parse_test.go`: verify parsing of all JSON line types (os, pkgmgr, tool, user, shells), handling of non-JSON noise, version extraction from various `--version` output formats
+- [X] T011 [P] Write unit tests for version comparison in `cc-deck/internal/build/imageprobe/version_test.go`: same major + newer minor = compatible, different major = incompatible, older minor = incompatible, missing patch = 0, unparseable version = assume compatible
 
 **Checkpoint**: Core probe infrastructure ready. Probe can generate scripts, execute them, and parse results.
 
@@ -48,11 +48,11 @@
 
 ### Implementation for User Story 1
 
-- [ ] T012 [US1] Implement ToolDiff in `cc-deck/internal/build/imageprobe/diff.go`: compare ProbeResult.Tools against manifest tools using version compatibility. Return []ToolDiff with status present/missing/incompatible and install method
-- [ ] T013 [US1] Write unit tests for ToolDiff in `cc-deck/internal/build/imageprobe/diff_test.go`: verify present (skip), missing (install), incompatible (shadow), manifest-only tools, default-set-only tools
-- [ ] T014 [US1] Update the build skill `cc-deck/internal/build/commands/cc-deck.build.md` Section A2 (Container Build): add a probe step before Containerfile generation that runs `cc-deck build probe <base-image> --setup-dir <setup-dir> --format json`, parses the JSON output, and uses the probed package manager for install commands instead of assuming dnf. On probe failure (exit code 1), fall back to assuming Fedora/dnf per FR-010
-- [ ] T015 [US1] Update the build skill `cc-deck/internal/build/commands/cc-deck.build.md` Section C2 (OpenShell Build): replace the ad-hoc `podman run` probing with a call to `cc-deck build probe <base-image> --setup-dir <setup-dir> --format json` and use the structured results for package manager selection and tool skip logic. On probe failure (exit code 1), fall back to assuming Debian/apt-get per FR-010
-- [ ] T016 [US1] Update Section A2 and C2 Containerfile generation logic to use ToolDiff results: skip tools with status "present", install tools with status "missing" using the probed package manager, shadow tools with status "incompatible" to `/usr/local/bin`
+- [X] T012 [US1] Implement ToolDiff in `cc-deck/internal/build/imageprobe/diff.go`: compare ProbeResult.Tools against manifest tools using version compatibility. Return []ToolDiff with status present/missing/incompatible and install method
+- [X] T013 [US1] Write unit tests for ToolDiff in `cc-deck/internal/build/imageprobe/diff_test.go`: verify present (skip), missing (install), incompatible (shadow), manifest-only tools, default-set-only tools
+- [X] T014 [US1] Update the build skill `cc-deck/internal/build/commands/cc-deck.build.md` Section A2 (Container Build): add a probe step before Containerfile generation that runs `cc-deck build probe <base-image> --setup-dir <setup-dir> --format json`, parses the JSON output, and uses the probed package manager for install commands instead of assuming dnf. On probe failure (exit code 1), fall back to assuming Fedora/dnf per FR-010
+- [X] T015 [US1] Update the build skill `cc-deck/internal/build/commands/cc-deck.build.md` Section C2 (OpenShell Build): replace the ad-hoc `podman run` probing with a call to `cc-deck build probe <base-image> --setup-dir <setup-dir> --format json` and use the structured results for package manager selection and tool skip logic. On probe failure (exit code 1), fall back to assuming Debian/apt-get per FR-010
+- [X] T016 [US1] Update Section A2 and C2 Containerfile generation logic to use ToolDiff results: skip tools with status "present", install tools with status "missing" using the probed package manager, shadow tools with status "incompatible" to `/usr/local/bin`
 
 **Checkpoint**: Building against different base images (Fedora, UBI, OpenShell/Debian) produces correct Containerfiles with the right package manager and no redundant installs.
 
@@ -66,10 +66,10 @@
 
 ### Implementation for User Story 2
 
-- [ ] T017 [US2] Implement ProbeCache read/write in `cc-deck/internal/build/imageprobe/cache.go`: LoadCache (read probe-cache.json), SaveCache (write), LookupCache (check entry by ref + digest match), StoreResult (add/update entry)
-- [ ] T018 [US2] Implement image digest resolution in `cc-deck/internal/build/imageprobe/probe.go`: ResolveDigest function that runs `podman inspect --format {{.Digest}} <image>` (pull first if not local), returns digest string
-- [ ] T019 [US2] Integrate caching into RunProbe flow: check cache before executing probe, store results after successful probe, return cached flag in output
-- [ ] T020 [P] [US2] Write unit tests for cache operations in `cc-deck/internal/build/imageprobe/cache_test.go`: verify load/save round-trip, cache hit on matching digest, cache miss on different digest, cache miss on missing entry, --no-cache bypass
+- [X] T017 [US2] Implement ProbeCache read/write in `cc-deck/internal/build/imageprobe/cache.go`: LoadCache (read probe-cache.json), SaveCache (write), LookupCache (check entry by ref + digest match), StoreResult (add/update entry)
+- [X] T018 [US2] Implement image digest resolution in `cc-deck/internal/build/imageprobe/probe.go`: ResolveDigest function that runs `podman inspect --format {{.Digest}} <image>` (pull first if not local), returns digest string
+- [X] T019 [US2] Integrate caching into RunProbe flow: check cache before executing probe, store results after successful probe, return cached flag in output
+- [X] T020 [P] [US2] Write unit tests for cache operations in `cc-deck/internal/build/imageprobe/cache_test.go`: verify load/save round-trip, cache hit on matching digest, cache miss on different digest, cache miss on missing entry, --no-cache bypass
 
 **Checkpoint**: Repeat builds against unchanged base images skip the probe step with sub-second overhead.
 
@@ -83,12 +83,12 @@
 
 ### Implementation for User Story 3
 
-- [ ] T021 [US3] Implement table output formatter in `cc-deck/internal/build/imageprobe/format.go`: FormatTable function that renders ProbeResult as a human-readable summary (OS, package manager, user, shells, tool list with checkmarks) per contracts/probe-cli.md
-- [ ] T022 [US3] Implement diff output formatter in `cc-deck/internal/build/imageprobe/format.go`: FormatDiff function that appends a tool diff section (present/skip, missing/install, incompatible/shadow) when manifest tools are available
-- [ ] T023 [US3] Implement JSON output formatter in `cc-deck/internal/build/imageprobe/format.go`: FormatJSON function that marshals ProbeResult with a `cached` boolean field
-- [ ] T024 [US3] Create `cc-deck build probe` CLI subcommand in `cc-deck/cmd/build_probe.go`: register under `build` parent command with flags (--setup-dir, --format, --no-cache, --timeout), wire to RunProbe + formatters, exit code 0 on success / 1 on failure
-- [ ] T025 [US3] Wire the `build probe` subcommand into `cc-deck/cmd/build.go` parent command registration
-- [ ] T026 [P] [US3] Write unit tests for table and JSON formatters in `cc-deck/internal/build/imageprobe/format_test.go`: verify table output includes OS info, tool list, checkmarks; JSON output matches schema; diff section shows correct statuses
+- [X] T021 [US3] Implement table output formatter in `cc-deck/internal/build/imageprobe/format.go`: FormatTable function that renders ProbeResult as a human-readable summary (OS, package manager, user, shells, tool list with checkmarks) per contracts/probe-cli.md
+- [X] T022 [US3] Implement diff output formatter in `cc-deck/internal/build/imageprobe/format.go`: FormatDiff function that appends a tool diff section (present/skip, missing/install, incompatible/shadow) when manifest tools are available
+- [X] T023 [US3] Implement JSON output formatter in `cc-deck/internal/build/imageprobe/format.go`: FormatJSON function that marshals ProbeResult with a `cached` boolean field
+- [X] T024 [US3] Create `cc-deck build probe` CLI subcommand in `cc-deck/cmd/build_probe.go`: register under `build` parent command with flags (--setup-dir, --format, --no-cache, --timeout), wire to RunProbe + formatters, exit code 0 on success / 1 on failure
+- [X] T025 [US3] Wire the `build probe` subcommand into `cc-deck/cmd/build.go` parent command registration
+- [X] T026 [P] [US3] Write unit tests for table and JSON formatters in `cc-deck/internal/build/imageprobe/format_test.go`: verify table output includes OS info, tool list, checkmarks; JSON output matches schema; diff section shows correct statuses
 
 **Checkpoint**: `cc-deck build probe <image>` works standalone with both table and JSON output.
 
@@ -98,12 +98,12 @@
 
 **Purpose**: Documentation, integration testing, and cleanup
 
-- [ ] T027 [P] Write integration test in `cc-deck/internal/build/imageprobe/integration_test.go`: probe a real Fedora 41 image via podman, verify OS=fedora, package_manager=dnf, git is present with a version. Guard with build tag `//go:build integration` so `make test` skips it
-- [ ] T028 [P] Create guide page `docs/modules/guide/pages/base-image-probe.adoc`: explain what the probe does, how caching works, how to customize with `probe_tools:`, examples with different base images. Use prose plugin with cc-deck voice profile
-- [ ] T029 [P] Update CLI reference `docs/modules/reference/pages/cli.adoc`: add `build probe` command with all flags and output formats
-- [ ] T030 [P] Update configuration reference `docs/modules/reference/pages/configuration.adoc`: document `probe_tools:` manifest key and `probe-cache.json` file location
-- [ ] T031 Update README.md with base image probe feature summary
-- [ ] T032 Run `make test` and `make lint` to verify all tests pass and no lint issues
+- [X] T027 [P] Write integration test in `cc-deck/internal/build/imageprobe/integration_test.go`: probe a real Fedora 41 image via podman, verify OS=fedora, package_manager=dnf, git is present with a version. Guard with build tag `//go:build integration` so `make test` skips it
+- [X] T028 [P] Create guide page `docs/modules/guide/pages/base-image-probe.adoc`: explain what the probe does, how caching works, how to customize with `probe_tools:`, examples with different base images. Use prose plugin with cc-deck voice profile
+- [X] T029 [P] Update CLI reference `docs/modules/reference/pages/cli.adoc`: add `build probe` command with all flags and output formats
+- [X] T030 [P] Update configuration reference `docs/modules/reference/pages/configuration.adoc`: document `probe_tools:` manifest key and `probe-cache.json` file location
+- [X] T031 Update README.md with base image probe feature summary
+- [X] T032 Run `make test` and `make lint` to verify all tests pass and no lint issues
 
 ---
 

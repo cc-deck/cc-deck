@@ -71,10 +71,19 @@ Assemble the Containerfile by composing pre-rendered snippet files with generate
 
 **Snippet files**: Located in `container/snippets/`. These are pre-rendered Containerfile fragments with all paths and variables resolved. Copy their content EXACTLY as-is into the Containerfile. Do NOT modify snippet content.
 
-**Base image note**: The snippet `01-header.txt` already contains the correct FROM line. The base image is Fedora and already includes common developer tools (git, jq, zsh, nodejs, npm, python3, uv, ripgrep, bat, lsd, starship, etc.), so do NOT reinstall packages that the base image already provides.
+**Base image probing**: Before generating the variable sections, run the base image probe to discover OS, package manager, and pre-installed tools:
+
+```bash
+cc-deck build probe <base-image> --setup-dir <setup-dir> --format json
+```
+
+Parse the JSON output. If the probe fails (exit code 1), fall back to assuming Fedora/dnf. Use the probed results for:
+1. **Package manager selection**: Use the probed `package_manager` value (e.g., `dnf`, `apt-get`) instead of hardcoding `dnf`
+2. **Tool skip logic**: Do NOT reinstall tools that the probe reports as `present` with a compatible version. Only install tools marked as `missing` or `incompatible`
+3. **Incompatible tools**: For tools with status `incompatible`, install the required version to `/usr/local/bin/` to shadow the system version via PATH ordering
 
 **Tool resolution**: Tools are read from the unified `tools` section and dispatched by `install` field:
-- `install: package` (or omitted): resolved to `dnf install -y` commands for Fedora repos, or language-specific installers for tools not in Fedora repos
+- `install: package` (or omitted): resolved to the probed package manager's install command (e.g., `dnf install -y` for Fedora, `apt-get install -y` for Debian), or language-specific installers for tools not in the distro repos
 - `install: github-release`: downloaded from GitHub Releases using the `repo`, `asset_pattern`, and `install_path` fields. Asset pattern placeholders: `{arch}` (x86_64/aarch64), `{goarch}` (amd64/arm64), `{version}` (latest release tag from GitHub API)
 - Use `${TARGETARCH}` for multi-arch GitHub release downloads in Containerfile layers
 
@@ -607,12 +616,20 @@ Assemble the Containerfile by composing pre-rendered snippet files with generate
 
 **Snippet files**: Located in `openshell/snippets/`. These are pre-rendered Containerfile fragments with all paths and variables resolved for the sandbox user. Copy their content EXACTLY as-is into the Containerfile. Do NOT modify snippet content.
 
-**Base image probing**: Before generating the variable sections, inspect the base image to determine:
-1. **OS family and package manager**: Run `podman run --rm --entrypoint "" <base-image> cat /etc/os-release` to detect the distro. Use `apt-get` for Debian/Ubuntu, `dnf` for Fedora/RHEL, `apk` for Alpine. The default OpenShell base image is Ubuntu-based, so do NOT assume `dnf`.
-2. **Pre-installed tools**: Run `podman run --rm --entrypoint "" <base-image> sh -c "which git node python3 npm curl rg 2>/dev/null"` to discover what is already available. Skip installing tools that are already present. Also check binary paths (e.g., python3 may be at `/sandbox/.venv/bin/python3` rather than `/usr/bin/python3`). Use the discovered paths when generating `policy.yaml` (step C4).
+**Base image probing**: Before generating the variable sections, run the base image probe to discover OS, package manager, and pre-installed tools:
+
+```bash
+cc-deck build probe <base-image> --setup-dir <setup-dir> --format json
+```
+
+Parse the JSON output. If the probe fails (exit code 1), fall back to assuming Debian/apt-get. Use the probed results for:
+1. **Package manager selection**: Use the probed `package_manager` value (e.g., `apt-get` for Ubuntu/Debian, `dnf` for Fedora/RHEL). The default OpenShell base image is Ubuntu-based, so do NOT assume `dnf`.
+2. **Tool skip logic**: Do NOT reinstall tools that the probe reports as `present` with a compatible version. Only install tools marked as `missing` or `incompatible`.
+3. **Binary path tracking**: Use the probed `path` values for pre-installed tools when generating `policy.yaml` (step C4) instead of guessing paths. For example, python3 may be at `/sandbox/.venv/bin/python3` rather than `/usr/bin/python3`.
+4. **Incompatible tools**: For tools with status `incompatible`, install the required version to `/usr/local/bin/` to shadow the system version via PATH ordering.
 
 **Tool resolution**: Tools from the unified `tools` section, dispatched by `install` field:
-- `install: package` (or omitted): resolved to the appropriate package manager command detected from the base image (e.g., `apt-get install -y` for Ubuntu, `dnf install -y` for Fedora)
+- `install: package` (or omitted): resolved to the probed package manager's install command (e.g., `apt-get install -y` for Ubuntu, `dnf install -y` for Fedora)
 - `install: github-release`: same as Section A (downloaded from GitHub Releases)
 
 **Binary path tracking**: As you write install instructions, track which binary path each tool installs to. This mapping is used when generating `policy.yaml` (step C4):

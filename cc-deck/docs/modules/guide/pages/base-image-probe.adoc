@@ -1,0 +1,89 @@
+= Base Image Probe
+
+The base image probe inspects a container image before Containerfile generation.
+It discovers what the image already provides, so the build can skip redundant installations, use the correct package manager, and handle version mismatches.
+
+== What the Probe Discovers
+
+The probe runs a single `podman run` invocation inside the target base image and collects:
+
+* **OS family**: Fedora, RHEL, Ubuntu, Alpine (from `/etc/os-release`)
+* **Package manager**: `dnf`, `apt-get`, `apk`, or `yum`
+* **Tool versions**: For each tool in the default set (and any manifest overrides), whether it is installed and its version
+* **User setup**: Default user name, UID, home directory, default shell
+* **Shell availability**: Which shells (`bash`, `zsh`, `sh`) are present
+
+== Automatic Build Integration
+
+When you run `/cc-deck.build`, the build skill calls `cc-deck build probe` before generating the Containerfile.
+This means switching your manifest's base image to a different distribution produces a working build on the first attempt.
+
+For a Fedora base image, the generated Containerfile uses `dnf install`.
+For a Debian or Ubuntu base, it uses `apt-get install`.
+Tools that the base image already provides at a compatible version are skipped entirely.
+
+If the probe fails (network issues, unsupported image), the build falls back to reasonable defaults: `dnf` for container targets, `apt-get` for OpenShell targets.
+
+== Standalone Probe Command
+
+You can run the probe independently to inspect any image:
+
+[source,bash]
+----
+cc-deck build probe registry.fedoraproject.org/fedora:41
+----
+
+This prints a table showing the OS, package manager, and a list of tools with checkmarks for present or crosses for missing.
+
+For machine-readable output, use JSON format:
+
+[source,bash]
+----
+cc-deck build probe registry.access.redhat.com/ubi9/ubi:latest --format json
+----
+
+When a `build.yaml` manifest is present in the setup directory, the table output appends a diff section comparing what the base image provides against what the manifest requires.
+
+== Caching
+
+Probe results are cached in `<setup-dir>/probe-cache.json`, keyed by image reference.
+Cache entries are invalidated when the image digest changes (meaning the image was updated at the registry).
+
+Repeat builds against the same base image skip the probe step entirely, adding sub-second overhead.
+
+To force a fresh probe:
+
+[source,bash]
+----
+cc-deck build probe <image> --no-cache
+----
+
+Delete `probe-cache.json` to clear all cached results.
+
+== Customizing the Tool Set
+
+By default, the probe checks for approximately 30 tools that the cc-deck base image installs (git, gh, ripgrep, fzf, jq, python3, nodejs, and others).
+
+To probe for additional tools or specify version requirements, add a `probe_tools` section to your `build.yaml`:
+
+[source,yaml]
+----
+probe_tools:
+  - name: rustc
+    version: "1.78"
+  - name: cmake
+----
+
+Manifest entries are merged with the default set.
+Entries with the same name as a default tool override it.
+New entries extend the probe.
+
+== Version Compatibility
+
+The probe uses major.minor version comparison:
+
+* Same major and installed minor >= required minor: *compatible* (skip install)
+* Same major but installed minor < required minor: *incompatible* (shadow install to `/usr/local/bin`)
+* Different major: *incompatible* (shadow install)
+* No version reported by the tool: assumed compatible
+* No version required by the manifest: any version is accepted

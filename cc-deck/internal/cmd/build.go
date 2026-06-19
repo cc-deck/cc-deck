@@ -33,6 +33,7 @@ func NewBuildCmd(flags *GlobalFlags) *cobra.Command {
 	cmd.AddCommand(newBuildVerifyCmd(flags))
 	cmd.AddCommand(newBuildDiffCmd(flags))
 	cmd.AddCommand(newBuildRecordCmd(flags))
+	cmd.AddCommand(newBuildProbeCmd(flags))
 
 	return cmd
 }
