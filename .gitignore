@@ -34,6 +34,9 @@ demos/recordings/*.gif
 demos/recordings/*.mp4
 dist/
 
+# MCP server config (contains auth tokens)
+**/.mcp.json
+
 # Claude Code local settings (any level)
 **/.claude/
 # spex: generated/local files (only constitution is committed)
