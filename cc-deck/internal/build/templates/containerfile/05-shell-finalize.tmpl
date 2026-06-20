@@ -18,7 +18,7 @@ RUN if command -v starship >/dev/null 2>&1; then \
       for PAIR in "bash:{{.HomeDir}}/.bashrc" "zsh:{{.HomeDir}}/.zshrc"; do \
         SHELL_NAME="${PAIR%%:*}"; RC="${PAIR#*:}"; \
         if [ -f "$RC" ] && ! grep -q 'starship init' "$RC"; then \
-          echo 'eval "$(starship init '"$SHELL_NAME"')"' >> "$RC"; \
+          echo '[[ "$TERM" != "dumb" ]] && eval "$(starship init '"$SHELL_NAME"')"' >> "$RC"; \
         fi; \
       done; \
     fi

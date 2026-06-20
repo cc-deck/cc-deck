@@ -395,6 +395,19 @@ For any command not in these lists, **wrap it with an availability check** rathe
 
 Show the guarded lines in the "Stripped" summary so the user sees what was wrapped.
 
+**compinit preamble**: When stripping plugin managers (Antidote, oh-my-zsh, zinit, etc.) from the curated config, check whether the remaining config contains `compdef`, `zstyle ':completion:*'`, or other completion-dependent directives. If so, add `autoload -Uz compinit && compinit -C` as a preamble to the curated config (before any `zstyle` or `compdef` lines). Plugin managers like oh-my-zsh load `compinit` transitively. Without it, zsh tab completion is non-functional.
+
+**Shell config dependency scanning**: After curating, scan the proposed config for implicit tool dependencies that the build must install:
+
+1. Scan `alias` definitions for tool names: e.g., `alias ls='lsd'` means `lsd` is required
+2. Scan `eval "$(... init ...)"` patterns: e.g., `eval "$(starship init zsh)"` means `starship` is required
+3. Scan `source <(... --zsh)` patterns: e.g., `source <(fzf --zsh)` means `fzf` is required (and must be version 0.48+, so install from GitHub releases, NOT apt)
+4. Common implicit dependencies: `starship`, `lsd`, `fzf`, `zoxide`, `bat`, `eza`
+5. Record discovered dependencies in the manifest's `tools` section with `install: github-release` (preferred over package manager to get versions compatible with the shell config syntax)
+6. For fzf specifically: if the config contains `source <(fzf --zsh)` or `fzf --zsh`, flag it for GitHub release install. Ubuntu 24.04's apt package ships fzf 0.44, which does not support the `--zsh` flag (added in 0.48).
+
+Show discovered dependencies in the step output so the user sees what was detected.
+
 **Present** the curated config as text:
 
 ```
@@ -1010,7 +1023,9 @@ Then perform the write:
 8. Copy selected config files to `<setup-dir>/config/`
 9. Write repos to `.cc-deck/workspace.yaml` if target is SSH
 10. If an OpenShell target is configured, run `cc-deck build refresh <setup-dir>` to fetch the latest catalog components and regenerate the policy. On network failure, the refresh warns and continues with cached or embedded components.
-11. Report what was written
+11. **GitHub release asset verification**: For each tool with `install: github-release`, query the GitHub API (`https://api.github.com/repos/<repo>/releases/latest`) and verify the `asset_pattern` against actual release asset names. If the pattern does not match any actual asset, update the manifest entry with the correct pattern and warn: `"Updated asset_pattern for <tool>: <old> -> <new>"`. This catches naming convention mismatches (e.g., `.tar.gz` vs `.tar.xz`, `gnu` vs `musl`) before the build phase.
+12. **post_install dry-run validation**: For each tool with a `post_install` field, attempt to detect interactive prompts by running the command with `--help` or `--dry-run` if supported. If the command writes to stderr with prompts like "Y/N", "Patch existing", or similar, warn: `"post_install for <tool> may prompt for input. The build will use '|| true' guard."`. This is advisory only; the tool is still included in the manifest.
+13. Report what was written
 
 ---
 
@@ -1029,3 +1044,4 @@ Then perform the write:
 - Re-running this command should show current selections and allow modifications
 - **Existing manifest values are preserved by default**: When re-running capture on a manifest that already has values (targets, tools, credentials, etc.), show the existing values and default to keeping them. Only prompt for changes if the user explicitly asks. In `--all` mode, always keep existing values unchanged.
 - **`build refresh` is mandatory after target changes**: After writing the manifest (step 10), always run `cc-deck build refresh <setup-dir>` if an OpenShell target is configured. This fetches the catalog and regenerates the policy in one step.
+- **`build refresh` must verify snippet URLs**: When `build refresh` regenerates snippets, it must verify download URLs in the snippets against GitHub APIs. If a URL no longer resolves (404), update the snippet with the correct URL from the latest release.
