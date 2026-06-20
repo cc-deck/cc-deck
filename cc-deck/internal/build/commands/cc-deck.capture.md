@@ -299,7 +299,7 @@ Then use `AskUserQuestion`. If 4 or fewer tools have configs, use `multiSelect: 
 **STOP. Wait for user response before proceeding.**
 
 **Action** (after user confirms): For each accepted tool config:
-1. Copy the config file to `<setup-dir>/config/` with a descriptive name (e.g., `starship.toml`, `helix-config.toml`)
+1. Copy the config file to `<setup-dir>/config/` using the shell (`mkdir -p <setup-dir>/config && cp <source> <setup-dir>/config/<name>`). Always use `cp` via Bash, not the Write tool, so that existing files are overwritten with current local versions.
 2. Add an entry to `settings.tool_configs` in the manifest, always including `target` with the path relative to `~/.config/` on the target machine:
 
 ```yaml
@@ -501,7 +501,7 @@ remote-bg: "<chosen-color>"
 
 The background is applied automatically by `cc-deck attach` before SSH connects, and reset on detach. No shell-level auto-set is needed.
 
-**Action**: Write the curated config to `<setup-dir>/config/` and update manifest:
+**Action**: Write the curated config to `<setup-dir>/config/` using the shell (`mkdir -p <setup-dir>/config && cat > <setup-dir>/config/zshrc`), not the Write tool. This ensures existing files are overwritten with current local versions. Update manifest:
 
 For **zsh**:
 ```yaml
@@ -570,7 +570,7 @@ The Zellij `config.kdl` `default_shell` is set to match the chosen shell.
 
 **STOP. Wait for user response before proceeding.**
 
-**Action**: Copy selected files to `<setup-dir>/config/`. If the user's `config.kdl` does not contain `default_shell`, append `default_shell "zsh"` to ensure Zellij panes start with zsh (required for starship prompt and shell integrations).
+**Action**: Copy selected files to `<setup-dir>/config/` using `cp` via Bash (not the Write tool, so existing files are overwritten). If the user's `config.kdl` does not contain `default_shell`, append `default_shell "zsh"` to ensure Zellij panes start with zsh (required for starship prompt and shell integrations).
 
 Update manifest:
 ```yaml
@@ -1020,7 +1020,7 @@ Then perform the write:
 5. Update `plugins` section with selected plugins
 6. Update `mcp` section with selected MCP servers
 7. Update `credentials` section with selected credential providers
-8. Copy selected config files to `<setup-dir>/config/`
+8. Copy selected config files to `<setup-dir>/config/` using `cp` via Bash (always overwrite existing files with current local versions)
 9. Write repos to `.cc-deck/workspace.yaml` if target is SSH
 10. If an OpenShell target is configured, run `cc-deck build refresh <setup-dir>` to fetch the latest catalog components and regenerate the policy. On network failure, the refresh warns and continues with cached or embedded components.
 11. **GitHub release asset verification**: For each tool with `install: github-release`, query the GitHub API (`https://api.github.com/repos/<repo>/releases/latest`) and verify the `asset_pattern` against actual release asset names. If the pattern does not match any actual asset, update the manifest entry with the correct pattern and warn: `"Updated asset_pattern for <tool>: <old> -> <new>"`. This catches naming convention mismatches (e.g., `.tar.gz` vs `.tar.xz`, `gnu` vs `musl`) before the build phase.
