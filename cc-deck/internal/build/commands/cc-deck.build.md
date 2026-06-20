@@ -734,6 +734,14 @@ If the GitHub API is unreachable (rate limit or network error), fall back to the
 7. **GENERATE**: Plugin install commands (same as Section A plugin handling)
 8. Read `openshell/snippets/04-openshell-extras.txt` and copy its content verbatim
 9. **GENERATE**: User configuration layers (see Settings handling below)
+9b. **GENERATE**: Git SSH-to-HTTPS redirect (OpenShell only). Add `insteadOf` config so all git operations inside the sandbox use HTTPS instead of SSH. OpenShell's HTTP CONNECT proxy cannot resolve DNS for SSH connections:
+    ```dockerfile
+    USER sandbox
+    RUN git config --global url."https://github.com/".insteadOf "git@github.com:" && \
+        git config --global url."https://gitlab.com/".insteadOf "git@gitlab.com:" && \
+        git config --global url."https://bitbucket.org/".insteadOf "git@bitbucket.org:"
+    USER root
+    ```
 10. Read `openshell/snippets/05-shell-finalize.txt` and copy its content verbatim
 11. Read `openshell/snippets/06-footer.txt` and copy its content verbatim
 

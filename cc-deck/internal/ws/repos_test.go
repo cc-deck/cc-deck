@@ -112,7 +112,7 @@ func TestDeduplicateRepos(t *testing.T) {
 func TestBuildCloneCommand(t *testing.T) {
 	t.Run("without branch or creds", func(t *testing.T) {
 		entry := RepoEntry{URL: "https://github.com/org/repo.git"}
-		cmd := buildCloneCommand(entry, "/workspace", nil)
+		cmd := buildCloneCommand(entry, "/workspace", nil, false)
 		if !strings.Contains(cmd, "git clone") {
 			t.Errorf("expected git clone command, got %q", cmd)
 		}
@@ -123,7 +123,7 @@ func TestBuildCloneCommand(t *testing.T) {
 
 	t.Run("with branch", func(t *testing.T) {
 		entry := RepoEntry{URL: "https://github.com/org/repo.git", Branch: "develop"}
-		cmd := buildCloneCommand(entry, "/workspace", nil)
+		cmd := buildCloneCommand(entry, "/workspace", nil, false)
 		if !strings.Contains(cmd, "--branch") {
 			t.Errorf("expected --branch flag, got %q", cmd)
 		}
@@ -135,7 +135,7 @@ func TestBuildCloneCommand(t *testing.T) {
 	t.Run("with token credentials", func(t *testing.T) {
 		entry := RepoEntry{URL: "https://github.com/org/repo.git"}
 		creds := &GitCredentials{Type: config.GitCredentialToken, Token: "ghp_test123"}
-		cmd := buildCloneCommand(entry, "/workspace", creds)
+		cmd := buildCloneCommand(entry, "/workspace", creds, false)
 		if !strings.Contains(cmd, "ghp_test123@github.com") {
 			t.Errorf("expected token in URL, got %q", cmd)
 		}
@@ -144,7 +144,7 @@ func TestBuildCloneCommand(t *testing.T) {
 	t.Run("with SSH URL ignores token", func(t *testing.T) {
 		entry := RepoEntry{URL: "git@github.com:org/repo.git"}
 		creds := &GitCredentials{Type: config.GitCredentialToken, Token: "ghp_test123"}
-		cmd := buildCloneCommand(entry, "/workspace", creds)
+		cmd := buildCloneCommand(entry, "/workspace", creds, false)
 		if strings.Contains(cmd, "ghp_test123") {
 			t.Errorf("token should not be injected into SSH URL, got %q", cmd)
 		}
@@ -152,9 +152,61 @@ func TestBuildCloneCommand(t *testing.T) {
 
 	t.Run("with custom target", func(t *testing.T) {
 		entry := RepoEntry{URL: "https://github.com/org/repo.git", Target: "my-project"}
-		cmd := buildCloneCommand(entry, "/workspace", nil)
+		cmd := buildCloneCommand(entry, "/workspace", nil, false)
 		if !strings.Contains(cmd, "/workspace/my-project") {
 			t.Errorf("expected custom target path, got %q", cmd)
+		}
+	})
+}
+
+func TestSSHToHTTPS(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"github SSH", "git@github.com:org/repo.git", "https://github.com/org/repo.git"},
+		{"gitlab SSH", "git@gitlab.com:org/repo.git", "https://gitlab.com/org/repo.git"},
+		{"bitbucket SSH", "git@bitbucket.org:org/repo.git", "https://bitbucket.org/org/repo.git"},
+		{"custom host SSH", "git@git.company.com:team/project.git", "https://git.company.com/team/project.git"},
+		{"nested path SSH", "git@github.com:org/sub/repo.git", "https://github.com/org/sub/repo.git"},
+		{"ssh scheme", "ssh://git@github.com/org/repo.git", "https://github.com/org/repo.git"},
+		{"HTTPS passthrough", "https://github.com/org/repo.git", "https://github.com/org/repo.git"},
+		{"HTTP passthrough", "http://github.com/org/repo.git", "http://github.com/org/repo.git"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := sshToHTTPS(tt.input)
+			if got != tt.expected {
+				t.Errorf("sshToHTTPS(%q) = %q, want %q", tt.input, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestBuildCloneCommandConvertSSH(t *testing.T) {
+	t.Run("converts SSH to HTTPS when convertSSH is true", func(t *testing.T) {
+		entry := RepoEntry{URL: "git@github.com:org/repo.git"}
+		cmd := buildCloneCommand(entry, "/workspace", nil, true)
+		if !strings.Contains(cmd, "https://github.com/org/repo.git") {
+			t.Errorf("expected HTTPS URL, got %q", cmd)
+		}
+	})
+
+	t.Run("keeps SSH when convertSSH is false", func(t *testing.T) {
+		entry := RepoEntry{URL: "git@github.com:org/repo.git"}
+		cmd := buildCloneCommand(entry, "/workspace", nil, false)
+		if !strings.Contains(cmd, "git@github.com:org/repo.git") {
+			t.Errorf("expected SSH URL preserved, got %q", cmd)
+		}
+	})
+
+	t.Run("injects token into converted HTTPS URL", func(t *testing.T) {
+		entry := RepoEntry{URL: "git@github.com:org/repo.git"}
+		creds := &GitCredentials{Type: config.GitCredentialToken, Token: "ghp_test"}
+		cmd := buildCloneCommand(entry, "/workspace", creds, true)
+		if !strings.Contains(cmd, "ghp_test@github.com") {
+			t.Errorf("expected token in converted HTTPS URL, got %q", cmd)
 		}
 	})
 }
