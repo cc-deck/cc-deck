@@ -923,6 +923,6 @@ On success, show:
 - **Container-specific**: Never omit the 3 mandatory layers. Always use `container/context/cc-deck-linux-${TARGETARCH}` as COPY source.
 - **SSH-specific**: All roles must be idempotent. The playbook must be runnable standalone without cc-deck or Claude Code.
 - **OpenShell-specific**: Always include the mandatory cc-deck/Zellij/cc-session layers (same as container target). Always embed `openshell/policy.yaml` at `/etc/openshell/policy.yaml`. Use `sandbox` user and `/sandbox` workdir. Final `chown -R sandbox:sandbox /sandbox` before `USER sandbox`.
-- **OpenShell base image**: The default OpenShell base image (`ghcr.io/nvidia/openshell-community/sandboxes/base:latest`) is **Ubuntu** (not Fedora), runs as **`USER sandbox`** (not root), and does NOT include: lsd, starship, zsh, bat, ripgrep, zoxide, or fzf 0.48+. The cc-deck container base image (`quay.io/cc-deck/cc-deck-base`) is Fedora, runs as root, and includes all of these. Do not confuse the two.
+- **OpenShell base image**: The default OpenShell base image is **Ubuntu** (not Fedora) and runs as **`USER sandbox`** (not root). Do NOT assume it has the same tools as the cc-deck container base image (Fedora, root). Always rely on the base image probe results (step C2) and shell config dependency scanning to determine what needs to be installed. The probe is the source of truth for tool availability, not a static list.
 - Combine related package install calls into a single task/RUN for efficiency
 - Clean package caches after installs
