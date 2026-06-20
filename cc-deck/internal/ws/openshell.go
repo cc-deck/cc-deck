@@ -340,7 +340,7 @@ func (w *OpenShellWorkspace) Create(ctx context.Context, _ CreateOpts) error {
 			return w.ExecOutput(ctx2, []string{"bash", "-c", cmd})
 		}
 		fmt.Fprintf(os.Stderr, "Cloning %d repo(s) into %s...\n", len(w.Repos), workspace)
-		cloneRepos(ctx, runner, w.Repos, workspace, creds, w.ExtraRemotes, w.AutoDetectedURL)
+		cloneRepos(ctx, runner, w.Repos, workspace, creds, w.ExtraRemotes, w.AutoDetectedURL, true)
 	}
 
 	now := time.Now()
