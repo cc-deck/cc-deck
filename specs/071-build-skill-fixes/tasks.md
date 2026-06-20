@@ -13,7 +13,7 @@
 
 **Purpose**: No project setup needed. All changes are to existing files.
 
-- [ ] T001 Read current state of all 4 target files to understand exact content and line numbers in cc-deck/internal/build/commands/cc-deck.build.md, cc-deck/internal/build/commands/cc-deck.capture.md, cc-deck/internal/build/templates/containerfile/03-mandatory-stack.tmpl, cc-deck/internal/build/templates/containerfile/05-shell-finalize.tmpl
+- [x] T001 Read current state of all 4 target files to understand exact content and line numbers in cc-deck/internal/build/commands/cc-deck.build.md, cc-deck/internal/build/commands/cc-deck.capture.md, cc-deck/internal/build/templates/containerfile/03-mandatory-stack.tmpl, cc-deck/internal/build/templates/containerfile/05-shell-finalize.tmpl
 
 ---
 
@@ -25,28 +25,28 @@
 
 ### Template Changes (do first, they are referenced by skill instructions)
 
-- [ ] T002 [P] [US1] Fix cache directory ownership in cc-deck/internal/build/templates/containerfile/03-mandatory-stack.tmpl: change `chown -R {{.User}}:{{.User}} {{.HomeDir}}/.config/zellij {{.HomeDir}}/.cache/zellij {{.HomeDir}}/.claude` to include `{{.HomeDir}}/.cache` as parent chown target (FR-006, FR-018)
-- [ ] T003 [P] [US1] Add marketplace setup to cc-deck/internal/build/templates/containerfile/03-mandatory-stack.tmpl: add `claude plugins marketplace add anthropics/claude-plugins-official` after Claude Code install and before any plugin install commands (FR-007, FR-019)
-- [ ] T004 [P] [US1] Add Claude Code npm fallback to cc-deck/internal/build/templates/containerfile/03-mandatory-stack.tmpl: add commented fallback section after native installer showing npm install with prefix override for non-root users, triggered on exit 137 (FR-005)
+- [x] T002 [P] [US1] Fix cache directory ownership in cc-deck/internal/build/templates/containerfile/03-mandatory-stack.tmpl: change `chown -R {{.User}}:{{.User}} {{.HomeDir}}/.config/zellij {{.HomeDir}}/.cache/zellij {{.HomeDir}}/.claude` to include `{{.HomeDir}}/.cache` as parent chown target (FR-006, FR-018)
+- [x] T003 [P] [US1] Add marketplace setup to cc-deck/internal/build/templates/containerfile/03-mandatory-stack.tmpl: add `claude plugins marketplace add anthropics/claude-plugins-official` after Claude Code install and before any plugin install commands (FR-007, FR-019)
+- [x] T004 [P] [US1] Add Claude Code npm fallback to cc-deck/internal/build/templates/containerfile/03-mandatory-stack.tmpl: add commented fallback section after native installer showing npm install with prefix override for non-root users, triggered on exit 137 (FR-005)
 
 ### Build Skill Section C2 Changes
 
-- [ ] T005 [US1] Add USER root instruction to C2 assembly order in cc-deck/internal/build/commands/cc-deck.build.md: insert between step 1 (01-header.txt) and step 3 (system packages layer) stating that `USER root` must be added before any generated RUN layers when the base image runs as non-root user (FR-001)
-- [ ] T006 [US1] Add GitHub release asset verification protocol to C2 tool resolution in cc-deck/internal/build/commands/cc-deck.build.md: add subsection under "Tool resolution" for `install: github-release` requiring GitHub API query for actual asset names and tarball structure probe before generating download commands (FR-002, FR-003)
-- [ ] T007 [US1] Change snippet handling rule in C2 in cc-deck/internal/build/commands/cc-deck.build.md: replace "Copy content EXACTLY as-is" with "Copy as-is unless download command produces 404 or extraction error; verify against GitHub API and fix with comment" (FR-004)
-- [ ] T008 [US1] Add exact jq merge command to C2 settings handling in cc-deck/internal/build/commands/cc-deck.build.md: add the exact command `jq -s '.[0] as $orig | $orig * .[1] | .hooks = $orig.hooks'` under the settings merge strategy documentation (FR-009)
-- [ ] T009 [US1] Add post_install sandboxing protocol to C2 GitHub release tools section in cc-deck/internal/build/commands/cc-deck.build.md: document the 5-step protocol (create dirs as root, switch to sandbox, append || true, switch back to root, guard interactive prompts) (FR-010)
+- [x] T005 [US1] Add USER root instruction to C2 assembly order in cc-deck/internal/build/commands/cc-deck.build.md: insert between step 1 (01-header.txt) and step 3 (system packages layer) stating that `USER root` must be added before any generated RUN layers when the base image runs as non-root user (FR-001)
+- [x] T006 [US1] Add GitHub release asset verification protocol to C2 tool resolution in cc-deck/internal/build/commands/cc-deck.build.md: add subsection under "Tool resolution" for `install: github-release` requiring GitHub API query for actual asset names and tarball structure probe before generating download commands (FR-002, FR-003)
+- [x] T007 [US1] Change snippet handling rule in C2 in cc-deck/internal/build/commands/cc-deck.build.md: replace "Copy content EXACTLY as-is" with "Copy as-is unless download command produces 404 or extraction error; verify against GitHub API and fix with comment" (FR-004)
+- [x] T008 [US1] Add exact jq merge command to C2 settings handling in cc-deck/internal/build/commands/cc-deck.build.md: add the exact command `jq -s '.[0] as $orig | $orig * .[1] | .hooks = $orig.hooks'` under the settings merge strategy documentation (FR-009)
+- [x] T009 [US1] Add post_install sandboxing protocol to C2 GitHub release tools section in cc-deck/internal/build/commands/cc-deck.build.md: document the 5-step protocol (create dirs as root, switch to sandbox, append || true, switch back to root, guard interactive prompts) (FR-010)
 
 ### Build Skill Section A2 Changes (mirror C2 changes for container builds)
 
-- [ ] T010 [P] [US1] Add GitHub release asset verification protocol to A2 tool resolution in cc-deck/internal/build/commands/cc-deck.build.md: same content as T006 but for Section A2 (FR-002, FR-003)
-- [ ] T011 [P] [US1] Add exact jq merge command to A2 settings handling in cc-deck/internal/build/commands/cc-deck.build.md: same content as T008 but for Section A2 settings merge (FR-009)
-- [ ] T012 [P] [US1] Add marketplace setup to A2 plugin handling in cc-deck/internal/build/commands/cc-deck.build.md: add marketplace add command before first plugin install (FR-007)
-- [ ] T013 [P] [US1] Add post_install sandboxing protocol to A2 GitHub release tools section in cc-deck/internal/build/commands/cc-deck.build.md: same content as T009 but for Section A2 (FR-010)
+- [x] T010 [P] [US1] Add GitHub release asset verification protocol to A2 tool resolution in cc-deck/internal/build/commands/cc-deck.build.md: same content as T006 but for Section A2 (FR-002, FR-003)
+- [x] T011 [P] [US1] Add exact jq merge command to A2 settings handling in cc-deck/internal/build/commands/cc-deck.build.md: same content as T008 but for Section A2 settings merge (FR-009)
+- [x] T012 [P] [US1] Add marketplace setup to A2 plugin handling in cc-deck/internal/build/commands/cc-deck.build.md: add marketplace add command before first plugin install (FR-007)
+- [x] T013 [P] [US1] Add post_install sandboxing protocol to A2 GitHub release tools section in cc-deck/internal/build/commands/cc-deck.build.md: same content as T009 but for Section A2 (FR-010)
 
 ### Build Skill Key Rules Changes
 
-- [ ] T014 [US1] Add OpenShell base image documentation to Key Rules section in cc-deck/internal/build/commands/cc-deck.build.md: document that OpenShell base is Ubuntu (not Fedora), runs as sandbox (not root), and lacks lsd/starship/zsh/bat/ripgrep (FR-011)
+- [x] T014 [US1] Add OpenShell base image documentation to Key Rules section in cc-deck/internal/build/commands/cc-deck.build.md: document that OpenShell base is Ubuntu (not Fedora), runs as sandbox (not root), and lacks lsd/starship/zsh/bat/ripgrep (FR-011)
 
 **Checkpoint**: Build skill and templates now have all 11 build-time fixes. A fresh OpenShell build should handle USER root, asset verification, cache ownership, marketplace, jq merge, post_install protocol, snippet escape hatch, and Claude Code fallback correctly.
 
@@ -60,17 +60,17 @@
 
 ### Build Skill Changes
 
-- [ ] T015 [US2] Add shell config dependency scanning to C2 base image probing in cc-deck/internal/build/commands/cc-deck.build.md: add third probing step that scans curated shell config for commands in aliases/eval/source, cross-references with base image probe, and flags missing tools for installation (FR-008)
+- [x] T015 [US2] Add shell config dependency scanning to C2 base image probing in cc-deck/internal/build/commands/cc-deck.build.md: add third probing step that scans curated shell config for commands in aliases/eval/source, cross-references with base image probe, and flags missing tools for installation (FR-008)
 
 ### Template Changes
 
-- [ ] T016 [US2] Guard starship init with TERM check in cc-deck/internal/build/templates/containerfile/05-shell-finalize.tmpl: change `echo 'eval "$(starship init '"$SHELL_NAME"')"' >> "$RC"` to `echo '[[ "$TERM" != "dumb" ]] && eval "$(starship init '"$SHELL_NAME"')"' >> "$RC"` (FR-017)
+- [x] T016 [US2] Guard starship init with TERM check in cc-deck/internal/build/templates/containerfile/05-shell-finalize.tmpl: change `echo 'eval "$(starship init '"$SHELL_NAME"')"' >> "$RC"` to `echo '[[ "$TERM" != "dumb" ]] && eval "$(starship init '"$SHELL_NAME"')"' >> "$RC"` (FR-017)
 
 ### Capture Skill Changes
 
-- [ ] T017 [P] [US2] Add shell config dependency scanning to Step 5c in cc-deck/internal/build/commands/cc-deck.capture.md: after the existing "Guard unresolved commands" section, add a new subsection that scans for implicit tool dependencies (starship, lsd, fzf, zoxide, bat in aliases/eval/source) and flags them in the manifest (FR-012)
-- [ ] T018 [P] [US2] Add fzf GitHub release detection to Step 5c in cc-deck/internal/build/commands/cc-deck.capture.md: when `source <(fzf --zsh)` is detected, flag fzf for GitHub release install instead of package manager (FR-013)
-- [ ] T019 [P] [US2] Add compinit preamble rule to Step 5c strip-out rules in cc-deck/internal/build/commands/cc-deck.capture.md: when stripping plugin managers, check for compdef/zstyle and add `autoload -Uz compinit && compinit -C` preamble (FR-014)
+- [x] T017 [P] [US2] Add shell config dependency scanning to Step 5c in cc-deck/internal/build/commands/cc-deck.capture.md: after the existing "Guard unresolved commands" section, add a new subsection that scans for implicit tool dependencies (starship, lsd, fzf, zoxide, bat in aliases/eval/source) and flags them in the manifest (FR-012)
+- [x] T018 [P] [US2] Add fzf GitHub release detection to Step 5c in cc-deck/internal/build/commands/cc-deck.capture.md: when `source <(fzf --zsh)` is detected, flag fzf for GitHub release install instead of package manager (FR-013)
+- [x] T019 [P] [US2] Add compinit preamble rule to Step 5c strip-out rules in cc-deck/internal/build/commands/cc-deck.capture.md: when stripping plugin managers, check for compdef/zstyle and add `autoload -Uz compinit && compinit -C` preamble (FR-014)
 
 **Checkpoint**: Shell config dependencies are now detected at capture time and resolved at build time. Starship, fzf, lsd, and zsh completions all work in built images.
 
@@ -82,9 +82,9 @@
 
 **Independent Test**: Run `/cc-deck.capture` with a tool that has a wrong asset_pattern and verify the wizard corrects it
 
-- [ ] T020 [P] [US3] Add GitHub release asset verification to capture Step 11 in cc-deck/internal/build/commands/cc-deck.capture.md: after processing tools with `install: github-release`, query GitHub API for actual asset names and update manifest with verified patterns (FR-015)
-- [ ] T021 [P] [US3] Add post_install dry-run validation to capture Step 11 in cc-deck/internal/build/commands/cc-deck.capture.md: for each tool with a post_install command, run with --dry-run or --help to detect interactive prompts and warn (FR-016)
-- [ ] T022 [US3] Add build refresh verification note to cc-deck/internal/build/commands/cc-deck.build.md: document that `build refresh` must verify download URLs in regenerated snippets against GitHub APIs (FR-020)
+- [x] T020 [P] [US3] Add GitHub release asset verification to capture Step 11 in cc-deck/internal/build/commands/cc-deck.capture.md: after processing tools with `install: github-release`, query GitHub API for actual asset names and update manifest with verified patterns (FR-015)
+- [x] T021 [P] [US3] Add post_install dry-run validation to capture Step 11 in cc-deck/internal/build/commands/cc-deck.capture.md: for each tool with a post_install command, run with --dry-run or --help to detect interactive prompts and warn (FR-016)
+- [x] T022 [US3] Add build refresh verification note to cc-deck/internal/build/commands/cc-deck.build.md: document that `build refresh` must verify download URLs in regenerated snippets against GitHub APIs (FR-020)
 
 **Checkpoint**: Capture wizard now validates asset patterns and post_install commands. build refresh verifies snippet URLs.
 
@@ -94,8 +94,8 @@
 
 **Purpose**: Validation and cleanup
 
-- [ ] T023 Run `make verify` to ensure no Go compilation or lint errors from template changes in cc-deck/internal/build/templates/containerfile/
-- [ ] T024 Verify all 13 changes are correctly placed by re-reading each modified section and cross-referencing against the brainstorm 072 change list
+- [x] T023 Run `make verify` to ensure no Go compilation or lint errors from template changes in cc-deck/internal/build/templates/containerfile/
+- [x] T024 Verify all 13 changes are correctly placed by re-reading each modified section and cross-referencing against the brainstorm 072 change list
 
 ---
 
