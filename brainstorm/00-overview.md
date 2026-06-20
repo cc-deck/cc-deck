@@ -1,6 +1,6 @@
 # Brainstorm Overview
 
-Last updated: 2026-06-20 (072 build skill iteration reduction revisit)
+Last updated: 2026-06-20 (073 openshell ssh-to-https)
 
 ## Active Brainstorms
 
@@ -37,6 +37,7 @@ Last updated: 2026-06-20 (072 build skill iteration reduction revisit)
 | 070 | 2026-06-06 | Build system multi-agent | active | - |
 | 071 | 2026-06-08 | Sidebar session sort | active | - |
 | 072 | 2026-06-17 | Build skill iteration reduction | active | - |
+| 073 | 2026-06-20 | OpenShell SSH-to-HTTPS | active | - |
 
 ## Open Threads
 
@@ -68,6 +69,7 @@ Last updated: 2026-06-20 (072 build skill iteration reduction revisit)
 - Config validation: load-time warning suppression mechanism, curated safe icon list vs constraint description (from #067)
 - Sidebar session sort: move_focus_or_tab swap mechanics (focus requirement during sort sequence), controller vs sidebar sort computation, performance for 10+ sessions (from #071)
 - Build skill iteration reduction: 13 skill changes to eliminate build iterations. Skill-first approach chosen (edit markdowns + templates, no new Go code). Dual-phase asset verification (capture + build), shell config dependency scanning, post_install dry-run at capture, snippet verification on refresh. Depends on #064, #060 (from #072, revisited 2026-06-20)
+- OpenShell SSH-to-HTTPS: Convert SSH git URLs to HTTPS for OpenShell sandboxes. OpenShell's HTTP CONNECT proxy cannot resolve DNS for SSH (UDP port 53 bypasses proxy). Fix: convert in buildCloneCommand() + git insteadOf config in image. (from #073)
 
 ## Parked Ideas
 
