@@ -779,7 +779,12 @@ Same pattern as A3. If `openshell/Containerfile` already exists, show diff and a
 
 Same as Section A step A4, but using `openshell/context/` instead of `container/context/`:
 
-1. Create `openshell/context/` directory
+1. Create `openshell/context/` directory and **purge stale config files** (keep downloaded binaries):
+   ```bash
+   mkdir -p openshell/context
+   find openshell/context/ -type f ! -name 'cc-deck-linux-*' -delete 2>/dev/null || true
+   ```
+   This prevents stale configs from previous builds from persisting. Binaries (`cc-deck-linux-*`) are expensive to download and version-pinned, so they are preserved.
 2. Determine the cc-deck version by running `cc-deck version -o json` and extracting the `version` field
 3. Download Linux binaries for both architectures from GitHub Releases. Skip any architecture whose binary already exists in `openshell/context/`:
    ```bash
