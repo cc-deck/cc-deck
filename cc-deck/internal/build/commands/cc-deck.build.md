@@ -797,7 +797,7 @@ Same as Section A step A4, but using `openshell/context/` instead of `container/
    - For development builds: run `make cross-cli` from the cc-deck source repo, then copy the binaries to `openshell/context/`
    - For released versions: check that the version tag exists at `https://github.com/cc-deck/cc-deck/releases`
 
-Copy settings files into `openshell/context/` using the same logic as Section A step A4 (shell_rc, zellij_config, claude_md, etc.), adapting destination paths for `/sandbox/` instead of `/home/dev/`.
+Copy settings files into `openshell/context/` using the same logic as Section A step A4 (shell_rc, zellij_config, claude_md, etc.), adapting destination paths for `/sandbox/` instead of `/home/dev/`. **Always overwrite existing files** in `openshell/context/` with the current versions from `<setup-dir>/config/`. Stale context copies from previous builds must not persist.
 
 ### C4: Generate openshell/policy.yaml
 
