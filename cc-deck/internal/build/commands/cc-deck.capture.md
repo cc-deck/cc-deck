@@ -315,6 +315,13 @@ settings:
 
 The `source` field is relative to the setup directory. The `target` field is relative to `~/.config/` and tells the build command exactly where to place the file.
 
+**Sandbox-aware config patching**: After copying, patch config files for sandbox compatibility. Sandbox sessions always run inside a terminal multiplexer (Zellij), so auto-detection of terminal capabilities (isatty, color support) can fail. Apply these patches to the copied config files:
+
+- **lsd**: Set `color: when: always` and `icons: when: always` (auto-detection fails inside Zellij panes)
+- **bat**: Set `--color=always` if a bat config exists with `--color=auto`
+
+Use `sed` on the copied file in `<setup-dir>/config/`, not the user's original.
+
 ---
 
 ## Step 5/11: Shell Configuration
