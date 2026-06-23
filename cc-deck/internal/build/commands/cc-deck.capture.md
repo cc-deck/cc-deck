@@ -404,6 +404,8 @@ Show the guarded lines in the "Stripped" summary so the user sees what was wrapp
 
 **compinit preamble**: When stripping plugin managers (Antidote, oh-my-zsh, zinit, etc.) from the curated config, check whether the remaining config contains `compdef`, `zstyle ':completion:*'`, or other completion-dependent directives. If so, add `autoload -Uz compinit && compinit -C` as a preamble to the curated config (before any `zstyle` or `compdef` lines). Plugin managers like oh-my-zsh load `compinit` transitively. Without it, zsh tab completion is non-functional.
 
+**UTF-8 locale preamble**: Add `export LANG=C.UTF-8` at the top of the curated config. The OpenShell base image defaults to `LC_CTYPE=POSIX`, which causes zsh to miscalculate the display width of multi-byte characters in prompts (starship uses `➜`, `🐍`, etc.). This breaks tab completion cursor positioning. The build template (`05-shell-finalize.tmpl`) also sets this, but including it in the curated config ensures it takes effect even if the template is bypassed.
+
 **Shell config dependency scanning**: After curating, scan the proposed config for implicit tool dependencies that the build must install:
 
 1. Scan `alias` definitions for tool names: e.g., `alias ls='lsd'` means `lsd` is required
