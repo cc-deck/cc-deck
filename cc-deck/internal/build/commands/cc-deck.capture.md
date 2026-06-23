@@ -212,6 +212,8 @@ tools:
 
 The `post_install` field is a shell command that runs after the tool binary is installed. The build command executes it as a `RUN` step in the generated Containerfile. This field is optional and only present for tools that need initialization.
 
+**Install path rule**: Always set `install_path: /usr/local/bin/<binary>` for GitHub release tools. Do NOT use `/opt/` or leave binaries in extracted subdirectories. OpenShell's filesystem policy only grants read access to `/usr`, `/lib`, and `/sandbox`. Binaries left in `/opt` or other locations will fail with "permission denied" at runtime. Copy or move the binary to `/usr/local/bin/` during extraction.
+
 **Asset pattern placeholders** (resolved during build):
 - `{arch}` - system architecture (`x86_64`, `aarch64`)
 - `{goarch}` - Go architecture (`amd64`, `arm64`)
