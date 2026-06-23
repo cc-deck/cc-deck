@@ -718,7 +718,7 @@ If the GitHub API is unreachable (rate limit or network error), fall back to the
 **Binary path tracking**: As you write install instructions, track which binary path each tool installs to. This mapping is used when generating `policy.yaml` (step C4):
 - **Pre-installed tools**: Use the actual paths discovered during base image probing
 - `install: package` installs to `/usr/bin/<binary>` (typical for apt/dnf)
-- `install: github-release` uses the `install_path` field, or `/usr/local/bin/<name>`
+- `install: github-release` uses the `install_path` field, or `/usr/local/bin/<name>`. **Always install to `/usr/local/bin/`**. Do NOT extract to `/opt/` or leave binaries in subdirectories. OpenShell's filesystem policy only allows read access to `/usr`, `/lib`, and `/sandbox`. Binaries in `/opt` will fail with "permission denied" at runtime.
 - npm global packages go to `/usr/local/bin/<name>`
 - Well-known defaults: Claude Code at `/sandbox/.local/bin/claude`, git at `/usr/bin/git`, node at `/usr/bin/node`
 
