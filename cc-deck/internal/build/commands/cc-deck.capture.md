@@ -404,13 +404,6 @@ Show the guarded lines in the "Stripped" summary so the user sees what was wrapp
 
 **compinit preamble**: When stripping plugin managers (Antidote, oh-my-zsh, zinit, etc.) from the curated config, check whether the remaining config contains `compdef`, `zstyle ':completion:*'`, or other completion-dependent directives. If so, add `autoload -Uz compinit && compinit -C` as a preamble to the curated config (before any `zstyle` or `compdef` lines). Plugin managers like oh-my-zsh load `compinit` transitively. Without it, zsh tab completion is non-functional.
 
-**Alias completion fixups**: When an alias maps a standard command to a different tool (e.g., `alias ls='lsd'`), zsh's completion system still uses the original command's completer (`_ls` for `ls`). This causes stem duplication and broken completion. After the aliases section, add `compdef` overrides for aliased commands:
-- `alias ls='lsd'` or `alias l='lsd'` -> add `compdef _files ls l` (use simple file completion instead of `_ls`)
-- `alias cat='bat'` -> add `compdef _files cat` (use file completion instead of `_cat`)
-- `alias vim='hx'` or `alias vi='hx'` -> add `compdef _files vim vi`
-
-General rule: when an alias redirects a command to a tool that has no native zsh completer (`_lsd`, `_bat`, etc. do not exist), add `compdef _files <alias-name>` to prevent the original completer from conflicting.
-
 **Shell config dependency scanning**: After curating, scan the proposed config for implicit tool dependencies that the build must install:
 
 1. Scan `alias` definitions for tool names: e.g., `alias ls='lsd'` means `lsd` is required
