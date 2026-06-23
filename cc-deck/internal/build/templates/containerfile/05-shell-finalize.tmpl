@@ -14,9 +14,13 @@ RUN for RC in {{.HomeDir}}/.bashrc {{.HomeDir}}/.zshrc; do \
 # ============================================================
 
 # UTF-8 locale (required for correct cursor positioning with multi-byte prompt characters)
+# LS_COLORS (required for lsd/ls file-type coloring beyond just directories)
 RUN for RC in {{.HomeDir}}/.bashrc {{.HomeDir}}/.zshrc; do \
       if [ -f "$RC" ] && ! grep -q 'LANG=' "$RC"; then \
         sed -i '1i export LANG=C.UTF-8' "$RC"; \
+      fi; \
+      if [ -f "$RC" ] && ! grep -q 'dircolors' "$RC" && command -v dircolors >/dev/null 2>&1; then \
+        sed -i '2i eval "$(dircolors -b)"' "$RC"; \
       fi; \
     done
 
