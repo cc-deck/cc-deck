@@ -41,6 +41,24 @@ func InitSetupDir(dir string, projectRoot string, force bool, targets []string) 
 		}
 	}
 
+	// When --force is used with an existing manifest, preserve configured targets
+	// so that build refresh regenerates snippets for all previously enabled targets.
+	if force {
+		if existing, err := LoadManifest(manifestPath); err == nil {
+			if existing.Targets != nil {
+				if existing.Targets.Container != nil && existing.Targets.Container.Name != "" && !containsTarget(targets, "container") {
+					targets = append(targets, "container")
+				}
+				if existing.Targets.SSH != nil && existing.Targets.SSH.Host != "" && !containsTarget(targets, "ssh") {
+					targets = append(targets, "ssh")
+				}
+				if existing.Targets.OpenShell != nil && existing.Targets.OpenShell.Name != "" && !containsTarget(targets, "openshell") {
+					targets = append(targets, "openshell")
+				}
+			}
+		}
+	}
+
 	// Create directory structure
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("creating setup directory: %w", err)
