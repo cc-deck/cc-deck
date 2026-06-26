@@ -60,14 +60,10 @@ var KnownProviderProfiles = map[string]KnownProviderProfile{
 		RequiredVars: []string{"ANTHROPIC_API_KEY"},
 	},
 	"claude-vertex": {
-		Type:         "claude",
+		Type:         "google-cloud",
 		DetectVars:   []string{"CLAUDE_CODE_USE_VERTEX", "ANTHROPIC_VERTEX_PROJECT_ID"},
 		RequiredVars: []string{"ANTHROPIC_VERTEX_PROJECT_ID"},
-		Endpoints: []ProviderEndpoint{
-			{Host: "oauth2.googleapis.com", Port: 443},
-		},
 		ExtraEnvVars: []string{"CLOUD_ML_REGION", "ANTHROPIC_MODEL"},
-		FileVar:      "GOOGLE_APPLICATION_CREDENTIALS",
 	},
 	"anthropic": {
 		Type:         "anthropic",
@@ -93,16 +89,6 @@ var KnownProviderProfiles = map[string]KnownProviderProfile{
 		Type:         "nvidia",
 		DetectVars:   []string{"NVIDIA_API_KEY"},
 		RequiredVars: []string{"NVIDIA_API_KEY"},
-	},
-	"vertex": {
-		Type:         "vertex",
-		DetectVars:   []string{"GOOGLE_APPLICATION_CREDENTIALS"},
-		RequiredVars: []string{"GOOGLE_APPLICATION_CREDENTIALS"},
-		ExtraEnvVars: []string{"ANTHROPIC_VERTEX_PROJECT_ID", "CLOUD_ML_REGION"},
-		FileVar:      "GOOGLE_APPLICATION_CREDENTIALS",
-		Endpoints: []ProviderEndpoint{
-			{Host: "oauth2.googleapis.com", Port: 443},
-		},
 	},
 	"generic": {
 		Type: "generic",
@@ -177,10 +163,20 @@ func ResolveCredentials(entries []CredentialInput, wsName string) []ProviderConf
 			FromExisting: true,
 		}
 
-		// Types without a native OpenShell provider profile inject env vars
-		// directly into the sandbox shell rc instead of creating a provider.
+		// claude-vertex uses OpenShell's native google-cloud provider.
+		// Pass project_id and region as provider config; inject Claude Code
+		// env vars (non-secret flags) into the sandbox shell rc.
 		if entry.Type == "claude-vertex" {
-			cfg.SkipProvider = true
+			cfg.Credentials = make(map[string]string)
+			if projectID := os.Getenv("ANTHROPIC_VERTEX_PROJECT_ID"); projectID != "" {
+				cfg.Credentials["project_id"] = projectID
+			}
+			if region := os.Getenv("CLOUD_ML_REGION"); region != "" {
+				cfg.Credentials["region"] = region
+			} else {
+				cfg.Credentials["region"] = "global"
+			}
+
 			cfg.EnvVarsToInject = make(map[string]string)
 			for _, v := range envVars {
 				if val := os.Getenv(v); val != "" {
@@ -190,23 +186,6 @@ func ResolveCredentials(entries []CredentialInput, wsName string) []ProviderConf
 			for _, v := range profile.ExtraEnvVars {
 				if val := os.Getenv(v); val != "" {
 					cfg.EnvVarsToInject[v] = val
-				}
-			}
-
-			// Resolve GCP credential file for Vertex AI authentication.
-			fileVar := profile.FileVar
-			if fileVar != "" {
-				filePath := os.Getenv(fileVar)
-				if filePath == "" {
-					home, _ := os.UserHomeDir()
-					defaultADC := home + "/.config/gcloud/application_default_credentials.json"
-					if _, err := os.Stat(defaultADC); err == nil {
-						filePath = defaultADC
-					}
-				}
-				if filePath != "" {
-					cfg.FileVar = fileVar
-					cfg.FilePath = filePath
 				}
 			}
 
@@ -253,7 +232,7 @@ func DetectCredentials() []DetectedCredential {
 
 	// Check profiles in a deterministic order. More specific variants first
 	// (claude-vertex before claude) so we detect the right auth mode.
-	order := []string{"claude-vertex", "claude", "github", "gitlab", "openai", "nvidia", "vertex"}
+	order := []string{"claude-vertex", "claude", "github", "gitlab", "openai", "nvidia"}
 
 	for _, name := range order {
 		providerType := KnownProviderProfiles[name].Type
