@@ -318,14 +318,21 @@ func (c *cliClient) CreateProvider(ctx context.Context, name, providerType strin
 
 // UpdateProvider updates an existing provider's credentials.
 // The OpenShell CLI does not accept --type on update (type is immutable).
-func (c *cliClient) UpdateProvider(ctx context.Context, name, _ string, fromExisting bool, credentials map[string]string) error {
+func (c *cliClient) UpdateProvider(ctx context.Context, name, providerType string, fromExisting bool, credentials map[string]string) error {
 	start := time.Now()
 	args := []string{"provider", "update", name}
-	if fromExisting {
+	if providerType == "google-cloud" && fromExisting {
 		args = append(args, "--from-existing")
-	}
-	for k, v := range credentials {
-		args = append(args, "--credential", fmt.Sprintf("%s=%s", k, v))
+		for k, v := range credentials {
+			args = append(args, "--config", fmt.Sprintf("%s=%s", k, v))
+		}
+	} else {
+		if fromExisting {
+			args = append(args, "--from-existing")
+		}
+		for k, v := range credentials {
+			args = append(args, "--credential", fmt.Sprintf("%s=%s", k, v))
+		}
 	}
 	_, err := c.execCLI(ctx, args...)
 	log.Printf("DEBUG: openshell: UpdateProvider(%s) took %v", name, time.Since(start))
