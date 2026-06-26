@@ -1,6 +1,6 @@
 # Brainstorm Overview
 
-Last updated: 2026-06-22 (074 openshell resource limits)
+Last updated: 2026-06-26 (075 openshell native vertex provider)
 
 ## Active Brainstorms
 
@@ -39,6 +39,7 @@ Last updated: 2026-06-22 (074 openshell resource limits)
 | 072 | 2026-06-17 | Build skill iteration reduction | active | - |
 | 073 | 2026-06-20 | OpenShell SSH-to-HTTPS | active | - |
 | 074 | 2026-06-22 | OpenShell resource limits | active | - |
+| 075 | 2026-06-26 | OpenShell native Vertex provider | active | - |
 
 ## Open Threads
 
@@ -72,6 +73,7 @@ Last updated: 2026-06-22 (074 openshell resource limits)
 - Build skill iteration reduction: 13 skill changes to eliminate build iterations. Skill-first approach chosen (edit markdowns + templates, no new Go code). Dual-phase asset verification (capture + build), shell config dependency scanning, post_install dry-run at capture, snippet verification on refresh. Depends on #064, #060 (from #072, revisited 2026-06-20)
 - OpenShell SSH-to-HTTPS: Convert SSH git URLs to HTTPS for OpenShell sandboxes. OpenShell's HTTP CONNECT proxy cannot resolve DNS for SSH (UDP port 53 bypasses proxy). Fix: convert in buildCloneCommand() + git insteadOf config in image. (from #073)
 - OpenShell resource limits: Expose --cpu and --memory flags on ws new for OpenShell sandboxes. Defaults are 2 vCPU / 2 GB (too low for Rust/Java builds). Phase 1: CLI flags. Phase 2: manifest defaults with capture-time detection. (from #074)
+- OpenShell native Vertex provider: Replace homegrown Vertex credential handling with OpenShell's native google-cloud provider (GCE metadata emulator, PR #1763). Remove file credential upload, dead vertex profile, Vertex network domains from OpenShell policy. Keep env var injection for Claude Code. OpenShell workspaces only. (from #075)
 
 ## Parked Ideas
 
