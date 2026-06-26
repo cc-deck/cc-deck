@@ -362,6 +362,14 @@ func (c *cliClient) DeleteProvider(ctx context.Context, name string) error {
 func (c *cliClient) EnsureProvider(ctx context.Context, name, providerType string, fromExisting bool, credentials map[string]string) error {
 	err := c.CreateProvider(ctx, name, providerType, fromExisting, credentials)
 	if err != nil && strings.Contains(err.Error(), "already exists") {
+		if providerType == "google-cloud" {
+			// The update command doesn't support --from-gcloud-adc,
+			// so delete and recreate for google-cloud providers.
+			if delErr := c.DeleteProvider(ctx, name); delErr != nil {
+				return delErr
+			}
+			return c.CreateProvider(ctx, name, providerType, fromExisting, credentials)
+		}
 		return c.UpdateProvider(ctx, name, providerType, fromExisting, credentials)
 	}
 	return err
