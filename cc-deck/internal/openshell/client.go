@@ -295,11 +295,18 @@ func (c *cliClient) Download(ctx context.Context, sandboxName, remotePath, local
 func (c *cliClient) CreateProvider(ctx context.Context, name, providerType string, fromExisting bool, credentials map[string]string) error {
 	start := time.Now()
 	args := []string{"provider", "create", "--name", name, "--type", providerType}
-	if fromExisting {
-		args = append(args, "--from-existing")
-	}
-	for k, v := range credentials {
-		args = append(args, "--credential", fmt.Sprintf("%s=%s", k, v))
+	if providerType == "google-cloud" && fromExisting {
+		args = append(args, "--from-gcloud-adc")
+		for k, v := range credentials {
+			args = append(args, "--config", fmt.Sprintf("%s=%s", k, v))
+		}
+	} else {
+		if fromExisting {
+			args = append(args, "--from-existing")
+		}
+		for k, v := range credentials {
+			args = append(args, "--credential", fmt.Sprintf("%s=%s", k, v))
+		}
 	}
 	_, err := c.execCLI(ctx, args...)
 	log.Printf("DEBUG: openshell: CreateProvider(%s, %s) took %v", name, providerType, time.Since(start))

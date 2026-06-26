@@ -53,19 +53,23 @@ func (m *mockClient) EnsureProvider(_ context.Context, _, _ string, _ bool, _ ma
 }
 
 func TestKnownProviderProfiles_AllTypesExist(t *testing.T) {
-	expectedTypes := []string{"claude", "anthropic", "github", "gitlab", "openai", "nvidia", "vertex", "generic"}
+	expectedTypes := []string{"claude", "anthropic", "github", "gitlab", "openai", "nvidia", "generic"}
 	for _, typ := range expectedTypes {
 		_, ok := KnownProviderProfiles[typ]
 		assert.True(t, ok, "expected profile for type %q", typ)
 	}
+	// vertex profile was removed; google-cloud is accessed via claude-vertex variant
+	_, ok := KnownProviderProfiles["vertex"]
+	assert.False(t, ok, "standalone vertex profile should be removed")
 }
 
-func TestKnownProviderProfiles_VertexHasEndpoints(t *testing.T) {
-	profile := KnownProviderProfiles["vertex"]
-	assert.Equal(t, "GOOGLE_APPLICATION_CREDENTIALS", profile.FileVar)
-	require.Len(t, profile.Endpoints, 1)
-	assert.Equal(t, "oauth2.googleapis.com", profile.Endpoints[0].Host)
-	assert.Equal(t, 443, profile.Endpoints[0].Port)
+func TestKnownProviderProfiles_ClaudeVertexUsesGoogleCloud(t *testing.T) {
+	profile := KnownProviderProfiles["claude-vertex"]
+	assert.Equal(t, "google-cloud", profile.Type)
+	assert.Empty(t, profile.FileVar)
+	assert.Empty(t, profile.Endpoints)
+	assert.Contains(t, profile.DetectVars, "CLAUDE_CODE_USE_VERTEX")
+	assert.Contains(t, profile.DetectVars, "ANTHROPIC_VERTEX_PROJECT_ID")
 }
 
 func TestKnownProviderProfiles_GenericHasNoVars(t *testing.T) {
@@ -86,7 +90,6 @@ func TestResolveDefaultEnvVars_KnownTypes(t *testing.T) {
 		{"gitlab", []string{"GITLAB_TOKEN", "GLAB_TOKEN"}},
 		{"openai", []string{"OPENAI_API_KEY"}},
 		{"nvidia", []string{"NVIDIA_API_KEY"}},
-		{"vertex", []string{"GOOGLE_APPLICATION_CREDENTIALS", "ANTHROPIC_VERTEX_PROJECT_ID", "CLOUD_ML_REGION"}},
 	}
 
 	for _, tt := range tests {
@@ -177,19 +180,40 @@ func TestResolveCredentials_UnknownTypeFallsBackToGeneric(t *testing.T) {
 	assert.Equal(t, "value123", configs[0].Credentials["MY_CUSTOM_KEY"])
 }
 
-func TestResolveCredentials_VertexWithFile(t *testing.T) {
-	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", "/tmp/sa.json")
+func TestResolveCredentials_ClaudeVertexUsesGoogleCloudProvider(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_USE_VERTEX", "1")
 	t.Setenv("ANTHROPIC_VERTEX_PROJECT_ID", "my-project")
+	t.Setenv("CLOUD_ML_REGION", "us-east5")
 
 	entries := []CredentialInput{
-		{Type: "vertex"},
+		{Type: "claude-vertex"},
 	}
 
 	configs := ResolveCredentials(entries, "ws")
 	require.Len(t, configs, 1)
-	assert.Equal(t, "vertex", configs[0].Type)
-	assert.Equal(t, "GOOGLE_APPLICATION_CREDENTIALS", configs[0].FileVar)
-	assert.Equal(t, "/tmp/sa.json", configs[0].FilePath)
+	assert.Equal(t, "google-cloud", configs[0].Type)
+	assert.True(t, configs[0].FromExisting)
+	assert.Equal(t, "my-project", configs[0].Credentials["project_id"])
+	assert.Equal(t, "us-east5", configs[0].Credentials["region"])
+	assert.Empty(t, configs[0].FileVar)
+	assert.Empty(t, configs[0].FilePath)
+	assert.Equal(t, "1", configs[0].EnvVarsToInject["CLAUDE_CODE_USE_VERTEX"])
+	assert.Equal(t, "my-project", configs[0].EnvVarsToInject["ANTHROPIC_VERTEX_PROJECT_ID"])
+	assert.Equal(t, "us-east5", configs[0].EnvVarsToInject["CLOUD_ML_REGION"])
+}
+
+func TestResolveCredentials_ClaudeVertexDefaultsRegionToGlobal(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_USE_VERTEX", "1")
+	t.Setenv("ANTHROPIC_VERTEX_PROJECT_ID", "my-project")
+	t.Setenv("CLOUD_ML_REGION", "")
+
+	entries := []CredentialInput{
+		{Type: "claude-vertex"},
+	}
+
+	configs := ResolveCredentials(entries, "ws")
+	require.Len(t, configs, 1)
+	assert.Equal(t, "global", configs[0].Credentials["region"])
 }
 
 func TestResolveCredentials_ExplicitEnvVarsOverrideDefaults(t *testing.T) {
@@ -327,7 +351,7 @@ func TestUploadFileCredential_Success(t *testing.T) {
 	assert.Equal(t, 2, client.execCount) // .bashrc + .zshrc
 }
 
-func TestDetectCredentials_VertexDetection(t *testing.T) {
+func TestDetectCredentials_ClaudeVertexDetection(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	t.Setenv("GITHUB_TOKEN", "")
 	t.Setenv("GH_TOKEN", "")
@@ -335,11 +359,27 @@ func TestDetectCredentials_VertexDetection(t *testing.T) {
 	t.Setenv("NVIDIA_API_KEY", "")
 	t.Setenv("GITLAB_TOKEN", "")
 	t.Setenv("GLAB_TOKEN", "")
-	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", "/path/to/sa.json")
-	t.Setenv("ANTHROPIC_VERTEX_PROJECT_ID", "")
+	t.Setenv("CLAUDE_CODE_USE_VERTEX", "1")
+	t.Setenv("ANTHROPIC_VERTEX_PROJECT_ID", "my-project")
 
 	detected := DetectCredentials()
 	require.Len(t, detected, 1)
-	assert.Equal(t, "vertex", detected[0].Type)
-	assert.Equal(t, "GOOGLE_APPLICATION_CREDENTIALS", detected[0].File)
+	assert.Equal(t, "claude-vertex", detected[0].Type)
+	assert.Empty(t, detected[0].File)
+}
+
+func TestDetectCredentials_NoStandaloneVertexProfile(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("GH_TOKEN", "")
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("NVIDIA_API_KEY", "")
+	t.Setenv("GITLAB_TOKEN", "")
+	t.Setenv("GLAB_TOKEN", "")
+	t.Setenv("CLAUDE_CODE_USE_VERTEX", "")
+	t.Setenv("ANTHROPIC_VERTEX_PROJECT_ID", "")
+	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", "/path/to/sa.json")
+
+	detected := DetectCredentials()
+	assert.Empty(t, detected)
 }
