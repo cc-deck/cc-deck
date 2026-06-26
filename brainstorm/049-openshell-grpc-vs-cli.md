@@ -2,6 +2,7 @@
 
 **Date:** 2026-05-06
 **Status:** active
+**Revisited:** 2026-06-26
 **Context:** The OpenShell backend (049) needs to communicate with the OpenShell gateway. Two approaches are viable: direct gRPC client or wrapping the `openshell` CLI binary. The current implementation shells out to the CLI but uses incorrect syntax. Either way, the code needs rework.
 
 ## Problem Framing
@@ -121,3 +122,95 @@ This is effectively Approach A but acknowledging that the CLI dependency remains
 4. **Is the gRPC investment worthwhile for alpha software?** If OpenShell reaches 1.0 with a stable proto API, gRPC becomes clearly better. At v0.0.x, the investment may be premature.
 
 5. **What's the real-world failure mode?** CLI wrapping fails with "openshell not found" (clear) or output format changes (debuggable). gRPC fails with TLS errors, proto version mismatches, or connection management bugs (harder to debug for users).
+
+---
+
+## Revisit: 2026-06-26
+
+### Updated Problem Framing
+
+Six weeks of production CLI wrapping (Approach B) have exposed concrete failure modes that the original analysis predicted but underestimated:
+
+**Vertex provider migration (brainstorm #075)**: Switching from cc-deck's homegrown Vertex credential handling to OpenShell's native `google-cloud` provider required three consecutive bug fixes:
+1. `CreateProvider` needed `--from-gcloud-adc` instead of `--from-existing` for `google-cloud` type, plus `--config` instead of `--credential`
+2. `UpdateProvider` had the same flag incompatibility (the update command doesn't support `--from-gcloud-adc` at all)
+3. `EnsureProvider` failed when deleting a provider attached to stale sandboxes
+
+Each of these was a runtime failure discovered only during manual testing. With gRPC, the `Provider` proto message has separate `credentials` and `config` map fields, so there's no flag confusion. The `CreateProvider` and `UpdateProvider` RPCs accept the same `Provider` struct. These bugs would not have existed.
+
+**Supervisor/gateway version mismatch**: Building the gateway from source (`main` branch) pulled `supervisor:latest` from ghcr.io, which was from a different release and required `OPENSHELL_SANDBOX_TOKEN` that the gateway wasn't injecting. This was a runtime crash with no compile-time signal.
+
+**CLI flag changes across versions**: The CLI changed from positional `image` argument to `--from <image>`. The `provider create` command added `--from-gcloud-adc` and `--config` flags. The `provider update` command does NOT support `--from-gcloud-adc` even though `create` does. None of these asymmetries are discoverable until runtime.
+
+### Key Finding: CLI is NOT Needed for SSH or File Transfer
+
+The original analysis assumed "CLI still needed for SSH and git." Research into the actual OpenShell CLI source reveals this is wrong:
+
+**SSH**: The CLI itself calls `CreateSshSession` via gRPC (`ssh.rs:98`) to get a token, gateway host, and port. It then builds a `ProxyCommand` that points to the `openshell` binary as a tunnel proxy (HTTP CONNECT through the gateway). In Go, this tunnel can be implemented natively: call `CreateSshSession` via gRPC, then use `golang.org/x/crypto/ssh` with a custom `net.Conn` that tunnels through the gateway's HTTP CONNECT endpoint.
+
+**File upload**: The CLI implements upload as SSH + tar pipe (`ssh.rs:751`). It opens an SSH session, then streams a tar archive over stdin to `tar xf -` on the remote side. No special gRPC RPC exists. Go can do the same via its SSH library once the tunnel is established.
+
+**Interactive exec**: The `ExecSandboxInteractive` RPC is a bidirectional gRPC stream. Full PTY support without the CLI.
+
+This means **the CLI can be fully eliminated as a runtime dependency**. It's only needed for one-time gateway setup (`openshell gateway start`), which is a setup concern, not a runtime concern.
+
+### Updated Comparison Matrix
+
+| Dimension | gRPC (A, updated) | CLI Fixed (B, current) |
+|-----------|-------------------|----------------------|
+| Type safety | Strong (proto, compile-time) | Weak (string flags, runtime failures) |
+| Build complexity | Medium (protoc + deps, one-time setup) | None |
+| New dependencies | grpc, protobuf, x/crypto/ssh | None |
+| CLI runtime dependency | None (setup only) | Required for everything |
+| Provider creation | `CreateProviderRequest{Provider{config: {...}}}` | `--from-gcloud-adc --config key=value` (version-dependent) |
+| Provider update | Same proto as create | Different flags than create (no `--from-gcloud-adc`) |
+| Streaming exec | Native server/bidi stream | Subprocess stdout capture |
+| File upload | Go SSH + tar pipe (same as CLI internally) | CLI subprocess + tar pipe |
+| Error handling | gRPC status codes | String matching |
+| mTLS handling | Load certs from known XDG/brew paths | CLI handles it |
+| Test mocking | Clean interface mock (existing `Client` interface) | Subprocess mock |
+| Lines of change | ~800 new (grpc client + SSH tunnel + proto) | ~50 per CLI flag fix |
+| Failure discovery | Compile time (proto mismatch) | Runtime (wrong flags, output changes) |
+| K8s operator readiness | gRPC client reusable for operator controller | CLI wrapping won't work in-cluster |
+
+### New Approaches Considered
+
+The three original approaches (A: gRPC, B: CLI, C: Hybrid) still apply. The revisit adds evidence and corrects assumptions.
+
+**Original Approach A is now stronger** because:
+- CLI is NOT needed for SSH or file transfer (corrects the original assumption)
+- Real-world CLI flag breakage (Vertex provider) validates the compile-time safety argument
+- K8s operator work (brainstorm #1719) needs gRPC anyway (CLI wrapping doesn't work in-cluster)
+
+**Original Approach B is now weaker** because:
+- Three runtime bugs in a single feature migration (Vertex provider)
+- Provider create/update API asymmetry only discoverable at runtime
+- No path to K8s operator integration
+
+**Original Approach C (Hybrid) is eliminated** because the SSH/upload CLI dependency assumption was wrong. There's no reason to keep a partial CLI dependency.
+
+### Updated Decision
+
+**Chosen: Approach A (Full gRPC replacement)**
+
+Implement a `grpcClient` that implements the existing `Client` interface. The `Client` interface stays unchanged, so `ws/openshell.go` and all callers don't need modifications.
+
+**Implementation plan:**
+1. Add proto codegen infrastructure (Makefile target, vendored proto files pinned to a release tag)
+2. Implement `grpcClient` with mTLS connection setup (cert paths from XDG/brew locations)
+3. Migrate sandbox CRUD: `CreateSandbox`, `GetSandbox`, `DeleteSandbox`
+4. Migrate provider management: `CreateProvider`, `UpdateProvider`, `DeleteProvider`, `EnsureProvider`
+5. Migrate exec: `ExecSandbox` (server-streaming), `ExecSandboxInteractive` (bidi-streaming)
+6. Implement Go-native SSH tunnel: `CreateSshSession` gRPC call + HTTP CONNECT proxy + `golang.org/x/crypto/ssh`
+7. Migrate file transfer: `Upload` and `Download` via SSH + tar pipe over Go SSH
+8. Remove `cliClient` (keep as `cliClient_legacy.go` behind build tag for one release)
+
+**Proto pinning strategy:** Vendor proto files from a specific OpenShell release tag (not `main`). When updating, regenerate and fix compile errors. This makes API changes visible and intentional.
+
+**mTLS cert resolution:** Check paths in order: `$OPENSHELL_LOCAL_TLS_DIR` env var, `~/.local/state/openshell/homebrew/tls/`, XDG data dir. Fall back to insecure (no TLS) for localhost connections (matching CLI behavior).
+
+### Open Threads
+- Proto file vendoring: copy from OpenShell release tarball or use `buf` for dependency management?
+- SSH tunnel implementation: use `golang.org/x/crypto/ssh` directly or `net/http` HTTP CONNECT to gateway tunnel endpoint?
+- The edge tunnel (WebSocket-based, for gateways behind Cloudflare) is complex. Defer until needed (local dev and K8s don't use edge auth).
+- Should the legacy `cliClient` be kept behind a build tag for one release, or removed immediately?
