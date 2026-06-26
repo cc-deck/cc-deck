@@ -1,6 +1,6 @@
 # Brainstorm Overview
 
-Last updated: 2026-06-26 (075 openshell native vertex provider)
+Last updated: 2026-06-26 (049 revisited, 075 openshell native vertex provider)
 
 ## Active Brainstorms
 
@@ -17,6 +17,7 @@ Last updated: 2026-06-26 (075 openshell native vertex provider)
 | 046 | 2026-04-30 | Voice attend stop word | active | - |
 | 047 | 2026-04-30 | Landing page revival | active | - |
 | 048 | 2026-05-04 | Voice transcript recording | active | - |
+| 049 | 2026-05-06 | OpenShell gRPC vs CLI | active | - |
 | 049 | 2026-05-06 | WASM dead code cleanup | active | - |
 | 050 | 2026-05-06 | Test coverage measurement | active | - |
 | 053 | 2026-05-15 | OpenShell build integration | active | - |
@@ -74,6 +75,7 @@ Last updated: 2026-06-26 (075 openshell native vertex provider)
 - OpenShell SSH-to-HTTPS: Convert SSH git URLs to HTTPS for OpenShell sandboxes. OpenShell's HTTP CONNECT proxy cannot resolve DNS for SSH (UDP port 53 bypasses proxy). Fix: convert in buildCloneCommand() + git insteadOf config in image. (from #073)
 - OpenShell resource limits: Expose --cpu and --memory flags on ws new for OpenShell sandboxes. Defaults are 2 vCPU / 2 GB (too low for Rust/Java builds). Phase 1: CLI flags. Phase 2: manifest defaults with capture-time detection. (from #074)
 - OpenShell native Vertex provider: Replace homegrown Vertex credential handling with OpenShell's native google-cloud provider (GCE metadata emulator, PR #1763). Remove file credential upload, dead vertex profile, Vertex network domains from OpenShell policy. Keep env var injection for Claude Code. OpenShell workspaces only. (from #075)
+- OpenShell gRPC migration: **decided** full gRPC replacement of CLI wrapping. Vertex provider migration exposed three runtime CLI flag bugs. Research shows CLI not needed for SSH or file transfer (Go SSH + tar pipe). Proto codegen gives compile-time API validation. Eliminates CLI as runtime dependency. Enables K8s operator integration. Proto files pinned to release tags. Implementation: grpcClient behind existing Client interface. (from #049, revisited 2026-06-26)
 
 ## Parked Ideas
 
