@@ -470,6 +470,32 @@ fn handle_navigate_key(state: &mut SidebarState, key: KeyWithModifier) -> bool {
             crate::wasm_compat::set_selectable_wasm(false);
             true
         }
+        BareKey::Char('J') => {
+            // Move session down in sort order
+            let cursor = state.mode.cursor_index();
+            let cursor_pane_id = if cursor < sessions.len() {
+                Some(sessions[cursor].pane_id)
+            } else {
+                None
+            };
+            drop(sessions);
+            state.sort_cursor_pane_id = cursor_pane_id;
+            send_action(state, ActionType::MoveDown, cursor_pane_id, None, None);
+            true
+        }
+        BareKey::Char('K') => {
+            // Move session up in sort order
+            let cursor = state.mode.cursor_index();
+            let cursor_pane_id = if cursor < sessions.len() {
+                Some(sessions[cursor].pane_id)
+            } else {
+                None
+            };
+            drop(sessions);
+            state.sort_cursor_pane_id = cursor_pane_id;
+            send_action(state, ActionType::MoveUp, cursor_pane_id, None, None);
+            true
+        }
         _ => false,
     }
 }
