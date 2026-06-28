@@ -70,6 +70,12 @@ While in navigation mode, the following keys are available:
 | `p`
 | Toggle pause on the selected session (see xref:sessions.adoc#pause[Pause])
 
+| `S`
+| Sort sessions by activity tier (one-shot snapshot)
+
+| `J` / `K`
+| Move the selected session down/up in the sort order
+
 | `/`
 | Enter search mode (filter sessions by name)
 
