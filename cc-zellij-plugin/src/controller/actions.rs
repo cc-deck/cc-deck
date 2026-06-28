@@ -259,16 +259,18 @@ fn handle_new_session(state: &mut ControllerState) {
 // --- Sort by activity ---
 
 /// Classify a session into a sort tier.
-/// Tier 0 (Active): Working or Waiting, not paused.
-/// Tier 1 (Inactive): Idle, Done, AgentDone, Init, not paused.
-/// Tier 2 (Paused): paused == true, regardless of activity.
+/// Tier 0 (Active): Working or Waiting.
+/// Tier 1 (Done): Done or AgentDone (needs attention).
+/// Tier 2 (Idle): Idle or Init.
+/// Tier 3 (Paused): paused == true, regardless of activity.
 pub(super) fn sort_tier(session: &Session) -> u8 {
     if session.paused {
-        return 2;
+        return 3;
     }
     match session.activity {
         Activity::Working | Activity::Waiting(_) => 0,
-        Activity::Idle | Activity::Done | Activity::AgentDone | Activity::Init => 1,
+        Activity::Done | Activity::AgentDone => 1,
+        Activity::Idle | Activity::Init => 2,
     }
 }
 
@@ -698,31 +700,30 @@ mod tests {
     }
 
     #[test]
-    fn test_sort_tier_idle_is_inactive() {
+    fn test_sort_tier_idle_is_idle() {
         let mut s = Session::new(1, "test".into());
         s.activity = Activity::Idle;
-        assert_eq!(sort_tier(&s), 1);
+        assert_eq!(sort_tier(&s), 2);
     }
 
     #[test]
-    fn test_sort_tier_done_is_inactive() {
+    fn test_sort_tier_done_is_done() {
         let mut s = Session::new(1, "test".into());
         s.activity = Activity::Done;
         assert_eq!(sort_tier(&s), 1);
     }
 
     #[test]
-    fn test_sort_tier_agent_done_is_inactive() {
+    fn test_sort_tier_agent_done_is_done() {
         let mut s = Session::new(1, "test".into());
         s.activity = Activity::AgentDone;
         assert_eq!(sort_tier(&s), 1);
     }
 
     #[test]
-    fn test_sort_tier_init_is_inactive() {
+    fn test_sort_tier_init_is_idle() {
         let s = Session::new(1, "test".into());
-        // Default activity is Init
-        assert_eq!(sort_tier(&s), 1);
+        assert_eq!(sort_tier(&s), 2);
     }
 
     #[test]
@@ -730,7 +731,7 @@ mod tests {
         let mut s = Session::new(1, "test".into());
         s.activity = Activity::Working;
         s.paused = true;
-        assert_eq!(sort_tier(&s), 2);
+        assert_eq!(sort_tier(&s), 3);
     }
 
     #[test]
@@ -738,7 +739,7 @@ mod tests {
         let mut s = Session::new(1, "test".into());
         s.activity = Activity::Idle;
         s.paused = true;
-        assert_eq!(sort_tier(&s), 2);
+        assert_eq!(sort_tier(&s), 3);
     }
 
     #[test]
@@ -746,7 +747,7 @@ mod tests {
         let mut s = Session::new(1, "test".into());
         s.activity = Activity::Waiting(WaitReason::Permission);
         s.paused = true;
-        assert_eq!(sort_tier(&s), 2);
+        assert_eq!(sort_tier(&s), 3);
     }
 
     // --- handle_sort tests (virtual sort toggle) ---
