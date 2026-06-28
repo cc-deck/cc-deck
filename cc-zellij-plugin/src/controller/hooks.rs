@@ -44,6 +44,9 @@ pub fn process_hook(state: &mut ControllerState, hook: HookPayload) -> bool {
 
         let removed = state.sessions.remove(&hook.pane_id).is_some();
         if removed {
+            if let Some(ref mut order) = state.sort_order {
+                order.retain(|&p| p != hook.pane_id);
+            }
             state.save_sessions();
             state.mark_render_dirty();
         }
