@@ -222,6 +222,7 @@ cc-deck config plugin install --layout minimal --force
 | `p` | Pause/unpause session |
 | `n` | New tab |
 | `S` | Sort sessions by activity |
+| `J` / `K` | Move session down/up in sort order |
 | `/` | Search/filter by name |
 | `?` | Show keyboard help |
 
