@@ -15,7 +15,7 @@ const BUFFER_CAPACITY: usize = 50;
 
 #[cfg(target_family = "wasm")]
 thread_local! {
-    static LOG_BUFFER: std::cell::RefCell<Vec<String>> = std::cell::RefCell::new(Vec::new());
+    static LOG_BUFFER: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
 #[cfg(target_family = "wasm")]

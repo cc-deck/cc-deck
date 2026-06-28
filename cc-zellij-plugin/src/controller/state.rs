@@ -126,6 +126,8 @@ pub struct ControllerState {
     pub last_leader_ping_ms: u64,
     /// Timer ticks since startup ping was sent.
     pub election_ticks: u32,
+    /// Whether virtual sort-by-activity is currently active (display-only).
+    pub sort_active: bool,
 }
 
 
@@ -308,13 +310,13 @@ impl ControllerState {
                         changed = true;
                     }
                 }
-                Activity::Idle if !session.paused => {
-                    if auto_pause > 0
-                        && now.saturating_sub(session.last_event_ts) >= auto_pause
-                    {
-                        session.paused = true;
-                        changed = true;
-                    }
+                Activity::Idle
+                    if !session.paused
+                        && auto_pause > 0
+                        && now.saturating_sub(session.last_event_ts) >= auto_pause =>
+                {
+                    session.paused = true;
+                    changed = true;
                 }
                 _ => {}
             }

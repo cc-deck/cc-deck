@@ -13,12 +13,19 @@ RUN for RC in {{.HomeDir}}/.bashrc {{.HomeDir}}/.zshrc; do \
 # FINAL SHELL SETUP (MUST be after all user config COPY/RUN layers)
 # ============================================================
 
+# UTF-8 locale (required for correct cursor positioning with multi-byte prompt characters)
+RUN for RC in {{.HomeDir}}/.bashrc {{.HomeDir}}/.zshrc; do \
+      if [ -f "$RC" ] && ! grep -q 'LANG=' "$RC"; then \
+        sed -i '1i export LANG=C.UTF-8' "$RC"; \
+      fi; \
+    done
+
 # Starship prompt init (for both bash and zsh)
 RUN if command -v starship >/dev/null 2>&1; then \
       for PAIR in "bash:{{.HomeDir}}/.bashrc" "zsh:{{.HomeDir}}/.zshrc"; do \
         SHELL_NAME="${PAIR%%:*}"; RC="${PAIR#*:}"; \
         if [ -f "$RC" ] && ! grep -q 'starship init' "$RC"; then \
-          echo 'eval "$(starship init '"$SHELL_NAME"')"' >> "$RC"; \
+          echo '[[ "$TERM" != "dumb" ]] && eval "$(starship init '"$SHELL_NAME"')"' >> "$RC"; \
         fi; \
       done; \
     fi

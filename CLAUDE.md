@@ -89,6 +89,7 @@ Rust (stable, latest edition 2021+): Follow standard conventions
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
+at `specs/074-virtual-sort-fix/plan.md`
 <!-- SPECKIT END -->
 
 <!-- MANUAL ADDITIONS START -->
@@ -131,5 +132,9 @@ When implementing a new backend for an existing interface (e.g., new Environment
 - Log: `~/Library/Caches/org.Zellij-Contributors.Zellij/file:~/.config/zellij/plugins/cc_deck.wasm/plugin_cache/debug.log`
 - Truncate before reproducing: `: > <log path>`
 - Flag checked once on plugin load; requires Zellij restart to take effect
+
+### Claude Code command files are executable code
+
+Files under `internal/build/commands/*.md` are Claude Code skills executed during `cc-deck build run`. They contain live instructions that directly affect Containerfile generation and build behavior. Treat them with the same rigor as Go or Rust source code. Bot review comments on command files are as valid as comments on compiled code.
 
 <!-- MANUAL ADDITIONS END -->

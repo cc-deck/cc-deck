@@ -295,11 +295,18 @@ func (c *cliClient) Download(ctx context.Context, sandboxName, remotePath, local
 func (c *cliClient) CreateProvider(ctx context.Context, name, providerType string, fromExisting bool, credentials map[string]string) error {
 	start := time.Now()
 	args := []string{"provider", "create", "--name", name, "--type", providerType}
-	if fromExisting {
-		args = append(args, "--from-existing")
-	}
-	for k, v := range credentials {
-		args = append(args, "--credential", fmt.Sprintf("%s=%s", k, v))
+	if providerType == "google-cloud" && fromExisting {
+		args = append(args, "--from-gcloud-adc")
+		for k, v := range credentials {
+			args = append(args, "--config", fmt.Sprintf("%s=%s", k, v))
+		}
+	} else {
+		if fromExisting {
+			args = append(args, "--from-existing")
+		}
+		for k, v := range credentials {
+			args = append(args, "--credential", fmt.Sprintf("%s=%s", k, v))
+		}
 	}
 	_, err := c.execCLI(ctx, args...)
 	log.Printf("DEBUG: openshell: CreateProvider(%s, %s) took %v", name, providerType, time.Since(start))
@@ -311,14 +318,21 @@ func (c *cliClient) CreateProvider(ctx context.Context, name, providerType strin
 
 // UpdateProvider updates an existing provider's credentials.
 // The OpenShell CLI does not accept --type on update (type is immutable).
-func (c *cliClient) UpdateProvider(ctx context.Context, name, _ string, fromExisting bool, credentials map[string]string) error {
+func (c *cliClient) UpdateProvider(ctx context.Context, name, providerType string, fromExisting bool, credentials map[string]string) error {
 	start := time.Now()
 	args := []string{"provider", "update", name}
-	if fromExisting {
+	if providerType == "google-cloud" && fromExisting {
 		args = append(args, "--from-existing")
-	}
-	for k, v := range credentials {
-		args = append(args, "--credential", fmt.Sprintf("%s=%s", k, v))
+		for k, v := range credentials {
+			args = append(args, "--config", fmt.Sprintf("%s=%s", k, v))
+		}
+	} else {
+		if fromExisting {
+			args = append(args, "--from-existing")
+		}
+		for k, v := range credentials {
+			args = append(args, "--credential", fmt.Sprintf("%s=%s", k, v))
+		}
 	}
 	_, err := c.execCLI(ctx, args...)
 	log.Printf("DEBUG: openshell: UpdateProvider(%s) took %v", name, time.Since(start))
@@ -348,6 +362,14 @@ func (c *cliClient) DeleteProvider(ctx context.Context, name string) error {
 func (c *cliClient) EnsureProvider(ctx context.Context, name, providerType string, fromExisting bool, credentials map[string]string) error {
 	err := c.CreateProvider(ctx, name, providerType, fromExisting, credentials)
 	if err != nil && strings.Contains(err.Error(), "already exists") {
+		if providerType == "google-cloud" {
+			// The update command doesn't support --from-gcloud-adc,
+			// so delete and recreate for google-cloud providers.
+			if delErr := c.DeleteProvider(ctx, name); delErr != nil {
+				return delErr
+			}
+			return c.CreateProvider(ctx, name, providerType, fromExisting, credentials)
+		}
 		return c.UpdateProvider(ctx, name, providerType, fromExisting, credentials)
 	}
 	return err
