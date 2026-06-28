@@ -41,7 +41,8 @@ func TestK8sDeployLifecycle(t *testing.T) {
 	// Verify instance recorded.
 	inst, err := store.FindInstanceByName(wsName)
 	require.NoError(t, err)
-	assert.Equal(t, ws.WorkspaceStateRunning, inst.State)
+	require.NotNil(t, inst.InfraState)
+	assert.Equal(t, ws.InfraStateRunning, *inst.InfraState)
 	assert.Equal(t, testNamespace, inst.K8s.Namespace)
 
 	// Stop
@@ -49,14 +50,16 @@ func TestK8sDeployLifecycle(t *testing.T) {
 	require.NoError(t, err, "Stop should succeed")
 
 	inst, _ = store.FindInstanceByName(wsName)
-	assert.Equal(t, ws.WorkspaceStateStopped, inst.State)
+	require.NotNil(t, inst.InfraState)
+	assert.Equal(t, ws.InfraStateStopped, *inst.InfraState)
 
 	// Start
 	err = ke.Start(ctx)
 	require.NoError(t, err, "Start should succeed")
 
 	inst, _ = store.FindInstanceByName(wsName)
-	assert.Equal(t, ws.WorkspaceStateRunning, inst.State)
+	require.NotNil(t, inst.InfraState)
+	assert.Equal(t, ws.InfraStateRunning, *inst.InfraState)
 
 	// Status
 	status, err := ke.Status(ctx)
