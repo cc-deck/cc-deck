@@ -34,10 +34,31 @@ var sshRoles = []string{"base", "tools", "zellij", "claude", "cc_deck", "plugins
 func InitSetupDir(dir string, projectRoot string, force bool, targets []string) error {
 	manifestPath := filepath.Join(dir, "build.yaml")
 
-	// Check for existing manifest (unless --force)
-	if !force {
-		if _, err := os.Stat(manifestPath); err == nil {
+	// Check for existing manifest
+	manifestExists := false
+	if _, err := os.Stat(manifestPath); err == nil {
+		manifestExists = true
+		if !force {
 			return fmt.Errorf("setup directory already initialized: %s exists (use --force to overwrite)", manifestPath)
+		}
+	}
+
+	// When --force is used with an existing manifest, preserve it (user data
+	// from capture). Only re-extract embedded artifacts (skills, templates,
+	// snippets, scripts). Read configured targets so snippets are regenerated.
+	if force && manifestExists {
+		if existing, err := LoadManifest(manifestPath); err == nil {
+			if existing.Targets != nil {
+				if existing.Targets.Container != nil && existing.Targets.Container.Name != "" && !containsTarget(targets, "container") {
+					targets = append(targets, "container")
+				}
+				if existing.Targets.SSH != nil && existing.Targets.SSH.Host != "" && !containsTarget(targets, "ssh") {
+					targets = append(targets, "ssh")
+				}
+				if existing.Targets.OpenShell != nil && existing.Targets.OpenShell.Name != "" && !containsTarget(targets, "openshell") {
+					targets = append(targets, "openshell")
+				}
+			}
 		}
 	}
 
@@ -46,46 +67,53 @@ func InitSetupDir(dir string, projectRoot string, force bool, targets []string) 
 		return fmt.Errorf("creating setup directory: %w", err)
 	}
 
-	absRoot, absErr := filepath.Abs(projectRoot)
-	if absErr != nil {
-		return fmt.Errorf("resolving project root: %w", absErr)
-	}
-	imageName := filepath.Base(absRoot)
+	// Only write the manifest template when no manifest exists yet.
+	// --force preserves the existing manifest (it contains user data from capture).
+	// Use /cc-deck.capture --fresh to reset the manifest if needed.
+	if !manifestExists {
+		absRoot, absErr := filepath.Abs(projectRoot)
+		if absErr != nil {
+			return fmt.Errorf("resolving project root: %w", absErr)
+		}
+		imageName := filepath.Base(absRoot)
 
-	// Write manifest from template
-	tmplData, err := ManifestTemplate()
-	if err != nil {
-		return fmt.Errorf("reading manifest template: %w", err)
+		tmplData, err := ManifestTemplate()
+		if err != nil {
+			return fmt.Errorf("reading manifest template: %w", err)
+		}
+
+		tmpl, err := template.New("manifest").Parse(string(tmplData))
+		if err != nil {
+			return fmt.Errorf("parsing manifest template: %w", err)
+		}
+
+		var buf bytes.Buffer
+		if err := tmpl.Execute(&buf, map[string]string{
+			"ImageName": imageName,
+			"BaseImage": DefaultBaseImage,
+		}); err != nil {
+			return fmt.Errorf("executing manifest template: %w", err)
+		}
+
+		manifestContent := buf.String()
+		hasContainer := containsTarget(targets, "container")
+		hasSSH := containsTarget(targets, "ssh")
+		hasOpenShell := containsTarget(targets, "openshell")
+
+		if hasContainer || hasSSH || hasOpenShell {
+			manifestContent = uncommentTargets(manifestContent, hasContainer, hasSSH, hasOpenShell)
+		}
+
+		if err := os.WriteFile(manifestPath, []byte(manifestContent), 0o644); err != nil {
+			return fmt.Errorf("writing manifest: %w", err)
+		}
 	}
 
-	tmpl, err := template.New("manifest").Parse(string(tmplData))
-	if err != nil {
-		return fmt.Errorf("parsing manifest template: %w", err)
-	}
-
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, map[string]string{
-		"ImageName": imageName,
-		"BaseImage": DefaultBaseImage,
-	}); err != nil {
-		return fmt.Errorf("executing manifest template: %w", err)
-	}
-
-	// Apply target-specific modifications to the manifest content
-	manifestContent := buf.String()
+	// Create target-specific directories and extract Containerfile snippets.
 	hasContainer := containsTarget(targets, "container")
 	hasSSH := containsTarget(targets, "ssh")
 	hasOpenShell := containsTarget(targets, "openshell")
 
-	if hasContainer || hasSSH || hasOpenShell {
-		manifestContent = uncommentTargets(manifestContent, hasContainer, hasSSH, hasOpenShell)
-	}
-
-	if err := os.WriteFile(manifestPath, []byte(manifestContent), 0o644); err != nil {
-		return fmt.Errorf("writing manifest: %w", err)
-	}
-
-	// Create target-specific directories and extract Containerfile snippets.
 	if hasContainer {
 		containerDir := filepath.Join(dir, "container", "context")
 		if err := os.MkdirAll(containerDir, 0o755); err != nil {

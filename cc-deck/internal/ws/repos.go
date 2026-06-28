@@ -142,11 +142,41 @@ func resolveGitCredentials(credType config.GitCredentialType, credSecret string)
 	}
 }
 
+// sshToHTTPS converts an SSH git URL to HTTPS format.
+// Handles both git@host:path and ssh://git@host/path formats.
+// Returns the URL unchanged if it is not an SSH URL.
+func sshToHTTPS(rawURL string) string {
+	if strings.HasPrefix(rawURL, "git@") {
+		rest := strings.TrimPrefix(rawURL, "git@")
+		if idx := strings.Index(rest, ":"); idx >= 0 {
+			host := rest[:idx]
+			p := rest[idx+1:]
+			return "https://" + host + "/" + p
+		}
+	}
+	if strings.HasPrefix(rawURL, "ssh://") {
+		parsed, err := url.Parse(rawURL)
+		if err == nil {
+			return "https://" + parsed.Hostname() + parsed.Path
+		}
+	}
+	return rawURL
+}
+
 // buildCloneCommand constructs a git clone command string for the given
 // repo entry. When credentials are provided and the URL is HTTPS, the
-// token is injected into the URL.
-func buildCloneCommand(entry RepoEntry, workspace string, creds *GitCredentials) string {
+// token is injected into the URL. When convertSSH is true, SSH URLs
+// are converted to HTTPS (required for OpenShell sandboxes where DNS
+// resolution fails for non-HTTP protocols).
+func buildCloneCommand(entry RepoEntry, workspace string, creds *GitCredentials, convertSSH bool) string {
 	cloneURL := entry.URL
+	if convertSSH {
+		converted := sshToHTTPS(cloneURL)
+		if converted != cloneURL {
+			log.Printf("  Converting SSH URL to HTTPS for OpenShell sandbox: %s -> %s", cloneURL, converted)
+			cloneURL = converted
+		}
+	}
 	if creds != nil && creds.Type == config.GitCredentialToken && creds.Token != "" {
 		cloneURL = injectToken(cloneURL, creds.Token)
 	}
@@ -210,7 +240,7 @@ const maxConcurrentClones = 4
 //
 // extraRemotes is a map of remote-name to URL, applied only to the repo
 // matching autoDetectedURL (the auto-detected repo from the user's cwd).
-func cloneRepos(ctx context.Context, runner CommandRunner, repos []RepoEntry, workspace string, creds *GitCredentials, extraRemotes map[string]string, autoDetectedURL string) []RepoCloneResult {
+func cloneRepos(ctx context.Context, runner CommandRunner, repos []RepoEntry, workspace string, creds *GitCredentials, extraRemotes map[string]string, autoDetectedURL string, convertSSH ...bool) []RepoCloneResult {
 	repos = DeduplicateRepos(repos)
 	results := make([]RepoCloneResult, len(repos))
 
@@ -225,7 +255,7 @@ func cloneRepos(ctx context.Context, runner CommandRunner, repos []RepoEntry, wo
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			results[idx] = cloneSingleRepo(ctx, runner, e, workspace, creds, autoDetected, extraRemotes)
+			results[idx] = cloneSingleRepo(ctx, runner, e, workspace, creds, autoDetected, extraRemotes, len(convertSSH) > 0 && convertSSH[0])
 		}(i, entry, isAutoDetected)
 	}
 
@@ -242,7 +272,7 @@ func cloneRepos(ctx context.Context, runner CommandRunner, repos []RepoEntry, wo
 	return results
 }
 
-func cloneSingleRepo(ctx context.Context, runner CommandRunner, entry RepoEntry, workspace string, creds *GitCredentials, isAutoDetected bool, extraRemotes map[string]string) RepoCloneResult {
+func cloneSingleRepo(ctx context.Context, runner CommandRunner, entry RepoEntry, workspace string, creds *GitCredentials, isAutoDetected bool, extraRemotes map[string]string, doConvertSSH bool) RepoCloneResult {
 	if entry.URL == "" {
 		return RepoCloneResult{Entry: entry, Success: false, Message: "empty URL"}
 	}
@@ -262,7 +292,7 @@ func cloneSingleRepo(ctx context.Context, runner CommandRunner, entry RepoEntry,
 	}
 
 	// Clone the repository.
-	cloneCmd := buildCloneCommand(entry, workspace, creds)
+	cloneCmd := buildCloneCommand(entry, workspace, creds, doConvertSSH)
 	if _, cloneErr := runner(ctx, cloneCmd); cloneErr != nil {
 		return RepoCloneResult{
 			Entry:   entry,

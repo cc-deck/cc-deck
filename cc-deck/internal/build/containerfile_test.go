@@ -305,7 +305,7 @@ func TestRenderSnippets_WithoutToolPaths(t *testing.T) {
 	shellFinalize := snippets["05-shell-finalize"]
 	// No PATH prepend block should be generated.
 	assert.NotContains(t, shellFinalize, "Tool PATH restoration")
-	assert.NotContains(t, shellFinalize, "sed -i")
+	assert.NotContains(t, shellFinalize, "export PATH=")
 	// Starship and Zellij should still be present.
 	assert.Contains(t, shellFinalize, "starship init")
 }

@@ -186,6 +186,7 @@ fn test_render_payload_roundtrip_through_pipe() {
         voice_connected: true,
         voice_muted: false,
         show_agent_indicators: false,
+        sort_active: false,
     };
 
     let json = serde_json::to_string(&original).unwrap();

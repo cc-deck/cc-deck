@@ -319,7 +319,7 @@ func (w *OpenShellWorkspace) Create(ctx context.Context, _ CreateOpts) error {
 
 	// Handle post-start credential injection.
 	for _, pc := range providerConfigs {
-		if pc.FilePath != "" {
+		if pc.FilePath != "" && pc.Type != "google-cloud" {
 			remotePath := "/sandbox/.config/gcloud/credentials.json"
 			if err := openshell.UploadFileCredential(ctx, w.client, w.sandboxID, pc.FilePath, remotePath, pc.FileVar); err != nil {
 				log.Printf("WARNING: failed to upload file credential for %s: %v", pc.Type, err)
@@ -340,7 +340,7 @@ func (w *OpenShellWorkspace) Create(ctx context.Context, _ CreateOpts) error {
 			return w.ExecOutput(ctx2, []string{"bash", "-c", cmd})
 		}
 		fmt.Fprintf(os.Stderr, "Cloning %d repo(s) into %s...\n", len(w.Repos), workspace)
-		cloneRepos(ctx, runner, w.Repos, workspace, creds, w.ExtraRemotes, w.AutoDetectedURL)
+		cloneRepos(ctx, runner, w.Repos, workspace, creds, w.ExtraRemotes, w.AutoDetectedURL, true)
 	}
 
 	now := time.Now()

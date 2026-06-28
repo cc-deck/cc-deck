@@ -22,6 +22,7 @@ pub fn make_payload(sessions: Vec<RenderSession>) -> RenderPayload {
         voice_connected: false,
         voice_muted: false,
         show_agent_indicators: false,
+        sort_active: false,
     }
 }
 

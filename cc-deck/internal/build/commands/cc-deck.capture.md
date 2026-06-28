@@ -212,6 +212,8 @@ tools:
 
 The `post_install` field is a shell command that runs after the tool binary is installed. The build command executes it as a `RUN` step in the generated Containerfile. This field is optional and only present for tools that need initialization.
 
+**Install path rule**: Always set `install_path: /usr/local/bin/<binary>` for GitHub release tools. Do NOT use `/opt/` or leave binaries in extracted subdirectories. OpenShell's filesystem policy only grants read access to `/usr`, `/lib`, and `/sandbox`. Binaries left in `/opt` or other locations will fail with "permission denied" at runtime. Copy or move the binary to `/usr/local/bin/` during extraction.
+
 **Asset pattern placeholders** (resolved during build):
 - `{arch}` - system architecture (`x86_64`, `aarch64`)
 - `{goarch}` - Go architecture (`amd64`, `arm64`)
@@ -299,7 +301,7 @@ Then use `AskUserQuestion`. If 4 or fewer tools have configs, use `multiSelect: 
 **STOP. Wait for user response before proceeding.**
 
 **Action** (after user confirms): For each accepted tool config:
-1. Copy the config file to `<setup-dir>/config/` with a descriptive name (e.g., `starship.toml`, `helix-config.toml`)
+1. Copy the config file to `<setup-dir>/config/` using the shell (`mkdir -p <setup-dir>/config && cp <source> <setup-dir>/config/<name>`). Always use `cp` via Bash, not the Write tool, so that existing files are overwritten with current local versions.
 2. Add an entry to `settings.tool_configs` in the manifest, always including `target` with the path relative to `~/.config/` on the target machine:
 
 ```yaml
@@ -314,6 +316,13 @@ settings:
 ```
 
 The `source` field is relative to the setup directory. The `target` field is relative to `~/.config/` and tells the build command exactly where to place the file.
+
+**Sandbox-aware config patching**: After copying, patch config files for sandbox compatibility. Sandbox sessions always run inside a terminal multiplexer (Zellij), so auto-detection of terminal capabilities (isatty, color support) can fail. Apply these patches to the copied config files:
+
+- **lsd**: Set `color: when: always` and `icons: when: always` (auto-detection fails inside Zellij panes)
+- **bat**: Set `--color=always` if a bat config exists with `--color=auto`
+
+Use `sed` on the copied file in `<setup-dir>/config/`, not the user's original.
 
 ---
 
@@ -394,6 +403,21 @@ For any command not in these lists, **wrap it with an availability check** rathe
 - `alias foo="bar"` -> `(( $+commands[bar] )) && alias foo="bar"` (only if `bar` is the unresolved command)
 
 Show the guarded lines in the "Stripped" summary so the user sees what was wrapped.
+
+**compinit preamble**: When stripping plugin managers (Antidote, oh-my-zsh, zinit, etc.) from the curated config, check whether the remaining config contains `compdef`, `zstyle ':completion:*'`, or other completion-dependent directives. If so, add `autoload -Uz compinit && compinit -C` as a preamble to the curated config (before any `zstyle` or `compdef` lines). Plugin managers like oh-my-zsh load `compinit` transitively. Without it, zsh tab completion is non-functional.
+
+**UTF-8 locale preamble**: Add `export LANG=C.UTF-8` at the top of the curated config. The OpenShell base image defaults to `LC_CTYPE=POSIX`, which causes zsh to miscalculate the display width of multi-byte characters in prompts (starship uses `➜`, `🐍`, etc.). This breaks tab completion cursor positioning. The build template (`05-shell-finalize.tmpl`) also sets this, but including it in the curated config ensures it takes effect even if the template is bypassed.
+
+**Shell config dependency scanning**: After curating, scan the proposed config for implicit tool dependencies that the build must install:
+
+1. Scan `alias` definitions for tool names: e.g., `alias ls='lsd'` means `lsd` is required
+2. Scan `eval "$(... init ...)"` patterns: e.g., `eval "$(starship init zsh)"` means `starship` is required
+3. Scan `source <(... --zsh)` patterns: e.g., `source <(fzf --zsh)` means `fzf` is required (and must be version 0.48+, so install from GitHub releases, NOT apt)
+4. Common implicit dependencies: `starship`, `lsd`, `fzf`, `zoxide`, `bat`, `eza`
+5. Record discovered dependencies in the manifest's `tools` section with `install: github-release` (preferred over package manager to get versions compatible with the shell config syntax)
+6. For fzf specifically: if the config contains `source <(fzf --zsh)` or `fzf --zsh`, flag it for GitHub release install. Ubuntu 24.04's apt package ships fzf 0.44, which does not support the `--zsh` flag (added in 0.48).
+
+Show discovered dependencies in the step output so the user sees what was detected.
 
 **Present** the curated config as text:
 
@@ -488,7 +512,7 @@ remote-bg: "<chosen-color>"
 
 The background is applied automatically by `cc-deck attach` before SSH connects, and reset on detach. No shell-level auto-set is needed.
 
-**Action**: Write the curated config to `<setup-dir>/config/` and update manifest:
+**Action**: Write the curated config to `<setup-dir>/config/` using the shell (`mkdir -p <setup-dir>/config && cat > <setup-dir>/config/<shellrc>`), not the Write tool. Use `zshrc` for zsh, `bashrc` for bash. This ensures existing files are overwritten with current local versions. Update manifest:
 
 For **zsh**:
 ```yaml
@@ -557,7 +581,7 @@ The Zellij `config.kdl` `default_shell` is set to match the chosen shell.
 
 **STOP. Wait for user response before proceeding.**
 
-**Action**: Copy selected files to `<setup-dir>/config/`. If the user's `config.kdl` does not contain `default_shell`, append `default_shell "zsh"` to ensure Zellij panes start with zsh (required for starship prompt and shell integrations).
+**Action**: Copy selected files to `<setup-dir>/config/` using `cp` via Bash (not the Write tool, so existing files are overwritten). If the user's `config.kdl` does not contain `default_shell`, append `default_shell "zsh"` to ensure Zellij panes start with zsh (required for starship prompt and shell integrations).
 
 Update manifest:
 ```yaml
@@ -1007,10 +1031,12 @@ Then perform the write:
 5. Update `plugins` section with selected plugins
 6. Update `mcp` section with selected MCP servers
 7. Update `credentials` section with selected credential providers
-8. Copy selected config files to `<setup-dir>/config/`
+8. Copy selected config files to `<setup-dir>/config/` using `cp` via Bash (always overwrite existing files with current local versions)
 9. Write repos to `.cc-deck/workspace.yaml` if target is SSH
-10. If an OpenShell target is configured, run `cc-deck build refresh <setup-dir>` to fetch the latest catalog components and regenerate the policy. On network failure, the refresh warns and continues with cached or embedded components.
-11. Report what was written
+10. **GitHub release asset verification**: For each tool with `install: github-release`, query the GitHub API (`https://api.github.com/repos/<repo>/releases/latest`) and verify the `asset_pattern` against actual release asset names. If the pattern does not match any actual asset, update the manifest entry with the correct pattern and warn: `"Updated asset_pattern for <tool>: <old> -> <new>"`. This catches naming convention mismatches (e.g., `.tar.gz` vs `.tar.xz`, `gnu` vs `musl`) before the build phase.
+11. If an OpenShell target is configured, run `cc-deck build refresh <setup-dir>` to fetch the latest catalog components and regenerate the policy. This runs after asset verification so that any corrected manifest entries are included in the refresh. On network failure, the refresh warns and continues with cached or embedded components.
+12. **post_install dry-run validation**: For each tool with a `post_install` field, attempt to detect interactive prompts by running the command with `--help` or `--dry-run` if supported. If the command writes to stderr with prompts like "Y/N", "Patch existing", or similar, warn: `"post_install for <tool> may prompt for input. The build will use '|| true' guard."`. This is advisory only; the tool is still included in the manifest.
+13. Report what was written
 
 ---
 
@@ -1029,3 +1055,4 @@ Then perform the write:
 - Re-running this command should show current selections and allow modifications
 - **Existing manifest values are preserved by default**: When re-running capture on a manifest that already has values (targets, tools, credentials, etc.), show the existing values and default to keeping them. Only prompt for changes if the user explicitly asks. In `--all` mode, always keep existing values unchanged.
 - **`build refresh` is mandatory after target changes**: After writing the manifest (step 10), always run `cc-deck build refresh <setup-dir>` if an OpenShell target is configured. This fetches the catalog and regenerates the policy in one step.
+- **`build refresh` must verify snippet URLs**: When `build refresh` regenerates snippets, it must verify download URLs in the snippets against GitHub APIs. If a URL no longer resolves (404), update the snippet with the correct URL from the latest release.

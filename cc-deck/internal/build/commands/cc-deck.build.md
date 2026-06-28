@@ -87,6 +87,32 @@ Parse the JSON output. If the probe fails (exit code 1), fall back to assuming F
 - `install: github-release`: downloaded from GitHub Releases using the `repo`, `asset_pattern`, and `install_path` fields. Asset pattern placeholders: `{arch}` (x86_64/aarch64), `{goarch}` (amd64/arm64), `{version}` (latest release tag from GitHub API)
 - Use `${TARGETARCH}` for multi-arch GitHub release downloads in Containerfile layers
 
+**GitHub release asset verification** (MANDATORY for `install: github-release`):
+
+Before writing ANY download commands, verify each tool's actual release assets:
+
+1. Query the GitHub API: `curl -fsSL https://api.github.com/repos/<repo>/releases/latest | jq '.assets[].name'`
+2. Match the actual asset name for the target architecture (aarch64/x86_64). Do NOT trust the manifest's `asset_pattern` blindly. Common mismatches: `.tar.gz` vs `.tar.xz`, `gnu` vs `musl`, Go-style `linux-amd64` vs Rust-style `x86_64-unknown-linux-gnu`.
+3. Probe the archive structure based on format:
+   - `.tar.gz` / `.tar.xz`: `curl -fsSL <asset-url> | tar -tf - | head -5`
+   - `.zip`: `curl -fsSL <asset-url> -o /tmp/probe.zip && unzip -l /tmp/probe.zip | head -10 && rm /tmp/probe.zip`
+   This determines if the binary is at the top level or nested in a subdirectory.
+4. If nested (e.g., `tool-arch/tool`), use `--strip-components=1` (tar) or `-j` (unzip) with a path filter in the extraction command.
+5. Record the verified URL, format (.tar.gz/.tar.xz/.zip), and extraction method for each tool.
+6. Generate Containerfile download commands from these verified values, not from the manifest's `asset_pattern`. Use `tar xzf`/`tar xJf` for tarballs and `unzip` for zip archives.
+
+If the GitHub API is unreachable (rate limit or network error), fall back to the manifest's `asset_pattern` with a warning comment in the Containerfile.
+
+**post_install sandboxing protocol**: When a tool has a `post_install` field, follow this protocol:
+
+1. As `USER root`, pre-create any config directories the command might need:
+   ```dockerfile
+   RUN mkdir -p /home/dev/.config/<tool> && chown dev:dev /home/dev/.config/<tool>
+   ```
+2. Switch to `USER dev` for the actual command
+3. Append `|| true` to the command (unless the tool is critical to the build). Non-interactive container builds may trigger interactive prompts that cause the command to fail.
+4. Switch back to `USER root` after the command
+
 **Assembly order** (generate the Containerfile by following these steps in sequence):
 
 1. Read `container/snippets/01-header.txt` and copy its content verbatim
@@ -99,7 +125,17 @@ Parse the JSON output. If the probe fails (exit code 1), fall back to assuming F
 8. **GENERATE**: User configuration layers (see Settings handling below)
 9. Read `container/snippets/06-footer.txt` and copy its content verbatim
 
-**Plugin handling**: For each plugin entry in the manifest:
+**Plugin handling**: Before installing any plugins, ensure the official marketplace is configured:
+
+```dockerfile
+USER dev
+RUN claude plugins marketplace add anthropics/claude-plugins-official 2>/dev/null || true
+USER root
+```
+
+A fresh Claude Code installation has no marketplaces configured. Without this step, `claude plugins install <name>` will fail with "not found in any configured marketplace".
+
+For each plugin entry in the manifest:
 - `source: marketplace` -> `claude plugins install <name>`
 - `source: github:<owner/repo>` -> `claude plugins marketplace add <owner/repo>` then `claude plugins install <name>@<marketplace>`
 - `source: directory` -> skip (local dev only)
@@ -180,6 +216,16 @@ USER root
 ```
 
 **Merge strategy for settings.json**: Read the existing `/home/dev/.claude/settings.json` (created by cc-deck config plugin install with hooks), merge in user preferences from the specified file, write the merged result to `container/context/settings.json`. Never overwrite cc-deck hooks.
+
+**Settings merge command** (exact jq command for merging, preserving hooks):
+
+```bash
+jq -s '.[0] as $orig | $orig * .[1] | .hooks = $orig.hooks' \
+  /home/dev/.claude/settings.json /tmp/user-settings.json > /tmp/merged.json && \
+  mv /tmp/merged.json /home/dev/.claude/settings.json
+```
+
+Do NOT generate a different jq expression. The `.[0] as $orig` binding is required because after the pipe, `.[0]` refers to the merged result (not the original array element).
 
 ### A3: Check for existing Containerfile
 
@@ -614,7 +660,7 @@ Read `build.yaml`. Extract from `targets.openshell`:
 
 Assemble the Containerfile by composing pre-rendered snippet files with generated sections.
 
-**Snippet files**: Located in `openshell/snippets/`. These are pre-rendered Containerfile fragments with all paths and variables resolved for the sandbox user. Copy their content EXACTLY as-is into the Containerfile. Do NOT modify snippet content.
+**Snippet files**: Located in `openshell/snippets/`. These are pre-rendered Containerfile fragments with all paths and variables resolved for the sandbox user. Copy their content as-is into the Containerfile. Exception: if a download command in a snippet produces a 404 or extraction error (e.g., wrong asset name, nested tarball structure), verify the download URL against the GitHub API (see asset verification protocol below) and fix the command. Document any modification with a `# FIXED: <reason>` comment.
 
 **Base image probing**: Before generating the variable sections, run the base image probe to discover OS, package manager, and pre-installed tools:
 
@@ -628,14 +674,57 @@ Parse the JSON output. If the probe fails (exit code 1), fall back to assuming D
 3. **Binary path tracking**: Use the probed `path` values for pre-installed tools when generating `policy.yaml` (step C4) instead of guessing paths. For example, python3 may be at `/sandbox/.venv/bin/python3` rather than `/usr/bin/python3`.
 4. **Incompatible tools**: For tools with status `incompatible`, install the required version to `/usr/local/bin/` to shadow the system version via PATH ordering.
 
+**Shell config dependency scanning**: After the base image probe, scan the curated shell config (`settings.shell_rc`) for implicit tool dependencies:
+
+1. Extract commands from `alias` definitions (e.g., `alias ls='lsd'` means `lsd` is required)
+2. Extract commands from `eval "$(... init ...)"` patterns (e.g., `eval "$(starship init zsh)"` means `starship` is required)
+3. Extract commands from `source <(... --zsh)` patterns (e.g., `source <(fzf --zsh)` means `fzf` is required)
+4. Cross-reference discovered commands against the base image probe results
+5. For each command that is `missing` in the base image: add it to the tool install list. Install from GitHub releases (same pattern as other tools) rather than the package manager, because distro-packaged versions may be too old for the syntax used in the shell config (e.g., Ubuntu 24.04 ships fzf 0.44, but `fzf --zsh` requires 0.48+).
+6. Common implicit dependencies: `starship`, `lsd`, `fzf`, `zoxide`, `bat`, `eza`
+
 **Tool resolution**: Tools from the unified `tools` section, dispatched by `install` field:
 - `install: package` (or omitted): resolved to the probed package manager's install command (e.g., `apt-get install -y` for Ubuntu, `dnf install -y` for Fedora)
 - `install: github-release`: same as Section A (downloaded from GitHub Releases)
 
+**GitHub release asset verification** (MANDATORY for `install: github-release`):
+
+Before writing ANY download commands, verify each tool's actual release assets:
+
+1. Query the GitHub API: `curl -fsSL https://api.github.com/repos/<repo>/releases/latest | jq '.assets[].name'`
+2. Match the actual asset name for the target architecture (aarch64/x86_64). Do NOT trust the manifest's `asset_pattern` blindly. Common mismatches: `.tar.gz` vs `.tar.xz`, `gnu` vs `musl`, Go-style `linux-amd64` vs Rust-style `x86_64-unknown-linux-gnu`.
+3. Probe the archive structure based on format:
+   - `.tar.gz` / `.tar.xz`: `curl -fsSL <asset-url> | tar -tf - | head -5`
+   - `.zip`: `curl -fsSL <asset-url> -o /tmp/probe.zip && unzip -l /tmp/probe.zip | head -10 && rm /tmp/probe.zip`
+   This determines if the binary is at the top level or nested in a subdirectory.
+4. If nested (e.g., `tool-arch/tool`), use `--strip-components=1` (tar) or `-j` (unzip) with a path filter in the extraction command.
+5. Record the verified URL, format (.tar.gz/.tar.xz/.zip), and extraction method for each tool.
+6. Generate Containerfile download commands from these verified values, not from the manifest's `asset_pattern`. Use `tar xzf`/`tar xJf` for tarballs and `unzip` for zip archives.
+
+If the GitHub API is unreachable (rate limit or network error), fall back to the manifest's `asset_pattern` with a warning comment in the Containerfile.
+
+**post_install sandboxing protocol**: When a tool has a `post_install` field, follow this protocol:
+
+1. As `USER root`, pre-create any config directories the command might need:
+   ```dockerfile
+   RUN mkdir -p /sandbox/.config/<tool> && chown sandbox:sandbox /sandbox/.config/<tool>
+   ```
+2. Switch to `USER sandbox` for the actual command
+3. Append `|| true` to the command (unless the tool is critical to the build). Non-interactive container builds may trigger interactive prompts that cause the command to fail.
+4. Switch back to `USER root` after the command
+5. Example:
+   ```dockerfile
+   USER root
+   RUN mkdir -p /sandbox/.config/rtk && chown sandbox:sandbox /sandbox/.config/rtk
+   USER sandbox
+   RUN rtk init -g || true
+   USER root
+   ```
+
 **Binary path tracking**: As you write install instructions, track which binary path each tool installs to. This mapping is used when generating `policy.yaml` (step C4):
 - **Pre-installed tools**: Use the actual paths discovered during base image probing
 - `install: package` installs to `/usr/bin/<binary>` (typical for apt/dnf)
-- `install: github-release` uses the `install_path` field, or `/usr/local/bin/<name>`
+- `install: github-release` uses the `install_path` field, or `/usr/local/bin/<name>`. **CRITICAL: Always copy the binary to `/usr/local/bin/<name>`**. NEVER extract to `/opt/`, `/usr/share/`, or leave binaries in tarball subdirectories. NEVER symlink from `/opt/` to `/usr/local/bin/` (the symlink target must also be readable). OpenShell's filesystem policy only allows read access to `/usr`, `/lib`, and `/sandbox`. For tools with runtime data directories (e.g., helix with `runtime/`), copy the binary to `/usr/local/bin/` and the runtime data to `/usr/share/<tool>/` (which is under `/usr` and readable), then set the environment variable (e.g., `HELIX_RUNTIME=/usr/share/helix/runtime`).
 - npm global packages go to `/usr/local/bin/<name>`
 - Well-known defaults: Claude Code at `/sandbox/.local/bin/claude`, git at `/usr/bin/git`, node at `/usr/bin/node`
 
@@ -643,6 +732,7 @@ Parse the JSON output. If the probe fails (exit code 1), fall back to assuming D
 
 1. Read `openshell/snippets/01-header.txt` and copy its content verbatim
 2. *(snippet 02-user-setup.txt is empty for openshell, skip it)*
+2b. **GENERATE**: If the base image runs as a non-root user (e.g., OpenShell defaults to `USER sandbox`), insert `USER root` before any generated `RUN` layers. This is required because system package installs, tool downloads, and directory setup all need root privileges. The cc-deck container base image already runs as root, so this step only applies to OpenShell and similar non-root base images.
 3. **GENERATE**: System packages layer (use probed package manager for tools not in base image)
 4. **GENERATE**: Language-specific tools layer
 5. **GENERATE**: GitHub release tools layer
@@ -650,12 +740,30 @@ Parse the JSON output. If the probe fails (exit code 1), fall back to assuming D
 7. **GENERATE**: Plugin install commands (same as Section A plugin handling)
 8. Read `openshell/snippets/04-openshell-extras.txt` and copy its content verbatim
 9. **GENERATE**: User configuration layers (see Settings handling below)
+9b. **GENERATE**: Git SSH-to-HTTPS redirect (OpenShell only). Add `insteadOf` config so all git operations inside the sandbox use HTTPS instead of SSH. OpenShell's HTTP CONNECT proxy cannot resolve DNS for SSH connections:
+    ```dockerfile
+    USER sandbox
+    RUN git config --global url."https://github.com/".insteadOf "git@github.com:" && \
+        git config --global url."https://gitlab.com/".insteadOf "git@gitlab.com:" && \
+        git config --global url."https://bitbucket.org/".insteadOf "git@bitbucket.org:"
+    USER root
+    ```
 10. Read `openshell/snippets/05-shell-finalize.txt` and copy its content verbatim
 11. Read `openshell/snippets/06-footer.txt` and copy its content verbatim
 
 **CRITICAL ordering**: Steps 10 and 11 (shell-finalize and footer) MUST come AFTER step 9 (user config). The shell-finalize snippet appends starship init and Zellij auto-start to `.bashrc`/`.zshrc`. If user config layers come after, they can overwrite these additions.
 
 **Settings handling**: Same rules as Section A, but all paths use `/sandbox/` instead of `/home/dev/`, and all `COPY --chown=dev:dev` become `COPY --chown=sandbox:sandbox`, and all `USER dev` become `USER sandbox`.
+
+**Settings merge command** (exact jq command for merging settings.json, preserving hooks):
+
+```bash
+jq -s '.[0] as $orig | $orig * .[1] | .hooks = $orig.hooks' \
+  /sandbox/.claude/settings.json /tmp/user-settings.json > /tmp/merged.json && \
+  mv /tmp/merged.json /sandbox/.claude/settings.json
+```
+
+Do NOT generate a different jq expression. The `.[0] as $orig` binding is required because after the pipe, `.[0]` refers to the merged result (not the original array element).
 
 | Setting | OpenShell path |
 |---|---|
@@ -677,7 +785,12 @@ Same pattern as A3. If `openshell/Containerfile` already exists, show diff and a
 
 Same as Section A step A4, but using `openshell/context/` instead of `container/context/`:
 
-1. Create `openshell/context/` directory
+1. Create `openshell/context/` directory and **purge stale config files** (keep downloaded binaries):
+   ```bash
+   mkdir -p openshell/context
+   find openshell/context/ -type f ! -name 'cc-deck-linux-*' -delete 2>/dev/null || true
+   ```
+   This prevents stale configs from previous builds from persisting. Binaries (`cc-deck-linux-*`) are expensive to download and version-pinned, so they are preserved.
 2. Determine the cc-deck version by running `cc-deck version -o json` and extracting the `version` field
 3. Download Linux binaries for both architectures from GitHub Releases. Skip any architecture whose binary already exists in `openshell/context/`:
    ```bash
@@ -695,7 +808,7 @@ Same as Section A step A4, but using `openshell/context/` instead of `container/
    - For development builds: run `make cross-cli` from the cc-deck source repo, then copy the binaries to `openshell/context/`
    - For released versions: check that the version tag exists at `https://github.com/cc-deck/cc-deck/releases`
 
-Copy settings files into `openshell/context/` using the same logic as Section A step A4 (shell_rc, zellij_config, claude_md, etc.), adapting destination paths for `/sandbox/` instead of `/home/dev/`.
+Copy settings files into `openshell/context/` using the same logic as Section A step A4 (shell_rc, zellij_config, claude_md, etc.), adapting destination paths for `/sandbox/` instead of `/home/dev/`. **Always overwrite existing files** in `openshell/context/` with the current versions from `<setup-dir>/config/`. Stale context copies from previous builds must not persist.
 
 ### C4: Generate openshell/policy.yaml
 
@@ -829,5 +942,7 @@ On success, show:
 - **Container-specific**: Never omit the 3 mandatory layers. Always use `container/context/cc-deck-linux-${TARGETARCH}` as COPY source.
 - **SSH-specific**: All roles must be idempotent. The playbook must be runnable standalone without cc-deck or Claude Code.
 - **OpenShell-specific**: Always include the mandatory cc-deck/Zellij/cc-session layers (same as container target). Always embed `openshell/policy.yaml` at `/etc/openshell/policy.yaml`. Use `sandbox` user and `/sandbox` workdir. Final `chown -R sandbox:sandbox /sandbox` before `USER sandbox`.
+- **OpenShell base image**: The default OpenShell base image is **Ubuntu** (not Fedora) and runs as **`USER sandbox`** (not root). Do NOT assume it has the same tools as the cc-deck container base image (Fedora, root). Always rely on the base image probe results (step C2) and shell config dependency scanning to determine what needs to be installed. The probe is the source of truth for tool availability, not a static list.
+- **UTF-8 locale**: The OpenShell base image defaults to `LC_CTYPE=POSIX`. With POSIX locale, zsh miscalculates the display width of multi-byte characters in the starship prompt (e.g., `➜`, `🐍`), causing tab completion cursor offset. The `05-shell-finalize` template sets `LANG=C.UTF-8` automatically. If generating shell config manually, always include `export LANG=C.UTF-8` before any prompt initialization.
 - Combine related package install calls into a single task/RUN for efficiency
 - Clean package caches after installs

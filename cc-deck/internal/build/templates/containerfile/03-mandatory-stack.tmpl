@@ -18,14 +18,22 @@ RUN chmod +x /usr/local/bin/cc-deck && \
     ZELLIJ_CONFIG_DIR={{.HomeDir}}/.config/zellij \
     cc-deck config plugin install --install-zellij --force --skip-backup && \
     zellij --version && \
-    chown -R {{.User}}:{{.User}} {{.HomeDir}}/.config/zellij {{.HomeDir}}/.cache/zellij {{.HomeDir}}/.claude && \
+    chown -R {{.User}}:{{.User}} {{.HomeDir}}/.config/zellij {{.HomeDir}}/.cache {{.HomeDir}}/.claude && \
     rm -rf /root/.claude /root/.cache/zellij
 
 # MANDATORY Layer: Claude Code (native installer, bundles its own Node.js)
 # IMPORTANT: Must use bash, not sh - the install script uses bash syntax
 USER {{.User}}
-RUN curl -fsSL https://claude.ai/install.sh | bash
+RUN curl -fsSL https://claude.ai/install.sh | bash || \
+    (echo "Native installer failed (possibly OOM). Falling back to npm install..." && \
+     npm config set prefix "{{.HomeDir}}/.npm-global" && \
+     npm install -g @anthropic-ai/claude-code@latest)
 USER root
-ENV PATH="{{.HomeDir}}/.local/bin:${PATH}"
+ENV PATH="{{.HomeDir}}/.npm-global/bin:{{.HomeDir}}/.local/bin:${PATH}"
+
+# MANDATORY: Add official Claude plugins marketplace (required before any plugin install)
+USER {{.User}}
+RUN claude plugins marketplace add anthropics/claude-plugins-official 2>/dev/null || true
+USER root
 
 # ============================================================

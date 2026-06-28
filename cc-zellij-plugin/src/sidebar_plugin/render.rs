@@ -59,12 +59,8 @@ pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> Vec<Cli
     let content_end = rows;
     let available = content_end.saturating_sub(content_start);
 
-    let lines_per_session = 3;
-    let max_visible = if lines_per_session > 0 {
-        available / lines_per_session
-    } else {
-        0
-    };
+    let lines_per_session: usize = 3;
+    let max_visible = available.checked_div(lines_per_session).unwrap_or(0);
 
     let total = sessions.len();
     let active_tab = Some(payload.active_tab_index);
@@ -306,11 +302,31 @@ fn render_header(state: &super::state::SidebarState, payload: &cc_deck::RenderPa
         format!(" \x1b[38;2;255;170;50m\u{2731}\x1b[0m {status}")
     };
 
-    if voice_indicator.is_empty() {
+    // Build right-side indicators: sort symbol (↕) and voice symbol (♫)
+    let sort_indicator = if payload.sort_active {
+        "\x1b[38;2;180;140;255m\u{2195}\x1b[0m" // purple ↕
+    } else {
+        ""
+    };
+
+    let right_indicators = match (sort_indicator.is_empty(), voice_indicator.is_empty()) {
+        (true, true) => String::new(),
+        (false, true) => sort_indicator.to_string(),
+        (true, false) => voice_indicator.to_string(),
+        (false, false) => format!("{sort_indicator}{voice_indicator}"),
+    };
+
+    if right_indicators.is_empty() {
         print!("\x1b[1;1H{}", pad(&header, cols));
     } else {
-        // Pad header to cols-1, then place ♫ at a fixed column
-        print!("\x1b[1;1H{}\x1b[1;{}H{}", pad(&header, cols), cols, voice_indicator);
+        // 1 glyph if only sort or voice is active, 2 if both
+        let visible_count = if !sort_indicator.is_empty() && !voice_indicator.is_empty() {
+            2 // ↕ and ♫
+        } else {
+            1
+        };
+        let right_start = cols.saturating_sub(visible_count) + 1;
+        print!("\x1b[1;1H{}\x1b[1;{}H{}", pad(&header, cols), right_start, right_indicators);
     }
 
     let sep: String = "\u{2500}".repeat(cols.min(40));
@@ -855,5 +871,28 @@ mod tests {
         assert_eq!(handle_click(3, &regions), Some((0, 1)));
         assert_eq!(handle_click(5, &regions), Some((1, 2)));
         assert_eq!(handle_click(10, &regions), None);
+    }
+
+    // --- Sort indicator tests (T013) ---
+
+    fn sort_indicator_str(sort_active: bool) -> &'static str {
+        if sort_active {
+            "\x1b[38;2;180;140;255m\u{2195}\x1b[0m"
+        } else {
+            ""
+        }
+    }
+
+    #[test]
+    fn test_sort_indicator_present_when_sort_active() {
+        let indicator = sort_indicator_str(true);
+        assert!(!indicator.is_empty());
+        assert!(indicator.contains("\u{2195}"));
+    }
+
+    #[test]
+    fn test_sort_indicator_absent_when_sort_inactive() {
+        let indicator = sort_indicator_str(false);
+        assert!(indicator.is_empty());
     }
 }

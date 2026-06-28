@@ -459,12 +459,6 @@ fn handle_navigate_key(state: &mut SidebarState, key: KeyWithModifier) -> bool {
             // Drop sessions borrow before mutating state
             drop(sessions);
             state.sort_cursor_pane_id = cursor_pane_id;
-            // Reset the navigate grace period so the async swap sequence
-            // (which changes active_tab_index) doesn't cause the sidebar
-            // to exit navigate mode on the next render broadcast.
-            if let Some(ctx) = state.mode.nav_ctx_mut() {
-                ctx.entered_at_ms = unix_now_ms();
-            }
             send_action(state, ActionType::Sort, cursor_pane_id, None, None);
             true
         }
@@ -945,16 +939,16 @@ mod tests {
     fn test_nav_s_sort_dispatches_sort_action() {
         let mut state = make_nav_state(&[(10, "api", 0), (20, "web", 1)], 0);
         assert!(handle_navigate_key(&mut state, bare(BareKey::Char('S'))));
-        // Sort should NOT exit navigate mode
         assert!(state.mode.is_navigating());
+        assert_eq!(state.sort_cursor_pane_id, Some(10));
     }
 
     #[test]
     fn test_nav_s_sort_passes_cursor_pane_id() {
         let mut state = make_nav_state(&[(10, "api", 0), (20, "web", 1)], 1);
-        // Cursor is on session "web" (pane_id=20)
         assert!(handle_navigate_key(&mut state, bare(BareKey::Char('S'))));
         assert!(state.mode.is_navigating());
+        assert_eq!(state.sort_cursor_pane_id, Some(20));
     }
 
     #[test]
@@ -962,6 +956,7 @@ mod tests {
         let mut state = make_nav_state(&[], 0);
         assert!(handle_navigate_key(&mut state, bare(BareKey::Char('S'))));
         assert!(state.mode.is_navigating());
+        assert_eq!(state.sort_cursor_pane_id, None);
     }
 
     #[test]

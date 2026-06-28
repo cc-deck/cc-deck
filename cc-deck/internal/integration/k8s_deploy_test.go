@@ -61,7 +61,10 @@ func TestK8sDeployLifecycle(t *testing.T) {
 	// Status
 	status, err := ke.Status(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, ws.WorkspaceStateRunning, status.State)
+	if status.InfraState == nil {
+		t.Fatal("expected infra state to be set")
+	}
+	assert.Equal(t, ws.InfraStateRunning, *status.InfraState)
 
 	// Delete
 	err = ke.Delete(ctx, true)

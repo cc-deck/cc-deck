@@ -54,9 +54,21 @@ On macOS the host path is:
 - Truncate with `: >` before reproducing an issue to keep output focused
 - The log can grow large quickly; disable when not actively debugging
 
+### V. Claude Code command files are executable code
+
+Files under `internal/build/commands/*.md` are Claude Code skills executed
+during `cc-deck build run`. They contain live instructions that directly
+affect Containerfile generation and build behavior.
+
+- NEVER dismiss review comments on `.md` command files as "just documentation"
+- Treat command file instructions with the same rigor as Go or Rust source
+- Verify claims against what Claude Code would actually do when executing
+  those instructions
+- Bot review comments on command files are as valid as comments on compiled code
+
 ## Governance
 
 Constitution principles are enforced in CLAUDE.md and apply to ALL code changes, whether from a spec workflow or ad-hoc.
 Amendments require updating both this file and the Constitution Principles section of CLAUDE.md.
 
-**Version**: 1.2 | **Ratified**: 2026-03-30 | **Last Amended**: 2026-06-08
+**Version**: 1.3 | **Ratified**: 2026-03-30 | **Last Amended**: 2026-06-28
