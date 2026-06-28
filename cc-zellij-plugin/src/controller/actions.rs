@@ -336,6 +336,7 @@ fn handle_move(state: &mut ControllerState, pane_id: Option<u32>, direction: i32
 
     if changed {
         super::render_broadcast::broadcast_render(state);
+        state.render_dirty = false;
     }
 }
 
