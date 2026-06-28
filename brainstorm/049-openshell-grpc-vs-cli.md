@@ -46,7 +46,7 @@ Generate Go client code from OpenShell proto files. cc-deck talks to the gateway
 - **Build complexity**: Adds protoc toolchain, proto file vendoring, and code generation to the project. Currently the project has zero proto infrastructure.
 - **mTLS configuration**: The gateway uses mTLS by default. The CLI handles this transparently (it knows where the certs are). A direct gRPC client needs explicit cert path configuration, which varies by platform and OpenShell version.
 - **Proto API stability**: OpenShell is alpha (v0.0.36). The proto API could change between releases. Pinning helps but creates a manual update burden.
-- **Doesn't eliminate CLI dependency**: Still needs the CLI for gateway management, SSH proxy, and git ext:: transport. So the CLI must be installed regardless.
+- **Does not eliminate CLI dependency**: Still needs the CLI for gateway management, SSH proxy, and git ext:: transport. So the CLI must be installed regardless.
 - **Larger change surface**: Complete client rewrite plus new dependencies plus build infrastructure. More code to maintain, more things to break.
 - **gRPC connection management**: Need to handle connection lifecycle (dial, reconnect, close) that the CLI handles implicitly per-invocation.
 
@@ -74,26 +74,26 @@ Fix the current CLI syntax to match the real `openshell` CLI. Keep the `os/exec`
 ### Strengths
 
 - **Simpler implementation**: Fix existing code rather than rewrite. Change ~50 lines of CLI arguments vs. ~500 lines of gRPC client + interface + codegen infrastructure.
-- **CLI handles complexity**: mTLS, gateway discovery, cert management, credential injection, SSH proxy setup. All handled transparently by the CLI. cc-deck doesn't need to know about any of it.
+- **CLI handles complexity**: mTLS, gateway discovery, cert management, credential injection, SSH proxy setup. All handled transparently by the CLI. cc-deck does not need to know about any of it.
 - **Version alignment**: If the user has `openshell` v0.0.36 installed, the CLI syntax matches that version. No proto version pinning needed.
-- **Proven pattern**: cc-deck already wraps other CLIs successfully (ssh, git, podman, zellij). The SSH workspace backend works this way. It's a known, debuggable pattern.
+- **Proven pattern**: cc-deck already wraps other CLIs successfully (ssh, git, podman, zellij). The SSH workspace backend works this way. It is a known, debuggable pattern.
 - **Smaller change surface**: Fewer new files, no new dependencies, no build toolchain changes. Lower risk of introducing bugs.
-- **CLI output is a contract**: The CLI's `--output json` flag produces structured JSON that's more stable than raw proto wire format (OpenShell team actively maintains CLI UX backwards compatibility).
+- **CLI output is a contract**: The CLI's `--output json` flag produces structured JSON that is more stable than raw proto wire format (OpenShell team actively maintains CLI UX backwards compatibility).
 
 ### Weaknesses
 
 - **Output parsing fragility**: Even with JSON output, parsing CLI output is less type-safe than proto-generated types. If the JSON schema changes, parsing breaks silently.
-- **Process overhead**: Each operation spawns a subprocess. For polling (GetSandbox every 2s during creation), that's many process spawns vs. a single persistent gRPC connection.
+- **Process overhead**: Each operation spawns a subprocess. For polling (GetSandbox every 2s during creation), that is many process spawns vs. a single persistent gRPC connection.
 - **Streaming limitations**: `ExecSandbox` through the CLI captures all stdout as a flat byte buffer. No separation of stdout vs stderr events. Exit codes come from the process exit, which works but loses gRPC-level error context.
 - **Error handling**: CLI errors are stderr strings. "sandbox not found" vs. "gateway unreachable" vs. "permission denied" all need string matching rather than structured error codes.
 - **Version coupling**: The CLI binary must be compatible with the gateway version. If the user upgrades the gateway but not the CLI (or vice versa), things break silently.
-- **Harder to test**: Mocking subprocess execution is less clean than mocking a Go interface. Current tests don't test through the client at all, partly because of this.
+- **Harder to test**: Mocking subprocess execution is less clean than mocking a Go interface. Current tests do not test through the client at all, partly because of this.
 
 ## Approach C: Hybrid (gRPC for Lifecycle, CLI for Transport)
 
 Use gRPC for sandbox CRUD (create, get, delete, status) where type safety matters most. Keep CLI wrapping for SSH proxy and git ext:: transport where the CLI provides genuine value.
 
-This is effectively Approach A but acknowledging that the CLI dependency remains for SSH and git. The question becomes: is the gRPC migration for CRUD operations worth the complexity, given that you can't fully eliminate the CLI?
+This is effectively Approach A but acknowledging that the CLI dependency remains for SSH and git. The question becomes: is the gRPC migration for CRUD operations worth the complexity, given that you cannot fully eliminate the CLI?
 
 ## Comparison Matrix
 
@@ -121,7 +121,7 @@ This is effectively Approach A but acknowledging that the CLI dependency remains
 
 4. **Is the gRPC investment worthwhile for alpha software?** If OpenShell reaches 1.0 with a stable proto API, gRPC becomes clearly better. At v0.0.x, the investment may be premature.
 
-5. **What's the real-world failure mode?** CLI wrapping fails with "openshell not found" (clear) or output format changes (debuggable). gRPC fails with TLS errors, proto version mismatches, or connection management bugs (harder to debug for users).
+5. **What is the real-world failure mode?** CLI wrapping fails with "openshell not found" (clear) or output format changes (debuggable). gRPC fails with TLS errors, proto version mismatches, or connection management bugs (harder to debug for users).
 
 ---
 
@@ -133,10 +133,10 @@ Six weeks of production CLI wrapping (Approach B) have exposed concrete failure 
 
 **Vertex provider migration (brainstorm #075)**: Switching from cc-deck's homegrown Vertex credential handling to OpenShell's native `google-cloud` provider required three consecutive bug fixes:
 1. `CreateProvider` needed `--from-gcloud-adc` instead of `--from-existing` for `google-cloud` type, plus `--config` instead of `--credential`
-2. `UpdateProvider` had the same flag incompatibility (the update command doesn't support `--from-gcloud-adc` at all)
+2. `UpdateProvider` had the same flag incompatibility (the update command does not support `--from-gcloud-adc` at all)
 3. `EnsureProvider` failed when deleting a provider attached to stale sandboxes
 
-Each of these was a runtime failure discovered only during manual testing. With gRPC, the `Provider` proto message has separate `credentials` and `config` map fields, so there's no flag confusion. The `CreateProvider` and `UpdateProvider` RPCs accept the same `Provider` struct. These bugs would not have existed.
+Each of these was a runtime failure discovered only during manual testing. With gRPC, the `Provider` proto message has separate `credentials` and `config` map fields, so there is no flag confusion. The `CreateProvider` and `UpdateProvider` RPCs accept the same `Provider` struct. These bugs would not have existed.
 
 **Supervisor/gateway version mismatch**: Building the gateway from source (`main` branch) pulled `supervisor:latest` from ghcr.io, which was from a different release and required `OPENSHELL_SANDBOX_TOKEN` that the gateway wasn't injecting. This was a runtime crash with no compile-time signal.
 
@@ -152,7 +152,7 @@ The original analysis assumed "CLI still needed for SSH and git." Research into 
 
 **Interactive exec**: The `ExecSandboxInteractive` RPC is a bidirectional gRPC stream. Full PTY support without the CLI.
 
-This means **the CLI can be fully eliminated as a runtime dependency**. It's only needed for one-time gateway setup (`openshell gateway start`), which is a setup concern, not a runtime concern.
+This means **the CLI can be fully eliminated as a runtime dependency**. It is only needed for one-time gateway setup (`openshell gateway start`), which is a setup concern, not a runtime concern.
 
 ### Updated Comparison Matrix
 
@@ -171,7 +171,7 @@ This means **the CLI can be fully eliminated as a runtime dependency**. It's onl
 | Test mocking | Clean interface mock (existing `Client` interface) | Subprocess mock |
 | Lines of change | ~800 new (grpc client + SSH tunnel + proto) | ~50 per CLI flag fix |
 | Failure discovery | Compile time (proto mismatch) | Runtime (wrong flags, output changes) |
-| K8s operator readiness | gRPC client reusable for operator controller | CLI wrapping won't work in-cluster |
+| K8s operator readiness | gRPC client reusable for operator controller | CLI wrapping will not work in-cluster |
 
 ### New Approaches Considered
 
@@ -180,20 +180,20 @@ The three original approaches (A: gRPC, B: CLI, C: Hybrid) still apply. The revi
 **Original Approach A is now stronger** because:
 - CLI is NOT needed for SSH or file transfer (corrects the original assumption)
 - Real-world CLI flag breakage (Vertex provider) validates the compile-time safety argument
-- K8s operator work (brainstorm #1719) needs gRPC anyway (CLI wrapping doesn't work in-cluster)
+- K8s operator work (brainstorm #1719) needs gRPC anyway (CLI wrapping does not work in-cluster)
 
 **Original Approach B is now weaker** because:
 - Three runtime bugs in a single feature migration (Vertex provider)
 - Provider create/update API asymmetry only discoverable at runtime
 - No path to K8s operator integration
 
-**Original Approach C (Hybrid) is eliminated** because the SSH/upload CLI dependency assumption was wrong. There's no reason to keep a partial CLI dependency.
+**Original Approach C (Hybrid) is eliminated** because the SSH/upload CLI dependency assumption was wrong. There is no reason to keep a partial CLI dependency.
 
 ### Updated Decision
 
 **Chosen: Approach A (Full gRPC replacement)**
 
-Implement a `grpcClient` that implements the existing `Client` interface. The `Client` interface stays unchanged, so `ws/openshell.go` and all callers don't need modifications.
+Implement a `grpcClient` that implements the existing `Client` interface. The `Client` interface stays unchanged, so `ws/openshell.go` and all callers do not need modifications.
 
 **Implementation plan:**
 1. Add proto codegen infrastructure (Makefile target, vendored proto files pinned to a release tag)
@@ -212,5 +212,5 @@ Implement a `grpcClient` that implements the existing `Client` interface. The `C
 ### Open Threads
 - Proto file vendoring: copy from OpenShell release tarball or use `buf` for dependency management?
 - SSH tunnel implementation: use `golang.org/x/crypto/ssh` directly or `net/http` HTTP CONNECT to gateway tunnel endpoint?
-- The edge tunnel (WebSocket-based, for gateways behind Cloudflare) is complex. Defer until needed (local dev and K8s don't use edge auth).
+- The edge tunnel (WebSocket-based, for gateways behind Cloudflare) is complex. Defer until needed (local dev and K8s do not use edge auth).
 - Should the legacy `cliClient` be kept behind a build tag for one release, or removed immediately?

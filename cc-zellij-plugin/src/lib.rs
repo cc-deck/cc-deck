@@ -48,6 +48,8 @@ pub struct RenderPayload {
     pub voice_muted: bool,
     #[serde(default)]
     pub show_agent_indicators: bool,
+    #[serde(default)]
+    pub sort_active: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -131,6 +133,7 @@ mod protocol_tests {
             voice_connected: false,
             voice_muted: false,
             show_agent_indicators: false,
+            sort_active: false,
         };
         let json = serde_json::to_string(&payload).unwrap();
         let restored: RenderPayload = serde_json::from_str(&json).unwrap();
@@ -205,6 +208,7 @@ mod protocol_tests {
             voice_connected: true,
             voice_muted: false,
             show_agent_indicators: false,
+            sort_active: false,
         };
         let json = serde_json::to_string(&payload).unwrap();
         let restored: RenderPayload = serde_json::from_str(&json).unwrap();
@@ -237,6 +241,7 @@ mod protocol_tests {
             voice_connected: false,
             voice_muted: false,
             show_agent_indicators: false,
+            sort_active: false,
         };
         let json = serde_json::to_string(&payload).unwrap();
         let restored: RenderPayload = serde_json::from_str(&json).unwrap();

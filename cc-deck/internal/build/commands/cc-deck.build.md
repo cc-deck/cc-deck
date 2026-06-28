@@ -93,10 +93,13 @@ Before writing ANY download commands, verify each tool's actual release assets:
 
 1. Query the GitHub API: `curl -fsSL https://api.github.com/repos/<repo>/releases/latest | jq '.assets[].name'`
 2. Match the actual asset name for the target architecture (aarch64/x86_64). Do NOT trust the manifest's `asset_pattern` blindly. Common mismatches: `.tar.gz` vs `.tar.xz`, `gnu` vs `musl`, Go-style `linux-amd64` vs Rust-style `x86_64-unknown-linux-gnu`.
-3. Probe the tarball structure: `curl -fsSL <asset-url> | tar -tf - | head -5` to determine if the binary is at the top level or nested in a subdirectory.
-4. If nested (e.g., `tool-arch/tool`), use `--strip-components=1` with a path filter in the extraction command.
+3. Probe the archive structure based on format:
+   - `.tar.gz` / `.tar.xz`: `curl -fsSL <asset-url> | tar -tf - | head -5`
+   - `.zip`: `curl -fsSL <asset-url> -o /tmp/probe.zip && unzip -l /tmp/probe.zip | head -10 && rm /tmp/probe.zip`
+   This determines if the binary is at the top level or nested in a subdirectory.
+4. If nested (e.g., `tool-arch/tool`), use `--strip-components=1` (tar) or `-j` (unzip) with a path filter in the extraction command.
 5. Record the verified URL, format (.tar.gz/.tar.xz/.zip), and extraction method for each tool.
-6. Generate Containerfile download commands from these verified values, not from the manifest's `asset_pattern`.
+6. Generate Containerfile download commands from these verified values, not from the manifest's `asset_pattern`. Use `tar xzf`/`tar xJf` for tarballs and `unzip` for zip archives.
 
 If the GitHub API is unreachable (rate limit or network error), fall back to the manifest's `asset_pattern` with a warning comment in the Containerfile.
 
@@ -690,10 +693,13 @@ Before writing ANY download commands, verify each tool's actual release assets:
 
 1. Query the GitHub API: `curl -fsSL https://api.github.com/repos/<repo>/releases/latest | jq '.assets[].name'`
 2. Match the actual asset name for the target architecture (aarch64/x86_64). Do NOT trust the manifest's `asset_pattern` blindly. Common mismatches: `.tar.gz` vs `.tar.xz`, `gnu` vs `musl`, Go-style `linux-amd64` vs Rust-style `x86_64-unknown-linux-gnu`.
-3. Probe the tarball structure: `curl -fsSL <asset-url> | tar -tf - | head -5` to determine if the binary is at the top level or nested in a subdirectory.
-4. If nested (e.g., `tool-arch/tool`), use `--strip-components=1` with a path filter in the extraction command.
+3. Probe the archive structure based on format:
+   - `.tar.gz` / `.tar.xz`: `curl -fsSL <asset-url> | tar -tf - | head -5`
+   - `.zip`: `curl -fsSL <asset-url> -o /tmp/probe.zip && unzip -l /tmp/probe.zip | head -10 && rm /tmp/probe.zip`
+   This determines if the binary is at the top level or nested in a subdirectory.
+4. If nested (e.g., `tool-arch/tool`), use `--strip-components=1` (tar) or `-j` (unzip) with a path filter in the extraction command.
 5. Record the verified URL, format (.tar.gz/.tar.xz/.zip), and extraction method for each tool.
-6. Generate Containerfile download commands from these verified values, not from the manifest's `asset_pattern`.
+6. Generate Containerfile download commands from these verified values, not from the manifest's `asset_pattern`. Use `tar xzf`/`tar xJf` for tarballs and `unzip` for zip archives.
 
 If the GitHub API is unreachable (rate limit or network error), fall back to the manifest's `asset_pattern` with a warning comment in the Containerfile.
 

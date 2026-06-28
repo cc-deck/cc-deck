@@ -177,7 +177,9 @@ func ResolveCredentials(entries []CredentialInput, wsName string) []ProviderConf
 				cfg.Credentials["region"] = "global"
 			}
 
-			cfg.EnvVarsToInject = make(map[string]string)
+			cfg.EnvVarsToInject = map[string]string{
+				"CLAUDE_CODE_USE_VERTEX": "1",
+			}
 			for _, v := range envVars {
 				if val := os.Getenv(v); val != "" {
 					cfg.EnvVarsToInject[v] = val
@@ -264,6 +266,23 @@ func DetectCredentials() []DetectedCredential {
 
 		if matched {
 			seen[providerType] = true
+			if isVariant {
+				// Variant supersedes its base profile. Mark the base profile's
+				// type as seen to prevent duplicate provider creation.
+				// E.g., claude-vertex (google-cloud) suppresses claude (claude).
+				baseName := providerType // fallback
+				for _, candidate := range order {
+					cp := KnownProviderProfiles[candidate]
+					if candidate != name && cp.Type == candidate {
+						// candidate is a base profile; check if our name starts with it
+						if len(name) > len(candidate)+1 && name[:len(candidate)+1] == candidate+"-" {
+							baseName = cp.Type
+							break
+						}
+					}
+				}
+				seen[baseName] = true
+			}
 			entry := DetectedCredential{
 				Type:    name,
 				EnvVars: ResolveDefaultEnvVars(name),

@@ -79,11 +79,7 @@ impl PerfTracker {
             }
 
             for (label, stats) in &self.stats {
-                let avg = if stats.count > 0 {
-                    stats.total_us / stats.count
-                } else {
-                    0
-                };
+                let avg = stats.total_us.checked_div(stats.count).unwrap_or(0);
                 let _ = writeln!(
                     f,
                     "{now_ms},{label},{},{},{},{avg}",

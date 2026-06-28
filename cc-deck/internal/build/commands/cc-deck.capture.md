@@ -512,7 +512,7 @@ remote-bg: "<chosen-color>"
 
 The background is applied automatically by `cc-deck attach` before SSH connects, and reset on detach. No shell-level auto-set is needed.
 
-**Action**: Write the curated config to `<setup-dir>/config/` using the shell (`mkdir -p <setup-dir>/config && cat > <setup-dir>/config/zshrc`), not the Write tool. This ensures existing files are overwritten with current local versions. Update manifest:
+**Action**: Write the curated config to `<setup-dir>/config/` using the shell (`mkdir -p <setup-dir>/config && cat > <setup-dir>/config/<shellrc>`), not the Write tool. Use `zshrc` for zsh, `bashrc` for bash. This ensures existing files are overwritten with current local versions. Update manifest:
 
 For **zsh**:
 ```yaml
@@ -1033,8 +1033,8 @@ Then perform the write:
 7. Update `credentials` section with selected credential providers
 8. Copy selected config files to `<setup-dir>/config/` using `cp` via Bash (always overwrite existing files with current local versions)
 9. Write repos to `.cc-deck/workspace.yaml` if target is SSH
-10. If an OpenShell target is configured, run `cc-deck build refresh <setup-dir>` to fetch the latest catalog components and regenerate the policy. On network failure, the refresh warns and continues with cached or embedded components.
-11. **GitHub release asset verification**: For each tool with `install: github-release`, query the GitHub API (`https://api.github.com/repos/<repo>/releases/latest`) and verify the `asset_pattern` against actual release asset names. If the pattern does not match any actual asset, update the manifest entry with the correct pattern and warn: `"Updated asset_pattern for <tool>: <old> -> <new>"`. This catches naming convention mismatches (e.g., `.tar.gz` vs `.tar.xz`, `gnu` vs `musl`) before the build phase.
+10. **GitHub release asset verification**: For each tool with `install: github-release`, query the GitHub API (`https://api.github.com/repos/<repo>/releases/latest`) and verify the `asset_pattern` against actual release asset names. If the pattern does not match any actual asset, update the manifest entry with the correct pattern and warn: `"Updated asset_pattern for <tool>: <old> -> <new>"`. This catches naming convention mismatches (e.g., `.tar.gz` vs `.tar.xz`, `gnu` vs `musl`) before the build phase.
+11. If an OpenShell target is configured, run `cc-deck build refresh <setup-dir>` to fetch the latest catalog components and regenerate the policy. This runs after asset verification so that any corrected manifest entries are included in the refresh. On network failure, the refresh warns and continues with cached or embedded components.
 12. **post_install dry-run validation**: For each tool with a `post_install` field, attempt to detect interactive prompts by running the command with `--help` or `--dry-run` if supported. If the command writes to stderr with prompts like "Y/N", "Patch existing", or similar, warn: `"post_install for <tool> may prompt for input. The build will use '|| true' guard."`. This is advisory only; the tool is still included in the manifest.
 13. Report what was written
 
