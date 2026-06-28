@@ -51,12 +51,16 @@ pub fn handle_tab_update(state: &mut ControllerState, tabs: Vec<TabInfo>) {
         if let Some(ref mut order) = state.sort_order {
             // Remove pane_ids for sessions that no longer exist
             order.retain(|pid| state.sessions.contains_key(pid));
-            // Append any new session pane_ids at the end
-            for &pid in state.sessions.keys() {
-                if !order.contains(&pid) {
-                    order.push(pid);
-                }
-            }
+            // Append any new session pane_ids in tab_index order
+            let existing: std::collections::HashSet<u32> = order.iter().copied().collect();
+            let mut new_sessions: Vec<(usize, u32)> = state
+                .sessions
+                .values()
+                .filter_map(|s| s.tab_index.map(|idx| (idx, s.pane_id)))
+                .filter(|(_, pid)| !existing.contains(pid))
+                .collect();
+            new_sessions.sort_by_key(|(idx, _)| *idx);
+            order.extend(new_sessions.into_iter().map(|(_, pid)| pid));
         }
         super::sidebar_registry::handle_tab_reindex(state);
     }
@@ -218,6 +222,9 @@ pub fn handle_timer(state: &mut ControllerState, _elapsed: f64) {
             let count = state.unconfirmed_pane_ids.len();
             for pane_id in state.unconfirmed_pane_ids.drain() {
                 state.sessions.remove(&pane_id);
+                if let Some(ref mut order) = state.sort_order {
+                    order.retain(|&p| p != pane_id);
+                }
             }
             crate::debug_log(&format!("CTRL CLEANUP removed {count} unconfirmed restored sessions"));
             state.save_sessions();
@@ -444,6 +451,9 @@ pub fn handle_pane_closed(state: &mut ControllerState, pane_id: PaneId) {
     let removed = state.sessions.remove(&id).is_some();
     if removed {
         state.pending_git_branch.remove(&id);
+        if let Some(ref mut order) = state.sort_order {
+            order.retain(|&p| p != id);
+        }
         state.save_sessions();
         state.mark_render_dirty();
     }
@@ -779,9 +789,15 @@ mod tests {
         state.permissions_granted = true;
         state.keybindings_registered = true;
         state.is_leader = true;
-        state.sessions.insert(1, Session::new(1, "s1".into()));
-        state.sessions.insert(2, Session::new(2, "s2".into()));
-        state.sessions.insert(3, Session::new(3, "s3".into()));
+        let mut s1 = Session::new(1, "s1".into());
+        s1.tab_index = Some(0);
+        let mut s2 = Session::new(2, "s2".into());
+        s2.tab_index = Some(1);
+        let mut s3 = Session::new(3, "s3".into());
+        s3.tab_index = Some(2);
+        state.sessions.insert(1, s1);
+        state.sessions.insert(2, s2);
+        state.sessions.insert(3, s3);
         state.sort_order = Some(vec![2, 1]);
 
         state.last_tab_count = 2;

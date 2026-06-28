@@ -63,8 +63,16 @@ pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> Vec<Cli
     let max_visible = available.checked_div(lines_per_session).unwrap_or(0);
 
     let total = sessions.len();
+    // Use the same pane-id source for scrolling as for highlighting:
+    // in navigate mode, focused_pane_id points to the sidebar plugin,
+    // so use restore_pane_id (the terminal pane that was active before).
+    let scroll_anchor_pane_id = if state.mode.is_navigating() {
+        state.mode.nav_ctx().and_then(|ctx| ctx.restore_pane_id)
+    } else {
+        state.effective_focused_pane_id()
+    };
     let (start_idx, end_idx, above_count, below_count) =
-        visible_range(total, max_visible, payload.active_tab_index, payload.focused_pane_id, payload.sort_active, &sessions);
+        visible_range(total, max_visible, payload.active_tab_index, scroll_anchor_pane_id, payload.sort_active, &sessions);
 
     // Defensive bounds clamping
     let start_idx = start_idx.min(total);

@@ -259,6 +259,9 @@ impl ControllerState {
         if self.sessions.len() != before {
             self.pending_git_branch
                 .retain(|id| self.sessions.contains_key(id));
+            if let Some(ref mut order) = self.sort_order {
+                order.retain(|pid| self.sessions.contains_key(pid));
+            }
             crate::debug_log(&format!(
                 "CTRL CLEANUP removed {} dead sessions, {} remaining",
                 before - self.sessions.len(),
