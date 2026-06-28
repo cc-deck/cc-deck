@@ -5,7 +5,6 @@
 // Render broadcasting is coalesced: multiple state changes within a timer
 // tick produce only one broadcast.
 
-use super::actions::sort_tier;
 use super::state::ControllerState;
 use crate::session::Activity;
 use cc_deck::{RenderPayload, RenderSession};
@@ -14,11 +13,10 @@ use cc_deck::{RenderPayload, RenderSession};
 pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
     let sessions: Vec<&crate::session::Session> = {
         let mut s: Vec<_> = state.sessions.values().collect();
-        if state.sort_active {
-            // Virtual sort: group by activity tier, then by tab index within each tier.
-            // Stable sort preserves relative tab order within each tier.
-            s.sort_by_key(|s| s.tab_index.unwrap_or(usize::MAX));
-            s.sort_by_key(|s| sort_tier(s));
+        if let Some(ref order) = state.sort_order {
+            s.sort_by_key(|sess| {
+                order.iter().position(|&pid| pid == sess.pane_id).unwrap_or(usize::MAX)
+            });
         } else {
             s.sort_by_key(|s| s.tab_index.unwrap_or(usize::MAX));
         }
@@ -98,7 +96,7 @@ pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
         voice_connected: state.voice_enabled,
         voice_muted: state.voice_muted,
         show_agent_indicators,
-        sort_active: state.sort_active,
+        sort_active: state.sort_order.is_some(),
     }
 }
 
@@ -456,11 +454,11 @@ mod tests {
     // --- Virtual sort tests (T007, T008) ---
 
     #[test]
-    fn test_build_render_payload_sorts_by_tier_when_sort_active() {
+    fn test_build_render_payload_uses_frozen_sort_order() {
         let mut state = ControllerState::default();
-        state.sort_active = true;
+        // Frozen order: work1, work2, idle, done, paused
+        state.sort_order = Some(vec![20, 50, 10, 40, 30]);
 
-        // Tab order: [Idle(0), Working(1), Paused(2), Done(3), Working(4)]
         let mut s0 = make_session(10, "idle", Activity::Idle);
         s0.tab_index = Some(0);
         let mut s1 = make_session(20, "work1", Activity::Working);
@@ -482,17 +480,14 @@ mod tests {
         let payload = build_render_payload(&state);
         assert!(payload.sort_active);
 
-        // Expected display order: Active(work1, work2), Inactive(idle, done), Paused(paused)
         let names: Vec<&str> = payload.sessions.iter().map(|s| s.display_name.as_str()).collect();
         assert_eq!(names, vec!["work1", "work2", "idle", "done", "paused"]);
     }
 
     #[test]
-    fn test_build_render_payload_preserves_tab_order_when_sort_inactive() {
+    fn test_build_render_payload_preserves_tab_order_without_sort() {
         let mut state = ControllerState::default();
-        state.sort_active = false;
 
-        // Tab order: [Idle(0), Working(1), Paused(2)]
         let mut s0 = make_session(10, "idle", Activity::Idle);
         s0.tab_index = Some(0);
         let mut s1 = make_session(20, "work", Activity::Working);
@@ -508,77 +503,29 @@ mod tests {
         let payload = build_render_payload(&state);
         assert!(!payload.sort_active);
 
-        // Should preserve natural tab order regardless of activity tier
         let names: Vec<&str> = payload.sessions.iter().map(|s| s.display_name.as_str()).collect();
         assert_eq!(names, vec!["idle", "work", "paused"]);
     }
 
     #[test]
-    fn test_build_render_payload_sort_preserves_relative_order_within_tier() {
+    fn test_build_render_payload_frozen_order_stable_across_state_changes() {
         let mut state = ControllerState::default();
-        state.sort_active = true;
 
-        // Three Working sessions at tab positions 1, 3, 5
         let mut s0 = make_session(10, "idle1", Activity::Idle);
         s0.tab_index = Some(0);
         let mut s1 = make_session(20, "work-a", Activity::Working);
         s1.tab_index = Some(1);
-        let mut s2 = make_session(30, "idle2", Activity::Idle);
-        s2.tab_index = Some(2);
-        let mut s3 = make_session(40, "work-b", Activity::Working);
-        s3.tab_index = Some(3);
-        let mut s4 = make_session(50, "idle3", Activity::Idle);
-        s4.tab_index = Some(4);
-        let mut s5 = make_session(60, "work-c", Activity::Working);
-        s5.tab_index = Some(5);
-
         state.sessions.insert(10, s0);
         state.sessions.insert(20, s1);
-        state.sessions.insert(30, s2);
-        state.sessions.insert(40, s3);
-        state.sessions.insert(50, s4);
-        state.sessions.insert(60, s5);
+
+        // Frozen order: work-a first, then idle1
+        state.sort_order = Some(vec![20, 10]);
+
+        // Change work-a to Idle — frozen order should NOT change
+        state.sessions.get_mut(&20).unwrap().activity = Activity::Idle;
 
         let payload = build_render_payload(&state);
         let names: Vec<&str> = payload.sessions.iter().map(|s| s.display_name.as_str()).collect();
-
-        // Working sessions first in original relative order, then Idle
-        assert_eq!(names, vec!["work-a", "work-b", "work-c", "idle1", "idle2", "idle3"]);
-    }
-
-    #[test]
-    fn test_build_render_payload_sort_zero_sessions() {
-        let mut state = ControllerState::default();
-        state.sort_active = true;
-        let payload = build_render_payload(&state);
-        assert!(payload.sessions.is_empty());
-        assert!(payload.sort_active);
-    }
-
-    #[test]
-    fn test_build_render_payload_sort_single_session() {
-        let mut state = ControllerState::default();
-        state.sort_active = true;
-        let mut s = make_session(10, "only", Activity::Working);
-        s.tab_index = Some(0);
-        state.sessions.insert(10, s);
-        let payload = build_render_payload(&state);
-        assert_eq!(payload.sessions.len(), 1);
-        assert_eq!(payload.sessions[0].display_name, "only");
-    }
-
-    #[test]
-    fn test_build_render_payload_sort_all_same_tier_preserves_order() {
-        let mut state = ControllerState::default();
-        state.sort_active = true;
-        // All Working, non-sequential tab indices
-        for (pid, name, idx) in [(10, "c", 3), (20, "a", 1), (30, "d", 4), (40, "b", 2)] {
-            let mut s = make_session(pid, name, Activity::Working);
-            s.tab_index = Some(idx);
-            state.sessions.insert(pid, s);
-        }
-        let payload = build_render_payload(&state);
-        let names: Vec<&str> = payload.sessions.iter().map(|s| s.display_name.as_str()).collect();
-        assert_eq!(names, vec!["a", "b", "c", "d"]);
+        assert_eq!(names, vec!["work-a", "idle1"]);
     }
 }

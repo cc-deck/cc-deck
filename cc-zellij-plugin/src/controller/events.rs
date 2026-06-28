@@ -48,7 +48,7 @@ pub fn handle_tab_update(state: &mut ControllerState, tabs: Vec<TabInfo>) {
 
     // If tab count changed, notify sidebars to reindex and clear virtual sort
     if tab_count_changed {
-        state.sort_active = false;
+        state.sort_order = None;
         super::sidebar_registry::handle_tab_reindex(state);
     }
 
@@ -765,17 +765,15 @@ mod tests {
     // --- Virtual sort auto-clear tests (T015, T016) ---
 
     #[test]
-    fn test_tab_update_clears_sort_active_on_tab_count_change() {
+    fn test_tab_update_clears_sort_order_on_tab_count_change() {
         let mut state = ControllerState::default();
         state.permissions_granted = true;
         state.keybindings_registered = true;
         state.is_leader = true;
-        state.sort_active = true;
+        state.sort_order = Some(vec![1, 2]);
 
-        // Initial state: 2 tabs
         state.last_tab_count = 2;
 
-        // Update with 3 tabs (tab count changed)
         let tabs = vec![
             make_tab_info(0, true),
             make_tab_info(1, false),
@@ -783,28 +781,26 @@ mod tests {
         ];
         handle_tab_update(&mut state, tabs);
 
-        assert!(!state.sort_active, "sort_active should be cleared when tab count changes");
+        assert!(state.sort_order.is_none(), "sort_order should be cleared when tab count changes");
     }
 
     #[test]
-    fn test_tab_update_preserves_sort_active_when_tab_count_unchanged() {
+    fn test_tab_update_preserves_sort_order_when_tab_count_unchanged() {
         let mut state = ControllerState::default();
         state.permissions_granted = true;
         state.keybindings_registered = true;
         state.is_leader = true;
-        state.sort_active = true;
+        state.sort_order = Some(vec![1, 2]);
 
-        // Initial state: 2 tabs
         state.last_tab_count = 2;
         state.active_tab_index = Some(0);
 
-        // Update with same 2 tabs (tab count unchanged)
         let tabs = vec![
             make_tab_info(0, true),
             make_tab_info(1, false),
         ];
         handle_tab_update(&mut state, tabs);
 
-        assert!(state.sort_active, "sort_active should be preserved when tab count is unchanged");
+        assert!(state.sort_order.is_some(), "sort_order should be preserved when tab count is unchanged");
     }
 }

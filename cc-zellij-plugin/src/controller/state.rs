@@ -126,8 +126,9 @@ pub struct ControllerState {
     pub last_leader_ping_ms: u64,
     /// Timer ticks since startup ping was sent.
     pub election_ticks: u32,
-    /// Whether virtual sort-by-activity is currently active (display-only).
-    pub sort_active: bool,
+    /// Frozen display order from the last sort-by-activity (pane IDs).
+    /// When Some, the render broadcast uses this order instead of tab_index.
+    pub sort_order: Option<Vec<u32>>,
 }
 
 

@@ -272,21 +272,26 @@ pub(super) fn sort_tier(session: &Session) -> u8 {
     }
 }
 
-/// Toggle virtual sort-by-activity display mode.
+/// Snapshot sort-by-activity: compute tier-sorted order and freeze it.
 ///
-/// When activated, `build_render_payload()` sorts sessions by
-/// `(sort_tier, tab_index)` instead of `tab_index` alone. No Zellij
-/// tabs are moved; the reorder is display-only in the sidebar.
+/// Each press of S re-computes the sort with current activity states.
+/// No Zellij tabs are moved; the reorder is display-only in the sidebar.
 fn handle_sort(state: &mut ControllerState) {
-    let sortable = state.sessions.values().filter(|s| s.tab_index.is_some()).count();
-    if sortable < 2 {
-        if state.sort_active {
-            state.sort_active = false;
-            state.mark_render_dirty();
-        }
+    let mut sessions: Vec<(u32, usize, u8)> = state
+        .sessions
+        .values()
+        .filter_map(|s| s.tab_index.map(|idx| (s.pane_id, idx, sort_tier(s))))
+        .collect();
+
+    if sessions.len() < 2 {
         return;
     }
-    state.sort_active = !state.sort_active;
+
+    sessions.sort_by_key(|&(_, idx, _)| idx);
+    sessions.sort_by_key(|&(_, _, tier)| tier);
+
+    let order: Vec<u32> = sessions.iter().map(|&(pid, _, _)| pid).collect();
+    state.sort_order = Some(order);
     state.mark_render_dirty();
 }
 
@@ -760,40 +765,33 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_sort_toggles_sort_active_on() {
+    fn test_handle_sort_creates_frozen_order() {
         let mut state = state_with_sortable_sessions();
-        assert!(!state.sort_active);
+        assert!(state.sort_order.is_none());
 
         handle_sort(&mut state);
 
-        assert!(state.sort_active, "sort_active should be true after first toggle");
-        assert!(state.render_dirty, "render should be marked dirty");
+        assert!(state.sort_order.is_some());
+        assert!(state.render_dirty);
+        // Working (pane 1) should come before Idle (pane 2)
+        assert_eq!(state.sort_order.as_ref().unwrap(), &vec![1, 2]);
     }
 
     #[test]
-    fn test_handle_sort_toggles_sort_active_off() {
+    fn test_handle_sort_re_sorts_on_second_press() {
         let mut state = state_with_sortable_sessions();
-        state.sort_active = true;
-
         handle_sort(&mut state);
+        assert!(state.sort_order.is_some());
 
-        assert!(!state.sort_active, "sort_active should be false after second toggle");
-        assert!(state.render_dirty, "render should be marked dirty");
-    }
-
-    #[test]
-    fn test_handle_sort_double_toggle_returns_to_false() {
-        let mut state = state_with_sortable_sessions();
-        assert!(!state.sort_active);
-
-        handle_sort(&mut state);
-        assert!(state.sort_active);
-
+        // Change activity: pane 2 becomes Working, pane 1 becomes Idle
+        state.sessions.get_mut(&1).unwrap().activity = Activity::Idle;
+        state.sessions.get_mut(&2).unwrap().activity = Activity::Working;
         state.render_dirty = false;
 
         handle_sort(&mut state);
-        assert!(!state.sort_active, "double toggle should return to false");
-        assert!(state.render_dirty, "render should be marked dirty on second toggle");
+        // New sort should reflect current states
+        assert_eq!(state.sort_order.as_ref().unwrap(), &vec![2, 1]);
+        assert!(state.render_dirty);
     }
 
     #[test]
@@ -806,7 +804,7 @@ mod tests {
 
         handle_sort(&mut state);
 
-        assert!(!state.sort_active, "sort should not activate with < 2 sessions");
+        assert!(state.sort_order.is_none());
         assert!(!state.render_dirty);
     }
 
