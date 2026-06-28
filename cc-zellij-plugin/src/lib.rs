@@ -72,6 +72,8 @@ pub enum ActionType {
     Refresh,
     VoiceMute,
     Sort,
+    MoveUp,
+    MoveDown,
 }
 
 /// A user-initiated action sent from a sidebar to the controller.

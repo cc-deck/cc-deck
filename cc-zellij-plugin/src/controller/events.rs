@@ -46,9 +46,22 @@ pub fn handle_tab_update(state: &mut ControllerState, tabs: Vec<TabInfo>) {
     let dead_removed = state.remove_dead_sessions();
     let stale_transitioned = state.cleanup_stale_sessions(state.config.done_timeout);
 
-    // If tab count changed, notify sidebars to reindex and clear virtual sort
+    // If tab count changed, notify sidebars to reindex and update virtual sort
     if tab_count_changed {
-        state.sort_order = None;
+        if let Some(ref mut order) = state.sort_order {
+            // Remove pane_ids for sessions that no longer exist
+            order.retain(|pid| state.sessions.contains_key(pid));
+            // Append any new session pane_ids in tab_index order
+            let existing: std::collections::HashSet<u32> = order.iter().copied().collect();
+            let mut new_sessions: Vec<(usize, u32)> = state
+                .sessions
+                .values()
+                .filter_map(|s| s.tab_index.map(|idx| (idx, s.pane_id)))
+                .filter(|(_, pid)| !existing.contains(pid))
+                .collect();
+            new_sessions.sort_by_key(|(idx, _)| *idx);
+            order.extend(new_sessions.into_iter().map(|(_, pid)| pid));
+        }
         super::sidebar_registry::handle_tab_reindex(state);
     }
 
@@ -209,6 +222,9 @@ pub fn handle_timer(state: &mut ControllerState, _elapsed: f64) {
             let count = state.unconfirmed_pane_ids.len();
             for pane_id in state.unconfirmed_pane_ids.drain() {
                 state.sessions.remove(&pane_id);
+                if let Some(ref mut order) = state.sort_order {
+                    order.retain(|&p| p != pane_id);
+                }
             }
             crate::debug_log(&format!("CTRL CLEANUP removed {count} unconfirmed restored sessions"));
             state.save_sessions();
@@ -435,6 +451,9 @@ pub fn handle_pane_closed(state: &mut ControllerState, pane_id: PaneId) {
     let removed = state.sessions.remove(&id).is_some();
     if removed {
         state.pending_git_branch.remove(&id);
+        if let Some(ref mut order) = state.sort_order {
+            order.retain(|&p| p != id);
+        }
         state.save_sessions();
         state.mark_render_dirty();
     }
@@ -762,15 +781,24 @@ mod tests {
         assert!(!state.render_dirty);
     }
 
-    // --- Virtual sort auto-clear tests (T015, T016) ---
+    // --- Virtual sort persistence tests ---
 
     #[test]
-    fn test_tab_update_clears_sort_order_on_tab_count_change() {
+    fn test_tab_update_preserves_sort_order_on_tab_added() {
         let mut state = ControllerState::default();
         state.permissions_granted = true;
         state.keybindings_registered = true;
         state.is_leader = true;
-        state.sort_order = Some(vec![1, 2]);
+        let mut s1 = Session::new(1, "s1".into());
+        s1.tab_index = Some(0);
+        let mut s2 = Session::new(2, "s2".into());
+        s2.tab_index = Some(1);
+        let mut s3 = Session::new(3, "s3".into());
+        s3.tab_index = Some(2);
+        state.sessions.insert(1, s1);
+        state.sessions.insert(2, s2);
+        state.sessions.insert(3, s3);
+        state.sort_order = Some(vec![2, 1]);
 
         state.last_tab_count = 2;
 
@@ -781,7 +809,33 @@ mod tests {
         ];
         handle_tab_update(&mut state, tabs);
 
-        assert!(state.sort_order.is_none(), "sort_order should be cleared when tab count changes");
+        let order = state.sort_order.expect("sort_order should be preserved when tab is added");
+        assert_eq!(order[0], 2, "existing order preserved");
+        assert_eq!(order[1], 1, "existing order preserved");
+        assert_eq!(order[2], 3, "new session appended at end");
+    }
+
+    #[test]
+    fn test_tab_update_preserves_sort_order_on_tab_closed() {
+        let mut state = ControllerState::default();
+        state.permissions_granted = true;
+        state.keybindings_registered = true;
+        state.is_leader = true;
+        // Session 2 will be "dead" (not in sessions map after cleanup)
+        state.sessions.insert(1, Session::new(1, "s1".into()));
+        state.sessions.insert(3, Session::new(3, "s3".into()));
+        state.sort_order = Some(vec![3, 2, 1]);
+
+        state.last_tab_count = 3;
+
+        let tabs = vec![
+            make_tab_info(0, true),
+            make_tab_info(1, false),
+        ];
+        handle_tab_update(&mut state, tabs);
+
+        let order = state.sort_order.expect("sort_order should be preserved when tab is closed");
+        assert_eq!(order, vec![3, 1], "dead pane_id removed from sort order");
     }
 
     #[test]

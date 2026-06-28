@@ -470,6 +470,32 @@ fn handle_navigate_key(state: &mut SidebarState, key: KeyWithModifier) -> bool {
             crate::wasm_compat::set_selectable_wasm(false);
             true
         }
+        BareKey::Char('J') => {
+            // Move session down in sort order
+            let cursor = state.mode.cursor_index();
+            let cursor_pane_id = if cursor < sessions.len() {
+                Some(sessions[cursor].pane_id)
+            } else {
+                None
+            };
+            drop(sessions);
+            state.sort_cursor_pane_id = cursor_pane_id;
+            send_action(state, ActionType::MoveDown, cursor_pane_id, None, None);
+            true
+        }
+        BareKey::Char('K') => {
+            // Move session up in sort order
+            let cursor = state.mode.cursor_index();
+            let cursor_pane_id = if cursor < sessions.len() {
+                Some(sessions[cursor].pane_id)
+            } else {
+                None
+            };
+            drop(sessions);
+            state.sort_cursor_pane_id = cursor_pane_id;
+            send_action(state, ActionType::MoveUp, cursor_pane_id, None, None);
+            true
+        }
         _ => false,
     }
 }
@@ -956,6 +982,29 @@ mod tests {
         let mut state = make_nav_state(&[], 0);
         assert!(handle_navigate_key(&mut state, bare(BareKey::Char('S'))));
         assert!(state.mode.is_navigating());
+        assert_eq!(state.sort_cursor_pane_id, None);
+    }
+
+    #[test]
+    fn test_nav_j_move_down_dispatches_action() {
+        let mut state = make_nav_state(&[(10, "api", 0), (20, "web", 1)], 0);
+        assert!(handle_navigate_key(&mut state, bare(BareKey::Char('J'))));
+        assert!(state.mode.is_navigating());
+        assert_eq!(state.sort_cursor_pane_id, Some(10));
+    }
+
+    #[test]
+    fn test_nav_k_move_up_dispatches_action() {
+        let mut state = make_nav_state(&[(10, "api", 0), (20, "web", 1)], 1);
+        assert!(handle_navigate_key(&mut state, bare(BareKey::Char('K'))));
+        assert!(state.mode.is_navigating());
+        assert_eq!(state.sort_cursor_pane_id, Some(20));
+    }
+
+    #[test]
+    fn test_nav_j_move_empty_sessions() {
+        let mut state = make_nav_state(&[], 0);
+        assert!(handle_navigate_key(&mut state, bare(BareKey::Char('J'))));
         assert_eq!(state.sort_cursor_pane_id, None);
     }
 
