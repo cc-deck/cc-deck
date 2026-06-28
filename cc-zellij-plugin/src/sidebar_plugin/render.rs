@@ -63,9 +63,8 @@ pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> Vec<Cli
     let max_visible = available.checked_div(lines_per_session).unwrap_or(0);
 
     let total = sessions.len();
-    let active_tab = Some(payload.active_tab_index);
     let (start_idx, end_idx, above_count, below_count) =
-        visible_range(total, max_visible, active_tab, &sessions);
+        visible_range(total, max_visible, payload.active_tab_index, payload.focused_pane_id, payload.sort_active, &sessions);
 
     // Defensive bounds clamping
     let start_idx = start_idx.min(total);
@@ -468,6 +467,7 @@ const HELP_LINES: &[&str] = &[
     " \x1b[1mn\x1b[0m      New tab",
     " \x1b[1mR\x1b[0m      Refresh sidebar",
     " \x1b[1mS\x1b[0m      Sort by activity",
+    " \x1b[1mJ/K\x1b[0m    Move session down/up",
     " \x1b[1m/\x1b[0m      Search",
     " \x1b[1m?\x1b[0m      This help",
 ];
@@ -492,7 +492,9 @@ fn render_help_overlay(rows: usize, cols: usize) -> Vec<ClickRegion> {
 fn visible_range(
     total: usize,
     max_visible: usize,
-    active_tab_index: Option<usize>,
+    active_tab_index: usize,
+    focused_pane_id: Option<u32>,
+    sort_active: bool,
     sessions: &[&RenderSession],
 ) -> (usize, usize, usize, usize) {
     if total == 0 || max_visible == 0 {
@@ -502,9 +504,16 @@ fn visible_range(
         return (0, total, 0, 0);
     }
 
-    let active_pos = active_tab_index
-        .and_then(|idx| sessions.iter().position(|s| s.tab_index == idx))
-        .unwrap_or(0);
+    // When sorted, use focused_pane_id for the scroll anchor so the viewport
+    // stays stable when tabs are physically reordered via MoveTab (Alt-I/O).
+    let active_pos = if sort_active {
+        focused_pane_id
+            .and_then(|pid| sessions.iter().position(|s| s.pane_id == pid))
+            .unwrap_or(0)
+    } else {
+        sessions.iter().position(|s| s.tab_index == active_tab_index)
+            .unwrap_or(0)
+    };
 
     let half = max_visible / 2;
     let start = if active_pos <= half {
@@ -814,7 +823,7 @@ mod tests {
             agent_indicator: None,
         };
         let sessions: Vec<&RenderSession> = vec![&s1, &s2];
-        let (start, end, above, below) = visible_range(2, 5, None, &sessions);
+        let (start, end, above, below) = visible_range(2, 5, 0, None, false, &sessions);
         assert_eq!((start, end, above, below), (0, 2, 0, 0));
     }
 
@@ -836,7 +845,7 @@ mod tests {
             }
         }).collect();
         let refs: Vec<&RenderSession> = sessions_owned.iter().collect();
-        let (start, end, above, below) = visible_range(10, 3, Some(5), &refs);
+        let (start, end, above, below) = visible_range(10, 3, 5, None, false, &refs);
         assert_eq!(end - start, 3);
         assert!(start <= 5 && end > 5);
         assert!(above > 0 || below > 0);

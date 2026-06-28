@@ -24,6 +24,8 @@ pub fn handle_action(state: &mut ControllerState, msg: ActionMessage) {
         ActionType::Refresh => handle_refresh(state),
         ActionType::VoiceMute => handle_voice_mute(state),
         ActionType::Sort => handle_sort(state),
+        ActionType::MoveUp => handle_move(state, msg.pane_id, -1),
+        ActionType::MoveDown => handle_move(state, msg.pane_id, 1),
     }
 }
 
@@ -295,6 +297,37 @@ fn handle_sort(state: &mut ControllerState) {
     let order: Vec<u32> = sessions.iter().map(|&(pid, _, _)| pid).collect();
     state.sort_order = Some(order);
     state.mark_render_dirty();
+}
+
+/// Move a session up or down within the sort order.
+/// `direction`: -1 for up, +1 for down.
+/// If no sort_order exists, initializes one from the current tab order.
+fn handle_move(state: &mut ControllerState, pane_id: Option<u32>, direction: i32) {
+    let pid = match pane_id {
+        Some(p) => p,
+        None => return,
+    };
+
+    // Initialize sort_order from tab order if not already set
+    if state.sort_order.is_none() {
+        let mut sessions: Vec<(u32, usize)> = state
+            .sessions
+            .values()
+            .filter_map(|s| s.tab_index.map(|idx| (s.pane_id, idx)))
+            .collect();
+        sessions.sort_by_key(|&(_, idx)| idx);
+        state.sort_order = Some(sessions.iter().map(|&(pid, _)| pid).collect());
+    }
+
+    if let Some(ref mut order) = state.sort_order {
+        if let Some(pos) = order.iter().position(|&p| p == pid) {
+            let new_pos = pos as i32 + direction;
+            if new_pos >= 0 && (new_pos as usize) < order.len() {
+                order.swap(pos, new_pos as usize);
+                state.mark_render_dirty();
+            }
+        }
+    }
 }
 
 // --- Tiered attend logic ---
@@ -827,5 +860,55 @@ mod tests {
         // Tab indices must remain unchanged (virtual sort, no physical reorder)
         assert_eq!(state.sessions[&10].tab_index, Some(0));
         assert_eq!(state.sessions[&20].tab_index, Some(1));
+    }
+
+    #[test]
+    fn test_handle_move_down_swaps_adjacent() {
+        let mut state = state_with_sortable_sessions();
+        state.sort_order = Some(vec![1, 2]);
+
+        handle_move(&mut state, Some(1), 1);
+
+        assert_eq!(state.sort_order.as_ref().unwrap(), &vec![2, 1]);
+        assert!(state.render_dirty);
+    }
+
+    #[test]
+    fn test_handle_move_up_swaps_adjacent() {
+        let mut state = state_with_sortable_sessions();
+        state.sort_order = Some(vec![1, 2]);
+
+        handle_move(&mut state, Some(2), -1);
+
+        assert_eq!(state.sort_order.as_ref().unwrap(), &vec![2, 1]);
+        assert!(state.render_dirty);
+    }
+
+    #[test]
+    fn test_handle_move_at_boundary_noop() {
+        let mut state = state_with_sortable_sessions();
+        state.sort_order = Some(vec![1, 2]);
+
+        // Move first item up: should be a no-op
+        handle_move(&mut state, Some(1), -1);
+        assert_eq!(state.sort_order.as_ref().unwrap(), &vec![1, 2]);
+        assert!(!state.render_dirty);
+
+        // Move last item down: should be a no-op
+        handle_move(&mut state, Some(2), 1);
+        assert_eq!(state.sort_order.as_ref().unwrap(), &vec![1, 2]);
+    }
+
+    #[test]
+    fn test_handle_move_initializes_sort_order_from_tab_order() {
+        let mut state = state_with_sortable_sessions();
+        assert!(state.sort_order.is_none());
+
+        handle_move(&mut state, Some(1), 1);
+
+        // Should have initialized sort_order from tab order, then swapped
+        let order = state.sort_order.as_ref().unwrap();
+        assert_eq!(order, &vec![2, 1]);
+        assert!(state.render_dirty);
     }
 }
