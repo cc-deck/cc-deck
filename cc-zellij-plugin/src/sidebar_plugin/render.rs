@@ -517,6 +517,7 @@ fn visible_range(
     let active_pos = if sort_active {
         focused_pane_id
             .and_then(|pid| sessions.iter().position(|s| s.pane_id == pid))
+            .or_else(|| sessions.iter().position(|s| s.tab_index == active_tab_index))
             .unwrap_or(0)
     } else {
         sessions.iter().position(|s| s.tab_index == active_tab_index)
@@ -857,6 +858,54 @@ mod tests {
         assert_eq!(end - start, 3);
         assert!(start <= 5 && end > 5);
         assert!(above > 0 || below > 0);
+    }
+
+    #[test]
+    fn test_visible_range_sorted_uses_pane_id_anchor() {
+        let sessions_owned: Vec<cc_deck::RenderSession> = (0..10).map(|i| {
+            cc_deck::RenderSession {
+                pane_id: i + 100,
+                display_name: format!("s{i}"),
+                activity_label: "Idle".into(),
+                indicator: "\u{25cb}".into(),
+                color: (180, 175, 195),
+                git_branch: None,
+                tab_index: i as usize,
+                paused: false,
+                done_attended: false,
+                badges: vec![],
+                agent_indicator: None,
+            }
+        }).collect();
+        let refs: Vec<&RenderSession> = sessions_owned.iter().collect();
+        // Sorted mode with focused_pane_id=107 (display position 7)
+        let (start, end, _, _) = visible_range(10, 3, 0, Some(107), true, &refs);
+        assert_eq!(end - start, 3);
+        assert!(start <= 7 && end > 7, "viewport should center on pane_id 107");
+    }
+
+    #[test]
+    fn test_visible_range_sorted_fallback_to_tab_index() {
+        let sessions_owned: Vec<cc_deck::RenderSession> = (0..10).map(|i| {
+            cc_deck::RenderSession {
+                pane_id: i + 100,
+                display_name: format!("s{i}"),
+                activity_label: "Idle".into(),
+                indicator: "\u{25cb}".into(),
+                color: (180, 175, 195),
+                git_branch: None,
+                tab_index: i as usize,
+                paused: false,
+                done_attended: false,
+                badges: vec![],
+                agent_indicator: None,
+            }
+        }).collect();
+        let refs: Vec<&RenderSession> = sessions_owned.iter().collect();
+        // Sorted mode but no focused_pane_id — should fall back to active_tab_index=5
+        let (start, end, _, _) = visible_range(10, 3, 5, None, true, &refs);
+        assert_eq!(end - start, 3);
+        assert!(start <= 5 && end > 5, "viewport should center on tab_index 5 as fallback");
     }
 
     #[test]

@@ -986,6 +986,29 @@ mod tests {
     }
 
     #[test]
+    fn test_nav_j_move_down_dispatches_action() {
+        let mut state = make_nav_state(&[(10, "api", 0), (20, "web", 1)], 0);
+        assert!(handle_navigate_key(&mut state, bare(BareKey::Char('J'))));
+        assert!(state.mode.is_navigating());
+        assert_eq!(state.sort_cursor_pane_id, Some(10));
+    }
+
+    #[test]
+    fn test_nav_k_move_up_dispatches_action() {
+        let mut state = make_nav_state(&[(10, "api", 0), (20, "web", 1)], 1);
+        assert!(handle_navigate_key(&mut state, bare(BareKey::Char('K'))));
+        assert!(state.mode.is_navigating());
+        assert_eq!(state.sort_cursor_pane_id, Some(20));
+    }
+
+    #[test]
+    fn test_nav_j_move_empty_sessions() {
+        let mut state = make_nav_state(&[], 0);
+        assert!(handle_navigate_key(&mut state, bare(BareKey::Char('J'))));
+        assert_eq!(state.sort_cursor_pane_id, None);
+    }
+
+    #[test]
     fn test_passive_s_sort_ignored() {
         let mut state = make_state_with_sessions(&[(1, "api", 0)]);
         assert!(!handle_key(&mut state, bare(BareKey::Char('S'))));
