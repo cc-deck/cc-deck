@@ -83,12 +83,12 @@ pub fn faded_color(
     idle_fade_secs: u64,
 ) -> (u8, u8, u8) {
     match activity {
-        Activity::Working | Activity::Waiting(_) | Activity::Init => activity.color(),
+        Activity::Working | Activity::Waiting(_) => activity.color(),
         Activity::Done | Activity::AgentDone => {
             let t = sqrt_ratio_1024(elapsed_secs, done_timeout.max(1));
             lerp_color_i(activity.color(), (180, 175, 195), t)
         }
-        Activity::Idle => {
+        Activity::Idle | Activity::Init => {
             let t = sqrt_ratio_1024(elapsed_secs, idle_fade_secs.max(1));
             lerp_color_i((180, 175, 195), (70, 65, 80), t)
         }
@@ -414,13 +414,18 @@ mod tests {
 
     #[test]
     fn test_faded_color_active_states_unchanged() {
-        // Active states return their base color regardless of elapsed time
         assert_eq!(faded_color(&Activity::Working, 9999, 120, 3600), Activity::Working.color());
         assert_eq!(
             faded_color(&Activity::Waiting(WaitReason::Permission), 9999, 120, 3600),
             Activity::Waiting(WaitReason::Permission).color()
         );
-        assert_eq!(faded_color(&Activity::Init, 9999, 120, 3600), Activity::Init.color());
+    }
+
+    #[test]
+    fn test_faded_color_init_fades_like_idle() {
+        assert_eq!(faded_color(&Activity::Init, 0, 120, 3600), Activity::Init.color());
+        // After full fade period, Init should reach the same dark grey as Idle
+        assert_eq!(faded_color(&Activity::Init, 3600, 120, 3600), (70, 65, 80));
     }
 
     #[test]
