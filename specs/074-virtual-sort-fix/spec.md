@@ -17,7 +17,7 @@ A user has 8+ sessions open across multiple tabs. Some are actively working, som
 
 **Acceptance Scenarios**:
 
-1. **Given** 5 sessions with mixed states (2 Working, 1 Idle, 1 Done, 1 Paused) in tab order [Idle, Working, Paused, Done, Working], **When** the user presses S in navigate mode, **Then** the sidebar displays [Working, Working, Idle, Done, Paused] and the Zellij tab bar order is unchanged.
+1. **Given** 5 sessions with mixed states (2 Working, 1 Idle, 1 Done, 1 Paused) in tab order [Idle, Working, Paused, Done, Working], **When** the user presses S in navigate mode, **Then** the sidebar displays [Working, Working, Done, Idle, Paused] and the Zellij tab bar order is unchanged.
 2. **Given** sessions are already sorted by activity tiers, **When** the user presses S, **Then** the sidebar shows the same order (no visible change) and sort becomes active.
 3. **Given** 3 Working sessions at tab positions 1, 4, 6, **When** the user presses S, **Then** the sidebar displays the 3 Working sessions at the top with their original relative order preserved.
 
@@ -128,7 +128,7 @@ The user wants to manually adjust the position of a session within the sorted (o
 
 ### Measurable Outcomes
 
-- **SC-001**: After pressing S in navigate mode, all Active sessions appear before all Inactive sessions, which appear before all Paused sessions in the sidebar display.
+- **SC-001**: After pressing S in navigate mode, sessions are grouped in four tiers: Active (Working, Waiting) first, then Done (Done, AgentDone), then Idle (Idle, Init), then Paused.
 - **SC-002**: Within each tier, sessions retain their prior relative ordering.
 - **SC-003**: The cursor highlights the same session before and after the sort.
 - **SC-004**: The sort activates instantly with no perceptible delay.
