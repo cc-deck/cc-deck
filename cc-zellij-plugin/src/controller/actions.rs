@@ -312,7 +312,6 @@ fn handle_move(state: &mut ControllerState, pane_id: Option<u32>, direction: i32
     };
 
     // Initialize sort_order from tab order if not already set.
-    // Mark dirty so the sidebar shows the sort indicator.
     let initialized = state.sort_order.is_none();
     if initialized {
         let mut sessions: Vec<(u32, usize)> = state
@@ -322,17 +321,21 @@ fn handle_move(state: &mut ControllerState, pane_id: Option<u32>, direction: i32
             .collect();
         sessions.sort_by_key(|&(_, idx)| idx);
         state.sort_order = Some(sessions.iter().map(|&(pid, _)| pid).collect());
-        state.mark_render_dirty();
     }
 
+    let mut changed = initialized;
     if let Some(ref mut order) = state.sort_order {
         if let Some(pos) = order.iter().position(|&p| p == pid) {
             let new_pos = pos as i32 + direction;
             if new_pos >= 0 && (new_pos as usize) < order.len() {
                 order.swap(pos, new_pos as usize);
-                state.mark_render_dirty();
+                changed = true;
             }
         }
+    }
+
+    if changed {
+        super::render_broadcast::broadcast_render(state);
     }
 }
 
@@ -876,7 +879,6 @@ mod tests {
         handle_move(&mut state, Some(1), 1);
 
         assert_eq!(state.sort_order.as_ref().unwrap(), &vec![2, 1]);
-        assert!(state.render_dirty);
     }
 
     #[test]
@@ -887,7 +889,6 @@ mod tests {
         handle_move(&mut state, Some(2), -1);
 
         assert_eq!(state.sort_order.as_ref().unwrap(), &vec![2, 1]);
-        assert!(state.render_dirty);
     }
 
     #[test]
@@ -898,7 +899,6 @@ mod tests {
         // Move first item up: should be a no-op
         handle_move(&mut state, Some(1), -1);
         assert_eq!(state.sort_order.as_ref().unwrap(), &vec![1, 2]);
-        assert!(!state.render_dirty);
 
         // Move last item down: should be a no-op
         handle_move(&mut state, Some(2), 1);
@@ -915,20 +915,17 @@ mod tests {
         // Should have initialized sort_order from tab order, then swapped
         let order = state.sort_order.as_ref().unwrap();
         assert_eq!(order, &vec![2, 1]);
-        assert!(state.render_dirty);
     }
 
     #[test]
-    fn test_handle_move_boundary_with_initialization_marks_dirty() {
+    fn test_handle_move_boundary_with_initialization() {
         let mut state = state_with_sortable_sessions();
         assert!(state.sort_order.is_none());
 
-        // MoveUp on the first item: initializes sort_order but no swap.
-        // Should still mark dirty so the sort indicator appears.
+        // MoveUp on the first item: initializes sort_order but no swap
         handle_move(&mut state, Some(1), -1);
 
         assert!(state.sort_order.is_some(), "sort_order should be initialized");
         assert_eq!(state.sort_order.as_ref().unwrap(), &vec![1, 2]);
-        assert!(state.render_dirty, "render should be dirty after initialization");
     }
 }
