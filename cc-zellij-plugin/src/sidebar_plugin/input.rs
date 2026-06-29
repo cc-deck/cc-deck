@@ -60,16 +60,7 @@ pub fn toggle_navigate_prev(state: &mut SidebarState) {
     ));
     match &state.mode {
         SidebarMode::Passive => {
-            let active = active_session_index(state);
-            let count = state.filtered_sessions().len();
-            // Start one position back (symmetric with toggle_navigate)
-            let start = if count == 0 {
-                0
-            } else if active == 0 {
-                count - 1
-            } else {
-                active - 1
-            };
+            let start = active_session_index(state);
             let ctx = NavigateContext {
                 cursor_index: start,
                 restore_pane_id: state.focused_pane_id(),
@@ -144,11 +135,7 @@ pub fn toggle_navigate(state: &mut SidebarState) {
     ));
     match &state.mode {
         SidebarMode::Passive => {
-            let active = active_session_index(state);
-            let count = state.filtered_sessions().len();
-            // Start one position ahead: the user typically wants to navigate
-            // away from the current session, not act on it.
-            let start = if count == 0 { 0 } else { (active + 1) % count };
+            let start = active_session_index(state);
             let ctx = NavigateContext {
                 cursor_index: start,
                 restore_pane_id: state.focused_pane_id(),
@@ -222,13 +209,25 @@ fn handle_left_click(state: &mut SidebarState, row: usize) -> bool {
             toggle_navigate(state);
             return true;
         }
+        if pane_id == super::render::SEPARATOR_CLICK_SENTINEL {
+            // Separator clicked: switch to first session
+            let sessions = state.filtered_sessions();
+            if let Some(first) = sessions.first() {
+                let first_pane = first.pane_id;
+                let first_tab = first.tab_index;
+                drop(sessions);
+                state.local_focus_override = Some(first_pane);
+                send_action(state, ActionType::Switch, Some(first_pane), Some(first_tab), None);
+            }
+            return true;
+        }
     }
 
     // Find clicked session
     let hit = state
         .click_regions
         .iter()
-        .find(|(r, pid, _)| *r <= row && row < r + 3 && *pid != u32::MAX && *pid != u32::MAX - 1)
+        .find(|(r, pid, _)| *r <= row && row < r + 3 && *pid != u32::MAX && *pid != u32::MAX - 1 && *pid != super::render::SEPARATOR_CLICK_SENTINEL)
         .copied();
 
     if let Some((_r, pane_id, tab_index)) = hit {
@@ -280,7 +279,7 @@ fn handle_right_click(state: &mut SidebarState, row: usize) -> bool {
     let hit = state
         .click_regions
         .iter()
-        .find(|(r, pid, _)| *r <= row && row < r + 3 && *pid != u32::MAX && *pid != u32::MAX - 1)
+        .find(|(r, pid, _)| *r <= row && row < r + 3 && *pid != u32::MAX && *pid != u32::MAX - 1 && *pid != super::render::SEPARATOR_CLICK_SENTINEL)
         .copied();
 
     if let Some((_r, pane_id, _tab_index)) = hit {
