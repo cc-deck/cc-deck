@@ -52,7 +52,8 @@ pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> Vec<Cli
 
     // Use pane_id u32::MAX - 1 as sentinel for "header clicked"
     click_regions.push((0, u32::MAX - 1, 0));
-    click_regions.push((1, u32::MAX - 1, 0));
+    // Row 1 (separator): use u32::MAX - 3 sentinel to activate first session
+    click_regions.push((1, SEPARATOR_CLICK_SENTINEL, 0));
 
     // Available rows for sessions (header + separator at top)
     let content_start = 2;
@@ -273,6 +274,8 @@ pub fn render_permission_prompt(rows: usize, cols: usize) {
 
 /// Click sentinel for the voice indicator.
 pub const VOICE_CLICK_SENTINEL: u32 = u32::MAX - 2;
+/// Click sentinel for the separator row (activates first session).
+pub const SEPARATOR_CLICK_SENTINEL: u32 = u32::MAX - 3;
 
 /// Render the status header with orange star and session counts.
 fn render_header(state: &super::state::SidebarState, payload: &cc_deck::RenderPayload, cols: usize) {
