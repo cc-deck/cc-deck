@@ -218,10 +218,10 @@ func InjectK8s(spec agent.CredentialSpec, resolved ResolvedCredentials) (*K8sCre
 	return result, nil
 }
 
-// OpenShellClient is the subset of the OpenShell client used for credential injection.
+// OpenShellClient is the subset of the OpenShell SDK client used for credential injection.
 type OpenShellClient interface {
-	ExecSandbox(ctx context.Context, sandboxID string, cmd []string) (string, error)
-	Upload(ctx context.Context, sandboxID, localPath, remotePath string) error
+	ExecRun(ctx context.Context, sandboxID string, cmd []string) error
+	FileUpload(ctx context.Context, sandboxID, localPath, remotePath string) error
 }
 
 // InjectOpenShell uploads credentials to an OpenShell sandbox.
@@ -229,7 +229,7 @@ func InjectOpenShell(ctx context.Context, client OpenShellClient, sandboxID stri
 	for key, val := range resolved.EnvVars {
 		if info, err := os.Stat(val); err == nil && !info.IsDir() {
 			remotePath := "/sandbox/.config/cc-deck/" + key
-			if err := client.Upload(ctx, sandboxID, val, remotePath); err != nil {
+			if err := client.FileUpload(ctx, sandboxID, val, remotePath); err != nil {
 				return fmt.Errorf("uploading credential file for %s: %w", key, err)
 			}
 			if err := injectOpenShellEnvVar(ctx, client, sandboxID, key, remotePath); err != nil {
@@ -246,7 +246,7 @@ func InjectOpenShell(ctx context.Context, client OpenShellClient, sandboxID stri
 		key := resolved.FileCredential.EnvVar
 		localPath := resolved.FileCredential.LocalPath
 		remotePath := "/sandbox/.config/cc-deck/" + key
-		if err := client.Upload(ctx, sandboxID, localPath, remotePath); err != nil {
+		if err := client.FileUpload(ctx, sandboxID, localPath, remotePath); err != nil {
 			return fmt.Errorf("uploading credential file: %w", err)
 		}
 		if err := injectOpenShellEnvVar(ctx, client, sandboxID, key, remotePath); err != nil {
@@ -258,7 +258,7 @@ func InjectOpenShell(ctx context.Context, client OpenShellClient, sandboxID stri
 		unsetLine := fmt.Sprintf("unset %s", key)
 		for _, rcFile := range []string{".bashrc", ".zshrc"} {
 			cmd := []string{"bash", "-c", fmt.Sprintf("echo %q >> /sandbox/%s", unsetLine, rcFile)}
-			if _, err := client.ExecSandbox(ctx, sandboxID, cmd); err != nil {
+			if err := client.ExecRun(ctx, sandboxID, cmd); err != nil {
 				return fmt.Errorf("unsetting %s in %s: %w", key, rcFile, err)
 			}
 		}
@@ -271,7 +271,7 @@ func injectOpenShellEnvVar(ctx context.Context, client OpenShellClient, sandboxI
 	exportLine := fmt.Sprintf("export %s=%q", key, val)
 	for _, rcFile := range []string{".bashrc", ".zshrc"} {
 		cmd := []string{"bash", "-c", fmt.Sprintf("echo %q >> /sandbox/%s", exportLine, rcFile)}
-		if _, err := client.ExecSandbox(ctx, sandboxID, cmd); err != nil {
+		if err := client.ExecRun(ctx, sandboxID, cmd); err != nil {
 			return fmt.Errorf("injecting %s into %s: %w", key, rcFile, err)
 		}
 	}
