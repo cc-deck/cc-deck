@@ -2,24 +2,28 @@ package ws
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/cc-deck/cc-deck/internal/build"
 	"github.com/cc-deck/cc-deck/internal/oci"
 	"github.com/cc-deck/cc-deck/internal/openshell"
+	v1 "github.com/rhuss/openshell-sdk-go/openshell/v1"
+	"github.com/rhuss/openshell-sdk-go/openshell/v1/types"
+	"golang.org/x/term"
+	"gopkg.in/yaml.v3"
 )
 
 const (
 	defaultSandboxImage   = "cc-deck/openshell-sandbox:latest"
 	defaultSandboxCommand = "zellij"
-	createPollInterval    = 2 * time.Second
-	createTimeout         = 60 * time.Second
 )
 
 // SandboxConfig holds sandbox provisioning parameters.
@@ -32,28 +36,23 @@ type SandboxConfig struct {
 
 // attachState tracks an active interactive attach session.
 type attachState struct {
-	pid int
+	active bool
+	cancel context.CancelFunc
 }
 
 func (a *attachState) isAlive() bool {
-	if a == nil || a.pid == 0 {
-		return false
-	}
-	proc, err := os.FindProcess(a.pid)
-	if err != nil {
-		return false
-	}
-	return proc.Signal(syscall.Signal(0)) == nil
+	return a != nil && a.active
 }
 
 // OpenShellWorkspace manages a workspace backed by an OpenShell sandbox.
 type OpenShellWorkspace struct {
-	name      string
-	store     *FileStateStore
-	defs      *DefinitionStore
-	client    openshell.Client
-	sandboxID string
-	attach    *attachState
+	name        string
+	store       *FileStateStore
+	defs        *DefinitionStore
+	client      v1.ClientInterface
+	gatewayAddr string
+	sandboxID   string
+	attach      *attachState
 
 	Repos           []RepoEntry
 	ExtraRemotes    map[string]string
@@ -73,11 +72,12 @@ type OpenShellWorkspace struct {
 func (w *OpenShellWorkspace) Type() WorkspaceType { return WorkspaceTypeOpenShell }
 func (w *OpenShellWorkspace) Name() string        { return w.name }
 
-// ensureClient lazily initializes the CLI client from workspace definition.
+// ensureClient lazily initializes the SDK client from workspace definition.
 func (w *OpenShellWorkspace) ensureClient() error {
 	w.clientOnce.Do(func() {
 		gwCfg := w.resolveGatewayConfig()
-		w.client, w.clientErr = openshell.NewClient(gwCfg)
+		w.gatewayAddr = gwCfg.Address
+		w.client, w.clientErr = openshell.NewSDKClient(gwCfg)
 		if w.clientErr != nil {
 			w.clientErr = fmt.Errorf("connecting to OpenShell gateway: %w", w.clientErr)
 		}
@@ -134,7 +134,8 @@ func (w *OpenShellWorkspace) resolveSandboxConfig() (SandboxConfig, error) {
 	if cfg.Policy == "" && cfg.Image != "" {
 		policyBytes, extractErr := oci.ExtractFileFromImage(cfg.Image, policyFilePath)
 		if extractErr != nil {
-			return cfg, fmt.Errorf("extracting policy from image %s: %w\n\nTo provide the policy file manually, use the --policy flag", cfg.Image, extractErr)
+			log.Printf("WARNING: could not extract policy from image %s: %v", cfg.Image, extractErr)
+			return cfg, nil
 		}
 
 		tmpFile, tmpErr := os.CreateTemp("", "cc-deck-policy-*.yaml")
@@ -152,6 +153,17 @@ func (w *OpenShellWorkspace) resolveSandboxConfig() (SandboxConfig, error) {
 	}
 
 	return cfg, nil
+}
+
+// resolveSandboxCommand returns the configured sandbox command without
+// triggering OCI image extraction (unlike resolveSandboxConfig).
+func (w *OpenShellWorkspace) resolveSandboxCommand() string {
+	if w.defs != nil {
+		if def, err := w.defs.FindByName(w.name); err == nil && def != nil && def.SandboxCommand != "" {
+			return def.SandboxCommand
+		}
+	}
+	return defaultSandboxCommand
 }
 
 // loadSandboxID restores the sandbox ID from the state store.
@@ -178,27 +190,31 @@ func (w *OpenShellWorkspace) Status(ctx context.Context) (*WorkspaceStatus, erro
 		return nil, err
 	}
 
-	info, err := w.client.GetSandbox(ctx, w.sandboxID)
+	sb, err := w.client.Sandboxes().Get(ctx, w.sandboxID)
 	if err != nil {
+		if v1.IsNotFound(err) {
+			w.clearLocalState()
+			return &WorkspaceStatus{SessionState: SessionStateNone, Message: "sandbox deleted"}, nil
+		}
 		return nil, fmt.Errorf("querying sandbox status: %w", err)
 	}
 
 	status := &WorkspaceStatus{SessionState: SessionStateNone}
 
-	switch info.State {
-	case openshell.SandboxStateRunning:
+	switch sb.Status.Phase {
+	case types.SandboxReady:
 		running := InfraStateRunning
 		status.InfraState = &running
-	case openshell.SandboxStateSuspended:
+	case types.SandboxUnknown:
 		stopped := InfraStateStopped
 		status.InfraState = &stopped
-	case openshell.SandboxStateError:
+	case types.SandboxError:
 		errState := InfraStateError
 		status.InfraState = &errState
-	case openshell.SandboxStateDeleted:
+	case types.SandboxDeleting:
 		w.clearLocalState()
 		return &WorkspaceStatus{SessionState: SessionStateNone, Message: "sandbox deleted"}, nil
-	case openshell.SandboxStateCreating:
+	case types.SandboxProvisioning:
 		running := InfraStateRunning
 		status.InfraState = &running
 		status.Message = "sandbox is starting"
@@ -297,7 +313,23 @@ func (w *OpenShellWorkspace) Create(ctx context.Context, _ CreateOpts) error {
 		if pc.SkipProvider {
 			continue
 		}
-		if err := w.client.EnsureProvider(ctx, pc.Name, pc.Type, pc.FromExisting, pc.Credentials); err != nil {
+		creds := pc.Credentials
+		if creds == nil && pc.FromExisting {
+			creds = make(map[string]string)
+			for _, v := range openshell.ResolveDefaultEnvVars(pc.Type) {
+				if val := os.Getenv(v); val != "" {
+					creds[v] = val
+				}
+			}
+		}
+		provider := &v1.Provider{
+			Name: pc.Name,
+			Type: pc.Type,
+			Spec: types.ProviderSpec{
+				Credentials: creds,
+			},
+		}
+		if _, err := w.client.Providers().Ensure(ctx, provider); err != nil {
 			return fmt.Errorf("creating credential provider %s: %w", pc.Name, err)
 		}
 		credProviders = append(credProviders, pc.Name)
@@ -307,14 +339,34 @@ func (w *OpenShellWorkspace) Create(ctx context.Context, _ CreateOpts) error {
 	// Merge credential providers with any providers from the definition.
 	allProviders := append(sbCfg.Providers, credProviders...)
 
-	sandboxID, err := w.client.CreateSandbox(ctx, sbCfg.Image, sbCfg.Command, sbCfg.Policy, allProviders)
+	sbSpec := &v1.SandboxSpec{
+		Template: &v1.SandboxTemplate{
+			Image: sbCfg.Image,
+		},
+		Providers: allProviders,
+	}
+
+	if sbCfg.Policy != "" {
+		sdkPolicy, policyErr := loadSDKPolicy(sbCfg.Policy)
+		if policyErr != nil {
+			return fmt.Errorf("loading sandbox policy: %w", policyErr)
+		}
+		sbSpec.Policy = sdkPolicy
+	}
+	created, err := w.client.Sandboxes().Create(ctx, "", sbSpec, nil)
 	if err != nil {
 		return fmt.Errorf("creating sandbox: %w", err)
 	}
-	w.sandboxID = sandboxID
+	w.sandboxID = created.Name
 
-	if err := w.pollUntilRunning(ctx); err != nil {
-		return err
+	if _, err := w.client.Sandboxes().WaitReady(ctx, w.sandboxID); err != nil {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if delErr := w.client.Sandboxes().Delete(cleanupCtx, w.sandboxID); delErr != nil && !v1.IsNotFound(delErr) {
+			log.Printf("WARNING: failed to clean up sandbox %s after readiness failure: %v", w.sandboxID, delErr)
+		}
+		w.sandboxID = ""
+		return fmt.Errorf("waiting for sandbox to become ready: %w", err)
 	}
 
 	// Handle post-start credential injection.
@@ -352,40 +404,11 @@ func (w *OpenShellWorkspace) Create(ctx context.Context, _ CreateOpts) error {
 		SessionState: SessionStateNone,
 		CreatedAt:    now,
 		OpenShell: &OpenShellFields{
-			SandboxID:   sandboxID,
-			GatewayAddr: w.client.Address(),
+			SandboxID:   w.sandboxID,
+			GatewayAddr: w.gatewayAddr,
 		},
 	}
 	return w.store.AddInstance(&inst)
-}
-
-func (w *OpenShellWorkspace) pollUntilRunning(ctx context.Context) error {
-	deadline := time.After(createTimeout)
-	ticker := time.NewTicker(createPollInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-deadline:
-			return fmt.Errorf("timeout waiting for sandbox %s to reach running state", w.sandboxID)
-		case <-ticker.C:
-			info, err := w.client.GetSandbox(ctx, w.sandboxID)
-			if err != nil {
-				log.Printf("DEBUG: openshell: poll error for %s: %v", w.sandboxID, err)
-				continue
-			}
-			switch info.State {
-			case openshell.SandboxStateRunning:
-				return nil
-			case openshell.SandboxStateError:
-				return fmt.Errorf("sandbox %s entered error state", w.sandboxID)
-			case openshell.SandboxStateDeleted:
-				return fmt.Errorf("sandbox %s was deleted during creation", w.sandboxID)
-			}
-		}
-	}
 }
 
 // Start provisions a new sandbox for this workspace (InfraManager).
@@ -403,7 +426,7 @@ func (w *OpenShellWorkspace) Stop(ctx context.Context) error {
 	if err := w.ensureClient(); err != nil {
 		return err
 	}
-	if err := w.client.DeleteSandbox(ctx, w.sandboxID); err != nil {
+	if err := w.client.Sandboxes().Delete(ctx, w.sandboxID); err != nil && !v1.IsNotFound(err) {
 		return err
 	}
 	w.clearLocalState()
@@ -422,7 +445,7 @@ func (w *OpenShellWorkspace) Delete(ctx context.Context, force bool) error {
 			}
 			log.Printf("WARNING: gateway unreachable during delete, sandbox %s may be orphaned", w.sandboxID)
 		} else {
-			if err := w.client.DeleteSandbox(ctx, w.sandboxID); err != nil {
+			if err := w.client.Sandboxes().Delete(ctx, w.sandboxID); err != nil && !v1.IsNotFound(err) {
 				if !force {
 					return err
 				}
@@ -437,6 +460,9 @@ func (w *OpenShellWorkspace) Delete(ctx context.Context, force bool) error {
 
 // KillSession kills the Zellij session inside the sandbox without destroying it.
 func (w *OpenShellWorkspace) KillSession(ctx context.Context) error {
+	if w.attach != nil && w.attach.isAlive() && w.attach.cancel != nil {
+		w.attach.cancel()
+	}
 	w.loadSandboxID()
 	if w.sandboxID == "" {
 		return nil
@@ -444,7 +470,7 @@ func (w *OpenShellWorkspace) KillSession(ctx context.Context) error {
 	if err := w.ensureClient(); err != nil {
 		return err
 	}
-	_, err := w.client.ExecSandbox(ctx, w.sandboxID, []string{"zellij", "kill-all-sessions"})
+	_, err := w.client.Exec().Run(ctx, w.sandboxID, []string{"zellij", "kill-all-sessions"})
 	if err != nil {
 		log.Printf("DEBUG: openshell: kill-session best-effort failed: %v", err)
 	}
@@ -452,13 +478,14 @@ func (w *OpenShellWorkspace) KillSession(ctx context.Context) error {
 	return nil
 }
 
-// Attach connects to the sandbox interactively and attaches to Zellij.
+// Attach connects to the sandbox interactively, running the configured
+// sandbox command (default: zellij) inside the sandbox via the SDK.
 func (w *OpenShellWorkspace) Attach(ctx context.Context) error {
 	if w.attach != nil && w.attach.isAlive() {
-		return fmt.Errorf("workspace %s is already attached (pid %d)", w.name, w.attach.pid)
+		return fmt.Errorf("workspace %s is already attached", w.name)
 	}
 	if w.attach != nil {
-		log.Printf("DEBUG: openshell: clearing stale attach for %s (pid %d dead)", w.name, w.attach.pid)
+		log.Printf("DEBUG: openshell: clearing stale attach for %s", w.name)
 		w.attach = nil
 	}
 
@@ -470,14 +497,76 @@ func (w *OpenShellWorkspace) Attach(ctx context.Context) error {
 		return err
 	}
 
-	err := w.client.AttachExec(ctx, w.sandboxID, nil)
+	cmdStr := w.resolveSandboxCommand()
+	var command []string
+	if strings.ContainsAny(cmdStr, `"'\`) {
+		command = []string{"bash", "-lc", cmdStr}
+	} else {
+		command = strings.Fields(cmdStr)
+	}
+
+	fd := int(os.Stdin.Fd())
+	cols, rows := uint32(80), uint32(24)
+	if term.IsTerminal(fd) {
+		if w, h, err := term.GetSize(fd); err == nil {
+			cols, rows = uint32(w), uint32(h)
+		}
+	}
+
+	attachCtx, attachCancel := context.WithCancel(ctx)
+	defer attachCancel()
+	w.attach = &attachState{active: true, cancel: attachCancel}
+	defer func() { w.attach = nil }()
+
+	session, err := w.client.Exec().Interactive(attachCtx, w.sandboxID, command, cols, rows)
+	if err != nil {
+		return fmt.Errorf("starting interactive session: %w", err)
+	}
+	defer session.Close()
 
 	now := time.Now()
 	if inst, loadErr := w.store.FindInstanceByName(w.name); loadErr == nil && inst != nil {
 		inst.LastAttached = &now
 		_ = w.store.UpdateInstance(inst)
 	}
-	return err
+
+	if term.IsTerminal(fd) {
+		oldState, rawErr := term.MakeRaw(fd)
+		if rawErr != nil {
+			return fmt.Errorf("setting terminal to raw mode: %w", rawErr)
+		}
+		defer term.Restore(fd, oldState)
+	}
+
+	stopResize := watchTerminalResize(session)
+	defer stopResize()
+
+	errCh := make(chan error, 2)
+	go func() {
+		_, copyErr := io.Copy(session, os.Stdin)
+		errCh <- copyErr
+	}()
+	go func() {
+		_, copyErr := io.Copy(os.Stdout, session)
+		errCh <- copyErr
+	}()
+
+	select {
+	case <-attachCtx.Done():
+	case ioErr := <-errCh:
+		if ioErr != nil && ioErr != io.EOF {
+			log.Printf("DEBUG: openshell: I/O error: %v", ioErr)
+		}
+	}
+
+	exitCode, exitErr := session.ExitCode()
+	if exitErr != nil {
+		log.Printf("DEBUG: openshell: exit code unavailable: %v", exitErr)
+	} else if exitCode != 0 {
+		return fmt.Errorf("session exited with code %d", exitCode)
+	}
+
+	return nil
 }
 
 // Exec runs a command inside the sandbox.
@@ -489,7 +578,41 @@ func (w *OpenShellWorkspace) Exec(ctx context.Context, cmd []string) error {
 	if err := w.ensureClient(); err != nil {
 		return err
 	}
-	return w.client.ExecSandboxStream(ctx, w.sandboxID, cmd)
+	stream, err := w.client.Exec().Stream(ctx, w.sandboxID, cmd)
+	if err != nil {
+		return err
+	}
+	if stream == nil {
+		return nil
+	}
+	defer stream.Close()
+	var streamErr error
+	for {
+		chunk, chunkErr := stream.Next()
+		if chunkErr != nil {
+			streamErr = chunkErr
+			break
+		}
+		if chunk == nil {
+			break
+		}
+		if chunk.Stream == "stderr" {
+			os.Stderr.Write(chunk.Data)
+		} else {
+			os.Stdout.Write(chunk.Data)
+		}
+	}
+	exitCode, exitErr := stream.ExitCode()
+	if exitErr != nil {
+		return exitErr
+	}
+	if exitCode != 0 {
+		return fmt.Errorf("command exited with code %d", exitCode)
+	}
+	if streamErr != nil && !errors.Is(streamErr, io.EOF) {
+		return streamErr
+	}
+	return nil
 }
 
 // ExecOutput runs a command inside the sandbox and returns stdout.
@@ -501,14 +624,88 @@ func (w *OpenShellWorkspace) ExecOutput(ctx context.Context, cmd []string) (stri
 	if err := w.ensureClient(); err != nil {
 		return "", err
 	}
-	result, err := w.client.ExecSandbox(ctx, w.sandboxID, cmd)
+	result, err := w.client.Exec().Run(ctx, w.sandboxID, cmd)
 	if err != nil {
 		return "", err
 	}
 	if result.ExitCode != 0 {
-		return result.Stdout, fmt.Errorf("command exited with code %d: %s", result.ExitCode, result.Stderr)
+		return string(result.Stdout), fmt.Errorf("command exited with code %d: %s", result.ExitCode, string(result.Stderr))
 	}
-	return result.Stdout, nil
+	return string(result.Stdout), nil
+}
+
+// loadSDKPolicy reads a policy YAML file and converts it to the SDK's SandboxPolicy type.
+func loadSDKPolicy(path string) (*v1.SandboxPolicy, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("reading policy file: %w", err)
+	}
+
+	var pf build.PolicyFile
+	if err := yaml.Unmarshal(data, &pf); err != nil {
+		return nil, fmt.Errorf("parsing policy YAML: %w", err)
+	}
+
+	policy := &v1.SandboxPolicy{
+		Version: uint32(pf.Version),
+	}
+
+	if pf.FilesystemPolicy != nil {
+		policy.Filesystem = &types.FilesystemPolicy{
+			IncludeWorkdir: pf.FilesystemPolicy.IncludeWorkdir,
+			ReadOnly:       pf.FilesystemPolicy.ReadOnly,
+			ReadWrite:      pf.FilesystemPolicy.ReadWrite,
+		}
+	}
+	if pf.Landlock != nil {
+		policy.Landlock = &types.LandlockPolicy{
+			Compatibility: pf.Landlock.Compatibility,
+		}
+	}
+	if pf.Process != nil {
+		policy.Process = &types.ProcessPolicy{
+			RunAsUser:  pf.Process.RunAsUser,
+			RunAsGroup: pf.Process.RunAsGroup,
+		}
+	}
+	if len(pf.NetworkPolicies) > 0 {
+		policy.NetworkPolicies = make(map[string]types.NetworkPolicyRule, len(pf.NetworkPolicies))
+		for key, np := range pf.NetworkPolicies {
+			rule := types.NetworkPolicyRule{Name: np.Name}
+			for _, ep := range np.Endpoints {
+				port := uint32(0)
+				if ep.Port > 0 && ep.Port <= 65535 {
+					port = uint32(ep.Port)
+				}
+				sdkEP := types.PolicyNetworkEndpoint{
+					Host:        ep.Host,
+					Port:        port,
+					Protocol:    ep.Protocol,
+					Enforcement: ep.Enforcement,
+					Access:      ep.Access,
+				}
+				for _, r := range ep.Rules {
+					if r.Allow != nil {
+						sdkEP.Rules = append(sdkEP.Rules, types.L7Rule{
+							Allow: &types.L7Allow{
+								Method: r.Allow.Method,
+								Path:   r.Allow.Path,
+							},
+						})
+					}
+				}
+				rule.Endpoints = append(rule.Endpoints, sdkEP)
+			}
+			for _, b := range np.Binaries {
+				rule.Binaries = append(rule.Binaries, types.PolicyNetworkBinary{
+					Path: b.Path,
+				})
+			}
+			policy.NetworkPolicies[key] = rule
+		}
+	}
+
+	return policy, nil
 }
 
 // Push synchronizes local files into the sandbox.

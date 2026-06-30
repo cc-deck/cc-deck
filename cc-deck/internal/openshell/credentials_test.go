@@ -6,33 +6,35 @@ import (
 	"os"
 	"testing"
 
+	v1 "github.com/rhuss/openshell-sdk-go/openshell/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// mockClient implements a minimal Client for testing UploadFileCredential.
-type mockClient struct {
+// mockExecClient implements v1.ExecInterface for testing.
+type mockExecClient struct {
+	runCount int
+}
+
+func (m *mockExecClient) Run(_ context.Context, _ string, _ []string, _ ...v1.ExecOptions) (*v1.ExecResult, error) {
+	m.runCount++
+	return &v1.ExecResult{}, nil
+}
+func (m *mockExecClient) Stream(_ context.Context, _ string, _ []string, _ ...v1.ExecOptions) (v1.ExecStream, error) {
+	return nil, nil
+}
+func (m *mockExecClient) Interactive(_ context.Context, _ string, _ []string, _, _ uint32, _ ...v1.ExecOptions) (v1.InteractiveSession, error) {
+	return nil, nil
+}
+
+// mockFileClient implements v1.FileInterface for testing.
+type mockFileClient struct {
 	uploadErr      error
 	uploadedLocal  string
 	uploadedRemote string
-	execCount      int
 }
 
-func (m *mockClient) Address() string { return "localhost:17670" }
-func (m *mockClient) CreateSandbox(_ context.Context, _, _, _ string, _ []string) (string, error) {
-	return "", nil
-}
-func (m *mockClient) DeleteSandbox(_ context.Context, _ string) error { return nil }
-func (m *mockClient) GetSandbox(_ context.Context, _ string) (*SandboxInfo, error) {
-	return nil, nil
-}
-func (m *mockClient) ExecSandbox(_ context.Context, _ string, _ []string) (*ExecResult, error) {
-	m.execCount++
-	return &ExecResult{}, nil
-}
-func (m *mockClient) ExecSandboxStream(_ context.Context, _ string, _ []string) error { return nil }
-func (m *mockClient) AttachExec(_ context.Context, _ string, _ []string) error       { return nil }
-func (m *mockClient) Upload(_ context.Context, _, localPath, remotePath string) error {
+func (m *mockFileClient) Upload(_ context.Context, _, localPath, remotePath string) error {
 	if m.uploadErr != nil {
 		return m.uploadErr
 	}
@@ -40,17 +42,39 @@ func (m *mockClient) Upload(_ context.Context, _, localPath, remotePath string) 
 	m.uploadedRemote = remotePath
 	return nil
 }
-func (m *mockClient) Download(_ context.Context, _, _, _ string) error { return nil }
-func (m *mockClient) CreateProvider(_ context.Context, _, _ string, _ bool, _ map[string]string) error {
-	return nil
+func (m *mockFileClient) Download(_ context.Context, _, _, _ string) error { return nil }
+
+// mockSDKClient implements v1.ClientInterface for testing.
+type mockSDKClient struct {
+	exec  *mockExecClient
+	files *mockFileClient
 }
-func (m *mockClient) UpdateProvider(_ context.Context, _, _ string, _ bool, _ map[string]string) error {
-	return nil
+
+func newMockSDKClient() *mockSDKClient {
+	return &mockSDKClient{
+		exec:  &mockExecClient{},
+		files: &mockFileClient{},
+	}
 }
-func (m *mockClient) DeleteProvider(_ context.Context, _ string) error { return nil }
-func (m *mockClient) EnsureProvider(_ context.Context, _, _ string, _ bool, _ map[string]string) error {
-	return nil
+
+func newMockSDKClientWithUploadErr(err error) *mockSDKClient {
+	return &mockSDKClient{
+		exec:  &mockExecClient{},
+		files: &mockFileClient{uploadErr: err},
+	}
 }
+
+func (m *mockSDKClient) Sandboxes() v1.SandboxInterface { return nil }
+func (m *mockSDKClient) Providers() v1.ProviderInterface { return nil }
+func (m *mockSDKClient) Services() v1.ServiceInterface   { return nil }
+func (m *mockSDKClient) Exec() v1.ExecInterface          { return m.exec }
+func (m *mockSDKClient) Files() v1.FileInterface          { return m.files }
+func (m *mockSDKClient) Health() v1.HealthInterface       { return nil }
+func (m *mockSDKClient) SSH() v1.SSHInterface             { return nil }
+func (m *mockSDKClient) TCP() v1.TCPInterface             { return nil }
+func (m *mockSDKClient) Config() v1.ConfigInterface       { return nil }
+func (m *mockSDKClient) Policy() v1.PolicyInterface       { return nil }
+func (m *mockSDKClient) Close() error                     { return nil }
 
 func TestKnownProviderProfiles_AllTypesExist(t *testing.T) {
 	expectedTypes := []string{"claude", "anthropic", "github", "gitlab", "openai", "nvidia", "generic"}
@@ -307,7 +331,7 @@ func TestDetectCredentials_DeduplicatesGithubTokens(t *testing.T) {
 
 func TestUploadFileCredential_FileNotFound(t *testing.T) {
 	ctx := context.Background()
-	client := &mockClient{}
+	client := newMockSDKClient()
 
 	err := UploadFileCredential(ctx, client, "sb-123", "/nonexistent/path/sa.json", "/sandbox/.config/gcloud/credentials.json", "GOOGLE_APPLICATION_CREDENTIALS")
 	require.Error(t, err)
@@ -324,9 +348,7 @@ func TestUploadFileCredential_UploadError(t *testing.T) {
 	tmpFile.WriteString(`{"type": "service_account"}`)
 	tmpFile.Close()
 
-	client := &mockClient{
-		uploadErr: fmt.Errorf("gateway unreachable"),
-	}
+	client := newMockSDKClientWithUploadErr(fmt.Errorf("gateway unreachable"))
 
 	err = UploadFileCredential(ctx, client, "sb-123", tmpFile.Name(), "/sandbox/.config/gcloud/credentials.json", "GOOGLE_APPLICATION_CREDENTIALS")
 	require.Error(t, err)
@@ -342,13 +364,13 @@ func TestUploadFileCredential_Success(t *testing.T) {
 	tmpFile.WriteString(`{"type": "service_account"}`)
 	tmpFile.Close()
 
-	client := &mockClient{}
+	client := newMockSDKClient()
 
 	err = UploadFileCredential(ctx, client, "sb-123", tmpFile.Name(), "/sandbox/.config/gcloud/credentials.json", "GOOGLE_APPLICATION_CREDENTIALS")
 	assert.NoError(t, err)
-	assert.Equal(t, tmpFile.Name(), client.uploadedLocal)
-	assert.Equal(t, "/sandbox/.config/gcloud/credentials.json", client.uploadedRemote)
-	assert.Equal(t, 2, client.execCount) // .bashrc + .zshrc
+	assert.Equal(t, tmpFile.Name(), client.files.uploadedLocal)
+	assert.Equal(t, "/sandbox/.config/gcloud/credentials.json", client.files.uploadedRemote)
+	assert.Equal(t, 2, client.exec.runCount) // .bashrc + .zshrc
 }
 
 func TestDetectCredentials_ClaudeVertexDetection(t *testing.T) {

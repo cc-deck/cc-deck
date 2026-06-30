@@ -1,6 +1,6 @@
 # Brainstorm Overview
 
-Last updated: 2026-06-26 (049 revisited, 075 openshell native vertex provider)
+Last updated: 2026-06-30 (027 openshell SDK migration)
 
 ## Active Brainstorms
 
@@ -41,6 +41,7 @@ Last updated: 2026-06-26 (049 revisited, 075 openshell native vertex provider)
 | 073 | 2026-06-20 | OpenShell SSH-to-HTTPS | active | - |
 | 074 | 2026-06-22 | OpenShell resource limits | active | - |
 | 075 | 2026-06-26 | OpenShell native Vertex provider | active | - |
+| 027 | 2026-06-30 | OpenShell SDK migration | active | - |
 
 ## Open Threads
 
@@ -76,6 +77,7 @@ Last updated: 2026-06-26 (049 revisited, 075 openshell native vertex provider)
 - OpenShell resource limits: Expose --cpu and --memory flags on ws new for OpenShell sandboxes. Defaults are 2 vCPU / 2 GB (too low for Rust/Java builds). Phase 1: CLI flags. Phase 2: manifest defaults with capture-time detection. (from #074)
 - OpenShell native Vertex provider: Replace homegrown Vertex credential handling with OpenShell's native google-cloud provider (GCE metadata emulator, PR #1763). Remove file credential upload, dead vertex profile, Vertex network domains from OpenShell policy. Keep env var injection for Claude Code. OpenShell workspaces only. (from #075)
 - OpenShell gRPC migration: **decided** full gRPC replacement of CLI wrapping. Vertex provider migration exposed three runtime CLI flag bugs. Research shows CLI not needed for SSH or file transfer (Go SSH + tar pipe). Proto codegen gives compile-time API validation. Eliminates CLI as runtime dependency. Enables K8s operator integration. Proto files pinned to release tags. Implementation: grpcClient behind existing Client interface. (from #049, revisited 2026-06-26)
+- OpenShell SDK migration: **decided** big bang replacement of CLI wrapper with openshell-sdk-go. Drop custom Client interface, use SDK ClientInterface/sub-clients directly. GatewayConfig-to-SDK-Config mapping TBD. credentials.go stays independent. Fake client for tests. replace directive during dev. (from #027)
 
 ## Parked Ideas
 
