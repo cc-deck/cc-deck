@@ -118,12 +118,12 @@ type osUploadCall struct {
 	remotePath string
 }
 
-func (m *mockOpenShellClient) ExecSandbox(_ context.Context, sandboxID string, cmd []string) (string, error) {
+func (m *mockOpenShellClient) ExecRun(_ context.Context, sandboxID string, cmd []string) error {
 	m.execCmds = append(m.execCmds, cmd)
-	return "", nil
+	return nil
 }
 
-func (m *mockOpenShellClient) Upload(_ context.Context, sandboxID, localPath, remotePath string) error {
+func (m *mockOpenShellClient) FileUpload(_ context.Context, sandboxID, localPath, remotePath string) error {
 	m.uploads = append(m.uploads, osUploadCall{sandboxID, localPath, remotePath})
 	return nil
 }

@@ -446,6 +446,12 @@ Each component YAML can optionally declare `probe_binaries` (binary names to sea
 cc-deck build refresh    # Assemble policy from components + manifest
 ```
 
+### OpenShell SDK
+
+OpenShell workspace operations (create, attach, exec, push, pull, delete) use the OpenShell Go SDK (`github.com/rhuss/openshell-sdk-go`) instead of shelling out to the `openshell` CLI binary. The SDK communicates with the gateway via gRPC directly, providing typed errors and eliminating the CLI binary as a runtime dependency.
+
+The git channel (`ext::openshell` transport) still uses the CLI binary for `git push`/`fetch` operations, since git's ext protocol requires a command-line tool for stdin/stdout piping.
+
 ### Egress recording
 
 If you are unsure which domains your tools contact at runtime, `build record` launches an interactive session with a DNS logger sidecar that captures all outbound queries. On exit, cc-deck deduplicates the domains, filters out infrastructure noise (Podman internals, mDNS, reverse DNS), matches them against the catalog, and appends any new domains to `build.yaml` `network.allowed_domains`. Run `build refresh` afterward to regenerate the policy.
@@ -666,3 +672,4 @@ cc-deck follows [Spec-Driven Development](CONTRIBUTING.md#spec-driven-developmen
 | [045](specs/045-voice-sidebar-integration/) | Voice Sidebar Integration | In Progress |
 | [056](specs/056-openshell-build-target/) | OpenShell Build Target | In Progress |
 | [058](specs/058-openshell-credential-injection/) | OpenShell Credential Injection | In Progress |
+| [075](specs/075-openshell-sdk-migration/) | OpenShell SDK Migration | In Progress |

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"os"
+
+	v1 "github.com/rhuss/openshell-sdk-go/openshell/v1"
 )
 
 // KnownProviderProfile maps a credential type to its OpenShell provider profile
@@ -300,13 +302,16 @@ func DetectCredentials() []DetectedCredential {
 // InjectEnvVars writes environment variable exports into the sandbox's shell
 // rc files. Used for configuration flags (like CLAUDE_CODE_USE_VERTEX) that
 // are not secrets and don't go through the provider proxy.
-func InjectEnvVars(ctx context.Context, client Client, sandboxID string, vars map[string]string) error {
+func InjectEnvVars(ctx context.Context, client v1.ClientInterface, sandboxID string, vars map[string]string) error {
 	for k, v := range vars {
 		exportLine := fmt.Sprintf("export %s=%q", k, v)
 		for _, rcFile := range []string{".bashrc", ".zshrc"} {
 			cmd := []string{"bash", "-c", fmt.Sprintf("echo %q >> /sandbox/%s", exportLine, rcFile)}
-			if _, err := client.ExecSandbox(ctx, sandboxID, cmd); err != nil {
+			result, err := client.Exec().Run(ctx, sandboxID, cmd)
+			if err != nil {
 				log.Printf("WARNING: failed to set %s in %s: %v", k, rcFile, err)
+			} else if result != nil && result.ExitCode != 0 {
+				log.Printf("WARNING: failed to set %s in %s: exit code %d", k, rcFile, result.ExitCode)
 			}
 		}
 	}
@@ -315,12 +320,12 @@ func InjectEnvVars(ctx context.Context, client Client, sandboxID string, vars ma
 
 // UploadFileCredential uploads a local file into the sandbox and sets the
 // corresponding environment variable in the sandbox's shell rc files.
-func UploadFileCredential(ctx context.Context, client Client, sandboxID, localPath, remotePath, envVarName string) error {
+func UploadFileCredential(ctx context.Context, client v1.ClientInterface, sandboxID, localPath, remotePath, envVarName string) error {
 	if _, err := os.Stat(localPath); err != nil {
 		return fmt.Errorf("credential file %q does not exist: %w", localPath, err)
 	}
 
-	if err := client.Upload(ctx, sandboxID, localPath, remotePath); err != nil {
+	if err := client.Files().Upload(ctx, sandboxID, localPath, remotePath); err != nil {
 		return fmt.Errorf("uploading credential file to sandbox: %w", err)
 	}
 
@@ -328,8 +333,11 @@ func UploadFileCredential(ctx context.Context, client Client, sandboxID, localPa
 	exportLine := fmt.Sprintf("export %s=%q", envVarName, remotePath)
 	for _, rcFile := range []string{".bashrc", ".zshrc"} {
 		cmd := []string{"bash", "-c", fmt.Sprintf("echo %q >> /sandbox/%s", exportLine, rcFile)}
-		if _, err := client.ExecSandbox(ctx, sandboxID, cmd); err != nil {
+		result, err := client.Exec().Run(ctx, sandboxID, cmd)
+		if err != nil {
 			log.Printf("WARNING: failed to set %s in %s: %v", envVarName, rcFile, err)
+		} else if result != nil && result.ExitCode != 0 {
+			log.Printf("WARNING: failed to set %s in %s: exit code %d", envVarName, rcFile, result.ExitCode)
 		}
 	}
 

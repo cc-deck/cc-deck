@@ -1,14 +1,12 @@
 package ws
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"os/exec"
+	"os"
 )
 
-// openShellDataChannel transfers files using the openshell CLI's
-// native upload/download commands.
+// openShellDataChannel transfers files using the SDK's file client.
 type openShellDataChannel struct {
 	ws *OpenShellWorkspace
 }
@@ -30,7 +28,7 @@ func (c *openShellDataChannel) Push(ctx context.Context, opts SyncOpts) error {
 		remotePath = "/sandbox"
 	}
 
-	if err := c.ws.client.Upload(ctx, c.ws.sandboxID, opts.LocalPath, remotePath); err != nil {
+	if err := c.ws.client.Files().Upload(ctx, c.ws.sandboxID, opts.LocalPath, remotePath); err != nil {
 		return newChannelError("data", "push", c.ws.name, "uploading files to sandbox", err)
 	}
 	return nil
@@ -54,13 +52,16 @@ func (c *openShellDataChannel) Pull(ctx context.Context, opts SyncOpts) error {
 		localPath = "."
 	}
 
-	if err := c.ws.client.Download(ctx, c.ws.sandboxID, remotePath, localPath); err != nil {
+	if err := c.ws.client.Files().Download(ctx, c.ws.sandboxID, remotePath, localPath); err != nil {
 		return newChannelError("data", "pull", c.ws.name, "downloading files from sandbox", err)
 	}
 	return nil
 }
 
 func (c *openShellDataChannel) PushBytes(ctx context.Context, data []byte, remotePath string) error {
+	if remotePath == "" {
+		return newChannelError("data", "push-bytes", c.ws.name, "remote path is required", nil)
+	}
 	c.ws.loadSandboxID()
 	if c.ws.sandboxID == "" {
 		return newChannelError("data", "push-bytes", c.ws.name, "no sandbox available", nil)
@@ -69,10 +70,21 @@ func (c *openShellDataChannel) PushBytes(ctx context.Context, data []byte, remot
 		return newChannelError("data", "push-bytes", c.ws.name, "gateway connection failed", err)
 	}
 
-	cmd := exec.CommandContext(ctx, "openshell", "sandbox", "exec", "-n", c.ws.sandboxID,
-		"--", "sh", "-c", fmt.Sprintf("cat > %s", shellQuote(remotePath)))
-	cmd.Stdin = bytes.NewReader(data)
-	if err := cmd.Run(); err != nil {
+	tmpFile, err := os.CreateTemp("", "cc-deck-push-bytes-*")
+	if err != nil {
+		return newChannelError("data", "push-bytes", c.ws.name, "creating temp file", err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	if _, err := tmpFile.Write(data); err != nil {
+		_ = tmpFile.Close()
+		return newChannelError("data", "push-bytes", c.ws.name, "writing temp file", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		return newChannelError("data", "push-bytes", c.ws.name, "closing temp file", err)
+	}
+
+	if err := c.ws.client.Files().Upload(ctx, c.ws.sandboxID, tmpFile.Name(), remotePath); err != nil {
 		return newChannelError("data", "push-bytes", c.ws.name, "writing bytes to sandbox", err)
 	}
 	return nil

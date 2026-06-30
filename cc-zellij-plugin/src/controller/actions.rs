@@ -283,19 +283,22 @@ pub(super) fn sort_tier(session: &Session) -> u8 {
 ///
 /// Each press of S re-computes the sort with current activity states.
 /// No Zellij tabs are moved; the reorder is display-only in the sidebar.
+/// Within each tier, sessions are ordered by most recent activity first.
 fn handle_sort(state: &mut ControllerState) {
-    let mut sessions: Vec<(u32, usize, u8)> = state
+    let mut sessions: Vec<(u32, u8, u64)> = state
         .sessions
         .values()
-        .filter_map(|s| s.tab_index.map(|idx| (s.pane_id, idx, sort_tier(s))))
+        .filter_map(|s| s.tab_index.map(|_| (s.pane_id, sort_tier(s), s.last_event_ts)))
         .collect();
 
     if sessions.len() < 2 {
         return;
     }
 
-    sessions.sort_by_key(|&(_, idx, _)| idx);
-    sessions.sort_by_key(|&(_, _, tier)| tier);
+    sessions.sort_by(|a, b| {
+        a.1.cmp(&b.1)
+            .then_with(|| b.2.cmp(&a.2))
+    });
 
     let order: Vec<u32> = sessions.iter().map(|&(pid, _, _)| pid).collect();
     state.sort_order = Some(order);
