@@ -76,6 +76,7 @@ pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
                 done_attended: s.done_attended,
                 badges: s.badges.clone(),
                 agent_indicator,
+                in_worktree: s.in_worktree,
             }
         })
         .collect();

@@ -179,6 +179,10 @@ pub struct Session {
     /// The session stays in Waiting as long as this counter is > 0.
     #[serde(default)]
     pub pending_permissions: u32,
+    /// Whether this session is currently operating inside a `.claude/worktrees/`
+    /// directory. Set from CWD changes; persisted for reattach.
+    #[serde(default)]
+    pub in_worktree: bool,
 }
 
 impl Session {
@@ -202,6 +206,7 @@ impl Session {
             agent_name: None,
             agent_indicator: None,
             pending_permissions: 0,
+            in_worktree: false,
         }
     }
 
