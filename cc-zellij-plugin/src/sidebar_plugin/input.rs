@@ -227,7 +227,7 @@ fn handle_left_click(state: &mut SidebarState, row: usize) -> bool {
     let hit = state
         .click_regions
         .iter()
-        .find(|(r, pid, _)| *r <= row && row < r + 3 && *pid != u32::MAX && *pid != u32::MAX - 1 && *pid != super::render::SEPARATOR_CLICK_SENTINEL)
+        .find(|(r, pid, _)| *r <= row && row < r + 3 && *pid != u32::MAX && *pid != u32::MAX - 1 && *pid != super::render::SEPARATOR_CLICK_SENTINEL && *pid != super::render::VOICE_CLICK_SENTINEL)
         .copied();
 
     if let Some((_r, pane_id, tab_index)) = hit {
@@ -279,7 +279,7 @@ fn handle_right_click(state: &mut SidebarState, row: usize) -> bool {
     let hit = state
         .click_regions
         .iter()
-        .find(|(r, pid, _)| *r <= row && row < r + 3 && *pid != u32::MAX && *pid != u32::MAX - 1 && *pid != super::render::SEPARATOR_CLICK_SENTINEL)
+        .find(|(r, pid, _)| *r <= row && row < r + 3 && *pid != u32::MAX && *pid != u32::MAX - 1 && *pid != super::render::SEPARATOR_CLICK_SENTINEL && *pid != super::render::VOICE_CLICK_SENTINEL)
         .copied();
 
     if let Some((_r, pane_id, _tab_index)) = hit {

@@ -314,7 +314,7 @@ impl ControllerState {
                         changed = true;
                     }
                 }
-                Activity::Idle
+                Activity::Idle | Activity::Init
                     if !session.paused
                         && auto_pause > 0
                         && now.saturating_sub(session.last_event_ts) >= auto_pause =>
