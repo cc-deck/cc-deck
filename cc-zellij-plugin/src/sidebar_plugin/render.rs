@@ -415,7 +415,7 @@ fn render_session_entry(
         print!("\x1b[{};1H{}", start_row + 1, pad(&line1, cols));
     }
 
-    let line2_content = format_line2(&session.badges, session.git_branch.as_deref(), session.color);
+    let line2_content = format_line2(&session.badges, session.git_branch.as_deref(), session.color, session.in_worktree);
 
     if use_bg {
         let highlighted = format!("{bg}{fg}\x1b[2m{line2_content}{RESET}");
@@ -602,13 +602,15 @@ fn parse_badge_color(badge: &str) -> (&str, Option<(u8, u8, u8)>) {
 }
 
 /// Format line 2 content (badges + branch) with alignment.
-/// When badges are narrow enough, pads so ⎇ aligns at column 4 (under the session name).
+/// When badges are narrow enough, pads so the branch icon aligns at column 4 (under the session name).
 /// Badges with a `#RRGGBB:` prefix use that color; others use the session's faded color.
 /// Uses \x1b[39m (reset foreground only) to preserve background and dim on highlighted rows.
-fn format_line2(badges: &[String], branch: Option<&str>, color: (u8, u8, u8)) -> String {
+/// When `in_worktree` is true, the branch icon changes from `⎇` (U+2387) to `⌥` (U+2325).
+fn format_line2(badges: &[String], branch: Option<&str>, color: (u8, u8, u8), in_worktree: bool) -> String {
     const BRANCH_COL: usize = 4;
+    let branch_icon = if in_worktree { "\u{2325}" } else { "\u{2387}" };
     match (branch, badges.is_empty()) {
-        (Some(branch), true) => format!("   \u{2387} {branch}"),
+        (Some(branch), true) => format!("   {branch_icon} {branch}"),
         (Some(branch), false) => {
             let mut colored_parts = Vec::new();
             let mut total_icon_width: usize = 0;
@@ -622,9 +624,9 @@ fn format_line2(badges: &[String], branch: Option<&str>, color: (u8, u8, u8)) ->
             let total_width = 1 + total_icon_width + badges.len().saturating_sub(1);
             if total_width < BRANCH_COL {
                 let padding = BRANCH_COL - total_width;
-                format!(" {badges_str}{}\u{2387} {branch}", " ".repeat(padding))
+                format!(" {badges_str}{}{branch_icon} {branch}", " ".repeat(padding))
             } else {
-                format!(" {badges_str} \u{2387} {branch}")
+                format!(" {badges_str} {branch_icon} {branch}")
             }
         }
         (None, false) => {
@@ -736,14 +738,14 @@ mod tests {
 
     #[test]
     fn test_format_line2_no_badges_with_branch() {
-        let result = format_line2(&[], Some("main"), TEST_COLOR);
+        let result = format_line2(&[], Some("main"), TEST_COLOR, false);
         assert_eq!(result, "   \u{2387} main");
     }
 
     #[test]
     fn test_format_line2_one_badge_aligns() {
         let badges = vec!["❯".to_string()];
-        let result = format_line2(&badges, Some("main"), TEST_COLOR);
+        let result = format_line2(&badges, Some("main"), TEST_COLOR, false);
         assert!(result.starts_with(' '));
         assert!(result.contains("\x1b[38;2;180;140;255m❯\x1b[39m"));
         assert!(result.contains("\u{2387} main"));
@@ -752,7 +754,7 @@ mod tests {
     #[test]
     fn test_format_line2_two_badges() {
         let badges = vec!["❯".to_string(), "✎".to_string()];
-        let result = format_line2(&badges, Some("main"), TEST_COLOR);
+        let result = format_line2(&badges, Some("main"), TEST_COLOR, false);
         assert!(result.starts_with(' '));
         assert!(result.contains("❯"));
         assert!(result.contains("✎"));
@@ -762,15 +764,31 @@ mod tests {
     #[test]
     fn test_format_line2_badges_only() {
         let badges = vec!["❯".to_string()];
-        let result = format_line2(&badges, None, TEST_COLOR);
+        let result = format_line2(&badges, None, TEST_COLOR, false);
         assert!(result.starts_with(' '));
         assert!(result.contains("\x1b[38;2;180;140;255m❯\x1b[39m"));
     }
 
     #[test]
     fn test_format_line2_empty() {
-        let result = format_line2(&[], None, TEST_COLOR);
+        let result = format_line2(&[], None, TEST_COLOR, false);
         assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_format_line2_worktree_icon() {
+        let result = format_line2(&[], Some("076-fix"), TEST_COLOR, true);
+        assert_eq!(result, "   \u{2325} 076-fix");
+        // Verify the worktree icon is used instead of branch icon
+        assert!(!result.contains("\u{2387}"));
+    }
+
+    #[test]
+    fn test_format_line2_worktree_icon_with_badges() {
+        let badges = vec!["❯".to_string()];
+        let result = format_line2(&badges, Some("feature"), TEST_COLOR, true);
+        assert!(result.contains("\u{2325} feature"));
+        assert!(!result.contains("\u{2387}"));
     }
 
     #[test]
@@ -820,6 +838,7 @@ mod tests {
             done_attended: false,
             badges: vec![],
             agent_indicator: None,
+            in_worktree: false,
         };
         let s2 = cc_deck::RenderSession {
             pane_id: 2,
@@ -833,6 +852,7 @@ mod tests {
             done_attended: false,
             badges: vec![],
             agent_indicator: None,
+            in_worktree: false,
         };
         let sessions: Vec<&RenderSession> = vec![&s1, &s2];
         let (start, end, above, below) = visible_range(2, 5, 0, None, false, &sessions);
@@ -854,6 +874,7 @@ mod tests {
                 done_attended: false,
                 badges: vec![],
                 agent_indicator: None,
+                in_worktree: false,
             }
         }).collect();
         let refs: Vec<&RenderSession> = sessions_owned.iter().collect();
@@ -878,6 +899,7 @@ mod tests {
                 done_attended: false,
                 badges: vec![],
                 agent_indicator: None,
+                in_worktree: false,
             }
         }).collect();
         let refs: Vec<&RenderSession> = sessions_owned.iter().collect();
@@ -902,6 +924,7 @@ mod tests {
                 done_attended: false,
                 badges: vec![],
                 agent_indicator: None,
+                in_worktree: false,
             }
         }).collect();
         let refs: Vec<&RenderSession> = sessions_owned.iter().collect();

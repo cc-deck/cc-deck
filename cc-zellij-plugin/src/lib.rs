@@ -26,6 +26,9 @@ pub struct RenderSession {
     pub badges: Vec<String>,
     #[serde(default)]
     pub agent_indicator: Option<String>,
+    /// Whether this session is operating inside a `.claude/worktrees/` directory.
+    #[serde(default)]
+    pub in_worktree: bool,
 }
 
 /// Complete render payload broadcast by the controller to all sidebars.
@@ -122,6 +125,7 @@ mod protocol_tests {
                 done_attended: false,
                 badges: vec![],
                 agent_indicator: None,
+                in_worktree: false,
             }],
             focused_pane_id: Some(1),
             active_tab_index: 0,

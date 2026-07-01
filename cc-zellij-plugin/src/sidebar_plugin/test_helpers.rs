@@ -39,6 +39,7 @@ pub fn make_session(pane_id: u32, name: &str, tab_index: usize) -> RenderSession
         done_attended: false,
         badges: vec![],
         agent_indicator: None,
+        in_worktree: false,
     }
 }
 

@@ -103,6 +103,7 @@ pub fn process_hook(state: &mut ControllerState, hook: HookPayload) -> bool {
             session.done_attended = false;
             session.pending_permissions = 0;
             session.working_dir = None;
+            session.in_worktree = false;
         }
     }
 
@@ -275,16 +276,18 @@ pub fn process_hook(state: &mut ControllerState, hook: HookPayload) -> bool {
 /// Process a CWD change for a session: apply pending overrides, auto-rename
 /// from directory name, and trigger git detection.
 fn process_cwd_change(state: &mut ControllerState, pane_id: u32, cwd: &str) {
-    let is_worktree_cwd = cwd.contains("/.claude/");
+    let is_worktree_path = cwd.contains("/.claude/worktrees/");
+    let is_suppressed_claude_dir = cwd.contains("/.claude/") && !is_worktree_path;
     let cwd_changed = state
         .sessions
         .get(&pane_id)
         .map(|s| s.working_dir.as_deref() != Some(cwd))
         .unwrap_or(false);
 
-    if !is_worktree_cwd && cwd_changed {
+    if !is_suppressed_claude_dir && cwd_changed {
         if let Some(s) = state.sessions.get_mut(&pane_id) {
             s.working_dir = Some(cwd.to_string());
+            s.in_worktree = is_worktree_path;
         }
 
         // Check for pending override from snapshot restore (FIFO per directory)
@@ -336,7 +339,7 @@ fn process_cwd_change(state: &mut ControllerState, pane_id: u32, cwd: &str) {
         }
     }
 
-    if !is_worktree_cwd {
+    if !is_suppressed_claude_dir {
         git::detect_git_branch(pane_id, cwd);
     }
 }
@@ -619,7 +622,7 @@ mod tests {
     }
 
     #[test]
-    fn test_process_hook_worktree_cwd_ignored() {
+    fn test_process_hook_claude_internal_cwd_suppressed() {
         let mut state = ControllerState::default();
         let mut s = Session::new(42, "test".into());
         s.working_dir = Some("/home/user/project".to_string());
@@ -949,5 +952,123 @@ mod tests {
             state.sessions[&42].agent_name,
             Some("claude".to_string())
         );
+    }
+
+    #[test]
+    fn test_process_hook_worktree_cwd_sets_in_worktree() {
+        let mut state = ControllerState::default();
+        state
+            .sessions
+            .insert(42, Session::new(42, "test".into()));
+
+        let hook = HookPayload {
+            agent: None,
+            agent_indicator: None,
+            session_id: Some("test".to_string()),
+            pane_id: 42,
+            hook_event_name: "PreToolUse".to_string(),
+            tool_name: None,
+            cwd: Some("/home/user/project/.claude/worktrees/076-fix/".to_string()),
+            agent_id: None,
+            badges: vec![],
+        };
+        process_hook(&mut state, hook);
+
+        // CWD should be updated to the worktree path
+        assert_eq!(
+            state.sessions[&42].working_dir.as_deref(),
+            Some("/home/user/project/.claude/worktrees/076-fix/")
+        );
+        // in_worktree should be set to true
+        assert!(state.sessions[&42].in_worktree);
+    }
+
+    #[test]
+    fn test_process_hook_claude_settings_cwd_suppressed() {
+        let mut state = ControllerState::default();
+        let mut s = Session::new(42, "test".into());
+        s.working_dir = Some("/home/user/project".to_string());
+        state.sessions.insert(42, s);
+
+        let hook = HookPayload {
+            agent: None,
+            agent_indicator: None,
+            session_id: Some("test".to_string()),
+            pane_id: 42,
+            hook_event_name: "PreToolUse".to_string(),
+            tool_name: None,
+            cwd: Some("/home/user/project/.claude/settings.json".to_string()),
+            agent_id: None,
+            badges: vec![],
+        };
+        process_hook(&mut state, hook);
+
+        // CWD should NOT change to the .claude/ path
+        assert_eq!(
+            state.sessions[&42].working_dir.as_deref(),
+            Some("/home/user/project")
+        );
+        // in_worktree should remain false
+        assert!(!state.sessions[&42].in_worktree);
+    }
+
+    #[test]
+    fn test_process_hook_worktree_to_normal_clears_in_worktree() {
+        let mut state = ControllerState::default();
+        let mut s = Session::new(42, "test".into());
+        s.working_dir = Some("/home/user/project/.claude/worktrees/076-fix/".to_string());
+        s.in_worktree = true;
+        state.sessions.insert(42, s);
+
+        let hook = HookPayload {
+            agent: None,
+            agent_indicator: None,
+            session_id: Some("test".to_string()),
+            pane_id: 42,
+            hook_event_name: "PreToolUse".to_string(),
+            tool_name: None,
+            cwd: Some("/home/user/project".to_string()),
+            agent_id: None,
+            badges: vec![],
+        };
+        process_hook(&mut state, hook);
+
+        // CWD should change to the normal path
+        assert_eq!(
+            state.sessions[&42].working_dir.as_deref(),
+            Some("/home/user/project")
+        );
+        // in_worktree should be cleared
+        assert!(!state.sessions[&42].in_worktree);
+    }
+
+    #[test]
+    fn test_process_hook_worktree_to_worktree_keeps_in_worktree() {
+        let mut state = ControllerState::default();
+        let mut s = Session::new(42, "test".into());
+        s.working_dir = Some("/home/user/project/.claude/worktrees/076-fix/".to_string());
+        s.in_worktree = true;
+        state.sessions.insert(42, s);
+
+        let hook = HookPayload {
+            agent: None,
+            agent_indicator: None,
+            session_id: Some("test".to_string()),
+            pane_id: 42,
+            hook_event_name: "PreToolUse".to_string(),
+            tool_name: None,
+            cwd: Some("/home/user/project/.claude/worktrees/077-other/".to_string()),
+            agent_id: None,
+            badges: vec![],
+        };
+        process_hook(&mut state, hook);
+
+        // CWD should update to the new worktree
+        assert_eq!(
+            state.sessions[&42].working_dir.as_deref(),
+            Some("/home/user/project/.claude/worktrees/077-other/")
+        );
+        // in_worktree should remain true
+        assert!(state.sessions[&42].in_worktree);
     }
 }
