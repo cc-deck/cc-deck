@@ -88,6 +88,13 @@ When the user detaches from Zellij and reattaches, sessions that were in a workt
 
 This is a visual indicator change in the sidebar plugin. No CLI commands, configuration options, or user-facing documentation changes are needed. The README does not need updating since this is an internal rendering detail.
 
+## Clarifications
+
+### Session 2026-07-01
+
+- Q: Should the `in_worktree` state persist across Zellij reattach? → A: Yes, via serde serialization (FR-006).
+- Q: Should the worktree icon color differ from the regular branch icon? → A: No, same color, only shape differs (FR-007).
+
 ## Assumptions
 
 - The CWD hook fires when Claude Code enters a worktree (this already happens, the hook payload includes the new CWD).
