@@ -288,6 +288,20 @@ fn process_cwd_change(state: &mut ControllerState, pane_id: u32, cwd: &str) {
         if let Some(s) = state.sessions.get_mut(&pane_id) {
             s.working_dir = Some(cwd.to_string());
             s.in_worktree = is_worktree_path;
+
+            if is_worktree_path {
+                // Append @worktree-name to the display name (strip any previous suffix first)
+                let base = s.display_name.split('@').next().unwrap_or(&s.display_name).to_string();
+                if let Some(wt_name) = std::path::Path::new(cwd)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                {
+                    s.display_name = format!("{base}@{wt_name}");
+                }
+            } else if s.display_name.contains('@') {
+                // Leaving worktree: strip the @suffix
+                s.display_name = s.display_name.split('@').next().unwrap_or(&s.display_name).to_string();
+            }
         }
 
         // Check for pending override from snapshot restore (FIFO per directory)
@@ -314,7 +328,7 @@ fn process_cwd_change(state: &mut ControllerState, pane_id: u32, cwd: &str) {
                 !session.manually_renamed && session.display_name.starts_with("session-");
             let not_renamed = !session.manually_renamed;
 
-            if needs_dir_name {
+            if needs_dir_name && !is_worktree_path {
                 let dir_name = std::path::Path::new(cwd)
                     .file_name()
                     .and_then(|n| n.to_str())
