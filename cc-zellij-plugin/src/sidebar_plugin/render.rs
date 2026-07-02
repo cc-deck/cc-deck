@@ -682,9 +682,6 @@ fn char_ceil(s: &str, pos: usize) -> usize {
 }
 
 fn truncate(s: &str, max: usize) -> String {
-    if max <= 3 {
-        return ".".repeat(max);
-    }
     if display_width(s) <= max {
         return s.to_string();
     }
@@ -692,8 +689,7 @@ fn truncate(s: &str, max: usize) -> String {
     let mut width = 0;
     for ch in s.chars() {
         let cw = ch.width().unwrap_or(0);
-        if width + cw + 3 > max {
-            result.push_str("...");
+        if width + cw > max {
             break;
         }
         result.push(ch);
@@ -806,8 +802,9 @@ mod tests {
     #[test]
     fn test_truncate() {
         assert_eq!(truncate("short", 10), "short");
-        assert_eq!(truncate("a-very-long-name", 10), "a-very-...");
-        assert_eq!(truncate("ab", 2), "..");
+        assert_eq!(truncate("a-very-long-name", 10), "a-very-lon");
+        assert_eq!(truncate("ab", 2), "ab");
+        assert_eq!(truncate("abcde", 3), "abc");
     }
 
     #[test]
