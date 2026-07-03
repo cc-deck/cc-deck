@@ -67,12 +67,12 @@ A developer creates a `.cc-deck/voice-glossary.txt` file in their project with o
 - **FR-001**: The system MUST support a global glossary configured as a list of terms under `voice.glossary` in the cc-deck config file.
 - **FR-002**: The system MUST support a project-local glossary file at `.cc-deck/voice-glossary.txt` in the project root directory.
 - **FR-003**: The project glossary file MUST support one term per line, blank lines (ignored), and comment lines starting with `#` (ignored).
-- **FR-004**: The plugin state dump response MUST include the `working_dir` field for the attended session so the relay can locate the project glossary.
+- **FR-004**: The plugin state dump response MUST include the `working_dir` field for the attended session so the relay can locate the project glossary. *(Note: the existing `DumpStateResponse` already serializes the full `Session` struct which includes `working_dir`. This requirement is satisfied by current code and is listed here for traceability.)*
 - **FR-005**: The relay MUST load the project glossary lazily on session switch, using the attended session's working directory from the state dump.
-- **FR-006**: The relay MUST cache loaded project glossaries by directory path to avoid repeated file reads.
+- **FR-006**: The relay MUST cache loaded project glossaries by directory path to avoid repeated file reads. The cache is not invalidated while the relay is running; changes to glossary files require a relay restart to take effect.
 - **FR-007**: The relay MUST merge global and project glossaries with global terms first and project terms last (project terms receive higher priority in Whisper's 224-token window).
-- **FR-008**: The merged glossary MUST contain only unique terms (case-insensitive deduplication).
-- **FR-009**: The relay MUST pass the merged glossary as the `prompt` form field in the multipart request to whisper-server's `/inference` endpoint.
+- **FR-008**: The merged glossary MUST contain only unique terms (case-insensitive deduplication). When a term appears in both the global and project glossaries with different casing, the project glossary's casing wins (last occurrence takes precedence).
+- **FR-009**: The relay MUST pass the merged glossary as a comma-separated string in the `prompt` form field of the multipart request to whisper-server's `/inference` endpoint. The prompt is injected by setting it as state on the `httpTranscriber` (via a setter method or constructor parameter), not by changing the `Transcriber` interface signature.
 - **FR-010**: When no glossary is configured (neither global nor project), the relay MUST omit the `prompt` field entirely (preserving current behavior).
 - **FR-011**: The relay MUST log a warning when the merged glossary exceeds approximately 224 tokens (~800 characters).
 
@@ -92,6 +92,13 @@ A developer creates a `.cc-deck/voice-glossary.txt` file in their project with o
 - **SC-003**: The relay starts and operates without errors when no glossary is configured (zero regression from current behavior).
 - **SC-004**: Project glossary files with up to 50 terms load in under 10ms.
 
+## Test Strategy
+
+- **Unit tests** for glossary file parsing (blank lines, comments, deduplication, empty files, missing files).
+- **Unit tests** for merge logic (global-only, project-only, both, deduplication with casing precedence, token limit warning).
+- **Unit tests** for the `prompt` field in the multipart request (present when glossary exists, absent when no glossary configured).
+- **Integration tests** for the relay's session-switch glossary loading (using the mock transcriber pattern already established in `relay_test.go`).
+
 ## Documentation Impact
 
 - **README.md**: Add a subsection under voice relay documentation explaining the glossary configuration (global and project-local).
@@ -105,3 +112,10 @@ A developer creates a `.cc-deck/voice-glossary.txt` file in their project with o
 - The 224-token limit (approximately 800 characters or 40-50 terms) is sufficient for typical project vocabularies.
 - The relay already polls the plugin state dump on session switches (the glossary loading piggybacks on this existing mechanism).
 - The `working_dir` field on Session is already populated by the hook system (it just needs to be included in the state dump response).
+
+## Clarifications
+
+### Session 2026-07-03
+
+- Q: Should the relay warn or silently truncate when glossary exceeds 224 tokens? -> A: Log a warning but still pass the full list (Whisper truncates from the beginning, preserving project terms at the end).
+- Q: Should .cc-deck/voice-glossary.txt support comments? -> A: Yes, lines starting with # are ignored.
