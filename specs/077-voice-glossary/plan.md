@@ -21,6 +21,27 @@ Add a two-tier glossary system (global config + project-local file) that passes 
 | II. Interface contracts | N/A | No new interfaces. |
 | III. Build and tool rules | PASS | Use `make install`, `make test`, `make lint`. |
 
+## Global Constraints
+
+- **Go version**: 1.25 (from go.mod)
+- **Build**: `make install`, `make test`, `make lint` only (never `go build` directly)
+- **Container runtime**: podman exclusively
+- **XDG paths**: Use `internal/xdg` package
+- **Config YAML path**: `defaults.voice.glossary` (list of strings under existing `VoiceDefaults` struct)
+
+## File Structure
+
+| File | Action | Responsibility |
+|------|--------|----------------|
+| `cc-deck/internal/voice/glossary.go` | Create | Glossary struct, file parsing, merge/dedup, prompt building, token warning |
+| `cc-deck/internal/voice/glossary_test.go` | Create | Unit tests for glossary loading, merging, dedup, edge cases |
+| `cc-deck/internal/voice/transcriber_http.go` | Modify | Add `prompt` field, `SetPrompt` method, prompt form field in multipart request |
+| `cc-deck/internal/voice/transcriber_http_test.go` | Modify | Test prompt field inclusion/omission |
+| `cc-deck/internal/voice/relay.go` | Modify | Add glossary field, extract working_dir from state dump, set prompt on session switch |
+| `cc-deck/internal/config/config.go` | Modify | Add `Glossary []string` to `VoiceDefaults` |
+| `README.md` | Modify | Document voice glossary configuration |
+| `docs/modules/reference/pages/configuration.adoc` | Modify | Document `defaults.voice.glossary` config key |
+
 ## Implementation Phases
 
 ### Phase 1: Glossary Module (FR-001, FR-002, FR-003, FR-006, FR-007, FR-008)
@@ -55,17 +76,19 @@ Add a `prompt string` field to `httpTranscriber`. Add a `SetPrompt(string)` meth
 
 **File**: `cc-deck/internal/config/config.go`
 
-Add `Glossary []string` to the Voice config section. Parse from `voice.glossary` in config YAML.
+Add `Glossary []string` to the `VoiceDefaults` struct. YAML path: `defaults.voice.glossary` (parsed automatically by the existing YAML unmarshaling).
 
 ### Phase 5: Documentation
 
-**File**: `README.md`
+**Files**: `README.md`, `docs/modules/reference/pages/configuration.adoc`
 
-Add a subsection under the voice relay section documenting:
-- Global glossary config (`voice.glossary` list in config.yaml)
+Add a subsection under the voice relay section in README.md documenting:
+- Global glossary config (`defaults.voice.glossary` list in config.yaml)
 - Project glossary file (`.cc-deck/voice-glossary.txt`)
 - Token limit (~50 terms, ~800 chars)
 - Automatic switching on session change
+
+Update the configuration reference to document the `glossary` key under the existing `defaults.voice` section.
 
 ### Phase 6: Tests
 
