@@ -58,6 +58,9 @@ func TestProcessStopwords_Defaults(t *testing.T) {
 		{"whitespace only", "   ", false, ""},
 		{"filler only", "um uh hmm", false, ""},
 		{"regular text", "add error handling to the API", false, ""},
+		{"ship standalone", "ship", true, "submit_attend"},
+		{"ship uppercase", "Ship", true, "submit_attend"},
+		{"ship after filler", "um, ship", true, "submit_attend"},
 	}
 
 	for _, tt := range tests {

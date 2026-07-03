@@ -519,6 +519,11 @@ func (r *VoiceRelay) handleUtterance(ctx context.Context, u Utterance) {
 			payload = "[[enter]]"
 		case "attend":
 			payload = "[[attend]]"
+		case "submit_attend":
+			if err := r.pipe.Send(ctx, "cc-deck:voice", "[[enter]]"); err != nil {
+				log.Printf("[voice] submit_attend: enter failed: %v", err)
+			}
+			payload = "[[attend]]"
 		default:
 			payload = "[[enter]]"
 		}
