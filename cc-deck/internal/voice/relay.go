@@ -75,7 +75,7 @@ type VoiceRelay struct {
 // globalTerms is the list of glossary terms from the config file; pass nil
 // when no glossary is configured.
 func NewVoiceRelay(config RelayConfig, audio AudioSource, transcriber Transcriber, pipe PipeSender, globalTerms []string) *VoiceRelay {
-	return &VoiceRelay{
+	r := &VoiceRelay{
 		config:      config,
 		audio:       audio,
 		transcriber: transcriber,
@@ -83,6 +83,12 @@ func NewVoiceRelay(config RelayConfig, audio AudioSource, transcriber Transcribe
 		events:      make(chan RelayEvent, 32),
 		glossary:    NewGlossary(globalTerms),
 	}
+	if len(globalTerms) > 0 {
+		if ht, ok := transcriber.(*httpTranscriber); ok {
+			ht.SetPrompt(r.glossary.ResolvePrompt(""))
+		}
+	}
+	return r
 }
 
 // IsMuted returns whether the relay is currently muted.
