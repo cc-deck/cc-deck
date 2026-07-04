@@ -64,8 +64,8 @@ func LoadFile(path string) ([]string, error) {
 // .cc-deck/voice-glossary.txt in workingDir. Global terms come first, project
 // terms last (giving them priority in Whisper's 224-token window). Duplicate
 // terms are removed case-insensitively, with the last occurrence (project)
-// winning. Returns an empty string when no terms are configured or when
-// workingDir is empty.
+// winning. When workingDir is empty, returns global terms only. Returns an
+// empty string when no terms are configured at all.
 func (g *Glossary) ResolvePrompt(workingDir string) string {
 	var projectTerms []string
 	if workingDir != "" {
