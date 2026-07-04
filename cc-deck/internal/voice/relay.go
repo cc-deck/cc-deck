@@ -55,6 +55,7 @@ type VoiceRelay struct {
 	transcriber Transcriber
 	pipe        PipeSender
 	events      chan RelayEvent
+	glossary    *Glossary
 
 	mu              sync.Mutex
 	running         bool
@@ -62,6 +63,7 @@ type VoiceRelay struct {
 	recording       bool
 	savedThreshold  float64
 	savedMuted      bool
+	lastWorkingDir  string
 	parentCtx   context.Context
 	ctx         context.Context
 	cancel      context.CancelFunc
@@ -70,13 +72,16 @@ type VoiceRelay struct {
 }
 
 // NewVoiceRelay creates a new relay connecting all pipeline stages.
-func NewVoiceRelay(config RelayConfig, audio AudioSource, transcriber Transcriber, pipe PipeSender) *VoiceRelay {
+// globalTerms is the list of glossary terms from the config file; pass nil
+// when no glossary is configured.
+func NewVoiceRelay(config RelayConfig, audio AudioSource, transcriber Transcriber, pipe PipeSender, globalTerms []string) *VoiceRelay {
 	return &VoiceRelay{
 		config:      config,
 		audio:       audio,
 		transcriber: transcriber,
 		pipe:        pipe,
 		events:      make(chan RelayEvent, 32),
+		glossary:    NewGlossary(globalTerms),
 	}
 }
 
@@ -334,6 +339,31 @@ func (r *VoiceRelay) statePoll(ctx context.Context, sr PipeSendReceiver) {
 				r.sendEvent(RelayEvent{Type: "target_changed", Text: state.targetName})
 			}
 
+			// Update glossary prompt when the attended session's
+			// working directory changes. Only act on non-empty
+			// workingDir to avoid clearing the active prompt on
+			// transient ambiguous poll responses (mirrors the
+			// targetName guard above).
+			r.mu.Lock()
+			prevDir := r.lastWorkingDir
+			r.mu.Unlock()
+			if state.workingDir != "" && state.workingDir != prevDir {
+				r.mu.Lock()
+				r.lastWorkingDir = state.workingDir
+				r.mu.Unlock()
+				prompt := r.glossary.ResolvePrompt(state.workingDir)
+				if ht, ok := r.transcriber.(*httpTranscriber); ok {
+					ht.SetPrompt(prompt)
+				}
+				if r.config.Verbose {
+					if prompt != "" {
+						log.Printf("[voice] glossary prompt updated for %s (%d chars)", state.workingDir, len(prompt))
+					} else {
+						log.Printf("[voice] glossary prompt cleared (no terms for %s)", state.workingDir)
+					}
+				}
+			}
+
 			if state.voiceMuteRequested != nil {
 				requested := *state.voiceMuteRequested
 
@@ -360,6 +390,7 @@ func (r *VoiceRelay) statePoll(ctx context.Context, sr PipeSendReceiver) {
 
 type dumpStateResult struct {
 	targetName         string
+	workingDir         string
 	hasAttendedPane    bool
 	hasFocusedPane     bool
 	voiceMuteRequested *bool
@@ -387,38 +418,46 @@ func parseDumpStateResponse(stateJSON string) dumpStateResult {
 	var result dumpStateResult
 	result.voiceMuteRequested = envelope.VoiceMuteRequested
 
-	resolveSessionName := func(paneID int) string {
+	type sessionFields struct {
+		DisplayName string `json:"display_name"`
+		WorkingDir  string `json:"working_dir"`
+	}
+
+	resolveSession := func(paneID int) sessionFields {
 		key := fmt.Sprintf("%d", paneID)
 		if raw, ok := envelope.Sessions[key]; ok {
-			var s struct {
-				DisplayName string `json:"display_name"`
-			}
+			var s sessionFields
 			if json.Unmarshal(raw, &s) == nil {
-				return s.DisplayName
+				return s
 			}
 		}
-		return ""
+		return sessionFields{}
 	}
 
 	if envelope.FocusedPaneID != nil {
 		result.hasFocusedPane = true
-		result.targetName = resolveSessionName(*envelope.FocusedPaneID)
+		fields := resolveSession(*envelope.FocusedPaneID)
+		result.targetName = fields.DisplayName
+		result.workingDir = fields.WorkingDir
 	}
 
 	if envelope.AttendedPaneID != nil {
 		result.hasAttendedPane = true
+		fields := resolveSession(*envelope.AttendedPaneID)
 		if result.targetName == "" {
-			result.targetName = resolveSessionName(*envelope.AttendedPaneID)
+			result.targetName = fields.DisplayName
+		}
+		if result.workingDir == "" {
+			result.workingDir = fields.WorkingDir
 		}
 	}
 
 	if result.targetName == "" && len(envelope.Sessions) == 1 {
 		for _, raw := range envelope.Sessions {
-			var s struct {
-				DisplayName string `json:"display_name"`
-			}
+			var s sessionFields
 			if json.Unmarshal(raw, &s) == nil && s.DisplayName != "" {
 				result.targetName = s.DisplayName
+				result.workingDir = s.WorkingDir
 				break
 			}
 		}

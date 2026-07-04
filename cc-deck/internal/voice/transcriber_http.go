@@ -17,6 +17,14 @@ type httpTranscriber struct {
 	endpoint string
 	client   *http.Client
 	server   *WhisperServer
+	prompt   string
+}
+
+// SetPrompt sets the Whisper initial prompt used to bias recognition
+// toward glossary terms. This is a concrete method on httpTranscriber,
+// not part of the Transcriber interface.
+func (t *httpTranscriber) SetPrompt(prompt string) {
+	t.prompt = prompt
 }
 
 // NewHTTPTranscriber creates a transcriber that posts audio to a
@@ -40,6 +48,11 @@ func (t *httpTranscriber) Transcribe(ctx context.Context, audio []int16, sampleR
 	}
 	if _, err := part.Write(wavData); err != nil {
 		return "", fmt.Errorf("writing audio data: %w", err)
+	}
+	if t.prompt != "" {
+		if err := writer.WriteField("prompt", t.prompt); err != nil {
+			return "", fmt.Errorf("writing prompt field: %w", err)
+		}
 	}
 	if err := writer.Close(); err != nil {
 		return "", fmt.Errorf("closing multipart writer: %w", err)
