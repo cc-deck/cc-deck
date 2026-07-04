@@ -141,6 +141,7 @@ func runVoiceRelay(wsName, modelName string, verbose bool, port int, flags vadOv
 
 	// Apply config file values (lowest priority)
 	thresholdPct := voice.ThresholdToPercent(config.VADConfig.Threshold)
+	var glossaryTerms []string
 	if cfg, err := ccconfig.Load(""); err == nil {
 		if cfg.Defaults.Voice.Threshold != nil {
 			thresholdPct = *cfg.Defaults.Voice.Threshold
@@ -164,6 +165,7 @@ func runVoiceRelay(wsName, modelName string, verbose bool, port int, flags vadOv
 			}
 			config.Commands = voice.BuildCommandMap(merged)
 		}
+		glossaryTerms = cfg.Defaults.Voice.Glossary
 	}
 
 	// Apply CLI flags (highest priority)
@@ -191,7 +193,7 @@ func runVoiceRelay(wsName, modelName string, verbose bool, port int, flags vadOv
 
 	relay := voice.NewVoiceRelay(config, audio, transcriber, &pipeAdapter{
 		ch: ch, verbose: verbose,
-	})
+	}, glossaryTerms)
 
 	if err := relay.Start(ctx); err != nil {
 		return fmt.Errorf("starting voice relay: %w", err)

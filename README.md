@@ -126,6 +126,32 @@ cc-deck ws voice --setup
 cc-deck ws voice my-project
 ```
 
+#### Voice glossary
+
+Whisper sometimes misrecognizes domain-specific terms. A glossary provides a list of terms that bias recognition toward the correct spellings.
+
+**Global glossary** in `~/.config/cc-deck/config.yaml`:
+
+```yaml
+defaults:
+  voice:
+    glossary:
+      - Kubernetes
+      - gRPC
+      - OpenShell
+```
+
+**Project glossary** in `.cc-deck/voice-glossary.txt` (one term per line, `#` for comments):
+
+```text
+# Project-specific terms
+kubectl
+Helm
+Ingress
+```
+
+When a session switches, the relay automatically loads the project glossary from the attended session's working directory and merges it with the global glossary. Project terms take priority when the combined list exceeds Whisper's 224-token window (roughly 50 terms or 800 characters). The glossary file is cached per directory for the lifetime of the relay process; changes require a relay restart.
+
 ### Multi-agent support
 
 cc-deck supports multiple AI coding agents through a pluggable Agent interface. Each agent gets automatic detection, hook installation, and event translation.

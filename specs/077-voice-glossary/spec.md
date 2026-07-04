@@ -64,7 +64,7 @@ A developer creates a `.cc-deck/voice-glossary.txt` file in their project with o
 
 ### Functional Requirements
 
-- **FR-001**: The system MUST support a global glossary configured as a list of terms under `voice.glossary` in the cc-deck config file.
+- **FR-001**: The system MUST support a global glossary configured as a list of terms under `defaults.voice.glossary` in the cc-deck config file.
 - **FR-002**: The system MUST support a project-local glossary file at `.cc-deck/voice-glossary.txt` in the project root directory.
 - **FR-003**: The project glossary file MUST support one term per line, blank lines (ignored), and comment lines starting with `#` (ignored).
 - **FR-004**: The plugin state dump response MUST include the `working_dir` field for the attended session so the relay can locate the project glossary. *(Note: the existing `DumpStateResponse` already serializes the full `Session` struct which includes `working_dir`. This requirement is satisfied by current code and is listed here for traceability.)*

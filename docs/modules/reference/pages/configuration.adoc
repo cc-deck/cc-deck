@@ -24,6 +24,10 @@ verbose: false
 defaults:
   voice:
     threshold: 45    # VAD sensitivity (0-100, logarithmic)
+    glossary:         # Terms to bias Whisper recognition (optional)
+      - Kubernetes
+      - gRPC
+      - OpenShell
     commands:         # Custom command words (optional)
       submit:
         - send
@@ -59,6 +63,25 @@ Words embedded in longer sentences are treated as normal dictation.
 
 When you set `commands` in the config, it replaces the defaults entirely.
 Each action can have multiple trigger words, and you can change the defaults to avoid conflicts with your natural speech patterns.
+
+=== Voice Glossary
+
+The `defaults.voice.glossary` setting provides a list of terms that bias Whisper's recognition toward correct spellings of domain-specific vocabulary.
+Terms are passed as an initial prompt to the Whisper model.
+
+In addition to the global glossary, each project can provide a `.cc-deck/voice-glossary.txt` file in its root directory.
+This file uses one term per line, with blank lines and lines starting with `#` treated as comments.
+
+When the attended session switches to a project that has a glossary file, the relay merges the global and project terms automatically.
+Global terms come first, project terms last.
+Duplicate terms are removed case-insensitively, with the project's casing taking precedence.
+
+Whisper's prompt window is limited to approximately 224 tokens (roughly 800 characters or 50 terms).
+The relay logs a warning when the merged glossary exceeds this limit but still passes the full list.
+Whisper truncates from the beginning, so project-specific terms at the end are preserved.
+
+Project glossary files are cached per directory for the lifetime of the relay process.
+Changes to glossary files require a relay restart to take effect.
 
 == Config Validation
 
@@ -166,6 +189,9 @@ The hex portion must be exactly 6 valid hexadecimal characters.
 
 | `~/.local/state/cc-deck/voice.log`
 | Voice relay diagnostic log (created with `--verbose`)
+
+| `<project>/.cc-deck/voice-glossary.txt`
+| Project-specific voice glossary (one term per line)
 
 | `/tmp/cc-deck-pane-map.json`
 | Hook pane ID cache (ephemeral)

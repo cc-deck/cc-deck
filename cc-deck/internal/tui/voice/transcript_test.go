@@ -94,6 +94,7 @@ func testRelay() *voicepkg.VoiceRelay {
 		&stubAudio{},
 		&stubTranscriber{},
 		&stubPipe{},
+		nil,
 	)
 }
 
