@@ -425,8 +425,8 @@ func parseDumpStateResponse(stateJSON string) dumpStateResult {
 	result.voiceMuteRequested = envelope.VoiceMuteRequested
 
 	type sessionFields struct {
-		DisplayName string `json:"display_name"`
-		WorkingDir  string `json:"working_dir"`
+		DisplayName string  `json:"display_name"`
+		WorkingDir  *string `json:"working_dir"`
 	}
 
 	resolveSession := func(paneID int) sessionFields {
@@ -440,11 +440,18 @@ func parseDumpStateResponse(stateJSON string) dumpStateResult {
 		return sessionFields{}
 	}
 
+	derefDir := func(p *string) string {
+		if p != nil {
+			return *p
+		}
+		return ""
+	}
+
 	if envelope.FocusedPaneID != nil {
 		result.hasFocusedPane = true
 		fields := resolveSession(*envelope.FocusedPaneID)
 		result.targetName = fields.DisplayName
-		result.workingDir = fields.WorkingDir
+		result.workingDir = derefDir(fields.WorkingDir)
 	}
 
 	if envelope.AttendedPaneID != nil {
@@ -454,7 +461,7 @@ func parseDumpStateResponse(stateJSON string) dumpStateResult {
 			result.targetName = fields.DisplayName
 		}
 		if result.workingDir == "" {
-			result.workingDir = fields.WorkingDir
+			result.workingDir = derefDir(fields.WorkingDir)
 		}
 	}
 
@@ -463,7 +470,7 @@ func parseDumpStateResponse(stateJSON string) dumpStateResult {
 			var s sessionFields
 			if json.Unmarshal(raw, &s) == nil && s.DisplayName != "" {
 				result.targetName = s.DisplayName
-				result.workingDir = s.WorkingDir
+				result.workingDir = derefDir(s.WorkingDir)
 				break
 			}
 		}
