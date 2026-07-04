@@ -10,6 +10,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -17,14 +18,17 @@ type httpTranscriber struct {
 	endpoint string
 	client   *http.Client
 	server   *WhisperServer
+	mu       sync.RWMutex
 	prompt   string
 }
 
 // SetPrompt sets the Whisper initial prompt used to bias recognition
 // toward glossary terms. This is a concrete method on httpTranscriber,
-// not part of the Transcriber interface.
+// not part of the Transcriber interface. Safe for concurrent use.
 func (t *httpTranscriber) SetPrompt(prompt string) {
+	t.mu.Lock()
 	t.prompt = prompt
+	t.mu.Unlock()
 }
 
 // NewHTTPTranscriber creates a transcriber that posts audio to a
@@ -49,8 +53,11 @@ func (t *httpTranscriber) Transcribe(ctx context.Context, audio []int16, sampleR
 	if _, err := part.Write(wavData); err != nil {
 		return "", fmt.Errorf("writing audio data: %w", err)
 	}
-	if t.prompt != "" {
-		if err := writer.WriteField("prompt", t.prompt); err != nil {
+	t.mu.RLock()
+	prompt := t.prompt
+	t.mu.RUnlock()
+	if prompt != "" {
+		if err := writer.WriteField("prompt", prompt); err != nil {
 			return "", fmt.Errorf("writing prompt field: %w", err)
 		}
 	}
