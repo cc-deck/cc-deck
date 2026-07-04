@@ -121,7 +121,7 @@ func TestVoiceRelay_TextFlowsToSender(t *testing.T) {
 	config.VADConfig.SilenceDuration = 0.1
 	config.VADConfig.PreRollDuration = 0
 
-	relay := NewVoiceRelay(config, audio, transcriber, pipe)
+	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
 	if err := relay.Start(context.Background()); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -174,7 +174,7 @@ func TestVoiceRelay_CommandWordSendsEnter(t *testing.T) {
 	config.VADConfig.SilenceDuration = 0.1
 	config.VADConfig.PreRollDuration = 0
 
-	relay := NewVoiceRelay(config, audio, transcriber, pipe)
+	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
 	if err := relay.Start(context.Background()); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -204,7 +204,7 @@ func TestVoiceRelay_NonCommandRelaysFullText(t *testing.T) {
 	config.VADConfig.SilenceDuration = 0.1
 	config.VADConfig.PreRollDuration = 0
 
-	relay := NewVoiceRelay(config, audio, transcriber, pipe)
+	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
 	if err := relay.Start(context.Background()); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -237,7 +237,7 @@ func TestVoiceRelay_WhisperArtifactDiscarded(t *testing.T) {
 	config.VADConfig.SilenceDuration = 0.1
 	config.VADConfig.PreRollDuration = 0
 
-	relay := NewVoiceRelay(config, audio, transcriber, pipe)
+	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
 	if err := relay.Start(context.Background()); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -261,7 +261,7 @@ func TestVoiceRelay_EmptyTranscriptionDiscarded(t *testing.T) {
 	config.VADConfig.SilenceDuration = 0.1
 	config.VADConfig.PreRollDuration = 0
 
-	relay := NewVoiceRelay(config, audio, transcriber, pipe)
+	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
 	if err := relay.Start(context.Background()); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -285,7 +285,7 @@ func TestVoiceRelay_TranscriptionErrorProducesEvent(t *testing.T) {
 	config.VADConfig.SilenceDuration = 0.1
 	config.VADConfig.PreRollDuration = 0
 
-	relay := NewVoiceRelay(config, audio, transcriber, pipe)
+	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
 	if err := relay.Start(context.Background()); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -319,7 +319,7 @@ func TestVoiceRelay_DeliveryErrorProducesEvent(t *testing.T) {
 	config.VADConfig.SilenceDuration = 0.1
 	config.VADConfig.PreRollDuration = 0
 
-	relay := NewVoiceRelay(config, audio, transcriber, pipe)
+	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
 	if err := relay.Start(context.Background()); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -343,7 +343,7 @@ func TestVoiceRelay_StopClosesEvents(t *testing.T) {
 	transcriber := &mockTranscriber{}
 	pipe := &mockPipeSender{}
 
-	relay := NewVoiceRelay(DefaultRelayConfig(), audio, transcriber, pipe)
+	relay := NewVoiceRelay(DefaultRelayConfig(), audio, transcriber, pipe, nil)
 	if err := relay.Start(context.Background()); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -365,7 +365,7 @@ func TestVoiceRelay_DoubleStartReturnsError(t *testing.T) {
 	transcriber := &mockTranscriber{}
 	pipe := &mockPipeSender{}
 
-	relay := NewVoiceRelay(DefaultRelayConfig(), audio, transcriber, pipe)
+	relay := NewVoiceRelay(DefaultRelayConfig(), audio, transcriber, pipe, nil)
 	if err := relay.Start(context.Background()); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -507,7 +507,7 @@ func TestVoiceRelay_ContextCancelGracefulShutdown(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	relay := NewVoiceRelay(config, audio, transcriber, pipe)
+	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
 	if err := relay.Start(ctx); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -527,7 +527,7 @@ func TestVoiceRelay_AttendCommandSendsAttend(t *testing.T) {
 	config.VADConfig.SilenceDuration = 0.1
 	config.VADConfig.PreRollDuration = 0
 
-	relay := NewVoiceRelay(config, audio, transcriber, pipe)
+	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
 	if err := relay.Start(context.Background()); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -582,6 +582,48 @@ func TestParseDumpStateResponse_FallsBackToAttendedPaneID(t *testing.T) {
 	}
 }
 
+func TestParseDumpStateResponse_WorkingDir(t *testing.T) {
+	tests := []struct {
+		name       string
+		input      string
+		wantDir    string
+	}{
+		{
+			name:    "working_dir from attended session",
+			input:   `{"sessions":{"42":{"display_name":"claude-1","working_dir":"/home/user/project"}},"attended_pane_id":42}`,
+			wantDir: "/home/user/project",
+		},
+		{
+			name:    "working_dir from focused session",
+			input:   `{"sessions":{"10":{"display_name":"backend","working_dir":"/home/backend"},"20":{"display_name":"frontend","working_dir":"/home/frontend"}},"attended_pane_id":10,"focused_pane_id":20}`,
+			wantDir: "/home/frontend",
+		},
+		{
+			name:    "working_dir absent",
+			input:   `{"sessions":{"42":{"display_name":"claude-1"}},"attended_pane_id":42}`,
+			wantDir: "",
+		},
+		{
+			name:    "working_dir from single session fallback",
+			input:   `{"sessions":{"42":{"display_name":"claude-1","working_dir":"/home/user/solo"}}}`,
+			wantDir: "/home/user/solo",
+		},
+		{
+			name:    "working_dir fallback to attended when focused has none",
+			input:   `{"sessions":{"10":{"display_name":"backend","working_dir":"/home/backend"},"20":{"display_name":"frontend"}},"attended_pane_id":10,"focused_pane_id":20}`,
+			wantDir: "/home/backend",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := parseDumpStateResponse(tt.input)
+			if result.workingDir != tt.wantDir {
+				t.Errorf("workingDir = %q, want %q", result.workingDir, tt.wantDir)
+			}
+		})
+	}
+}
+
 func TestVoiceRelay_HeartbeatSendsMuteState(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -602,7 +644,7 @@ func TestVoiceRelay_HeartbeatSendsMuteState(t *testing.T) {
 			}
 
 			config := DefaultRelayConfig()
-			relay := NewVoiceRelay(config, audio, transcriber, pipe)
+			relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
 			relay.mu.Lock()
 			relay.muted = tt.muted
 			relay.mu.Unlock()
@@ -661,7 +703,7 @@ func TestVoiceRelay_SendsVoiceOnAtStart(t *testing.T) {
 	transcriber := &mockTranscriber{}
 	pipe := &mockPipeSender{}
 
-	relay := NewVoiceRelay(DefaultRelayConfig(), audio, transcriber, pipe)
+	relay := NewVoiceRelay(DefaultRelayConfig(), audio, transcriber, pipe, nil)
 	if err := relay.Start(context.Background()); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -694,7 +736,7 @@ func TestVoiceRelay_TranscribesWhileMutedAndRecording(t *testing.T) {
 	config.VADConfig.SilenceDuration = 0.1
 	config.VADConfig.PreRollDuration = 0
 
-	relay := NewVoiceRelay(config, audio, transcriber, pipe)
+	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
 
 	// Set muted AND recording before starting so the utterance is processed
 	// in the muted+recording path.
@@ -745,7 +787,7 @@ func TestVoiceRelay_DiscardsWhileMutedNotRecording(t *testing.T) {
 	config.VADConfig.SilenceDuration = 0.1
 	config.VADConfig.PreRollDuration = 0
 
-	relay := NewVoiceRelay(config, audio, transcriber, pipe)
+	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
 
 	// Set muted but NOT recording.
 	relay.mu.Lock()
@@ -780,7 +822,7 @@ func TestVoiceRelay_SetRecordingAutoMutes(t *testing.T) {
 	pipe := &mockPipeSender{}
 
 	config := DefaultRelayConfig()
-	relay := NewVoiceRelay(config, audio, transcriber, pipe)
+	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
 
 	// Start unmuted
 	if relay.IsMuted() {
@@ -812,7 +854,7 @@ func TestVoiceRelay_SetRecordingPreservesMuted(t *testing.T) {
 	pipe := &mockPipeSender{}
 
 	config := DefaultRelayConfig()
-	relay := NewVoiceRelay(config, audio, transcriber, pipe)
+	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
 
 	// Start already muted
 	relay.mu.Lock()
@@ -838,7 +880,7 @@ func TestVoiceRelay_SetRecordingEmitsMuteEvent(t *testing.T) {
 	pipe := &mockPipeSender{}
 
 	config := DefaultRelayConfig()
-	relay := NewVoiceRelay(config, audio, transcriber, pipe)
+	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
 
 	relay.SetRecording(true)
 
@@ -909,7 +951,7 @@ func TestVoiceRelay_BracketAnnotationStripped(t *testing.T) {
 	config.VADConfig.SilenceDuration = 0.1
 	config.VADConfig.PreRollDuration = 0
 
-	relay := NewVoiceRelay(config, audio, transcriber, pipe)
+	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
 	if err := relay.Start(context.Background()); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}

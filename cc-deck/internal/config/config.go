@@ -58,6 +58,7 @@ type VoiceDefaults struct {
 	PreRoll   *float64            `yaml:"pre_roll,omitempty"`
 	Hangover  *float64            `yaml:"hangover,omitempty"`
 	Commands  map[string][]string `yaml:"commands,omitempty"`
+	Glossary  []string            `yaml:"glossary,omitempty"`
 }
 
 // Session represents a running or previously deployed Claude Code session.
