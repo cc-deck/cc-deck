@@ -356,6 +356,21 @@ The workspace still starts, but the corresponding service will not be available.
 Use `/cc-deck.capture` to detect available credentials automatically.
 Use `/cc-deck.capture --all` to auto-accept all proposals without prompting.
 
+=== Agent Selection
+
+The `agents` field in the build manifest specifies which AI coding agents the workspace supports.
+Each agent has its own set of backend domain groups that are automatically included in the network policy.
+
+[source,yaml]
+----
+agents:
+  - claude
+  - opencode
+----
+
+When the `agents` field is omitted, the manifest defaults to `["claude"]` for backward compatibility.
+Agent adapters declare their required domain groups (e.g., Claude declares `anthropic`, OpenCode declares `openai`), and the policy assembly resolves those groups to concrete endpoints automatically.
+
 === Network Configuration
 
 The `network` section of the build manifest controls domain-level egress filtering for containerized sessions.
@@ -385,6 +400,27 @@ If a catalog component (e.g., `python`) already includes `pypi.org` in its endpo
 
 This field is populated automatically by `cc-deck build record`, which captures DNS queries during an interactive session and appends new domains.
 It can also be edited manually.
+
+==== `network.allowed_domains_per_agent`
+
+A mapping of agent names to lists of domain group names.
+Groups listed under an agent are only included in the network policy when that agent appears in the manifest's `agents` field.
+
+[source,yaml]
+----
+network:
+  allowed_domains_per_agent:
+    claude:
+      - docker       # Docker Hub access, only when Claude is an active agent
+    opencode:
+      - internal-registry   # custom group for OpenCode workspaces
+----
+
+These per-agent groups are merged with each agent adapter's declared groups (from `RequiredDomainGroups()`).
+For example, Claude always declares `anthropic` as a required group.
+If you also add `docker` under `claude` in `allowed_domains_per_agent`, both groups are resolved when `claude` is in the manifest.
+
+Groups that do not exist in the built-in or user-defined domain groups produce a warning during policy assembly but do not fail the build.
 
 === Policy Component System
 
@@ -425,8 +461,12 @@ The following components are embedded in the `cc-deck` binary:
 | Component | Match | Endpoints
 
 | `claude-code.yaml`
-| Always included
+| Agents: `claude`
 | `api.anthropic.com`, `statsig.anthropic.com`, `sentry.io`, `downloads.claude.ai`, `raw.githubusercontent.com`
+
+| `opencode.yaml`
+| Agents: `opencode`
+| `api.openai.com`, `openrouter.ai`
 
 | `git-hosting.yaml`
 | Always included
@@ -454,7 +494,9 @@ The following components are embedded in the `cc-deck` binary:
 |===
 
 Components with `always: true` in their match conditions are always included regardless of the manifest.
-Tool and credential matches use OR semantics: any single condition match includes the component.
+Agent-matched components (e.g., `agents: [claude]`) are included when any listed agent appears in the manifest's `agents` field.
+When the manifest omits the `agents` field, it defaults to `["claude"]` for backward compatibility.
+Tool, credential, and agent matches use OR semantics: any single condition match includes the component.
 
 ==== Probe and Runtime Glob Fields
 
@@ -545,13 +587,14 @@ mcp:
     description: "Browser automation via Playwright"
 ----
 
-The generated policy entries use the `claude_code` component's binary paths, since Claude Code is the process that connects to MCP servers.
+The generated policy entries use binary paths collected from all agent-matched components (those with `agents` in their match condition).
+For example, when both Claude and OpenCode are active agents, binaries from both `claude-code.yaml` and `opencode.yaml` are merged into MCP policy entries.
 
-When the `pkg_node` component is also present (because `node` or `npm` is in the tools list), Claude Code binary paths are appended to its binary list.
-This allows Claude Code to spawn `npx` processes that download and run npm packages for MCP stdio proxies.
+When the `pkg_node` component is also present (because `node` or `npm` is in the tools list), agent binary paths are appended to its binary list.
+This allows agents to spawn `npx` processes that download and run npm packages for MCP stdio proxies.
 
 MCP entries without an endpoint, or with a malformed endpoint (missing port), are skipped with a warning during policy assembly.
-If the `claude_code` component is not available, all MCP policy entries are skipped gracefully.
+If no agent-matched components are found, all MCP policy entries are skipped gracefully.
 
 === Containerfile Template Snippets
 

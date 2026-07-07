@@ -11,6 +11,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/cc-deck/cc-deck/internal/agent"
 	"github.com/cc-deck/cc-deck/internal/network"
 )
 
@@ -174,6 +175,8 @@ func assemblePolicyCore(manifest *Manifest, catalogFS fs.FS, catalogRoot string,
 	// are already covered by matched components (host-based dedup, not just
 	// slug-based) to avoid creating unrestricted duplicates that bypass
 	// binary restrictions from the probe step.
+	resolver := network.NewResolver(nil)
+
 	if manifest.Network != nil {
 		coveredHosts := make(map[string]bool)
 		for _, np := range networkPolicies {
@@ -181,8 +184,6 @@ func assemblePolicyCore(manifest *Manifest, catalogFS fs.FS, catalogRoot string,
 				coveredHosts[ep.Host] = true
 			}
 		}
-
-		resolver := network.NewResolver(nil)
 		for _, entry := range manifest.Network.AllowedDomains {
 			slug := slugify(entry)
 			if _, exists := networkPolicies[slug]; exists {
@@ -228,6 +229,79 @@ func assemblePolicyCore(manifest *Manifest, catalogFS fs.FS, catalogRoot string,
 		}
 	}
 
+	// Add per-agent domain groups. For each agent in the manifest, collect
+	// domain groups from RequiredDomainGroups() and AllowedDomainsPerAgent,
+	// then resolve them to endpoints. Groups are deduplicated and only
+	// included when the declaring agent is in the manifest.
+	{
+		manifestAgents := manifest.EffectiveAgents()
+
+		agentGroups := make(map[string][]string)
+		for _, agentName := range manifestAgents {
+			var groups []string
+			// Declared groups from agent adapter.
+			if a := agent.Get(agentName); a != nil {
+				groups = append(groups, a.RequiredDomainGroups()...)
+			}
+			// User-configured per-agent groups.
+			if manifest.Network != nil && manifest.Network.AllowedDomainsPerAgent != nil {
+				groups = append(groups, manifest.Network.AllowedDomainsPerAgent[agentName]...)
+			}
+			if len(groups) > 0 {
+				agentGroups[agentName] = groups
+			}
+		}
+
+		// Validate and warn about missing groups.
+		warnings := ValidateAgentDomainGroups(agentGroups, resolver)
+		for _, w := range warnings {
+			fmt.Printf("WARNING: %v\n", w)
+		}
+
+		// Resolve groups to endpoints, skipping those already covered.
+		coveredHosts := make(map[string]bool)
+		for _, np := range networkPolicies {
+			for _, ep := range np.Endpoints {
+				coveredHosts[ep.Host] = true
+			}
+		}
+
+		// Deduplicate groups across all agents.
+		processedGroups := make(map[string]bool)
+		for _, agentName := range manifestAgents {
+			for _, group := range agentGroups[agentName] {
+				if processedGroups[group] {
+					continue
+				}
+				processedGroups[group] = true
+
+				domains, err := resolver.ExpandGroup(group)
+				if err != nil {
+					// Already warned about missing groups; skip silently.
+					continue
+				}
+				var endpoints []PolicyEndpoint
+				for _, d := range domains {
+					if strings.HasPrefix(d, ".") {
+						continue
+					}
+					if coveredHosts[d] {
+						continue
+					}
+					endpoints = append(endpoints, PolicyEndpoint{Host: d, Port: 443})
+					coveredHosts[d] = true
+				}
+				if len(endpoints) > 0 {
+					slug := "agent_" + slugify(group)
+					networkPolicies[slug] = NetworkPolicy{
+						Name:      group,
+						Endpoints: endpoints,
+					}
+				}
+			}
+		}
+	}
+
 	// Add generic credential endpoints.
 	for _, cred := range manifest.Credentials {
 		if cred.Type == "generic" {
@@ -243,18 +317,16 @@ func assemblePolicyCore(manifest *Manifest, catalogFS fs.FS, catalogRoot string,
 		}
 	}
 
+	// Collect binaries from all agent-matched components (components where
+	// Match.Agents is non-empty). These binaries are used for MCP endpoint
+	// policies and pkg_node augmentation.
+	agentBinaries := collectAgentBinaries(matched)
+
 	// Add MCP endpoint entries.
 	// Each MCP entry with a non-empty Endpoint generates a network policy
-	// keyed as mcp_<slugified_name> using claude_code component binaries.
-	var claudeCodeBinaries []PolicyBinary
-	for _, comp := range matched {
-		if comp.Key == "claude_code" {
-			claudeCodeBinaries = comp.Binaries
-			break
-		}
-	}
+	// keyed as mcp_<slugified_name> using agent component binaries.
 	hasMCPEndpoints := false
-	if claudeCodeBinaries != nil {
+	if len(agentBinaries) > 0 {
 		for _, mcp := range manifest.MCP {
 			if mcp.Endpoint == "" {
 				continue
@@ -275,29 +347,29 @@ func assemblePolicyCore(manifest *Manifest, catalogFS fs.FS, catalogRoot string,
 				Endpoints: []PolicyEndpoint{
 					{Host: host, Port: port},
 				},
-				Binaries: claudeCodeBinaries,
+				Binaries: agentBinaries,
 			}
 		}
 	} else if len(manifest.MCP) > 0 {
 		// Check if any MCP entries have endpoints before warning
 		for _, mcp := range manifest.MCP {
 			if mcp.Endpoint != "" {
-				fmt.Println("WARNING: claude_code component not found, skipping MCP policy entries")
+				fmt.Println("WARNING: no agent component found, skipping MCP policy entries")
 				break
 			}
 		}
 	}
 
-	// Augment pkg_node binaries with claude_code binaries when MCP
-	// endpoints exist. This allows Claude Code to spawn npx processes
-	// that access the npm registry for MCP stdio proxies.
+	// Augment pkg_node binaries with agent binaries when MCP endpoints
+	// exist. This allows agents to spawn npx processes that access the
+	// npm registry for MCP stdio proxies.
 	if hasMCPEndpoints {
-		if pkgNode, ok := networkPolicies["pkg_node"]; ok && claudeCodeBinaries != nil {
+		if pkgNode, ok := networkPolicies["pkg_node"]; ok && len(agentBinaries) > 0 {
 			seen := make(map[string]bool)
 			for _, b := range pkgNode.Binaries {
 				seen[b.Path] = true
 			}
-			for _, b := range claudeCodeBinaries {
+			for _, b := range agentBinaries {
 				if !seen[b.Path] {
 					pkgNode.Binaries = append(pkgNode.Binaries, b)
 					seen[b.Path] = true
@@ -498,6 +570,49 @@ func slugifyMCPName(name string) string {
 	slug := nonAlphanumRe.ReplaceAllString(name, "_")
 	slug = strings.Trim(slug, "_")
 	return strings.ToLower(slug)
+}
+
+// collectAgentBinaries merges binaries from all agent-matched components
+// (those with non-empty Match.Agents). Deduplicates by path while preserving
+// insertion order (first occurrence wins). Components are processed in the
+// order they appear in the matched slice (alphabetical by key).
+func collectAgentBinaries(matched []PolicyComponent) []PolicyBinary {
+	seen := make(map[string]bool)
+	var binaries []PolicyBinary
+	for _, comp := range matched {
+		if len(comp.Match.Agents) == 0 {
+			continue
+		}
+		for _, b := range comp.Binaries {
+			if !seen[b.Path] {
+				seen[b.Path] = true
+				binaries = append(binaries, b)
+			}
+		}
+	}
+	return binaries
+}
+
+// ValidateAgentDomainGroups checks that domain groups declared by agents exist
+// in the resolver. Returns warning messages for any missing groups. Missing
+// groups are skipped without failing the build (per spec edge case).
+func ValidateAgentDomainGroups(agentGroups map[string][]string, resolver *network.Resolver) []error {
+	var warnings []error
+	agentNames := make([]string, 0, len(agentGroups))
+	for name := range agentGroups {
+		agentNames = append(agentNames, name)
+	}
+	sort.Strings(agentNames)
+
+	for _, agentName := range agentNames {
+		for _, group := range agentGroups[agentName] {
+			_, err := resolver.ExpandGroup(group)
+			if err != nil {
+				warnings = append(warnings, fmt.Errorf("agent %q declares domain group %q which is not available: %w", agentName, group, err))
+			}
+		}
+	}
+	return warnings
 }
 
 // parseMCPEndpoint splits a "host:port" string, validates both parts, and

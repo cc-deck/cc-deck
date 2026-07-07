@@ -213,6 +213,10 @@ func (c *ClaudeAgent) CredentialSpecs() []CredentialSpec {
 	}
 }
 
+func (c *ClaudeAgent) RequiredDomainGroups() []string {
+	return []string{"anthropic"}
+}
+
 // HookEventCount returns how many hook events are registered for cc-deck.
 func (c *ClaudeAgent) HookEventCount() int {
 	settingsPath := claudeSettingsPath()
