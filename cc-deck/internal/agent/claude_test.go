@@ -441,6 +441,17 @@ func TestClaudeAgentInstallHooksPreservesTopLevelKeys(t *testing.T) {
 	}
 }
 
+func TestClaudeAgentRequiredDomainGroups(t *testing.T) {
+	a := &ClaudeAgent{}
+	groups := a.RequiredDomainGroups()
+	if len(groups) != 1 {
+		t.Fatalf("RequiredDomainGroups() returned %d groups, want 1", len(groups))
+	}
+	if groups[0] != "anthropic" {
+		t.Errorf("RequiredDomainGroups()[0] = %q, want %q", groups[0], "anthropic")
+	}
+}
+
 func TestClaudeAgentHookEventCount(t *testing.T) {
 	dir := t.TempDir()
 	settingsPath := filepath.Join(dir, ".claude", "settings.json")

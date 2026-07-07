@@ -36,6 +36,7 @@ type MatchCondition struct {
 	Tools       []string `yaml:"tools,omitempty"`
 	Credentials []string `yaml:"credentials,omitempty"`
 	Features    []string `yaml:"features,omitempty"`
+	Agents      []string `yaml:"agents,omitempty"`
 }
 
 // LoadComponentsFromFS parses all YAML component files from an fs.FS.
@@ -87,7 +88,7 @@ func ValidateComponent(comp *PolicyComponent, filename string) error {
 	if comp.Name == "" {
 		return fmt.Errorf("validating %s: name is required", filename)
 	}
-	if !comp.Match.Always && len(comp.Match.Tools) == 0 && len(comp.Match.Credentials) == 0 && len(comp.Match.Features) == 0 {
+	if !comp.Match.Always && len(comp.Match.Tools) == 0 && len(comp.Match.Credentials) == 0 && len(comp.Match.Features) == 0 && len(comp.Match.Agents) == 0 {
 		return fmt.Errorf("validating %s: match must have at least one field set", filename)
 	}
 	if len(comp.Endpoints) == 0 {
@@ -154,6 +155,16 @@ func MatchComponent(comp *PolicyComponent, manifest *Manifest) bool {
 
 	// Features field reserved for future use; evaluate if present.
 	// No manifest.Features field exists yet, so this is a no-op.
+
+	if len(comp.Match.Agents) > 0 {
+		for _, compAgent := range comp.Match.Agents {
+			for _, mAgent := range manifest.EffectiveAgents() {
+				if compAgent == mAgent {
+					return true
+				}
+			}
+		}
+	}
 
 	return false
 }

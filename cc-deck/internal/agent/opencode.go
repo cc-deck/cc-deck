@@ -117,6 +117,10 @@ func (o *OpenCodeAgent) CredentialSpecs() []CredentialSpec {
 	}
 }
 
+func (o *OpenCodeAgent) RequiredDomainGroups() []string {
+	return []string{"openai"}
+}
+
 // --- OpenCode config (opencode.json) management ---
 
 const pluginEntry = "~/.config/opencode/plugins/cc-deck.ts"

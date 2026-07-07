@@ -1,7 +1,9 @@
+# Included when "claude" is in manifest.agents (or agents is empty, which defaults to [claude]).
 key: claude_code
 name: Claude Code
 match:
-  always: true
+  agents:
+    - claude
 endpoints:
   - host: api.anthropic.com
     port: 443
@@ -10,6 +12,10 @@ endpoints:
   - host: statsig.anthropic.com
     port: 443
   - host: sentry.io
+    port: 443
+  - host: claude.ai
+    port: 443
+  - host: platform.claude.com
     port: 443
   - host: downloads.claude.ai
     port: 443
