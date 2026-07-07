@@ -1,5 +1,5 @@
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at `specs/077-voice-glossary/plan.md`
+at `specs/078-network-policy-generalization/plan.md`
 <!-- SPECKIT END -->

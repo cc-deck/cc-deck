@@ -434,6 +434,7 @@ func (s *testStubAgent) UninstallHooks() error                                { 
 func (s *testStubAgent) HooksInstalled() bool                                 { return false }
 func (s *testStubAgent) TranslateEvent(_ []byte) (*agent.NormalizedPayload, error) { return nil, nil }
 func (s *testStubAgent) CredentialSpecs() []agent.CredentialSpec              { return s.specs }
+func (s *testStubAgent) RequiredDomainGroups() []string                      { return nil }
 
 func TestWsPrune_IsNoOp(t *testing.T) {
 	cmd := newWsPruneCmd()

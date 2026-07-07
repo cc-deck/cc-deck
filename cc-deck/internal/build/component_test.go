@@ -446,7 +446,64 @@ func TestMatchComponent_EmptyManifest(t *testing.T) {
 	assert.False(t, MatchComponent(comp, manifest))
 }
 
-// T017: ResolveComponents tests
+// T017: MatchComponent agent matching tests
+
+func TestMatchComponent_AgentMatch(t *testing.T) {
+	comp := &PolicyComponent{
+		Match: MatchCondition{Agents: []string{"claude"}},
+	}
+	manifest := &Manifest{Version: 3, Agents: []string{"claude"}}
+	assert.True(t, MatchComponent(comp, manifest))
+}
+
+func TestMatchComponent_AgentNoMatch(t *testing.T) {
+	comp := &PolicyComponent{
+		Match: MatchCondition{Agents: []string{"opencode"}},
+	}
+	manifest := &Manifest{Version: 3, Agents: []string{"claude"}}
+	assert.False(t, MatchComponent(comp, manifest))
+}
+
+func TestMatchComponent_AgentDefaultClaude(t *testing.T) {
+	// When manifest has no agents, defaults to ["claude"].
+	comp := &PolicyComponent{
+		Match: MatchCondition{Agents: []string{"claude"}},
+	}
+	manifest := &Manifest{Version: 3}
+	assert.True(t, MatchComponent(comp, manifest))
+}
+
+func TestMatchComponent_AgentDefaultExcludesOthers(t *testing.T) {
+	// When manifest has no agents (defaults to ["claude"]),
+	// a component declaring only "opencode" should not match.
+	comp := &PolicyComponent{
+		Match: MatchCondition{Agents: []string{"opencode"}},
+	}
+	manifest := &Manifest{Version: 3}
+	assert.False(t, MatchComponent(comp, manifest))
+}
+
+func TestMatchComponent_AgentMultipleManifest(t *testing.T) {
+	comp := &PolicyComponent{
+		Match: MatchCondition{Agents: []string{"opencode"}},
+	}
+	manifest := &Manifest{Version: 3, Agents: []string{"claude", "opencode"}}
+	assert.True(t, MatchComponent(comp, manifest))
+}
+
+func TestMatchComponent_AgentORWithTools(t *testing.T) {
+	// Agent match OR tool match: agent matches, tools do not.
+	comp := &PolicyComponent{
+		Match: MatchCondition{
+			Agents: []string{"claude"},
+			Tools:  []string{"nonexistent"},
+		},
+	}
+	manifest := &Manifest{Version: 3, Agents: []string{"claude"}}
+	assert.True(t, MatchComponent(comp, manifest), "agent match should trigger OR")
+}
+
+// ResolveComponents tests
 
 func TestResolveComponents_SingleTier(t *testing.T) {
 	tier := map[string]PolicyComponent{

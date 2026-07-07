@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cc-deck/cc-deck/internal/network"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -99,7 +100,7 @@ func TestAssemblePolicy_AlwaysTrueComponentsWithEmptyManifest(t *testing.T) {
 	require.NoError(t, err)
 
 	_, hasClaude := policy.NetworkPolicies["claude_code"]
-	assert.True(t, hasClaude, "claude_code (always: true) should appear even with empty manifest")
+	assert.True(t, hasClaude, "claude_code should appear with empty manifest (default agent: claude)")
 
 	_, hasGithub := policy.NetworkPolicies["github"]
 	assert.True(t, hasGithub, "github (always: true) should appear even with empty manifest")
@@ -1331,6 +1332,319 @@ func TestAssemblePolicy_PkgNodeAugmentationDeduplicates(t *testing.T) {
 	for path, count := range seen {
 		assert.Equal(t, 1, count, "path %s should appear exactly once in pkg_node binaries", path)
 	}
+}
+
+// T021: MCP endpoint processing with OpenCode agent binaries.
+func TestAssemblePolicy_MCPWithOpenCodeAgent(t *testing.T) {
+	manifest := &Manifest{
+		Version: 3,
+		Agents:  []string{"opencode"},
+		MCP: []MCPEntry{
+			{
+				Name:     "test-mcp",
+				Endpoint: "mcp.example.com:443",
+			},
+		},
+	}
+
+	policy, err := AssemblePolicy(manifest, nil, "", nil, "")
+	require.NoError(t, err)
+
+	mcpPolicy, ok := policy.NetworkPolicies["mcp_test_mcp"]
+	require.True(t, ok, "MCP entry should be generated with OpenCode agent")
+
+	// MCP binaries should come from opencode component (not claude_code)
+	assert.NotEmpty(t, mcpPolicy.Binaries, "MCP policy should have agent binaries")
+
+	// Verify opencode binaries are present
+	paths := make(map[string]bool)
+	for _, b := range mcpPolicy.Binaries {
+		paths[b.Path] = true
+	}
+	assert.True(t, paths["/usr/local/bin/opencode"] || paths["/sandbox/.local/bin/opencode"],
+		"MCP binaries should contain opencode paths")
+
+	// Verify claude_code is NOT in the policy (only opencode agent)
+	_, hasClaude := policy.NetworkPolicies["claude_code"]
+	assert.False(t, hasClaude, "claude_code should not appear with only opencode agent")
+}
+
+// T022: Multi-agent MCP binary merging.
+func TestAssemblePolicy_MCPMultiAgentBinaryMerging(t *testing.T) {
+	manifest := &Manifest{
+		Version: 3,
+		Agents:  []string{"claude", "opencode"},
+		MCP: []MCPEntry{
+			{
+				Name:     "test-mcp",
+				Endpoint: "mcp.example.com:443",
+			},
+		},
+	}
+
+	policy, err := AssemblePolicy(manifest, nil, "", nil, "")
+	require.NoError(t, err)
+
+	mcpPolicy, ok := policy.NetworkPolicies["mcp_test_mcp"]
+	require.True(t, ok, "MCP entry should be generated with multi-agent manifest")
+
+	// Collect all binary paths from MCP policy
+	paths := make(map[string]bool)
+	for _, b := range mcpPolicy.Binaries {
+		paths[b.Path] = true
+	}
+
+	// Both claude and opencode binaries should be present
+	assert.True(t, paths["/usr/local/bin/claude"], "should contain claude binary")
+	assert.True(t, paths["/usr/local/bin/opencode"], "should contain opencode binary")
+
+	// Verify no duplicates
+	seen := make(map[string]int)
+	for _, b := range mcpPolicy.Binaries {
+		seen[b.Path]++
+	}
+	for path, count := range seen {
+		assert.Equal(t, 1, count, "path %q should appear exactly once in MCP binaries", path)
+	}
+}
+
+// --- Multi-agent policy tests (078-network-policy-generalization) ---
+
+func TestAssemblePolicy_SingleAgentClaudeBackwardCompat(t *testing.T) {
+	// T011: When Agents field is nil (no agents key), default to claude.
+	// Must produce identical output to pre-change behavior.
+	manifest := &Manifest{Version: 3}
+
+	policy, err := AssemblePolicy(manifest, nil, "", nil, "")
+	require.NoError(t, err)
+
+	_, hasClaude := policy.NetworkPolicies["claude_code"]
+	assert.True(t, hasClaude, "claude_code should appear with nil Agents (default to claude)")
+
+	_, hasGithub := policy.NetworkPolicies["github"]
+	assert.True(t, hasGithub, "github (always:true) should appear")
+
+	// OpenCode should NOT appear without being listed
+	_, hasOpenCode := policy.NetworkPolicies["opencode"]
+	assert.False(t, hasOpenCode, "opencode should NOT appear with nil Agents")
+}
+
+func TestAssemblePolicy_ExplicitClaudeAgent(t *testing.T) {
+	// T011: Explicitly setting agents: [claude] should produce same result as nil.
+	manifestNil := &Manifest{Version: 3}
+	manifestExplicit := &Manifest{Version: 3, Agents: []string{"claude"}}
+
+	policyNil, err := AssemblePolicy(manifestNil, nil, "", nil, "")
+	require.NoError(t, err)
+	dataNil, err := MarshalPolicy(policyNil)
+	require.NoError(t, err)
+
+	policyExplicit, err := AssemblePolicy(manifestExplicit, nil, "", nil, "")
+	require.NoError(t, err)
+	dataExplicit, err := MarshalPolicy(policyExplicit)
+	require.NoError(t, err)
+
+	assert.Equal(t, string(dataNil), string(dataExplicit),
+		"explicit agents:[claude] must produce identical output to nil agents")
+}
+
+func TestAssemblePolicy_MultiAgentClaudeAndOpenCode(t *testing.T) {
+	// T012: Two agents in manifest should include both agents' domains.
+	manifest := &Manifest{
+		Version: 3,
+		Agents:  []string{"claude", "opencode"},
+	}
+
+	policy, err := AssemblePolicy(manifest, nil, "", nil, "")
+	require.NoError(t, err)
+
+	// Claude Code component should be present
+	claude, hasClaude := policy.NetworkPolicies["claude_code"]
+	assert.True(t, hasClaude, "claude_code should appear with agents:[claude,opencode]")
+	assert.Equal(t, "Claude Code", claude.Name)
+
+	// OpenCode component should be present
+	oc, hasOC := policy.NetworkPolicies["opencode"]
+	assert.True(t, hasOC, "opencode should appear with agents:[claude,opencode]")
+	assert.Equal(t, "OpenCode", oc.Name)
+
+	// Verify Claude endpoints
+	var hasAnthropicAPI bool
+	for _, ep := range claude.Endpoints {
+		if ep.Host == "api.anthropic.com" {
+			hasAnthropicAPI = true
+		}
+	}
+	assert.True(t, hasAnthropicAPI, "claude_code should include api.anthropic.com")
+
+	// Verify OpenCode endpoints
+	var hasOpenAIAPI bool
+	for _, ep := range oc.Endpoints {
+		if ep.Host == "api.openai.com" {
+			hasOpenAIAPI = true
+		}
+	}
+	assert.True(t, hasOpenAIAPI, "opencode should include api.openai.com")
+}
+
+func TestAssemblePolicy_EmptyAgentsDefaultToClaude(t *testing.T) {
+	// T013: Empty agents slice defaults to Claude behavior.
+	manifest := &Manifest{
+		Version: 3,
+		Agents:  []string{},
+	}
+
+	policy, err := AssemblePolicy(manifest, nil, "", nil, "")
+	require.NoError(t, err)
+
+	_, hasClaude := policy.NetworkPolicies["claude_code"]
+	assert.True(t, hasClaude, "empty agents should default to claude")
+
+	_, hasOC := policy.NetworkPolicies["opencode"]
+	assert.False(t, hasOC, "opencode should NOT appear with empty agents")
+}
+
+func TestAssemblePolicy_OnlyOpenCodeAgent(t *testing.T) {
+	// When only opencode is in the manifest, claude_code should NOT appear.
+	manifest := &Manifest{
+		Version: 3,
+		Agents:  []string{"opencode"},
+	}
+
+	policy, err := AssemblePolicy(manifest, nil, "", nil, "")
+	require.NoError(t, err)
+
+	_, hasClaude := policy.NetworkPolicies["claude_code"]
+	assert.False(t, hasClaude, "claude_code should NOT appear when only opencode is in agents")
+
+	_, hasOC := policy.NetworkPolicies["opencode"]
+	assert.True(t, hasOC, "opencode should appear when listed in agents")
+}
+
+func TestAssemblePolicy_MultiAgentNoDuplicateEndpoints(t *testing.T) {
+	// T013a: When two agents share a domain group via AllowedDomainsPerAgent,
+	// the group's endpoints appear only once with no duplicate hosts.
+	manifest := &Manifest{
+		Version: 3,
+		Agents:  []string{"claude", "opencode"},
+		Network: &NetworkConfig{
+			AllowedDomainsPerAgent: map[string][]string{
+				"claude":   {"docker"},
+				"opencode": {"docker"},
+			},
+		},
+	}
+
+	policy, err := AssemblePolicy(manifest, nil, "", nil, "")
+	require.NoError(t, err)
+
+	// The "docker" group should produce one agent_docker entry.
+	np, ok := policy.NetworkPolicies["agent_docker"]
+	require.True(t, ok, "agent_docker policy should exist")
+
+	// Verify no duplicate hosts within the entry.
+	hostCount := make(map[string]int)
+	for _, ep := range np.Endpoints {
+		hostCount[ep.Host]++
+	}
+	for host, count := range hostCount {
+		assert.Equal(t, 1, count, "host %q should appear exactly once in agent_docker", host)
+	}
+}
+
+// T016: ValidateAgentDomainGroups warns about missing domain groups.
+func TestValidateAgentDomainGroups_MissingGroup(t *testing.T) {
+	resolver := network.NewResolver(nil)
+
+	// Agent declares a group that does not exist in builtin or user groups.
+	agentGroups := map[string][]string{
+		"testbot": {"nonexistent_group"},
+	}
+
+	warnings := ValidateAgentDomainGroups(agentGroups, resolver)
+	require.Len(t, warnings, 1, "should produce exactly one warning for missing group")
+	assert.Contains(t, warnings[0].Error(), "testbot")
+	assert.Contains(t, warnings[0].Error(), "nonexistent_group")
+	assert.Contains(t, warnings[0].Error(), "not available")
+}
+
+func TestValidateAgentDomainGroups_ValidGroup(t *testing.T) {
+	resolver := network.NewResolver(nil)
+
+	// Agent declares a group that exists in builtin groups.
+	agentGroups := map[string][]string{
+		"claude": {"anthropic"},
+	}
+
+	warnings := ValidateAgentDomainGroups(agentGroups, resolver)
+	assert.Empty(t, warnings, "should produce no warnings for valid group")
+}
+
+func TestValidateAgentDomainGroups_MixedGroups(t *testing.T) {
+	resolver := network.NewResolver(nil)
+
+	// Agent declares both valid and invalid groups.
+	agentGroups := map[string][]string{
+		"claude": {"anthropic", "fantasy_cloud"},
+	}
+
+	warnings := ValidateAgentDomainGroups(agentGroups, resolver)
+	require.Len(t, warnings, 1, "should warn only about the missing group")
+	assert.Contains(t, warnings[0].Error(), "fantasy_cloud")
+}
+
+// T025: Per-agent domain group inclusion when agent is in manifest.
+func TestAssemblePolicy_PerAgentDomainGroupInclusion(t *testing.T) {
+	manifest := &Manifest{
+		Version: 3,
+		Agents:  []string{"claude"},
+		Network: &NetworkConfig{
+			AllowedDomainsPerAgent: map[string][]string{
+				"claude": {"docker"},
+			},
+		},
+	}
+
+	policy, err := AssemblePolicy(manifest, nil, "", nil, "")
+	require.NoError(t, err)
+
+	// The "docker" domain group should be resolved and included.
+	_, hasDocker := policy.NetworkPolicies["agent_docker"]
+	assert.True(t, hasDocker, "per-agent domain group 'docker' should appear when claude is in manifest")
+
+	if hasDocker {
+		np := policy.NetworkPolicies["agent_docker"]
+		assert.Equal(t, "docker", np.Name)
+		// Verify at least one Docker domain is present.
+		hosts := make(map[string]bool)
+		for _, ep := range np.Endpoints {
+			hosts[ep.Host] = true
+		}
+		assert.True(t, hosts["registry-1.docker.io"] || hosts["auth.docker.io"],
+			"docker group should contain Docker registry domains")
+	}
+}
+
+// T026: Per-agent domain group exclusion when agent is NOT in manifest.
+func TestAssemblePolicy_PerAgentDomainGroupExclusion(t *testing.T) {
+	manifest := &Manifest{
+		Version: 3,
+		Agents:  []string{"claude"},
+		Network: &NetworkConfig{
+			AllowedDomainsPerAgent: map[string][]string{
+				"opencode": {"docker"},
+			},
+		},
+	}
+
+	policy, err := AssemblePolicy(manifest, nil, "", nil, "")
+	require.NoError(t, err)
+
+	// The "docker" group scoped to "opencode" should NOT appear because
+	// opencode is not in the manifest agents list.
+	_, hasDocker := policy.NetworkPolicies["agent_docker"]
+	assert.False(t, hasDocker,
+		"per-agent domain group 'docker' scoped to opencode should NOT appear when only claude is in manifest")
 }
 
 func TestAssemblePolicy_RecordingStyleDomains(t *testing.T) {

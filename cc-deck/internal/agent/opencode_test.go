@@ -206,6 +206,17 @@ func TestOpenCodeAgentCredentialSpecs(t *testing.T) {
 	}
 }
 
+func TestOpenCodeAgentRequiredDomainGroups(t *testing.T) {
+	a := &OpenCodeAgent{}
+	groups := a.RequiredDomainGroups()
+	if len(groups) != 1 {
+		t.Fatalf("RequiredDomainGroups() returned %d groups, want 1", len(groups))
+	}
+	if groups[0] != "openai" {
+		t.Errorf("RequiredDomainGroups()[0] = %q, want %q", groups[0], "openai")
+	}
+}
+
 func TestOpenCodeAgentInstallHooksIdempotent(t *testing.T) {
 	cleanup := setupOpenCodeTestDir(t)
 	defer cleanup()

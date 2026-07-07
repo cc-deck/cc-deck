@@ -21,6 +21,7 @@ type CredentialEntry struct {
 // Manifest represents the build.yaml file.
 type Manifest struct {
 	Version     int               `yaml:"version"`
+	Agents      []string          `yaml:"agents,omitempty"`
 	Tools       []ToolEntry       `yaml:"tools,omitempty"`
 	ProbeTools  []ProbeToolEntry  `yaml:"probe_tools,omitempty"`
 	Sources     []SourceEntry     `yaml:"sources,omitempty"`
@@ -83,7 +84,8 @@ type SSHTarget struct {
 
 // NetworkConfig describes network filtering for containerized sessions.
 type NetworkConfig struct {
-	AllowedDomains []string `yaml:"allowed_domains,omitempty"`
+	AllowedDomains         []string            `yaml:"allowed_domains,omitempty"`
+	AllowedDomainsPerAgent map[string][]string `yaml:"allowed_domains_per_agent,omitempty"`
 }
 
 // SourceEntry tracks a repository analyzed for tool discovery.
@@ -244,7 +246,21 @@ func (m *Manifest) Validate() error {
 			}
 		}
 	}
+	for i, a := range m.Agents {
+		if a == "" {
+			return fmt.Errorf("agents[%d]: empty agent name", i)
+		}
+	}
 	return nil
+}
+
+// EffectiveAgents returns the manifest's agent list, defaulting to ["claude"]
+// for backward compatibility with manifests that predate the agents field.
+func (m *Manifest) EffectiveAgents() []string {
+	if len(m.Agents) > 0 {
+		return m.Agents
+	}
+	return []string{"claude"}
 }
 
 // ImageRef returns the full container image reference (name:tag).

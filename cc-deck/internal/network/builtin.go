@@ -88,6 +88,15 @@ var builtinGroups = map[string]DomainGroup{
 			"registry.gitlab.com",
 		},
 	},
+	"openai": {
+		Name:   "openai",
+		Source: SourceBuiltin,
+		Domains: []string{
+			"api.openai.com",
+			".openai.com",
+			".oaiusercontent.com",
+		},
+	},
 	"docker": {
 		Name:   "docker",
 		Source: SourceBuiltin,

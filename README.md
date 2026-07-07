@@ -163,6 +163,16 @@ cc-deck supports multiple AI coding agents through a pluggable Agent interface. 
 
 When sessions from different agents are active, the sidebar shows agent indicators (`[CC]`, `[OC]`) before each session name. With a single agent type, indicators are hidden.
 
+For containerized builds, declare which agents to include in `build.yaml`:
+
+```yaml
+agents:
+  - claude
+  - opencode
+```
+
+The build system generates network policies with domain allowlists for each declared agent. When no `agents` field is present, the build defaults to Claude Code for backward compatibility.
+
 Use `cc-deck hook --raw` to send pre-normalized JSON payloads from custom integrations.
 
 ### Credential transport
@@ -411,7 +421,7 @@ Built-in groups cover common ecosystems. Run `cc-deck config domains list` to se
 | `docker` | registry-1.docker.io, auth.docker.io |
 | `quay` | quay.io, cdn.quay.io |
 
-Backend domains (Anthropic or Vertex AI) are included automatically.
+Agent-specific API domains (Anthropic for Claude, OpenAI for OpenCode) are included automatically based on which agents are in the manifest. Each agent declares its required domain groups through the Agent interface, and the build system resolves them to domain endpoints.
 
 ### Customizing domain groups
 
@@ -434,6 +444,22 @@ company:
     - artifacts.internal.corp
     - git.internal.corp
 ```
+
+### Per-agent domain groups
+
+Associate additional domain groups with a specific agent. These are merged with the agent's built-in domain declarations during policy assembly.
+
+```yaml
+network:
+  allowed_domains_per_agent:
+    claude:
+      - docker
+      - company
+    opencode:
+      - quay
+```
+
+Groups scoped to an agent that is not in the manifest's `agents` list are excluded from the policy.
 
 ### Create-time domain overrides
 
@@ -462,7 +488,7 @@ For OpenShell targets, `build refresh` assembles `openshell/policy.yaml` from de
 2. **Cached catalog** (`.cc-deck/setup/openshell/components/`): fetched by `capture`
 3. **User-local** (`.cc-deck/setup/openshell/policies/`): project-specific custom endpoints
 
-The assembly is deterministic: the same manifest with the same components always produces identical output. Components declare match conditions (`always`, `tools`, `credentials`) and are included only when their conditions match the manifest.
+The assembly is deterministic: the same manifest with the same components always produces identical output. Components declare match conditions (`always`, `tools`, `credentials`, `agents`) and are included only when their conditions match the manifest. Agent-specific components (like `claude-code.yaml` and `opencode.yaml`) match only when their agent is in the manifest's `agents` list.
 
 Binary paths for network policy entries are discovered automatically using a two-pass build process. The first pass builds the image without binary restrictions. A probe step then runs `which` and `find` inside the built image to discover actual binary locations. The second pass rebuilds with the corrected policy containing probed paths and runtime glob patterns. This approach works regardless of install method, base image, or tool version. Components with explicit `binaries` fields are preserved as-is, providing an override mechanism for custom installations.
 
