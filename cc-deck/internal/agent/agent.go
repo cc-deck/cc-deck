@@ -37,6 +37,13 @@ type Agent interface {
 
 	// CredentialSpecs returns the auth modes this agent supports.
 	CredentialSpecs() []CredentialSpec
+
+	// RequiredDomainGroups returns the builtin domain group names
+	// this agent needs for its API communication.
+	// Returns group name references only (not raw domain lists).
+	// Groups are resolved from builtinGroups or user-defined groups.
+	// Empty return means the agent has no domain requirements.
+	RequiredDomainGroups() []string
 }
 
 // NormalizedPayload is the common format sent to the Zellij plugin via pipe message.

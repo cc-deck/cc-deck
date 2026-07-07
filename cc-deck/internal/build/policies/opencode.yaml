@@ -1,0 +1,15 @@
+key: opencode
+name: OpenCode
+match:
+  agents:
+    - opencode
+endpoints:
+  - host: api.openai.com
+    port: 443
+    protocol: rest
+    access: full
+  - host: openrouter.ai
+    port: 443
+binaries:
+  - path: /usr/local/bin/opencode
+  - path: /sandbox/.local/bin/opencode

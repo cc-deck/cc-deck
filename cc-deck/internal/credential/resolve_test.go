@@ -271,6 +271,7 @@ func (s *stubAgent) UninstallHooks() error                              { return
 func (s *stubAgent) HooksInstalled() bool                               { return false }
 func (s *stubAgent) TranslateEvent(_ []byte) (*agent.NormalizedPayload, error) { return nil, nil }
 func (s *stubAgent) CredentialSpecs() []agent.CredentialSpec             { return s.specs }
+func (s *stubAgent) RequiredDomainGroups() []string                      { return nil }
 
 func registerStubAgent(t *testing.T, name string, specs []agent.CredentialSpec) {
 	t.Helper()
