@@ -28,6 +28,7 @@ func (v *VAD) Process(frames <-chan []int16) <-chan Utterance {
 	silenceSamples := int(v.config.SilenceDuration * float64(v.sampleRate))
 	hangoverSamples := int(v.config.HangoverDuration * float64(v.sampleRate))
 	maxSamples := int(v.config.MaxUtteranceDuration * float64(v.sampleRate))
+	minSpeechSamples := int(v.config.MinSpeechDuration * float64(v.sampleRate))
 
 	go func() {
 		defer close(out)
@@ -37,6 +38,7 @@ func (v *VAD) Process(frames <-chan []int16) <-chan Utterance {
 			utterance     []int16
 			speaking      bool
 			silenceSmpCnt int
+			speechSmpCnt  int
 		)
 
 		for frame := range frames {
@@ -52,6 +54,7 @@ func (v *VAD) Process(frames <-chan []int16) <-chan Utterance {
 				if !frameSilent {
 					speaking = true
 					silenceSmpCnt = 0
+					speechSmpCnt = len(frame)
 					utterance = make([]int16, 0, v.sampleRate*2)
 					utterance = append(utterance, ringBuf...)
 					utterance = append(utterance, frame...)
@@ -64,6 +67,7 @@ func (v *VAD) Process(frames <-chan []int16) <-chan Utterance {
 					silenceSmpCnt += len(frame)
 				} else {
 					silenceSmpCnt = 0
+					speechSmpCnt += len(frame)
 				}
 
 				if silenceSmpCnt >= silenceSamples || len(utterance) >= maxSamples {
@@ -79,19 +83,22 @@ func (v *VAD) Process(frames <-chan []int16) <-chan Utterance {
 						}
 					}
 
-					out <- Utterance{
-						Audio:      utterance,
-						SampleRate: v.sampleRate,
+					if speechSmpCnt >= minSpeechSamples {
+						out <- Utterance{
+							Audio:      utterance,
+							SampleRate: v.sampleRate,
+						}
 					}
 
 					utterance = nil
 					speaking = false
 					silenceSmpCnt = 0
+					speechSmpCnt = 0
 				}
 			}
 		}
 
-		if speaking && len(utterance) > 0 {
+		if speaking && len(utterance) > 0 && speechSmpCnt >= minSpeechSamples {
 			out <- Utterance{
 				Audio:      utterance,
 				SampleRate: v.sampleRate,

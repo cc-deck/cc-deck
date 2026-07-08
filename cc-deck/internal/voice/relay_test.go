@@ -120,6 +120,7 @@ func TestVoiceRelay_TextFlowsToSender(t *testing.T) {
 	config.VADConfig.Threshold = 0.01
 	config.VADConfig.SilenceDuration = 0.1
 	config.VADConfig.PreRollDuration = 0
+	config.VADConfig.MinSpeechDuration = 0
 
 	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
 	if err := relay.Start(context.Background()); err != nil {
@@ -173,6 +174,7 @@ func TestVoiceRelay_CommandWordSendsEnter(t *testing.T) {
 	config.VADConfig.Threshold = 0.01
 	config.VADConfig.SilenceDuration = 0.1
 	config.VADConfig.PreRollDuration = 0
+	config.VADConfig.MinSpeechDuration = 0
 
 	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
 	if err := relay.Start(context.Background()); err != nil {
@@ -203,6 +205,7 @@ func TestVoiceRelay_NonCommandRelaysFullText(t *testing.T) {
 	config.VADConfig.Threshold = 0.01
 	config.VADConfig.SilenceDuration = 0.1
 	config.VADConfig.PreRollDuration = 0
+	config.VADConfig.MinSpeechDuration = 0
 
 	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
 	if err := relay.Start(context.Background()); err != nil {
@@ -236,6 +239,7 @@ func TestVoiceRelay_WhisperArtifactDiscarded(t *testing.T) {
 	config.VADConfig.Threshold = 0.01
 	config.VADConfig.SilenceDuration = 0.1
 	config.VADConfig.PreRollDuration = 0
+	config.VADConfig.MinSpeechDuration = 0
 
 	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
 	if err := relay.Start(context.Background()); err != nil {
@@ -260,6 +264,7 @@ func TestVoiceRelay_EmptyTranscriptionDiscarded(t *testing.T) {
 	config.VADConfig.Threshold = 0.01
 	config.VADConfig.SilenceDuration = 0.1
 	config.VADConfig.PreRollDuration = 0
+	config.VADConfig.MinSpeechDuration = 0
 
 	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
 	if err := relay.Start(context.Background()); err != nil {
@@ -284,6 +289,7 @@ func TestVoiceRelay_TranscriptionErrorProducesEvent(t *testing.T) {
 	config.VADConfig.Threshold = 0.01
 	config.VADConfig.SilenceDuration = 0.1
 	config.VADConfig.PreRollDuration = 0
+	config.VADConfig.MinSpeechDuration = 0
 
 	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
 	if err := relay.Start(context.Background()); err != nil {
@@ -318,6 +324,7 @@ func TestVoiceRelay_DeliveryErrorProducesEvent(t *testing.T) {
 	config.VADConfig.Threshold = 0.01
 	config.VADConfig.SilenceDuration = 0.1
 	config.VADConfig.PreRollDuration = 0
+	config.VADConfig.MinSpeechDuration = 0
 
 	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
 	if err := relay.Start(context.Background()); err != nil {
@@ -526,6 +533,7 @@ func TestVoiceRelay_AttendCommandSendsAttend(t *testing.T) {
 	config.VADConfig.Threshold = 0.01
 	config.VADConfig.SilenceDuration = 0.1
 	config.VADConfig.PreRollDuration = 0
+	config.VADConfig.MinSpeechDuration = 0
 
 	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
 	if err := relay.Start(context.Background()); err != nil {
@@ -735,6 +743,7 @@ func TestVoiceRelay_TranscribesWhileMutedAndRecording(t *testing.T) {
 	config.VADConfig.Threshold = 0.01
 	config.VADConfig.SilenceDuration = 0.1
 	config.VADConfig.PreRollDuration = 0
+	config.VADConfig.MinSpeechDuration = 0
 
 	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
 
@@ -786,6 +795,7 @@ func TestVoiceRelay_DiscardsWhileMutedNotRecording(t *testing.T) {
 	config.VADConfig.Threshold = 0.01
 	config.VADConfig.SilenceDuration = 0.1
 	config.VADConfig.PreRollDuration = 0
+	config.VADConfig.MinSpeechDuration = 0
 
 	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
 
@@ -950,6 +960,7 @@ func TestVoiceRelay_BracketAnnotationStripped(t *testing.T) {
 	config.VADConfig.Threshold = 0.01
 	config.VADConfig.SilenceDuration = 0.1
 	config.VADConfig.PreRollDuration = 0
+	config.VADConfig.MinSpeechDuration = 0
 
 	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
 	if err := relay.Start(context.Background()); err != nil {
