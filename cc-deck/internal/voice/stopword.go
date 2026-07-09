@@ -32,11 +32,13 @@ var fillerWords = map[string]bool{
 	"er":  true,
 }
 
-// DefaultCommands maps action names to their default trigger words.
+// DefaultCommands maps action names to their default trigger phrases.
+// Two-word phrases improve Whisper recognition accuracy and stay
+// comfortably above the MinSpeechDuration threshold.
 var DefaultCommands = map[string][]string{
-	"submit":        {"send"},
-	"attend":        {"next"},
-	"submit_attend": {"ship"},
+	"submit":        {"send it"},
+	"attend":        {"go next"},
+	"submit_attend": {"ship it"},
 }
 
 // BuildCommandMap flattens an action-to-words map into a word-to-action

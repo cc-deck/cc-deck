@@ -167,7 +167,7 @@ func TestVoiceRelay_TextFlowsToSender(t *testing.T) {
 
 func TestVoiceRelay_CommandWordSendsEnter(t *testing.T) {
 	audio := newMockAudioSource(makeSpeech(500, 5000), makeSilence(500))
-	transcriber := &mockTranscriber{results: []string{"send"}}
+	transcriber := &mockTranscriber{results: []string{"send it"}}
 	pipe := &mockPipeSender{}
 
 	config := DefaultRelayConfig()
@@ -526,7 +526,7 @@ func TestVoiceRelay_ContextCancelGracefulShutdown(t *testing.T) {
 
 func TestVoiceRelay_AttendCommandSendsAttend(t *testing.T) {
 	audio := newMockAudioSource(makeSpeech(500, 5000), makeSilence(500))
-	transcriber := &mockTranscriber{results: []string{"next"}}
+	transcriber := &mockTranscriber{results: []string{"go next"}}
 	pipe := &mockPipeSender{}
 
 	config := DefaultRelayConfig()
@@ -551,7 +551,7 @@ func TestVoiceRelay_AttendCommandSendsAttend(t *testing.T) {
 		}
 	}
 	if !hasAttend {
-		t.Error("expected [[attend]] in sends for 'next' command word")
+		t.Error("expected [[attend]] in sends for 'go next' command phrase")
 	}
 }
 
