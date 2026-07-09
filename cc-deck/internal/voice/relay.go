@@ -606,7 +606,18 @@ func (r *VoiceRelay) handleUtterance(ctx context.Context, u Utterance) {
 var termEscapeRe = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
 var bracketAnnotationRe = regexp.MustCompile(`\[[^\[\]]*\]`)
 
+// speakerLabelRe matches Whisper's subtitle-style speaker labels:
+// "-Name." "-Name," "-Name:" "- Name." "- Name," "- Name:"
+// where Name is a single capitalized word (hallucinated speaker name).
+var speakerLabelRe = regexp.MustCompile(`^-\s?[A-Z][a-z]+[.,:]?\s*`)
+
 func stripLeadingDash(text string) string {
+	if m := speakerLabelRe.FindString(text); m != "" {
+		rest := strings.TrimSpace(text[len(m):])
+		if rest != "" {
+			return rest
+		}
+	}
 	if strings.HasPrefix(text, "- ") {
 		return text[2:]
 	}
