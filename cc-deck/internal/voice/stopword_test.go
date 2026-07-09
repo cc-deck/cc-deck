@@ -61,21 +61,23 @@ func TestProcessStopwords_Defaults(t *testing.T) {
 		isCommand bool
 		action    string
 	}{
-		{"send standalone", "send", true, "submit"},
-		{"send uppercase", "Send", true, "submit"},
-		{"send after filler", "um, send", true, "submit"},
-		{"send after multiple fillers", "uh um send", true, "submit"},
+		{"send it standalone", "send it", true, "submit"},
+		{"send it uppercase", "Send it", true, "submit"},
+		{"send it after filler", "um, send it", true, "submit"},
+		{"send it after multiple fillers", "uh um send it", true, "submit"},
+		{"send it with punctuation", "Send it!", true, "submit"},
+		{"send alone is not command", "send", false, ""},
 		{"send in sentence", "please send the email", false, ""},
-		{"send with suffix", "send it", false, ""},
 		{"submit is not default", "submit", false, ""},
 		{"enter is not default", "enter", false, ""},
 		{"empty string", "", false, ""},
 		{"whitespace only", "   ", false, ""},
 		{"filler only", "um uh hmm", false, ""},
 		{"regular text", "add error handling to the API", false, ""},
-		{"ship standalone", "ship", true, "submit_attend"},
-		{"ship uppercase", "Ship", true, "submit_attend"},
-		{"ship after filler", "um, ship", true, "submit_attend"},
+		{"ship it standalone", "ship it", true, "submit_attend"},
+		{"ship it uppercase", "Ship it", true, "submit_attend"},
+		{"ship it after filler", "um, ship it", true, "submit_attend"},
+		{"ship alone is not command", "ship", false, ""},
 	}
 
 	for _, tt := range tests {
@@ -131,13 +133,13 @@ func TestProcessStopwords_DefaultAttend(t *testing.T) {
 		isCommand bool
 		action    string
 	}{
-		{"next standalone", "next", true, "attend"},
-		{"next uppercase", "Next", true, "attend"},
-		{"next after filler", "um, next", true, "attend"},
-		{"next after multiple fillers", "uh um next", true, "attend"},
+		{"go next standalone", "go next", true, "attend"},
+		{"go next uppercase", "Go next", true, "attend"},
+		{"go next after filler", "um, go next", true, "attend"},
+		{"go next after multiple fillers", "uh um go next", true, "attend"},
+		{"next alone is not command", "next", false, ""},
 		{"next in sentence", "the next step is to refactor", false, ""},
-		{"next with suffix", "next one", false, ""},
-		{"send still works", "send", true, "submit"},
+		{"send it still works", "send it", true, "submit"},
 	}
 
 	for _, tt := range tests {
