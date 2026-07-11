@@ -9,6 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/cc-deck/cc-deck/internal/agent"
+	"github.com/cc-deck/cc-deck/internal/credential"
 	"github.com/rhuss/openshell-sdk-go/openshell/v1/fake"
 	v1 "github.com/rhuss/openshell-sdk-go/openshell/v1"
 	"github.com/rhuss/openshell-sdk-go/openshell/v1/types"
@@ -374,99 +376,101 @@ func TestClearLocalState(t *testing.T) {
 	assert.Error(t, findErr)
 }
 
-func TestLoadManifestCredentials_NoDefinitionStore(t *testing.T) {
-	w := &OpenShellWorkspace{name: "test-ws"}
-	result := w.loadManifestCredentials()
-	assert.Nil(t, result)
+func TestSelectCredentialMode_EmptyAvailable(t *testing.T) {
+	_, found := selectCredentialMode(nil, "")
+	assert.False(t, found)
 }
 
-func TestLoadManifestCredentials_NoProjectDir(t *testing.T) {
-	dir := t.TempDir()
-	defPath := filepath.Join(dir, "workspaces.yaml")
-	os.WriteFile(defPath, []byte(`version: 3
-workspaces:
-  - name: test-ws
-    type: openshell
-`), 0644)
-
-	defs := NewDefinitionStore(defPath)
-	w := &OpenShellWorkspace{name: "test-ws", defs: defs}
-	result := w.loadManifestCredentials()
-	assert.Nil(t, result)
+func TestSelectCredentialMode_AutoSelect(t *testing.T) {
+	available := []credential.AvailableMode{
+		{Spec: agent.CredentialSpec{Name: "api"}},
+		{Spec: agent.CredentialSpec{Name: "vertex"}},
+	}
+	spec, found := selectCredentialMode(available, "")
+	assert.True(t, found)
+	assert.Equal(t, "api", spec.Name)
 }
 
-func TestLoadManifestCredentials_WithManifest(t *testing.T) {
-	projectDir := t.TempDir()
-
-	// Create .cc-deck/setup/build.yaml
-	setupDir := filepath.Join(projectDir, ".cc-deck", "setup")
-	require.NoError(t, os.MkdirAll(setupDir, 0755))
-	manifestContent := `version: 3
-credentials:
-  - type: claude
-    env_vars: [ANTHROPIC_API_KEY]
-  - type: github
-    env_vars: [GITHUB_TOKEN]
-`
-	require.NoError(t, os.WriteFile(filepath.Join(setupDir, "build.yaml"), []byte(manifestContent), 0644))
-
-	defDir := t.TempDir()
-	defPath := filepath.Join(defDir, "workspaces.yaml")
-	os.WriteFile(defPath, []byte(`version: 3
-workspaces:
-  - name: test-ws
-    type: openshell
-    project-dir: `+projectDir+`
-`), 0644)
-
-	defs := NewDefinitionStore(defPath)
-	w := &OpenShellWorkspace{name: "test-ws", defs: defs}
-	result := w.loadManifestCredentials()
-
-	require.Len(t, result, 2)
-	assert.Equal(t, "claude", result[0].Type)
-	assert.Equal(t, []string{"ANTHROPIC_API_KEY"}, result[0].EnvVars)
-	assert.Equal(t, "github", result[1].Type)
+func TestSelectCredentialMode_AutoExplicit(t *testing.T) {
+	available := []credential.AvailableMode{
+		{Spec: agent.CredentialSpec{Name: "api"}},
+		{Spec: agent.CredentialSpec{Name: "vertex"}},
+	}
+	spec, found := selectCredentialMode(available, "auto")
+	assert.True(t, found)
+	assert.Equal(t, "api", spec.Name)
 }
 
-func TestLoadManifestCredentials_NoCredentialsSection(t *testing.T) {
-	projectDir := t.TempDir()
-
-	setupDir := filepath.Join(projectDir, ".cc-deck", "setup")
-	require.NoError(t, os.MkdirAll(setupDir, 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(setupDir, "build.yaml"), []byte("version: 3\n"), 0644))
-
-	defDir := t.TempDir()
-	defPath := filepath.Join(defDir, "workspaces.yaml")
-	os.WriteFile(defPath, []byte(`version: 3
-workspaces:
-  - name: test-ws
-    type: openshell
-    project-dir: `+projectDir+`
-`), 0644)
-
-	defs := NewDefinitionStore(defPath)
-	w := &OpenShellWorkspace{name: "test-ws", defs: defs}
-	result := w.loadManifestCredentials()
-	assert.Nil(t, result)
+func TestSelectCredentialMode_ExplicitMatch(t *testing.T) {
+	available := []credential.AvailableMode{
+		{Spec: agent.CredentialSpec{Name: "api"}},
+		{Spec: agent.CredentialSpec{Name: "vertex"}},
+	}
+	spec, found := selectCredentialMode(available, "vertex")
+	assert.True(t, found)
+	assert.Equal(t, "vertex", spec.Name)
 }
 
-func TestLoadManifestCredentials_NoManifestFile(t *testing.T) {
-	projectDir := t.TempDir()
+func TestSelectCredentialMode_ExplicitNoMatch(t *testing.T) {
+	available := []credential.AvailableMode{
+		{Spec: agent.CredentialSpec{Name: "api"}},
+	}
+	_, found := selectCredentialMode(available, "vertex")
+	assert.False(t, found)
+}
 
-	defDir := t.TempDir()
-	defPath := filepath.Join(defDir, "workspaces.yaml")
-	os.WriteFile(defPath, []byte(`version: 3
-workspaces:
-  - name: test-ws
-    type: openshell
-    project-dir: `+projectDir+`
-`), 0644)
+func TestSelectCredentialMode_NoneAuth(t *testing.T) {
+	available := []credential.AvailableMode{
+		{Spec: agent.CredentialSpec{Name: "api"}},
+	}
+	_, found := selectCredentialMode(available, "none")
+	assert.False(t, found)
+}
 
-	defs := NewDefinitionStore(defPath)
-	w := &OpenShellWorkspace{name: "test-ws", defs: defs}
-	result := w.loadManifestCredentials()
-	assert.Nil(t, result)
+func TestMapToOpenShellProvider_API(t *testing.T) {
+	spec := agent.CredentialSpec{Name: "api"}
+	resolved := credential.ResolvedCredentials{
+		EnvVars: map[string]string{"ANTHROPIC_API_KEY": "sk-test"},
+	}
+	name, pType, creds := mapToOpenShellProvider("ws1", spec, resolved)
+	assert.Equal(t, "cc-deck-ws1-api", name)
+	assert.Equal(t, "claude", pType)
+	assert.Equal(t, "sk-test", creds["ANTHROPIC_API_KEY"])
+}
+
+func TestMapToOpenShellProvider_Vertex(t *testing.T) {
+	spec := agent.CredentialSpec{Name: "vertex"}
+	resolved := credential.ResolvedCredentials{
+		EnvVars: map[string]string{
+			"ANTHROPIC_VERTEX_PROJECT_ID": "my-project",
+			"CLOUD_ML_REGION":            "us-east5",
+		},
+	}
+	name, pType, creds := mapToOpenShellProvider("ws1", spec, resolved)
+	assert.Equal(t, "cc-deck-ws1-vertex", name)
+	assert.Equal(t, "google-cloud", pType)
+	assert.Equal(t, "my-project", creds["project_id"])
+	assert.Equal(t, "us-east5", creds["region"])
+}
+
+func TestMapToOpenShellProvider_VertexDefaultRegion(t *testing.T) {
+	spec := agent.CredentialSpec{Name: "vertex"}
+	resolved := credential.ResolvedCredentials{
+		EnvVars: map[string]string{
+			"ANTHROPIC_VERTEX_PROJECT_ID": "my-project",
+		},
+	}
+	_, _, creds := mapToOpenShellProvider("ws1", spec, resolved)
+	assert.Equal(t, "global", creds["region"])
+}
+
+func TestMapToOpenShellProvider_Bedrock(t *testing.T) {
+	spec := agent.CredentialSpec{Name: "bedrock"}
+	resolved := credential.ResolvedCredentials{
+		EnvVars: map[string]string{"AWS_REGION": "us-east-1"},
+	}
+	_, pType, _ := mapToOpenShellProvider("ws1", spec, resolved)
+	assert.Empty(t, pType, "bedrock has no OpenShell provider")
 }
 
 func TestResolveSandboxConfig_NoPolicyNoImage(t *testing.T) {

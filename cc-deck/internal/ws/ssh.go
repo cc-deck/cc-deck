@@ -199,16 +199,6 @@ func (e *SSHWorkspace) Attach(ctx context.Context) error {
 		} else if writeErr := credential.InjectSSH(ctx, client, merged); writeErr != nil {
 			log.Printf("WARNING: could not write credentials to remote: %v", writeErr)
 		}
-	} else if def.Auth != "none" {
-		creds, credErr := ssh.BuildCredentialSet(def.Auth, def.Credentials, def.Env)
-		if credErr != nil {
-			return fmt.Errorf("building credentials: %w", credErr)
-		}
-		if len(creds) > 0 {
-			if writeErr := ssh.WriteCredentialFile(ctx, client, creds); writeErr != nil {
-				log.Printf("WARNING: could not write credentials to remote: %v", writeErr)
-			}
-		}
 	}
 
 	sessionName := e.sshSessionName()
