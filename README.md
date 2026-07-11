@@ -286,6 +286,7 @@ plugin location="file:~/.config/zellij/plugins/cc_deck.wasm" {
     idle_fade_secs "3600"     // idle indicator fade duration in seconds (default: 3600)
     auto_pause_secs "3600"    // auto-pause after idle for this many seconds (default: 3600, 0 to disable)
     attend_cycle_ms "2000"    // rapid-cycle window for attend/working in ms (default: 2000, 0 to disable)
+    auto_sort "true"          // auto-sort paused sessions below active ones (default: true, "false" to disable)
 }
 ```
 

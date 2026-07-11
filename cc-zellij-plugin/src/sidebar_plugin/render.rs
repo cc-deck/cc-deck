@@ -35,6 +35,12 @@ pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> Vec<Cli
     };
 
     let sessions = state.filtered_sessions();
+    let separator_after_index = if payload.separator_after_index.is_some() {
+        sessions.iter().rposition(|s| !s.paused)
+            .filter(|&idx| idx < sessions.len().saturating_sub(1))
+    } else {
+        None
+    };
     let mut click_regions = Vec::new();
 
     if sessions.is_empty() && state.mode.filter_state().is_none() {
@@ -61,7 +67,12 @@ pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> Vec<Cli
     let available = content_end.saturating_sub(content_start);
 
     let lines_per_session: usize = 3;
-    let max_visible = available.checked_div(lines_per_session).unwrap_or(0);
+    let effective_available = if separator_after_index.is_some() {
+        available.saturating_sub(1)
+    } else {
+        available
+    };
+    let max_visible = effective_available.checked_div(lines_per_session).unwrap_or(0);
 
     let total = sessions.len();
     // Use the same pane-id source for scrolling as for highlighting:
@@ -144,6 +155,15 @@ pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> Vec<Cli
             }
         }
         row += lines_per_session;
+
+        // Draw separator after the last active session (before paused zone)
+        if let Some(sep_idx) = separator_after_index {
+            if abs_idx == sep_idx && row < content_end {
+                let line = "\u{2500}".repeat(cols.saturating_sub(2));
+                print!("\x1b[{};1H\x1b[2m {line} \x1b[0m", row + 1);
+                row += 1;
+            }
+        }
     }
 
     // Overflow indicator (below)
