@@ -31,3 +31,12 @@ Ideas captured from code reviews for future brainstorming.
 > - **Copilot**: `openshell.go:335` "No longer a default create timeout."
 >
 > Fix: wrap the WaitReady call in a `context.WithTimeout(ctx, 60*time.Second)` to preserve the old behavior.
+
+### multi-file-credential-support
+
+- **Source**: deep-review
+- **Date**: 2026-07-08
+- **Reference**: 079-credential-transport
+- **Summary**: `MergeCredentials` collects multiple file credentials but `InjectSSH` only processes the first one. Current agents use at most one file credential, but multi-agent scenarios could surface this limitation.
+
+> Pre-existing design in the credential package. `FileCredentials` (plural) is collected during merge, but transport functions consume `FileCredential` (singular, `files[0]`). If a future agent declares multiple file credentials, only the first would be transported.

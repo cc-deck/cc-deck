@@ -3,7 +3,6 @@ package openshell
 import (
 	"context"
 	"fmt"
-	"os"
 	"testing"
 
 	v1 "github.com/rhuss/openshell-sdk-go/openshell/v1"
@@ -14,10 +13,12 @@ import (
 // mockExecClient implements v1.ExecInterface for testing.
 type mockExecClient struct {
 	runCount int
+	lastCmd  []string
 }
 
-func (m *mockExecClient) Run(_ context.Context, _ string, _ []string, _ ...v1.ExecOptions) (*v1.ExecResult, error) {
+func (m *mockExecClient) Run(_ context.Context, _ string, cmd []string, _ ...v1.ExecOptions) (*v1.ExecResult, error) {
 	m.runCount++
+	m.lastCmd = cmd
 	return &v1.ExecResult{}, nil
 }
 func (m *mockExecClient) Stream(_ context.Context, _ string, _ []string, _ ...v1.ExecOptions) (v1.ExecStream, error) {
@@ -57,13 +58,6 @@ func newMockSDKClient() *mockSDKClient {
 	}
 }
 
-func newMockSDKClientWithUploadErr(err error) *mockSDKClient {
-	return &mockSDKClient{
-		exec:  &mockExecClient{},
-		files: &mockFileClient{uploadErr: err},
-	}
-}
-
 func (m *mockSDKClient) Sandboxes() v1.SandboxInterface { return nil }
 func (m *mockSDKClient) Providers() v1.ProviderInterface { return nil }
 func (m *mockSDKClient) Services() v1.ServiceInterface   { return nil }
@@ -76,332 +70,34 @@ func (m *mockSDKClient) Config() v1.ConfigInterface       { return nil }
 func (m *mockSDKClient) Policy() v1.PolicyInterface       { return nil }
 func (m *mockSDKClient) Close() error                     { return nil }
 
-func TestKnownProviderProfiles_AllTypesExist(t *testing.T) {
-	expectedTypes := []string{"claude", "anthropic", "github", "gitlab", "openai", "nvidia", "generic"}
-	for _, typ := range expectedTypes {
-		_, ok := KnownProviderProfiles[typ]
-		assert.True(t, ok, "expected profile for type %q", typ)
-	}
-	// vertex profile was removed; google-cloud is accessed via claude-vertex variant
-	_, ok := KnownProviderProfiles["vertex"]
-	assert.False(t, ok, "standalone vertex profile should be removed")
-}
+func TestOpenShellClientAdapter_ExecRun(t *testing.T) {
+	sdk := newMockSDKClient()
+	adapter := &OpenShellClientAdapter{Client: sdk}
 
-func TestKnownProviderProfiles_ClaudeVertexUsesGoogleCloud(t *testing.T) {
-	profile := KnownProviderProfiles["claude-vertex"]
-	assert.Equal(t, "google-cloud", profile.Type)
-	assert.Empty(t, profile.FileVar)
-	assert.Empty(t, profile.Endpoints)
-	assert.Contains(t, profile.DetectVars, "CLAUDE_CODE_USE_VERTEX")
-	assert.Contains(t, profile.DetectVars, "ANTHROPIC_VERTEX_PROJECT_ID")
-}
-
-func TestKnownProviderProfiles_GenericHasNoVars(t *testing.T) {
-	profile := KnownProviderProfiles["generic"]
-	assert.Empty(t, profile.DetectVars)
-	assert.Empty(t, profile.RequiredVars)
-	assert.Empty(t, profile.FileVar)
-}
-
-func TestResolveDefaultEnvVars_KnownTypes(t *testing.T) {
-	tests := []struct {
-		credType string
-		expected []string
-	}{
-		{"claude", []string{"ANTHROPIC_API_KEY"}},
-		{"anthropic", []string{"ANTHROPIC_API_KEY"}},
-		{"github", []string{"GITHUB_TOKEN", "GH_TOKEN"}},
-		{"gitlab", []string{"GITLAB_TOKEN", "GLAB_TOKEN"}},
-		{"openai", []string{"OPENAI_API_KEY"}},
-		{"nvidia", []string{"NVIDIA_API_KEY"}},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.credType, func(t *testing.T) {
-			result := ResolveDefaultEnvVars(tt.credType)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
-func TestResolveDefaultEnvVars_Generic(t *testing.T) {
-	result := ResolveDefaultEnvVars("generic")
-	assert.Nil(t, result)
-}
-
-func TestResolveDefaultEnvVars_Unknown(t *testing.T) {
-	result := ResolveDefaultEnvVars("unknown-provider")
-	assert.Nil(t, result)
-}
-
-func TestResolveCredentials_APIKeyPresent(t *testing.T) {
-	t.Setenv("ANTHROPIC_API_KEY", "sk-test-key")
-
-	entries := []CredentialInput{
-		{Type: "claude"},
-	}
-
-	configs := ResolveCredentials(entries, "test-ws")
-	require.Len(t, configs, 1)
-	assert.Equal(t, "cc-deck-test-ws-claude", configs[0].Name)
-	assert.Equal(t, "claude", configs[0].Type)
-	assert.True(t, configs[0].FromExisting)
-	assert.Nil(t, configs[0].Credentials)
-}
-
-func TestResolveCredentials_APIKeyMissing(t *testing.T) {
-	t.Setenv("ANTHROPIC_API_KEY", "")
-
-	entries := []CredentialInput{
-		{Type: "claude"},
-	}
-
-	configs := ResolveCredentials(entries, "test-ws")
-	assert.Empty(t, configs)
-}
-
-func TestResolveCredentials_MultipleTypes(t *testing.T) {
-	t.Setenv("ANTHROPIC_API_KEY", "sk-test")
-	t.Setenv("GITHUB_TOKEN", "ghp-test")
-
-	entries := []CredentialInput{
-		{Type: "claude"},
-		{Type: "github"},
-	}
-
-	configs := ResolveCredentials(entries, "myws")
-	require.Len(t, configs, 2)
-	assert.Equal(t, "cc-deck-myws-claude", configs[0].Name)
-	assert.Equal(t, "cc-deck-myws-github", configs[1].Name)
-}
-
-func TestResolveCredentials_GenericType(t *testing.T) {
-	t.Setenv("CUSTOM_API_KEY", "custom-value")
-
-	entries := []CredentialInput{
-		{Type: "generic", EnvVars: []string{"CUSTOM_API_KEY"}},
-	}
-
-	configs := ResolveCredentials(entries, "ws")
-	require.Len(t, configs, 1)
-	assert.Equal(t, "cc-deck-ws-generic", configs[0].Name)
-	assert.Equal(t, "generic", configs[0].Type)
-	assert.False(t, configs[0].FromExisting)
-	assert.Equal(t, "custom-value", configs[0].Credentials["CUSTOM_API_KEY"])
-}
-
-func TestResolveCredentials_UnknownTypeFallsBackToGeneric(t *testing.T) {
-	t.Setenv("MY_CUSTOM_KEY", "value123")
-
-	entries := []CredentialInput{
-		{Type: "custom-service", EnvVars: []string{"MY_CUSTOM_KEY"}},
-	}
-
-	configs := ResolveCredentials(entries, "ws")
-	require.Len(t, configs, 1)
-	assert.Equal(t, "custom-service", configs[0].Type)
-	assert.False(t, configs[0].FromExisting)
-	assert.Equal(t, "value123", configs[0].Credentials["MY_CUSTOM_KEY"])
-}
-
-func TestResolveCredentials_ClaudeVertexUsesGoogleCloudProvider(t *testing.T) {
-	t.Setenv("CLAUDE_CODE_USE_VERTEX", "1")
-	t.Setenv("ANTHROPIC_VERTEX_PROJECT_ID", "my-project")
-	t.Setenv("CLOUD_ML_REGION", "us-east5")
-
-	entries := []CredentialInput{
-		{Type: "claude-vertex"},
-	}
-
-	configs := ResolveCredentials(entries, "ws")
-	require.Len(t, configs, 1)
-	assert.Equal(t, "google-cloud", configs[0].Type)
-	assert.True(t, configs[0].FromExisting)
-	assert.Equal(t, "my-project", configs[0].Credentials["project_id"])
-	assert.Equal(t, "us-east5", configs[0].Credentials["region"])
-	assert.Empty(t, configs[0].FileVar)
-	assert.Empty(t, configs[0].FilePath)
-	assert.Equal(t, "1", configs[0].EnvVarsToInject["CLAUDE_CODE_USE_VERTEX"])
-	assert.Equal(t, "my-project", configs[0].EnvVarsToInject["ANTHROPIC_VERTEX_PROJECT_ID"])
-	assert.Equal(t, "us-east5", configs[0].EnvVarsToInject["CLOUD_ML_REGION"])
-}
-
-func TestResolveCredentials_ClaudeVertexDefaultsRegionToGlobal(t *testing.T) {
-	t.Setenv("CLAUDE_CODE_USE_VERTEX", "1")
-	t.Setenv("ANTHROPIC_VERTEX_PROJECT_ID", "my-project")
-	t.Setenv("CLOUD_ML_REGION", "")
-
-	entries := []CredentialInput{
-		{Type: "claude-vertex"},
-	}
-
-	configs := ResolveCredentials(entries, "ws")
-	require.Len(t, configs, 1)
-	assert.Equal(t, "global", configs[0].Credentials["region"])
-}
-
-func TestResolveCredentials_ExplicitEnvVarsOverrideDefaults(t *testing.T) {
-	t.Setenv("MY_CLAUDE_KEY", "custom-key")
-
-	entries := []CredentialInput{
-		{Type: "claude", EnvVars: []string{"MY_CLAUDE_KEY"}},
-	}
-
-	// MY_CLAUDE_KEY is not in the RequiredVars for claude, so it won't
-	// pass the required check. But ANTHROPIC_API_KEY is checked.
-	// Actually: the required check uses profile.RequiredVars, not the entry's EnvVars.
-	// So with ANTHROPIC_API_KEY unset, it should be skipped.
-	t.Setenv("ANTHROPIC_API_KEY", "")
-	configs := ResolveCredentials(entries, "ws")
-	assert.Empty(t, configs)
-
-	// With ANTHROPIC_API_KEY set, it should pass.
-	t.Setenv("ANTHROPIC_API_KEY", "real-key")
-	configs = ResolveCredentials(entries, "ws")
-	require.Len(t, configs, 1)
-	assert.True(t, configs[0].FromExisting)
-}
-
-func TestResolveCredentials_GithubEitherTokenWorks(t *testing.T) {
-	// Only GH_TOKEN set, GITHUB_TOKEN not set.
-	t.Setenv("GITHUB_TOKEN", "")
-	t.Setenv("GH_TOKEN", "gh-token-value")
-
-	entries := []CredentialInput{
-		{Type: "github"},
-	}
-
-	configs := ResolveCredentials(entries, "ws")
-	require.Len(t, configs, 1)
-	assert.Equal(t, "github", configs[0].Type)
-}
-
-func TestDetectCredentials_FindsSetVars(t *testing.T) {
-	t.Setenv("ANTHROPIC_API_KEY", "sk-test")
-	t.Setenv("GITHUB_TOKEN", "ghp-test")
-	t.Setenv("OPENAI_API_KEY", "")
-	t.Setenv("NVIDIA_API_KEY", "")
-	t.Setenv("GITLAB_TOKEN", "")
-	t.Setenv("GLAB_TOKEN", "")
-	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", "")
-	t.Setenv("ANTHROPIC_VERTEX_PROJECT_ID", "")
-
-	detected := DetectCredentials()
-	require.Len(t, detected, 2)
-	assert.Equal(t, "claude", detected[0].Type)
-	assert.Equal(t, "github", detected[1].Type)
-}
-
-func TestDetectCredentials_NoneSet(t *testing.T) {
-	t.Setenv("ANTHROPIC_API_KEY", "")
-	t.Setenv("GITHUB_TOKEN", "")
-	t.Setenv("GH_TOKEN", "")
-	t.Setenv("OPENAI_API_KEY", "")
-	t.Setenv("NVIDIA_API_KEY", "")
-	t.Setenv("GITLAB_TOKEN", "")
-	t.Setenv("GLAB_TOKEN", "")
-	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", "")
-	t.Setenv("ANTHROPIC_VERTEX_PROJECT_ID", "")
-
-	detected := DetectCredentials()
-	assert.Empty(t, detected)
-}
-
-func TestDetectCredentials_DeduplicatesGithubTokens(t *testing.T) {
-	t.Setenv("ANTHROPIC_API_KEY", "")
-	t.Setenv("GITHUB_TOKEN", "ghp-1")
-	t.Setenv("GH_TOKEN", "gh-2")
-	t.Setenv("OPENAI_API_KEY", "")
-	t.Setenv("NVIDIA_API_KEY", "")
-	t.Setenv("GITLAB_TOKEN", "")
-	t.Setenv("GLAB_TOKEN", "")
-	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", "")
-	t.Setenv("ANTHROPIC_VERTEX_PROJECT_ID", "")
-
-	detected := DetectCredentials()
-	// Should only detect github once, not twice.
-	githubCount := 0
-	for _, d := range detected {
-		if d.Type == "github" {
-			githubCount++
-		}
-	}
-	assert.Equal(t, 1, githubCount)
-}
-
-func TestUploadFileCredential_FileNotFound(t *testing.T) {
-	ctx := context.Background()
-	client := newMockSDKClient()
-
-	err := UploadFileCredential(ctx, client, "sb-123", "/nonexistent/path/sa.json", "/sandbox/.config/gcloud/credentials.json", "GOOGLE_APPLICATION_CREDENTIALS")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "does not exist")
-}
-
-func TestUploadFileCredential_UploadError(t *testing.T) {
-	ctx := context.Background()
-
-	// Create a temp file to upload.
-	tmpFile, err := os.CreateTemp("", "test-cred-*.json")
+	err := adapter.ExecRun(context.Background(), "sb-123", []string{"echo", "hello"})
 	require.NoError(t, err)
-	defer os.Remove(tmpFile.Name())
-	tmpFile.WriteString(`{"type": "service_account"}`)
-	tmpFile.Close()
-
-	client := newMockSDKClientWithUploadErr(fmt.Errorf("gateway unreachable"))
-
-	err = UploadFileCredential(ctx, client, "sb-123", tmpFile.Name(), "/sandbox/.config/gcloud/credentials.json", "GOOGLE_APPLICATION_CREDENTIALS")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "uploading credential file")
+	assert.Equal(t, 1, sdk.exec.runCount)
+	assert.Equal(t, []string{"echo", "hello"}, sdk.exec.lastCmd)
 }
 
-func TestUploadFileCredential_Success(t *testing.T) {
-	ctx := context.Background()
+func TestOpenShellClientAdapter_FileUpload(t *testing.T) {
+	sdk := newMockSDKClient()
+	adapter := &OpenShellClientAdapter{Client: sdk}
 
-	tmpFile, err := os.CreateTemp("", "test-cred-*.json")
+	err := adapter.FileUpload(context.Background(), "sb-123", "/local/path", "/remote/path")
 	require.NoError(t, err)
-	defer os.Remove(tmpFile.Name())
-	tmpFile.WriteString(`{"type": "service_account"}`)
-	tmpFile.Close()
-
-	client := newMockSDKClient()
-
-	err = UploadFileCredential(ctx, client, "sb-123", tmpFile.Name(), "/sandbox/.config/gcloud/credentials.json", "GOOGLE_APPLICATION_CREDENTIALS")
-	assert.NoError(t, err)
-	assert.Equal(t, tmpFile.Name(), client.files.uploadedLocal)
-	assert.Equal(t, "/sandbox/.config/gcloud/credentials.json", client.files.uploadedRemote)
-	assert.Equal(t, 2, client.exec.runCount) // .bashrc + .zshrc
+	assert.Equal(t, "/local/path", sdk.files.uploadedLocal)
+	assert.Equal(t, "/remote/path", sdk.files.uploadedRemote)
 }
 
-func TestDetectCredentials_ClaudeVertexDetection(t *testing.T) {
-	t.Setenv("ANTHROPIC_API_KEY", "")
-	t.Setenv("GITHUB_TOKEN", "")
-	t.Setenv("GH_TOKEN", "")
-	t.Setenv("OPENAI_API_KEY", "")
-	t.Setenv("NVIDIA_API_KEY", "")
-	t.Setenv("GITLAB_TOKEN", "")
-	t.Setenv("GLAB_TOKEN", "")
-	t.Setenv("CLAUDE_CODE_USE_VERTEX", "1")
-	t.Setenv("ANTHROPIC_VERTEX_PROJECT_ID", "my-project")
+func TestOpenShellClientAdapter_FileUploadError(t *testing.T) {
+	sdk := &mockSDKClient{
+		exec:  &mockExecClient{},
+		files: &mockFileClient{uploadErr: fmt.Errorf("gateway unreachable")},
+	}
+	adapter := &OpenShellClientAdapter{Client: sdk}
 
-	detected := DetectCredentials()
-	require.Len(t, detected, 1)
-	assert.Equal(t, "claude-vertex", detected[0].Type)
-	assert.Empty(t, detected[0].File)
-}
-
-func TestDetectCredentials_NoStandaloneVertexProfile(t *testing.T) {
-	t.Setenv("ANTHROPIC_API_KEY", "")
-	t.Setenv("GITHUB_TOKEN", "")
-	t.Setenv("GH_TOKEN", "")
-	t.Setenv("OPENAI_API_KEY", "")
-	t.Setenv("NVIDIA_API_KEY", "")
-	t.Setenv("GITLAB_TOKEN", "")
-	t.Setenv("GLAB_TOKEN", "")
-	t.Setenv("CLAUDE_CODE_USE_VERTEX", "")
-	t.Setenv("ANTHROPIC_VERTEX_PROJECT_ID", "")
-	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", "/path/to/sa.json")
-
-	detected := DetectCredentials()
-	assert.Empty(t, detected)
+	err := adapter.FileUpload(context.Background(), "sb-123", "/local/path", "/remote/path")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "gateway unreachable")
 }
