@@ -159,8 +159,9 @@ pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> Vec<Cli
         // Draw separator after the last active session (before paused zone)
         if let Some(sep_idx) = separator_after_index {
             if abs_idx == sep_idx && row < content_end {
-                let line = "\u{2500}".repeat(cols.saturating_sub(2));
-                print!("\x1b[{};1H\x1b[2m {line} \x1b[0m", row + 1);
+                let sep_width = cols.min(40);
+                let line = "\u{2500}".repeat(sep_width);
+                print!("\x1b[{};1H\x1b[2m{line}\x1b[0m{}", row + 1, " ".repeat(cols.saturating_sub(sep_width)));
                 row += 1;
             }
         }
