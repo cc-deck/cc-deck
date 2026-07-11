@@ -12,7 +12,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cc-deck/cc-deck/internal/agent"
 	"github.com/cc-deck/cc-deck/internal/build"
+	"github.com/cc-deck/cc-deck/internal/credential"
 	"github.com/cc-deck/cc-deck/internal/oci"
 	"github.com/cc-deck/cc-deck/internal/openshell"
 	v1 "github.com/rhuss/openshell-sdk-go/openshell/v1"
@@ -237,47 +239,76 @@ func (w *OpenShellWorkspace) clearLocalState() {
 	log.Printf("DEBUG: openshell: cleared local state for %s", w.name)
 }
 
-// loadManifestCredentials finds and loads credential entries from the project's
-// build.yaml manifest. Returns nil if no manifest or no credentials section.
-func (w *OpenShellWorkspace) loadManifestCredentials() []openshell.CredentialInput {
+// resolveAgentName returns the agent name from a workspace definition,
+// defaulting to "claude" when unset.
+func resolveAgentName(def *WorkspaceDefinition) string {
+	return "claude"
+}
+
+// resolveAuthField returns the workspace definition's Auth field, or empty
+// string if no definition is available.
+func (w *OpenShellWorkspace) resolveAuthField() string {
 	if w.defs == nil {
-		return nil
+		return ""
 	}
 	def, err := w.defs.FindByName(w.name)
-	if err != nil || def == nil || def.ProjectDir == "" {
-		return nil
+	if err != nil || def == nil {
+		return ""
+	}
+	return def.Auth
+}
+
+// selectCredentialMode picks the credential spec to use from the available
+// modes. If authField names a specific mode, that mode is selected. Otherwise
+// the first available mode (highest priority) is used.
+func selectCredentialMode(available []credential.AvailableMode, authField string) (agent.CredentialSpec, bool, error) {
+	if len(available) == 0 {
+		if authField != "" && authField != "none" && authField != "auto" {
+			return agent.CredentialSpec{}, false, fmt.Errorf("auth mode %q was requested but no matching credentials were detected", authField)
+		}
+		return agent.CredentialSpec{}, false, nil
+	}
+	if authField == "none" {
+		return agent.CredentialSpec{}, false, nil
+	}
+	if authField != "" && authField != "auto" {
+		for _, m := range available {
+			if m.Spec.Name == authField {
+				return m.Spec, true, nil
+			}
+		}
+		return agent.CredentialSpec{}, false, fmt.Errorf("auth mode %q was requested but no matching credentials were detected", authField)
+	}
+	return available[0].Spec, true, nil
+}
+
+// mapToOpenShellProvider maps a resolved credential spec to an OpenShell
+// provider name, type, and credentials map. Returns empty providerType when
+// no provider should be created (e.g., bedrock has no OpenShell provider).
+func mapToOpenShellProvider(wsName string, spec agent.CredentialSpec, resolved credential.ResolvedCredentials) (name, providerType string, creds map[string]string) {
+	name = fmt.Sprintf("cc-deck-%s-%s", wsName, spec.Name)
+
+	switch spec.Name {
+	case "api":
+		providerType = "claude"
+		creds = make(map[string]string)
+		for k, v := range resolved.EnvVars {
+			creds[k] = v
+		}
+	case "vertex":
+		providerType = "google-cloud"
+		creds = make(map[string]string)
+		if v, ok := resolved.EnvVars["ANTHROPIC_VERTEX_PROJECT_ID"]; ok {
+			creds["project_id"] = v
+		}
+		if v, ok := resolved.EnvVars["CLOUD_ML_REGION"]; ok {
+			creds["region"] = v
+		} else {
+			creds["region"] = "global"
+		}
 	}
 
-	// Walk up from ProjectDir to find .cc-deck/setup/build.yaml.
-	dir := def.ProjectDir
-	for {
-		manifestPath := filepath.Join(dir, ".cc-deck", "setup", "build.yaml")
-		if _, statErr := os.Stat(manifestPath); statErr == nil {
-			m, loadErr := build.LoadManifest(manifestPath)
-			if loadErr != nil {
-				log.Printf("WARNING: failed to load manifest %s: %v", manifestPath, loadErr)
-				return nil
-			}
-			if len(m.Credentials) == 0 {
-				return nil
-			}
-			var inputs []openshell.CredentialInput
-			for _, c := range m.Credentials {
-				inputs = append(inputs, openshell.CredentialInput{
-					Type:    c.Type,
-					EnvVars: c.EnvVars,
-					File:    c.File,
-				})
-			}
-			return inputs
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
-		}
-		dir = parent
-	}
-	return nil
+	return name, providerType, creds
 }
 
 // Create provisions a new OpenShell sandbox.
@@ -304,36 +335,42 @@ func (w *OpenShellWorkspace) Create(ctx context.Context, _ CreateOpts) error {
 		}
 	}
 
-	// Resolve credentials from manifest and create providers.
-	credInputs := w.loadManifestCredentials()
-	providerConfigs := openshell.ResolveCredentials(credInputs, w.name)
-
+	// Resolve credentials via agent-declared specs.
+	var resolved credential.ResolvedCredentials
 	var credProviders []string
-	for _, pc := range providerConfigs {
-		if pc.SkipProvider {
-			continue
+
+	agentName := "claude"
+	if w.defs != nil {
+		if def, defErr := w.defs.FindByName(w.name); defErr == nil && def != nil {
+			agentName = resolveAgentName(def)
 		}
-		creds := pc.Credentials
-		if creds == nil && pc.FromExisting {
-			creds = make(map[string]string)
-			for _, v := range openshell.ResolveDefaultEnvVars(pc.Type) {
-				if val := os.Getenv(v); val != "" {
-					creds[v] = val
+	}
+	agentObj := agent.Get(agentName)
+	if agentObj != nil {
+		specs := agentObj.CredentialSpecs()
+		available := credential.Detect(specs)
+		selectedSpec, found, selectErr := selectCredentialMode(available, w.resolveAuthField())
+		if selectErr != nil {
+			return selectErr
+		}
+		if found {
+			resolved = credential.Resolve(selectedSpec)
+			providerName, providerType, providerCreds := mapToOpenShellProvider(w.name, selectedSpec, resolved)
+			if providerType != "" {
+				provider := &v1.Provider{
+					Name: providerName,
+					Type: providerType,
+					Spec: types.ProviderSpec{
+						Credentials: providerCreds,
+					},
 				}
+				if _, err := w.client.Providers().Ensure(ctx, provider); err != nil {
+					return fmt.Errorf("creating credential provider %s: %w", providerName, err)
+				}
+				credProviders = append(credProviders, providerName)
+				log.Printf("DEBUG: openshell: created provider %s (type=%s)", providerName, providerType)
 			}
 		}
-		provider := &v1.Provider{
-			Name: pc.Name,
-			Type: pc.Type,
-			Spec: types.ProviderSpec{
-				Credentials: creds,
-			},
-		}
-		if _, err := w.client.Providers().Ensure(ctx, provider); err != nil {
-			return fmt.Errorf("creating credential provider %s: %w", pc.Name, err)
-		}
-		credProviders = append(credProviders, pc.Name)
-		log.Printf("DEBUG: openshell: created provider %s (type=%s)", pc.Name, pc.Type)
 	}
 
 	// Merge credential providers with any providers from the definition.
@@ -369,19 +406,11 @@ func (w *OpenShellWorkspace) Create(ctx context.Context, _ CreateOpts) error {
 		return fmt.Errorf("waiting for sandbox to become ready: %w", err)
 	}
 
-	// Handle post-start credential injection.
-	for _, pc := range providerConfigs {
-		if pc.FilePath != "" && pc.Type != "google-cloud" {
-			remotePath := "/sandbox/.config/gcloud/credentials.json"
-			if err := openshell.UploadFileCredential(ctx, w.client, w.sandboxID, pc.FilePath, remotePath, pc.FileVar); err != nil {
-				log.Printf("WARNING: failed to upload file credential for %s: %v", pc.Type, err)
-			}
-		}
-		if len(pc.EnvVarsToInject) > 0 {
-			if err := openshell.InjectEnvVars(ctx, w.client, w.sandboxID, pc.EnvVarsToInject); err != nil {
-				log.Printf("WARNING: failed to inject env vars for %s: %v", pc.Type, err)
-			}
-			log.Printf("DEBUG: openshell: injected %d env vars for %s", len(pc.EnvVarsToInject), pc.Type)
+	// Inject credentials into the sandbox via the shared credential package.
+	if len(resolved.EnvVars) > 0 || resolved.FileCredential != nil || len(resolved.UnsetVars) > 0 {
+		adapter := &openshell.OpenShellClientAdapter{Client: w.client}
+		if err := credential.InjectOpenShell(ctx, adapter, w.sandboxID, resolved); err != nil {
+			log.Printf("WARNING: failed to inject credentials: %v", err)
 		}
 	}
 

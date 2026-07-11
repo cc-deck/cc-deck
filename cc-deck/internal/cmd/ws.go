@@ -1818,17 +1818,16 @@ func runWsRefreshCreds(name string) error {
 
 	client := sshPkg.NewClient(inst.SSH.Host, inst.SSH.Port, inst.SSH.IdentityFile, inst.SSH.JumpHost, inst.SSH.SSHConfig)
 
-	creds, err := sshPkg.BuildCredentialSet(def.Auth, def.Credentials, def.Env)
-	if err != nil {
-		return fmt.Errorf("building credentials: %w", err)
-	}
-
-	if len(creds) == 0 {
+	modes := credential.DetectAll()
+	if len(modes) == 0 {
 		fmt.Fprintf(os.Stdout, "No credentials found to refresh for workspace %q\n", name)
 		return nil
 	}
-
-	if err := sshPkg.WriteCredentialFile(cmd_context(), client, creds); err != nil {
+	merged, mergeErr := credential.MergeCredentials(modes)
+	if mergeErr != nil {
+		return fmt.Errorf("merging credentials: %w", mergeErr)
+	}
+	if err := credential.InjectSSH(cmd_context(), client, merged); err != nil {
 		return fmt.Errorf("writing credentials: %w", err)
 	}
 
