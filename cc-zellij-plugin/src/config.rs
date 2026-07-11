@@ -42,6 +42,8 @@ pub struct PluginConfig {
     pub perf_enabled: bool,
     /// Perf stats dump interval in seconds (default: 30).
     pub perf_interval: u64,
+    /// Automatically sort paused sessions below active ones (default: true).
+    pub auto_sort: bool,
 }
 
 impl Default for PluginConfig {
@@ -60,6 +62,7 @@ impl Default for PluginConfig {
             voice_key: "Alt m".to_string(),
             perf_enabled: false,
             perf_interval: 30,
+            auto_sort: true,
         }
     }
 }
@@ -149,6 +152,10 @@ impl PluginConfig {
             }
         }
 
+        if let Some(v) = config.get("auto_sort") {
+            result.auto_sort = v != "false";
+        }
+
         result
     }
 }
@@ -174,6 +181,35 @@ mod tests {
         let config = PluginConfig::from_configuration(&map);
         assert_eq!(config.sidebar_width, 30);
         assert_eq!(config.done_timeout, 60);
+    }
+
+    #[test]
+    fn test_auto_sort_default_true() {
+        let config = PluginConfig::default();
+        assert!(config.auto_sort);
+    }
+
+    #[test]
+    fn test_auto_sort_explicit_true() {
+        let mut map = BTreeMap::new();
+        map.insert("auto_sort".into(), "true".into());
+        let config = PluginConfig::from_configuration(&map);
+        assert!(config.auto_sort);
+    }
+
+    #[test]
+    fn test_auto_sort_false() {
+        let mut map = BTreeMap::new();
+        map.insert("auto_sort".into(), "false".into());
+        let config = PluginConfig::from_configuration(&map);
+        assert!(!config.auto_sort);
+    }
+
+    #[test]
+    fn test_auto_sort_missing_defaults_true() {
+        let map = BTreeMap::new();
+        let config = PluginConfig::from_configuration(&map);
+        assert!(config.auto_sort);
     }
 
     #[test]

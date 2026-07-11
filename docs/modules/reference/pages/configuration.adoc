@@ -232,6 +232,7 @@ plugin location="file:~/.config/zellij/plugins/cc_deck.wasm" {
     navigate_key "Alt s"      // Key to toggle navigation mode
     attend_key "Alt a"        // Key for smart attend
     voice_key "Alt m"         // Key for voice mute toggle
+    auto_sort "true"          // Auto-sort paused sessions below active ones
 }
 ----
 
@@ -250,6 +251,13 @@ plugin location="file:~/.config/zellij/plugins/cc_deck.wasm" {
 | `voice_key`
 | `Alt m`
 | Global shortcut for voice mute toggle
+
+| `auto_sort`
+| `true`
+| When enabled, the sidebar groups active sessions above a visual separator and paused sessions below it.
+The sort is display-only and does not reorder physical tabs.
+Sessions that are unpaused appear at the end of the active zone.
+Set to `"false"` to disable and show sessions in tab order with no separator.
 |===
 
 Key format follows Zellij conventions: `Alt`, `Ctrl`, `Super` (Cmd on macOS) as modifiers, followed by the key name.
