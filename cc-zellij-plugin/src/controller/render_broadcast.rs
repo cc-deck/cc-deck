@@ -39,7 +39,7 @@ pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
     }
     let show_agent_indicators = agent_types.len() > 1;
 
-    let render_sessions: Vec<RenderSession> = sessions
+    let mut render_sessions: Vec<RenderSession> = sessions
         .iter()
         .map(|s| {
             match &s.activity {
@@ -81,6 +81,52 @@ pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
         })
         .collect();
 
+    // Auto-sort: stable-partition active sessions above paused ones.
+    // Recently-unpaused sessions (in auto_sort_tail) go to end of active zone.
+    let separator_after_index = if state.config.auto_sort {
+        let mut active = Vec::new();
+        let mut paused = Vec::new();
+        for s in std::mem::take(&mut render_sessions) {
+            if s.paused {
+                paused.push(s);
+            } else {
+                active.push(s);
+            }
+        }
+
+        if !state.auto_sort_tail.is_empty() {
+            let mut head = Vec::new();
+            let mut tail = Vec::new();
+            for s in active {
+                if state.auto_sort_tail.contains(&s.pane_id) {
+                    tail.push(s);
+                } else {
+                    head.push(s);
+                }
+            }
+            tail.sort_by_key(|s| {
+                state.auto_sort_tail.iter().position(|&p| p == s.pane_id).unwrap_or(usize::MAX)
+            });
+            active = head;
+            active.extend(tail);
+        }
+
+        paused.sort_by_key(|s| s.tab_index);
+
+        let sep = if !active.is_empty() && !paused.is_empty() {
+            Some(active.len() - 1)
+        } else {
+            None
+        };
+
+        render_sessions = active;
+        render_sessions.extend(paused);
+
+        sep
+    } else {
+        None
+    };
+
     let total = render_sessions.len();
 
     RenderPayload {
@@ -98,6 +144,7 @@ pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
         voice_muted: state.voice_muted,
         show_agent_indicators,
         sort_active: state.sort_order.is_some(),
+        separator_after_index,
     }
 }
 
@@ -528,5 +575,220 @@ mod tests {
         let payload = build_render_payload(&state);
         let names: Vec<&str> = payload.sessions.iter().map(|s| s.display_name.as_str()).collect();
         assert_eq!(names, vec!["work-a", "idle1"]);
+    }
+
+    // --- Auto-sort partition tests ---
+
+    #[test]
+    fn test_auto_sort_partitions_active_above_paused() {
+        let mut state = ControllerState::default();
+        // auto_sort defaults to true
+
+        let mut s0 = make_session(10, "active1", Activity::Working);
+        s0.tab_index = Some(0);
+        let mut s1 = make_session(20, "paused1", Activity::Idle);
+        s1.paused = true;
+        s1.tab_index = Some(1);
+        let mut s2 = make_session(30, "active2", Activity::Idle);
+        s2.tab_index = Some(2);
+        let mut s3 = make_session(40, "paused2", Activity::Idle);
+        s3.paused = true;
+        s3.tab_index = Some(3);
+
+        state.sessions.insert(10, s0);
+        state.sessions.insert(20, s1);
+        state.sessions.insert(30, s2);
+        state.sessions.insert(40, s3);
+
+        let payload = build_render_payload(&state);
+        let names: Vec<&str> = payload.sessions.iter().map(|s| s.display_name.as_str()).collect();
+        assert_eq!(names, vec!["active1", "active2", "paused1", "paused2"]);
+        assert_eq!(payload.separator_after_index, Some(1));
+    }
+
+    #[test]
+    fn test_auto_sort_no_separator_all_active() {
+        let mut state = ControllerState::default();
+
+        let mut s0 = make_session(10, "a", Activity::Working);
+        s0.tab_index = Some(0);
+        let mut s1 = make_session(20, "b", Activity::Idle);
+        s1.tab_index = Some(1);
+
+        state.sessions.insert(10, s0);
+        state.sessions.insert(20, s1);
+
+        let payload = build_render_payload(&state);
+        assert_eq!(payload.separator_after_index, None);
+    }
+
+    #[test]
+    fn test_auto_sort_no_separator_all_paused() {
+        let mut state = ControllerState::default();
+
+        let mut s0 = make_session(10, "a", Activity::Idle);
+        s0.paused = true;
+        s0.tab_index = Some(0);
+        let mut s1 = make_session(20, "b", Activity::Idle);
+        s1.paused = true;
+        s1.tab_index = Some(1);
+
+        state.sessions.insert(10, s0);
+        state.sessions.insert(20, s1);
+
+        let payload = build_render_payload(&state);
+        assert_eq!(payload.separator_after_index, None);
+    }
+
+    #[test]
+    fn test_auto_sort_single_session_no_separator() {
+        let mut state = ControllerState::default();
+
+        let mut s0 = make_session(10, "solo", Activity::Working);
+        s0.tab_index = Some(0);
+        state.sessions.insert(10, s0);
+
+        let payload = build_render_payload(&state);
+        assert_eq!(payload.separator_after_index, None);
+        assert_eq!(payload.sessions.len(), 1);
+    }
+
+    #[test]
+    fn test_auto_sort_tail_moves_unpaused_to_end_of_active() {
+        let mut state = ControllerState::default();
+
+        let mut s0 = make_session(10, "orig1", Activity::Working);
+        s0.tab_index = Some(1);
+        let mut s1 = make_session(20, "orig2", Activity::Idle);
+        s1.tab_index = Some(2);
+        let mut s2 = make_session(30, "recently-unpaused", Activity::Idle);
+        s2.tab_index = Some(0);
+        let mut s3 = make_session(40, "paused", Activity::Idle);
+        s3.paused = true;
+        s3.tab_index = Some(3);
+
+        state.sessions.insert(10, s0);
+        state.sessions.insert(20, s1);
+        state.sessions.insert(30, s2);
+        state.sessions.insert(40, s3);
+        state.auto_sort_tail = vec![30];
+
+        let payload = build_render_payload(&state);
+        let names: Vec<&str> = payload.sessions.iter().map(|s| s.display_name.as_str()).collect();
+        // Without auto_sort_tail, tab_index order would be: recently-unpaused(0), orig1(1), orig2(2)
+        // With auto_sort_tail, recently-unpaused moves to end of active zone
+        assert_eq!(names, vec!["orig1", "orig2", "recently-unpaused", "paused"]);
+        assert_eq!(payload.separator_after_index, Some(2));
+    }
+
+    #[test]
+    fn test_auto_sort_disabled_no_partition() {
+        let mut state = ControllerState::default();
+        state.config.auto_sort = false;
+
+        let mut s0 = make_session(10, "active", Activity::Working);
+        s0.tab_index = Some(0);
+        let mut s1 = make_session(20, "paused", Activity::Idle);
+        s1.paused = true;
+        s1.tab_index = Some(1);
+        let mut s2 = make_session(30, "active2", Activity::Idle);
+        s2.tab_index = Some(2);
+
+        state.sessions.insert(10, s0);
+        state.sessions.insert(20, s1);
+        state.sessions.insert(30, s2);
+
+        let payload = build_render_payload(&state);
+        let names: Vec<&str> = payload.sessions.iter().map(|s| s.display_name.as_str()).collect();
+        // No partition: tab order preserved
+        assert_eq!(names, vec!["active", "paused", "active2"]);
+        assert_eq!(payload.separator_after_index, None);
+    }
+
+    #[test]
+    fn test_auto_sort_preserves_relative_order_within_zones() {
+        let mut state = ControllerState::default();
+
+        let mut s0 = make_session(10, "a-active", Activity::Idle);
+        s0.tab_index = Some(0);
+        let mut s1 = make_session(20, "b-paused", Activity::Idle);
+        s1.paused = true;
+        s1.tab_index = Some(1);
+        let mut s2 = make_session(30, "c-active", Activity::Working);
+        s2.tab_index = Some(2);
+        let mut s3 = make_session(40, "d-paused", Activity::Idle);
+        s3.paused = true;
+        s3.tab_index = Some(3);
+        let mut s4 = make_session(50, "e-active", Activity::Idle);
+        s4.tab_index = Some(4);
+
+        state.sessions.insert(10, s0);
+        state.sessions.insert(20, s1);
+        state.sessions.insert(30, s2);
+        state.sessions.insert(40, s3);
+        state.sessions.insert(50, s4);
+
+        let payload = build_render_payload(&state);
+        let names: Vec<&str> = payload.sessions.iter().map(|s| s.display_name.as_str()).collect();
+        // Active zone preserves tab order: a, c, e
+        // Paused zone preserves tab order: b, d
+        assert_eq!(names, vec!["a-active", "c-active", "e-active", "b-paused", "d-paused"]);
+        assert_eq!(payload.separator_after_index, Some(2));
+    }
+
+    #[test]
+    fn test_auto_sort_with_manual_sort_active_zone_only() {
+        let mut state = ControllerState::default();
+
+        let mut s0 = make_session(10, "idle1", Activity::Idle);
+        s0.tab_index = Some(0);
+        let mut s1 = make_session(20, "work1", Activity::Working);
+        s1.tab_index = Some(1);
+        let mut s2 = make_session(30, "paused1", Activity::Idle);
+        s2.paused = true;
+        s2.tab_index = Some(2);
+
+        state.sessions.insert(10, s0);
+        state.sessions.insert(20, s1);
+        state.sessions.insert(30, s2);
+
+        // Manual sort order for active sessions only (work1 first, idle1 second)
+        state.sort_order = Some(vec![20, 10]);
+
+        let payload = build_render_payload(&state);
+        let names: Vec<&str> = payload.sessions.iter().map(|s| s.display_name.as_str()).collect();
+        // Manual sort within active zone, paused stays below separator
+        assert_eq!(names, vec!["work1", "idle1", "paused1"]);
+        assert_eq!(payload.separator_after_index, Some(1));
+    }
+
+    #[test]
+    fn test_auto_sort_empty_sessions() {
+        let state = ControllerState::default();
+        let payload = build_render_payload(&state);
+        assert_eq!(payload.separator_after_index, None);
+        assert!(payload.sessions.is_empty());
+    }
+
+    #[test]
+    fn test_auto_sort_tail_order_preserved() {
+        let mut state = ControllerState::default();
+
+        let mut s0 = make_session(10, "orig", Activity::Working);
+        s0.tab_index = Some(0);
+        let mut s1 = make_session(20, "unpaused-first", Activity::Idle);
+        s1.tab_index = Some(1);
+        let mut s2 = make_session(30, "unpaused-second", Activity::Idle);
+        s2.tab_index = Some(2);
+
+        state.sessions.insert(10, s0);
+        state.sessions.insert(20, s1);
+        state.sessions.insert(30, s2);
+        // Unpaused in order: 20 first, then 30
+        state.auto_sort_tail = vec![20, 30];
+
+        let payload = build_render_payload(&state);
+        let names: Vec<&str> = payload.sessions.iter().map(|s| s.display_name.as_str()).collect();
+        assert_eq!(names, vec!["orig", "unpaused-first", "unpaused-second"]);
     }
 }

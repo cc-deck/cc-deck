@@ -129,6 +129,9 @@ pub struct ControllerState {
     /// Frozen display order from the last sort-by-activity (pane IDs).
     /// When Some, the render broadcast uses this order instead of tab_index.
     pub sort_order: Option<Vec<u32>>,
+    /// Pane IDs of sessions that recently transitioned from paused to active.
+    /// These appear at the end of the active zone (FR-002).
+    pub auto_sort_tail: Vec<u32>,
 }
 
 
@@ -262,6 +265,7 @@ impl ControllerState {
             if let Some(ref mut order) = self.sort_order {
                 order.retain(|pid| self.sessions.contains_key(pid));
             }
+            self.auto_sort_tail.retain(|pid| self.sessions.contains_key(pid));
             crate::debug_log(&format!(
                 "CTRL CLEANUP removed {} dead sessions, {} remaining",
                 before - self.sessions.len(),
@@ -300,6 +304,7 @@ impl ControllerState {
         let now = crate::session::unix_now();
         let auto_pause = self.config.auto_pause_secs;
         let mut changed = false;
+        let mut auto_paused_pids = Vec::new();
         for session in self.sessions.values_mut() {
             match session.activity {
                 Activity::Done | Activity::AgentDone => {
@@ -320,10 +325,14 @@ impl ControllerState {
                         && now.saturating_sub(session.last_event_ts) >= auto_pause =>
                 {
                     session.paused = true;
+                    auto_paused_pids.push(session.pane_id);
                     changed = true;
                 }
                 _ => {}
             }
+        }
+        for pid in &auto_paused_pids {
+            self.auto_sort_tail.retain(|&p| p != *pid);
         }
         changed
     }
@@ -743,5 +752,33 @@ mod tests {
         assert_eq!(super::ELECTION_TIMEOUT_TICKS, 2);
         assert_eq!(super::LEADER_HEARTBEAT_TICKS, 30);
         assert_eq!(super::LEADER_FAILURE_TIMEOUT_MS, 60_000);
+    }
+
+    #[test]
+    fn test_remove_dead_sessions_cleans_auto_sort_tail() {
+        let mut state = ControllerState::default();
+        state.sessions.insert(10, make_session(10));
+        state.sessions.insert(20, make_session(20));
+        state.auto_sort_tail = vec![10, 20];
+        state.pane_manifest = Some(make_manifest_with_exited(&[10, 20], &[20]));
+
+        state.remove_dead_sessions();
+        assert!(state.auto_sort_tail.contains(&10));
+        assert!(!state.auto_sort_tail.contains(&20));
+    }
+
+    #[test]
+    fn test_cleanup_stale_sessions_cleans_auto_sort_tail() {
+        let mut state = ControllerState::default();
+        state.config.auto_pause_secs = 10;
+        let mut s = make_session(10);
+        s.activity = Activity::Idle;
+        s.last_event_ts = 0;
+        state.sessions.insert(10, s);
+        state.auto_sort_tail = vec![10];
+
+        state.cleanup_stale_sessions(300);
+        assert!(state.sessions[&10].paused);
+        assert!(!state.auto_sort_tail.contains(&10));
     }
 }

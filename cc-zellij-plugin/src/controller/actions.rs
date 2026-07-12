@@ -33,11 +33,18 @@ pub fn handle_action(state: &mut ControllerState, msg: ActionMessage) {
 fn handle_switch(state: &mut ControllerState, pane_id: Option<u32>, tab_index: Option<usize>) {
     if let (Some(pid), Some(tab_idx)) = (pane_id, tab_index) {
         // Auto-unpause on switch
+        let mut auto_unpaused = false;
         if let Some(s) = state.sessions.get_mut(&pid) {
             if s.paused {
                 s.paused = false;
                 s.last_event_ts = crate::session::unix_now();
+                state.auto_sort_tail.retain(|&p| p != pid);
+                state.auto_sort_tail.push(pid);
+                auto_unpaused = true;
             }
+        }
+        if auto_unpaused {
+            state.save_sessions();
         }
         state.focused_pane_id = Some(pid);
         state.active_tab_index = Some(tab_idx);
@@ -127,6 +134,7 @@ fn handle_delete(state: &mut ControllerState, pane_id: Option<u32>) {
     if let Some(ref mut order) = state.sort_order {
         order.retain(|&p| p != pid);
     }
+    state.auto_sort_tail.retain(|&p| p != pid);
 
     if let Some((tab_idx, is_only)) = session_info {
         close_session_pane_wasm(pid, tab_idx, is_only);
@@ -143,10 +151,18 @@ fn handle_pause(state: &mut ControllerState, pane_id: Option<u32>) {
         None => return,
     };
     if let Some(s) = state.sessions.get_mut(&pid) {
+        let was_paused = s.paused;
         s.paused = !s.paused;
         let now = session::unix_now();
         s.last_event_ts = now;
         s.meta_ts = now;
+
+        if was_paused && !s.paused {
+            state.auto_sort_tail.retain(|&p| p != pid);
+            state.auto_sort_tail.push(pid);
+        } else if !was_paused && s.paused {
+            state.auto_sort_tail.retain(|&p| p != pid);
+        }
     }
     state.save_sessions();
     state.mark_render_dirty();
@@ -288,7 +304,13 @@ fn handle_sort(state: &mut ControllerState) {
     let mut sessions: Vec<(u32, u8, u64)> = state
         .sessions
         .values()
-        .filter_map(|s| s.tab_index.map(|_| (s.pane_id, sort_tier(s), s.last_event_ts)))
+        .filter_map(|s| {
+            s.tab_index?;
+            if state.config.auto_sort && s.paused {
+                return None;
+            }
+            Some((s.pane_id, sort_tier(s), s.last_event_ts))
+        })
         .collect();
 
     if sessions.len() < 2 {
@@ -302,6 +324,7 @@ fn handle_sort(state: &mut ControllerState) {
 
     let order: Vec<u32> = sessions.iter().map(|&(pid, _, _)| pid).collect();
     state.sort_order = Some(order);
+    state.auto_sort_tail.clear();
     state.mark_render_dirty();
 }
 
@@ -686,11 +709,13 @@ mod tests {
 
         handle_pause(&mut state, Some(42));
         assert!(state.sessions[&42].paused);
+        assert!(!state.auto_sort_tail.contains(&42));
 
         state.render_dirty = false;
         handle_pause(&mut state, Some(42));
         assert!(!state.sessions[&42].paused);
         assert!(state.render_dirty);
+        assert!(state.auto_sort_tail.contains(&42));
     }
 
     #[test]
@@ -931,5 +956,59 @@ mod tests {
 
         assert!(state.sort_order.is_some(), "sort_order should be initialized");
         assert_eq!(state.sort_order.as_ref().unwrap(), &vec![1, 2]);
+    }
+
+    #[test]
+    fn test_handle_switch_auto_unpauses_and_populates_tail() {
+        let mut state = ControllerState::default();
+        let mut s = Session::new(42, "test".into());
+        s.tab_index = Some(1);
+        s.paused = true;
+        state.sessions.insert(42, s);
+
+        handle_switch(&mut state, Some(42), Some(1));
+        assert!(!state.sessions[&42].paused);
+        assert!(state.auto_sort_tail.contains(&42));
+    }
+
+    #[test]
+    fn test_handle_delete_cleans_auto_sort_tail() {
+        let mut state = ControllerState::default();
+        let mut s1 = Session::new(42, "del".into());
+        s1.tab_index = Some(0);
+        state.sessions.insert(42, s1);
+        let mut s2 = Session::new(99, "keep".into());
+        s2.tab_index = Some(1);
+        state.sessions.insert(99, s2);
+        state.auto_sort_tail = vec![42, 99];
+
+        handle_delete(&mut state, Some(42));
+        assert!(!state.auto_sort_tail.contains(&42));
+        assert!(state.auto_sort_tail.contains(&99));
+    }
+
+    #[test]
+    fn test_handle_sort_clears_auto_sort_tail() {
+        let mut state = state_with_sortable_sessions();
+        state.auto_sort_tail = vec![1, 2];
+
+        handle_sort(&mut state);
+        assert!(state.auto_sort_tail.is_empty());
+    }
+
+    #[test]
+    fn test_handle_sort_excludes_paused_when_auto_sort() {
+        let mut state = state_with_sortable_sessions();
+        let mut s3 = Session::new(3, "c".into());
+        s3.activity = Activity::Working;
+        s3.tab_index = Some(2);
+        s3.paused = true;
+        state.sessions.insert(3, s3);
+
+        handle_sort(&mut state);
+
+        let order = state.sort_order.as_ref().unwrap();
+        assert!(!order.contains(&3), "paused session excluded from sort_order");
+        assert_eq!(order.len(), 2);
     }
 }

@@ -178,6 +178,50 @@ func TestVAD_PreRoll(t *testing.T) {
 	}
 }
 
+func TestVAD_MinSpeechDuration(t *testing.T) {
+	cfg := VADConfig{
+		Threshold:            0.01,
+		PreRollDuration:      0,
+		SilenceDuration:      0.1,
+		MaxUtteranceDuration: 5,
+		MinSpeechDuration:    0.2,
+	}
+	vad := NewVAD(&cfg, 1000)
+
+	frames := make(chan []int16, 10)
+	go feedFrames(frames,
+		makeSpeech(50, 5000),
+		makeSilence(200),
+	)
+
+	utterances := collectUtterances(vad.Process(frames))
+	if len(utterances) != 0 {
+		t.Fatalf("got %d utterances from 50ms spike, want 0 (below 200ms min)", len(utterances))
+	}
+}
+
+func TestVAD_MinSpeechDuration_PassesLong(t *testing.T) {
+	cfg := VADConfig{
+		Threshold:            0.01,
+		PreRollDuration:      0,
+		SilenceDuration:      0.1,
+		MaxUtteranceDuration: 5,
+		MinSpeechDuration:    0.2,
+	}
+	vad := NewVAD(&cfg, 1000)
+
+	frames := make(chan []int16, 10)
+	go feedFrames(frames,
+		makeSpeech(300, 5000),
+		makeSilence(200),
+	)
+
+	utterances := collectUtterances(vad.Process(frames))
+	if len(utterances) != 1 {
+		t.Fatalf("got %d utterances from 300ms speech, want 1 (above 200ms min)", len(utterances))
+	}
+}
+
 func TestThresholdPercentRoundTrip(t *testing.T) {
 	tests := []struct {
 		rms     float64

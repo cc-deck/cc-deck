@@ -130,6 +130,7 @@ plugin location="file:~/.config/zellij/plugins/cc_deck.wasm" {
     idle_fade_secs "3600"     // idle indicator fade duration in seconds (default: 3600)
     auto_pause_secs "3600"    // auto-pause after idle for this many seconds (default: 3600, 0 to disable)
     attend_cycle_ms "2000"    // rapid-cycle window for attend/working in ms (default: 2000, 0 to disable)
+    auto_sort "true"          // auto-sort paused sessions below active ones (default: true)
 }
 ----
 
@@ -152,6 +153,10 @@ plugin location="file:~/.config/zellij/plugins/cc_deck.wasm" {
 | `attend_cycle_ms`
 | 2000
 | When pressing `Alt+a` or `Alt+w` repeatedly within this window (in milliseconds), each press skips already-visited sessions. After the window expires, the next press resets to the most recent candidate. Set to 0 to disable rapid-cycle behavior.
+
+| `auto_sort`
+| true
+| When enabled, the sidebar automatically groups active sessions above a visual separator and paused sessions below it. The sort is display-only (no physical tab reordering). Sessions that are unpaused appear at the end of the active zone. Set to `"false"` to disable and show all sessions in tab order.
 |===
 
 Auto-paused sessions unpause automatically when you switch to them (via click, navigate, or attend).

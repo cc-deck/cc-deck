@@ -45,6 +45,7 @@ type VADConfig struct {
 	SilenceDuration      float64 // Seconds of silence to end an utterance (default 2.5)
 	HangoverDuration     float64 // Seconds of below-threshold audio to keep after last loud frame (default 0.3)
 	MaxUtteranceDuration float64 // Maximum utterance length in seconds (default 30)
+	MinSpeechDuration    float64 // Minimum above-threshold audio to emit an utterance (default 0.3)
 }
 
 // DefaultVADConfig returns the default VAD configuration.
@@ -55,6 +56,7 @@ func DefaultVADConfig() VADConfig {
 		SilenceDuration:      2.5,
 		HangoverDuration:     0.3,
 		MaxUtteranceDuration: 30,
+		MinSpeechDuration:    0.3,
 	}
 }
 
