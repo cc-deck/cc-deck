@@ -1,6 +1,6 @@
 # Brainstorm Overview
 
-Last updated: 2026-07-11 (080 sidebar auto-sort)
+Last updated: 2026-07-12 (081 codex agent adapter)
 
 ## Active Brainstorms
 
@@ -44,6 +44,7 @@ Last updated: 2026-07-11 (080 sidebar auto-sort)
 | 076 | 2026-06-28 | Virtual sort fix | active | 074 |
 | 027 | 2026-06-30 | OpenShell SDK migration | active | - |
 | 080 | 2026-07-11 | Sidebar auto-sort | active | - |
+| 081 | 2026-07-12 | Codex agent adapter | active | - |
 
 ## Open Threads
 
@@ -75,6 +76,7 @@ Last updated: 2026-07-11 (080 sidebar auto-sort)
 - Config validation: load-time warning suppression mechanism, curated safe icon list vs constraint description (from #067)
 - Sidebar session sort: move_focus_or_tab swap mechanics (focus requirement during sort sequence), controller vs sidebar sort computation, performance for 10+ sessions (from #071)
 - Sidebar auto-sort: automatic two-zone split (active/paused) with separator line, configurable via sidebar.auto_sort in config.yaml, coexists with manual S sort for three-tier. Separator style and alignment TBD. (from #080)
+- Codex agent adapter: hooks-based integration using ~/.codex/hooks.json (same pattern as Claude Code). 10 lifecycle events confirmed in Codex source. Indicator symbol, version detection, and tool name normalization TBD. (from #081)
 - Build skill iteration reduction: 13 skill changes to eliminate build iterations. Skill-first approach chosen (edit markdowns + templates, no new Go code). Dual-phase asset verification (capture + build), shell config dependency scanning, post_install dry-run at capture, snippet verification on refresh. Depends on #064, #060 (from #072, revisited 2026-06-20)
 - OpenShell SSH-to-HTTPS: Convert SSH git URLs to HTTPS for OpenShell sandboxes. OpenShell's HTTP CONNECT proxy cannot resolve DNS for SSH (UDP port 53 bypasses proxy). Fix: convert in buildCloneCommand() + git insteadOf config in image. (from #073)
 - OpenShell resource limits: Expose --cpu and --memory flags on ws new for OpenShell sandboxes. Defaults are 2 vCPU / 2 GB (too low for Rust/Java builds). Phase 1: CLI flags. Phase 2: manifest defaults with capture-time detection. (from #074)
