@@ -225,6 +225,7 @@ pub fn handle_timer(state: &mut ControllerState, _elapsed: f64) {
                 if let Some(ref mut order) = state.sort_order {
                     order.retain(|&p| p != pane_id);
                 }
+                state.auto_sort_tail.retain(|&p| p != pane_id);
             }
             crate::debug_log(&format!("CTRL CLEANUP removed {count} unconfirmed restored sessions"));
             state.save_sessions();

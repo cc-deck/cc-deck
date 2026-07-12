@@ -61,6 +61,17 @@ func (t *httpTranscriber) Transcribe(ctx context.Context, audio []int16, sampleR
 			return "", fmt.Errorf("writing prompt field: %w", err)
 		}
 	}
+	for _, f := range []struct{ k, v string }{
+		{"temperature", "0.0"},
+		{"entropy_thold", "2.4"},
+		{"logprob_thold", "-1.0"},
+		{"no_speech_thold", "0.6"},
+		{"beam_size", "1"},
+	} {
+		if err := writer.WriteField(f.k, f.v); err != nil {
+			return "", fmt.Errorf("writing %s field: %w", f.k, err)
+		}
+	}
 	if err := writer.Close(); err != nil {
 		return "", fmt.Errorf("closing multipart writer: %w", err)
 	}

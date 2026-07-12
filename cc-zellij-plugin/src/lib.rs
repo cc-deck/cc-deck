@@ -53,6 +53,8 @@ pub struct RenderPayload {
     pub show_agent_indicators: bool,
     #[serde(default)]
     pub sort_active: bool,
+    #[serde(default)]
+    pub separator_after_index: Option<usize>,
 }
 
 // ---------------------------------------------------------------------------
@@ -140,6 +142,7 @@ mod protocol_tests {
             voice_muted: false,
             show_agent_indicators: false,
             sort_active: false,
+            separator_after_index: None,
         };
         let json = serde_json::to_string(&payload).unwrap();
         let restored: RenderPayload = serde_json::from_str(&json).unwrap();
@@ -215,6 +218,7 @@ mod protocol_tests {
             voice_muted: false,
             show_agent_indicators: false,
             sort_active: false,
+            separator_after_index: None,
         };
         let json = serde_json::to_string(&payload).unwrap();
         let restored: RenderPayload = serde_json::from_str(&json).unwrap();
@@ -248,6 +252,7 @@ mod protocol_tests {
             voice_muted: false,
             show_agent_indicators: false,
             sort_active: false,
+            separator_after_index: None,
         };
         let json = serde_json::to_string(&payload).unwrap();
         let restored: RenderPayload = serde_json::from_str(&json).unwrap();

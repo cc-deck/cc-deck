@@ -5,6 +5,25 @@ import (
 	"unicode"
 )
 
+// Whisper hallucinates these phrases on silence or low-energy audio
+// because its training data is dominated by YouTube videos.
+var whisperHallucinations = []string{
+	"thank you for watching",
+	"thanks for watching",
+	"please subscribe",
+	"like and subscribe",
+	"don't forget to subscribe",
+	"see you in the next",
+	"see you next time",
+	"thanks for listening",
+	"thank you for listening",
+	"please like and subscribe",
+	"hit the bell",
+	"leave a comment",
+	"bye bye",
+	"goodbye",
+}
+
 var fillerWords = map[string]bool{
 	"um":  true,
 	"uh":  true,
@@ -13,11 +32,13 @@ var fillerWords = map[string]bool{
 	"er":  true,
 }
 
-// DefaultCommands maps action names to their default trigger words.
+// DefaultCommands maps action names to their default trigger phrases.
+// Two-word phrases improve Whisper recognition accuracy and stay
+// comfortably above the MinSpeechDuration threshold.
 var DefaultCommands = map[string][]string{
-	"submit":        {"send"},
-	"attend":        {"next"},
-	"submit_attend": {"ship"},
+	"submit":        {"send it"},
+	"attend":        {"go next"},
+	"submit_attend": {"ship it"},
 }
 
 // BuildCommandMap flattens an action-to-words map into a word-to-action
@@ -46,10 +67,18 @@ func IsWhisperArtifact(text string) bool {
 	if strings.HasPrefix(trimmed, "(") && strings.HasSuffix(trimmed, ")") {
 		return true
 	}
+	if strings.HasPrefix(trimmed, "*") && strings.HasSuffix(trimmed, "*") {
+		return true
+	}
 	if strings.HasPrefix(trimmed, "{") {
 		return true
 	}
 	lower := strings.ToLower(trimmed)
+	for _, phrase := range whisperHallucinations {
+		if strings.Contains(lower, phrase) {
+			return true
+		}
+	}
 	for _, pattern := range []string{"blank_audio", "music", "clicking", "applause", "laughter", "silence"} {
 		if strings.Contains(lower, pattern) {
 			return true
@@ -59,6 +88,9 @@ func IsWhisperArtifact(text string) bool {
 		if r == '♪' || r == '♫' || r == '🎵' {
 			return true
 		}
+	}
+	if hasRepetitionLoop(lower) {
+		return true
 	}
 	stripped := strings.Map(func(r rune) rune {
 		if unicode.IsSpace(r) || unicode.IsPunct(r) || unicode.IsSymbol(r) {
@@ -96,6 +128,27 @@ func ProcessStopwords(text string, commands map[string]string) TranscriptionResu
 		Text:      text,
 		IsCommand: false,
 	}
+}
+
+// hasRepetitionLoop detects Whisper's repetition hallucination where it
+// gets stuck repeating the same short fragment. Splits on sentence
+// boundaries, normalizes, and flags if any fragment appears 2+ times.
+func hasRepetitionLoop(lower string) bool {
+	seps := strings.NewReplacer(".", "\n", "!", "\n", "?", "\n")
+	parts := strings.Split(seps.Replace(lower), "\n")
+
+	seen := make(map[string]int)
+	for _, p := range parts {
+		norm := strings.TrimSpace(p)
+		if len(norm) < 3 {
+			continue
+		}
+		seen[norm]++
+		if seen[norm] >= 2 {
+			return true
+		}
+	}
+	return false
 }
 
 func stripFillers(text string) string {
