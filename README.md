@@ -160,8 +160,9 @@ cc-deck supports multiple AI coding agents through a pluggable Agent interface. 
 |-------|-----------|-------------|
 | Claude Code | `[CC]` | Hook events via `settings.json` |
 | OpenCode | `[OC]` | TypeScript plugin via `~/.config/opencode/plugins/` |
+| Codex CLI | `[◆]` | Hook events via `~/.codex/hooks.json` |
 
-When sessions from different agents are active, the sidebar shows agent indicators (`[CC]`, `[OC]`) before each session name. With a single agent type, indicators are hidden.
+When sessions from different agents are active, the sidebar shows agent indicators (`[CC]`, `[OC]`, `[◆]`) before each session name. With a single agent type, indicators are hidden.
 
 For containerized builds, declare which agents to include in `build.yaml`:
 
@@ -169,6 +170,7 @@ For containerized builds, declare which agents to include in `build.yaml`:
 agents:
   - claude
   - opencode
+  - codex
 ```
 
 The build system generates network policies with domain allowlists for each declared agent. When no `agents` field is present, the build defaults to Claude Code for backward compatibility.
@@ -189,6 +191,9 @@ cc-deck ws new my-project --type container --agent claude --auth-mode vertex
 
 # OpenCode with OpenAI credentials
 cc-deck ws new my-project --type container --agent opencode --auth-mode openai
+
+# Codex CLI with OpenAI credentials
+cc-deck ws new my-project --type container --agent codex --auth-mode openai
 ```
 
 The selected auth mode is persisted in the workspace definition and shown in `cc-deck ws ls`.
@@ -422,7 +427,7 @@ Built-in groups cover common ecosystems. Run `cc-deck config domains list` to se
 | `docker` | registry-1.docker.io, auth.docker.io |
 | `quay` | quay.io, cdn.quay.io |
 
-Agent-specific API domains (Anthropic for Claude, OpenAI for OpenCode) are included automatically based on which agents are in the manifest. Each agent declares its required domain groups through the Agent interface, and the build system resolves them to domain endpoints.
+Agent-specific API domains (Anthropic for Claude, OpenAI for OpenCode and Codex) are included automatically based on which agents are in the manifest. Each agent declares its required domain groups through the Agent interface, and the build system resolves them to domain endpoints.
 
 ### Customizing domain groups
 
