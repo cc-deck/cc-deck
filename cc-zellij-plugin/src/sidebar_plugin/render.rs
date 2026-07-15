@@ -382,6 +382,14 @@ fn render_session_entry(
     };
 
     // Line 1: indicator + name (or rename input buffer)
+    // When in a worktree, show only the project part (before @) on line 1.
+    // The worktree branch is already visible on line 2 via git_branch.
+    let render_name: &str = if session.in_worktree {
+        session.display_name.split('@').next().unwrap_or(&session.display_name)
+    } else {
+        &session.display_name
+    };
+
     let line1 = if let Some(rs) = rename_state {
         let max_input = cols.saturating_sub(3);
         let rename_fg = if has_cursor { RENAME_NAV_FG } else { RENAME_FG };
@@ -390,7 +398,7 @@ fn render_session_entry(
     } else {
         let agent_prefix = session.agent_indicator.clone()
             .unwrap_or_default();
-        let name = &session.display_name;
+        let name = render_name;
         let agent_prefix_len = if agent_prefix.is_empty() { 0 } else { display_width(&agent_prefix) + 1 };
         let prefix_len = 1 + display_width(indicator) + 1 + agent_prefix_len;
         let max_name = cols.saturating_sub(prefix_len);
@@ -422,7 +430,7 @@ fn render_session_entry(
         let agent_prefix_len = if agent_prefix.is_empty() { 0 } else { display_width(&agent_prefix) + 1 };
         let prefix_len = 1 + display_width(indicator) + 1 + agent_prefix_len;
         let max_name = cols.saturating_sub(prefix_len);
-        let truncated_name = truncate(&session.display_name, max_name);
+        let truncated_name = truncate(render_name, max_name);
         let agent_part = if agent_prefix.is_empty() {
             String::new()
         } else {
