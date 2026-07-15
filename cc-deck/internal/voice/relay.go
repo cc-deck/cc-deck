@@ -61,6 +61,7 @@ type VoiceRelay struct {
 	running         bool
 	muted           bool
 	recording       bool
+	savedThreshold  float64
 	savedMuted      bool
 	lastWorkingDir  string
 	lastText        string
@@ -118,12 +119,15 @@ func (r *VoiceRelay) SetRecording(on bool) {
 
 	r.mu.Lock()
 	if on && !r.recording {
+		r.savedThreshold = r.config.VADConfig.Threshold
+		r.config.VADConfig.Threshold = PercentToThreshold(0)
 		r.savedMuted = r.muted
 		if !r.muted {
 			r.muted = true
 			muteChanged = true
 		}
 	} else if !on && r.recording {
+		r.config.VADConfig.Threshold = r.savedThreshold
 		if r.muted != r.savedMuted {
 			r.muted = r.savedMuted
 			muteChanged = true
