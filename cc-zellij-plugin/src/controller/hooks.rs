@@ -290,17 +290,18 @@ fn process_cwd_change(state: &mut ControllerState, pane_id: u32, cwd: &str) {
             s.in_worktree = is_worktree_path;
 
             if is_worktree_path {
-                // Append @worktree-name to the display name (strip any previous suffix first)
-                let base = s.display_name.split('@').next().unwrap_or(&s.display_name).to_string();
-                if let Some(wt_name) = std::path::Path::new(cwd)
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                {
-                    s.display_name = format!("{base}@{wt_name}");
+                // Use the project name for worktree sessions.
+                // The branch is already shown on line 2 via git_branch.
+                if s.display_name.starts_with("session-") {
+                    if let Some(project_name) = std::path::Path::new(cwd)
+                        .ancestors()
+                        .nth(3)
+                        .and_then(|p| p.file_name())
+                        .and_then(|n| n.to_str())
+                    {
+                        s.display_name = project_name.to_string();
+                    }
                 }
-            } else if s.display_name.contains('@') {
-                // Leaving worktree: strip the @suffix
-                s.display_name = s.display_name.split('@').next().unwrap_or(&s.display_name).to_string();
             }
         }
 
