@@ -56,7 +56,7 @@ func DefaultVADConfig() VADConfig {
 		SilenceDuration:      2.5,
 		HangoverDuration:     0.3,
 		MaxUtteranceDuration: 30,
-		MinSpeechDuration:    0.3,
+		MinSpeechDuration:    0.2,
 	}
 }
 

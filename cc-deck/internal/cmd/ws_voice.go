@@ -27,6 +27,7 @@ func newWsVoiceCmd(_ *GlobalFlags) *cobra.Command {
 		silence     float64
 		preRoll     float64
 		hangover    float64
+		minSpeech   float64
 	)
 	verbose := true
 
@@ -48,14 +49,16 @@ activity detection (VAD) with mute/unmute toggle.`,
 				return fmt.Errorf("workspace name required (or use --setup / --list-devices)")
 			}
 			vadFlags := vadOverrides{
-				threshold:    threshold,
-				thresholdSet: c.Flags().Changed("threshold"),
-				silence:      silence,
-				silenceSet:   c.Flags().Changed("silence"),
-				preRoll:      preRoll,
-				preRollSet:   c.Flags().Changed("pre-roll"),
-				hangover:     hangover,
-				hangoverSet:  c.Flags().Changed("hangover"),
+				threshold:       threshold,
+				thresholdSet:    c.Flags().Changed("threshold"),
+				silence:         silence,
+				silenceSet:      c.Flags().Changed("silence"),
+				preRoll:         preRoll,
+				preRollSet:      c.Flags().Changed("pre-roll"),
+				hangover:        hangover,
+				hangoverSet:     c.Flags().Changed("hangover"),
+				minSpeech:       minSpeech,
+				minSpeechSet:    c.Flags().Changed("min-speech"),
 			}
 			return runVoiceRelay(args[0], model, verbose, serverPort, vadFlags)
 		},
@@ -69,6 +72,7 @@ activity detection (VAD) with mute/unmute toggle.`,
 	cmd.Flags().Float64Var(&silence, "silence", 2.5, "seconds of silence before ending utterance")
 	cmd.Flags().Float64Var(&preRoll, "pre-roll", 0.3, "seconds of audio to keep before speech onset")
 	cmd.Flags().Float64Var(&hangover, "hangover", 0.3, "seconds of trailing audio to keep after speech drops")
+	cmd.Flags().Float64Var(&minSpeech, "min-speech", 0.2, "minimum seconds of speech to emit an utterance")
 
 	return cmd
 }
@@ -82,6 +86,8 @@ type vadOverrides struct {
 	preRollSet   bool
 	hangover     float64
 	hangoverSet  bool
+	minSpeech    float64
+	minSpeechSet bool
 }
 
 func voiceLogPath() string {
@@ -181,6 +187,9 @@ func runVoiceRelay(wsName, modelName string, verbose bool, port int, flags vadOv
 	}
 	if flags.hangoverSet {
 		config.VADConfig.HangoverDuration = flags.hangover
+	}
+	if flags.minSpeechSet {
+		config.VADConfig.MinSpeechDuration = flags.minSpeech
 	}
 
 	if verbose {

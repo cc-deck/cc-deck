@@ -61,9 +61,10 @@ type VoiceRelay struct {
 	running         bool
 	muted           bool
 	recording       bool
-	savedThreshold  float64
 	savedMuted      bool
 	lastWorkingDir  string
+	lastText        string
+	repeatCount     int
 	parentCtx   context.Context
 	ctx         context.Context
 	cancel      context.CancelFunc
@@ -117,15 +118,12 @@ func (r *VoiceRelay) SetRecording(on bool) {
 
 	r.mu.Lock()
 	if on && !r.recording {
-		r.savedThreshold = r.config.VADConfig.Threshold
-		r.config.VADConfig.Threshold = PercentToThreshold(0)
 		r.savedMuted = r.muted
 		if !r.muted {
 			r.muted = true
 			muteChanged = true
 		}
 	} else if !on && r.recording {
-		r.config.VADConfig.Threshold = r.savedThreshold
 		if r.muted != r.savedMuted {
 			r.muted = r.savedMuted
 			muteChanged = true
@@ -207,12 +205,15 @@ func (r *VoiceRelay) Start(ctx context.Context) error {
 		return err
 	}
 
-	// Send voice:on protocol message
-	if err := r.pipe.Send(ctx, "cc-deck:voice", "[[voice:on]]"); err != nil {
+	// Send voice:on with a short timeout so a hung pipe doesn't block the TUI.
+	// The statePoll heartbeat will establish the connection regardless.
+	onCtx, onCancel := context.WithTimeout(ctx, 3*time.Second)
+	if err := r.pipe.Send(onCtx, "cc-deck:voice", "[[voice:on]]"); err != nil {
 		if r.config.Verbose {
 			log.Printf("[voice] failed to send voice:on: %v", err)
 		}
 	}
+	onCancel()
 
 	// No dedicated heartbeat goroutine needed: the dump-state poll (every 1s)
 	// serves as the heartbeat. The plugin refreshes voice_last_ping_ms on each
@@ -321,10 +322,10 @@ func (r *VoiceRelay) statePoll(ctx context.Context, sr PipeSendReceiver) {
 				muteState = "muted"
 			}
 			r.mu.Unlock()
-			_ = r.pipe.Send(ctx, "cc-deck:voice", fmt.Sprintf("[[voice:on:%s]]", muteState))
+			hbCtx, hbCancel := context.WithTimeout(ctx, 3*time.Second)
+			_ = r.pipe.Send(hbCtx, "cc-deck:voice", fmt.Sprintf("[[voice:on:%s]]", muteState))
+			hbCancel()
 
-			// Per-call timeout prevents a stuck zellij pipe from
-			// starving the heartbeat (plugin times out after 15s).
 			pollCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			resp, err := sr.SendReceive(pollCtx, "cc-deck:dump-state", "")
 			cancel()
@@ -539,7 +540,30 @@ func (r *VoiceRelay) handleUtterance(ctx context.Context, u Utterance) {
 		return
 	}
 
+	r.mu.Lock()
+	if text == r.lastText {
+		r.repeatCount++
+	} else {
+		r.lastText = text
+		r.repeatCount = 1
+	}
+	repeats := r.repeatCount
+	r.mu.Unlock()
+	if repeats >= 3 {
+		if r.config.Verbose {
+			log.Printf("[voice] suppressed cross-utterance repeat (%dx): %q", repeats, text)
+		}
+		return
+	}
+
 	latency := time.Since(start)
+
+	if latency < 300*time.Millisecond {
+		if r.config.Verbose {
+			log.Printf("[voice] suspiciously fast transcription (%s), likely hallucination: %q", latency, text)
+		}
+		return
+	}
 
 	// When muted but recording, emit the transcription event for the TUI
 	// and transcript file, but skip stopword processing and pipe delivery.
