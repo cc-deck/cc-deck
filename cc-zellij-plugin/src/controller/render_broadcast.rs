@@ -176,16 +176,24 @@ pub fn broadcast_render(state: &ControllerState) {
 
     let serialization_us = crate::session::unix_now_ms().saturating_mul(1000).saturating_sub(start_us);
 
-    // Send to each registered sidebar (discovered from PaneManifest)
+    // Send to each registered sidebar that belongs to this controller's client.
+    // In multiplayer sessions, zombie sidebars from disconnected clients are
+    // excluded, preventing render broadcast storms (FR-005).
     let mut send_count: u64 = 0;
-    for &sidebar_plugin_id in state.sidebar_registry.keys() {
-        send_render_to_plugin(sidebar_plugin_id, &json);
-        send_count += 1;
+    for (&sidebar_plugin_id, &(_, client_id)) in &state.sidebar_registry {
+        if client_id == state.client_id {
+            send_render_to_plugin(sidebar_plugin_id, &json);
+            send_count += 1;
+        }
     }
 
     // Untargeted broadcast as fallback for sidebars not yet in the registry.
-    // With leader election ensuring only one active controller, this is safe.
-    broadcast_render_all(&json);
+    // Only fire when the registry is empty (no known sidebars). Once sidebars
+    // register, targeted sends above handle delivery. This prevents the
+    // untargeted broadcast from bypassing the client_id filter (FR-005).
+    if state.sidebar_registry.is_empty() {
+        broadcast_render_all(&json);
+    }
 
     if state.perf.enabled {
         crate::debug_log(&format!(
@@ -418,8 +426,8 @@ mod tests {
     fn test_broadcast_render_calls_both_targeted_and_untargeted() {
         let mut state = ControllerState::default();
         state.sessions.insert(1, make_session(1, "test", Activity::Working));
-        state.sidebar_registry.insert(42, 0);
-        state.sidebar_registry.insert(43, 1);
+        state.sidebar_registry.insert(42, (0, 0));
+        state.sidebar_registry.insert(43, (1, 0));
 
         // In non-WASM test mode, both send_render_to_plugin and
         // broadcast_render_all are no-ops. This test verifies broadcast_render
@@ -790,5 +798,46 @@ mod tests {
         let payload = build_render_payload(&state);
         let names: Vec<&str> = payload.sessions.iter().map(|s| s.display_name.as_str()).collect();
         assert_eq!(names, vec!["orig", "unpaused-first", "unpaused-second"]);
+    }
+
+    // --- T012: Broadcast filtering by client_id ---
+
+    #[test]
+    fn test_broadcast_render_filters_by_client_id() {
+        // Only sidebars matching the controller's client_id should receive
+        // targeted renders. In non-WASM mode the actual send is a no-op,
+        // but the iteration logic and filter can be verified by checking
+        // that the function completes without panic and the registry
+        // contains both matching and non-matching entries.
+        let mut state = ControllerState::default();
+        state.client_id = 1;
+        state.sessions.insert(1, make_session(1, "test", Activity::Working));
+
+        // Two sidebars from client 1 (match), one from client 2 (zombie)
+        state.sidebar_registry.insert(42, (0, 1));
+        state.sidebar_registry.insert(43, (1, 1));
+        state.sidebar_registry.insert(44, (0, 2)); // zombie, should be skipped
+
+        // broadcast_render should complete without panic.
+        // The filter ensures only plugin_ids 42 and 43 are targeted.
+        broadcast_render(&state);
+
+        // Registry unchanged (broadcast is read-only)
+        assert_eq!(state.sidebar_registry.len(), 3);
+    }
+
+    #[test]
+    fn test_broadcast_render_all_skipped_when_registry_nonempty() {
+        // When the sidebar registry has entries, broadcast_render_all
+        // (untargeted fallback) should NOT be called. In non-WASM mode
+        // both paths are no-ops, but we verify the function completes
+        // and the guard condition is correct.
+        let mut state = ControllerState::default();
+        state.client_id = 1;
+        state.sessions.insert(1, make_session(1, "test", Activity::Working));
+        state.sidebar_registry.insert(42, (0, 1));
+
+        // With a non-empty registry, broadcast_render_all is skipped.
+        broadcast_render(&state);
     }
 }

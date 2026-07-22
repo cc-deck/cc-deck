@@ -35,6 +35,9 @@ pub struct SidebarState {
     /// This plugin instance's ID.
     pub my_plugin_id: u32,
 
+    /// This plugin instance's client ID (from the Zellij client that spawned it).
+    pub my_client_id: u16,
+
     /// The controller plugin's ID (learned from sidebar-init or render payload).
     pub controller_plugin_id: Option<u32>,
 
@@ -98,6 +101,7 @@ impl Default for SidebarState {
             click_regions: Vec::new(),
             my_tab_index: None,
             my_plugin_id: 0,
+            my_client_id: 0,
             controller_plugin_id: None,
             filter_text: String::new(),
             notification: None,

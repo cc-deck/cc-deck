@@ -69,7 +69,9 @@ impl ZellijPlugin for SidebarRendererPlugin {
 
                     #[cfg(target_family = "wasm")]
                     {
-                        self.state.my_plugin_id = get_plugin_ids().plugin_id;
+                        let ids = get_plugin_ids();
+                        self.state.my_plugin_id = ids.plugin_id;
+                        self.state.my_client_id = ids.client_id;
                     }
 
                     // Start the timer for render request fallback
@@ -343,6 +345,7 @@ impl SidebarRendererPlugin {
     fn send_hello(&self) {
         let hello = SidebarHello {
             plugin_id: self.state.my_plugin_id,
+            client_id: self.state.my_client_id,
         };
         send_hello_wasm(&hello);
     }

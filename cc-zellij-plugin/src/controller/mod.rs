@@ -81,9 +81,11 @@ impl ZellijPlugin for ControllerPlugin {
                 if status == PermissionStatus::Granted {
                     self.state.permissions_granted = true;
 
-                    // Capture plugin ID for keybinding registration and sidebar init
+                    // Capture plugin ID and client ID for keybinding registration,
+                    // sidebar init, and multiplayer broadcast filtering.
                     self.state.plugin_id = get_plugin_id_wasm();
                     let ids = get_all_plugin_ids_wasm();
+                    self.state.client_id = ids.1;
                     crate::debug_log_immediate(&format!(
                         "CTRL PERMISSION granted, plugin_id={} client_id={} zellij_pid={}",
                         ids.0, ids.1, ids.2
@@ -118,10 +120,10 @@ impl ZellijPlugin for ControllerPlugin {
                     // Remain dormant (is_leader = false) and start counting
                     // election ticks. If no lower-ID controller responds within
                     // ELECTION_TIMEOUT_TICKS, self-activate as leader.
-                    broadcast_controller_ping(self.state.plugin_id);
+                    broadcast_controller_ping(self.state.client_id, self.state.plugin_id);
                     crate::debug_log(&format!(
-                        "CTRL ELECTION: starting probe (dormant) plugin_id={}",
-                        self.state.plugin_id
+                        "CTRL ELECTION: starting probe (dormant) plugin_id={} client_id={}",
+                        self.state.plugin_id, self.state.client_id
                     ));
                 }
                 false // Controller has no UI to render
@@ -443,25 +445,41 @@ impl ZellijPlugin for ControllerPlugin {
             }
             PipeAction::ControllerPing | PipeAction::ControllerPong => {
                 if let Some(payload) = pipe_message.payload.as_deref() {
-                    if let Ok(sender_id) = payload.parse::<u32>() {
-                        if sender_id == self.state.plugin_id {
+                    // Parse "client_id:plugin_id" format, with backward compat
+                    // for old "plugin_id"-only format (client_id defaults to 0).
+                    let parsed = if let Some((cid_str, pid_str)) = payload.split_once(':') {
+                        match (cid_str.parse::<u16>(), pid_str.parse::<u32>()) {
+                            (Ok(cid), Ok(pid)) => Some((cid, pid)),
+                            _ => None, // malformed, skip
+                        }
+                    } else {
+                        // Backward compat: old format with plugin_id only
+                        payload.parse::<u32>().ok().map(|pid| (0u16, pid))
+                    };
+
+                    if let Some((sender_client_id, sender_plugin_id)) = parsed {
+                        let self_key = (self.state.client_id, self.state.plugin_id);
+                        let sender_key = (sender_client_id, sender_plugin_id);
+
+                        if sender_key == self_key {
                             // Ignore own ping
-                        } else if sender_id < self.state.plugin_id {
-                            // Lower ID wins: stay/go dormant
+                        } else if sender_key < self_key {
+                            // Lower (client_id, plugin_id) wins: stay/go dormant
                             let was_leader = self.state.is_leader;
                             self.state.is_leader = false;
-                            self.state.leader_plugin_id = Some(sender_id);
+                            self.state.leader_plugin_id = Some(sender_plugin_id);
                             self.state.last_leader_ping_ms = session::unix_now_ms();
                             self.state.election_ticks = 0;
                             crate::debug_log(&format!(
-                                "CTRL ELECTION: lost to plugin_id={sender_id} (staying dormant)"
+                                "CTRL ELECTION: lost to ({},{}) (staying dormant)",
+                                sender_client_id, sender_plugin_id
                             ));
                             if was_leader {
                                 self.state.keybindings_registered = false;
                             }
                         } else {
-                            // Higher ID: respond with own ping (lower ID wins)
-                            broadcast_controller_ping(self.state.plugin_id);
+                            // Higher (client_id, plugin_id): respond with own ping
+                            broadcast_controller_ping(self.state.client_id, self.state.plugin_id);
                         }
                     }
                 }
@@ -687,8 +705,8 @@ fn broadcast_navigate(state: &ControllerState, direction: &str) {
 #[cfg(not(target_family = "wasm"))]
 fn broadcast_navigate(_state: &ControllerState, _direction: &str) {}
 
-fn broadcast_controller_ping(plugin_id: u32) {
-    events::broadcast_controller_ping(plugin_id);
+fn broadcast_controller_ping(client_id: u16, plugin_id: u32) {
+    events::broadcast_controller_ping(client_id, plugin_id);
 }
 
 
