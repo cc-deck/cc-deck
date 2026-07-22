@@ -40,6 +40,8 @@ enum FuzzAction {
     ToggleNavigatePrev,
     LeftClick(usize),
     RightClick(usize),
+    ScrollUp,
+    ScrollDown,
     AddSession,
     RemoveSession,
 }
@@ -67,6 +69,8 @@ fn arb_fuzz_action() -> impl Strategy<Value = FuzzAction> {
         Just(FuzzAction::ToggleNavigatePrev),
         (0..20usize).prop_map(FuzzAction::LeftClick),
         (0..20usize).prop_map(FuzzAction::RightClick),
+        Just(FuzzAction::ScrollUp),
+        Just(FuzzAction::ScrollDown),
         Just(FuzzAction::AddSession),
         Just(FuzzAction::RemoveSession),
     ]
@@ -99,6 +103,12 @@ fn apply_action(state: &mut SidebarState, action: &FuzzAction, next_pane_id: &mu
         }
         FuzzAction::RightClick(row) => {
             input::handle_mouse(state, Mouse::RightClick(*row as isize, 0));
+        }
+        FuzzAction::ScrollUp => {
+            input::handle_mouse(state, Mouse::ScrollUp(3));
+        }
+        FuzzAction::ScrollDown => {
+            input::handle_mouse(state, Mouse::ScrollDown(3));
         }
         FuzzAction::AddSession => {
             let id = *next_pane_id;
@@ -206,6 +216,16 @@ fn check_invariants(state: &SidebarState, action: &FuzzAction, step: usize) {
         assert!(
             !inner.is_help(),
             "INV-5 NESTED HELP: Help wraps another Help [{}]",
+            context(),
+        );
+    }
+
+    // INV-6: Scroll offset in bounds when set.
+    if let Some(offset) = state.scroll_offset {
+        let total = state.filtered_sessions().len();
+        assert!(
+            offset <= total,
+            "INV-6 SCROLL OUT OF BOUNDS: scroll_offset={offset} total={total} [{}]",
             context(),
         );
     }

@@ -18,20 +18,39 @@ const RENAME_FG: &str = "\x1b[38;2;140;220;255m";        // light cyan for renam
 const RENAME_NAV_FG: &str = "\x1b[38;2;255;220;150m";   // warm amber for rename in navigate
 const RESET: &str = "\x1b[0m";
 
+/// Result from a render pass, including click regions and viewport metadata.
+pub struct RenderResult {
+    pub click_regions: Vec<ClickRegion>,
+    pub viewport_start: usize,
+    pub max_visible: usize,
+}
+
 /// Render the sidebar into the plugin's stdout.
-/// Returns click regions for mouse handling.
-pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> Vec<ClickRegion> {
+/// Returns click regions and viewport metadata for mouse/scroll handling.
+pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> RenderResult {
     if state.mode.is_help() {
-        return render_help_overlay(rows, cols);
+        return RenderResult {
+            click_regions: render_help_overlay(rows, cols),
+            viewport_start: 0,
+            max_visible: 0,
+        };
     }
 
     if !state.initialized {
-        return render_loading(rows, cols);
+        return RenderResult {
+            click_regions: render_loading(rows, cols),
+            viewport_start: 0,
+            max_visible: 0,
+        };
     }
 
     let payload = match &state.cached_payload {
         Some(p) => p,
-        None => return render_loading(rows, cols),
+        None => return RenderResult {
+            click_regions: render_loading(rows, cols),
+            viewport_start: 0,
+            max_visible: 0,
+        },
     };
 
     let sessions = state.filtered_sessions();
@@ -44,7 +63,11 @@ pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> Vec<Cli
     let mut click_regions = Vec::new();
 
     if sessions.is_empty() && state.mode.filter_state().is_none() {
-        return render_empty_state(state, payload, rows, cols);
+        return RenderResult {
+            click_regions: render_empty_state(state, payload, rows, cols),
+            viewport_start: 0,
+            max_visible: 0,
+        };
     }
 
     // Header with status counts (clickable to enter navigate mode)
@@ -84,7 +107,7 @@ pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> Vec<Cli
         state.effective_focused_pane_id()
     };
     let (start_idx, end_idx, above_count, below_count) =
-        visible_range(total, max_visible, payload.active_tab_index, scroll_anchor_pane_id, payload.sort_active, &sessions);
+        visible_range(total, max_visible, payload.active_tab_index, scroll_anchor_pane_id, payload.sort_active, &sessions, state.scroll_offset);
 
     // Defensive bounds clamping
     let start_idx = start_idx.min(total);
@@ -92,10 +115,11 @@ pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> Vec<Cli
 
     let mut row = content_start;
 
-    // Overflow indicator (above)
+    // Overflow indicator (above) - clickable to scroll up
     if above_count > 0 {
         let msg = format!("  \u{25b2} +{above_count}");
         print_line(row, cols, &msg, Style::Dim);
+        click_regions.push((row, OVERFLOW_UP_CLICK_SENTINEL, 0));
         row += 1;
     }
 
@@ -167,10 +191,11 @@ pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> Vec<Cli
         }
     }
 
-    // Overflow indicator (below)
+    // Overflow indicator (below) - clickable to scroll down
     if below_count > 0 && row < content_end {
         let msg = format!("  \u{25bc} +{below_count}");
         print_line(row, cols, &msg, Style::Dim);
+        click_regions.push((row, OVERFLOW_DOWN_CLICK_SENTINEL, 0));
         row += 1;
     }
 
@@ -241,7 +266,11 @@ pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> Vec<Cli
     // Header click region last so session regions take priority
     click_regions.push((0, u32::MAX - 1, usize::MAX));
 
-    click_regions
+    RenderResult {
+        click_regions,
+        viewport_start: start_idx,
+        max_visible,
+    }
 }
 
 /// Render the "Connecting..." loading state.
@@ -297,6 +326,10 @@ pub fn render_permission_prompt(rows: usize, cols: usize) {
 pub const VOICE_CLICK_SENTINEL: u32 = u32::MAX - 2;
 /// Click sentinel for the separator row (activates first session).
 pub const SEPARATOR_CLICK_SENTINEL: u32 = u32::MAX - 3;
+/// Click sentinel for the "above" overflow indicator (scroll up).
+pub const OVERFLOW_UP_CLICK_SENTINEL: u32 = u32::MAX - 4;
+/// Click sentinel for the "below" overflow indicator (scroll down).
+pub const OVERFLOW_DOWN_CLICK_SENTINEL: u32 = u32::MAX - 5;
 
 /// Render the status header with orange star and session counts.
 fn render_header(state: &super::state::SidebarState, payload: &cc_deck::RenderPayload, cols: usize) {
@@ -536,12 +569,20 @@ fn visible_range(
     focused_pane_id: Option<u32>,
     sort_active: bool,
     sessions: &[&RenderSession],
+    scroll_offset: Option<usize>,
 ) -> (usize, usize, usize, usize) {
     if total == 0 || max_visible == 0 {
         return (0, 0, 0, 0);
     }
     if total <= max_visible {
         return (0, total, 0, 0);
+    }
+
+    // Manual scroll offset overrides auto-centering.
+    if let Some(offset) = scroll_offset {
+        let start = offset.min(total.saturating_sub(max_visible));
+        let end = (start + max_visible).min(total);
+        return (start, end, start, total.saturating_sub(end));
     }
 
     // When sorted, use focused_pane_id for the scroll anchor so the viewport
@@ -881,7 +922,7 @@ mod tests {
             in_worktree: false,
         };
         let sessions: Vec<&RenderSession> = vec![&s1, &s2];
-        let (start, end, above, below) = visible_range(2, 5, 0, None, false, &sessions);
+        let (start, end, above, below) = visible_range(2, 5, 0, None, false, &sessions, None);
         assert_eq!((start, end, above, below), (0, 2, 0, 0));
     }
 
@@ -904,7 +945,7 @@ mod tests {
             }
         }).collect();
         let refs: Vec<&RenderSession> = sessions_owned.iter().collect();
-        let (start, end, above, below) = visible_range(10, 3, 5, None, false, &refs);
+        let (start, end, above, below) = visible_range(10, 3, 5, None, false, &refs, None);
         assert_eq!(end - start, 3);
         assert!(start <= 5 && end > 5);
         assert!(above > 0 || below > 0);
@@ -930,7 +971,7 @@ mod tests {
         }).collect();
         let refs: Vec<&RenderSession> = sessions_owned.iter().collect();
         // Sorted mode with focused_pane_id=107 (display position 7)
-        let (start, end, _, _) = visible_range(10, 3, 0, Some(107), true, &refs);
+        let (start, end, _, _) = visible_range(10, 3, 0, Some(107), true, &refs, None);
         assert_eq!(end - start, 3);
         assert!(start <= 7 && end > 7, "viewport should center on pane_id 107");
     }
@@ -955,7 +996,7 @@ mod tests {
         }).collect();
         let refs: Vec<&RenderSession> = sessions_owned.iter().collect();
         // Sorted mode but no focused_pane_id — should fall back to active_tab_index=5
-        let (start, end, _, _) = visible_range(10, 3, 5, None, true, &refs);
+        let (start, end, _, _) = visible_range(10, 3, 5, None, true, &refs, None);
         assert_eq!(end - start, 3);
         assert!(start <= 5 && end > 5, "viewport should center on tab_index 5 as fallback");
     }

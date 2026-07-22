@@ -371,7 +371,7 @@ pub fn handle_run_command_result(
             let should_rename = state
                 .sessions
                 .get(&pane_id)
-                .map(|s| !s.manually_renamed)
+                .map(|s| !s.manually_renamed && !s.in_worktree)
                 .unwrap_or(false);
 
             if should_rename {

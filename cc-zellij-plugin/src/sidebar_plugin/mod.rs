@@ -241,8 +241,20 @@ impl ZellijPlugin for SidebarRendererPlugin {
                             }
                         }
 
+                        let old_focus = self.state.cached_payload.as_ref()
+                            .and_then(|p| p.focused_pane_id);
+
                         self.state.cached_payload = Some(render_payload);
                         self.state.initialized = true;
+
+                        // Reset manual scroll when focus changes outside navigate mode
+                        if !self.state.mode.is_navigating() && self.state.scroll_offset.is_some() {
+                            let new_focus = self.state.cached_payload.as_ref()
+                                .and_then(|p| p.focused_pane_id);
+                            if old_focus != new_focus {
+                                self.state.scroll_offset = None;
+                            }
+                        }
 
                         // After a sort, relocate the cursor to track the
                         // same session by pane_id instead of by index.
@@ -320,8 +332,10 @@ impl ZellijPlugin for SidebarRendererPlugin {
             return;
         }
         self.state.clear_expired_notifications();
-        let regions = render::render_sidebar(&self.state, rows, cols);
-        self.state.click_regions = regions;
+        let result = render::render_sidebar(&self.state, rows, cols);
+        self.state.click_regions = result.click_regions;
+        self.state.last_viewport_start = result.viewport_start;
+        self.state.last_max_visible = result.max_visible;
     }
 }
 
