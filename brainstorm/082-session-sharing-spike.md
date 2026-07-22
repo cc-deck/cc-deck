@@ -167,21 +167,35 @@ spec:
 - Zellij web server must listen on `0.0.0.0` (not `127.0.0.1`) for the cluster to reach it, which requires TLS.
 - This only works when the laptop is on the home network. For remote use, need Cloudflare Tunnel or similar.
 
-### 4. Zellij Connected Client API (RESEARCH INCOMPLETE)
+### 4. Zellij Connected Client API (VALIDATED)
 
-**Status: No direct API found. Further investigation needed.**
+**Status: Sufficient API surface exists for a basic presence panel.**
 
-- The Zellij plugin API (`zellij-tile` crate) does not appear to expose web client connection events in its public event types
-- `zellij web --status` only reports server online/offline status, not connected client count
-- The [multiplayer sessions announcement](https://zellij.dev/news/multiplayer-sessions/) describes the feature but not the internal API
-- The Share plugin (Ctrl+O, S) manages tokens but does not show active connections in its UI
-- **Possible approaches for presence detection:**
-  - Parse Zellij server logs (fragile, format not guaranteed)
-  - Monitor WebSocket connections at the tunnel/proxy layer
-  - Contribute upstream to Zellij: add a pipe message for connection events
-  - Use `lsof` or `ss` to count connections to port 8082 (crude but works)
+The Zellij plugin API (`zellij-tile` 0.44.1, which the project uses) exposes:
 
-**Impact on brainstorm 085 (Sidebar Presence Panel):** The absence of a Zellij connection API means the "full presence panel" needs either a workaround or an upstream contribution. The simpler "sharing indicator only" is achievable today.
+**Connection tracking (aggregate):**
+- `Event::SessionUpdate` fires when session state changes. Each `SessionInfo` includes:
+  - `connected_clients: usize` (total connected clients, terminal + web)
+  - `web_client_count: usize` (web clients specifically)
+  - `web_clients_allowed: bool` (whether web sharing is enabled)
+- `get_session_list()` (synchronous) returns the same `SessionInfo` data on demand
+
+**Per-client details (partial):**
+- `list_clients()` (async, results via `Event::ListClients`) returns `Vec<ClientInfo>`:
+  - `client_id: u16`, `pane_id: PaneId`, `running_command: String`, `is_current_client: bool`
+  - **Limitation:** No `is_web_client` field. Can't distinguish web vs. terminal per-client.
+
+**Web server management from plugin:**
+- `query_web_server_status()` returns `WebServerStatus::Online(base_url) | Offline | DifferentVersion`
+- `start_web_server()` / `stop_web_server()` (requires `StartWebServer` permission)
+- `generate_web_login_token()` / `list_web_login_tokens()` / `revoke_web_login_token()` / `revoke_all_web_tokens()`
+- `share_current_session()` / `stop_sharing_current_session()`
+
+**No connect/disconnect events.** Must poll via `SessionUpdate` subscription or timer + `list_clients()`.
+
+**Known bug** ([Issue #4064](https://github.com/zellij-org/zellij/issues/4064)): Plugin instances continue running after client disconnects in multiplayer mode (orphaned `client_id: 0`).
+
+**Impact on brainstorm 085 (Sidebar Presence Panel):** A meaningful presence panel IS feasible using `SessionInfo.web_client_count` from `SessionUpdate` events, plus `query_web_server_status()` for server state. Full per-user tracking (which web client is which) is not possible without upstream changes.
 
 ## Answered Open Questions
 
@@ -189,7 +203,7 @@ spec:
 |----------|--------|
 | Does WebSocket work through Cloudflare Tunnel? | **Yes.** Automatic upgrade, no config needed. Token auth works through the tunnel. |
 | Can Traefik proxy to laptop's Zellij? | **Yes, on same network.** Headless Service + Endpoints pointing to laptop IP. Dynamic IP is the main challenge. |
-| What does Zellij expose about connected clients? | **Nothing directly.** No plugin API events, no CLI query. Needs workaround or upstream contribution. |
+| What does Zellij expose about connected clients? | **Aggregate counts available.** `SessionInfo.web_client_count` and `connected_clients` via `SessionUpdate` events. No per-client web/terminal distinction. No connect/disconnect events (must poll). |
 | How does sharing interact with CC Deck's multi-pane layout? | **Not yet tested.** Needs browser test. The collaborator should see the full Zellij layout including sidebar (it's the full terminal). |
 | What happens on network drop? | **Not yet tested.** Cloudflare's 100-second idle timeout is a concern. Zellij's reconnection behavior needs testing. |
 
