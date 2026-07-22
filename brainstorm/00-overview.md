@@ -1,6 +1,6 @@
 # Brainstorm Overview
 
-Last updated: 2026-07-22 (082-086 session sharing)
+Last updated: 2026-07-22 (087 multiplayer plugin resilience)
 
 ## Active Brainstorms
 
@@ -46,6 +46,7 @@ Last updated: 2026-07-22 (082-086 session sharing)
 | 080 | 2026-07-11 | Sidebar auto-sort | active | - |
 | 081 | 2026-07-12 | Codex agent adapter | active | - |
 | 082 | 2026-07-22 | Session sharing spike | active | - |
+| 087 | 2026-07-22 | Multiplayer plugin resilience | active | - |
 
 ## Open Threads
 
@@ -85,6 +86,7 @@ Last updated: 2026-07-22 (082-086 session sharing)
 - OpenShell gRPC migration: **decided** full gRPC replacement of CLI wrapping. Vertex provider migration exposed three runtime CLI flag bugs. Research shows CLI not needed for SSH or file transfer (Go SSH + tar pipe). Proto codegen gives compile-time API validation. Eliminates CLI as runtime dependency. Enables K8s operator integration. Proto files pinned to release tags. Implementation: grpcClient behind existing Client interface. (from #049, revisited 2026-06-26)
 - OpenShell SDK migration: **decided** big bang replacement of CLI wrapper with openshell-sdk-go. Drop custom Client interface, use SDK ClientInterface/sub-clients directly. GatewayConfig-to-SDK-Config mapping TBD. credentials.go stays independent. Fake client for tests. replace directive during dev. (from #027)
 - Session sharing spike: test Zellij web server + Cloudflare Tunnel + Traefik IngressRoute, explore connected client API, document findings for full feature spec. Spike scope covers 8 validation items. (from #082)
+- Multiplayer plugin resilience: web clients multiply cc_deck.wasm instances (44+ sidebars), causing render storms and orphaned zombies. Phase 1: dedup sidebar registrations by (tab, plugin_id). Phase 2: client_id tracking + orphan detection. Prerequisite for session sharing (#083-086). Related to dual controller bug (#055). (from #087)
 
 ## Parked Ideas
 
