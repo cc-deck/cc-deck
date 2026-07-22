@@ -176,7 +176,10 @@ pub fn make_action_pipe(action: ActionType, pane_id: Option<u32>, sidebar_plugin
 
 /// Construct a SidebarHello PipeMessage.
 pub fn make_hello_pipe(plugin_id: u32) -> PipeMessage {
-    let hello = SidebarHello { plugin_id };
+    let hello = SidebarHello {
+        plugin_id,
+        client_id: 0,
+    };
     PipeMessage {
         source: PipeSource::Plugin(plugin_id),
         name: "cc-deck:sidebar-hello".to_string(),

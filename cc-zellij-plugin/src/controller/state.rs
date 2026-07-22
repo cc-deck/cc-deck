@@ -61,10 +61,16 @@ pub struct ControllerState {
     pub active_tab_index: Option<usize>,
     /// Currently focused terminal pane ID.
     pub focused_pane_id: Option<u32>,
-    /// Registered sidebar instances: plugin_id -> tab_index.
-    pub sidebar_registry: HashMap<u32, usize>,
+    /// Registered sidebar instances: plugin_id -> (tab_index, client_id).
+    /// The client_id component enables multiplayer filtering: the controller
+    /// only broadcasts renders to sidebars from its own client connection.
+    pub sidebar_registry: HashMap<u32, (usize, u16)>,
     /// This controller's plugin ID (set after permissions granted).
     pub plugin_id: u32,
+    /// This controller's Zellij client ID (set alongside plugin_id during
+    /// permission grant). Used to filter render broadcasts to only target
+    /// sidebars from the same client connection.
+    pub client_id: u16,
     /// Whether plugin permissions have been granted.
     pub permissions_granted: bool,
     /// Whether the render payload needs to be broadcast on the next timer tick.

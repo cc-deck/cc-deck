@@ -195,7 +195,7 @@ pub fn handle_timer(state: &mut ControllerState, _elapsed: f64) {
             ));
             // Broadcast ping so other dormant instances discover the new
             // leader and don't also self-activate after their own timeout.
-            broadcast_controller_ping(state.plugin_id);
+            broadcast_controller_ping(state.client_id, state.plugin_id);
             register_keybindings(state);
             state.keybindings_registered = true;
             render_broadcast::broadcast_render(state);
@@ -210,7 +210,7 @@ pub fn handle_timer(state: &mut ControllerState, _elapsed: f64) {
     // Leader heartbeat: broadcast ping periodically so dormant instances
     // know the leader is still alive.
     if state.tick_count.is_multiple_of(LEADER_HEARTBEAT_TICKS) {
-        broadcast_controller_ping(state.plugin_id);
+        broadcast_controller_ping(state.client_id, state.plugin_id);
         crate::debug_log("CTRL ELECTION: leader heartbeat");
     }
 
@@ -541,16 +541,18 @@ fn set_timer(interval: f64) {
 fn set_timer(_interval: f64) {}
 
 /// Broadcast a controller ping for leader election protocol.
+/// The payload encodes `client_id:plugin_id` so election priority uses
+/// the (client_id, plugin_id) tuple (lowest wins).
 #[cfg(target_family = "wasm")]
-pub fn broadcast_controller_ping(plugin_id: u32) {
+pub fn broadcast_controller_ping(client_id: u16, plugin_id: u32) {
     use zellij_tile::prelude::*;
     let mut msg = MessageToPlugin::new("cc-deck:controller-ping");
-    msg.message_payload = Some(plugin_id.to_string());
+    msg.message_payload = Some(format!("{}:{}", client_id, plugin_id));
     pipe_message_to_plugin(msg);
 }
 
 #[cfg(not(target_family = "wasm"))]
-pub fn broadcast_controller_ping(_plugin_id: u32) {}
+pub fn broadcast_controller_ping(_client_id: u16, _plugin_id: u32) {}
 
 /// Derive the Shift variant of a keybinding string by uppercasing the last character.
 #[allow(dead_code)]
@@ -769,7 +771,7 @@ mod tests {
     #[test]
     fn test_handle_pane_closed_plugin_cleans_registry() {
         let mut state = ControllerState::default();
-        state.sidebar_registry.insert(99, 0);
+        state.sidebar_registry.insert(99, (0, 0));
 
         handle_pane_closed(&mut state, PaneId::Plugin(99));
         assert!(!state.sidebar_registry.contains_key(&99));

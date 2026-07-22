@@ -99,6 +99,11 @@ pub struct ActionMessage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SidebarHello {
     pub plugin_id: u32,
+    /// The Zellij client that owns this sidebar instance.
+    /// Defaults to 0 for backward compatibility with older plugin versions
+    /// that do not include this field in the hello payload.
+    #[serde(default)]
+    pub client_id: u16,
 }
 
 /// Sent from controller to sidebar with tab assignment.
@@ -183,10 +188,24 @@ mod protocol_tests {
 
     #[test]
     fn test_sidebar_hello_roundtrip() {
-        let hello = SidebarHello { plugin_id: 99 };
+        let hello = SidebarHello {
+            plugin_id: 99,
+            client_id: 3,
+        };
         let json = serde_json::to_string(&hello).unwrap();
         let restored: SidebarHello = serde_json::from_str(&json).unwrap();
         assert_eq!(restored.plugin_id, 99);
+        assert_eq!(restored.client_id, 3);
+    }
+
+    #[test]
+    fn test_sidebar_hello_backward_compat_no_client_id() {
+        // Simulate an older plugin that does not include the client_id field.
+        // The #[serde(default)] attribute ensures client_id defaults to 0.
+        let json = r#"{"plugin_id":42}"#;
+        let restored: SidebarHello = serde_json::from_str(json).unwrap();
+        assert_eq!(restored.plugin_id, 42);
+        assert_eq!(restored.client_id, 0);
     }
 
     #[test]

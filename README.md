@@ -82,6 +82,8 @@ The sidebar tracks every Claude Code session across Zellij tabs. It shows activi
 
 Session indicators fade over time: a green checkmark dims to grey after five minutes, an idle circle darkens over an hour. You can tell at a glance how fresh each session is.
 
+**Multiplayer sessions.** When multiple terminals attach to the same Zellij session via `zellij attach`, the sidebar remains stable for the primary client. The controller filters render broadcasts to only target sidebars from its own client connection, so zombie plugin instances from disconnected clients do not cause flickering or render storms. Note that Zellij does not clean up plugin instances from disconnected clients until the session is killed ([zellij-org/zellij#4064](https://github.com/zellij-org/zellij/issues/4064)), so the sidebar registry will grow over repeated attach/detach cycles, but this has no visible performance impact.
+
 ### Workspace management
 
 The `cc-deck ws` command manages Claude Code sessions across local, containerized, remote, and sandboxed backends. See the [workspace management](#workspace-management) section for the full subcommand reference, project-local configuration, and workspace type details.
