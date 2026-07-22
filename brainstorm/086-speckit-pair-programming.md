@@ -9,6 +9,24 @@ When two developers share a CC Deck session for pair programming, the SpecKit wo
 
 The question is whether SpecKit needs additional hooks or features specifically for the pair programming use case, or whether the existing sidebar integration is sufficient.
 
+## Spike Findings (from 082)
+
+### Shared Sessions Show the Full Zellij Layout
+
+The Zellij web client renders the entire terminal session, including all panes. This means:
+- The collaborator sees the CC Deck sidebar with status icons and verb tree
+- Both users see the same spec workflow state
+- Both users can interact with the same terminal (full access tokens) or watch (read-only tokens)
+
+**Implication:** The existing sidebar integration provides the pair programming view for free. No SpecKit changes needed for basic pair programming.
+
+### Concurrent Input Is a Consideration
+
+Zellij's multiplayer model allows multiple clients to send input simultaneously. For SpecKit workflows:
+- Two users could both invoke `/speckit-specify` at the same time
+- The sidebar plugin handles events from the controller, which processes one input at a time
+- Risk is low but should be validated during manual testing
+
 ## Approaches Considered
 
 ### A: No changes needed (existing hooks suffice)
@@ -34,7 +52,7 @@ Parked: Start with approach A (no changes). The shared Zellij session already pr
 
 ## Key Requirements
 
-- Existing sidebar hooks (status icons, verb tree) must work correctly in shared sessions (verify during spike)
+- Existing sidebar hooks (status icons, verb tree) must work correctly in shared sessions (verify during manual testing)
 - Consider whether the sidebar plugin needs to handle multiple concurrent inputs gracefully
 - Spec workflow commands should not break when two users invoke them simultaneously
 
