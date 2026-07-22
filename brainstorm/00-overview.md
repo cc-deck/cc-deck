@@ -1,6 +1,6 @@
 # Brainstorm Overview
 
-Last updated: 2026-07-12 (081 codex agent adapter)
+Last updated: 2026-07-22 (082-086 session sharing)
 
 ## Active Brainstorms
 
@@ -45,6 +45,7 @@ Last updated: 2026-07-12 (081 codex agent adapter)
 | 027 | 2026-06-30 | OpenShell SDK migration | active | - |
 | 080 | 2026-07-11 | Sidebar auto-sort | active | - |
 | 081 | 2026-07-12 | Codex agent adapter | active | - |
+| 082 | 2026-07-22 | Session sharing spike | active | - |
 
 ## Open Threads
 
@@ -83,11 +84,20 @@ Last updated: 2026-07-12 (081 codex agent adapter)
 - OpenShell native Vertex provider: Replace homegrown Vertex credential handling with OpenShell's native google-cloud provider (GCE metadata emulator, PR #1763). Remove file credential upload, dead vertex profile, Vertex network domains from OpenShell policy. Keep env var injection for Claude Code. OpenShell workspaces only. (from #075)
 - OpenShell gRPC migration: **decided** full gRPC replacement of CLI wrapping. Vertex provider migration exposed three runtime CLI flag bugs. Research shows CLI not needed for SSH or file transfer (Go SSH + tar pipe). Proto codegen gives compile-time API validation. Eliminates CLI as runtime dependency. Enables K8s operator integration. Proto files pinned to release tags. Implementation: grpcClient behind existing Client interface. (from #049, revisited 2026-06-26)
 - OpenShell SDK migration: **decided** big bang replacement of CLI wrapper with openshell-sdk-go. Drop custom Client interface, use SDK ClientInterface/sub-clients directly. GatewayConfig-to-SDK-Config mapping TBD. credentials.go stays independent. Fake client for tests. replace directive during dev. (from #027)
+- Session sharing spike: test Zellij web server + Cloudflare Tunnel + Traefik IngressRoute, explore connected client API, document findings for full feature spec. Spike scope covers 8 validation items. (from #082)
 
 ## Parked Ideas
 
 - Image tool plugins: multi-harness plugin config sections, harness detection at container start, runtime vs build-time plugin install (#058)
   Reason: deferred until a second harness beyond Claude Code is supported. RTK integration was implemented directly in capture wizard.
+- Pluggable tunnel interface: Go interface for tunnel backends (Cloudflare, bore, Traefik), `cc-deck share` command UX (#083)
+  Reason: depends on spike findings from #082
+- Multi-backend session sharing: sharing across SSH, OpenShell, K8s backends with different networking models (#084)
+  Reason: depends on tunnel interface design (#083) and spike findings (#082)
+- Sidebar presence panel: connected users, access levels, quick actions for token/sharing management (#085)
+  Reason: depends on spike findings about Zellij's client connection API (#082)
+- SpecKit pair programming hooks: collaboration metadata, role awareness for shared spec workflows (#086)
+  Reason: existing sidebar hooks likely sufficient; revisit if users report friction
 
 ## Attic
 
