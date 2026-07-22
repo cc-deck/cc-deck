@@ -241,6 +241,29 @@ These need interactive testing (browser + second terminal):
 5. **Network drop test**: Kill and restart the tunnel, verify reconnection behavior
 6. **Idle timeout test**: Leave a Cloudflare Tunnel session idle for >100 seconds, observe what happens
 
+### 6. Multiplayer Focus Synchronization (DESIGN NEEDED)
+
+**Status: Problem identified during 082 resilience testing. Needs design.**
+
+**Problem:** In a multiplayer Zellij session with cc-deck, clicking the sidebar on the second client switches focus on the *first* client's terminal. This happens because the sidebar sends a Switch action via pipe to the controller, and the controller (running on client_id=1) calls `focus_terminal_pane()`, which affects client 1's focus regardless of which client originated the click.
+
+**Root cause:** All Switch actions route through the controller, which is a single-client entity. The controller has no mechanism to forward focus changes to the originating client.
+
+**Proposed solution: Two multiplayer focus modes.**
+
+1. **Synchronized mode (pair programming):** Focus changes on either client are mirrored to the other. When client 1 clicks a session, client 2's terminal also switches. When client 2 clicks, client 1 follows. Both users always see the same pane. This requires the sidebar to broadcast focus changes to all clients, not just the controller's client.
+
+2. **Independent mode (observation):** Each client controls its own focus independently. Clicking client 2's sidebar switches client 2's terminal only, never affecting client 1. This requires the sidebar to handle Switch locally (call `focus_terminal_pane` from the sidebar plugin itself, which runs on the clicking client's `client_id`) instead of routing through the controller.
+
+**Implementation considerations:**
+- The mode could be toggled via the sidebar header (click to cycle) or a config option
+- Independent mode is simpler: the sidebar calls `focus_terminal_pane` directly instead of sending a pipe message
+- Synchronized mode is harder: needs a broadcast mechanism for focus changes (pipe from controller to all client-matching sidebars, or a new `cc-deck:focus-sync` message)
+- Default should probably be synchronized (pair programming is the primary use case for session sharing)
+- Read-only tokens should always be independent (observer can browse freely without disrupting the host)
+
+**Blocked by:** This requires the multiplayer resilience fix (082) to be in place (landed). Also needs the presence panel (085) to show which mode is active and who is connected.
+
 ## Future Features (Separate Brainstorms)
 
 These topics are captured in dedicated parked brainstorm documents for later specification:
