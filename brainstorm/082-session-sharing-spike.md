@@ -207,6 +207,29 @@ The Zellij plugin API (`zellij-tile` 0.44.1, which the project uses) exposes:
 | How does sharing interact with CC Deck's multi-pane layout? | **Not yet tested.** Needs browser test. The collaborator should see the full Zellij layout including sidebar (it's the full terminal). |
 | What happens on network drop? | **Not yet tested.** Cloudflare's 100-second idle timeout is a concern. Zellij's reconnection behavior needs testing. |
 
+### 5. Plugin Instance Multiplication (CRITICAL BUG)
+
+**Status: Blocker for session sharing. Needs fix before the feature is usable.**
+
+When web clients connect to a shared session, Zellij loads the cc_deck.wasm plugin for each connected client. This causes:
+- **44 sidebar instances** registered (from `sidebars=44` in debug log) instead of the expected 1 per tab
+- Repeated `sidebar-hello` re-registrations (`plugin_id=0` on `tab=0` fires dozens of times)
+- Constant render broadcast storms (`CTRL RENDER broadcast: sidebars=44`)
+- Visible sidebar reshuffling and "Loading status-bar..." flickering
+- **Orphaned instances persist after web clients disconnect** ([Zellij Issue #4064](https://github.com/zellij-org/zellij/issues/4064))
+- Stopping the web server (`zellij web --stop`) does NOT clean up orphaned instances
+- Only a session detach+reattach resets the plugin instance count
+
+**Root cause:** Zellij's multiplayer model instantiates plugins per-client. The CC Deck controller/sidebar architecture assumes a small, stable number of plugin instances (1 controller + 1 sidebar per tab). Web clients violate this assumption.
+
+**Required fixes before session sharing can ship:**
+1. CC Deck controller must deduplicate sidebar registrations (ignore re-registrations from the same tab)
+2. CC Deck controller must handle high instance counts gracefully (cap render broadcasts)
+3. Upstream Zellij fix for orphaned plugin instances after client disconnect (#4064)
+4. Consider whether the sidebar plugin should detect web client context and behave differently (lighter weight, no controller election)
+
+**Impact on brainstorm 085 (Sidebar Presence Panel):** The `web_client_count` API is available but the plugin multiplication problem must be solved first. The presence panel would be rendered 44 times per update in the current state.
+
 ## Remaining Manual Tests
 
 These need interactive testing (browser + second terminal):
