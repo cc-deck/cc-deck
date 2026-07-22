@@ -77,6 +77,17 @@ pub struct SidebarState {
     /// Pane ID to track the cursor to after the next render payload arrives.
     /// Set when a Sort action is dispatched; consumed on the next payload update.
     pub sort_cursor_pane_id: Option<u32>,
+
+    /// Manual scroll offset: index of the first visible session.
+    /// `None` means auto-center on the active session (default behavior).
+    /// Set by mouse wheel, overflow indicator clicks, and navigate cursor tracking.
+    pub scroll_offset: Option<usize>,
+
+    /// Start index from the last render viewport (used as scroll base).
+    pub last_viewport_start: usize,
+
+    /// Max visible sessions from the last render pass (used for half-page scroll).
+    pub last_max_visible: usize,
 }
 
 impl Default for SidebarState {
@@ -100,6 +111,9 @@ impl Default for SidebarState {
             render_request_sent: false,
             ticks_since_init: 0,
             sort_cursor_pane_id: None,
+            scroll_offset: None,
+            last_viewport_start: 0,
+            last_max_visible: 0,
         }
     }
 }

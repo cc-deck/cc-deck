@@ -19,8 +19,26 @@ pub fn handle_mouse(state: &mut SidebarState, mouse: Mouse) -> bool {
     match mouse {
         Mouse::LeftClick(row, _col) => handle_left_click(state, row as usize),
         Mouse::RightClick(row, _col) => handle_right_click(state, row as usize),
+        Mouse::ScrollUp(_) => handle_scroll(state, true),
+        Mouse::ScrollDown(_) => handle_scroll(state, false),
         _ => false,
     }
+}
+
+fn handle_scroll(state: &mut SidebarState, up: bool) -> bool {
+    let total = state.filtered_sessions().len();
+    if total == 0 || state.last_max_visible == 0 {
+        return false;
+    }
+    let current = state.scroll_offset.unwrap_or(state.last_viewport_start);
+    let max_start = total.saturating_sub(state.last_max_visible);
+    let new_start = if up {
+        current.saturating_sub(1)
+    } else {
+        (current + 1).min(max_start)
+    };
+    state.scroll_offset = Some(new_start);
+    true
 }
 
 /// Handle a key event. Returns true if the sidebar should re-render.
@@ -85,6 +103,7 @@ pub fn toggle_navigate_prev(state: &mut SidebarState) {
                 };
                 crate::debug_log(&format!("SIDEBAR NAV-PREV: cursor up -> {}", ctx.cursor_index));
             }
+            ensure_cursor_visible(state);
             // Re-assert focus (see toggle_navigate for rationale)
             focus_self_wasm();
         }
@@ -158,6 +177,7 @@ pub fn toggle_navigate(state: &mut SidebarState) {
                 };
                 crate::debug_log(&format!("SIDEBAR NAV: cursor down -> {}", ctx.cursor_index));
             }
+            ensure_cursor_visible(state);
             // Re-assert focus: the keybinding routes through the controller
             // plugin, which can cause Zellij to shift focus away from the
             // sidebar. Without this, key events (Enter, Esc, j/k) are
@@ -221,13 +241,32 @@ fn handle_left_click(state: &mut SidebarState, row: usize) -> bool {
             }
             return true;
         }
+        if pane_id == super::render::OVERFLOW_UP_CLICK_SENTINEL {
+            let half_page = (state.last_max_visible / 2).max(1);
+            let current = state.scroll_offset.unwrap_or(state.last_viewport_start);
+            state.scroll_offset = Some(current.saturating_sub(half_page));
+            return true;
+        }
+        if pane_id == super::render::OVERFLOW_DOWN_CLICK_SENTINEL {
+            let half_page = (state.last_max_visible / 2).max(1);
+            let total = state.filtered_sessions().len();
+            let max_start = total.saturating_sub(state.last_max_visible.max(1));
+            let current = state.scroll_offset.unwrap_or(state.last_viewport_start);
+            state.scroll_offset = Some((current + half_page).min(max_start));
+            return true;
+        }
     }
 
     // Find clicked session
     let hit = state
         .click_regions
         .iter()
-        .find(|(r, pid, _)| *r <= row && row < r + 3 && *pid != u32::MAX && *pid != u32::MAX - 1 && *pid != super::render::SEPARATOR_CLICK_SENTINEL && *pid != super::render::VOICE_CLICK_SENTINEL)
+        .find(|(r, pid, _)| *r <= row && row < r + 3
+            && *pid != u32::MAX && *pid != u32::MAX - 1
+            && *pid != super::render::SEPARATOR_CLICK_SENTINEL
+            && *pid != super::render::VOICE_CLICK_SENTINEL
+            && *pid != super::render::OVERFLOW_UP_CLICK_SENTINEL
+            && *pid != super::render::OVERFLOW_DOWN_CLICK_SENTINEL)
         .copied();
 
     if let Some((_r, pane_id, tab_index)) = hit {
@@ -268,6 +307,7 @@ fn handle_left_click(state: &mut SidebarState, row: usize) -> bool {
             ));
             state.mode = SidebarMode::Passive;
             state.filter_text.clear();
+            state.scroll_offset = None;
             crate::wasm_compat::set_selectable_wasm(false);
         }
         return true;
@@ -279,7 +319,12 @@ fn handle_right_click(state: &mut SidebarState, row: usize) -> bool {
     let hit = state
         .click_regions
         .iter()
-        .find(|(r, pid, _)| *r <= row && row < r + 3 && *pid != u32::MAX && *pid != u32::MAX - 1 && *pid != super::render::SEPARATOR_CLICK_SENTINEL && *pid != super::render::VOICE_CLICK_SENTINEL)
+        .find(|(r, pid, _)| *r <= row && row < r + 3
+            && *pid != u32::MAX && *pid != u32::MAX - 1
+            && *pid != super::render::SEPARATOR_CLICK_SENTINEL
+            && *pid != super::render::VOICE_CLICK_SENTINEL
+            && *pid != super::render::OVERFLOW_UP_CLICK_SENTINEL
+            && *pid != super::render::OVERFLOW_DOWN_CLICK_SENTINEL)
         .copied();
 
     if let Some((_r, pane_id, _tab_index)) = hit {
@@ -334,6 +379,7 @@ fn handle_navigate_key(state: &mut SidebarState, key: KeyWithModifier) -> bool {
                     (ctx.cursor_index + 1) % count
                 };
             }
+            ensure_cursor_visible(state);
             true
         }
         BareKey::Char('k') | BareKey::Up => {
@@ -346,6 +392,7 @@ fn handle_navigate_key(state: &mut SidebarState, key: KeyWithModifier) -> bool {
                     ctx.cursor_index - 1
                 };
             }
+            ensure_cursor_visible(state);
             true
         }
         BareKey::Enter => {
@@ -375,6 +422,7 @@ fn handle_navigate_key(state: &mut SidebarState, key: KeyWithModifier) -> bool {
             }
             state.mode = SidebarMode::Passive;
             state.filter_text.clear();
+            state.scroll_offset = None;
             crate::wasm_compat::set_selectable_wasm(false);
             true
         }
@@ -652,7 +700,32 @@ fn exit_navigate(state: &mut SidebarState) {
     }
     state.mode = SidebarMode::Passive;
     state.filter_text.clear();
+    state.scroll_offset = None;
     crate::wasm_compat::set_selectable_wasm(false);
+}
+
+/// Adjust scroll_offset so the navigate cursor remains within the visible window.
+fn ensure_cursor_visible(state: &mut SidebarState) {
+    let cursor = state.mode.cursor_index();
+    let max_visible = state.last_max_visible;
+    if max_visible == 0 {
+        return;
+    }
+
+    let total = state.filtered_sessions().len();
+    if total <= max_visible {
+        state.scroll_offset = None;
+        return;
+    }
+
+    let start = state.scroll_offset.unwrap_or(state.last_viewport_start);
+    let end = (start + max_visible).min(total);
+
+    if cursor < start {
+        state.scroll_offset = Some(cursor);
+    } else if cursor >= end {
+        state.scroll_offset = Some(cursor.saturating_sub(max_visible - 1));
+    }
 }
 
 fn send_action(
