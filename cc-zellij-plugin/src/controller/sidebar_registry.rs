@@ -130,6 +130,10 @@ fn broadcast_reindex() {}
 
 /// Auto-discover sidebar plugin panes from the PaneManifest.
 /// Registers any plugin pane that is NOT the controller itself.
+/// Uses a provisional client_id (u16::MAX) so discovered sidebars are
+/// excluded from render broadcasts until they send sidebar-hello with
+/// their actual client_id. This prevents panes from other clients
+/// (which share the PaneManifest) from passing the broadcast filter.
 /// Returns the plugin_ids of newly registered sidebars.
 pub fn discover_sidebars_from_manifest(state: &mut ControllerState) -> Vec<u32> {
     let manifest = match &state.pane_manifest {
@@ -141,7 +145,7 @@ pub fn discover_sidebars_from_manifest(state: &mut ControllerState) -> Vec<u32> 
     for (&tab_pos, panes) in &manifest.panes {
         for pane in panes {
             if pane.is_plugin && pane.id != state.plugin_id && !state.sidebar_registry.contains_key(&pane.id) {
-                state.sidebar_registry.insert(pane.id, (tab_pos, state.client_id));
+                state.sidebar_registry.insert(pane.id, (tab_pos, u16::MAX));
                 new_sidebars.push(pane.id);
             }
         }
@@ -216,6 +220,22 @@ mod tests {
         assert_eq!(new_ids.len(), 1);
         assert!(new_ids.contains(&20));
         assert!(!new_ids.contains(&10));
+    }
+
+    #[test]
+    fn test_discover_sidebars_uses_provisional_client_id() {
+        let mut state = ControllerState::default();
+        state.plugin_id = 1;
+        state.client_id = 1;
+
+        let mut panes = std::collections::HashMap::new();
+        panes.insert(0, vec![make_plugin_pane(1), make_plugin_pane(10)]);
+        state.pane_manifest = Some(PaneManifest { panes });
+
+        discover_sidebars_from_manifest(&mut state);
+
+        let (_, discovered_client_id) = state.sidebar_registry[&10];
+        assert_eq!(discovered_client_id, u16::MAX, "discovered sidebars should use provisional client_id, not controller's");
     }
 
     #[test]
