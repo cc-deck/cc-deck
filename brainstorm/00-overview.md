@@ -1,6 +1,6 @@
 # Brainstorm Overview
 
-Last updated: 2026-07-22 (087 multiplayer plugin resilience)
+Last updated: 2026-07-21 (087 multiplayer plugin resilience revisit)
 
 ## Active Brainstorms
 
@@ -86,7 +86,7 @@ Last updated: 2026-07-22 (087 multiplayer plugin resilience)
 - OpenShell gRPC migration: **decided** full gRPC replacement of CLI wrapping. Vertex provider migration exposed three runtime CLI flag bugs. Research shows CLI not needed for SSH or file transfer (Go SSH + tar pipe). Proto codegen gives compile-time API validation. Eliminates CLI as runtime dependency. Enables K8s operator integration. Proto files pinned to release tags. Implementation: grpcClient behind existing Client interface. (from #049, revisited 2026-06-26)
 - OpenShell SDK migration: **decided** big bang replacement of CLI wrapper with openshell-sdk-go. Drop custom Client interface, use SDK ClientInterface/sub-clients directly. GatewayConfig-to-SDK-Config mapping TBD. credentials.go stays independent. Fake client for tests. replace directive during dev. (from #027)
 - Session sharing spike: test Zellij web server + Cloudflare Tunnel + Traefik IngressRoute, explore connected client API, document findings for full feature spec. Spike scope covers 8 validation items. (from #082)
-- Multiplayer plugin resilience: web clients multiply cc_deck.wasm instances (44+ sidebars), causing render storms and orphaned zombies. Phase 1: dedup sidebar registrations by (tab, plugin_id). Phase 2: client_id tracking + orphan detection. Prerequisite for session sharing (#083-086). Related to dual controller bug (#055). (from #087)
+- Multiplayer plugin resilience: web clients multiply cc_deck.wasm instances (44+ sidebars), causing render storms and orphaned zombies. **Revisited 2026-07-21**: empirical testing confirmed client_id is distinct per client, monotonically increasing, never reused. Orphans keep their real client_id (not 0). Refined approach: client-aware architecture using controller's own client_id to filter render broadcasts. Includes controller election hardening with (client_id, plugin_id) priority tuple. Ready for specification. (from #087)
 
 ## Parked Ideas
 
