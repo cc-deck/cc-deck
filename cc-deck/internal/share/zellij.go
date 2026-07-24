@@ -53,10 +53,10 @@ func (z *ZellijCLI) ValidateCapabilities(ctx context.Context) error {
 	}
 	return nil
 }
-func (z *ZellijCLI) ResolveSession(ctx context.Context, requested string) (string, error) {
+func (z *ZellijCLI) SessionExists(ctx context.Context, requested string) (bool, error) {
 	out, err := z.run(ctx, "list-sessions", "--no-formatting")
 	if err != nil {
-		return "", err
+		return false, err
 	}
 	var matches []string
 	for _, line := range strings.Split(out, "\n") {
@@ -72,15 +72,15 @@ func (z *ZellijCLI) ResolveSession(ctx context.Context, requested string) (strin
 		}
 	}
 	if requested != "" && len(matches) == 1 {
-		return matches[0], nil
+		return true, nil
 	}
 	if requested == "" && len(matches) == 1 {
-		return matches[0], nil
+		return true, nil
 	}
 	if len(matches) == 0 {
-		return "", fmt.Errorf("running Zellij session %q not found", requested)
+		return false, nil
 	}
-	return "", fmt.Errorf("select one Zellij session explicitly")
+	return false, nil
 }
 func parseSessionName(line string) string {
 	line = strings.TrimSpace(line)
@@ -90,14 +90,6 @@ func parseSessionName(line string) string {
 		}
 	}
 	return line
-}
-func (z *ZellijCLI) ShareSession(ctx context.Context, s string) error {
-	_, err := z.run(ctx, "--session", s, "options", "--web-sharing", "on")
-	return err
-}
-func (z *ZellijCLI) UnshareSession(ctx context.Context, s string) error {
-	_, e := z.run(ctx, "--session", s, "options", "--web-sharing", "off")
-	return e
 }
 func (z *ZellijCLI) CreateToken(ctx context.Context, label string, readOnly bool) (string, error) {
 	flag := "--create-token"

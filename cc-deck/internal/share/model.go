@@ -62,7 +62,11 @@ func (o *SharingOperation) Transition(next LifecycleState, now time.Time) bool {
 	return true
 }
 
-type StartRequest struct{ Session, Provider string }
+type StartRequest struct{ Workspace, Session, Provider string }
+type InviteRequest struct {
+	Label string
+	Role  InvitationRole
+}
 type InvitationSet struct {
 	InteractiveBrowser, InteractiveTerminal string
 	ObserverBrowser, ObserverTerminal       string
@@ -77,10 +81,12 @@ type Invitation struct {
 	Warnings []string
 }
 type SharingStatus struct {
-	State                                   LifecycleState
-	Session, Provider, EndpointURL          string
-	InteractiveAvailable, ObserverAvailable bool
-	Residuals                               []string
+	State                                     LifecycleState
+	Workspace, Session, Provider, EndpointURL string
+	Invitations                               []InvitationRecord
+	GuardReady                                bool
+	InteractiveAvailable, ObserverAvailable   bool
+	Residuals                                 []string
 }
 type GuardHandle struct {
 	PID                int    `yaml:"pid"`

@@ -156,6 +156,10 @@ func RunGuard(ctx context.Context, store Store, provider Provider, service Servi
 				_, stopErr := service.Stop(context.Background())
 				return stopErr
 			}
+			sharingStatus, statusErr := service.Status(context.Background())
+			if statusErr != nil || sharingStatus.State != StateActive {
+				return statusErr
+			}
 		}
 	}
 }

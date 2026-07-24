@@ -15,12 +15,13 @@ type SharingService struct {
 	provider Provider
 	guard    Guard
 	now      func() time.Time
+	labels   *LabelGenerator
 }
 
 const rollbackTimeout = 5 * time.Second
 
 func NewService(store Store, zellij Zellij, provider Provider) *SharingService {
-	return &SharingService{store: store, zellij: zellij, provider: provider, now: time.Now}
+	return &SharingService{store: store, zellij: zellij, provider: provider, now: time.Now, labels: NewLabelGenerator(nil)}
 }
 
 func NewServiceWithGuard(store Store, zellij Zellij, provider Provider, guard Guard) *SharingService {
@@ -29,8 +30,8 @@ func NewServiceWithGuard(store Store, zellij Zellij, provider Provider, guard Gu
 	return service
 }
 
-func (s *SharingService) Start(ctx context.Context, req StartRequest) (InvitationSet, error) {
-	var invitations InvitationSet
+func (s *SharingService) Start(ctx context.Context, req StartRequest) ([]Invitation, error) {
+	var invitations []Invitation
 	var activeOperationID string
 	err := s.store.WithLock(ctx, func() error {
 		existing, err := s.store.Load()
@@ -41,12 +42,13 @@ func (s *SharingService) Start(ctx context.Context, req StartRequest) (Invitatio
 			providerStatus, statusErr := s.provider.Status(ctx, existing.ProviderHandle)
 			if existing.State == StateActive && statusErr == nil &&
 				(providerStatus.State == "ready" || providerStatus.State == "starting") {
-				if (req.Session == "" || req.Session == existing.Session) &&
+				if (req.Workspace == "" || req.Workspace == existing.Workspace) &&
+					(req.Session == "" || req.Session == existing.Session) &&
 					(req.Provider == "" || req.Provider == existing.Provider) {
-					invitations = InvitationSet{Warnings: []string{fmt.Sprintf("Sharing is already active for session %q with provider %s; existing credentials are not redisplayed.", existing.Session, existing.Provider)}}
+					invitations = nil
 					return nil
 				}
-				return fmt.Errorf("sharing operation already exists for session %q; run cc-deck share status or stop first", existing.Session)
+				return fmt.Errorf("workspace %q is already shared; unshare it first", existing.Workspace)
 			}
 
 			var reconciled SharingStatus
@@ -60,10 +62,17 @@ func (s *SharingService) Start(ctx context.Context, req StartRequest) (Invitatio
 		if err = s.provider.Validate(ctx); err != nil {
 			return err
 		}
-		session, err := s.zellij.ResolveSession(ctx, req.Session)
+		if req.Session == "" {
+			return fmt.Errorf("canonical session is required")
+		}
+		exists, err := s.zellij.SessionExists(ctx, req.Session)
 		if err != nil {
 			return err
 		}
+		if !exists {
+			return fmt.Errorf("canonical session %q does not exist", req.Session)
+		}
+		session := req.Session
 
 		id, err := operationID()
 		if err != nil {
@@ -77,10 +86,16 @@ func (s *SharingService) Start(ctx context.Context, req StartRequest) (Invitatio
 			return fmt.Errorf("provider %q is not available", providerName)
 		}
 		now := s.now().UTC()
-		interactiveLabel := "cc-deck-" + id + "-interactive"
-		observerLabel := "cc-deck-" + id + "-observer"
+		interactiveLabel, err := s.labels.Next(nil)
+		if err != nil {
+			return err
+		}
+		observerLabel, err := s.labels.Next(map[string]bool{interactiveLabel: true})
+		if err != nil {
+			return err
+		}
 		op := &SharingOperation{
-			ID: id, Session: session, Provider: providerName,
+			ID: id, Workspace: req.Workspace, Session: session, Provider: providerName,
 			Invitations: []InvitationRecord{
 				{Label: interactiveLabel, Role: RoleInteractive, State: InvitationActive, CreatedAt: now},
 				{Label: observerLabel, Role: RoleObserver, State: InvitationActive, CreatedAt: now},
@@ -112,10 +127,6 @@ func (s *SharingService) Start(ctx context.Context, req StartRequest) (Invitatio
 			return fmt.Errorf("%w; rollback residuals: %s", cause, strings.Join(residuals, "; "))
 		}
 
-		if err = s.zellij.ShareSession(ctx, session); err != nil {
-			return err
-		}
-		undo = append(undo, func(cleanupCtx context.Context) error { return s.zellij.UnshareSession(cleanupCtx, session) })
 		localURL, webStarted, err := s.zellij.EnsureWebServer(ctx)
 		if err != nil {
 			return rollback(err)
@@ -154,10 +165,15 @@ func (s *SharingService) Start(ctx context.Context, req StartRequest) (Invitatio
 		}
 		op.ProviderHandle.Metadata["endpoint"] = ready.EndpointURL
 		op.Transition(StateActive, s.now())
-		invitations, err = BuildInvitations(ready.EndpointURL, session, interactiveToken, observerToken)
+		interactive, err := BuildInvitation(ready.EndpointURL, session, interactiveLabel, interactiveToken, RoleInteractive)
 		if err != nil {
 			return rollback(err)
 		}
+		observer, err := BuildInvitation(ready.EndpointURL, session, observerLabel, observerToken, RoleObserver)
+		if err != nil {
+			return rollback(err)
+		}
+		invitations = []Invitation{interactive, observer}
 		if err = s.store.Save(op); err != nil {
 			return rollback(err)
 		}
@@ -166,7 +182,7 @@ func (s *SharingService) Start(ctx context.Context, req StartRequest) (Invitatio
 		return nil
 	})
 	if err != nil {
-		return InvitationSet{}, err
+		return nil, err
 	}
 	if s.guard != nil && activeOperationID != "" {
 		// The child validates persisted identity under the lifecycle lock, so never
@@ -176,9 +192,9 @@ func (s *SharingService) Start(ctx context.Context, req StartRequest) (Invitatio
 		if guardErr != nil {
 			_, cleanupErr := s.Stop(context.Background())
 			if cleanupErr != nil {
-				return InvitationSet{}, fmt.Errorf("start sharing lifecycle guard: %w; cleanup: %v", guardErr, cleanupErr)
+				return nil, fmt.Errorf("start sharing lifecycle guard: %w; cleanup: %v", guardErr, cleanupErr)
 			}
-			return InvitationSet{}, fmt.Errorf("start sharing lifecycle guard: %w", guardErr)
+			return nil, fmt.Errorf("start sharing lifecycle guard: %w", guardErr)
 		}
 		persistErr := s.store.WithLock(ctx, func() error {
 			op, loadErr := s.store.Load()
@@ -195,9 +211,9 @@ func (s *SharingService) Start(ctx context.Context, req StartRequest) (Invitatio
 			_ = s.guard.Disarm(context.Background(), guardHandle)
 			_, cleanupErr := s.Stop(context.Background())
 			if cleanupErr != nil {
-				return InvitationSet{}, fmt.Errorf("persist sharing lifecycle guard: %w; cleanup: %v", persistErr, cleanupErr)
+				return nil, fmt.Errorf("persist sharing lifecycle guard: %w; cleanup: %v", persistErr, cleanupErr)
 			}
-			return InvitationSet{}, fmt.Errorf("persist sharing lifecycle guard: %w", persistErr)
+			return nil, fmt.Errorf("persist sharing lifecycle guard: %w", persistErr)
 		}
 	}
 	return invitations, nil
@@ -209,6 +225,94 @@ func operationID() (string, error) {
 		return "", fmt.Errorf("generate sharing operation ID: %w", err)
 	}
 	return hex.EncodeToString(b[:]), nil
+}
+
+func (s *SharingService) Invite(ctx context.Context, req InviteRequest) (Invitation, error) {
+	var invitation Invitation
+	err := s.store.WithLock(ctx, func() error {
+		op, err := s.store.Load()
+		if err != nil {
+			return err
+		}
+		if op == nil || op.State != StateActive {
+			return fmt.Errorf("no active sharing operation")
+		}
+		exists, err := s.zellij.SessionExists(ctx, op.Session)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			return fmt.Errorf("canonical session %q does not exist", op.Session)
+		}
+		if req.Role != RoleInteractive && req.Role != RoleObserver {
+			return fmt.Errorf("invitation role must be interactive or observer")
+		}
+		existing := map[string]bool{}
+		for _, record := range op.Invitations {
+			existing[record.Label] = true
+		}
+		label := req.Label
+		if label == "" {
+			label, err = s.labels.Next(existing)
+			if err != nil {
+				return err
+			}
+		}
+		if existing[label] {
+			return fmt.Errorf("invitation label %q already exists", label)
+		}
+		token, err := s.zellij.CreateToken(ctx, label, req.Role == RoleObserver)
+		if err != nil {
+			return err
+		}
+		invitation, err = BuildInvitation(op.EndpointURL, op.Session, label, token, req.Role)
+		if err != nil {
+			_ = s.zellij.RevokeToken(context.Background(), label)
+			return err
+		}
+		op.Invitations = append(op.Invitations, InvitationRecord{Label: label, Role: req.Role, State: InvitationActive, CreatedAt: s.now().UTC()})
+		op.UpdatedAt = s.now().UTC()
+		if err := s.store.Save(op); err != nil {
+			_ = s.zellij.RevokeToken(context.Background(), label)
+			return err
+		}
+		return nil
+	})
+	return invitation, err
+}
+
+func (s *SharingService) Revoke(ctx context.Context, label string) (SharingStatus, error) {
+	var status SharingStatus
+	err := s.store.WithLock(ctx, func() error {
+		op, err := s.store.Load()
+		if err != nil {
+			return err
+		}
+		if op == nil {
+			return fmt.Errorf("no active sharing operation")
+		}
+		for i := range op.Invitations {
+			if op.Invitations[i].Label != label {
+				continue
+			}
+			if op.Invitations[i].State == InvitationRevoked {
+				status = statusFromOperation(op)
+				return nil
+			}
+			if err := s.zellij.RevokeToken(ctx, label); err != nil {
+				return err
+			}
+			op.Invitations[i].State = InvitationRevoked
+			op.UpdatedAt = s.now().UTC()
+			if err := s.store.Save(op); err != nil {
+				return err
+			}
+			status = statusFromOperation(op)
+			return nil
+		}
+		return fmt.Errorf("invitation %q not found", label)
+	})
+	return status, err
 }
 
 func (s *SharingService) Status(ctx context.Context) (SharingStatus, error) {
@@ -224,6 +328,14 @@ func (s *SharingService) Status(ctx context.Context) (SharingStatus, error) {
 		}
 
 		status = statusFromOperation(op)
+		sessionExists, sessionErr := s.zellij.SessionExists(ctx, op.Session)
+		if sessionErr != nil || !sessionExists {
+			diagnostic := "canonical session disappeared"
+			if sessionErr != nil {
+				diagnostic = sessionErr.Error()
+			}
+			return s.reconcileLocked(ctx, op, &status, fmt.Errorf("%s", diagnostic), ProviderStatus{})
+		}
 		providerStatus, providerErr := s.provider.Status(ctx, op.ProviderHandle)
 		if op.State == StateActive && providerErr == nil && (providerStatus.State == "ready" || providerStatus.State == "starting") {
 			if providerStatus.EndpointURL != "" {
@@ -262,8 +374,9 @@ func statusFromOperation(op *SharingOperation) SharingStatus {
 		return SharingStatus{State: StateInactive}
 	}
 	status := SharingStatus{
-		State: op.State, Session: op.Session, Provider: op.Provider,
+		State: op.State, Workspace: op.Workspace, Session: op.Session, Provider: op.Provider,
 		EndpointURL: op.EndpointURL, Residuals: append([]string(nil), op.Residuals...),
+		Invitations: append([]InvitationRecord(nil), op.Invitations...), GuardReady: op.Guard.Ready,
 	}
 	if op.State == StateActive {
 		for _, invitation := range op.Invitations {
@@ -324,10 +437,7 @@ func (s *SharingService) teardownLocked(ctx context.Context, op *SharingOperatio
 			func() error { return s.zellij.RevokeToken(ctx, invitation.Label) },
 		})
 	}
-	steps = append(steps,
-		cleanupStep{"selected session may remain shared", func() error { return s.zellij.UnshareSession(ctx, op.Session) }},
-		cleanupStep{"remote clients may remain connected", func() error { return s.zellij.StopWebServer(ctx) }},
-	)
+	steps = append(steps, cleanupStep{"remote clients may remain connected", func() error { return s.zellij.StopWebServer(ctx) }})
 	for _, step := range steps {
 		if err := step.run(); err != nil {
 			residuals = append(residuals, step.residual+": "+err.Error())
