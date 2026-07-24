@@ -8,13 +8,99 @@ import (
 	"testing"
 
 	sharing "github.com/cc-deck/cc-deck/internal/share"
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 )
 
 type fakeShareStarter struct {
-	req sharing.StartRequest
-	set sharing.InvitationSet
-	err error
+	req        sharing.StartRequest
+	set        sharing.InvitationSet
+	err        error
+	status     sharing.SharingStatus
+	statusErr  error
+	stopStatus sharing.SharingStatus
+	stopErr    error
+}
+
+func (s *fakeShareStarter) Status(context.Context) (sharing.SharingStatus, error) {
+	return s.status, s.statusErr
+}
+func (s *fakeShareStarter) Stop(context.Context) (sharing.SharingStatus, error) {
+	return s.stopStatus, s.stopErr
+}
+
+func TestShareStatusPrintsSafeActiveFieldsWithoutCredentialLabels(t *testing.T) {
+	service := &fakeShareStarter{status: sharing.SharingStatus{State: sharing.StateActive, Session: "selected", Provider: "cloudflare", EndpointURL: "https://public.example", InteractiveAvailable: true, ObserverAvailable: true}}
+	command := newShareCmd(&GlobalFlags{}, service)
+	var output bytes.Buffer
+	command.SetOut(&output)
+	command.SetArgs([]string{"status"})
+	require.NoError(t, command.Execute())
+	require.Contains(t, output.String(), "State: active")
+	require.Contains(t, output.String(), "Session: selected")
+	require.NotContains(t, output.String(), "token")
+	require.NotContains(t, output.String(), "SECRET")
+}
+
+func TestShareStatusDegradedPrintsResidualAndReturnsNonzeroError(t *testing.T) {
+	service := &fakeShareStarter{status: sharing.SharingStatus{State: sharing.StateDegraded, Residuals: []string{"public endpoint may remain active"}}, statusErr: errors.New("cleanup incomplete")}
+	command := newShareCmd(&GlobalFlags{}, service)
+	var output bytes.Buffer
+	command.SetOut(&output)
+	command.SetArgs([]string{"status"})
+	require.Error(t, command.Execute())
+	require.Contains(t, output.String(), "Residual exposure: public endpoint")
+}
+
+func TestShareStopIsIdempotentAndPrintsInactive(t *testing.T) {
+	service := &fakeShareStarter{stopStatus: sharing.SharingStatus{State: sharing.StateInactive}}
+	command := newShareCmd(&GlobalFlags{}, service)
+	var output bytes.Buffer
+	command.SetOut(&output)
+	command.SetArgs([]string{"stop"})
+	require.NoError(t, command.Execute())
+	require.Contains(t, output.String(), "Sharing is inactive")
+}
+
+func TestShareStopFailurePrintsResidualAndReturnsError(t *testing.T) {
+	service := &fakeShareStarter{stopStatus: sharing.SharingStatus{State: sharing.StateDegraded, Residuals: []string{"observer credential may remain active"}}, stopErr: errors.New("cleanup incomplete")}
+	command := newShareCmd(&GlobalFlags{}, service)
+	var output bytes.Buffer
+	command.SetOut(&output)
+	command.SetArgs([]string{"stop"})
+	require.Error(t, command.Execute())
+	require.Contains(t, output.String(), "observer credential")
+}
+
+func TestShareProviderSelectionAndCompletionUseRegistryNames(t *testing.T) {
+	service := &fakeShareStarter{set: sharing.InvitationSet{Warnings: []string{"already active"}}}
+	var selected string
+	command := newShareCmdWithFactory(&GlobalFlags{}, func(_ context.Context, provider string, _ bool) (shareLifecycle, error) {
+		selected = provider
+		if provider == "missing" {
+			return nil, errors.New("provider is not available")
+		}
+		return service, nil
+	}, []string{"cloudflare", "fake"})
+	command.SetArgs([]string{"start", "selected", "--provider", "fake"})
+	require.NoError(t, command.Execute())
+	require.Equal(t, "fake", selected)
+
+	start, _, err := command.Find([]string{"start"})
+	require.NoError(t, err)
+	completion, ok := start.GetFlagCompletionFunc("provider")
+	require.True(t, ok)
+	values, directive := completion(start, nil, "")
+	require.Equal(t, []string{"cloudflare", "fake"}, values)
+	require.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive)
+}
+
+func TestShareUnknownProviderFailsBeforeStart(t *testing.T) {
+	command := newShareCmdWithFactory(&GlobalFlags{}, func(_ context.Context, provider string, _ bool) (shareLifecycle, error) {
+		return nil, errors.New("provider " + provider + " is not available")
+	}, []string{"cloudflare"})
+	command.SetArgs([]string{"start", "selected", "--provider", "missing"})
+	require.ErrorContains(t, command.Execute(), "not available")
 }
 
 func (s *fakeShareStarter) Start(_ context.Context, req sharing.StartRequest) (sharing.InvitationSet, error) {
