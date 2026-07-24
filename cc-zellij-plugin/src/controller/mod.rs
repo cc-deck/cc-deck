@@ -51,6 +51,7 @@ impl ZellijPlugin for ControllerPlugin {
             EventType::RunCommandResult,
             EventType::CommandPaneOpened,
             EventType::PaneClosed,
+            EventType::ModeUpdate,
         ]);
 
         crate::wasm_compat::request_permission_wasm(&[
@@ -107,8 +108,7 @@ impl ZellijPlugin for ControllerPlugin {
                     // Grace period lets the pane manifest stabilize before
                     // we start removing "dead" sessions that may just be
                     // slow to appear.
-                    self.state.startup_grace_until =
-                        Some(session::unix_now_ms() + 3000);
+                    self.state.startup_grace_until = Some(session::unix_now_ms() + 3000);
 
                     // Process any events queued before permissions
                     let pending = std::mem::take(&mut self.state.pending_events);
@@ -207,6 +207,15 @@ impl ZellijPlugin for ControllerPlugin {
                 }
                 return false;
             }
+            "cc-deck:focus-report" => {
+                if let Some(payload) = pipe_message.payload.as_deref() {
+                    if let Ok(report) = serde_json::from_str::<cc_deck::FocusReport>(payload) {
+                        actions::handle_focus_report(&mut self.state, report);
+                        render_broadcast::flush_render(&mut self.state);
+                    }
+                }
+                return false;
+            }
             "cc-deck:render" | "cc-deck:sidebar-init" | "cc-deck:sidebar-reindex" => {
                 // Controller ignores its own outbound broadcasts
                 return false;
@@ -214,10 +223,7 @@ impl ZellijPlugin for ControllerPlugin {
             _ => {}
         }
 
-        let action = parse_pipe_message(
-            &pipe_message.name,
-            pipe_message.payload.as_deref(),
-        );
+        let action = parse_pipe_message(&pipe_message.name, pipe_message.payload.as_deref());
 
         // Unblock CLI pipe input so `zellij pipe` does not hang.
         // DumpState handles its own unblock after sending output.
@@ -331,7 +337,7 @@ impl ZellijPlugin for ControllerPlugin {
             }
             PipeAction::Pause => {
                 // Pause from keybinding targets the focused pane
-                if let Some(pid) = self.state.focused_pane_id {
+                if let Some(pid) = self.state.own_focus() {
                     actions::handle_action(
                         &mut self.state,
                         ActionMessage {
@@ -346,7 +352,7 @@ impl ZellijPlugin for ControllerPlugin {
             }
             PipeAction::Rename => {
                 // Rename from keybinding targets the focused pane
-                if let Some(pid) = self.state.focused_pane_id {
+                if let Some(pid) = self.state.own_focus() {
                     // The actual rename text comes from the sidebar UI.
                     // This keybinding just triggers navigation mode on the sidebar.
                     broadcast_navigate(&self.state, "forward");
@@ -359,7 +365,7 @@ impl ZellijPlugin for ControllerPlugin {
             }
             PipeAction::VoiceText(text) if !text.is_empty() => {
                 if text.starts_with("[[") && text.ends_with("]]") {
-                    let command = &text[2..text.len()-2];
+                    let command = &text[2..text.len() - 2];
                     self.handle_voice_command(command);
                 } else if self.state.voice_muted {
                     crate::debug_log("CTRL VOICE discarded: muted");
@@ -410,17 +416,16 @@ impl ZellijPlugin for ControllerPlugin {
                 let manifest_focus = self.state.pane_manifest.as_ref().and_then(|m| {
                     self.state.tabs.iter().find(|t| t.active).and_then(|tab| {
                         m.panes.get(&tab.position).and_then(|panes| {
-                            panes.iter()
+                            panes
+                                .iter()
                                 .find(|p| !p.is_plugin && p.is_focused)
                                 .map(|p| p.id)
                         })
                     })
                 });
-                let tracked_focus = self.state.focused_pane_id;
+                let tracked_focus = self.state.own_focus();
                 let last_attended = self.state.last_attended_pane_id;
-                let target = manifest_focus
-                    .or(tracked_focus)
-                    .or(last_attended);
+                let target = manifest_focus.or(tracked_focus).or(last_attended);
 
                 let debug_info = format!(
                     "manifest_focus={:?} tracked_focus={:?} last_attended={:?} target={:?}",
@@ -431,7 +436,8 @@ impl ZellijPlugin for ControllerPlugin {
                 if let Some(pane_id) = target {
                     write_chars_to_pane(pane_id, "VOICE_TEST ");
                     crate::debug_log(&format!(
-                        "CTRL TEST-INJECT called write_chars_to_pane({})", pane_id
+                        "CTRL TEST-INJECT called write_chars_to_pane({})",
+                        pane_id
                     ));
                 } else {
                     crate::debug_log("CTRL TEST-INJECT: no target pane found");
@@ -531,14 +537,13 @@ impl ControllerPlugin {
                 );
             }
             Event::CommandPaneOpened(terminal_pane_id, context) => {
-                events::handle_command_pane_opened(
-                    &mut self.state,
-                    terminal_pane_id,
-                    context,
-                );
+                events::handle_command_pane_opened(&mut self.state, terminal_pane_id, context);
             }
             Event::PaneClosed(pane_id) => {
                 events::handle_pane_closed(&mut self.state, pane_id);
+            }
+            Event::ModeUpdate(mode_info) => {
+                events::handle_mode_update(&mut self.state, mode_info);
             }
             _ => {}
         }
@@ -554,7 +559,8 @@ impl ControllerPlugin {
                 self.state.voice_enabled = true;
                 self.state.voice_last_ping_ms = now_ms;
 
-                let new_muted = cmd.strip_prefix("voice:on:")
+                let new_muted = cmd
+                    .strip_prefix("voice:on:")
                     .map(|suffix| suffix == "muted")
                     .unwrap_or(false);
                 self.state.voice_muted = new_muted;
@@ -599,8 +605,11 @@ impl ControllerPlugin {
             "enter" => {
                 let sessions = &self.state.sessions;
                 let is_session = |id: &u32| sessions.contains_key(id);
-                let target = self.state.last_attended_pane_id.filter(&is_session)
-                    .or(self.state.focused_pane_id.filter(&is_session))
+                let target = self
+                    .state
+                    .last_attended_pane_id
+                    .filter(&is_session)
+                    .or(self.state.own_focus().filter(&is_session))
                     .or_else(|| sessions.keys().next().copied());
                 if let Some(pane_id) = target {
                     write_chars_to_pane(pane_id, "\r");
@@ -643,11 +652,10 @@ impl ControllerPlugin {
         let resp = DumpStateResponse {
             sessions: &self.state.sessions,
             attended_pane_id: self.state.last_attended_pane_id,
-            focused_pane_id: self.state.focused_pane_id,
+            focused_pane_id: self.state.own_focus(),
             voice_mute_requested: self.state.voice_mute_requested,
         };
-        let _state_json = serde_json::to_string(&resp)
-            .unwrap_or_else(|_| "{}".to_string());
+        let _state_json = serde_json::to_string(&resp).unwrap_or_else(|_| "{}".to_string());
         #[cfg(target_family = "wasm")]
         {
             if let PipeSource::Cli(ref pipe_id) = pipe_message.source {
@@ -694,7 +702,7 @@ fn get_all_plugin_ids_wasm() -> (u32, u16, u32) {
 fn broadcast_navigate(state: &ControllerState, direction: &str) {
     let payload = format!(
         r#"{{"active_tab_index":{},"direction":"{}"}}"#,
-        state.active_tab_index.unwrap_or(0),
+        state.own_active_tab().unwrap_or(0),
         direction
     );
     let mut msg = MessageToPlugin::new("cc-deck:navigate");
@@ -709,20 +717,23 @@ fn broadcast_controller_ping(client_id: u16, plugin_id: u32) {
     events::broadcast_controller_ping(client_id, plugin_id);
 }
 
-
 impl ControllerPlugin {
     fn inject_voice_text(&self, text: &str) {
         let sanitized = crate::sanitize_voice_text(text);
         let sessions = &self.state.sessions;
         let is_session = |id: &u32| sessions.contains_key(id);
-        let target = self.state.focused_pane_id.filter(&is_session)
+        let target = self
+            .state
+            .own_focus()
+            .filter(&is_session)
             .or(self.state.last_attended_pane_id.filter(&is_session))
             .or_else(|| sessions.keys().next().copied());
         if let Some(pane_id) = target {
             write_chars_to_pane(pane_id, &sanitized);
             crate::debug_log(&format!(
                 "CTRL VOICE injected {} chars to pane={}",
-                sanitized.len(), pane_id
+                sanitized.len(),
+                pane_id
             ));
         } else {
             crate::debug_log("CTRL VOICE discarded: no target pane");
@@ -865,11 +876,11 @@ mod tests {
         // [[command]] syntax should be detected
         let cmd_text = "[[voice:on]]";
         assert!(cmd_text.starts_with("[[") && cmd_text.ends_with("]]"));
-        let command = &cmd_text[2..cmd_text.len()-2];
+        let command = &cmd_text[2..cmd_text.len() - 2];
         assert_eq!(command, "voice:on");
 
         let cmd_text2 = "[[enter]]";
-        let command2 = &cmd_text2[2..cmd_text2.len()-2];
+        let command2 = &cmd_text2[2..cmd_text2.len() - 2];
         assert_eq!(command2, "enter");
     }
 
@@ -948,7 +959,8 @@ mod tests {
     #[test]
     fn test_dump_state_includes_focused_pane_id() {
         let mut plugin = ControllerPlugin::default();
-        plugin.state.focused_pane_id = Some(42);
+        plugin.state.client_id = 1;
+        plugin.state.set_client_focus_intent(1, 42, 0);
         plugin.state.last_attended_pane_id = Some(10);
 
         // Use the same DumpStateResponse struct as dump_state() to verify serialization
@@ -965,7 +977,7 @@ mod tests {
         let resp = DumpStateResponse {
             sessions: std::collections::BTreeMap::new(),
             attended_pane_id: plugin.state.last_attended_pane_id,
-            focused_pane_id: plugin.state.focused_pane_id,
+            focused_pane_id: plugin.state.own_focus(),
             voice_mute_requested: None,
         };
 

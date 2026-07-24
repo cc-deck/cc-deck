@@ -362,4 +362,11 @@ mod tests {
         assert!(!is_request_message("cc-deck:sync"));
         assert!(!is_request_message("cc-deck:hook"));
     }
+
+    #[test]
+    fn test_focus_report_handled_before_parse() {
+        // cc-deck:focus-report is handled directly in controller/mod.rs
+        // before parse_pipe_message runs, so it maps to Unknown here.
+        assert!(matches!(parse_pipe_message("cc-deck:focus-report", None), PipeAction::Unknown));
+    }
 }

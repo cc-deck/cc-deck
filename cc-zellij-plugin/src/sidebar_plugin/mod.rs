@@ -4,17 +4,17 @@
 // controller via cc-deck:render pipe. Handles local interaction modes
 // and forwards user actions to the controller via cc-deck:action pipe.
 
-pub mod state;
-pub mod render;
-pub mod input;
-pub mod modes;
-pub mod rename;
-#[cfg(test)]
-pub(crate) mod test_helpers;
 #[cfg(test)]
 mod fuzz_tests;
+pub mod input;
 #[cfg(test)]
 mod integration_tests;
+pub mod modes;
+pub mod rename;
+pub mod render;
+pub mod state;
+#[cfg(test)]
+pub(crate) mod test_helpers;
 
 use self::state::SidebarState;
 use crate::config::PluginConfig;
@@ -74,36 +74,21 @@ impl ZellijPlugin for SidebarRendererPlugin {
                         self.state.my_client_id = ids.client_id;
                     }
 
-                    // Start the timer for render request fallback
+                    self.send_hello();
+                    // Retry registration until sidebar-init arrives. This is
+                    // resilient to controller election and manifest startup races.
                     crate::wasm_compat::set_timeout_wasm(1.0);
                 }
                 false
             }
             Event::Timer(_) => {
-                if self.state.initialized {
-                    // No longer need timer events after first render received
+                if self.state.my_tab_index.is_some() && self.state.initialized {
                     return false;
                 }
-                self.state.ticks_since_init = self.state.ticks_since_init.saturating_add(1);
-
-                // One-shot render request: if no payload received after 3 ticks
-                if self.state.ticks_since_init >= 3
-                    && !self.state.render_request_sent
-                {
-                    send_render_request(
-                        self.state.my_plugin_id,
-                        self.state.controller_plugin_id,
-                    );
-                    self.state.render_request_sent = true;
-                    crate::debug_log(&format!(
-                        "SIDEBAR[{}] sent render-request target={:?}",
-                        self.state.my_plugin_id,
-                        self.state.controller_plugin_id
-                    ));
-                }
+                self.send_hello();
 
                 // Reschedule timer if still waiting
-                if !self.state.initialized {
+                if self.state.my_tab_index.is_none() || !self.state.initialized {
                     crate::wasm_compat::set_timeout_wasm(1.0);
                 }
                 false
@@ -153,30 +138,19 @@ impl ZellijPlugin for SidebarRendererPlugin {
                 if let Some(json) = payload {
                     if let Ok(render_payload) = serde_json::from_str::<RenderPayload>(json) {
                         // Update controller_plugin_id from payload
-                        self.state.controller_plugin_id =
-                            Some(render_payload.controller_plugin_id);
+                        self.state.controller_plugin_id = Some(render_payload.controller_plugin_id);
 
-                        // Clear predictive focus override once the controller
-                        // confirms the focus change in its payload.
+                        // Clear predictive focus once the authoritative client
+                        // view acknowledges the same pane.
                         if let Some(override_pid) = self.state.local_focus_override {
-                            if render_payload.focused_pane_id == Some(override_pid) {
+                            let confirmed = render_payload
+                                .client_views
+                                .get(&self.state.my_client_id)
+                                .is_some_and(|view| view.focused_pane_id == Some(override_pid));
+                            if confirmed {
                                 self.state.local_focus_override = None;
                                 crate::debug_log(&format!(
-                                    "SIDEBAR PAYLOAD: cleared override={override_pid}, payload_focus={:?}",
-                                    render_payload.focused_pane_id
-                                ));
-                            } else {
-                                crate::debug_log(&format!(
-                                    "SIDEBAR PAYLOAD: kept override={override_pid}, payload_focus={:?} (mismatch)",
-                                    render_payload.focused_pane_id
-                                ));
-                            }
-                        } else {
-                            let prev_focus = self.state.cached_payload.as_ref().and_then(|p| p.focused_pane_id);
-                            if render_payload.focused_pane_id != prev_focus {
-                                crate::debug_log(&format!(
-                                    "SIDEBAR PAYLOAD: no override, focus changed {:?} -> {:?}",
-                                    prev_focus, render_payload.focused_pane_id
+                                    "SIDEBAR PAYLOAD: cleared override={override_pid}, client view confirmed",
                                 ));
                             }
                         }
@@ -188,13 +162,20 @@ impl ZellijPlugin for SidebarRendererPlugin {
                         if self.state.mode.is_navigating() {
                             let now_ms = crate::session::unix_now_ms();
                             let in_grace = self.state.mode.in_grace_period(now_ms);
-                            let old_active = self.state.cached_payload
+                            let old_active = self
+                                .state
+                                .cached_payload
                                 .as_ref()
-                                .map(|p| p.active_tab_index);
-                            if !in_grace && old_active.is_some() && old_active != Some(render_payload.active_tab_index) {
+                                .and_then(|p| p.client_views.get(&self.state.my_client_id))
+                                .and_then(|view| view.active_tab_index);
+                            let new_active = render_payload
+                                .client_views
+                                .get(&self.state.my_client_id)
+                                .and_then(|view| view.active_tab_index);
+                            if !in_grace && old_active.is_some() && old_active != new_active {
                                 crate::debug_log(&format!(
-                                    "SIDEBAR RENDER: exiting navigate due to tab change old={:?} new={}",
-                                    old_active, render_payload.active_tab_index,
+                                    "SIDEBAR RENDER: exiting navigate due to tab change old={:?} new={:?}",
+                                    old_active, new_active,
                                 ));
                                 self.state.mode = modes::SidebarMode::Passive;
                                 self.state.filter_text.clear();
@@ -210,9 +191,14 @@ impl ZellijPlugin for SidebarRendererPlugin {
                         // Exit RenamePassive when focus moves to a different pane.
                         // Without this, the rename cursor stays visible on a row
                         // that is no longer active, creating a ghost rename state.
-                        if let modes::SidebarMode::RenamePassive { ref rename, entered_at_ms } = self.state.mode {
+                        if let modes::SidebarMode::RenamePassive {
+                            ref rename,
+                            entered_at_ms,
+                        } = self.state.mode
+                        {
                             let now_ms = crate::session::unix_now_ms();
-                            let in_grace = now_ms.saturating_sub(entered_at_ms) < modes::ENTER_GRACE_MS;
+                            let in_grace =
+                                now_ms.saturating_sub(entered_at_ms) < modes::ENTER_GRACE_MS;
                             if in_grace {
                                 // Double-click enters RenamePassive right after
                                 // the first click sends a Switch action. The
@@ -220,12 +206,20 @@ impl ZellijPlugin for SidebarRendererPlugin {
                                 // calls focus_terminal_pane, stealing focus from
                                 // the sidebar. Re-assert focus so keystrokes
                                 // reach the rename input.
-                                crate::debug_log("SIDEBAR RENDER: re-asserting focus during RenamePassive grace");
+                                crate::debug_log(
+                                    "SIDEBAR RENDER: re-asserting focus during RenamePassive grace",
+                                );
                                 input::focus_self_wasm();
-                            } else if render_payload.focused_pane_id != Some(rename.pane_id) {
+                            } else if render_payload
+                                .client_views
+                                .get(&self.state.my_client_id)
+                                .and_then(|view| view.focused_pane_id)
+                                != Some(rename.pane_id)
+                            {
                                 crate::debug_log(&format!(
                                     "SIDEBAR RENDER: exiting RenamePassive, focus moved from {} to {:?}",
-                                    rename.pane_id, render_payload.focused_pane_id,
+                                    rename.pane_id, render_payload.client_views.get(&self.state.my_client_id)
+                                        .and_then(|view| view.focused_pane_id),
                                 ));
                                 self.state.mode = modes::SidebarMode::Passive;
                                 crate::wasm_compat::set_selectable_wasm(false);
@@ -243,16 +237,14 @@ impl ZellijPlugin for SidebarRendererPlugin {
                             }
                         }
 
-                        let old_focus = self.state.cached_payload.as_ref()
-                            .and_then(|p| p.focused_pane_id);
+                        let old_focus = self.state.effective_focused_pane_id();
 
                         self.state.cached_payload = Some(render_payload);
                         self.state.initialized = true;
 
                         // Reset manual scroll when focus changes outside navigate mode
                         if !self.state.mode.is_navigating() && self.state.scroll_offset.is_some() {
-                            let new_focus = self.state.cached_payload.as_ref()
-                                .and_then(|p| p.focused_pane_id);
+                            let new_focus = self.state.effective_focused_pane_id();
                             if old_focus != new_focus {
                                 self.state.scroll_offset = None;
                             }
@@ -267,12 +259,6 @@ impl ZellijPlugin for SidebarRendererPlugin {
                         // Preserve cursor position after payload update
                         self.state.preserve_cursor();
 
-                        // Send hello on first payload if not yet sent
-                        if !self.state.hello_sent {
-                            self.send_hello();
-                            self.state.hello_sent = true;
-                        }
-
                         return true; // Trigger re-render
                     }
                 }
@@ -282,8 +268,7 @@ impl ZellijPlugin for SidebarRendererPlugin {
                 if let Some(json) = payload {
                     if let Ok(init) = serde_json::from_str::<SidebarInit>(json) {
                         self.state.my_tab_index = Some(init.tab_index);
-                        self.state.controller_plugin_id =
-                            Some(init.controller_plugin_id);
+                        self.state.controller_plugin_id = Some(init.controller_plugin_id);
                         crate::debug_log(&format!(
                             "SIDEBAR INIT tab_index={} controller={}",
                             init.tab_index, init.controller_plugin_id
@@ -295,8 +280,8 @@ impl ZellijPlugin for SidebarRendererPlugin {
             "cc-deck:sidebar-reindex" => {
                 crate::debug_log("SIDEBAR REINDEX: clearing tab_index, re-sending hello");
                 self.state.my_tab_index = None;
-                self.state.hello_sent = false;
-                // Will re-send hello on next render payload
+                self.send_hello();
+                crate::wasm_compat::set_timeout_wasm(1.0);
                 false
             }
             "cc-deck:navigate" => {
@@ -309,10 +294,8 @@ impl ZellijPlugin for SidebarRendererPlugin {
                             .and_then(|v| v.as_u64())
                             .map(|v| v as usize);
                         if active == self.state.my_tab_index {
-                            let backward = nav
-                                .get("direction")
-                                .and_then(|v| v.as_str())
-                                == Some("backward");
+                            let backward =
+                                nav.get("direction").and_then(|v| v.as_str()) == Some("backward");
                             if backward {
                                 input::toggle_navigate_prev(&mut self.state);
                             } else {
@@ -366,21 +349,6 @@ fn send_hello_wasm(hello: &SidebarHello) {
 
 #[cfg(not(target_family = "wasm"))]
 fn send_hello_wasm(_hello: &SidebarHello) {}
-
-/// Send a render-request to the controller. If controller_plugin_id is known,
-/// send targeted. Otherwise broadcast so any controller can respond.
-#[cfg(target_family = "wasm")]
-fn send_render_request(sidebar_plugin_id: u32, controller_plugin_id: Option<u32>) {
-    let mut msg = MessageToPlugin::new("cc-deck:render-request");
-    msg.message_payload = Some(sidebar_plugin_id.to_string());
-    if let Some(id) = controller_plugin_id {
-        msg.destination_plugin_id = Some(id);
-    }
-    pipe_message_to_plugin(msg);
-}
-
-#[cfg(not(target_family = "wasm"))]
-fn send_render_request(_sidebar_plugin_id: u32, _controller_plugin_id: Option<u32>) {}
 
 #[cfg(test)]
 impl SidebarRendererPlugin {

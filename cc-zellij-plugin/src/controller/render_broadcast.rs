@@ -15,7 +15,10 @@ pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
         let mut s: Vec<_> = state.sessions.values().collect();
         if let Some(ref order) = state.sort_order {
             s.sort_by_key(|sess| {
-                order.iter().position(|&pid| pid == sess.pane_id).unwrap_or(usize::MAX)
+                order
+                    .iter()
+                    .position(|&pid| pid == sess.pane_id)
+                    .unwrap_or(usize::MAX)
             });
         } else {
             s.sort_by_key(|s| s.tab_index.unwrap_or(usize::MAX));
@@ -52,9 +55,11 @@ pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
             }
 
             let agent_indicator = if show_agent_indicators {
-                Some(s.agent_indicator.clone().unwrap_or_else(|| {
-                    agent_name_to_indicator(s.agent_name.as_deref())
-                }))
+                Some(
+                    s.agent_indicator
+                        .clone()
+                        .unwrap_or_else(|| agent_name_to_indicator(s.agent_name.as_deref())),
+                )
             } else {
                 None
             };
@@ -83,7 +88,7 @@ pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
 
     // Auto-sort: stable-partition active sessions above paused ones.
     // Recently-unpaused sessions (in auto_sort_tail) go to end of active zone.
-    let separator_after_index = if state.config.auto_sort {
+    if state.config.auto_sort {
         let mut active = Vec::new();
         let mut paused = Vec::new();
         for s in std::mem::take(&mut render_sessions) {
@@ -105,7 +110,11 @@ pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
                 }
             }
             tail.sort_by_key(|s| {
-                state.auto_sort_tail.iter().position(|&p| p == s.pane_id).unwrap_or(usize::MAX)
+                state
+                    .auto_sort_tail
+                    .iter()
+                    .position(|&p| p == s.pane_id)
+                    .unwrap_or(usize::MAX)
             });
             active = head;
             active.extend(tail);
@@ -113,26 +122,14 @@ pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
 
         paused.sort_by_key(|s| s.tab_index);
 
-        let sep = if !active.is_empty() && !paused.is_empty() {
-            Some(active.len() - 1)
-        } else {
-            None
-        };
-
         render_sessions = active;
         render_sessions.extend(paused);
-
-        sep
-    } else {
-        None
-    };
+    }
 
     let total = render_sessions.len();
 
     RenderPayload {
         sessions: render_sessions,
-        focused_pane_id: state.focused_pane_id,
-        active_tab_index: state.active_tab_index.unwrap_or(0),
         notification: None,
         notification_expiry: None,
         total,
@@ -144,18 +141,27 @@ pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
         voice_muted: state.voice_muted,
         show_agent_indicators,
         sort_active: state.sort_order.is_some(),
-        separator_after_index,
+        client_views: state
+            .client_views
+            .iter()
+            .map(|(&client_id, view)| (client_id, view.snapshot()))
+            .collect(),
+        multiplayer_colors: state.multiplayer_colors.clone(),
     }
 }
 
 /// Map an agent name to a short indicator string for sidebar display.
 fn agent_name_to_indicator(name: Option<&str>) -> String {
     match name {
-        Some("claude") => "\u{2733}".to_string(),  // ✳
+        Some("claude") => "\u{2733}".to_string(),   // ✳
         Some("opencode") => "\u{276f}".to_string(), // ❯
         Some(other) => {
             let upper: String = other.chars().take(2).collect::<String>().to_uppercase();
-            if upper.is_empty() { "?".to_string() } else { upper }
+            if upper.is_empty() {
+                "?".to_string()
+            } else {
+                upper
+            }
         }
         None => "?".to_string(),
     }
@@ -174,17 +180,14 @@ pub fn broadcast_render(state: &ControllerState) {
         }
     };
 
-    let serialization_us = crate::session::unix_now_ms().saturating_mul(1000).saturating_sub(start_us);
+    let serialization_us = crate::session::unix_now_ms()
+        .saturating_mul(1000)
+        .saturating_sub(start_us);
 
-    // Send to each registered sidebar that belongs to this controller's client.
-    // In multiplayer sessions, zombie sidebars from disconnected clients are
-    // excluded, preventing render broadcast storms (FR-005).
     let mut send_count: u64 = 0;
-    for (&sidebar_plugin_id, &(_, client_id)) in &state.sidebar_registry {
-        if client_id == state.client_id {
-            send_render_to_plugin(sidebar_plugin_id, &json);
-            send_count += 1;
-        }
+    for &sidebar_plugin_id in state.sidebar_registry.keys() {
+        send_render_to_plugin(sidebar_plugin_id, &json);
+        send_count += 1;
     }
 
     // Untargeted broadcast as fallback for sidebars not yet in the registry.
@@ -214,9 +217,7 @@ pub fn flush_render(state: &mut ControllerState) {
             .map(|s| s.pane_id)
             .collect();
         if !waiting_panes.is_empty() {
-            crate::debug_log(&format!(
-                "CTRL FLUSH: waiting panes={waiting_panes:?}"
-            ));
+            crate::debug_log(&format!("CTRL FLUSH: waiting panes={waiting_panes:?}"));
         }
         state.perf.record_raw("render:broadcast", 1);
         let sidebar_count = state.sidebar_registry.len() as u64;
@@ -233,12 +234,10 @@ fn activity_label(activity: &Activity) -> String {
     match activity {
         Activity::Init => "Init".to_string(),
         Activity::Working => "Working".to_string(),
-        Activity::Waiting(reason) => {
-            match reason {
-                crate::session::WaitReason::Permission => "Permission".to_string(),
-                crate::session::WaitReason::Notification => "Notification".to_string(),
-            }
-        }
+        Activity::Waiting(reason) => match reason {
+            crate::session::WaitReason::Permission => "Permission".to_string(),
+            crate::session::WaitReason::Notification => "Notification".to_string(),
+        },
         Activity::Idle => "Idle".to_string(),
         Activity::Done => "Done".to_string(),
         Activity::AgentDone => "AgentDone".to_string(),
@@ -274,10 +273,6 @@ fn send_render_to_plugin(plugin_id: u32, json: &str) {
 fn send_render_to_plugin(_plugin_id: u32, _json: &str) {}
 
 /// Public wrapper for send_render_to_plugin (used by controller for targeted renders).
-pub fn send_render_to_plugin_pub(plugin_id: u32, json: &str) {
-    send_render_to_plugin(plugin_id, json);
-}
-
 /// Build and send the current render payload to a single sidebar plugin.
 pub fn targeted_render(state: &ControllerState, plugin_id: u32) {
     let payload = build_render_payload(state);
@@ -291,7 +286,6 @@ pub fn targeted_render(state: &ControllerState, plugin_id: u32) {
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -320,22 +314,19 @@ mod tests {
     #[test]
     fn test_build_render_payload_counts() {
         let mut state = ControllerState::default();
-        state.sessions.insert(
-            1,
-            make_session(1, "working", Activity::Working),
-        );
+        state
+            .sessions
+            .insert(1, make_session(1, "working", Activity::Working));
         state.sessions.insert(
             2,
             make_session(2, "waiting", Activity::Waiting(WaitReason::Permission)),
         );
-        state.sessions.insert(
-            3,
-            make_session(3, "idle", Activity::Idle),
-        );
-        state.sessions.insert(
-            4,
-            make_session(4, "done", Activity::Done),
-        );
+        state
+            .sessions
+            .insert(3, make_session(3, "idle", Activity::Idle));
+        state
+            .sessions
+            .insert(4, make_session(4, "done", Activity::Done));
 
         let payload = build_render_payload(&state);
         assert_eq!(payload.total, 4);
@@ -351,8 +342,7 @@ mod tests {
         s.git_branch = Some("main".to_string());
         s.paused = false;
         state.sessions.insert(42, s);
-        state.focused_pane_id = Some(42);
-        state.active_tab_index = Some(0);
+        state.set_client_focus_intent(state.client_id, 42, 0);
         state.plugin_id = 99;
 
         let payload = build_render_payload(&state);
@@ -365,23 +355,24 @@ mod tests {
         assert_eq!(rs.color, (180, 140, 255));
         assert_eq!(rs.git_branch, Some("main".to_string()));
         assert!(!rs.paused);
-        assert_eq!(payload.focused_pane_id, Some(42));
+        assert_eq!(
+            payload.client_views[&state.client_id].focused_pane_id,
+            Some(42)
+        );
         assert_eq!(payload.controller_plugin_id, 99);
     }
 
     #[test]
     fn test_build_render_payload_sorted_by_tab() {
         let mut state = ControllerState::default();
-        state.sessions.insert(
-            1,
-            make_session(1, "tab-2", Activity::Idle),
-        );
+        state
+            .sessions
+            .insert(1, make_session(1, "tab-2", Activity::Idle));
         // Override tab_index to 2
         state.sessions.get_mut(&1).unwrap().tab_index = Some(2);
-        state.sessions.insert(
-            2,
-            make_session(2, "tab-0", Activity::Idle),
-        );
+        state
+            .sessions
+            .insert(2, make_session(2, "tab-0", Activity::Idle));
         state.sessions.get_mut(&2).unwrap().tab_index = Some(0);
 
         let payload = build_render_payload(&state);
@@ -425,7 +416,9 @@ mod tests {
     #[test]
     fn test_broadcast_render_calls_both_targeted_and_untargeted() {
         let mut state = ControllerState::default();
-        state.sessions.insert(1, make_session(1, "test", Activity::Working));
+        state
+            .sessions
+            .insert(1, make_session(1, "test", Activity::Working));
         state.sidebar_registry.insert(42, (0, 0));
         state.sidebar_registry.insert(43, (1, 0));
 
@@ -438,7 +431,9 @@ mod tests {
     #[test]
     fn test_targeted_render_builds_payload_without_panic() {
         let mut state = ControllerState::default();
-        state.sessions.insert(1, make_session(1, "test-session", Activity::Working));
+        state
+            .sessions
+            .insert(1, make_session(1, "test-session", Activity::Working));
         state.voice_enabled = true;
         state.voice_muted = false;
 
@@ -456,7 +451,7 @@ mod tests {
 
     #[test]
     fn test_agent_name_to_indicator_known() {
-        assert_eq!(agent_name_to_indicator(Some("claude")), "\u{2733}");  // ✳
+        assert_eq!(agent_name_to_indicator(Some("claude")), "\u{2733}"); // ✳
         assert_eq!(agent_name_to_indicator(Some("opencode")), "\u{276f}"); // ❯
     }
 
@@ -500,8 +495,12 @@ mod tests {
     #[test]
     fn test_build_render_payload_hides_indicators_when_no_agent() {
         let mut state = ControllerState::default();
-        state.sessions.insert(1, make_session(1, "api", Activity::Working));
-        state.sessions.insert(2, make_session(2, "web", Activity::Working));
+        state
+            .sessions
+            .insert(1, make_session(1, "api", Activity::Working));
+        state
+            .sessions
+            .insert(2, make_session(2, "web", Activity::Working));
 
         let payload = build_render_payload(&state);
         assert!(!payload.show_agent_indicators);
@@ -536,7 +535,11 @@ mod tests {
         let payload = build_render_payload(&state);
         assert!(payload.sort_active);
 
-        let names: Vec<&str> = payload.sessions.iter().map(|s| s.display_name.as_str()).collect();
+        let names: Vec<&str> = payload
+            .sessions
+            .iter()
+            .map(|s| s.display_name.as_str())
+            .collect();
         assert_eq!(names, vec!["work1", "work2", "idle", "done", "paused"]);
     }
 
@@ -559,7 +562,11 @@ mod tests {
         let payload = build_render_payload(&state);
         assert!(!payload.sort_active);
 
-        let names: Vec<&str> = payload.sessions.iter().map(|s| s.display_name.as_str()).collect();
+        let names: Vec<&str> = payload
+            .sessions
+            .iter()
+            .map(|s| s.display_name.as_str())
+            .collect();
         assert_eq!(names, vec!["idle", "work", "paused"]);
     }
 
@@ -581,7 +588,11 @@ mod tests {
         state.sessions.get_mut(&20).unwrap().activity = Activity::Idle;
 
         let payload = build_render_payload(&state);
-        let names: Vec<&str> = payload.sessions.iter().map(|s| s.display_name.as_str()).collect();
+        let names: Vec<&str> = payload
+            .sessions
+            .iter()
+            .map(|s| s.display_name.as_str())
+            .collect();
         assert_eq!(names, vec!["work-a", "idle1"]);
     }
 
@@ -609,9 +620,12 @@ mod tests {
         state.sessions.insert(40, s3);
 
         let payload = build_render_payload(&state);
-        let names: Vec<&str> = payload.sessions.iter().map(|s| s.display_name.as_str()).collect();
+        let names: Vec<&str> = payload
+            .sessions
+            .iter()
+            .map(|s| s.display_name.as_str())
+            .collect();
         assert_eq!(names, vec!["active1", "active2", "paused1", "paused2"]);
-        assert_eq!(payload.separator_after_index, Some(1));
     }
 
     #[test]
@@ -626,8 +640,7 @@ mod tests {
         state.sessions.insert(10, s0);
         state.sessions.insert(20, s1);
 
-        let payload = build_render_payload(&state);
-        assert_eq!(payload.separator_after_index, None);
+        let _payload = build_render_payload(&state);
     }
 
     #[test]
@@ -644,8 +657,7 @@ mod tests {
         state.sessions.insert(10, s0);
         state.sessions.insert(20, s1);
 
-        let payload = build_render_payload(&state);
-        assert_eq!(payload.separator_after_index, None);
+        let _payload = build_render_payload(&state);
     }
 
     #[test]
@@ -657,7 +669,6 @@ mod tests {
         state.sessions.insert(10, s0);
 
         let payload = build_render_payload(&state);
-        assert_eq!(payload.separator_after_index, None);
         assert_eq!(payload.sessions.len(), 1);
     }
 
@@ -682,11 +693,14 @@ mod tests {
         state.auto_sort_tail = vec![30];
 
         let payload = build_render_payload(&state);
-        let names: Vec<&str> = payload.sessions.iter().map(|s| s.display_name.as_str()).collect();
+        let names: Vec<&str> = payload
+            .sessions
+            .iter()
+            .map(|s| s.display_name.as_str())
+            .collect();
         // Without auto_sort_tail, tab_index order would be: recently-unpaused(0), orig1(1), orig2(2)
         // With auto_sort_tail, recently-unpaused moves to end of active zone
         assert_eq!(names, vec!["orig1", "orig2", "recently-unpaused", "paused"]);
-        assert_eq!(payload.separator_after_index, Some(2));
     }
 
     #[test]
@@ -707,10 +721,13 @@ mod tests {
         state.sessions.insert(30, s2);
 
         let payload = build_render_payload(&state);
-        let names: Vec<&str> = payload.sessions.iter().map(|s| s.display_name.as_str()).collect();
+        let names: Vec<&str> = payload
+            .sessions
+            .iter()
+            .map(|s| s.display_name.as_str())
+            .collect();
         // No partition: tab order preserved
         assert_eq!(names, vec!["active", "paused", "active2"]);
-        assert_eq!(payload.separator_after_index, None);
     }
 
     #[test]
@@ -737,11 +754,17 @@ mod tests {
         state.sessions.insert(50, s4);
 
         let payload = build_render_payload(&state);
-        let names: Vec<&str> = payload.sessions.iter().map(|s| s.display_name.as_str()).collect();
-        // Active zone preserves tab order: a, c, e
-        // Paused zone preserves tab order: b, d
-        assert_eq!(names, vec!["a-active", "c-active", "e-active", "b-paused", "d-paused"]);
-        assert_eq!(payload.separator_after_index, Some(2));
+        let names: Vec<&str> = payload
+            .sessions
+            .iter()
+            .map(|s| s.display_name.as_str())
+            .collect();
+        // Both zones preserve their existing relative order. Activity does
+        // not affect position inside the active zone.
+        assert_eq!(
+            names,
+            vec!["a-active", "c-active", "e-active", "b-paused", "d-paused"]
+        );
     }
 
     #[test]
@@ -764,17 +787,19 @@ mod tests {
         state.sort_order = Some(vec![20, 10]);
 
         let payload = build_render_payload(&state);
-        let names: Vec<&str> = payload.sessions.iter().map(|s| s.display_name.as_str()).collect();
+        let names: Vec<&str> = payload
+            .sessions
+            .iter()
+            .map(|s| s.display_name.as_str())
+            .collect();
         // Manual sort within active zone, paused stays below separator
         assert_eq!(names, vec!["work1", "idle1", "paused1"]);
-        assert_eq!(payload.separator_after_index, Some(1));
     }
 
     #[test]
     fn test_auto_sort_empty_sessions() {
         let state = ControllerState::default();
         let payload = build_render_payload(&state);
-        assert_eq!(payload.separator_after_index, None);
         assert!(payload.sessions.is_empty());
     }
 
@@ -796,30 +821,32 @@ mod tests {
         state.auto_sort_tail = vec![20, 30];
 
         let payload = build_render_payload(&state);
-        let names: Vec<&str> = payload.sessions.iter().map(|s| s.display_name.as_str()).collect();
+        let names: Vec<&str> = payload
+            .sessions
+            .iter()
+            .map(|s| s.display_name.as_str())
+            .collect();
         assert_eq!(names, vec!["orig", "unpaused-first", "unpaused-second"]);
     }
 
     // --- T012: Broadcast filtering by client_id ---
 
     #[test]
-    fn test_broadcast_render_filters_by_client_id() {
-        // Only sidebars matching the controller's client_id should receive
-        // targeted renders. In non-WASM mode the actual send is a no-op,
-        // but the iteration logic and filter can be verified by checking
-        // that the function completes without panic and the registry
-        // contains both matching and non-matching entries.
+    fn test_broadcast_render_sends_to_all_clients() {
+        // All registered sidebars receive renders, regardless of client_id.
+        // Deduplication by (tab, client_id) in the registry caps the count.
         let mut state = ControllerState::default();
         state.client_id = 1;
-        state.sessions.insert(1, make_session(1, "test", Activity::Working));
+        state
+            .sessions
+            .insert(1, make_session(1, "test", Activity::Working));
 
-        // Two sidebars from client 1 (match), one from client 2 (zombie)
+        // Two sidebars from client 1, one from client 2 (live second client)
         state.sidebar_registry.insert(42, (0, 1));
         state.sidebar_registry.insert(43, (1, 1));
-        state.sidebar_registry.insert(44, (0, 2)); // zombie, should be skipped
+        state.sidebar_registry.insert(44, (0, 2));
 
-        // broadcast_render should complete without panic.
-        // The filter ensures only plugin_ids 42 and 43 are targeted.
+        // broadcast_render should send to all three.
         broadcast_render(&state);
 
         // Registry unchanged (broadcast is read-only)
@@ -834,10 +861,63 @@ mod tests {
         // and the guard condition is correct.
         let mut state = ControllerState::default();
         state.client_id = 1;
-        state.sessions.insert(1, make_session(1, "test", Activity::Working));
+        state
+            .sessions
+            .insert(1, make_session(1, "test", Activity::Working));
         state.sidebar_registry.insert(42, (0, 1));
 
         // With a non-empty registry, broadcast_render_all is skipped.
         broadcast_render(&state);
+    }
+
+    // --- Multiplayer client views in payload tests ---
+
+    #[test]
+    fn test_build_render_payload_includes_client_views() {
+        let mut state = ControllerState::default();
+        state
+            .sessions
+            .insert(10, make_session(10, "api", Activity::Working));
+        state
+            .sessions
+            .insert(20, make_session(20, "web", Activity::Idle));
+        state.set_client_focus_intent(1, 10, 0);
+        state.set_client_focus_intent(2, 20, 1);
+
+        let payload = build_render_payload(&state);
+        assert_eq!(payload.client_views.len(), 2);
+        assert_eq!(payload.client_views[&1].focused_pane_id, Some(10));
+        assert_eq!(payload.client_views[&2].focused_pane_id, Some(20));
+    }
+
+    #[test]
+    fn test_build_render_payload_includes_multiplayer_colors() {
+        let mut state = ControllerState::default();
+        state
+            .sessions
+            .insert(10, make_session(10, "test", Activity::Working));
+        let colors = vec![(255, 0, 0); 10];
+        state.multiplayer_colors = Some(colors.clone());
+
+        let payload = build_render_payload(&state);
+        assert_eq!(payload.multiplayer_colors, Some(colors));
+    }
+
+    #[test]
+    fn test_build_render_payload_has_independent_focus() {
+        let mut state = ControllerState::default();
+        state.client_id = 1;
+        state
+            .sessions
+            .insert(10, make_session(10, "api", Activity::Working));
+        state
+            .sessions
+            .insert(20, make_session(20, "web", Activity::Idle));
+        state.set_client_focus_intent(1, 10, 0);
+        state.set_client_focus_intent(2, 20, 1);
+
+        let payload = build_render_payload(&state);
+        assert_eq!(payload.client_views[&1].focused_pane_id, Some(10));
+        assert_eq!(payload.client_views[&2].focused_pane_id, Some(20));
     }
 }

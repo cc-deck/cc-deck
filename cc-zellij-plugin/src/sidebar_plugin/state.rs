@@ -4,9 +4,9 @@
 // UI state (mode, click regions, scroll, filter). Does NOT hold session
 // data directly; sessions are received pre-computed in RenderPayload.
 
-use cc_deck::{RenderPayload, RenderSession};
+use super::modes::SidebarMode;
 use crate::config::PluginConfig;
-use super::modes::{SidebarMode, NavigateContext};
+use cc_deck::{RenderPayload, RenderSession};
 
 /// Click region: (row, pane_id, tab_index).
 pub type ClickRegion = (usize, u32, usize);
@@ -53,29 +53,19 @@ pub struct SidebarState {
     /// Whether the first render payload has been received.
     pub initialized: bool,
 
-    /// Whether the sidebar-hello handshake has been sent.
-    pub hello_sent: bool,
-
     /// Whether plugin permissions have been granted.
     pub permissions_granted: bool,
 
     /// Last left-click timestamp (ms) and pane_id for double-click detection.
     pub last_click: Option<(u64, u32)>,
 
-    /// Predictive focus override set locally when the sidebar sends a Switch
-    /// action. Provides immediate highlight without waiting for the controller
-    /// to confirm the focus change in the next RenderPayload.
+    /// Predictive focus override set when this sidebar focuses a pane locally.
+    /// It provides immediate feedback until the controller confirms the view.
     pub local_focus_override: Option<u32>,
 
     /// Predictive mute override for immediate visual feedback on mute toggle.
     /// Set on click, cleared when the controller payload confirms the change.
     pub local_mute_override: Option<bool>,
-
-    /// Whether the one-shot render request has been sent to the controller.
-    pub render_request_sent: bool,
-
-    /// Timer tick counter since initialization, used for render request fallback.
-    pub ticks_since_init: u8,
 
     /// Pane ID to track the cursor to after the next render payload arrives.
     /// Set when a Sort action is dispatched; consumed on the next payload update.
@@ -107,13 +97,10 @@ impl Default for SidebarState {
             notification: None,
             config: PluginConfig::default(),
             initialized: false,
-            hello_sent: false,
             permissions_granted: false,
             last_click: None,
             local_focus_override: None,
             local_mute_override: None,
-            render_request_sent: false,
-            ticks_since_init: 0,
             sort_cursor_pane_id: None,
             scroll_offset: None,
             last_viewport_start: 0,
@@ -131,61 +118,72 @@ impl SidebarState {
             None => return Vec::new(),
         };
 
+        // The controller owns the stable auto-sort projection. Focus and
+        // activity changes must never reorder either zone in the sidebar.
+        let sessions = payload.sessions.iter().collect::<Vec<_>>();
+
         if self.filter_text.is_empty() {
             // Also check mode-level filter state
             if let Some(fs) = self.mode.filter_state() {
                 if fs.input_buffer.is_empty() {
-                    return payload.sessions.iter().collect();
+                    return sessions;
                 }
                 let lower = fs.input_buffer.to_lowercase();
-                return payload.sessions.iter()
+                return sessions
+                    .into_iter()
                     .filter(|s| s.display_name.to_lowercase().contains(&lower))
                     .collect();
             }
-            return payload.sessions.iter().collect();
+            return sessions;
         }
 
         let lower = self.filter_text.to_lowercase();
-        payload.sessions.iter()
+        sessions
+            .into_iter()
             .filter(|s| s.display_name.to_lowercase().contains(&lower))
             .collect()
     }
 
     /// Get the focused pane ID from the cached payload.
     pub fn focused_pane_id(&self) -> Option<u32> {
-        self.cached_payload.as_ref().and_then(|p| p.focused_pane_id)
+        self.effective_focused_pane_id()
     }
 
     /// Get the effective focused pane ID, preferring the local override
-    /// (set when the sidebar sends a Switch action) over the payload value.
+    /// (set when the sidebar focuses a pane) over the payload value.
     /// This provides immediate highlight without waiting for controller confirmation.
     pub fn effective_focused_pane_id(&self) -> Option<u32> {
-        self.local_focus_override.or_else(|| {
-            self.cached_payload.as_ref().and_then(|p| p.focused_pane_id)
-        })
+        if let Some(pid) = self.local_focus_override {
+            return Some(pid);
+        }
+        if let Some(ref payload) = self.cached_payload {
+            if let Some(view) = payload.client_views.get(&self.my_client_id) {
+                return view.focused_pane_id;
+            }
+        }
+        None
+    }
+
+    pub fn cursor_index(&self) -> usize {
+        let cursor = self.mode.cursor_pane_id();
+        cursor
+            .and_then(|pane_id| {
+                self.filtered_sessions()
+                    .iter()
+                    .position(|session| session.pane_id == pane_id)
+            })
+            .unwrap_or(0)
     }
 
     /// Preserve cursor position by clamping after session list changes.
     pub fn preserve_cursor(&mut self) {
-        let count = self.filtered_sessions().len();
-        let clamp = |ctx: &mut NavigateContext| {
-            if count == 0 {
-                ctx.cursor_index = 0;
-            } else if ctx.cursor_index >= count {
-                ctx.cursor_index = count - 1;
-            }
-        };
-        match &mut self.mode {
-            SidebarMode::Help(inner) => {
-                if let Some(ctx) = inner.nav_ctx_mut() {
-                    clamp(ctx);
-                }
-            }
-            _ => {
-                if let Some(ctx) = self.mode.nav_ctx_mut() {
-                    clamp(ctx);
-                }
-            }
+        let sessions = self.filtered_sessions();
+        let current = self.mode.cursor_pane_id();
+        let preserved = current
+            .filter(|pane_id| sessions.iter().any(|s| s.pane_id == *pane_id))
+            .or_else(|| sessions.first().map(|session| session.pane_id));
+        if let Some(ctx) = self.mode.nav_ctx_mut() {
+            ctx.cursor_pane_id = preserved;
         }
     }
 
@@ -193,12 +191,15 @@ impl SidebarState {
     ///
     /// When sessions are reordered, the cursor index may no longer point to
     /// the same session. This method finds the new position of the session
-    /// that the cursor was on (by pane_id) and updates cursor_index.
+    /// that the cursor was on (by pane_id) and preserves its identity.
     pub fn track_cursor_by_pane_id(&mut self, pane_id: u32) {
-        let sessions = self.filtered_sessions();
-        if let Some(new_idx) = sessions.iter().position(|s| s.pane_id == pane_id) {
+        if self
+            .filtered_sessions()
+            .iter()
+            .any(|session| session.pane_id == pane_id)
+        {
             if let Some(ctx) = self.mode.nav_ctx_mut() {
-                ctx.cursor_index = new_idx;
+                ctx.cursor_pane_id = Some(pane_id);
             }
         }
         // If pane_id not found, preserve_cursor() will clamp
@@ -216,9 +217,10 @@ impl SidebarState {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use super::super::test_helpers::{make_payload, make_session};
     use super::super::modes::NavigateContext;
+    use super::super::modes::NavigationOverlay;
+    use super::super::test_helpers::{make_payload, make_session};
+    use super::*;
 
     #[test]
     fn test_filtered_sessions_no_payload() {
@@ -252,34 +254,69 @@ mod tests {
     }
 
     #[test]
-    fn test_preserve_cursor_clamps() {
+    fn test_client_focus_never_reorders_payload_sessions() {
+        let mut state = SidebarState::default();
+        state.my_client_id = 2;
+        let mut payload = make_payload(vec![
+            make_session(10, "first", 0),
+            make_session(20, "second", 1),
+            make_session(30, "third", 2),
+        ]);
+        payload.client_views.insert(
+            2,
+            cc_deck::ClientViewSnapshot {
+                active_tab_index: Some(2),
+                focused_pane_id: Some(30),
+                revision: 3,
+            },
+        );
+        state.cached_payload = Some(payload);
+        state.local_focus_override = Some(30);
+
+        let names = state
+            .filtered_sessions()
+            .into_iter()
+            .map(|session| session.display_name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(names, vec!["first", "second", "third"]);
+    }
+
+    #[test]
+    fn test_preserve_cursor_falls_back_to_first_session() {
         let mut state = SidebarState::default();
         state.cached_payload = Some(make_payload(vec![
             make_session(1, "a", 0),
             make_session(2, "b", 1),
         ]));
-        state.mode = SidebarMode::Navigate(NavigateContext {
-            cursor_index: 5,
-            restore_pane_id: None,
-            restore_tab_index: None,
-            entered_at_ms: 0,
-        });
+        state.mode = SidebarMode::Navigate {
+            ctx: NavigateContext {
+                cursor_pane_id: Some(99),
+                restore_pane_id: None,
+                restore_tab_index: None,
+                entered_at_ms: 0,
+            },
+            overlay: NavigationOverlay::None,
+        };
         state.preserve_cursor();
-        assert_eq!(state.mode.cursor_index(), 1);
+        assert_eq!(state.mode.cursor_pane_id(), Some(1));
+        assert_eq!(state.cursor_index(), 0);
     }
 
     #[test]
     fn test_preserve_cursor_empty() {
         let mut state = SidebarState::default();
         // No payload, so no sessions
-        state.mode = SidebarMode::Navigate(NavigateContext {
-            cursor_index: 3,
-            restore_pane_id: None,
-            restore_tab_index: None,
-            entered_at_ms: 0,
-        });
+        state.mode = SidebarMode::Navigate {
+            ctx: NavigateContext {
+                cursor_pane_id: None,
+                restore_pane_id: None,
+                restore_tab_index: None,
+                entered_at_ms: 0,
+            },
+            overlay: NavigationOverlay::None,
+        };
         state.preserve_cursor();
-        assert_eq!(state.mode.cursor_index(), 0);
+        assert_eq!(state.cursor_index(), 0);
     }
 
     #[test]
@@ -287,47 +324,97 @@ mod tests {
         let mut state = SidebarState::default();
         // Simulate post-sort session order: pane 20 moved from index 1 to index 0
         state.cached_payload = Some(make_payload(vec![
-            make_session(20, "web", 0),  // was at index 1, now at 0
-            make_session(10, "api", 1),  // was at index 0, now at 1
+            make_session(20, "web", 0), // was at index 1, now at 0
+            make_session(10, "api", 1), // was at index 0, now at 1
         ]));
-        state.mode = SidebarMode::Navigate(NavigateContext {
-            cursor_index: 1, // cursor was at old position of "web"
-            restore_pane_id: None,
-            restore_tab_index: None,
-            entered_at_ms: 0,
-        });
+        state.mode = SidebarMode::Navigate {
+            ctx: NavigateContext {
+                cursor_pane_id: None, // cursor was at old position of "web"
+                restore_pane_id: None,
+                restore_tab_index: None,
+                entered_at_ms: 0,
+            },
+            overlay: NavigationOverlay::None,
+        };
 
         state.track_cursor_by_pane_id(20); // Track "web" by pane_id
-        assert_eq!(state.mode.cursor_index(), 0, "cursor should follow web to position 0");
+        assert_eq!(
+            state.cursor_index(),
+            0,
+            "cursor should follow web to position 0"
+        );
     }
 
     #[test]
     fn test_track_cursor_by_pane_id_session_not_found() {
         let mut state = SidebarState::default();
-        state.cached_payload = Some(make_payload(vec![
-            make_session(10, "api", 0),
-        ]));
-        state.mode = SidebarMode::Navigate(NavigateContext {
-            cursor_index: 0,
-            restore_pane_id: None,
-            restore_tab_index: None,
-            entered_at_ms: 0,
-        });
+        state.cached_payload = Some(make_payload(vec![make_session(10, "api", 0)]));
+        state.mode = SidebarMode::Navigate {
+            ctx: NavigateContext {
+                cursor_pane_id: None,
+                restore_pane_id: None,
+                restore_tab_index: None,
+                entered_at_ms: 0,
+            },
+            overlay: NavigationOverlay::None,
+        };
 
         // Track a pane_id that doesn't exist in the session list
         state.track_cursor_by_pane_id(99);
         // cursor_index should remain unchanged (preserve_cursor will clamp later)
-        assert_eq!(state.mode.cursor_index(), 0);
+        assert_eq!(state.cursor_index(), 0);
     }
 
     #[test]
     fn test_track_cursor_by_pane_id_not_navigating() {
         let mut state = SidebarState::default();
-        state.cached_payload = Some(make_payload(vec![
-            make_session(10, "api", 0),
-        ]));
+        state.cached_payload = Some(make_payload(vec![make_session(10, "api", 0)]));
         // In passive mode, track_cursor_by_pane_id is a no-op
         state.track_cursor_by_pane_id(10);
         assert!(matches!(state.mode, SidebarMode::Passive));
+    }
+
+    #[test]
+    fn test_effective_focus_prefers_override() {
+        let mut state = SidebarState::default();
+        state.my_client_id = 2;
+        let mut payload = make_payload(vec![make_session(10, "api", 0)]);
+        payload.client_views.insert(
+            2,
+            cc_deck::ClientViewSnapshot {
+                active_tab_index: Some(1),
+                focused_pane_id: Some(20),
+                revision: 1,
+            },
+        );
+        state.cached_payload = Some(payload);
+        state.local_focus_override = Some(30);
+        assert_eq!(state.effective_focused_pane_id(), Some(30));
+    }
+
+    #[test]
+    fn test_effective_focus_uses_client_view() {
+        let mut state = SidebarState::default();
+        state.my_client_id = 2;
+        let mut payload = make_payload(vec![make_session(10, "api", 0)]);
+        payload.client_views.insert(
+            2,
+            cc_deck::ClientViewSnapshot {
+                active_tab_index: Some(1),
+                focused_pane_id: Some(20),
+                revision: 1,
+            },
+        );
+        state.cached_payload = Some(payload);
+        assert_eq!(state.effective_focused_pane_id(), Some(20));
+    }
+
+    #[test]
+    fn test_effective_focus_unknown_without_client_view() {
+        let mut state = SidebarState::default();
+        state.my_client_id = 2;
+        let payload = make_payload(vec![make_session(10, "api", 0)]);
+        state.cached_payload = Some(payload);
+        assert_eq!(state.effective_focused_pane_id(), None);
     }
 }
