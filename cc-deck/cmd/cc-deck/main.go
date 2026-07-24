@@ -79,6 +79,7 @@ SSH remotes for agent workspaces.`,
 
 	addToGroup(rootCmd, "session",
 		cmd.NewSnapshotCmd(gf),
+		cmd.NewShareCmd(gf),
 	)
 
 	addToGroup(rootCmd, "build",
