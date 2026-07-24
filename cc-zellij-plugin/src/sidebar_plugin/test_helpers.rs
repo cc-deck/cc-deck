@@ -1,4 +1,4 @@
-use super::modes::{NavigateContext, SidebarMode};
+use super::modes::{NavigateContext, NavigationOverlay, SidebarMode};
 use super::state::SidebarState;
 use super::SidebarRendererPlugin;
 use crate::controller::ControllerPlugin;
@@ -10,8 +10,6 @@ pub fn make_payload(sessions: Vec<RenderSession>) -> RenderPayload {
     let total = sessions.len();
     RenderPayload {
         sessions,
-        focused_pane_id: None,
-        active_tab_index: 0,
         notification: None,
         notification_expiry: None,
         total,
@@ -23,7 +21,8 @@ pub fn make_payload(sessions: Vec<RenderSession>) -> RenderPayload {
         voice_muted: false,
         show_agent_indicators: false,
         sort_active: false,
-        separator_after_index: None,
+        client_views: std::collections::BTreeMap::new(),
+        multiplayer_colors: None,
     }
 }
 
@@ -64,12 +63,19 @@ pub fn make_state_with_sessions(sessions: &[(u32, &str, usize)]) -> SidebarState
 
 pub fn make_nav_state(sessions: &[(u32, &str, usize)], cursor: usize) -> SidebarState {
     let mut state = make_state_with_sessions(sessions);
-    state.mode = SidebarMode::Navigate(NavigateContext {
-        cursor_index: cursor,
-        restore_pane_id: None,
-        restore_tab_index: None,
-        entered_at_ms: 0,
-    });
+    let cursor_pane_id = state
+        .filtered_sessions()
+        .get(cursor)
+        .map(|session| session.pane_id);
+    state.mode = SidebarMode::Navigate {
+        ctx: NavigateContext {
+            cursor_pane_id,
+            restore_pane_id: None,
+            restore_tab_index: None,
+            entered_at_ms: 0,
+        },
+        overlay: NavigationOverlay::None,
+    };
     state
 }
 
@@ -157,7 +163,11 @@ pub fn make_hook_pipe_with_badges(hook_event: &str, pane_id: u32, badges: &[&str
 }
 
 /// Construct an action PipeMessage from a sidebar.
-pub fn make_action_pipe(action: ActionType, pane_id: Option<u32>, sidebar_plugin_id: u32) -> PipeMessage {
+pub fn make_action_pipe(
+    action: ActionType,
+    pane_id: Option<u32>,
+    sidebar_plugin_id: u32,
+) -> PipeMessage {
     let msg = ActionMessage {
         action,
         pane_id,

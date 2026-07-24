@@ -212,6 +212,16 @@ For K8s workspaces where credentials come from Secrets or external providers, ma
 
 Run cc-deck locally with Zellij, in Podman containers, or on Kubernetes clusters with persistent StatefulSet-backed workspaces. OpenShift is detected automatically. The sidebar works the same everywhere.
 
+### Multiplayer sessions
+
+When multiple clients are attached to the same Zellij session (`zellij attach`), each client controls its own focus independently. Clicking a session in the sidebar switches only the clicking client's terminal, not the other clients.
+
+The sidebar shows colored presence indicators on session lines, marking which sessions other clients are currently focused on. The indicator colors match Zellij's multiplayer user colors (the same palette used in the tab bar for client cursors).
+
+Auto-sort uses stable active and paused zones. Focusing or clicking a session never changes its position. A session leaves the active zone only when paused; when reactivated, it is appended to the active zone.
+
+**Known limitation:** Keyboard shortcuts (Alt+s, Alt+a, Alt+w) work for the primary client only. Other clients use mouse clicks for session navigation. This is due to Zellij pipe messages not carrying client identity (tracked upstream).
+
 ---
 
 ## Usage

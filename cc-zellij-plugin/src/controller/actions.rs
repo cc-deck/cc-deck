@@ -11,7 +11,6 @@ use cc_deck::{ActionMessage, ActionType};
 /// Process an action message from a sidebar plugin.
 pub fn handle_action(state: &mut ControllerState, msg: ActionMessage) {
     match msg.action {
-        ActionType::Switch => handle_switch(state, msg.pane_id, msg.tab_index),
         ActionType::Rename => handle_rename(state, msg.pane_id, msg.value),
         ActionType::Delete => handle_delete(state, msg.pane_id),
         ActionType::Pause => handle_pause(state, msg.pane_id),
@@ -19,47 +18,12 @@ pub fn handle_action(state: &mut ControllerState, msg: ActionMessage) {
         ActionType::AttendPrev => handle_attend_prev(state),
         ActionType::Working => handle_working(state),
         ActionType::WorkingPrev => handle_working_prev(state),
-        ActionType::Navigate => handle_navigate(state, msg.pane_id, msg.tab_index),
         ActionType::NewSession => handle_new_session(state),
         ActionType::Refresh => handle_refresh(state),
         ActionType::VoiceMute => handle_voice_mute(state),
         ActionType::Sort => handle_sort(state),
         ActionType::MoveUp => handle_move(state, msg.pane_id, -1),
         ActionType::MoveDown => handle_move(state, msg.pane_id, 1),
-    }
-}
-
-/// Switch to a specific session (focus its pane and tab).
-fn handle_switch(state: &mut ControllerState, pane_id: Option<u32>, tab_index: Option<usize>) {
-    if let (Some(pid), Some(tab_idx)) = (pane_id, tab_index) {
-        // Auto-unpause on switch
-        let mut auto_unpaused = false;
-        if let Some(s) = state.sessions.get_mut(&pid) {
-            if s.paused {
-                s.paused = false;
-                s.last_event_ts = crate::session::unix_now();
-                state.auto_sort_tail.retain(|&p| p != pid);
-                state.auto_sort_tail.push(pid);
-                auto_unpaused = true;
-            }
-        }
-        if auto_unpaused {
-            state.save_sessions();
-        }
-        state.focused_pane_id = Some(pid);
-        state.active_tab_index = Some(tab_idx);
-        state.last_attended_pane_id = Some(pid);
-        state.in_flight_focus = Some((pid, crate::session::unix_now_ms()));
-        write_last_attended(pid);
-        crate::debug_log(&format!("CTRL SWITCH: pid={pid} tab={tab_idx} in_flight={pid}"));
-        // Broadcast BEFORE the tab switch so pipe messages are queued in Zellij
-        // ahead of the switch_tab_to command. This gives the target sidebar a
-        // chance to cache the new focus before Zellij renders the new tab,
-        // preventing the highlight flash on cross-tab switches.
-        super::render_broadcast::broadcast_render(state);
-        state.render_dirty = false;
-        switch_tab_to_wasm(tab_idx);
-        focus_terminal_pane_wasm(pid);
     }
 }
 
@@ -135,6 +99,7 @@ fn handle_delete(state: &mut ControllerState, pane_id: Option<u32>) {
         order.retain(|&p| p != pid);
     }
     state.auto_sort_tail.retain(|&p| p != pid);
+    state.prune_client_views();
 
     if let Some((tab_idx, is_only)) = session_info {
         close_session_pane_wasm(pid, tab_idx, is_only);
@@ -172,9 +137,7 @@ fn handle_pause(state: &mut ControllerState, pane_id: Option<u32>) {
 fn handle_attend(state: &mut ControllerState) {
     let result = perform_attend_directed(state, AttendDirection::Forward);
     if let Some((pane_id, tab_index)) = result {
-        state.focused_pane_id = Some(pane_id);
-        state.active_tab_index = Some(tab_index);
-        state.in_flight_focus = Some((pane_id, crate::session::unix_now_ms()));
+        state.set_client_focus_intent(state.client_id, pane_id, tab_index);
         super::render_broadcast::broadcast_render(state);
         state.render_dirty = false;
         switch_tab_to_wasm(tab_index);
@@ -186,9 +149,7 @@ fn handle_attend(state: &mut ControllerState) {
 fn handle_attend_prev(state: &mut ControllerState) {
     let result = perform_attend_directed(state, AttendDirection::Backward);
     if let Some((pane_id, tab_index)) = result {
-        state.focused_pane_id = Some(pane_id);
-        state.active_tab_index = Some(tab_index);
-        state.in_flight_focus = Some((pane_id, crate::session::unix_now_ms()));
+        state.set_client_focus_intent(state.client_id, pane_id, tab_index);
         super::render_broadcast::broadcast_render(state);
         state.render_dirty = false;
         switch_tab_to_wasm(tab_index);
@@ -200,11 +161,9 @@ fn handle_attend_prev(state: &mut ControllerState) {
 fn handle_working(state: &mut ControllerState) {
     let result = perform_working_directed(state, AttendDirection::Forward);
     if let Some((pane_id, tab_index)) = result {
-        state.focused_pane_id = Some(pane_id);
-        state.active_tab_index = Some(tab_index);
         state.last_attended_pane_id = Some(pane_id);
-        state.in_flight_focus = Some((pane_id, crate::session::unix_now_ms()));
         write_last_attended(pane_id);
+        state.set_client_focus_intent(state.client_id, pane_id, tab_index);
         super::render_broadcast::broadcast_render(state);
         state.render_dirty = false;
         switch_tab_to_wasm(tab_index);
@@ -216,37 +175,13 @@ fn handle_working(state: &mut ControllerState) {
 fn handle_working_prev(state: &mut ControllerState) {
     let result = perform_working_directed(state, AttendDirection::Backward);
     if let Some((pane_id, tab_index)) = result {
-        state.focused_pane_id = Some(pane_id);
-        state.active_tab_index = Some(tab_index);
         state.last_attended_pane_id = Some(pane_id);
-        state.in_flight_focus = Some((pane_id, crate::session::unix_now_ms()));
         write_last_attended(pane_id);
+        state.set_client_focus_intent(state.client_id, pane_id, tab_index);
         super::render_broadcast::broadcast_render(state);
         state.render_dirty = false;
         switch_tab_to_wasm(tab_index);
         focus_terminal_pane_wasm(pane_id);
-    }
-}
-
-/// Navigate action: switch to the specified pane (forwarded from sidebar).
-fn handle_navigate(
-    state: &mut ControllerState,
-    pane_id: Option<u32>,
-    tab_index: Option<usize>,
-) {
-    // Navigate is equivalent to switch for the controller.
-    // The sidebar handles cursor state locally and sends a Switch
-    // when the user selects. This handler covers keybinding-triggered navigate.
-    if let (Some(pid), Some(tab_idx)) = (pane_id, tab_index) {
-        state.focused_pane_id = Some(pid);
-        state.active_tab_index = Some(tab_idx);
-        state.last_attended_pane_id = Some(pid);
-        state.in_flight_focus = Some((pid, crate::session::unix_now_ms()));
-        write_last_attended(pid);
-        super::render_broadcast::broadcast_render(state);
-        state.render_dirty = false;
-        switch_tab_to_wasm(tab_idx);
-        focus_terminal_pane_wasm(pid);
     }
 }
 
@@ -317,10 +252,7 @@ fn handle_sort(state: &mut ControllerState) {
         return;
     }
 
-    sessions.sort_by(|a, b| {
-        a.1.cmp(&b.1)
-            .then_with(|| b.2.cmp(&a.2))
-    });
+    sessions.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| b.2.cmp(&a.2)));
 
     let order: Vec<u32> = sessions.iter().map(|&(pid, _, _)| pid).collect();
     state.sort_order = Some(order);
@@ -445,10 +377,14 @@ fn perform_attend_directed(
                 .collect()
         };
 
-        [to_candidates(waiting), to_candidates(done), to_candidates(idle)]
-            .into_iter()
-            .filter(|t| !t.is_empty())
-            .collect()
+        [
+            to_candidates(waiting),
+            to_candidates(done),
+            to_candidates(idle),
+        ]
+        .into_iter()
+        .filter(|t| !t.is_empty())
+        .collect()
     };
 
     if tiers.is_empty() {
@@ -459,7 +395,10 @@ fn perform_attend_directed(
 
     if let Some((pane_id, _)) = result {
         write_last_attended(pane_id);
-        let is_done = tiers.iter().flatten().any(|c| c.pane_id == pane_id && c.is_done);
+        let is_done = tiers
+            .iter()
+            .flatten()
+            .any(|c| c.pane_id == pane_id && c.is_done);
         if is_done {
             if let Some(session) = state.sessions.get_mut(&pane_id) {
                 session.done_attended = true;
@@ -527,19 +466,20 @@ fn cycle_through_tiers(
         state.attend_visited.clear();
     }
 
-    if let Some(fpid) = state.focused_pane_id {
+    if let Some(fpid) = state.own_focus() {
         state.attend_visited.insert(fpid);
     }
 
     for attempt in 0..2 {
         for candidates in tiers {
             let pick = match direction {
-                AttendDirection::Forward => {
-                    candidates.iter().find(|c| !state.attend_visited.contains(&c.pane_id))
-                }
-                AttendDirection::Backward => {
-                    candidates.iter().rev().find(|c| !state.attend_visited.contains(&c.pane_id))
-                }
+                AttendDirection::Forward => candidates
+                    .iter()
+                    .find(|c| !state.attend_visited.contains(&c.pane_id)),
+                AttendDirection::Backward => candidates
+                    .iter()
+                    .rev()
+                    .find(|c| !state.attend_visited.contains(&c.pane_id)),
             };
 
             if let Some(candidate) = pick {
@@ -559,7 +499,7 @@ fn cycle_through_tiers(
 
         if attempt == 0 && in_rapid_cycle {
             state.attend_visited.clear();
-            if let Some(fpid) = state.focused_pane_id {
+            if let Some(fpid) = state.own_focus() {
                 state.attend_visited.insert(fpid);
             }
         } else {
@@ -572,6 +512,58 @@ fn cycle_through_tiers(
 
 fn write_last_attended(pane_id: u32) {
     let _ = std::fs::write(ATTEND_STATE_PATH, pane_id.to_string());
+}
+
+/// Handle a focus-report from a sidebar (multiplayer presence tracking).
+pub fn handle_focus_report(state: &mut ControllerState, report: cc_deck::FocusReport) {
+    crate::debug_log(&format!(
+        "CTRL FOCUS-REPORT: client={} pane={} tab={}",
+        report.client_id, report.pane_id, report.tab_index,
+    ));
+
+    // Validate: at least one sidebar is registered for this client
+    let client_known = state
+        .sidebar_registry
+        .values()
+        .any(|(_, cid)| *cid == report.client_id);
+    if !client_known {
+        crate::debug_log(&format!(
+            "CTRL FOCUS-REPORT: ignoring unknown client_id={}",
+            report.client_id
+        ));
+        return;
+    }
+
+    let valid_target = state
+        .sessions
+        .get(&report.pane_id)
+        .is_some_and(|session| session.tab_index == Some(report.tab_index));
+    if !valid_target {
+        crate::debug_log("CTRL FOCUS-REPORT: ignoring invalid pane/tab target");
+        return;
+    }
+    state.set_client_focus_intent(report.client_id, report.pane_id, report.tab_index);
+    // Auto-unpause on focus, but do NOT modify auto_sort_tail.
+    // The auto_sort_tail tracks sessions unpaused via direct user actions
+    // (Pause toggle, Switch). Focus-reports should not rearrange the sort
+    // order, as that causes visible shuffling on every click.
+    if let Some(session) = state.sessions.get_mut(&report.pane_id) {
+        if session.paused {
+            session.paused = false;
+            session.last_event_ts = crate::session::unix_now();
+            state.auto_sort_tail.retain(|&pane_id| pane_id != report.pane_id);
+            state.auto_sort_tail.push(report.pane_id);
+            state.save_sessions();
+            crate::debug_log(&format!(
+                "CTRL FOCUS-REPORT: auto-unpaused pane={}",
+                report.pane_id
+            ));
+        } else {
+            session.last_event_ts = crate::session::unix_now();
+        }
+    }
+
+    state.mark_render_dirty();
 }
 
 // --- Wasm-gated host function wrappers ---
@@ -637,20 +629,6 @@ mod tests {
     use crate::session::Session;
 
     #[test]
-    fn test_handle_switch() {
-        let mut state = ControllerState::default();
-        let mut s = Session::new(42, "test".into());
-        s.tab_index = Some(1);
-        state.sessions.insert(42, s);
-
-        handle_switch(&mut state, Some(42), Some(1));
-        assert_eq!(state.focused_pane_id, Some(42));
-        assert_eq!(state.active_tab_index, Some(1));
-        // render_dirty is false because handle_switch broadcasts immediately
-        assert!(!state.render_dirty);
-    }
-
-    #[test]
     fn test_handle_rename() {
         let mut state = ControllerState::default();
         let mut s = Session::new(42, "test".into());
@@ -703,9 +681,7 @@ mod tests {
     #[test]
     fn test_handle_pause_toggle() {
         let mut state = ControllerState::default();
-        state
-            .sessions
-            .insert(42, Session::new(42, "test".into()));
+        state.sessions.insert(42, Session::new(42, "test".into()));
 
         handle_pause(&mut state, Some(42));
         assert!(state.sessions[&42].paused);
@@ -954,21 +930,11 @@ mod tests {
         // MoveUp on the first item: initializes sort_order but no swap
         handle_move(&mut state, Some(1), -1);
 
-        assert!(state.sort_order.is_some(), "sort_order should be initialized");
+        assert!(
+            state.sort_order.is_some(),
+            "sort_order should be initialized"
+        );
         assert_eq!(state.sort_order.as_ref().unwrap(), &vec![1, 2]);
-    }
-
-    #[test]
-    fn test_handle_switch_auto_unpauses_and_populates_tail() {
-        let mut state = ControllerState::default();
-        let mut s = Session::new(42, "test".into());
-        s.tab_index = Some(1);
-        s.paused = true;
-        state.sessions.insert(42, s);
-
-        handle_switch(&mut state, Some(42), Some(1));
-        assert!(!state.sessions[&42].paused);
-        assert!(state.auto_sort_tail.contains(&42));
     }
 
     #[test]
@@ -1008,7 +974,67 @@ mod tests {
         handle_sort(&mut state);
 
         let order = state.sort_order.as_ref().unwrap();
-        assert!(!order.contains(&3), "paused session excluded from sort_order");
+        assert!(
+            !order.contains(&3),
+            "paused session excluded from sort_order"
+        );
         assert_eq!(order.len(), 2);
+    }
+
+    #[test]
+    fn test_handle_focus_report_updates_client_focus() {
+        let mut state = ControllerState::default();
+        // Register a sidebar for client_id=2 so the report is accepted
+        state.sidebar_registry.insert(100, (0, 2));
+        let mut s = Session::new(42, "test".into());
+        s.tab_index = Some(0);
+        let initial_ts = s.last_event_ts;
+        state.sessions.insert(42, s);
+
+        let report = cc_deck::FocusReport {
+            client_id: 2,
+            pane_id: 42,
+            tab_index: 0,
+        };
+        handle_focus_report(&mut state, report);
+
+        assert_eq!(state.client_views[&2].focused_pane_id, Some(42));
+        // FR-003: activity tracking updated
+        assert!(state.sessions[&42].last_event_ts >= initial_ts);
+    }
+
+    #[test]
+    fn test_handle_focus_report_appends_reactivated_session_to_active_zone() {
+        let mut state = ControllerState::default();
+        state.sidebar_registry.insert(100, (0, 2));
+        let mut s = Session::new(42, "test".into());
+        s.paused = true;
+        s.tab_index = Some(0);
+        state.sessions.insert(42, s);
+
+        let report = cc_deck::FocusReport {
+            client_id: 2,
+            pane_id: 42,
+            tab_index: 0,
+        };
+        handle_focus_report(&mut state, report);
+
+        assert!(!state.sessions[&42].paused, "session should be unpaused");
+        assert_eq!(state.auto_sort_tail, vec![42]);
+    }
+
+    #[test]
+    fn test_handle_focus_report_ignores_unknown_client() {
+        let mut state = ControllerState::default();
+        // No sidebar registered for client_id=5
+
+        let report = cc_deck::FocusReport {
+            client_id: 5,
+            pane_id: 42,
+            tab_index: 0,
+        };
+        handle_focus_report(&mut state, report);
+
+        assert!(!state.client_views.contains_key(&5));
     }
 }

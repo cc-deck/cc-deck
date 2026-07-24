@@ -1,0 +1,62 @@
+= Multiplayer Sessions
+
+When multiple clients are attached to the same Zellij session, cc-deck provides independent focus control and presence indicators so each user can work without disrupting the other.
+
+== Independent Focus
+
+Each client controls its own terminal focus.
+Clicking a session in the sidebar switches only the clicking client's terminal pane.
+The other clients are unaffected.
+
+This applies to both mouse clicks and keyboard selection (Enter in navigate mode).
+Each sidebar sends a focus report to the controller for activity tracking, but the focus change itself is handled locally by the client's own plugin instance.
+
+== Presence Indicators
+
+When two or more clients are connected, the sidebar shows colored blocks on session lines indicating which sessions other clients are focused on.
+The blocks appear right-aligned on the session name line.
+
+The colors come from Zellij's multiplayer user colors palette, the same colors used in the tab bar for client cursor indicators.
+Up to five indicators are shown per session line.
+
+If no other clients are connected, no indicators appear.
+If Zellij has not yet delivered the color palette (rare timing edge case), indicators are suppressed until the palette arrives.
+
+== Per-Client Ordering
+
+Each client maintains its own session ordering in the sidebar.
+When you switch between sessions, the most recently focused session moves to the top of your sidebar.
+This reordering does not affect other clients' sidebars.
+
+The local ordering is transient.
+It resets to the controller's global order when the client disconnects and reattaches.
+
+== Keyboard Shortcuts
+
+Keyboard shortcuts (Alt+s, Alt+a, Alt+w and their Shift variants) work for the primary client only.
+Other clients use mouse clicks on the sidebar for session navigation.
+
+This limitation exists because Zellij pipe messages do not carry client identity.
+The controller receives the keybinding press but cannot determine which client triggered it.
+
+== Getting Started
+
+To share a Zellij session with a colleague:
+
+. Start a session with cc-deck:
++
+[source,bash]
+----
+zellij --session my-session
+----
+
+. Have the colleague attach to the same session:
++
+[source,bash]
+----
+zellij attach my-session
+----
+
+Both clients see the cc-deck sidebar.
+Clicking sessions switches focus independently.
+Colored indicators show where the other client is focused.

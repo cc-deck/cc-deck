@@ -55,14 +55,18 @@ fn test_sidebar_payload_replacement() {
         make_session(1, "api-server", 0),
         make_session(2, "frontend", 1),
     ]);
-    plugin.pipe(make_pipe("cc-deck:render", &serde_json::to_string(&payload1).unwrap()));
+    plugin.pipe(make_pipe(
+        "cc-deck:render",
+        &serde_json::to_string(&payload1).unwrap(),
+    ));
     assert_eq!(plugin.test_state().filtered_sessions().len(), 2);
 
     // Send second payload with 1 session (replaces first)
-    let payload2 = make_payload(vec![
-        make_session(3, "worker", 0),
-    ]);
-    plugin.pipe(make_pipe("cc-deck:render", &serde_json::to_string(&payload2).unwrap()));
+    let payload2 = make_payload(vec![make_session(3, "worker", 0)]);
+    plugin.pipe(make_pipe(
+        "cc-deck:render",
+        &serde_json::to_string(&payload2).unwrap(),
+    ));
 
     let sessions = plugin.test_state().filtered_sessions();
     assert_eq!(sessions.len(), 1);
@@ -76,9 +80,7 @@ fn test_sidebar_render_before_permissions() {
     plugin.load(std::collections::BTreeMap::new());
     // Do NOT grant permissions
 
-    let payload = make_payload(vec![
-        make_session(1, "api-server", 0),
-    ]);
+    let payload = make_payload(vec![make_session(1, "api-server", 0)]);
     let json = serde_json::to_string(&payload).unwrap();
     // Pipe still processes render payload (it re-requests permissions and
     // stores the payload), but the sidebar is not "initialized" via
@@ -121,7 +123,10 @@ fn test_sidebar_navigate_mode_via_pipe() {
         make_session(1, "api-server", 0),
         make_session(2, "frontend", 0),
     ]);
-    plugin.pipe(make_pipe("cc-deck:render", &serde_json::to_string(&payload).unwrap()));
+    plugin.pipe(make_pipe(
+        "cc-deck:render",
+        &serde_json::to_string(&payload).unwrap(),
+    ));
 
     // Set the sidebar tab index so it responds to navigate messages
     plugin.pipe(make_init_pipe(0, 1));
@@ -174,8 +179,6 @@ fn test_render_payload_roundtrip_through_pipe() {
             make_session(1, "api-server", 0),
             make_session(2, "frontend", 1),
         ],
-        focused_pane_id: Some(1),
-        active_tab_index: 0,
         notification: Some("Test notification".to_string()),
         notification_expiry: Some(9999),
         total: 2,
@@ -187,7 +190,15 @@ fn test_render_payload_roundtrip_through_pipe() {
         voice_muted: false,
         show_agent_indicators: false,
         sort_active: false,
-        separator_after_index: None,
+        client_views: std::collections::BTreeMap::from([(
+            0,
+            cc_deck::ClientViewSnapshot {
+                active_tab_index: Some(0),
+                focused_pane_id: Some(1),
+                revision: 1,
+            },
+        )]),
+        multiplayer_colors: None,
     };
 
     let json = serde_json::to_string(&original).unwrap();
@@ -198,8 +209,7 @@ fn test_render_payload_roundtrip_through_pipe() {
     assert_eq!(cached.sessions[0].pane_id, 1);
     assert_eq!(cached.sessions[0].display_name, "api-server");
     assert_eq!(cached.sessions[1].pane_id, 2);
-    assert_eq!(cached.focused_pane_id, Some(1));
-    assert_eq!(cached.active_tab_index, 0);
+    assert_eq!(cached.client_views[&0].focused_pane_id, Some(1));
     assert_eq!(cached.controller_plugin_id, 42);
     assert_eq!(cached.total, 2);
     assert_eq!(cached.working, 1);
@@ -226,7 +236,10 @@ fn test_local_mute_override_cleared_on_disconnect() {
 
     let mut payload = make_payload(vec![make_session(1, "test", 0)]);
     payload.voice_connected = false;
-    plugin.pipe(make_pipe("cc-deck:render", &serde_json::to_string(&payload).unwrap()));
+    plugin.pipe(make_pipe(
+        "cc-deck:render",
+        &serde_json::to_string(&payload).unwrap(),
+    ));
 
     assert!(plugin.test_state().local_mute_override.is_none());
 }
@@ -239,86 +252,13 @@ fn test_local_mute_override_preserved_on_mismatch() {
     let mut payload = make_payload(vec![make_session(1, "test", 0)]);
     payload.voice_connected = true;
     payload.voice_muted = false;
-    plugin.pipe(make_pipe("cc-deck:render", &serde_json::to_string(&payload).unwrap()));
+    plugin.pipe(make_pipe(
+        "cc-deck:render",
+        &serde_json::to_string(&payload).unwrap(),
+    ));
 
     assert_eq!(plugin.test_state().local_mute_override, Some(true));
 }
 
 use super::SidebarRendererPlugin;
 use cc_deck::RenderPayload;
-
-// ---------------------------------------------------------------------------
-// Render Pipeline Stability: Sidebar Render Request Fallback (T019-T021)
-// ---------------------------------------------------------------------------
-
-#[test]
-fn test_sidebar_sends_render_request_after_3_ticks() {
-    let mut plugin = setup_sidebar();
-    // Set controller_plugin_id so the request has a target
-    plugin.test_state_mut().controller_plugin_id = Some(42);
-
-    assert!(!plugin.test_state().render_request_sent);
-    assert_eq!(plugin.test_state().ticks_since_init, 0);
-
-    // Tick 1
-    plugin.update(Event::Timer(1.0));
-    assert!(!plugin.test_state().render_request_sent);
-    assert_eq!(plugin.test_state().ticks_since_init, 1);
-
-    // Tick 2
-    plugin.update(Event::Timer(1.0));
-    assert!(!plugin.test_state().render_request_sent);
-
-    // Tick 3: should send render request
-    plugin.update(Event::Timer(1.0));
-    assert!(plugin.test_state().render_request_sent);
-    assert_eq!(plugin.test_state().ticks_since_init, 3);
-}
-
-#[test]
-fn test_sidebar_does_not_send_render_request_if_already_initialized() {
-    let mut plugin = setup_sidebar();
-    plugin.test_state_mut().controller_plugin_id = Some(42);
-
-    // Receive a render payload first
-    let payload = make_payload(vec![make_session(1, "api-server", 0)]);
-    plugin.pipe(make_pipe("cc-deck:render", &serde_json::to_string(&payload).unwrap()));
-    assert!(plugin.test_state().initialized);
-
-    // Even after 3+ ticks, no render request should be sent
-    for _ in 0..5 {
-        plugin.update(Event::Timer(1.0));
-    }
-    assert!(!plugin.test_state().render_request_sent);
-}
-
-#[test]
-fn test_sidebar_does_not_send_render_request_more_than_once() {
-    let mut plugin = setup_sidebar();
-    plugin.test_state_mut().controller_plugin_id = Some(42);
-
-    // Get past the 3-tick threshold
-    for _ in 0..4 {
-        plugin.update(Event::Timer(1.0));
-    }
-    assert!(plugin.test_state().render_request_sent);
-
-    // Further ticks should not reset the flag
-    for _ in 0..5 {
-        plugin.update(Event::Timer(1.0));
-    }
-    assert!(plugin.test_state().render_request_sent);
-}
-
-#[test]
-fn test_sidebar_sends_broadcast_render_request_without_controller_id() {
-    let mut plugin = setup_sidebar();
-    // controller_plugin_id is None by default
-
-    // After 3 ticks, render request should be sent even without controller_plugin_id
-    // (broadcast to any controller)
-    for _ in 0..3 {
-        plugin.update(Event::Timer(1.0));
-    }
-    assert!(plugin.test_state().render_request_sent);
-}

@@ -4,18 +4,18 @@
 // by the controller) instead of Session. The sidebar only iterates the
 // session list and prints ANSI escape sequences; no heavy computation.
 
-use cc_deck::RenderSession;
-use unicode_width::UnicodeWidthChar;
 use super::rename;
 use super::state::{ClickRegion, SidebarState};
+use cc_deck::RenderSession;
+use unicode_width::UnicodeWidthChar;
 
 // ANSI color constants (matching the existing sidebar)
 const ACTIVE_BG: &str = "\x1b[48;2;25;45;55m";
 const ACTIVE_FG: &str = "\x1b[38;2;120;200;220m";
 const CURSOR_BG: &str = "\x1b[48;2;50;40;20m";
 const CURSOR_FG: &str = "\x1b[38;2;230;200;140m";
-const RENAME_FG: &str = "\x1b[38;2;140;220;255m";        // light cyan for rename in passive
-const RENAME_NAV_FG: &str = "\x1b[38;2;255;220;150m";   // warm amber for rename in navigate
+const RENAME_FG: &str = "\x1b[38;2;140;220;255m"; // light cyan for rename in passive
+const RENAME_NAV_FG: &str = "\x1b[38;2;255;220;150m"; // warm amber for rename in navigate
 const RESET: &str = "\x1b[0m";
 
 /// Result from a render pass, including click regions and viewport metadata.
@@ -46,20 +46,20 @@ pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> RenderR
 
     let payload = match &state.cached_payload {
         Some(p) => p,
-        None => return RenderResult {
-            click_regions: render_loading(rows, cols),
-            viewport_start: 0,
-            max_visible: 0,
-        },
+        None => {
+            return RenderResult {
+                click_regions: render_loading(rows, cols),
+                viewport_start: 0,
+                max_visible: 0,
+            }
+        }
     };
 
     let sessions = state.filtered_sessions();
-    let separator_after_index = if payload.separator_after_index.is_some() {
-        sessions.iter().rposition(|s| !s.paused)
-            .filter(|&idx| idx < sessions.len().saturating_sub(1))
-    } else {
-        None
-    };
+    let separator_after_index = sessions
+        .iter()
+        .rposition(|s| !s.paused)
+        .filter(|&idx| idx < sessions.len().saturating_sub(1));
     let mut click_regions = Vec::new();
 
     if sessions.is_empty() && state.mode.filter_state().is_none() {
@@ -95,7 +95,9 @@ pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> RenderR
     } else {
         available
     };
-    let max_visible = effective_available.checked_div(lines_per_session).unwrap_or(0);
+    let max_visible = effective_available
+        .checked_div(lines_per_session)
+        .unwrap_or(0);
 
     let total = sessions.len();
     // Use the same pane-id source for scrolling as for highlighting:
@@ -106,8 +108,21 @@ pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> RenderR
     } else {
         state.effective_focused_pane_id()
     };
-    let (start_idx, end_idx, above_count, below_count) =
-        visible_range(total, max_visible, payload.active_tab_index, scroll_anchor_pane_id, payload.sort_active, &sessions, state.scroll_offset);
+    let active_tab_index = payload
+        .client_views
+        .get(&state.my_client_id)
+        .and_then(|view| view.active_tab_index)
+        .or(state.my_tab_index)
+        .unwrap_or(0);
+    let (start_idx, end_idx, above_count, below_count) = visible_range(
+        total,
+        max_visible,
+        active_tab_index,
+        scroll_anchor_pane_id,
+        payload.sort_active,
+        &sessions,
+        state.scroll_offset,
+    );
 
     // Defensive bounds clamping
     let start_idx = start_idx.min(total);
@@ -144,15 +159,16 @@ pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> RenderR
             .map(|pid| session.pane_id == pid)
             .unwrap_or(false);
 
-        let has_cursor = state.mode.is_navigating() && abs_idx == state.mode.cursor_index();
+        let has_cursor = state.mode.is_navigating() && abs_idx == state.cursor_index();
         // When local_focus_override targets this session, force cyan highlight
         // immediately (even during the same frame as a mode transition).
         let force_active = state.local_focus_override == Some(session.pane_id);
         // Debug: detect when no row gets any highlight (potential flash)
-        if !is_active && !has_cursor && !force_active
+        if !is_active
+            && !has_cursor
+            && !force_active
             && !state.mode.is_selectable()
-            && (state.cached_payload.as_ref().is_some_and(|p| p.focused_pane_id.is_none())
-                || active_pane_id.is_none())
+            && active_pane_id.is_none()
         {
             crate::debug_log(&format!(
                 "SIDEBAR RENDER: no highlight for pane={} override={:?} active_pid={:?} mode=Passive",
@@ -162,18 +178,40 @@ pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> RenderR
         let is_delete_confirm = state.mode.delete_confirm_pane() == Some(session.pane_id);
 
         if is_delete_confirm {
-            let prompt = format!(" Delete \"{}\"?", truncate(&session.display_name, cols.saturating_sub(14)));
+            let prompt = format!(
+                " Delete \"{}\"?",
+                truncate(&session.display_name, cols.saturating_sub(14))
+            );
             let confirm_hint = " [y/N]";
-            print!("\x1b[{};1H{}", row + 1, pad(&format!("\x1b[38;2;255;109;109m{prompt}\x1b[0m"), cols));
-            print!("\x1b[{};1H{}", row + 2, pad(&format!("\x1b[2m{confirm_hint}\x1b[0m"), cols));
+            print!(
+                "\x1b[{};1H{}",
+                row + 1,
+                pad(&format!("\x1b[38;2;255;109;109m{prompt}\x1b[0m"), cols)
+            );
+            print!(
+                "\x1b[{};1H{}",
+                row + 2,
+                pad(&format!("\x1b[2m{confirm_hint}\x1b[0m"), cols)
+            );
             print!("\x1b[{};1H{}", row + 3, " ".repeat(cols));
             click_regions.push((row, session.pane_id, session.tab_index));
         } else {
-            let rename_for_session = state.mode.rename_state()
+            let rename_for_session = state
+                .mode
+                .rename_state()
                 .filter(|rs| rs.pane_id == session.pane_id);
 
+            let presence = build_local_presence(state);
+            let presence_ref = presence.as_slice();
             if let Some(region) = render_session_entry(
-                session, is_active, has_cursor, force_active, row, cols, rename_for_session,
+                session,
+                is_active,
+                has_cursor,
+                force_active,
+                row,
+                cols,
+                rename_for_session,
+                presence_ref,
             ) {
                 click_regions.push(region);
             }
@@ -185,7 +223,11 @@ pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> RenderR
             if abs_idx == sep_idx && row < content_end {
                 let sep_width = cols.min(40);
                 let line = "\u{2500}".repeat(sep_width);
-                print!("\x1b[{};1H\x1b[2m{line}\x1b[0m{}", row + 1, " ".repeat(cols.saturating_sub(sep_width)));
+                print!(
+                    "\x1b[{};1H\x1b[2m{line}\x1b[0m{}",
+                    row + 1,
+                    " ".repeat(cols.saturating_sub(sep_width))
+                );
                 row += 1;
             }
         }
@@ -240,18 +282,30 @@ pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> RenderR
         if crate::session::unix_now() < notif.expires_at && row < rows {
             let truncated = truncate_chars(&notif.message, cols);
             let char_len = truncated.chars().count();
-            let padding = if char_len < cols { " ".repeat(cols - char_len) } else { String::new() };
+            let padding = if char_len < cols {
+                " ".repeat(cols - char_len)
+            } else {
+                String::new()
+            };
             print!("\x1b[{};1H\x1b[2m{truncated}{padding}\x1b[0m", row + 1);
             row += 1;
         }
     }
 
     // Also show controller notification from payload
-    if let Some(notif_msg) = state.cached_payload.as_ref().and_then(|p| p.notification.as_ref()) {
+    if let Some(notif_msg) = state
+        .cached_payload
+        .as_ref()
+        .and_then(|p| p.notification.as_ref())
+    {
         if row < rows {
             let truncated = truncate_chars(notif_msg, cols);
             let char_len = truncated.chars().count();
-            let padding = if char_len < cols { " ".repeat(cols - char_len) } else { String::new() };
+            let padding = if char_len < cols {
+                " ".repeat(cols - char_len)
+            } else {
+                String::new()
+            };
             print!("\x1b[{};1H\x1b[2m{truncated}{padding}\x1b[0m", row + 1);
             row += 1;
         }
@@ -280,7 +334,11 @@ pub fn render_loading(rows: usize, cols: usize) -> Vec<ClickRegion> {
     print!("\x1b[1;1H{}", pad(&header, cols));
 
     let sep: String = "\u{2500}".repeat(cols.min(40));
-    print!("\x1b[2;1H\x1b[2m{}\x1b[0m{}", sep, " ".repeat(cols.saturating_sub(sep.len())));
+    print!(
+        "\x1b[2;1H\x1b[2m{}\x1b[0m{}",
+        sep,
+        " ".repeat(cols.saturating_sub(sep.len()))
+    );
 
     if rows > 3 {
         print_line(3, cols, "  Connecting...", Style::Dim);
@@ -299,7 +357,11 @@ pub fn render_permission_prompt(rows: usize, cols: usize) {
     print!("\x1b[1;1H{}", pad(&header, cols));
 
     let sep: String = "\u{2500}".repeat(cols.min(40));
-    print!("\x1b[2;1H\x1b[2m{}\x1b[0m{}", sep, " ".repeat(cols.saturating_sub(sep.len())));
+    print!(
+        "\x1b[2;1H\x1b[2m{}\x1b[0m{}",
+        sep,
+        " ".repeat(cols.saturating_sub(sep.len()))
+    );
 
     if rows > 3 {
         print_line(3, cols, "", Style::Normal);
@@ -332,7 +394,11 @@ pub const OVERFLOW_UP_CLICK_SENTINEL: u32 = u32::MAX - 4;
 pub const OVERFLOW_DOWN_CLICK_SENTINEL: u32 = u32::MAX - 5;
 
 /// Render the status header with orange star and session counts.
-fn render_header(state: &super::state::SidebarState, payload: &cc_deck::RenderPayload, cols: usize) {
+fn render_header(
+    state: &super::state::SidebarState,
+    payload: &cc_deck::RenderPayload,
+    cols: usize,
+) {
     let effective_muted = state.local_mute_override.unwrap_or(payload.voice_muted);
     let voice_indicator = if payload.voice_connected {
         if effective_muted {
@@ -349,10 +415,16 @@ fn render_header(state: &super::state::SidebarState, payload: &cc_deck::RenderPa
     } else {
         let mut status_parts = Vec::new();
         if payload.waiting > 0 {
-            status_parts.push(format!("\x1b[38;2;255;109;109m\u{26a0} {}\x1b[0m", payload.waiting));
+            status_parts.push(format!(
+                "\x1b[38;2;255;109;109m\u{26a0} {}\x1b[0m",
+                payload.waiting
+            ));
         }
         if payload.working > 0 {
-            status_parts.push(format!("\x1b[38;2;180;140;255m\u{25cf} {}\x1b[0m", payload.working));
+            status_parts.push(format!(
+                "\x1b[38;2;180;140;255m\u{25cf} {}\x1b[0m",
+                payload.working
+            ));
         }
         if payload.idle > 0 {
             status_parts.push(format!("\x1b[2m\u{25cb} {}\x1b[0m", payload.idle));
@@ -361,7 +433,11 @@ fn render_header(state: &super::state::SidebarState, payload: &cc_deck::RenderPa
         let status = if status_parts.is_empty() {
             format!("{}", payload.total)
         } else {
-            format!("{} \x1b[2m\u{2502}\x1b[0m {}", payload.total, status_parts.join(" "))
+            format!(
+                "{} \x1b[2m\u{2502}\x1b[0m {}",
+                payload.total,
+                status_parts.join(" ")
+            )
         };
         format!(" \x1b[38;2;255;170;50m\u{2731}\x1b[0m {status}")
     };
@@ -371,23 +447,33 @@ fn render_header(state: &super::state::SidebarState, payload: &cc_deck::RenderPa
         print!("\x1b[1;1H{}", pad(&header, cols));
     } else {
         let right_start = cols;
-        print!("\x1b[1;1H{}\x1b[1;{}H{}", pad(&header, cols), right_start, voice_indicator);
+        print!(
+            "\x1b[1;1H{}\x1b[1;{}H{}",
+            pad(&header, cols),
+            right_start,
+            voice_indicator
+        );
     }
 
     let sep: String = "\u{2500}".repeat(cols.min(40));
-    print!("\x1b[2;1H\x1b[2m{}\x1b[0m{}", sep, " ".repeat(cols.saturating_sub(sep.len())));
+    print!(
+        "\x1b[2;1H\x1b[2m{}\x1b[0m{}",
+        sep,
+        " ".repeat(cols.saturating_sub(sep.len()))
+    );
 }
 
 /// Map agent indicator icon to its brand color.
 fn agent_indicator_color(indicator: &str) -> (u8, u8, u8) {
     match indicator {
-        "\u{2733}" => (255, 170, 50),  // ✳ Claude Code: orange
-        "\u{276f}" => (60, 190, 190),  // ❯ OpenCode: dark cyan
-        _ => (180, 175, 195),          // fallback: light grey
+        "\u{2733}" => (255, 170, 50), // ✳ Claude Code: orange
+        "\u{276f}" => (60, 190, 190), // ❯ OpenCode: dark cyan
+        _ => (180, 175, 195),         // fallback: light grey
     }
 }
 
 /// Render a single session entry (3 lines: indicator+name, branch, blank).
+#[allow(clippy::too_many_arguments)]
 fn render_session_entry(
     session: &RenderSession,
     is_active: bool,
@@ -396,9 +482,14 @@ fn render_session_entry(
     start_row: usize,
     cols: usize,
     rename_state: Option<&super::modes::RenameState>,
+    presence: &[LocalPresence],
 ) -> Option<ClickRegion> {
     let (r, g, b) = session.color;
-    let indicator = if session.paused { "\u{23f8}" } else { &session.indicator };
+    let indicator = if session.paused {
+        "\u{23f8}"
+    } else {
+        &session.indicator
+    };
 
     // has_cursor (amber) wins over is_active (cyan) during navigation so the
     // cursor remains visible on the active row.  force_active (from
@@ -418,7 +509,11 @@ fn render_session_entry(
     // When in a worktree, show only the project part (before @) on line 1.
     // The worktree branch is already visible on line 2 via git_branch.
     let render_name: &str = if session.in_worktree {
-        session.display_name.split('@').next().unwrap_or(&session.display_name)
+        session
+            .display_name
+            .split('@')
+            .next()
+            .unwrap_or(&session.display_name)
     } else {
         &session.display_name
     };
@@ -429,10 +524,13 @@ fn render_session_entry(
         let input_display = rename::render_input(rs, max_input, rename_fg, bg);
         format!("{bg} \x1b[38;2;{r};{g};{b}m{indicator}{bg}{rename_fg} {input_display}{bg}")
     } else {
-        let agent_prefix = session.agent_indicator.clone()
-            .unwrap_or_default();
+        let agent_prefix = session.agent_indicator.clone().unwrap_or_default();
         let name = render_name;
-        let agent_prefix_len = if agent_prefix.is_empty() { 0 } else { display_width(&agent_prefix) + 1 };
+        let agent_prefix_len = if agent_prefix.is_empty() {
+            0
+        } else {
+            display_width(&agent_prefix) + 1
+        };
         let prefix_len = 1 + display_width(indicator) + 1 + agent_prefix_len;
         let max_name = cols.saturating_sub(prefix_len);
         let truncated_name = truncate(name, max_name);
@@ -456,11 +554,18 @@ fn render_session_entry(
     };
 
     if rename_state.is_some() {
-        print!("\x1b[{};1H{}", start_row + 1, pad_with_bg_color(&line1, cols, bg));
+        print!(
+            "\x1b[{};1H{}",
+            start_row + 1,
+            pad_with_bg_color(&line1, cols, bg)
+        );
     } else if use_bg {
-        let agent_prefix = session.agent_indicator.clone()
-            .unwrap_or_default();
-        let agent_prefix_len = if agent_prefix.is_empty() { 0 } else { display_width(&agent_prefix) + 1 };
+        let agent_prefix = session.agent_indicator.clone().unwrap_or_default();
+        let agent_prefix_len = if agent_prefix.is_empty() {
+            0
+        } else {
+            display_width(&agent_prefix) + 1
+        };
         let prefix_len = 1 + display_width(indicator) + 1 + agent_prefix_len;
         let max_name = cols.saturating_sub(prefix_len);
         let truncated_name = truncate(render_name, max_name);
@@ -472,16 +577,49 @@ fn render_session_entry(
         };
         let bold_or_dim = if session.paused { "\x1b[2m" } else { "\x1b[1m" };
         let styled_line1 = format!("{bg} \x1b[38;2;{r};{g};{b}m{indicator}{fg} {agent_part}{bold_or_dim}{truncated_name}{RESET}");
-        print!("\x1b[{};1H{}", start_row + 1, pad_with_bg_color(&styled_line1, cols, bg));
+        print!(
+            "\x1b[{};1H{}",
+            start_row + 1,
+            pad_with_bg_color(&styled_line1, cols, bg)
+        );
     } else {
         print!("\x1b[{};1H{}", start_row + 1, pad(&line1, cols));
     }
 
-    let line2_content = format_line2(&session.badges, session.git_branch.as_deref(), session.color, session.in_worktree);
+    // Presence indicators: overwrite right side of line 1
+    if let Some((indicator_str, indicator_width)) =
+        presence_indicator_string(session.pane_id, presence)
+    {
+        let col_pos = cols.saturating_sub(indicator_width);
+        if col_pos > 3 {
+            let reset = if use_bg {
+                format!("{bg}{fg}")
+            } else {
+                RESET.to_string()
+            };
+            print!(
+                "\x1b[{};{}H{}{reset}",
+                start_row + 1,
+                col_pos + 1,
+                indicator_str
+            );
+        }
+    }
+
+    let line2_content = format_line2(
+        &session.badges,
+        session.git_branch.as_deref(),
+        session.color,
+        session.in_worktree,
+    );
 
     if use_bg {
         let highlighted = format!("{bg}{fg}\x1b[2m{line2_content}{RESET}");
-        print!("\x1b[{};1H{}", start_row + 2, pad_with_bg_color(&highlighted, cols, bg));
+        print!(
+            "\x1b[{};1H{}",
+            start_row + 2,
+            pad_with_bg_color(&highlighted, cols, bg)
+        );
     } else {
         let dimmed = format!("\x1b[2m{line2_content}\x1b[0m");
         print!("\x1b[{};1H{}", start_row + 2, pad(&dimmed, cols));
@@ -493,8 +631,81 @@ fn render_session_entry(
     Some((start_row, session.pane_id, session.tab_index))
 }
 
+/// Build presence indicator data from the shared client-view projection.
+/// This sidebar's own client is excluded.
+#[derive(Debug)]
+struct LocalPresence {
+    pane_id: u32,
+    clients: Vec<(u16, (u8, u8, u8))>,
+}
+
+type PresenceByPane = std::collections::HashMap<u32, Vec<(u16, (u8, u8, u8))>>;
+
+fn build_local_presence(state: &super::state::SidebarState) -> Vec<LocalPresence> {
+    let payload = match &state.cached_payload {
+        Some(p) => p,
+        None => return vec![],
+    };
+    if payload.client_views.len() <= 1 {
+        return vec![];
+    }
+    let colors = payload
+        .multiplayer_colors
+        .as_deref()
+        .unwrap_or(&cc_deck::FALLBACK_MULTIPLAYER_COLORS);
+    let my_cid = state.my_client_id;
+
+    let mut by_pane = PresenceByPane::new();
+    for (&cid, view) in &payload.client_views {
+        if cid == my_cid {
+            continue;
+        }
+        let Some(pane_id) = view.focused_pane_id else {
+            continue;
+        };
+        let color_idx = (cid.saturating_sub(1) as usize) % colors.len();
+        let color = colors[color_idx];
+        by_pane.entry(pane_id).or_default().push((cid, color));
+    }
+
+    by_pane
+        .into_iter()
+        .map(|(pane_id, mut clients)| {
+            clients.sort_by_key(|c| c.0);
+            clients.truncate(5);
+            LocalPresence { pane_id, clients }
+        })
+        .collect()
+}
+
+/// Build a right-aligned presence indicator string for a session line.
+/// Returns (ansi_string, display_width) or None if no indicators for this session.
+fn presence_indicator_string(pane_id: u32, presence: &[LocalPresence]) -> Option<(String, usize)> {
+    let entry = presence.iter().find(|p| p.pane_id == pane_id)?;
+    if entry.clients.is_empty() {
+        return None;
+    }
+    let mut parts = Vec::new();
+    let mut width = 0;
+    for (i, (_, color)) in entry.clients.iter().take(5).enumerate() {
+        let (r, g, b) = *color;
+        if i > 0 {
+            parts.push(" ".to_string());
+            width += 1;
+        }
+        parts.push(format!("\x1b[48;2;{r};{g};{b}m \x1b[0m"));
+        width += 1;
+    }
+    Some((parts.join(""), width))
+}
+
 /// Render the empty state (no active sessions).
-fn render_empty_state(state: &super::state::SidebarState, payload: &cc_deck::RenderPayload, rows: usize, cols: usize) -> Vec<ClickRegion> {
+fn render_empty_state(
+    state: &super::state::SidebarState,
+    payload: &cc_deck::RenderPayload,
+    rows: usize,
+    cols: usize,
+) -> Vec<ClickRegion> {
     render_header(state, payload, cols);
     let mut click_regions = Vec::new();
 
@@ -590,10 +801,16 @@ fn visible_range(
     let active_pos = if sort_active {
         focused_pane_id
             .and_then(|pid| sessions.iter().position(|s| s.pane_id == pid))
-            .or_else(|| sessions.iter().position(|s| s.tab_index == active_tab_index))
+            .or_else(|| {
+                sessions
+                    .iter()
+                    .position(|s| s.tab_index == active_tab_index)
+            })
             .unwrap_or(0)
     } else {
-        sessions.iter().position(|s| s.tab_index == active_tab_index)
+        sessions
+            .iter()
+            .position(|s| s.tab_index == active_tab_index)
             .unwrap_or(0)
     };
 
@@ -676,7 +893,12 @@ fn parse_badge_color(badge: &str) -> (&str, Option<(u8, u8, u8)>) {
 /// Badges with a `#RRGGBB:` prefix use that color; others use the session's faded color.
 /// Uses \x1b[39m (reset foreground only) to preserve background and dim on highlighted rows.
 /// When `in_worktree` is true, the branch icon changes from `⎇` (U+2387) to `⌥` (U+2325).
-fn format_line2(badges: &[String], branch: Option<&str>, color: (u8, u8, u8), in_worktree: bool) -> String {
+fn format_line2(
+    badges: &[String],
+    branch: Option<&str>,
+    color: (u8, u8, u8),
+    in_worktree: bool,
+) -> String {
     const BRANCH_COL: usize = 4;
     let branch_icon = if in_worktree { "\u{2325}" } else { "\u{2387}" };
     match (branch, badges.is_empty()) {
@@ -928,8 +1150,8 @@ mod tests {
 
     #[test]
     fn test_visible_range_overflow() {
-        let sessions_owned: Vec<cc_deck::RenderSession> = (0..10).map(|i| {
-            cc_deck::RenderSession {
+        let sessions_owned: Vec<cc_deck::RenderSession> = (0..10)
+            .map(|i| cc_deck::RenderSession {
                 pane_id: i,
                 display_name: format!("s{i}"),
                 activity_label: "Idle".into(),
@@ -942,8 +1164,8 @@ mod tests {
                 badges: vec![],
                 agent_indicator: None,
                 in_worktree: false,
-            }
-        }).collect();
+            })
+            .collect();
         let refs: Vec<&RenderSession> = sessions_owned.iter().collect();
         let (start, end, above, below) = visible_range(10, 3, 5, None, false, &refs, None);
         assert_eq!(end - start, 3);
@@ -953,8 +1175,8 @@ mod tests {
 
     #[test]
     fn test_visible_range_sorted_uses_pane_id_anchor() {
-        let sessions_owned: Vec<cc_deck::RenderSession> = (0..10).map(|i| {
-            cc_deck::RenderSession {
+        let sessions_owned: Vec<cc_deck::RenderSession> = (0..10)
+            .map(|i| cc_deck::RenderSession {
                 pane_id: i + 100,
                 display_name: format!("s{i}"),
                 activity_label: "Idle".into(),
@@ -967,19 +1189,22 @@ mod tests {
                 badges: vec![],
                 agent_indicator: None,
                 in_worktree: false,
-            }
-        }).collect();
+            })
+            .collect();
         let refs: Vec<&RenderSession> = sessions_owned.iter().collect();
         // Sorted mode with focused_pane_id=107 (display position 7)
         let (start, end, _, _) = visible_range(10, 3, 0, Some(107), true, &refs, None);
         assert_eq!(end - start, 3);
-        assert!(start <= 7 && end > 7, "viewport should center on pane_id 107");
+        assert!(
+            start <= 7 && end > 7,
+            "viewport should center on pane_id 107"
+        );
     }
 
     #[test]
     fn test_visible_range_sorted_fallback_to_tab_index() {
-        let sessions_owned: Vec<cc_deck::RenderSession> = (0..10).map(|i| {
-            cc_deck::RenderSession {
+        let sessions_owned: Vec<cc_deck::RenderSession> = (0..10)
+            .map(|i| cc_deck::RenderSession {
                 pane_id: i + 100,
                 display_name: format!("s{i}"),
                 activity_label: "Idle".into(),
@@ -992,25 +1217,65 @@ mod tests {
                 badges: vec![],
                 agent_indicator: None,
                 in_worktree: false,
-            }
-        }).collect();
+            })
+            .collect();
         let refs: Vec<&RenderSession> = sessions_owned.iter().collect();
         // Sorted mode but no focused_pane_id — should fall back to active_tab_index=5
         let (start, end, _, _) = visible_range(10, 3, 5, None, true, &refs, None);
         assert_eq!(end - start, 3);
-        assert!(start <= 5 && end > 5, "viewport should center on tab_index 5 as fallback");
+        assert!(
+            start <= 5 && end > 5,
+            "viewport should center on tab_index 5 as fallback"
+        );
     }
 
     #[test]
     fn test_handle_click_hit() {
-        let regions: Vec<ClickRegion> = vec![
-            (2, 1, 0),
-            (5, 2, 1),
-        ];
+        let regions: Vec<ClickRegion> = vec![(2, 1, 0), (5, 2, 1)];
         assert_eq!(handle_click(2, &regions), Some((0, 1)));
         assert_eq!(handle_click(3, &regions), Some((0, 1)));
         assert_eq!(handle_click(5, &regions), Some((1, 2)));
         assert_eq!(handle_click(10, &regions), None);
     }
 
+    #[test]
+    fn test_presence_indicator_string_no_match() {
+        let presence = vec![LocalPresence {
+            pane_id: 7,
+            clients: vec![(2, (255, 0, 0))],
+        }];
+        assert!(presence_indicator_string(8, &presence).is_none());
+    }
+
+    #[test]
+    fn test_presence_indicator_string_single() {
+        let presence = vec![LocalPresence {
+            pane_id: 7,
+            clients: vec![(2, (255, 0, 0))],
+        }];
+        let (s, w) = presence_indicator_string(7, &presence).unwrap();
+        assert_eq!(w, 1);
+        assert!(s.contains("\x1b[48;2;255;0;0m"));
+    }
+
+    #[test]
+    fn test_presence_indicator_string_multiple() {
+        let presence = vec![LocalPresence {
+            pane_id: 7,
+            clients: vec![(2, (255, 0, 0)), (3, (0, 255, 0))],
+        }];
+        let (s, w) = presence_indicator_string(7, &presence).unwrap();
+        assert_eq!(w, 3); // 1 + space + 1
+        assert!(s.contains("\x1b[48;2;255;0;0m"));
+        assert!(s.contains("\x1b[48;2;0;255;0m"));
+    }
+
+    #[test]
+    fn test_presence_indicator_string_empty_clients() {
+        let presence = vec![LocalPresence {
+            pane_id: 7,
+            clients: vec![],
+        }];
+        assert!(presence_indicator_string(7, &presence).is_none());
+    }
 }

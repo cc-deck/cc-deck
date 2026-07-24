@@ -1,7 +1,7 @@
 // Sidebar discovery registry: hello/init handshake and tab reindexing.
 //
-// Sidebars register with the controller by sending cc-deck:sidebar-hello
-// after receiving their first render payload. The controller cross-references
+// Sidebars proactively register with the controller by sending
+// cc-deck:sidebar-hello after permission grant. The controller cross-references
 // the plugin_id with the PaneManifest to determine which tab the sidebar
 // lives on, then responds with cc-deck:sidebar-init.
 
@@ -13,19 +13,26 @@ use zellij_tile::prelude::*;
 /// Handle a sidebar-hello registration message.
 /// Cross-reference the plugin_id with the PaneManifest to find the tab.
 pub fn handle_sidebar_hello(state: &mut ControllerState, hello: SidebarHello) {
+    if !state.client_views.is_empty() && !state.client_views.contains_key(&hello.client_id) {
+        crate::debug_log(&format!(
+            "CTRL SIDEBAR ignoring hello from disconnected/unobserved client_id={}",
+            hello.client_id
+        ));
+        return;
+    }
     let tab_index = find_tab_for_plugin(state, hello.plugin_id);
 
     if let Some(idx) = tab_index {
         // Dedup: remove any existing sidebar with the same (tab_index, client_id).
         // This prevents unbounded registry growth when a client reconnects and
         // gets new plugin instances on the same tabs.
+        state.sidebar_registry.retain(|&pid, &mut (tab, cid)| {
+            pid == hello.plugin_id || tab != idx || cid != hello.client_id
+        });
+
         state
             .sidebar_registry
-            .retain(|&pid, &mut (tab, cid)| {
-                pid == hello.plugin_id || tab != idx || cid != hello.client_id
-            });
-
-        state.sidebar_registry.insert(hello.plugin_id, (idx, hello.client_id));
+            .insert(hello.plugin_id, (idx, hello.client_id));
         crate::debug_log(&format!(
             "CTRL SIDEBAR registered plugin_id={} on tab={} client_id={}",
             hello.plugin_id, idx, hello.client_id
@@ -80,6 +87,9 @@ pub fn cleanup_dead_sidebars(state: &mut ControllerState) {
             before - state.sidebar_registry.len(),
             state.sidebar_registry.len()
         ));
+
+        // Client liveness is reconciled from TabUpdate, never from the pane
+        // manifest (which can retain zombie plugin panes after disconnect).
     }
 }
 
@@ -128,31 +138,6 @@ fn broadcast_reindex() {
 #[cfg(not(target_family = "wasm"))]
 fn broadcast_reindex() {}
 
-/// Auto-discover sidebar plugin panes from the PaneManifest.
-/// Registers any plugin pane that is NOT the controller itself.
-/// Uses a provisional client_id (u16::MAX) so discovered sidebars are
-/// excluded from render broadcasts until they send sidebar-hello with
-/// their actual client_id. This prevents panes from other clients
-/// (which share the PaneManifest) from passing the broadcast filter.
-/// Returns the plugin_ids of newly registered sidebars.
-pub fn discover_sidebars_from_manifest(state: &mut ControllerState) -> Vec<u32> {
-    let manifest = match &state.pane_manifest {
-        Some(m) => m,
-        None => return Vec::new(),
-    };
-
-    let mut new_sidebars = Vec::new();
-    for (&tab_pos, panes) in &manifest.panes {
-        for pane in panes {
-            if pane.is_plugin && pane.id != state.plugin_id && !state.sidebar_registry.contains_key(&pane.id) {
-                state.sidebar_registry.insert(pane.id, (tab_pos, u16::MAX));
-                new_sidebars.push(pane.id);
-            }
-        }
-    }
-    new_sidebars
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -185,57 +170,6 @@ mod tests {
             default_bg: None,
             default_fg: None,
         }
-    }
-
-    #[test]
-    fn test_discover_sidebars_returns_new_ids() {
-        let mut state = ControllerState::default();
-        state.plugin_id = 1; // controller is plugin 1
-
-        let mut panes = std::collections::HashMap::new();
-        panes.insert(0, vec![make_plugin_pane(1), make_plugin_pane(10), make_plugin_pane(20)]);
-        state.pane_manifest = Some(PaneManifest { panes });
-
-        let new_ids = discover_sidebars_from_manifest(&mut state);
-
-        assert_eq!(new_ids.len(), 2);
-        assert!(new_ids.contains(&10));
-        assert!(new_ids.contains(&20));
-        // Controller itself (id=1) should NOT be registered
-        assert!(!state.sidebar_registry.contains_key(&1));
-    }
-
-    #[test]
-    fn test_discover_sidebars_does_not_return_existing() {
-        let mut state = ControllerState::default();
-        state.plugin_id = 1;
-        state.sidebar_registry.insert(10, (0, 0)); // already registered
-
-        let mut panes = std::collections::HashMap::new();
-        panes.insert(0, vec![make_plugin_pane(1), make_plugin_pane(10), make_plugin_pane(20)]);
-        state.pane_manifest = Some(PaneManifest { panes });
-
-        let new_ids = discover_sidebars_from_manifest(&mut state);
-
-        assert_eq!(new_ids.len(), 1);
-        assert!(new_ids.contains(&20));
-        assert!(!new_ids.contains(&10));
-    }
-
-    #[test]
-    fn test_discover_sidebars_uses_provisional_client_id() {
-        let mut state = ControllerState::default();
-        state.plugin_id = 1;
-        state.client_id = 1;
-
-        let mut panes = std::collections::HashMap::new();
-        panes.insert(0, vec![make_plugin_pane(1), make_plugin_pane(10)]);
-        state.pane_manifest = Some(PaneManifest { panes });
-
-        discover_sidebars_from_manifest(&mut state);
-
-        let (_, discovered_client_id) = state.sidebar_registry[&10];
-        assert_eq!(discovered_client_id, u16::MAX, "discovered sidebars should use provisional client_id, not controller's");
     }
 
     #[test]
@@ -294,7 +228,11 @@ mod tests {
         let mut panes = std::collections::HashMap::new();
         panes.insert(
             0,
-            vec![make_plugin_pane(1), make_plugin_pane(50), make_plugin_pane(60)],
+            vec![
+                make_plugin_pane(1),
+                make_plugin_pane(50),
+                make_plugin_pane(60),
+            ],
         );
         state.pane_manifest = Some(PaneManifest { panes });
 
@@ -329,7 +267,11 @@ mod tests {
         let mut panes = std::collections::HashMap::new();
         panes.insert(
             0,
-            vec![make_plugin_pane(1), make_plugin_pane(50), make_plugin_pane(60)],
+            vec![
+                make_plugin_pane(1),
+                make_plugin_pane(50),
+                make_plugin_pane(60),
+            ],
         );
         state.pane_manifest = Some(PaneManifest { panes });
 
@@ -370,5 +312,25 @@ mod tests {
 
         assert!(state.sidebar_registry.contains_key(&50));
         assert_eq!(state.sidebar_registry[&50], (0, 0));
+    }
+
+    #[test]
+    fn test_cleanup_dead_sidebars_only_removes_registry_entries() {
+        let mut state = ControllerState::default();
+        state.plugin_id = 1;
+
+        // Two sidebars: plugin 10 (client 1), plugin 20 (client 2)
+        state.sidebar_registry.insert(10, (0, 1));
+        state.sidebar_registry.insert(20, (0, 2));
+
+        // Manifest only contains plugin 10 (client 2's sidebar is gone)
+        let mut panes = std::collections::HashMap::new();
+        panes.insert(0, vec![make_plugin_pane(1), make_plugin_pane(10)]);
+        state.pane_manifest = Some(PaneManifest { panes });
+
+        cleanup_dead_sidebars(&mut state);
+
+        assert!(state.sidebar_registry.contains_key(&10));
+        assert!(!state.sidebar_registry.contains_key(&20));
     }
 }

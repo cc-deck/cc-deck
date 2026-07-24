@@ -26,9 +26,7 @@ const LEGACY_SESSIONS_PATH: &str = "/cache/sessions.json";
 const LEGACY_META_PATH: &str = "/cache/session-meta.json";
 const LEGACY_PID_PATH: &str = "/cache/zellij_pid";
 
-/// TTL for in-flight focus protection. After this period, manifest-derived
-/// focus is trusted again even if it differs from the action-set value.
-const IN_FLIGHT_FOCUS_TTL_MS: u64 = 3000;
+pub const FOCUS_CONFIRM_TIMEOUT_MS: u64 = 3000;
 
 /// Timer ticks to wait before self-activating as leader.
 pub const ELECTION_TIMEOUT_TICKS: u32 = 2;
@@ -46,6 +44,31 @@ pub struct PendingOverride {
     pub paused: bool,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct ClientViewState {
+    pub active_tab_index: Option<usize>,
+    pub focused_pane_id: Option<u32>,
+    pub revision: u64,
+    pub pending_focus: Option<PendingFocus>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct PendingFocus {
+    pub pane_id: u32,
+    pub tab_index: usize,
+    pub expires_at_ms: u64,
+}
+
+impl ClientViewState {
+    pub fn snapshot(&self) -> cc_deck::ClientViewSnapshot {
+        cc_deck::ClientViewSnapshot {
+            active_tab_index: self.active_tab_index,
+            focused_pane_id: self.focused_pane_id,
+            revision: self.revision,
+        }
+    }
+}
+
 /// The authoritative state held by the controller plugin instance.
 #[derive(Default)]
 pub struct ControllerState {
@@ -57,10 +80,8 @@ pub struct ControllerState {
     pub pane_manifest: Option<PaneManifest>,
     /// Pane ID -> (tab_index, tab_name) mapping derived from manifest + tabs.
     pub pane_to_tab: HashMap<u32, (usize, String)>,
-    /// Currently focused tab position.
-    pub active_tab_index: Option<usize>,
-    /// Currently focused terminal pane ID.
-    pub focused_pane_id: Option<u32>,
+    /// Per-connected-client focus and ordering state.
+    pub client_views: BTreeMap<u16, ClientViewState>,
     /// Registered sidebar instances: plugin_id -> (tab_index, client_id).
     /// The client_id component enables multiplayer filtering: the controller
     /// only broadcasts renders to sidebars from its own client connection.
@@ -114,11 +135,6 @@ pub struct ControllerState {
     pub pending_events: Vec<Event>,
     /// Monotonic tick counter for render coalescing.
     pub tick_count: u64,
-    /// In-flight focus set by action handlers (Switch, Navigate, Attend).
-    /// Protects focused_pane_id from being overwritten by stale manifest data
-    /// in rebuild_pane_map() until Zellij confirms the focus change.
-    /// Format: (target_pane_id, timestamp_ms). Expires after IN_FLIGHT_FOCUS_TTL_MS.
-    pub in_flight_focus: Option<(u32, u64)>,
     /// Deduplication guard for voice text injection. Zellij broadcast pipes
     /// can deliver the same message multiple times (once per plugin instance
     /// unblock). Tracks (text_hash, timestamp_ms) to suppress duplicates
@@ -138,18 +154,18 @@ pub struct ControllerState {
     /// Pane IDs of sessions that recently transitioned from paused to active.
     /// These appear at the end of the active zone (FR-002).
     pub auto_sort_tail: Vec<u32>,
+    /// Multiplayer user colors extracted from Zellij's ModeUpdate palette.
+    /// None until the first ModeUpdate event is received.
+    pub multiplayer_colors: Option<Vec<(u8, u8, u8)>>,
 }
-
 
 impl ControllerState {
     /// Rebuild the pane-to-tab mapping from current tab and pane data.
-    /// Derives focused_pane_id from the manifest, but respects in-flight
-    /// focus set by action handlers to avoid stale manifest overwrites.
+    /// PaneInfo::is_focused is deliberately ignored: in multiplayer it means
+    /// "focused by any client" and therefore has no stable client identity.
     pub fn rebuild_pane_map(&mut self) {
         self.pane_to_tab.clear();
-        let mut manifest_focus: Option<u32> = None;
         if self.tabs.is_empty() {
-            self.focused_pane_id = None;
             return;
         }
         if let Some(ref manifest) = self.pane_manifest {
@@ -159,52 +175,12 @@ impl ControllerState {
                         if !pane.is_plugin {
                             self.pane_to_tab
                                 .insert(pane.id, (tab.position, tab.name.clone()));
-                            if pane.is_focused && tab.active {
-                                manifest_focus = Some(pane.id);
-                            }
                         }
                     }
                 }
             }
         }
 
-        // If an action recently set focus, protect it from stale manifests.
-        // Once the manifest confirms the target, clear the in-flight guard.
-        let now_ms = crate::session::unix_now_ms();
-        if let Some((target, ts)) = self.in_flight_focus {
-            let age_ms = now_ms.saturating_sub(ts);
-            if age_ms > IN_FLIGHT_FOCUS_TTL_MS {
-                // Expired: trust the manifest
-                crate::debug_log(&format!(
-                    "CTRL REBUILD: in_flight EXPIRED target={target} age={age_ms}ms manifest={manifest_focus:?}"
-                ));
-                self.in_flight_focus = None;
-                self.focused_pane_id = manifest_focus;
-            } else if manifest_focus == Some(target) {
-                // Manifest confirmed the focus change
-                crate::debug_log(&format!(
-                    "CTRL REBUILD: in_flight CONFIRMED target={target} age={age_ms}ms"
-                ));
-                self.in_flight_focus = None;
-                self.focused_pane_id = manifest_focus;
-            } else {
-                // Manifest is stale: keep the action-set focus
-                crate::debug_log(&format!(
-                    "CTRL REBUILD: in_flight STALE target={target} age={age_ms}ms manifest={manifest_focus:?}"
-                ));
-                self.focused_pane_id = Some(target);
-            }
-        } else {
-            // Only update focus when manifest provides a definite value.
-            // When manifest_focus is None (e.g., a plugin pane has focus during
-            // navigation mode), preserve the current focused_pane_id. This
-            // prevents sidebars from caching None and causing a highlight flash
-            // when switching tabs (the target sidebar would render with no
-            // highlight until the next broadcast arrives).
-            if manifest_focus.is_some() {
-                self.focused_pane_id = manifest_focus;
-            }
-        }
         // Refresh tab info on all sessions and process deferred tab renames.
         let mut pending_renames: Vec<(usize, String)> = Vec::new();
         for session in self.sessions.values_mut() {
@@ -262,16 +238,17 @@ impl ControllerState {
         // Only remove sessions whose pane is confirmed exited.
         // Do NOT remove sessions whose pane_id is absent from the manifest,
         // as the manifest may be temporarily incomplete during rapid updates.
-        self.sessions.retain(|pane_id, _| {
-            !exited_pane_ids.contains(pane_id)
-        });
+        self.sessions
+            .retain(|pane_id, _| !exited_pane_ids.contains(pane_id));
         if self.sessions.len() != before {
             self.pending_git_branch
                 .retain(|id| self.sessions.contains_key(id));
             if let Some(ref mut order) = self.sort_order {
                 order.retain(|pid| self.sessions.contains_key(pid));
             }
-            self.auto_sort_tail.retain(|pid| self.sessions.contains_key(pid));
+            self.auto_sort_tail
+                .retain(|pid| self.sessions.contains_key(pid));
+            self.prune_client_views();
             crate::debug_log(&format!(
                 "CTRL CLEANUP removed {} dead sessions, {} remaining",
                 before - self.sessions.len(),
@@ -353,6 +330,113 @@ impl ControllerState {
     /// Mark render payload as needing broadcast on the next timer flush.
     pub fn mark_render_dirty(&mut self) {
         self.render_dirty = true;
+    }
+
+    pub fn own_focus(&self) -> Option<u32> {
+        self.client_views
+            .get(&self.client_id)
+            .and_then(|view| view.focused_pane_id)
+    }
+
+    pub fn own_active_tab(&self) -> Option<usize> {
+        self.client_views
+            .get(&self.client_id)
+            .and_then(|view| view.active_tab_index)
+    }
+
+    pub fn set_client_focus_intent(&mut self, client_id: u16, pane_id: u32, tab_index: usize) {
+        let view = self.client_views.entry(client_id).or_default();
+        view.focused_pane_id = Some(pane_id);
+        view.pending_focus = Some(PendingFocus {
+            pane_id,
+            tab_index,
+            expires_at_ms: crate::session::unix_now_ms() + FOCUS_CONFIRM_TIMEOUT_MS,
+        });
+        view.revision = view.revision.wrapping_add(1);
+    }
+
+    pub fn prune_client_views(&mut self) {
+        for view in self.client_views.values_mut() {
+            if view
+                .focused_pane_id
+                .is_some_and(|pane_id| !self.sessions.contains_key(&pane_id))
+            {
+                view.focused_pane_id = None;
+                view.pending_focus = None;
+                view.revision = view.revision.wrapping_add(1);
+            }
+        }
+    }
+
+    /// Replace connected-client/tab knowledge from a client-scoped TabUpdate
+    /// and reconcile exact focus without consulting PaneInfo::is_focused.
+    pub fn reconcile_client_views(&mut self) -> bool {
+        let mut client_tabs = BTreeMap::new();
+        if let Some(tab) = self.tabs.iter().find(|tab| tab.active) {
+            client_tabs.insert(self.client_id, tab.position);
+        }
+        for tab in &self.tabs {
+            for &client_id in &tab.other_focused_clients {
+                client_tabs.insert(client_id, tab.position);
+            }
+        }
+
+        let old = self
+            .client_views
+            .iter()
+            .map(|(&id, view)| (id, view.snapshot()))
+            .collect::<BTreeMap<_, _>>();
+        self.client_views
+            .retain(|client_id, _| client_tabs.contains_key(client_id));
+
+        let now = crate::session::unix_now_ms();
+        for (&client_id, &tab_index) in &client_tabs {
+            let candidates = self
+                .sessions
+                .values()
+                .filter(|session| session.tab_index == Some(tab_index))
+                .map(|session| session.pane_id)
+                .collect::<Vec<_>>();
+            let view = self.client_views.entry(client_id).or_default();
+            view.active_tab_index = Some(tab_index);
+
+            if let Some(pending) = view.pending_focus {
+                if pending.tab_index == tab_index {
+                    view.focused_pane_id = Some(pending.pane_id);
+                    view.pending_focus = None;
+                } else if now < pending.expires_at_ms {
+                    continue;
+                } else {
+                    view.pending_focus = None;
+                }
+            }
+
+            let current_is_on_tab = view.focused_pane_id.is_some_and(|pane_id| {
+                self.sessions
+                    .get(&pane_id)
+                    .is_some_and(|session| session.tab_index == Some(tab_index))
+            });
+            if !current_is_on_tab {
+                view.focused_pane_id = if candidates.len() == 1 {
+                    candidates.first().copied()
+                } else {
+                    None
+                };
+                view.revision = view.revision.wrapping_add(1);
+            }
+        }
+
+        let new = self
+            .client_views
+            .iter()
+            .map(|(&id, view)| (id, view.snapshot()))
+            .collect::<BTreeMap<_, _>>();
+        old.iter().any(|(id, old_view)| {
+            new.get(id).is_none_or(|new_view| {
+                old_view.active_tab_index != new_view.active_tab_index
+                    || old_view.focused_pane_id != new_view.focused_pane_id
+            })
+        }) || new.keys().any(|id| !old.contains_key(id))
     }
 
     /// Merge incoming sessions (used for restore from cache).
@@ -479,12 +563,10 @@ pub fn cleanup_orphaned_state_files() {
         }
 
         let should_remove = match entry.metadata().and_then(|m| m.modified()) {
-            Ok(mtime) => {
-                match mtime.duration_since(std::time::UNIX_EPOCH) {
-                    Ok(d) => now_secs.saturating_sub(d.as_secs()) > seven_days_secs,
-                    Err(_) => false,
-                }
-            }
+            Ok(mtime) => match mtime.duration_since(std::time::UNIX_EPOCH) {
+                Ok(d) => now_secs.saturating_sub(d.as_secs()) > seven_days_secs,
+                Err(_) => false,
+            },
             Err(_) => false,
         };
 
@@ -730,8 +812,14 @@ mod tests {
 
     #[test]
     fn test_extract_pid_from_filename() {
-        assert_eq!(super::extract_pid_from_filename("sessions-12345.json"), Some(12345));
-        assert_eq!(super::extract_pid_from_filename("session-meta-12345.json"), Some(12345));
+        assert_eq!(
+            super::extract_pid_from_filename("sessions-12345.json"),
+            Some(12345)
+        );
+        assert_eq!(
+            super::extract_pid_from_filename("session-meta-12345.json"),
+            Some(12345)
+        );
         assert_eq!(super::extract_pid_from_filename("sessions.json"), None);
         assert_eq!(super::extract_pid_from_filename("session-meta.json"), None);
         assert_eq!(super::extract_pid_from_filename("debug.log"), None);
@@ -786,5 +874,76 @@ mod tests {
         state.cleanup_stale_sessions(300);
         assert!(state.sessions[&10].paused);
         assert!(!state.auto_sort_tail.contains(&10));
+    }
+
+    #[test]
+    fn pane_manifest_focus_never_changes_client_focus() {
+        let mut state = ControllerState::default();
+        state.client_id = 1;
+        state.set_client_focus_intent(1, 10, 0);
+        state.tabs = vec![TabInfo {
+            position: 0,
+            active: true,
+            ..Default::default()
+        }];
+        state.pane_manifest = Some(make_manifest_with_exited(&[10, 20], &[]));
+
+        state.rebuild_pane_map();
+
+        assert_eq!(state.own_focus(), Some(10));
+    }
+
+    #[test]
+    fn reconcile_keeps_clients_independent_and_cleans_disconnects() {
+        let mut state = ControllerState::default();
+        state.client_id = 1;
+        let mut first = make_session(10);
+        first.tab_index = Some(0);
+        let mut second = make_session(20);
+        second.tab_index = Some(1);
+        state.sessions.insert(10, first);
+        state.sessions.insert(20, second);
+        state.set_client_focus_intent(1, 10, 0);
+        state.set_client_focus_intent(2, 20, 1);
+        state.tabs = vec![
+            TabInfo {
+                position: 0,
+                active: true,
+                ..Default::default()
+            },
+            TabInfo {
+                position: 1,
+                other_focused_clients: vec![2],
+                ..Default::default()
+            },
+        ];
+
+        state.reconcile_client_views();
+        assert_eq!(state.client_views[&1].focused_pane_id, Some(10));
+        assert_eq!(state.client_views[&2].focused_pane_id, Some(20));
+
+        state.tabs[1].other_focused_clients.clear();
+        state.reconcile_client_views();
+        assert!(!state.client_views.contains_key(&2));
+    }
+
+    #[test]
+    fn reconcile_clears_ambiguous_tab_without_exact_focus() {
+        let mut state = ControllerState::default();
+        state.client_id = 1;
+        for pane_id in [10, 20] {
+            let mut session = make_session(pane_id);
+            session.tab_index = Some(0);
+            state.sessions.insert(pane_id, session);
+        }
+        state.tabs = vec![TabInfo {
+            position: 0,
+            active: true,
+            ..Default::default()
+        }];
+
+        state.reconcile_client_views();
+
+        assert_eq!(state.client_views[&1].focused_pane_id, None);
     }
 }
