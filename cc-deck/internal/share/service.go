@@ -30,7 +30,7 @@ func (s *SharingService) Start(ctx context.Context, req StartRequest) (Invitatio
 			return err
 		}
 		if existing != nil {
-			if existing.State == StateActive && req.Session != "" && req.Session == existing.Session &&
+			if existing.State == StateActive && (req.Session == "" || req.Session == existing.Session) &&
 				(req.Provider == "" || req.Provider == existing.Provider) {
 				invitations = InvitationSet{Warnings: []string{fmt.Sprintf("Sharing is already active for session %q with provider %s; existing credentials are not redisplayed.", existing.Session, existing.Provider)}}
 				return nil
@@ -85,13 +85,17 @@ func (s *SharingService) Start(ctx context.Context, req StartRequest) (Invitatio
 			return fmt.Errorf("%w; rollback residuals: %s", cause, strings.Join(residuals, "; "))
 		}
 
-		shareOwned, err := s.zellij.ShareSession(ctx, session)
+		alreadyShared, err := s.zellij.SessionSharingEnabled(ctx, session)
 		if err != nil {
 			return err
 		}
-		if shareOwned {
-			undo = append(undo, func(cleanupCtx context.Context) error { return s.zellij.UnshareSession(cleanupCtx, session) })
+		if alreadyShared {
+			return fmt.Errorf("session %q is already web-shared outside cc-deck; stop that sharing before starting", session)
 		}
+		if err = s.zellij.ShareSession(ctx, session); err != nil {
+			return err
+		}
+		undo = append(undo, func(cleanupCtx context.Context) error { return s.zellij.UnshareSession(cleanupCtx, session) })
 		localURL, webStarted, err := s.zellij.EnsureWebServer(ctx)
 		if err != nil {
 			return rollback(err)
