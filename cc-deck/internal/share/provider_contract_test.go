@@ -201,23 +201,23 @@ func newCloudflareServiceContractProvider(t *testing.T, endpoint string, signalE
 func runProviderStartupRollbackContract(t *testing.T, provider Provider) {
 	t.Helper()
 	store, z := &startStore{}, &startZellij{}
-	invitations, err := NewService(store, z, provider).Start(context.Background(), StartRequest{Session: "selected", Provider: provider.Name()})
+	invitations, err := NewService(store, z, provider).Start(context.Background(), StartRequest{Workspace: "demo", Session: "selected", Provider: provider.Name()})
 	require.Error(t, err)
 	require.Empty(t, invitations)
 	require.Nil(t, store.op)
 	require.Contains(t, z.calls, "revoke-observer")
 	require.Contains(t, z.calls, "revoke-interactive")
-	require.Contains(t, z.calls, "unshare")
 }
 
 func runProviderPartialStopContract(t *testing.T, provider Provider) {
 	t.Helper()
 	store, z := &startStore{}, &startZellij{}
 	service := NewService(store, z, provider)
-	invitations, err := service.Start(context.Background(), StartRequest{Session: "selected", Provider: provider.Name()})
+	invitations, err := service.Start(context.Background(), StartRequest{Workspace: "demo", Session: "selected", Provider: provider.Name()})
 	require.NoError(t, err)
-	for _, invitation := range []string{invitations.InteractiveBrowser, invitations.InteractiveTerminal, invitations.ObserverBrowser, invitations.ObserverTerminal} {
-		require.NotEmpty(t, invitation)
+	for _, invitation := range invitations {
+		require.NotEmpty(t, invitation.Browser)
+		require.NotEmpty(t, invitation.Terminal)
 	}
 	status, err := service.Stop(context.Background())
 	require.Error(t, err)
@@ -225,17 +225,17 @@ func runProviderPartialStopContract(t *testing.T, provider Provider) {
 	require.Contains(t, status.Residuals[0], "public endpoint")
 	require.Contains(t, z.calls, "revoke-observer")
 	require.Contains(t, z.calls, "revoke-interactive")
-	require.Contains(t, z.calls, "unshare")
 }
 
 func runProviderServiceIntegrationContract(t *testing.T, provider Provider) {
 	t.Helper()
 	store, z := &startStore{}, &startZellij{}
 	service := NewService(store, z, provider)
-	invitations, err := service.Start(context.Background(), StartRequest{Session: "selected", Provider: provider.Name()})
+	invitations, err := service.Start(context.Background(), StartRequest{Workspace: "demo", Session: "selected", Provider: provider.Name()})
 	require.NoError(t, err)
-	require.NotEmpty(t, invitations.InteractiveBrowser)
-	require.NotEmpty(t, invitations.ObserverBrowser)
+	require.Len(t, invitations, 2)
+	require.NotEmpty(t, invitations[0].Browser)
+	require.NotEmpty(t, invitations[1].Browser)
 	status, err := service.Status(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, StateActive, status.State)

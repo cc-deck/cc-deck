@@ -17,8 +17,14 @@ type guardService struct {
 	done  chan struct{}
 }
 
-func (*guardService) Start(context.Context, StartRequest) (InvitationSet, error) {
-	return InvitationSet{}, nil
+func (*guardService) Start(context.Context, StartRequest) ([]Invitation, error) {
+	return nil, nil
+}
+func (*guardService) Invite(context.Context, InviteRequest) (Invitation, error) {
+	return Invitation{}, nil
+}
+func (*guardService) Revoke(context.Context, string) (SharingStatus, error) {
+	return SharingStatus{}, nil
 }
 func (*guardService) Status(context.Context) (SharingStatus, error) { return SharingStatus{}, nil }
 func (s *guardService) Stop(context.Context) (SharingStatus, error) {

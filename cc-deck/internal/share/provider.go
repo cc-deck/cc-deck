@@ -32,9 +32,7 @@ type Provider interface {
 }
 type Zellij interface {
 	ValidateCapabilities(context.Context) error
-	ResolveSession(context.Context, string) (string, error)
-	ShareSession(context.Context, string) error
-	UnshareSession(context.Context, string) error
+	SessionExists(context.Context, string) (bool, error)
 	CreateToken(context.Context, string, bool) (string, error)
 	RevokeToken(context.Context, string) error
 	EnsureWebServer(context.Context) (string, bool, error)
@@ -47,7 +45,9 @@ type Store interface {
 	Remove() error
 }
 type Service interface {
-	Start(context.Context, StartRequest) (InvitationSet, error)
+	Start(context.Context, StartRequest) ([]Invitation, error)
+	Invite(context.Context, InviteRequest) (Invitation, error)
+	Revoke(context.Context, string) (SharingStatus, error)
 	Status(context.Context) (SharingStatus, error)
 	Stop(context.Context) (SharingStatus, error)
 }
