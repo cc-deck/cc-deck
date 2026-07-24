@@ -1,6 +1,6 @@
 # Brainstorm Overview
 
-Last updated: 2026-07-24 (089 session sharing hardening)
+Last updated: 2026-07-24 (090 verification test hardening)
 
 ## Active Brainstorms
 
@@ -50,6 +50,7 @@ Last updated: 2026-07-24 (089 session sharing hardening)
 | 087 | 2026-07-22 | Multiplayer plugin resilience | spec-created | 082 |
 | 088 | 2026-07-21 | Multiplayer focus modes | active | - |
 | 089 | 2026-07-24 | Session sharing hardening | parked | - |
+| 090 | 2026-07-24 | Verification test hardening | parked | - |
 
 ## Open Threads
 
@@ -91,9 +92,12 @@ Last updated: 2026-07-24 (089 session sharing hardening)
 - Session sharing: **decided** host-controlled ephemeral exposure of one complete Zellij session. Multiple interactive collaborators and read-only observers use one shared temporary token per role, with browser and terminal invitations. Pluggable exposure providers from V1; Cloudflare Quick Tunnel is the default first provider. Stop revokes both tokens and closes the endpoint. Token/session isolation and immediate disconnect semantics remain for specification. (from #083, revisited 2026-07-24)
 - Multiplayer plugin resilience: **spec-created** (spec 082). Client-aware architecture shipped, render broadcast filtering and election hardening with (client_id, plugin_id) tuple. (from #087)
 - Multiplayer focus modes: Two modes for multiplayer sidebar interaction. Independent mode (each client controls own focus, Phase 1 fix) and synchronized mode (pair programming, Phase 2). Extracted from spike finding that client 2 clicks affect client 1's focus. (from #088)
+- Verification test hardening: isolate external compose smoke tests from the default Go tier, make verification bounded and diagnosable, and determine whether the muted-and-recording voice failure is a harness problem or a relay race. (from #090)
 
 ## Parked Ideas
 
+- Verification test hardening: restore reliable `make test` and `make verify` by separating external smoke tests and removing timing-sensitive voice verification (#090)
+  Reason: existing repository verification debt was exposed while validating feature 084 and is deferred to a separate effort.
 - Session sharing hardening: validate secure terminal attachment through Cloudflare Quick Tunnel and bounded fail-closed cleanup after controller failure (#089)
   Reason: deferred to a focused empirical spike; current evidence shows terminal attach may require `--insecure` and Zellij tokens have no known expiry.
 - Image tool plugins: multi-harness plugin config sections, harness detection at container start, runtime vs build-time plugin install (#058)
