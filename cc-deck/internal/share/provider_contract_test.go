@@ -7,6 +7,7 @@ import (
 	"os"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestProviderRegistrySelectionAndSortedNames(t *testing.T) {
@@ -143,6 +144,88 @@ func TestSharedProviderServiceIntegrationContract(t *testing.T) {
 		provider.findProcess = func(int) (Process, error) { return proc, nil }
 		runProviderServiceIntegrationContract(t, provider)
 	})
+}
+
+func TestSharedProviderServiceFailureContract(t *testing.T) {
+	t.Run("startup rollback", func(t *testing.T) {
+		t.Run("isolated fake", func(t *testing.T) {
+			provider := &contractProvider{readyErr: errors.New("readiness failed")}
+			runProviderStartupRollbackContract(t, provider)
+			require.True(t, provider.stopped)
+		})
+		t.Run("cloudflare runner fake", func(t *testing.T) {
+			provider, _ := newCloudflareServiceContractProvider(t, "", nil)
+			provider.readyTimeout = 20 * time.Millisecond
+			runProviderStartupRollbackContract(t, provider)
+		})
+	})
+	t.Run("partial stop failure", func(t *testing.T) {
+		t.Run("isolated fake", func(t *testing.T) {
+			runProviderPartialStopContract(t, &contractProvider{stopErr: errors.New("stop failed")})
+		})
+		t.Run("cloudflare runner fake", func(t *testing.T) {
+			provider, _ := newCloudflareServiceContractProvider(t, "https://partial.trycloudflare.com", errors.New("signal failed"))
+			runProviderPartialStopContract(t, provider)
+		})
+	})
+}
+
+func newCloudflareServiceContractProvider(t *testing.T, endpoint string, signalErr error) (*CloudflareProvider, *fakeProcess) {
+	t.Helper()
+	wait := make(chan error, 1)
+	var once sync.Once
+	process := &fakeProcess{pid: 91, waitCh: wait, signalErr: signalErr}
+	process.onSignalWith = func(signal os.Signal) {
+		if signal == os.Interrupt && signalErr == nil {
+			once.Do(func() { wait <- nil })
+		}
+	}
+	runner := &fakeRunner{outputs: map[string][]byte{key("cloudflared", []string{"--version"}): []byte("cloudflared 1")}, errors: map[string]error{}, process: process}
+	runner.startFn = func(_ string, args []string) (Process, error) {
+		for i, arg := range args {
+			if arg == "--logfile" && i+1 < len(args) {
+				contents := "not ready"
+				if endpoint != "" {
+					contents = endpoint
+				}
+				require.NoError(t, os.WriteFile(args[i+1], []byte(contents), 0600))
+			}
+		}
+		return process, nil
+	}
+	provider := NewCloudflareProvider(runner)
+	provider.findProcess = func(int) (Process, error) { return process, nil }
+	return provider, process
+}
+
+func runProviderStartupRollbackContract(t *testing.T, provider Provider) {
+	t.Helper()
+	store, z := &startStore{}, &startZellij{}
+	invitations, err := NewService(store, z, provider).Start(context.Background(), StartRequest{Session: "selected", Provider: provider.Name()})
+	require.Error(t, err)
+	require.Empty(t, invitations)
+	require.Nil(t, store.op)
+	require.Contains(t, z.calls, "revoke-observer")
+	require.Contains(t, z.calls, "revoke-interactive")
+	require.Contains(t, z.calls, "unshare")
+}
+
+func runProviderPartialStopContract(t *testing.T, provider Provider) {
+	t.Helper()
+	store, z := &startStore{}, &startZellij{}
+	service := NewService(store, z, provider)
+	invitations, err := service.Start(context.Background(), StartRequest{Session: "selected", Provider: provider.Name()})
+	require.NoError(t, err)
+	for _, invitation := range []string{invitations.InteractiveBrowser, invitations.InteractiveTerminal, invitations.ObserverBrowser, invitations.ObserverTerminal} {
+		require.NotEmpty(t, invitation)
+	}
+	status, err := service.Stop(context.Background())
+	require.Error(t, err)
+	require.Equal(t, StateDegraded, status.State)
+	require.Contains(t, status.Residuals[0], "public endpoint")
+	require.Contains(t, z.calls, "revoke-observer")
+	require.Contains(t, z.calls, "revoke-interactive")
+	require.Contains(t, z.calls, "unshare")
 }
 
 func runProviderServiceIntegrationContract(t *testing.T, provider Provider) {
