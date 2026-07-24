@@ -1,6 +1,6 @@
 # Brainstorm Overview
 
-Last updated: 2026-07-21 (088 multiplayer focus modes)
+Last updated: 2026-07-24 (083 pluggable session sharing revisit)
 
 ## Active Brainstorms
 
@@ -46,6 +46,7 @@ Last updated: 2026-07-21 (088 multiplayer focus modes)
 | 080 | 2026-07-11 | Sidebar auto-sort | active | - |
 | 081 | 2026-07-12 | Codex agent adapter | active | - |
 | 082 | 2026-07-22 | Session sharing spike | active | - |
+| 083 | 2026-07-22 | Pluggable tunnel interface | active | - |
 | 087 | 2026-07-22 | Multiplayer plugin resilience | spec-created | 082 |
 | 088 | 2026-07-21 | Multiplayer focus modes | active | - |
 
@@ -86,7 +87,7 @@ Last updated: 2026-07-21 (088 multiplayer focus modes)
 - OpenShell native Vertex provider: Replace homegrown Vertex credential handling with OpenShell's native google-cloud provider (GCE metadata emulator, PR #1763). Remove file credential upload, dead vertex profile, Vertex network domains from OpenShell policy. Keep env var injection for Claude Code. OpenShell workspaces only. (from #075)
 - OpenShell gRPC migration: **decided** full gRPC replacement of CLI wrapping. Vertex provider migration exposed three runtime CLI flag bugs. Research shows CLI not needed for SSH or file transfer (Go SSH + tar pipe). Proto codegen gives compile-time API validation. Eliminates CLI as runtime dependency. Enables K8s operator integration. Proto files pinned to release tags. Implementation: grpcClient behind existing Client interface. (from #049, revisited 2026-06-26)
 - OpenShell SDK migration: **decided** big bang replacement of CLI wrapper with openshell-sdk-go. Drop custom Client interface, use SDK ClientInterface/sub-clients directly. GatewayConfig-to-SDK-Config mapping TBD. credentials.go stays independent. Fake client for tests. replace directive during dev. (from #027)
-- Session sharing spike: test Zellij web server + Cloudflare Tunnel + Traefik IngressRoute, explore connected client API, document findings for full feature spec. Spike scope covers 8 validation items. (from #082)
+- Session sharing: **decided** host-controlled ephemeral exposure of one complete Zellij session. Multiple interactive collaborators and read-only observers use one shared temporary token per role, with browser and terminal invitations. Pluggable exposure providers from V1; Cloudflare Quick Tunnel is the default first provider. Stop revokes both tokens and closes the endpoint. Token/session isolation and immediate disconnect semantics remain for specification. (from #083, revisited 2026-07-24)
 - Multiplayer plugin resilience: **spec-created** (spec 082). Client-aware architecture shipped, render broadcast filtering and election hardening with (client_id, plugin_id) tuple. (from #087)
 - Multiplayer focus modes: Two modes for multiplayer sidebar interaction. Independent mode (each client controls own focus, Phase 1 fix) and synchronized mode (pair programming, Phase 2). Extracted from spike finding that client 2 clicks affect client 1's focus. (from #088)
 
@@ -94,8 +95,6 @@ Last updated: 2026-07-21 (088 multiplayer focus modes)
 
 - Image tool plugins: multi-harness plugin config sections, harness detection at container start, runtime vs build-time plugin install (#058)
   Reason: deferred until a second harness beyond Claude Code is supported. RTK integration was implemented directly in capture wizard.
-- Pluggable tunnel interface: Go interface for tunnel backends (Cloudflare, bore, Traefik), `cc-deck share` command UX (#083)
-  Reason: depends on spike findings from #082
 - Multi-backend session sharing: sharing across SSH, OpenShell, K8s backends with different networking models (#084)
   Reason: depends on tunnel interface design (#083) and spike findings (#082)
 - Sidebar presence panel: connected users, access levels, quick actions for token/sharing management (#085)
