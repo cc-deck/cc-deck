@@ -428,7 +428,8 @@ func TestSelectCredentialMode_ExplicitNoMatch(t *testing.T) {
 		{Spec: agent.CredentialSpec{Name: "api"}},
 	}
 	_, found, err := selectCredentialMode(available, "vertex")
-	assert.Error(t, err, "an explicit mode with no match must report why")
+	assert.ErrorContains(t, err, `auth mode "vertex" was requested`,
+		"an explicit mode with no match must report why")
 	assert.False(t, found)
 }
 
