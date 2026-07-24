@@ -20,6 +20,7 @@ type SharingOperation struct {
 	InteractiveTokenLabel string         `yaml:"interactive_token_label"`
 	ObserverTokenLabel    string         `yaml:"observer_token_label"`
 	ProviderHandle        ProviderHandle `yaml:"provider_handle"`
+	Guard                 GuardHandle    `yaml:"guard,omitempty"`
 	State                 LifecycleState `yaml:"state"`
 	CreatedAt             time.Time      `yaml:"created_at"`
 	UpdatedAt             time.Time      `yaml:"updated_at"`
