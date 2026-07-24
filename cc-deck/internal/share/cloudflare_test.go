@@ -2,11 +2,23 @@ package share
 
 import (
 	"context"
+	"errors"
 	"github.com/stretchr/testify/require"
 	"os"
 	"testing"
 	"time"
 )
+
+func TestCloudflareValidateReportsMissingBinary(t *testing.T) {
+	r := &fakeRunner{outputs: map[string][]byte{}, errors: map[string]error{key("cloudflared", []string{"--version"}): errors.New("not found")}}
+	require.ErrorContains(t, NewCloudflareProvider(r).Validate(context.Background()), "required")
+}
+
+func TestCloudflareStartFailureIsSafe(t *testing.T) {
+	r := &fakeRunner{startFn: func(string, []string) (Process, error) { return nil, errors.New("boom") }}
+	_, err := NewCloudflareProvider(r).Start(context.Background(), "http://127.0.0.1:8082")
+	require.ErrorContains(t, err, "start Cloudflare")
+}
 
 func TestCloudflareValidateAndStartEncryptedTunnel(t *testing.T) {
 	r := &fakeRunner{outputs: map[string][]byte{key("cloudflared", []string{"--version"}): []byte("cloudflared 1")}, errors: map[string]error{}, process: &fakeProcess{pid: 42}}
@@ -38,4 +50,10 @@ func TestCloudflareReadyRejectsMalformedAndTimesOut(t *testing.T) {
 	p.pollInterval = 5 * time.Millisecond
 	_, e = p.Ready(context.Background(), ProviderHandle{Metadata: map[string]string{"log_path": f.Name()}})
 	require.ErrorContains(t, e, "timeout")
+}
+
+func TestCloudflareStopWithoutProcessIsIdempotent(t *testing.T) {
+	p := NewCloudflareProvider(&fakeRunner{})
+	require.NoError(t, p.Stop(context.Background(), ProviderHandle{}))
+	require.NoError(t, p.Stop(context.Background(), ProviderHandle{}))
 }

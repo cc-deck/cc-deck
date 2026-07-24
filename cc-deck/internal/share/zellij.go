@@ -96,6 +96,9 @@ func (z *ZellijCLI) EnsureWebServer(ctx context.Context) (string, bool, error) {
 	if err != nil {
 		return "", true, err
 	}
+	if !strings.Contains(strings.ToLower(out), "online") {
+		return "", true, fmt.Errorf("Zellij web server did not become ready: %s", out)
+	}
 	return extractLocalURL(out), true, nil
 }
 func extractLocalURL(out string) string {
