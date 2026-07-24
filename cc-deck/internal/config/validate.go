@@ -23,6 +23,7 @@ const (
 	CategoryProfiles  Category = "profiles"
 	CategoryVoice     Category = "voice"
 	CategoryStructure Category = "structure"
+	CategorySharing   Category = "sharing"
 )
 
 // Finding represents a single validation issue found in the config file.
@@ -40,7 +41,15 @@ func (c *Config) Validate() []Finding {
 	findings = append(findings, validateBadges(c.Badges)...)
 	findings = append(findings, validateProfiles(c.Profiles, c.DefaultProfile)...)
 	findings = append(findings, validateVoice(c.Defaults.Voice)...)
+	findings = append(findings, validateSharing(c.Sharing)...)
 	return findings
+}
+
+func validateSharing(c SharingConfig) []Finding {
+	if c.Provider == "" || c.Provider == DefaultSharingProvider {
+		return nil
+	}
+	return []Finding{{Severity: SeverityError, Category: CategorySharing, Message: fmt.Sprintf("unknown sharing provider %q", c.Provider), Suggestion: "use cloudflare"}}
 }
 
 // ValidateAndWarn runs Validate() and prints a one-line summary to stderr
