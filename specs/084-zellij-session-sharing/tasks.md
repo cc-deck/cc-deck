@@ -14,13 +14,13 @@ All tasks inherit `plan.md` constraints. Tests precede implementation changes.
 ## Workspace-centric implementation
 
 - [X] T007 Align Feature 084 specification, plan, data model, CLI contract, tasks, and quickstart with workspace-centric sharing.
-- [ ] T008 Add `SessionManager`, readiness result types, and state-table tests; implement local canonical-session creation with creation-time web sharing.
-- [ ] T009 Extract idempotent canonical-session creation from attach for container, compose, SSH, Kubernetes deploy, and OpenShell backends; reject web sharing before backend commands.
-- [ ] T010 Replace fixed role labels with workspace identity and multiple named invitation records; add collision-safe memorable label generation and one-invitation construction.
-- [ ] T011 Make sharing start workspace-aware, require the canonical session, add independent invite/revoke operations, revoke every active invitation on stop, and stop when the canonical session dies.
-- [ ] T012 Integrate readiness and sharing into `ws new`, `ws start`, `ws attach`, `ws invite`, `ws revoke`, `ws unshare`, and `ws stop`; move the hidden guard beneath `ws`.
-- [ ] T013 Add reconciled `INFRA`, `SESSION`, and `SHARING` list/status output and remove the standalone public sharing command.
-- [ ] T014 Update README, CLI/configuration references, sharing guide, and focused automated evidence for the workspace flows.
+- [X] T008 Add `SessionManager`, readiness result types, and state-table tests; implement local canonical-session creation with creation-time web sharing.
+- [X] T009 Extract idempotent canonical-session creation from attach for container, compose, SSH, Kubernetes deploy, and OpenShell backends; reject web sharing before backend commands.
+- [X] T010 Replace fixed role labels with workspace identity and multiple named invitation records; add collision-safe memorable label generation and one-invitation construction.
+- [X] T011 Make sharing start workspace-aware, require the canonical session, add independent invite/revoke operations, revoke every active invitation on stop, and stop when the canonical session dies.
+- [X] T012 Integrate readiness and sharing into `ws new`, `ws start`, `ws attach`, `ws invite`, `ws revoke`, `ws unshare`, and `ws stop`; move the hidden guard beneath `ws`.
+- [X] T013 Add reconciled `INFRA`, `SESSION`, and `SHARING` list/status output and remove the standalone public sharing command.
+- [X] T014 Update README, CLI/configuration references, sharing guide, and focused automated evidence for the workspace flows.
 
 ## Acceptance and deferred repository verification
 

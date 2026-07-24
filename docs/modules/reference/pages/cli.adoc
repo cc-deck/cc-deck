@@ -58,72 +58,28 @@ Build::
 Three high-frequency workspace commands are available directly at the top level.
 They behave identically to their `ws` subcommand counterparts.
 
-== Session Sharing Commands
+== Workspace Sharing Commands
 
-The `share` command temporarily exposes one complete local Zellij session.
-Only one sharing operation can be active at a time.
-It creates one reusable interactive credential and one reusable observer credential.
-Raw credential values appear only in the initial `start` output.
-
-=== share start
-
-Start sharing the named session and print browser and terminal invitations for both roles.
-If the session argument is omitted, cc-deck resolves the current Zellij session.
-The command prints invitations only after the endpoint, selected session, and both credentials are ready.
+Sharing is integrated into local workspace lifecycle commands. Only one workspace may be shared per host, and raw invitation secrets print once.
 
 [source,bash]
 ----
-cc-deck share start
-cc-deck share start "pairing session"
-cc-deck share start "pairing session" --provider cloudflare
+cc-deck ws new demo --share
+cc-deck ws start demo --share
+cc-deck ws attach demo --share
+cc-deck ws invite demo --role interactive --name alice
+cc-deck ws invite demo --role observer
+cc-deck ws revoke demo alice
+cc-deck ws unshare demo
 ----
 
-[cols="1,3"]
-|===
-| Flag | Description
+`ws new` is ready and private by default; `--no-start` leaves it stopped and cannot be combined with `--share`. The `--share` flag creates a missing canonical session with web sharing enabled but never replaces a running private session.
 
-| `--provider`
-| Exposure provider to use. Defaults to the configured provider; V1 includes `cloudflare` as its only production provider.
-|===
+`ws invite` creates an independently revocable interactive or observer credential. Omit `--name` for a random memorable label. Interactive invitations grant complete terminal control. Terminal invitations are experimental and print the `--insecure` interception warning before the secret.
 
-The interactive invitation grants trusted users control over all tabs, panes, sidebars, and session controls available to an attached Zellij client.
-The observer invitation rejects keyboard, mouse, paste, resize, focus, and terminal-control input.
-Multiple clients can reuse either role credential concurrently.
+`ws list` displays `INFRA`, `SESSION`, and `SHARING`. `ws status` includes safe endpoint, invitation labels and roles, guard health, and residuals without tokens. Local state is `private`, `shared`, or `degraded`; non-local workspaces are `unsupported`.
 
-Terminal invitations are experimental in V1.
-Before displaying them, cc-deck warns that their `--insecure` option disables server certificate validation and permits interception.
-Browser invitations validate the HTTPS endpoint normally.
-
-=== share status
-
-Report whether sharing is inactive, active, or degraded.
-Active and degraded output includes safe session, provider, endpoint, role availability, and residual-resource information, but never raw credentials.
-The command reconciles stale resources left by an earlier unclean exit before reporting an inactive state.
-
-[source,bash]
-----
-cc-deck share status
-----
-
-A degraded status means cc-deck could not confirm that every sharing resource is inactive.
-Treat the named residual resources as exposed until cleanup succeeds.
-
-=== share stop
-
-Stop the active operation.
-The command attempts every safety action even if an earlier action fails: disconnect clients, revoke both role credentials, unshare the selected session, close the endpoint, and remove safe state.
-It is safe to repeat.
-
-[source,bash]
-----
-cc-deck share stop
-----
-
-Successful completion confirms that all sharing resources are inactive.
-A nonzero exit identifies residual exposure and leaves a degraded status for a later `share stop`, `share status`, or `share start` to reconcile.
-
-The detached lifecycle guard attempts the same teardown after a supported termination signal or provider exit.
-This cleanup is best-effort: an uncatchable guard termination can leave resources active until a later lifecycle command performs reconciliation.
+`ws unshare` revokes every active invitation and closes the endpoint while leaving the canonical session running. After Zellij `Ctrl+q` kills the shared session, the guard tears sharing down and a plain start or attach recreates a private session.
 
 === attach
 

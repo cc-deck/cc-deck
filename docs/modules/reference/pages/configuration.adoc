@@ -70,7 +70,7 @@ Each action can have multiple trigger words, and you can change the defaults to 
 
 == Session Sharing Configuration
 
-The optional `sharing.provider` setting selects the exposure provider used by `cc-deck share start` when `--provider` is not supplied.
+The optional `sharing.provider` setting selects the exposure provider used by workspace sharing commands such as `cc-deck ws start NAME --share`.
 Its default is `cloudflare`, the only production provider included in V1.
 
 [source,yaml]

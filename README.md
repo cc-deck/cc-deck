@@ -224,20 +224,24 @@ Auto-sort uses stable active and paused zones. Focusing or clicking a session ne
 
 ### Share a Zellij session
 
-`cc-deck share` temporarily exposes one complete local Zellij session to remote collaborators. One shared interactive invitation gives trusted collaborators full control. A separate observer invitation lets people follow the session without sending input. Each role can join in a browser or from a terminal, and multiple people can reuse the same role invitation.
+Workspace sharing temporarily exposes one local workspace's canonical Zellij session. Interactive invitations grant trusted collaborators full control; observer invitations are read-only. Invitations have memorable labels and can be revoked independently.
 
 ```bash
-cc-deck share start my-session
-cc-deck share status
-cc-deck share stop
+cc-deck ws new demo --share
+cc-deck ws start demo --share
+cc-deck ws attach demo --share
+cc-deck ws invite demo --role interactive --name alice
+cc-deck ws invite demo --role observer
+cc-deck ws revoke demo alice
+cc-deck ws unshare demo
 ```
 
-Sharing requires Zellij 0.44.3 or later with the required web capabilities and `cloudflared`. Cloudflare Quick Tunnel is the default and only production provider in V1. Invitations appear only once, after the session, both role credentials, and the public endpoint are ready. `share status` never displays the credentials again.
+Sharing is local-only and requires Zellij 0.44.3 or later plus `cloudflared`. Only one workspace may be shared per host. Raw invitation secrets print once; `ws list` and `ws status` show only safe labels, roles, endpoint, and `private|shared|degraded` state.
 
 > [!CAUTION]
 > Interactive access grants control of the entire shared terminal session. Share that invitation only with people you trust. Terminal attachment is experimental in V1: its generated command uses `--insecure`, which disables server certificate validation and creates an interception risk. Browser access validates the public endpoint normally.
 
-`cc-deck share stop` attempts to disconnect clients, revoke both credentials, unshare the session, and close the endpoint. A detached lifecycle guard also attempts cleanup after supported termination signals or provider exit. Guard cleanup is best-effort: an uncatchable guard termination can leave resources active until the next `share start`, `share status`, or `share stop` reconciles them. Treat a degraded status as possible residual exposure and follow the reported recovery actions.
+`cc-deck ws unshare demo` revokes every active invitation and closes the endpoint while keeping the canonical session running. `--share` never replaces a private running session. If a shared session dies (for example with Zellij's `Ctrl+q`), the guard tears sharing down; a plain start or attach recreates the session privately. Treat degraded status as possible residual exposure.
 
 See the [session sharing guide](https://cc-deck.github.io/docs/cc-deck/0.1/using/sharing.html) for prerequisites, joining instructions, and recovery details.
 
