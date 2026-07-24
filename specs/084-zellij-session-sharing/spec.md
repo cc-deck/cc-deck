@@ -6,7 +6,7 @@
 
 **Status**: Draft
 
-**Input**: Host-controlled, ephemeral sharing of one complete Zellij session with interactive and read-only invitations, browser and terminal access, and pluggable exposure providers.
+**Input**: Workspace-centric, ephemeral sharing of one local workspace's canonical Zellij session with named interactive and observer invitations, browser and terminal access, and pluggable exposure providers.
 
 ## Clarifications
 
@@ -15,6 +15,9 @@
 - Q: How many sharing operations may one host run at once? → A: One active sharing operation at a time.
 - Q: How should the next command behave after an unclean host or provider exit? → A: Detect and clean stale sharing resources before starting or reporting status.
 - Q: What constitutes successful stop completion? → A: All clients disconnected, credentials revoked, session unshared, and endpoint closed; otherwise status remains degraded with residual exposure identified.
+- Q: Where does sharing live in the CLI? → A: Under `cc-deck ws`; the standalone public sharing command is removed.
+- Q: Can an existing private session be converted in place? → A: No. `--share` never replaces a private running session; the host must explicitly kill and restart it.
+- Q: What happens after a shared session dies? → A: A plain restart recreates the canonical session privately; sharing requires another explicit `--share`.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -110,12 +113,12 @@ As a host, I use the initial default exposure provider through a provider-indepe
 
 ### Functional Requirements
 
-- **FR-001**: The system MUST start an ephemeral sharing operation for exactly one host-selected, currently running Zellij session.
+- **FR-001**: The system MUST start an ephemeral sharing operation for exactly one local workspace's canonical Zellij session.
 - **FR-001a**: The system MUST allow no more than one active sharing operation per host at a time.
 - **FR-002**: The sharing operation MUST expose the complete selected Zellij session, including all tabs, panes, sidebars, and session-level controls available to an attached client.
 - **FR-003**: The system MUST ensure that the sharing operation does not grant access to any other Zellij session owned by the host.
-- **FR-004**: The system MUST create exactly one temporary interactive credential and one temporary read-only credential for each sharing operation.
-- **FR-005**: The system MUST allow multiple concurrent clients to reuse each role credential.
+- **FR-004**: Initial sharing MUST create one named interactive invitation and one named observer invitation, and the host MAY add multiple independently revocable invitations for either role.
+- **FR-005**: The system MUST allow multiple concurrent clients to use invitations without persisting their raw tokens.
 - **FR-006**: The system MUST provide a session-specific browser invitation for interactive collaborators.
 - **FR-007**: The system MUST provide a session-specific terminal attach command for interactive collaborators.
 - **FR-008**: The system MUST provide a session-specific browser invitation for read-only observers.
@@ -127,12 +130,12 @@ As a host, I use the initial default exposure provider through a provider-indepe
 - **FR-013a**: V1 MUST include Cloudflare Quick Tunnel as its default production exposure provider and MUST validate provider interchangeability with an isolated contract test implementation; additional production providers are out of scope.
 - **FR-013b**: Every production exposure provider MUST encrypt credentials and session traffic in transit. V1 terminal invitations MAY require an explicit certificate-validation bypass when the selected provider is incompatible with Zellij terminal validation, but MUST label the command experimental and display a prominent interception-risk warning before revealing it.
 - **FR-014**: The system MUST provide a default exposure provider requiring no inbound network configuration from the host.
-- **FR-015**: The host MUST be able to select a non-default available provider when starting sharing.
-- **FR-016**: The system MUST report whether sharing is active, the selected session, the active provider, the endpoint, and the availability of both invitation roles without redisplaying secret credential values after initial creation.
+- **FR-015**: The configured provider MUST be used through the provider-independent service contract.
+- **FR-016**: Workspace list/status MUST report infrastructure, session, and sharing state plus safe endpoint and invitation label/role metadata without redisplaying secret credential values after initial creation.
 - **FR-017**: The system MUST NOT issue invitations until the endpoint, session sharing, and both credentials are ready.
 - **FR-018**: If startup fails, the system MUST remove any endpoint or credentials created during that attempt and report the failure.
 - **FR-019**: The host MUST be able to stop the active sharing operation with one action.
-- **FR-020**: Stopping sharing MUST revoke both role credentials, stop sharing the selected session, close the public endpoint, and disconnect already-authenticated remote clients.
+- **FR-020**: Unsharing MUST revoke every active invitation, close the public endpoint, and disconnect remote clients while leaving the canonical session running.
 - **FR-021**: Teardown MUST attempt all safety actions even if an earlier action fails, and MUST report any credential, session, client, or endpoint that may remain active.
 - **FR-021a**: Stop MUST be reported as complete only after remote clients are disconnected, both credentials are revoked, the selected session is no longer shared, and the public endpoint is closed; otherwise status MUST remain degraded and identify residual exposure.
 - **FR-022**: Old invitations MUST remain invalid after sharing stops or after a new sharing operation begins.
@@ -144,12 +147,16 @@ As a host, I use the initial default exposure provider through a provider-indepe
 - **FR-025a**: Documentation delivery MUST include README updates, CLI reference coverage, an Antora sharing guide, configuration reference coverage, and successful prose-profile validation.
 - **FR-026**: Before creating sharing resources, the system MUST verify that the installed Zellij runtime supports web serving, session-specific sharing, interactive credentials, read-only credentials, remote terminal attach, and forced shutdown of remote access; unsupported or incompatible runtimes MUST fail with an actionable prerequisite message.
 - **FR-027**: Session names and all invitation values MUST be encoded separately for URL and command contexts so spaces and reserved characters produce valid invitations without altering command structure or targeting another session.
+- **FR-028**: Public commands MUST be `ws new`, `ws start`, `ws attach`, `ws invite`, `ws revoke`, `ws unshare`, `ws list`, and `ws status`; sharing MUST be rejected for non-local workspace backends.
+- **FR-029**: `ws new` MUST be ready and private by default, `--no-start` MUST leave it stopped, and `--share` MUST conflict with `--no-start`.
+- **FR-030**: `--share` MUST create a missing canonical session with web sharing enabled and MUST NOT kill or mutate an existing private session.
+- **FR-031**: If the canonical shared session disappears, the guard MUST initiate sharing teardown. A later plain start or attach MUST recreate the session privately.
 
 ### Key Entities
 
-- **Sharing Operation**: One ephemeral exposure of one selected Zellij session; tracks lifecycle state, provider, endpoint, and its two role credentials.
+- **Sharing Operation**: One ephemeral exposure of one local workspace's canonical Zellij session; tracks workspace identity, lifecycle state, provider, endpoint, and invitation metadata.
 - **Invitation**: A session-specific connection instruction combining an endpoint, session identity, access role, and connection method; exists in browser and terminal forms.
-- **Role Credential**: A temporary secret shared by either all interactive collaborators or all observers for one sharing operation.
+- **Invitation Record**: A named, independently revocable role credential represented persistently only by label, role, state, and creation time.
 - **Exposure Provider**: A selectable mechanism that opens, reports, and closes the externally reachable endpoint while preserving common sharing behavior.
 - **Sharing Status**: The safe, non-secret summary of the current operation, including session, provider, endpoint, role availability, and any teardown warnings.
 
@@ -171,13 +178,13 @@ As a host, I use the initial default exposure provider through a provider-indepe
 ## Assumptions
 
 - The host intentionally trusts interactive collaborators with the same terminal-level capabilities available in the shared Zellij session.
-- One interactive credential and one observer credential are shared by role; individual identity, audit attribution, and per-person revocation are out of scope.
+- Initial sharing creates one invitation per role; additional named invitations and per-invitation revocation are supported, while identity verification and audit attribution remain out of scope.
 - Sharing is temporary. Credentials and endpoints are not reused between sharing operations.
 - Zellij 0.44.3 is the validated minimum baseline for web serving, session-specific sharing, interactive and read-only credentials, browser access, remote terminal attach, and stopping remote access. Runtime capability checks remain authoritative so incompatible builds fail safely even when their version string appears sufficient.
 - Supported browser and terminal clients provide the complete-session experience and enforce the selected access role; compatibility is rejected rather than silently degraded when a required capability is absent.
 - Cloudflare Quick Tunnel can create an outbound encrypted public endpoint with no inbound firewall or router changes. Browser invitations validate the public endpoint normally; V1 terminal invitations are explicitly experimental because the validated spike required a certificate-validation bypass.
 - Provider-specific accounts or configuration may be required by non-default providers and are supplied by the host outside this feature.
-- Presence displays, named users, pair-programming roles, hand-off controls, persistent URLs, hosted multi-tenancy, and sharing remote workspace backends are out of scope.
+- Presence displays, authenticated user identities, hand-off controls, persistent URLs, hosted multi-tenancy, and sharing non-local workspace backends are out of scope.
 - The existing multiplayer resilience and independent focus behavior remain prerequisites for a stable multi-client experience.
 
 ## Known V1 Security Limitations
