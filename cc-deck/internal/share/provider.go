@@ -2,7 +2,9 @@ package share
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"sort"
 )
 
 type Process interface {
@@ -52,4 +54,42 @@ type Service interface {
 type Guard interface {
 	Start(context.Context, string) (GuardHandle, error)
 	Disarm(context.Context, GuardHandle) error
+}
+
+type ProviderRegistry struct {
+	providers map[string]Provider
+}
+
+func NewProviderRegistry(providers ...Provider) (*ProviderRegistry, error) {
+	r := &ProviderRegistry{providers: make(map[string]Provider, len(providers))}
+	for _, provider := range providers {
+		if provider == nil || provider.Name() == "" {
+			return nil, fmt.Errorf("provider name must not be empty")
+		}
+		if _, exists := r.providers[provider.Name()]; exists {
+			return nil, fmt.Errorf("provider %q is registered more than once", provider.Name())
+		}
+		r.providers[provider.Name()] = provider
+	}
+	return r, nil
+}
+
+func (r *ProviderRegistry) Get(name string) (Provider, error) {
+	if r == nil {
+		return nil, fmt.Errorf("provider registry is not configured")
+	}
+	provider, ok := r.providers[name]
+	if !ok {
+		return nil, fmt.Errorf("provider %q is not available (available: %v)", name, r.Names())
+	}
+	return provider, nil
+}
+
+func (r *ProviderRegistry) Names() []string {
+	names := make([]string, 0, len(r.providers))
+	for name := range r.providers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
