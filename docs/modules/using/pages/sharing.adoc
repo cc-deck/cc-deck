@@ -48,7 +48,7 @@ Only one sharing operation can be active on a host.
 Starting the same active operation is idempotent, but it does not display the secret invitations again.
 Stop an active operation before selecting a different session.
 
-After every prerequisite, the endpoint, the selected session, and both role credentials are ready, cc-deck displays four invitations once:
+After all prerequisites pass and the endpoint, selected session, and both role credentials are ready, cc-deck displays four invitations once:
 
 * Interactive browser link
 * Interactive terminal attach command

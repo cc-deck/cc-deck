@@ -62,7 +62,7 @@ All tasks inherit `plan.md` Global Constraints and Interfaces.
 - [X] T030 [P] Document CLI/configuration in `docs/modules/reference/pages/cli.adoc` and `docs/modules/reference/pages/configuration.adoc`
 - [X] T031 [P] Add the Antora guide/navigation in `docs/modules/using/pages/sharing.adoc` and `docs/modules/using/nav.adoc`
 - [ ] T032 Execute and record the acceptance matrix in `specs/084-zellij-session-sharing/quickstart.md`: monotonic timers; 10 repetitions; injected provider readiness <=10s and measured RTT <=250ms; every start <=15s and normal disconnect <=5s; exactly 2 interactive + 2 observer clients; every listed observer input attempted; isolation and old-token rejection on every run; reserved-name table; forced signal and uncatchable guard loss; fresh temporary XDG environment for first-time flow
-- [ ] T033 Run prose-profile validation and correct `README.md` and `docs/`
+- [X] T033 Run prose-profile validation and correct `README.md` and `docs/`
 - [ ] T034 Run `make test`, `make lint`, and `make verify` and correct failures
 
 ## Dependencies and Parallel Work
