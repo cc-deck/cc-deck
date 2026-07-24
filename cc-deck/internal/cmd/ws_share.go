@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
 	"syscall"
 
+	"github.com/cc-deck/cc-deck/internal/config"
 	sharing "github.com/cc-deck/cc-deck/internal/share"
 	"github.com/cc-deck/cc-deck/internal/ws"
 	"github.com/spf13/cobra"
@@ -31,6 +33,43 @@ func workspaceShareService(gf *GlobalFlags, guarded bool) (sharing.Service, erro
 	return sharing.NewServiceWithGuard(store, zellij, provider, sharing.NewDetachedGuard(runner, executable)), nil
 }
 
+func defaultProvider(gf *GlobalFlags) string {
+	if gf == nil {
+		return "cloudflare"
+	}
+	cfg, err := config.Load(gf.ConfigFile)
+	if err == nil && cfg.SharingProvider() != "" {
+		return cfg.SharingProvider()
+	}
+	return "cloudflare"
+}
+
+type osCommandRunner struct{}
+
+func (osCommandRunner) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
+	return exec.CommandContext(ctx, name, args...).CombinedOutput()
+}
+func (osCommandRunner) Start(ctx context.Context, name string, args ...string) (sharing.Process, error) {
+	command := exec.CommandContext(ctx, name, args...)
+	if len(args) >= 2 && args[0] == "ws" && args[1] == "share-guard" {
+		command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+		command.Stdin, command.Stdout, command.Stderr = nil, nil, nil
+	} else {
+		command.Stdout, command.Stderr = os.Stdout, os.Stderr
+	}
+	if err := command.Start(); err != nil {
+		return nil, err
+	}
+	return &commandProcess{command: command}, nil
+}
+
+type commandProcess struct{ command *exec.Cmd }
+
+func (p *commandProcess) PID() int                      { return p.command.Process.Pid }
+func (p *commandProcess) Wait() error                   { return p.command.Wait() }
+func (p *commandProcess) Signal(signal os.Signal) error { return p.command.Process.Signal(signal) }
+func (p *commandProcess) Kill() error                   { return p.command.Process.Kill() }
+
 func ensureWorkspaceReady(ctx context.Context, workspace ws.Workspace, share bool, current sharing.SharingStatus, run func(context.Context, ws.Workspace, ws.ReadyOptions) (ws.ReadyResult, error)) (ws.ReadyResult, error) {
 	status, err := workspace.Status(ctx)
 	if err != nil {
@@ -46,6 +85,13 @@ func ensureWorkspaceReady(ctx context.Context, workspace ws.Workspace, share boo
 }
 
 func readyAndMaybeShare(ctx context.Context, gf *GlobalFlags, workspace ws.Workspace, share bool) ([]sharing.Invitation, ws.ReadyResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if !share {
+		ready, err := ws.EnsureReady(ctx, workspace, ws.ReadyOptions{})
+		return nil, ready, err
+	}
 	service, err := workspaceShareService(gf, true)
 	if err != nil {
 		return nil, ws.ReadyResult{}, err
@@ -54,9 +100,6 @@ func readyAndMaybeShare(ctx context.Context, gf *GlobalFlags, workspace ws.Works
 	ready, err := ensureWorkspaceReady(ctx, workspace, share, current, ws.EnsureReady)
 	if err != nil {
 		return nil, ready, err
-	}
-	if !share {
-		return nil, ready, nil
 	}
 	invitations, err := service.Start(ctx, sharing.StartRequest{Workspace: workspace.Name(), Session: ws.ZellijSessionName(workspace.Name()), Provider: defaultProvider(gf)})
 	if err != nil && ready.SessionCreated {
