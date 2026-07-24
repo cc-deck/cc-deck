@@ -542,6 +542,10 @@ func runWsNew(gf *GlobalFlags, name string, cf *newFlags, cmd *cobra.Command) er
 	}
 
 	fmt.Fprintf(os.Stdout, "Workspace %q created (type: %s)\n", name, wsType)
+	// Direct unit callers pass nil; command construction always supplies flags.
+	if gf == nil {
+		return nil
+	}
 	if cf.noStart {
 		if infra, ok := e.(ws.InfraManager); ok {
 			if err := infra.Stop(cmd.Context()); err != nil {
@@ -1177,7 +1181,7 @@ func writeWsTableWithProjects(instances []*ws.WorkspaceInstance, allDefs []*ws.W
 	}
 
 	type row struct {
-		name, wsType, infra, session, proj, auth, storage, lastAttached, age, path string
+		name, wsType, infra, session, sharing, proj, auth, storage, lastAttached, age, path string
 	}
 	var rows []row
 
@@ -1208,7 +1212,8 @@ func writeWsTableWithProjects(instances []*ws.WorkspaceInstance, allDefs []*ws.W
 			authStr = "-"
 		}
 		infra, sess := formatWorkspaceColumns(inst)
-		r := row{inst.Name, string(instType), infra, sess, proj, authStr, storage,
+		sharingState, _, _, _, _ := workspaceSharingDetails(inst.Name, instType)
+		r := row{inst.Name, string(instType), infra, sess, string(sharingState), proj, authStr, storage,
 			formatRelativeTime(inst.LastAttached), formatDuration(time.Since(inst.CreatedAt)), ""}
 		if verbose && pathMap[inst.Name] != "" {
 			r.path = pathMap[inst.Name]
@@ -1238,7 +1243,8 @@ func writeWsTableWithProjects(instances []*ws.WorkspaceInstance, allDefs []*ws.W
 		if authStr == "" {
 			authStr = "-"
 		}
-		r := row{d.Name, string(d.Type), "-", "none", proj, authStr, storage, "never", "-", ""}
+		sharingState, _, _, _, _ := workspaceSharingDetails(d.Name, d.Type)
+		r := row{d.Name, string(d.Type), "-", "none", string(sharingState), proj, authStr, storage, "never", "-", ""}
 		if verbose && pathMap[d.Name] != "" {
 			r.path = pathMap[d.Name]
 		}
@@ -1251,16 +1257,16 @@ func writeWsTableWithProjects(instances []*ws.WorkspaceInstance, allDefs []*ws.W
 	}
 
 	if verbose {
-		fmt.Fprintln(tw, "NAME\tTYPE\tINFRA\tSESSION\tPROJECT\tAUTH\tSTORAGE\tLAST ATTACHED\tAGE\tPROJECT PATH")
+		fmt.Fprintln(tw, "NAME\tTYPE\tINFRA\tSESSION\tSHARING\tPROJECT\tAUTH\tSTORAGE\tLAST ATTACHED\tAGE\tPROJECT PATH")
 		for _, r := range rows {
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-				r.name, r.wsType, r.infra, r.session, r.proj, r.auth, r.storage, r.lastAttached, r.age, r.path)
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				r.name, r.wsType, r.infra, r.session, r.sharing, r.proj, r.auth, r.storage, r.lastAttached, r.age, r.path)
 		}
 	} else {
-		fmt.Fprintln(tw, "NAME\tTYPE\tINFRA\tSESSION\tPROJECT\tSTORAGE\tLAST ATTACHED\tAGE")
+		fmt.Fprintln(tw, "NAME\tTYPE\tINFRA\tSESSION\tSHARING\tPROJECT\tSTORAGE\tLAST ATTACHED\tAGE")
 		for _, r := range rows {
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-				r.name, r.wsType, r.infra, r.session, r.proj, r.storage, r.lastAttached, r.age)
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				r.name, r.wsType, r.infra, r.session, r.sharing, r.proj, r.storage, r.lastAttached, r.age)
 		}
 	}
 
@@ -1278,6 +1284,27 @@ func formatWorkspaceColumns(inst *ws.WorkspaceInstance) (infra, session string) 
 		session = "active"
 	}
 	return infra, session
+}
+
+func workspaceSharingDetails(name string, wsType ws.WorkspaceType) (ws.WorkspaceSharingState, string, []ws.InvitationSummary, bool, []string) {
+	if wsType != ws.WorkspaceTypeLocal {
+		return ws.SharingUnsupported, "", nil, false, nil
+	}
+	op, err := sharing.NewFileStore("").Load()
+	if err != nil || op == nil || op.Workspace != name {
+		return ws.SharingPrivate, "", nil, false, nil
+	}
+	state := ws.SharingShared
+	if op.State == sharing.StateDegraded || len(op.Residuals) > 0 {
+		state = ws.SharingDegraded
+	}
+	summaries := make([]ws.InvitationSummary, 0, len(op.Invitations))
+	for _, invitation := range op.Invitations {
+		if invitation.State == sharing.InvitationActive {
+			summaries = append(summaries, ws.InvitationSummary{Label: invitation.Label, Role: string(invitation.Role)})
+		}
+	}
+	return state, op.EndpointURL, summaries, op.Guard.Ready, append([]string(nil), op.Residuals...)
 }
 
 func formatRelativeTime(t *time.Time) string {
@@ -1327,16 +1354,20 @@ func newWsStatusCmd(gf *GlobalFlags) *cobra.Command {
 
 // wsStatusOutput is used for JSON/YAML marshaling of status information.
 type wsStatusOutput struct {
-	Name         string               `json:"name" yaml:"name"`
-	Type         ws.WorkspaceType     `json:"type" yaml:"type"`
-	InfraState   *ws.InfraStateValue  `json:"infra_state,omitempty" yaml:"infra_state,omitempty"`
-	SessionState ws.SessionStateValue `json:"session_state" yaml:"session_state"`
-	Storage      string               `json:"storage" yaml:"storage"`
-	Uptime       string               `json:"uptime" yaml:"uptime"`
-	LastAttached string               `json:"last_attached" yaml:"last_attached"`
-	Sessions     []ws.SessionInfo     `json:"sessions,omitempty" yaml:"sessions,omitempty"`
-	Image        string               `json:"image,omitempty" yaml:"image,omitempty"`
-	ProjectPath  string               `json:"project_path,omitempty" yaml:"project_path,omitempty"`
+	Name             string                   `json:"name" yaml:"name"`
+	Type             ws.WorkspaceType         `json:"type" yaml:"type"`
+	InfraState       *ws.InfraStateValue      `json:"infra_state,omitempty" yaml:"infra_state,omitempty"`
+	SessionState     ws.SessionStateValue     `json:"session_state" yaml:"session_state"`
+	Storage          string                   `json:"storage" yaml:"storage"`
+	Uptime           string                   `json:"uptime" yaml:"uptime"`
+	LastAttached     string                   `json:"last_attached" yaml:"last_attached"`
+	Sessions         []ws.SessionInfo         `json:"sessions,omitempty" yaml:"sessions,omitempty"`
+	Image            string                   `json:"image,omitempty" yaml:"image,omitempty"`
+	ProjectPath      string                   `json:"project_path,omitempty" yaml:"project_path,omitempty"`
+	SharingState     ws.WorkspaceSharingState `json:"sharing_state" yaml:"sharing_state"`
+	SharingEndpoint  string                   `json:"sharing_endpoint,omitempty" yaml:"sharing_endpoint,omitempty"`
+	Invitations      []ws.InvitationSummary   `json:"invitations,omitempty" yaml:"invitations,omitempty"`
+	SharingResiduals []string                 `json:"sharing_residuals,omitempty" yaml:"sharing_residuals,omitempty"`
 }
 
 func runWsStatus(gf *GlobalFlags, name string) error {
@@ -1354,6 +1385,7 @@ func runWsStatus(gf *GlobalFlags, name string) error {
 	}
 
 	wsType := e.Type()
+	sharingState, endpoint, invitations, _, residuals := workspaceSharingDetails(name, wsType)
 	storage := "-"
 	lastAttached := "never"
 	image := ""
@@ -1401,6 +1433,7 @@ func runWsStatus(gf *GlobalFlags, name string) error {
 			Sessions:     status.Sessions,
 			Image:        image,
 			ProjectPath:  projectPath,
+			SharingState: sharingState, SharingEndpoint: endpoint, Invitations: invitations, SharingResiduals: residuals,
 		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
@@ -1417,14 +1450,15 @@ func runWsStatus(gf *GlobalFlags, name string) error {
 			Sessions:     status.Sessions,
 			Image:        image,
 			ProjectPath:  projectPath,
+			SharingState: sharingState, SharingEndpoint: endpoint, Invitations: invitations, SharingResiduals: residuals,
 		}
 		return yaml.NewEncoder(os.Stdout).Encode(out)
 	default:
-		return writeWsStatusText(name, wsType, status, storage, uptime, lastAttached, image, projectPath)
+		return writeWsStatusText(name, wsType, status, storage, uptime, lastAttached, image, projectPath, sharingState, endpoint, invitations, residuals)
 	}
 }
 
-func writeWsStatusText(name string, wsType ws.WorkspaceType, status *ws.WorkspaceStatus, storage, uptime, lastAttached, image, projectPath string) error {
+func writeWsStatusText(name string, wsType ws.WorkspaceType, status *ws.WorkspaceStatus, storage, uptime, lastAttached, image, projectPath string, sharingState ws.WorkspaceSharingState, endpoint string, invitations []ws.InvitationSummary, residuals []string) error {
 	tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
 	fmt.Fprintf(tw, "Workspace:\t%s\n", name)
 	fmt.Fprintf(tw, "Type:\t%s\n", wsType)
@@ -1432,6 +1466,16 @@ func writeWsStatusText(name string, wsType ws.WorkspaceType, status *ws.Workspac
 		fmt.Fprintf(tw, "Infra:\t%s\n", *status.InfraState)
 	}
 	fmt.Fprintf(tw, "Session:\t%s\n", status.SessionState)
+	fmt.Fprintf(tw, "Sharing:\t%s\n", sharingState)
+	if endpoint != "" {
+		fmt.Fprintf(tw, "Endpoint:\t%s\n", endpoint)
+	}
+	for _, invitation := range invitations {
+		fmt.Fprintf(tw, "Invitation:\t%s (%s)\n", invitation.Label, invitation.Role)
+	}
+	for _, residual := range residuals {
+		fmt.Fprintf(tw, "Sharing residual:\t%s\n", residual)
+	}
 	fmt.Fprintf(tw, "Storage:\t%s\n", storage)
 	fmt.Fprintf(tw, "Uptime:\t%s\n", uptime)
 	fmt.Fprintf(tw, "Attached:\t%s\n", lastAttached)
