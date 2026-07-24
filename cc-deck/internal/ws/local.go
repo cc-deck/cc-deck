@@ -3,9 +3,9 @@ package ws
 import (
 	"bufio"
 	"context"
-	"log"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"strings"
@@ -29,10 +29,44 @@ type LocalWorkspace struct {
 	store *FileStateStore
 	defs  *DefinitionStore
 
+	commandRunner localSessionCommandRunner
+	sessionState  func(string) string
+
 	pipeOnce sync.Once
 	pipeCh   PipeChannel
 	dataOnce sync.Once
 	dataCh   DataChannel
+}
+
+type localSessionCommandRunner interface {
+	Run(context.Context, string, ...string) ([]byte, error)
+}
+
+type osLocalSessionCommandRunner struct{}
+
+func (osLocalSessionCommandRunner) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
+	return exec.CommandContext(ctx, name, args...).CombinedOutput()
+}
+
+func (e *LocalWorkspace) runner() localSessionCommandRunner {
+	if e.commandRunner != nil {
+		return e.commandRunner
+	}
+	return osLocalSessionCommandRunner{}
+}
+
+func (e *LocalWorkspace) currentSessionState(name string) string {
+	if e.sessionState != nil {
+		return e.sessionState(name)
+	}
+	return ZellijSessionState(name)
+}
+
+func (e *LocalWorkspace) setSessionState(state SessionStateValue) {
+	if inst, err := e.store.FindInstanceByName(e.name); err == nil {
+		inst.SessionState = state
+		_ = e.store.UpdateInstance(inst)
+	}
 }
 
 // Type returns WorkspaceTypeLocal.
@@ -76,7 +110,7 @@ func (e *LocalWorkspace) Create(_ context.Context, _ CreateOpts) error {
 // does not exist, it is created in the background first (with the cc-deck
 // layout), then attached. This avoids issues with "zellij --session"
 // not creating new sessions when a Zellij server is already running.
-func (e *LocalWorkspace) Attach(_ context.Context) error {
+func (e *LocalWorkspace) Attach(ctx context.Context) error {
 	zellijPath, err := exec.LookPath("zellij")
 	if err != nil {
 		return ErrZellijNotFound
@@ -99,28 +133,34 @@ func (e *LocalWorkspace) Attach(_ context.Context) error {
 		return nil
 	}
 
-	// Delete any EXITED session with the same name to prevent stale ghosts.
-	// cc-deck manages its own session lifecycle; Zellij's serialization cache
-	// only produces stale EXITED sessions that interfere with clean re-attach.
-	if ZellijSessionState(sessionName) == "exited" {
-		del := exec.Command(zellijPath, "delete-session", "--force", sessionName)
-		_ = del.Run()
-	}
-
-	// If the session doesn't exist, create it in the background with the
-	// cc-deck layout. We try --layout with attach -b first, then fall back
-	// to attach -b without layout.
-	if !zellijSessionExists(sessionName) {
-		create := exec.Command(zellijPath, "--layout", "cc-deck", "attach", "-b", sessionName)
-		if out, createErr := create.CombinedOutput(); createErr != nil {
-			fallback := exec.Command(zellijPath, "attach", "-b", sessionName)
-			if fout, fallbackErr := fallback.CombinedOutput(); fallbackErr != nil {
-				return fmt.Errorf("creating session: %s\n%s\nlayout attempt: %s", fallbackErr, string(fout), string(out))
-			}
-		}
+	if _, err := e.EnsureSession(ctx, SessionStartOptions{}); err != nil {
+		return err
 	}
 
 	return syscall.Exec(zellijPath, []string{"zellij", "attach", sessionName}, os.Environ())
+}
+
+// EnsureSession idempotently creates the workspace's canonical Zellij session.
+func (e *LocalWorkspace) EnsureSession(ctx context.Context, opts SessionStartOptions) (SessionStartResult, error) {
+	name := e.zellijSessionName()
+	state := e.currentSessionState(name)
+	if state == "running" {
+		return SessionStartResult{Name: name}, nil
+	}
+	if state == "exited" {
+		_, _ = e.runner().Run(ctx, "zellij", "delete-session", "--force", name)
+	}
+
+	args := []string{"--layout", "cc-deck", "attach", "-b", name}
+	if opts.WebSharing {
+		args = append(args, "options", "--web-sharing", "on")
+	}
+	if out, err := e.runner().Run(ctx, "zellij", args...); err != nil {
+		return SessionStartResult{}, fmt.Errorf("creating canonical session: %w: %s", err, out)
+	}
+
+	e.setSessionState(SessionStateExists)
+	return SessionStartResult{Created: true, Name: name}, nil
 }
 
 // Delete removes the workspace from the state store and deletes the Zellij

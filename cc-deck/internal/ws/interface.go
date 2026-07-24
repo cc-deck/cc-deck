@@ -63,6 +63,34 @@ type InfraManager interface {
 	Stop(ctx context.Context) error
 }
 
+// SessionStartOptions controls creation of a workspace's canonical session.
+type SessionStartOptions struct {
+	WebSharing bool
+}
+
+// SessionStartResult describes work performed while ensuring a canonical session.
+type SessionStartResult struct {
+	Created bool
+	Name    string
+}
+
+// SessionManager is an optional capability for creating a canonical session.
+type SessionManager interface {
+	EnsureSession(context.Context, SessionStartOptions) (SessionStartResult, error)
+}
+
+// ReadyOptions controls workspace readiness convergence.
+type ReadyOptions struct {
+	Share bool
+}
+
+// ReadyResult describes work performed while converging a workspace to ready.
+type ReadyResult struct {
+	InfrastructureStarted bool
+	SessionCreated        bool
+	SessionName           string
+}
+
 // CreateOpts holds options for creating a new workspace.
 type CreateOpts struct {
 	Image   string        `yaml:"image,omitempty"`
@@ -87,11 +115,11 @@ type HarvestOpts struct {
 
 // WorkspaceStatus represents the runtime status of a workspace.
 type WorkspaceStatus struct {
-	InfraState   *InfraStateValue   `json:"infra_state,omitempty"`
-	SessionState SessionStateValue  `json:"session_state"`
-	Since        *time.Time    `json:"since,omitempty"`
-	Message      string        `json:"message,omitempty"`
-	Sessions     []SessionInfo `json:"sessions,omitempty"`
+	InfraState   *InfraStateValue  `json:"infra_state,omitempty"`
+	SessionState SessionStateValue `json:"session_state"`
+	Since        *time.Time        `json:"since,omitempty"`
+	Message      string            `json:"message,omitempty"`
+	Sessions     []SessionInfo     `json:"sessions,omitempty"`
 }
 
 // SessionInfo describes a Claude Code session inside a workspace.
