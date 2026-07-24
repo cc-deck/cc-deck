@@ -12,6 +12,7 @@ type fakeProcess struct {
 	waitErr, signalErr, killErr error
 	waitCh                      chan error
 	onSignal                    func()
+	onSignalWith                func(os.Signal)
 	onKill                      func()
 }
 
@@ -22,8 +23,10 @@ func (p *fakeProcess) Wait() error {
 	}
 	return p.waitErr
 }
-func (p *fakeProcess) Signal(os.Signal) error {
-	if p.onSignal != nil {
+func (p *fakeProcess) Signal(signal os.Signal) error {
+	if p.onSignalWith != nil {
+		p.onSignalWith(signal)
+	} else if p.onSignal != nil {
 		p.onSignal()
 	}
 	return p.signalErr

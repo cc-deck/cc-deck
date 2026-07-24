@@ -13,6 +13,7 @@ type SharingService struct {
 	store    Store
 	zellij   Zellij
 	provider Provider
+	guard    Guard
 	now      func() time.Time
 }
 
@@ -20,6 +21,12 @@ const rollbackTimeout = 5 * time.Second
 
 func NewService(store Store, zellij Zellij, provider Provider) *SharingService {
 	return &SharingService{store: store, zellij: zellij, provider: provider, now: time.Now}
+}
+
+func NewServiceWithGuard(store Store, zellij Zellij, provider Provider, guard Guard) *SharingService {
+	service := NewService(store, zellij, provider)
+	service.guard = guard
+	return service
 }
 
 func (s *SharingService) Start(ctx context.Context, req StartRequest) (InvitationSet, error) {
@@ -77,6 +84,7 @@ func (s *SharingService) Start(ctx context.Context, req StartRequest) (Invitatio
 		}
 
 		var undo []func(context.Context) error
+		persisted := false
 		rollback := func(cause error) error {
 			cleanupCtx, cancel := context.WithTimeout(context.Background(), rollbackTimeout)
 			defer cancel()
@@ -84,6 +92,11 @@ func (s *SharingService) Start(ctx context.Context, req StartRequest) (Invitatio
 			for i := len(undo) - 1; i >= 0; i-- {
 				if rollbackErr := undo[i](cleanupCtx); rollbackErr != nil {
 					residuals = append(residuals, rollbackErr.Error())
+				}
+			}
+			if persisted {
+				if rollbackErr := s.store.Remove(); rollbackErr != nil {
+					residuals = append(residuals, "operation state could not be removed: "+rollbackErr.Error())
 				}
 			}
 			if len(residuals) == 0 {
@@ -142,6 +155,18 @@ func (s *SharingService) Start(ctx context.Context, req StartRequest) (Invitatio
 		}
 		if err = s.store.Save(op); err != nil {
 			return rollback(err)
+		}
+		persisted = true
+		if s.guard != nil {
+			guardHandle, guardErr := s.guard.Start(ctx, op.ID)
+			if guardErr != nil {
+				return rollback(fmt.Errorf("start sharing lifecycle guard: %w", guardErr))
+			}
+			op.Guard = guardHandle
+			if err = s.store.Save(op); err != nil {
+				_ = s.guard.Disarm(context.Background(), guardHandle)
+				return rollback(err)
+			}
 		}
 		return nil
 	})
@@ -242,6 +267,11 @@ func (s *SharingService) teardownLocked(ctx context.Context, op *SharingOperatio
 		// Persistence failure is itself a residual, but must never prevent the safety
 		// actions below. A state-store problem cannot justify leaving access active.
 		residuals = append(residuals, "stopping state could not be persisted: "+err.Error())
+	}
+	if s.guard != nil && op.Guard.PID > 0 {
+		if err := s.guard.Disarm(ctx, op.Guard); err != nil {
+			residuals = append(residuals, "lifecycle guard could not be disarmed: "+err.Error())
+		}
 	}
 
 	type cleanupStep struct {

@@ -95,6 +95,7 @@ type startProvider struct {
 	fail               string
 	readyFn            func() error
 	cleanupSawCanceled bool
+	beforeStop         func() error
 }
 
 func (p *startProvider) call(name string) error {
@@ -129,8 +130,31 @@ func (p *startProvider) Status(context.Context, ProviderHandle) (ProviderStatus,
 }
 func (p *startProvider) Stop(ctx context.Context, _ ProviderHandle) error {
 	p.cleanupSawCanceled = p.cleanupSawCanceled || ctx.Err() != nil
+	if p.beforeStop != nil {
+		if err := p.beforeStop(); err != nil {
+			p.calls = append(p.calls, "provider-stop")
+			return err
+		}
+	}
 	return p.call("provider-stop")
 }
+
+type fakeGuard struct {
+	handle              GuardHandle
+	startErr, disarmErr error
+	started             string
+	disarmed            bool
+}
+
+func (g *fakeGuard) Start(_ context.Context, operationID string) (GuardHandle, error) {
+	g.started = operationID
+	if g.startErr != nil {
+		return GuardHandle{}, g.startErr
+	}
+	g.handle = GuardHandle{PID: 99, OperationID: operationID, Ready: true}
+	return g.handle, nil
+}
+func (g *fakeGuard) Disarm(context.Context, GuardHandle) error { g.disarmed = true; return g.disarmErr }
 
 func stringsContains(value, part string) bool {
 	for i := 0; i+len(part) <= len(value); i++ {
@@ -275,6 +299,40 @@ func TestStartRollbackUsesIndependentContextAfterCallerCancellation(t *testing.T
 	require.Contains(t, z.calls, "unshare")
 	require.False(t, provider.cleanupSawCanceled)
 	require.False(t, z.cleanupSawCanceled)
+}
+
+func TestStartLaunchesGuardOnlyAfterActiveStateIsPersisted(t *testing.T) {
+	store, z, provider, guard := &startStore{}, &startZellij{}, &startProvider{}, &fakeGuard{}
+	_, err := NewServiceWithGuard(store, z, provider, guard).Start(context.Background(), StartRequest{Session: "selected"})
+	require.NoError(t, err)
+	require.NotEmpty(t, guard.started)
+	require.Equal(t, guard.handle, store.op.Guard)
+	require.Equal(t, StateActive, store.op.State)
+}
+
+func TestStopDisarmsGuardBeforeEndpointTeardown(t *testing.T) {
+	op, guard := activeOperation(), &fakeGuard{}
+	op.Guard = GuardHandle{PID: 99, OperationID: op.ID, Ready: true}
+	provider := &startProvider{beforeStop: func() error {
+		if !guard.disarmed {
+			return errors.New("provider stopped before guard disarm")
+		}
+		return nil
+	}}
+	got, err := NewServiceWithGuard(&startStore{op: op}, &startZellij{}, provider, guard).Stop(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, StateInactive, got.State)
+}
+
+func TestStopContinuesSafetyActionsWhenGuardDisarmFails(t *testing.T) {
+	op, guard := activeOperation(), &fakeGuard{disarmErr: errors.New("guard unavailable")}
+	op.Guard = GuardHandle{PID: 99, OperationID: op.ID, Ready: true}
+	store, z, provider := &startStore{op: op}, &startZellij{}, &startProvider{}
+	got, err := NewServiceWithGuard(store, z, provider, guard).Stop(context.Background())
+	require.ErrorContains(t, err, "guard could not be disarmed")
+	require.Equal(t, StateDegraded, got.State)
+	require.Equal(t, []string{"provider-stop"}, provider.calls)
+	require.Equal(t, []string{"revoke-observer", "revoke-interactive", "unshare", "stop-web"}, z.calls)
 }
 
 func activeOperation() *SharingOperation {
