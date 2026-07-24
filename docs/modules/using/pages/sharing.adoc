@@ -1,0 +1,126 @@
+= Share a Zellij Session
+
+Session sharing gives remote collaborators access to one complete local Zellij session for a temporary pairing or observation session.
+It does not expose your other Zellij sessions.
+
+One sharing operation creates two invitations:
+
+Interactive:: Grants trusted collaborators the normal control available to an attached Zellij client, including all tabs, panes, sidebars, and session controls.
+
+Observer:: Shows the complete session but rejects keyboard, mouse, paste, resize, tab or pane focus, and terminal-control input.
+
+Each role has a browser link and a terminal attach command.
+Multiple people can reuse the same role credential concurrently.
+There are no individual identities or per-person revocation in V1.
+
+== Prerequisites
+
+Before starting, ensure that:
+
+* The selected session is running locally.
+* Zellij 0.44.3 or later is installed with web serving, session sharing, both token roles, remote terminal attach, and forced remote-access shutdown capabilities.
+* `cloudflared` is installed and available on `PATH`.
+* Outbound HTTPS access to create a Cloudflare Quick Tunnel is available.
+
+cc-deck probes the required runtime capabilities before changing sharing state.
+An incompatible runtime or missing provider fails with an actionable error and produces no invitation.
+
+Cloudflare Quick Tunnel is the default and only production exposure provider in V1.
+The provider interface permits later providers to preserve the same invitation and lifecycle behavior.
+
+== Start sharing
+
+From inside the session you want to share, run:
+
+[source,bash]
+----
+cc-deck share start
+----
+
+You can also select an exact running session and provider:
+
+[source,bash]
+----
+cc-deck share start "pairing session" --provider cloudflare
+----
+
+Only one sharing operation can be active on a host.
+Starting the same active operation is idempotent, but it does not display the secret invitations again.
+Stop an active operation before selecting a different session.
+
+After every prerequisite, the endpoint, the selected session, and both role credentials are ready, cc-deck displays four invitations once:
+
+* Interactive browser link
+* Interactive terminal attach command
+* Observer browser link
+* Observer terminal attach command
+
+Distribute the invitation matching the access you intend to grant.
+The two credentials are shared by role, so anyone who receives one can reuse it while the operation remains active.
+
+CAUTION: Interactive access gives a collaborator control of the entire shared terminal session. Share the interactive invitation only with people you trust.
+
+== Join from a browser
+
+Open the browser link for the intended role.
+The public HTTPS endpoint validates normally in the browser.
+All clients join the same selected Zellij session, but observer input cannot change it.
+
+== Join from a terminal
+
+Copy the terminal command exactly as printed by `share start`.
+Session names and credential values are already escaped for the shell context.
+
+WARNING: Terminal attachment is experimental in V1. The generated command uses `--insecure` because Cloudflare Quick Tunnel is incompatible with Zellij terminal certificate validation in the validated workflow. This option disables server identity validation and creates an interception risk, even though traffic remains encrypted. Use browser access when you cannot accept that risk.
+
+== Inspect sharing status
+
+[source,bash]
+----
+cc-deck share status
+----
+
+Status reports the lifecycle state, selected session, provider, endpoint, invitation-role availability, and any residual resources.
+It never displays raw credentials after the initial start output.
+
+The states are:
+
+Inactive:: No sharing resources remain active.
+
+Active:: The selected session and endpoint are available.
+
+Degraded:: cc-deck could not confirm cleanup or health for one or more resources. Treat each named residual resource as exposed until reconciliation succeeds.
+
+== Stop sharing
+
+[source,bash]
+----
+cc-deck share stop
+----
+
+One stop action attempts to disconnect current clients, revoke both credentials, unshare the selected session, and close the public endpoint.
+It attempts all cleanup steps even if one fails, and it is safe to repeat.
+Old invitations cannot be reused after stop completes.
+
+Do not assume cleanup is complete when the command reports a degraded state.
+Read the listed residual exposure and run `cc-deck share stop` again after correcting the reported cause.
+
+== Guard cleanup and recovery
+
+After startup, a detached lifecycle guard watches the provider and supported termination signals.
+If it observes provider exit or a supported signal, it attempts the normal sharing teardown.
+
+Guard cleanup is best-effort in V1 and has no completion guarantee.
+An uncatchable guard termination, host crash, or power loss can leave the public endpoint, credentials, or session sharing active.
+The next `cc-deck share start`, `cc-deck share status`, or `cc-deck share stop` detects persisted residual state and attempts reconciliation.
+cc-deck refuses to issue new invitations while it cannot confirm safe cleanup.
+
+For recovery:
+
+. Run `cc-deck share status` and note every residual resource.
+. Run `cc-deck share stop` to retry the complete teardown.
+. Correct any reported Zellij or provider prerequisite failure, then repeat `share stop`.
+. Do not start a new operation until status confirms that no residual exposure remains.
+
+If only the controller process ended, do not distribute an old invitation while waiting for automatic cleanup.
+Credential expiry is not a substitute for explicit stop and reconciliation in V1.
