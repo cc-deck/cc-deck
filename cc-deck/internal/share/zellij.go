@@ -34,8 +34,22 @@ func (z *ZellijCLI) ValidateCapabilities(ctx context.Context) error {
 	if major == 0 && (minor < 44 || (minor == 44 && patch < 3)) {
 		return fmt.Errorf("Zellij 0.44.3 or newer is required (found %s)", m[0])
 	}
-	if _, err = z.run(ctx, "web", "--help"); err != nil {
+	webHelp, err := z.run(ctx, "web", "--help")
+	if err != nil {
 		return fmt.Errorf("Zellij web sharing capability unavailable: %w", err)
+	}
+	for _, flag := range []string{"--create-token", "--create-read-only-token", "--revoke-token", "--stop"} {
+		if !strings.Contains(webHelp, flag) {
+			return fmt.Errorf("Zellij web sharing capability %s unavailable", flag)
+		}
+	}
+	attachHelp, err := z.run(ctx, "attach", "--help")
+	if err != nil || !strings.Contains(attachHelp, "--token") {
+		return fmt.Errorf("Zellij remote attach capability unavailable")
+	}
+	optionsHelp, err := z.run(ctx, "options", "--help")
+	if err != nil || !strings.Contains(optionsHelp, "--web-sharing") {
+		return fmt.Errorf("Zellij session-specific web sharing capability unavailable")
 	}
 	return nil
 }
@@ -46,12 +60,15 @@ func (z *ZellijCLI) ResolveSession(ctx context.Context, requested string) (strin
 	}
 	var matches []string
 	for _, line := range strings.Split(out, "\n") {
-		name := strings.Fields(strings.TrimSpace(line))
-		if len(name) == 0 {
+		if strings.Contains(line, "(EXITED") {
 			continue
 		}
-		if requested == "" || name[0] == requested {
-			matches = append(matches, name[0])
+		name := parseSessionName(line)
+		if name == "" {
+			continue
+		}
+		if requested == "" || name == requested {
+			matches = append(matches, name)
 		}
 	}
 	if requested != "" && len(matches) == 1 {
@@ -64,6 +81,15 @@ func (z *ZellijCLI) ResolveSession(ctx context.Context, requested string) (strin
 		return "", fmt.Errorf("running Zellij session %q not found", requested)
 	}
 	return "", fmt.Errorf("select one Zellij session explicitly")
+}
+func parseSessionName(line string) string {
+	line = strings.TrimSpace(line)
+	for _, marker := range []string{" [Created ", " [EXITED ", " [Current session]"} {
+		if i := strings.Index(line, marker); i >= 0 {
+			return strings.TrimSpace(line[:i])
+		}
+	}
+	return line
 }
 func (z *ZellijCLI) ShareSession(ctx context.Context, s string) error {
 	_, e := z.run(ctx, "--session", s, "options", "--web-sharing", "on")
