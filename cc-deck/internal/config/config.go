@@ -17,11 +17,25 @@ const (
 
 // Config represents the top-level cc-deck configuration.
 type Config struct {
-	DefaultProfile string            `yaml:"default_profile,omitempty"`
-	Defaults       Defaults          `yaml:"defaults,omitempty"`
+	DefaultProfile string             `yaml:"default_profile,omitempty"`
+	Defaults       Defaults           `yaml:"defaults,omitempty"`
 	Profiles       map[string]Profile `yaml:"profiles,omitempty"`
-	Sessions       []Session         `yaml:"sessions,omitempty"`
-	Badges         []BadgeRule       `yaml:"badges,omitempty"`
+	Sessions       []Session          `yaml:"sessions,omitempty"`
+	Badges         []BadgeRule        `yaml:"badges,omitempty"`
+	Sharing        SharingConfig      `yaml:"sharing,omitempty"`
+}
+
+const DefaultSharingProvider = "cloudflare"
+
+type SharingConfig struct {
+	Provider string `yaml:"provider,omitempty"`
+}
+
+func (c *Config) SharingProvider() string {
+	if c.Sharing.Provider == "" {
+		return DefaultSharingProvider
+	}
+	return c.Sharing.Provider
 }
 
 // BadgeRule defines a file-based badge indicator for the sidebar.
