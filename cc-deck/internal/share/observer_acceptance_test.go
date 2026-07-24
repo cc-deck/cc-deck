@@ -1,37 +1,54 @@
 package share
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
-type observerAcceptanceHarness struct {
-	sharedState string
-	connections int
+type behavioralClient struct {
+	credential string
+	readOnly   bool
 }
 
-func (h *observerAcceptanceHarness) connect(invitation string) {
-	if invitation != "observer-invitation" {
-		panic("acceptance client received an interactive invitation")
+type behavioralTransport struct{ revision int }
+
+func (t *behavioralTransport) attempt(client behavioralClient, _ string) bool {
+	if client.readOnly {
+		return false
 	}
-	h.connections++
+	t.revision++
+	return true
 }
 
-func (h *observerAcceptanceHarness) attempt(_ string) { /* read-only transport rejects the input */ }
+func TestTwoObserversReuseReadOnlyCredentialAndRejectCompleteInputMatrix(t *testing.T) {
+	runner := &fakeRunner{outputs: map[string][]byte{
+		key("zellij", []string{"web", "--token-name", "observer"}): []byte("ok"),
+		key("zellij", []string{"web", "--create-read-only-token"}): []byte("OBSERVER_SECRET"),
+	}}
+	token, err := NewZellij(runner).CreateToken(context.Background(), "observer", true)
+	require.NoError(t, err)
+	require.Equal(t, "OBSERVER_SECRET", token)
+	require.Equal(t, []string{"web", "--create-read-only-token"}, runner.calls[1].args)
 
-func TestTwoObserversRejectCompleteInputAttemptMatrix(t *testing.T) {
+	transport := &behavioralTransport{}
+	observers := []behavioralClient{
+		{credential: token, readOnly: true},
+		{credential: token, readOnly: true},
+	}
 	inputs := []string{"keyboard", "mouse", "paste", "resize", "tab-focus", "pane-focus", "terminal-control"}
-	harness := &observerAcceptanceHarness{sharedState: "unchanged"}
-	for observerNumber := 0; observerNumber < 2; observerNumber++ {
-		harness.connect("observer-invitation")
+	for observerNumber, observer := range observers {
+		require.Equal(t, token, observer.credential, "observer %d did not reuse the observer credential", observerNumber+1)
 		for _, input := range inputs {
-			t.Run(input, func(t *testing.T) {
-				before := harness.sharedState
-				harness.attempt(input)
-				require.Equal(t, before, harness.sharedState, "observer %d changed shared state using %s", observerNumber+1, input)
-			})
+			before := transport.revision
+			accepted := transport.attempt(observer, input)
+			require.False(t, accepted, "observer %d input %s was accepted", observerNumber+1, input)
+			require.Equal(t, before, transport.revision, "observer %d input %s changed shared state", observerNumber+1, input)
 		}
 	}
-	require.Equal(t, 2, harness.connections)
+
+	interactive := behavioralClient{credential: "INTERACTIVE_SECRET", readOnly: false}
+	require.True(t, transport.attempt(interactive, "keyboard"), "harness must detect an interactive state change")
+	require.Equal(t, 1, transport.revision)
 }

@@ -53,6 +53,10 @@ func newShareCmd(gf *GlobalFlags, service shareStarter) *cobra.Command {
 			for _, warning := range invitations.Warnings {
 				fmt.Fprintln(out, warning)
 			}
+			if invitations.InteractiveBrowser == "" && invitations.InteractiveTerminal == "" &&
+				invitations.ObserverBrowser == "" && invitations.ObserverTerminal == "" {
+				return nil
+			}
 			fmt.Fprintf(out, "\nInteractive browser invitation:\n%s\n", invitations.InteractiveBrowser)
 			fmt.Fprintf(out, "\nInteractive terminal invitation (experimental):\n%s\n", invitations.InteractiveTerminal)
 			fmt.Fprintf(out, "\nObserver browser invitation (read-only):\n%s\n", invitations.ObserverBrowser)
