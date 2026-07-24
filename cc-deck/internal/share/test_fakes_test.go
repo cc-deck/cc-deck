@@ -28,6 +28,7 @@ type fakeRunner struct {
 	errors  map[string]error
 	process Process
 	startFn func(string, []string) (Process, error)
+	runFn   func(string, []string) ([]byte, error)
 }
 
 func key(n string, a []string) string { return fmt.Sprintf("%s %v", n, a) }
@@ -35,6 +36,9 @@ func (r *fakeRunner) Run(_ context.Context, n string, a ...string) ([]byte, erro
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.calls = append(r.calls, runnerCall{n, append([]string(nil), a...)})
+	if r.runFn != nil {
+		return r.runFn(n, a)
+	}
 	return r.outputs[key(n, a)], r.errors[key(n, a)]
 }
 func (r *fakeRunner) Start(_ context.Context, n string, a ...string) (Process, error) {
