@@ -5,6 +5,7 @@ import "time"
 type LifecycleState string
 
 const (
+	StateInactive LifecycleState = "inactive"
 	StateStarting LifecycleState = "starting"
 	StateActive   LifecycleState = "active"
 	StateStopping LifecycleState = "stopping"

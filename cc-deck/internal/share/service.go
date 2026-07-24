@@ -30,12 +30,21 @@ func (s *SharingService) Start(ctx context.Context, req StartRequest) (Invitatio
 			return err
 		}
 		if existing != nil {
-			if existing.State == StateActive && (req.Session == "" || req.Session == existing.Session) &&
-				(req.Provider == "" || req.Provider == existing.Provider) {
-				invitations = InvitationSet{Warnings: []string{fmt.Sprintf("Sharing is already active for session %q with provider %s; existing credentials are not redisplayed.", existing.Session, existing.Provider)}}
-				return nil
+			providerStatus, statusErr := s.provider.Status(ctx, existing.ProviderHandle)
+			if existing.State == StateActive && statusErr == nil &&
+				(providerStatus.State == "ready" || providerStatus.State == "starting") {
+				if (req.Session == "" || req.Session == existing.Session) &&
+					(req.Provider == "" || req.Provider == existing.Provider) {
+					invitations = InvitationSet{Warnings: []string{fmt.Sprintf("Sharing is already active for session %q with provider %s; existing credentials are not redisplayed.", existing.Session, existing.Provider)}}
+					return nil
+				}
+				return fmt.Errorf("sharing operation already exists for session %q; run cc-deck share status or stop first", existing.Session)
 			}
-			return fmt.Errorf("sharing operation already exists for session %q; run cc-deck share status or stop first", existing.Session)
+
+			var reconciled SharingStatus
+			if err := s.reconcileLocked(ctx, existing, &reconciled, statusErr, providerStatus); err != nil {
+				return fmt.Errorf("cannot start while stale sharing resources remain: %w", err)
+			}
 		}
 		if err = s.zellij.ValidateCapabilities(ctx); err != nil {
 			return err
@@ -150,10 +159,120 @@ func operationID() (string, error) {
 	return hex.EncodeToString(b[:]), nil
 }
 
-func (s *SharingService) Status(context.Context) (SharingStatus, error) {
-	return SharingStatus{}, fmt.Errorf("share status is not implemented")
+func (s *SharingService) Status(ctx context.Context) (SharingStatus, error) {
+	var status SharingStatus
+	err := s.store.WithLock(ctx, func() error {
+		op, err := s.store.Load()
+		if err != nil {
+			return err
+		}
+		if op == nil {
+			status = SharingStatus{State: StateInactive}
+			return nil
+		}
+
+		status = statusFromOperation(op)
+		providerStatus, providerErr := s.provider.Status(ctx, op.ProviderHandle)
+		if providerErr == nil && (providerStatus.State == "ready" || providerStatus.State == "starting") {
+			if providerStatus.EndpointURL != "" {
+				status.EndpointURL = providerStatus.EndpointURL
+			}
+			return nil
+		}
+
+		// A persisted operation whose endpoint is no longer healthy is stale. Reconcile
+		// every resource before returning so status never reports a dead operation as
+		// active. Cleanup is intentionally performed while holding this command's one
+		// lifecycle lock; teardownLocked itself never reacquires it.
+		return s.reconcileLocked(ctx, op, &status, providerErr, providerStatus)
+	})
+	return status, err
 }
 
-func (s *SharingService) Stop(context.Context) (SharingStatus, error) {
-	return SharingStatus{}, fmt.Errorf("share stop is not implemented")
+func (s *SharingService) Stop(ctx context.Context) (SharingStatus, error) {
+	var status SharingStatus
+	err := s.store.WithLock(ctx, func() error {
+		op, err := s.store.Load()
+		if err != nil {
+			return err
+		}
+		if op == nil {
+			status = SharingStatus{State: StateInactive}
+			return nil
+		}
+		return s.teardownLocked(ctx, op, &status)
+	})
+	return status, err
+}
+
+func statusFromOperation(op *SharingOperation) SharingStatus {
+	if op == nil {
+		return SharingStatus{State: StateInactive}
+	}
+	return SharingStatus{
+		State: op.State, Session: op.Session, Provider: op.Provider,
+		EndpointURL: op.EndpointURL, InteractiveAvailable: op.State == StateActive,
+		ObserverAvailable: op.State == StateActive,
+		Residuals:         append([]string(nil), op.Residuals...),
+	}
+}
+
+func (s *SharingService) reconcileLocked(ctx context.Context, op *SharingOperation, status *SharingStatus, providerErr error, providerStatus ProviderStatus) error {
+	diagnostic := providerStatus.Diagnostic
+	if providerErr != nil {
+		diagnostic = providerErr.Error()
+	}
+	if diagnostic == "" {
+		diagnostic = "provider state is " + providerStatus.State
+	}
+	op.State = StateDegraded
+	op.Residuals = []string{"provider endpoint unhealthy: " + diagnostic}
+	op.UpdatedAt = s.now().UTC()
+	_ = s.store.Save(op)
+	return s.teardownLocked(ctx, op, status)
+}
+
+func (s *SharingService) teardownLocked(ctx context.Context, op *SharingOperation, status *SharingStatus) error {
+	op.State = StateStopping
+	op.UpdatedAt = s.now().UTC()
+	op.Residuals = nil
+	// Persist stopping before mutation so a killed command is reconciled later.
+	if err := s.store.Save(op); err != nil {
+		*status = statusFromOperation(op)
+		return fmt.Errorf("persist stopping state: %w", err)
+	}
+
+	type cleanupStep struct {
+		residual string
+		run      func() error
+	}
+	steps := []cleanupStep{
+		{"public endpoint may remain active", func() error { return s.provider.Stop(ctx, op.ProviderHandle) }},
+		{"observer credential may remain active", func() error { return s.zellij.RevokeToken(ctx, op.ObserverTokenLabel) }},
+		{"interactive credential may remain active", func() error { return s.zellij.RevokeToken(ctx, op.InteractiveTokenLabel) }},
+		{"selected session may remain shared", func() error { return s.zellij.UnshareSession(ctx, op.Session) }},
+		{"remote clients may remain connected", func() error { return s.zellij.StopWebServer(ctx) }},
+	}
+	var residuals []string
+	for _, step := range steps {
+		if err := step.run(); err != nil {
+			residuals = append(residuals, step.residual+": "+err.Error())
+		}
+	}
+	if len(residuals) == 0 {
+		if err := s.store.Remove(); err == nil {
+			*status = SharingStatus{State: StateInactive}
+			return nil
+		} else {
+			residuals = append(residuals, "operation state could not be removed: "+err.Error())
+		}
+	}
+
+	op.State, op.UpdatedAt, op.Residuals = StateDegraded, s.now().UTC(), residuals
+	saveErr := s.store.Save(op)
+	*status = statusFromOperation(op)
+	if saveErr != nil {
+		return fmt.Errorf("sharing cleanup incomplete: %s; persist degraded state: %v", strings.Join(residuals, "; "), saveErr)
+	}
+	return fmt.Errorf("sharing cleanup incomplete: %s", strings.Join(residuals, "; "))
 }
