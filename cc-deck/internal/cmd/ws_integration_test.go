@@ -253,10 +253,10 @@ func TestWsStopLocal(t *testing.T) {
 	_, _, err := run(t, gf, "ws", "new", "stoptest", "--type", "local")
 	require.NoError(t, err)
 
-	// Stop on local workspace prints a warning (local has no infrastructure).
-	_, stderr, err := run(t, gf, "ws", "stop", "stoptest")
+	// Stop ends the canonical session even when there is no infrastructure.
+	stdout, _, err := run(t, gf, "ws", "stop", "stoptest")
 	require.NoError(t, err)
-	assert.Contains(t, stderr, "no infrastructure to stop")
+	assert.Contains(t, stdout, "stopped")
 }
 
 func TestWsStartLocal(t *testing.T) {
@@ -266,10 +266,10 @@ func TestWsStartLocal(t *testing.T) {
 	_, _, err := run(t, gf, "ws", "new", "starttest", "--type", "local")
 	require.NoError(t, err)
 
-	// Start on local workspace prints a warning (local has no infrastructure).
-	_, stderr, err := run(t, gf, "ws", "start", "starttest")
+	// Start converges the canonical session even when there is no infrastructure.
+	stdout, _, err := run(t, gf, "ws", "start", "starttest")
 	require.NoError(t, err)
-	assert.Contains(t, stderr, "no infrastructure to start")
+	assert.Contains(t, stdout, "ready")
 }
 
 func TestWsStubCommandsReturnError(t *testing.T) {

@@ -22,6 +22,7 @@ import (
 	"github.com/cc-deck/cc-deck/internal/config"
 	"github.com/cc-deck/cc-deck/internal/credential"
 	"github.com/cc-deck/cc-deck/internal/project"
+	sharing "github.com/cc-deck/cc-deck/internal/share"
 	sshPkg "github.com/cc-deck/cc-deck/internal/ssh"
 	"github.com/cc-deck/cc-deck/internal/ws"
 )
@@ -65,6 +66,7 @@ matching the current directory against workspace definitions.`,
 		newWsDeleteCmd(gf),
 		newWsRefreshCredsCmd(gf),
 	)
+	addToGroup(wsCmd, "lifecycle", newWsSharingCommands(gf)...)
 
 	// Info
 	addToGroup(wsCmd, "info",
@@ -94,6 +96,8 @@ matching the current directory against workspace definitions.`,
 // --- create ---
 
 type newFlags struct {
+	share          bool
+	noStart        bool
 	wsType         string
 	image          string
 	ports          []string
@@ -115,21 +119,21 @@ type newFlags struct {
 	workspace    string
 
 	// k8s-deploy flags
-	namespace      string
-	kubeconfig     string
-	k8sContext     string
-	storageSize    string
-	storageClass   string
-	existingSecret string
-	secretStore    string
-	secretStoreRef string
-	secretPath     string
-	buildDir       string
+	namespace       string
+	kubeconfig      string
+	k8sContext      string
+	storageSize     string
+	storageClass    string
+	existingSecret  string
+	secretStore     string
+	secretStoreRef  string
+	secretPath      string
+	buildDir        string
 	noNetworkPolicy bool
-	allowDomain    []string
-	allowGroup     []string
-	keepVolumes    bool
-	timeout        string
+	allowDomain     []string
+	allowGroup      []string
+	keepVolumes     bool
+	timeout         string
 
 	// Repo cloning flags
 	repos    []string
@@ -192,6 +196,8 @@ Workspace types (--type):
 	cmd.Flags().StringArrayVar(&cf.branches, "branch", nil, "Branch for corresponding --repo, repeatable")
 	cmd.Flags().StringVar(&cf.variant, "variant", "", "Variant name for multiple instances from same definition")
 	cmd.Flags().BoolVar(&cf.update, "update", false, "Update existing workspace (deprecated: use ws update)")
+	cmd.Flags().BoolVar(&cf.share, "share", false, "Create and share the canonical session")
+	cmd.Flags().BoolVar(&cf.noStart, "no-start", false, "Create without starting infrastructure or a session")
 	_ = cmd.Flags().MarkDeprecated("update", "use 'cc-deck ws update' instead")
 
 	// Container/compose flags
@@ -245,6 +251,9 @@ Workspace types (--type):
 }
 
 func runWsNew(gf *GlobalFlags, name string, cf *newFlags, cmd *cobra.Command) error {
+	if cf.share && cf.noStart {
+		return fmt.Errorf("--share and --no-start cannot be used together")
+	}
 	store := ws.NewStateStore("")
 	defs := ws.NewDefinitionStore("")
 
@@ -533,6 +542,19 @@ func runWsNew(gf *GlobalFlags, name string, cf *newFlags, cmd *cobra.Command) er
 	}
 
 	fmt.Fprintf(os.Stdout, "Workspace %q created (type: %s)\n", name, wsType)
+	if cf.noStart {
+		if infra, ok := e.(ws.InfraManager); ok {
+			if err := infra.Stop(cmd.Context()); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	invitations, _, readyErr := readyAndMaybeShare(cmd.Context(), gf, e, cf.share)
+	if readyErr != nil {
+		return readyErr
+	}
+	printInvitations(cmd, invitations)
 	return nil
 }
 
@@ -705,8 +727,9 @@ func splitCredential(s string) []string {
 
 // --- attach ---
 
-func newAttachCmdCore(_ *GlobalFlags) *cobra.Command {
+func newAttachCmdCore(gf *GlobalFlags) *cobra.Command {
 	var reset bool
+	var share bool
 
 	cmd := &cobra.Command{
 		Use:   "attach [name]",
@@ -726,11 +749,12 @@ Use --reset to kill a running session and start fresh.`,
 			if reset {
 				return runWsAttachReset(name)
 			}
-			return runWsAttach(name)
+			return runWsAttachWithShare(gf, name, share, cmd)
 		},
 	}
 
 	cmd.Flags().BoolVar(&reset, "reset", false, "Kill a running session and start fresh")
+	cmd.Flags().BoolVar(&share, "share", false, "Create and share a missing canonical session")
 
 	return cmd
 }
@@ -758,6 +782,10 @@ func runWsAttachReset(name string) error {
 }
 
 func runWsAttach(name string) error {
+	return runWsAttachWithShare(&GlobalFlags{}, name, false, nil)
+}
+
+func runWsAttachWithShare(gf *GlobalFlags, name string, share bool, cmd *cobra.Command) error {
 	store := ws.NewStateStore("")
 	defs := ws.NewDefinitionStore("")
 
@@ -766,7 +794,21 @@ func runWsAttach(name string) error {
 		return err
 	}
 
-	return e.Attach(cmd_context())
+	ctx := cmd_context()
+	invitations, ready, err := readyAndMaybeShare(ctx, gf, e, share)
+	if err != nil {
+		return err
+	}
+	if cmd != nil {
+		printInvitations(cmd, invitations)
+	}
+	if ready.InfrastructureStarted {
+		fmt.Fprintf(os.Stderr, "Workspace %q was stopped; started infrastructure.\n", name)
+	}
+	if ready.SessionCreated {
+		fmt.Fprintln(os.Stderr, "Canonical session was absent; started it.")
+	}
+	return e.Attach(ctx)
 }
 
 // --- update ---
@@ -847,9 +889,9 @@ func newWsDeleteCmd(_ *GlobalFlags) *cobra.Command {
 	var keepVolumes bool
 
 	cmd := &cobra.Command{
-		Use:   "delete [name]",
+		Use:     "delete [name]",
 		Aliases: []string{"rm"},
-		Short: "Destroy a workspace",
+		Short:   "Destroy a workspace",
 		Long: `Destroy the named workspace and remove it from the state store.
 If the workspace is running, use --force to stop and destroy it.
 For container workspaces, use --keep-volumes to preserve data volumes.
@@ -914,7 +956,6 @@ func runWsDelete(name string, force bool, keepVolumes bool) error {
 }
 
 // --- list ---
-
 
 func newListCmdCore(gf *GlobalFlags) *cobra.Command {
 	var filterType string
@@ -1104,13 +1145,13 @@ func writeWsStructured(format string, instances []*ws.WorkspaceInstance, allDefs
 			authStr = "-"
 		}
 		entries = append(entries, wsListEntry{
-			Name:     def.Name,
-			Type:     string(def.Type),
-			Infra:    "-",
-			Session:  "none",
-			Project:  proj,
-			Auth:     authStr,
-			Storage:  "-",
+			Name:    def.Name,
+			Type:    string(def.Type),
+			Infra:   "-",
+			Session: "none",
+			Project: proj,
+			Auth:    authStr,
+			Storage: "-",
 		})
 	}
 
@@ -1286,16 +1327,16 @@ func newWsStatusCmd(gf *GlobalFlags) *cobra.Command {
 
 // wsStatusOutput is used for JSON/YAML marshaling of status information.
 type wsStatusOutput struct {
-	Name         string            `json:"name" yaml:"name"`
-	Type         ws.WorkspaceType  `json:"type" yaml:"type"`
-	InfraState   *ws.InfraStateValue   `json:"infra_state,omitempty" yaml:"infra_state,omitempty"`
-	SessionState ws.SessionStateValue  `json:"session_state" yaml:"session_state"`
-	Storage      string            `json:"storage" yaml:"storage"`
-	Uptime       string            `json:"uptime" yaml:"uptime"`
-	LastAttached string            `json:"last_attached" yaml:"last_attached"`
-	Sessions     []ws.SessionInfo  `json:"sessions,omitempty" yaml:"sessions,omitempty"`
-	Image        string            `json:"image,omitempty" yaml:"image,omitempty"`
-	ProjectPath  string            `json:"project_path,omitempty" yaml:"project_path,omitempty"`
+	Name         string               `json:"name" yaml:"name"`
+	Type         ws.WorkspaceType     `json:"type" yaml:"type"`
+	InfraState   *ws.InfraStateValue  `json:"infra_state,omitempty" yaml:"infra_state,omitempty"`
+	SessionState ws.SessionStateValue `json:"session_state" yaml:"session_state"`
+	Storage      string               `json:"storage" yaml:"storage"`
+	Uptime       string               `json:"uptime" yaml:"uptime"`
+	LastAttached string               `json:"last_attached" yaml:"last_attached"`
+	Sessions     []ws.SessionInfo     `json:"sessions,omitempty" yaml:"sessions,omitempty"`
+	Image        string               `json:"image,omitempty" yaml:"image,omitempty"`
+	ProjectPath  string               `json:"project_path,omitempty" yaml:"project_path,omitempty"`
 }
 
 func runWsStatus(gf *GlobalFlags, name string) error {
@@ -1470,8 +1511,9 @@ func runWsKillSession(name string) error {
 
 // --- start ---
 
-func newStartCmdCore(_ *GlobalFlags) *cobra.Command {
-	return &cobra.Command{
+func newStartCmdCore(gf *GlobalFlags) *cobra.Command {
+	var share bool
+	cmd := &cobra.Command{
 		Use:   "start [name]",
 		Short: "Start a stopped workspace",
 		Long: `Bring a stopped workspace back to a running state.
@@ -1483,9 +1525,11 @@ When no name is provided, auto-resolves from workspace definitions in the centra
 			if err != nil {
 				return err
 			}
-			return runWsStart(name)
+			return runWsStartWithShare(gf, name, share, cmd)
 		},
 	}
+	cmd.Flags().BoolVar(&share, "share", false, "Create and share a missing canonical session")
+	return cmd
 }
 
 func newWsStartCmd(gf *GlobalFlags) *cobra.Command {
@@ -1493,6 +1537,10 @@ func newWsStartCmd(gf *GlobalFlags) *cobra.Command {
 }
 
 func runWsStart(name string) error {
+	return runWsStartWithShare(&GlobalFlags{}, name, false, nil)
+}
+
+func runWsStartWithShare(gf *GlobalFlags, name string, share bool, cmd *cobra.Command) error {
 	store := ws.NewStateStore("")
 	defs := ws.NewDefinitionStore("")
 
@@ -1501,17 +1549,14 @@ func runWsStart(name string) error {
 		return err
 	}
 
-	im, ok := e.(ws.InfraManager)
-	if !ok {
-		fmt.Fprintf(os.Stderr, "%s workspaces have no infrastructure to start. Use 'cc-deck ws attach %s' to connect.\n", e.Type(), name)
-		return nil
-	}
-
-	if err := im.Start(cmd_context()); err != nil {
+	invitations, _, err := readyAndMaybeShare(cmd_context(), gf, e, share)
+	if err != nil {
 		return err
 	}
-
-	fmt.Fprintf(os.Stdout, "Workspace %q started\n", name)
+	if cmd != nil {
+		printInvitations(cmd, invitations)
+	}
+	fmt.Fprintf(os.Stdout, "Workspace %q ready\n", name)
 	return nil
 }
 
@@ -1548,17 +1593,29 @@ func runWsStop(name string) error {
 		return err
 	}
 
-	im, ok := e.(ws.InfraManager)
-	if !ok {
-		fmt.Fprintf(os.Stderr, "%s workspaces have no infrastructure to stop. Use 'cc-deck ws kill-session %s' to end the session.\n", e.Type(), name)
-		return nil
+	ctx := cmd_context()
+	var failures []string
+	if service, serviceErr := workspaceShareService(&GlobalFlags{}, true); serviceErr == nil {
+		status, statusErr := service.Status(ctx)
+		if statusErr == nil && status.State != sharing.StateInactive && (status.Workspace == name || status.Workspace == "") {
+			if _, err := service.Stop(ctx); err != nil {
+				failures = append(failures, err.Error())
+			}
+		}
 	}
-
-	if err := im.Stop(cmd_context()); err != nil {
-		return err
+	if err := e.KillSession(ctx); err != nil {
+		failures = append(failures, err.Error())
+	}
+	if im, ok := e.(ws.InfraManager); ok {
+		if err := im.Stop(ctx); err != nil {
+			failures = append(failures, err.Error())
+		}
 	}
 
 	fmt.Fprintf(os.Stdout, "Workspace %q stopped\n", name)
+	if len(failures) > 0 {
+		return fmt.Errorf("workspace stop incomplete: %s", strings.Join(failures, "; "))
+	}
 	return nil
 }
 
