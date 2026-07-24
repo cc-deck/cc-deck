@@ -2,6 +2,7 @@ package share
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -22,6 +23,7 @@ type CloudflareProvider struct {
 	stopTimeout  time.Duration
 	mu           sync.Mutex
 	processes    map[string]*cloudflareRuntime
+	findProcess  func(int) (Process, error)
 }
 type cloudflareRuntime struct {
 	process Process
@@ -29,7 +31,13 @@ type cloudflareRuntime struct {
 }
 
 func NewCloudflareProvider(r CommandRunner) *CloudflareProvider {
-	return &CloudflareProvider{runner: r, readyTimeout: cloudflareReadyTimeout, pollInterval: 25 * time.Millisecond, stopTimeout: 500 * time.Millisecond, processes: map[string]*cloudflareRuntime{}}
+	return &CloudflareProvider{runner: r, readyTimeout: cloudflareReadyTimeout, pollInterval: 25 * time.Millisecond, stopTimeout: 500 * time.Millisecond, processes: map[string]*cloudflareRuntime{}, findProcess: func(pid int) (Process, error) {
+		proc, err := os.FindProcess(pid)
+		if err != nil {
+			return nil, err
+		}
+		return &osProcessAdapter{Process: proc}, nil
+	}}
 }
 func (p *CloudflareProvider) Name() string { return "cloudflare" }
 func (p *CloudflareProvider) Validate(ctx context.Context) error {
@@ -49,10 +57,16 @@ func (p *CloudflareProvider) Start(ctx context.Context, localURL string) (Provid
 	p.processes[logPath] = rt
 	p.mu.Unlock()
 	go func() { rt.exited <- proc.Wait(); close(rt.exited) }()
-	return ProviderHandle{PID: proc.PID(), Metadata: map[string]string{"log_path": logPath, "identity": logPath}}, nil
+	fingerprint, err := p.processFingerprint(ctx, proc.PID())
+	if err != nil {
+		_ = proc.Kill()
+		return ProviderHandle{}, fmt.Errorf("capture cloudflared process identity: %w", err)
+	}
+	return ProviderHandle{PID: proc.PID(), Metadata: map[string]string{"log_path": logPath, "identity": logPath, "process_fingerprint": fingerprint}}, nil
 }
 
 var quickTunnelURL = regexp.MustCompile(`https://[a-zA-Z0-9-]+\.trycloudflare\.com`)
+var errCloudflareProcessGone = errors.New("cloudflared process is gone")
 
 func (p *CloudflareProvider) Ready(ctx context.Context, h ProviderHandle) (ProviderStatus, error) {
 	t := time.NewTimer(p.readyTimeout)
@@ -91,9 +105,12 @@ func (p *CloudflareProvider) Status(ctx context.Context, h ProviderHandle) (Prov
 		return ProviderStatus{State: "stopped"}, nil
 	}
 	if err := p.validateIdentity(ctx, h); err != nil {
+		if errors.Is(err, errCloudflareProcessGone) {
+			return ProviderStatus{State: "stopped"}, nil
+		}
 		return ProviderStatus{State: "unknown", Diagnostic: err.Error()}, nil
 	}
-	proc, e := os.FindProcess(h.PID)
+	proc, e := p.findProcess(h.PID)
 	if e != nil {
 		return ProviderStatus{State: "stopped"}, nil
 	}
@@ -107,16 +124,29 @@ func (p *CloudflareProvider) Stop(ctx context.Context, h ProviderHandle) error {
 		return nil
 	}
 	if err := p.validateIdentity(ctx, h); err != nil {
+		if errors.Is(err, errCloudflareProcessGone) {
+			return nil
+		}
 		return err
 	}
 	p.mu.Lock()
 	rt := p.processes[h.Metadata["identity"]]
 	p.mu.Unlock()
-	if rt == nil {
-		return fmt.Errorf("cloudflared process identity is valid but is not owned by this controller")
+	var proc Process
+	if rt != nil {
+		proc = rt.process
+	} else {
+		external, err := p.findProcess(h.PID)
+		if err != nil {
+			return nil
+		}
+		proc = external
 	}
-	if e := rt.process.Signal(os.Interrupt); e != nil && !isProcessGone(e) {
+	if e := proc.Signal(os.Interrupt); e != nil && !isProcessGone(e) {
 		return e
+	}
+	if rt == nil {
+		return p.waitExternalStop(ctx, h, proc)
 	}
 	select {
 	case <-rt.exited:
@@ -126,7 +156,7 @@ func (p *CloudflareProvider) Stop(ctx context.Context, h ProviderHandle) error {
 		return ctx.Err()
 	case <-time.After(p.stopTimeout):
 	}
-	if e := rt.process.Kill(); e != nil && !isProcessGone(e) {
+	if e := proc.Kill(); e != nil && !isProcessGone(e) {
 		return fmt.Errorf("kill cloudflared: %w", e)
 	}
 	select {
@@ -139,6 +169,44 @@ func (p *CloudflareProvider) Stop(ctx context.Context, h ProviderHandle) error {
 		return fmt.Errorf("cloudflared did not stop after forced termination")
 	}
 }
+
+type osProcessAdapter struct{ *os.Process }
+
+func (p *osProcessAdapter) PID() int    { return p.Pid }
+func (p *osProcessAdapter) Wait() error { _, e := p.Process.Wait(); return e }
+func (p *osProcessAdapter) Kill() error { return p.Process.Kill() }
+func (p *CloudflareProvider) waitExternalStop(ctx context.Context, h ProviderHandle, proc Process) error {
+	if p.waitExternalGone(ctx, h, p.stopTimeout) {
+		return nil
+	}
+	if err := proc.Kill(); err != nil && !isProcessGone(err) {
+		return fmt.Errorf("kill cloudflared: %w", err)
+	}
+	if p.waitExternalGone(ctx, h, p.stopTimeout) {
+		return nil
+	}
+	return fmt.Errorf("cloudflared process closure could not be confirmed")
+}
+func (p *CloudflareProvider) waitExternalGone(ctx context.Context, h ProviderHandle, timeout time.Duration) bool {
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	tick := time.NewTicker(20 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-deadline.C:
+			return false
+		case <-tick.C:
+			_, err := p.processFingerprint(ctx, h.PID)
+			if err != nil && isProcessGone(err) {
+				_ = os.Remove(h.Metadata["log_path"])
+				return true
+			}
+		}
+	}
+}
 func (p *CloudflareProvider) validateIdentity(ctx context.Context, h ProviderHandle) error {
 	marker := h.Metadata["identity"]
 	if marker == "" || marker != h.Metadata["log_path"] {
@@ -147,17 +215,32 @@ func (p *CloudflareProvider) validateIdentity(ctx context.Context, h ProviderHan
 	p.mu.Lock()
 	rt := p.processes[marker]
 	p.mu.Unlock()
-	out, err := p.runner.Run(ctx, "ps", "-p", strconv.Itoa(h.PID), "-o", "command=")
+	current, err := p.processFingerprint(ctx, h.PID)
 	if err != nil {
+		if isProcessGone(err) {
+			return errCloudflareProcessGone
+		}
 		return fmt.Errorf("cannot validate cloudflared process identity: %w", err)
 	}
-	if !strings.Contains(string(out), "cloudflared") || !strings.Contains(string(out), marker) {
+	want := h.Metadata["process_fingerprint"]
+	if want == "" || current != want || !strings.Contains(current, "cloudflared") || !strings.Contains(current, marker) {
 		return fmt.Errorf("refusing to signal PID %d: cloudflared process identity mismatch", h.PID)
 	}
 	if rt != nil && rt.process.PID() != h.PID {
 		return fmt.Errorf("cloudflared controller identity mismatch")
 	}
 	return nil
+}
+func (p *CloudflareProvider) processFingerprint(ctx context.Context, pid int) (string, error) {
+	out, err := p.runner.Run(ctx, "ps", "-p", strconv.Itoa(pid), "-o", "lstart=,comm=,command=")
+	if err != nil {
+		return "", err
+	}
+	s := strings.TrimSpace(string(out))
+	if s == "" {
+		return "", fmt.Errorf("no such process")
+	}
+	return s, nil
 }
 func isProcessGone(err error) bool {
 	return err != nil && (regexp.MustCompile(`(?i)(finished|not found|no such process)`).MatchString(err.Error()))

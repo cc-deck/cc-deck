@@ -38,7 +38,7 @@ func (z *ZellijCLI) ValidateCapabilities(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("Zellij web sharing capability unavailable: %w", err)
 	}
-	for _, flag := range []string{"--create-token", "--create-read-only-token", "--revoke-token", "--stop"} {
+	for _, flag := range []string{"--start", "--status", "--daemonize", "--create-token", "--token-name", "--create-read-only-token", "--revoke-token", "--stop"} {
 		if !strings.Contains(webHelp, flag) {
 			return fmt.Errorf("Zellij web sharing capability %s unavailable", flag)
 		}
@@ -50,6 +50,9 @@ func (z *ZellijCLI) ValidateCapabilities(ctx context.Context) error {
 	optionsHelp, err := z.run(ctx, "options", "--help")
 	if err != nil || !strings.Contains(optionsHelp, "--web-sharing") {
 		return fmt.Errorf("Zellij session-specific web sharing capability unavailable")
+	}
+	if _, conflictErr := z.runner.Run(ctx, "zellij", "web", "--create-token", "--token-name", "cc-deck-capability-probe"); conflictErr == nil {
+		return fmt.Errorf("Zellij token naming semantics are incompatible: expected --token-name to require a separate invocation")
 	}
 	return nil
 }
@@ -104,7 +107,10 @@ func (z *ZellijCLI) CreateToken(ctx context.Context, label string, readOnly bool
 	if readOnly {
 		flag = "--create-read-only-token"
 	}
-	return z.run(ctx, "web", flag, "--token-name", label)
+	if _, err := z.run(ctx, "web", "--token-name", label); err != nil {
+		return "", fmt.Errorf("set Zellij token name: %w", err)
+	}
+	return z.run(ctx, "web", flag)
 }
 func (z *ZellijCLI) RevokeToken(ctx context.Context, label string) error {
 	_, e := z.run(ctx, "web", "--revoke-token", label)

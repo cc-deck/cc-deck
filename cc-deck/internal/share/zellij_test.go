@@ -2,6 +2,7 @@ package share
 
 import (
 	"context"
+	"errors"
 	"github.com/stretchr/testify/require"
 	"testing"
 )
@@ -9,11 +10,11 @@ import (
 func TestZellijCapabilitiesAndSessionIsolation(t *testing.T) {
 	r := &fakeRunner{outputs: map[string][]byte{
 		key("zellij", []string{"--version"}):                        []byte("zellij 0.44.3"),
-		key("zellij", []string{"web", "--help"}):                    []byte("--create-token --create-read-only-token --revoke-token --stop"),
+		key("zellij", []string{"web", "--help"}):                    []byte("--start --status --daemonize --create-token --token-name --create-read-only-token --revoke-token --stop"),
 		key("zellij", []string{"attach", "--help"}):                 []byte("--token"),
 		key("zellij", []string{"options", "--help"}):                []byte("--web-sharing"),
 		key("zellij", []string{"list-sessions", "--no-formatting"}): []byte("alpha one [Created 1m ago] (EXITED - attach to resurrect)\nbeta & prod [Created now] (current)"),
-	}, errors: map[string]error{}}
+	}, errors: map[string]error{key("zellij", []string{"web", "--create-token", "--token-name", "cc-deck-capability-probe"}): errors.New("cannot be used with")}}
 	z := NewZellij(r)
 	require.NoError(t, z.ValidateCapabilities(context.Background()))
 	got, e := z.ResolveSession(context.Background(), "beta & prod")
@@ -30,7 +31,7 @@ func TestZellijRejectsOldVersion(t *testing.T) {
 	require.ErrorContains(t, NewZellij(r).ValidateCapabilities(context.Background()), "0.44.3")
 }
 func TestZellijRejectsMissingRequiredCapability(t *testing.T) {
-	r := &fakeRunner{outputs: map[string][]byte{key("zellij", []string{"--version"}): []byte("zellij 0.44.3"), key("zellij", []string{"web", "--help"}): []byte("--create-token --revoke-token --stop")}, errors: map[string]error{}}
+	r := &fakeRunner{outputs: map[string][]byte{key("zellij", []string{"--version"}): []byte("zellij 0.44.3"), key("zellij", []string{"web", "--help"}): []byte("--start --status --daemonize --create-token --token-name --revoke-token --stop")}, errors: map[string]error{}}
 	require.ErrorContains(t, NewZellij(r).ValidateCapabilities(context.Background()), "read-only")
 }
 func TestZellijUsesSeparateTokenRolesAndSessionCommands(t *testing.T) {
@@ -41,9 +42,11 @@ func TestZellijUsesSeparateTokenRolesAndSessionCommands(t *testing.T) {
 	_, _ = z.CreateToken(ctx, "observer", true)
 	require.NoError(t, z.ShareSession(ctx, "my session"))
 	require.NoError(t, z.UnshareSession(ctx, "my session"))
-	require.Equal(t, []string{"web", "--create-token", "--token-name", "interactive"}, r.calls[0].args)
-	require.Equal(t, []string{"web", "--create-read-only-token", "--token-name", "observer"}, r.calls[1].args)
-	require.Equal(t, []string{"--session", "my session", "options", "--web-sharing", "on"}, r.calls[2].args)
+	require.Equal(t, []string{"web", "--token-name", "interactive"}, r.calls[0].args)
+	require.Equal(t, []string{"web", "--create-token"}, r.calls[1].args)
+	require.Equal(t, []string{"web", "--token-name", "observer"}, r.calls[2].args)
+	require.Equal(t, []string{"web", "--create-read-only-token"}, r.calls[3].args)
+	require.Equal(t, []string{"--session", "my session", "options", "--web-sharing", "on"}, r.calls[4].args)
 }
 
 func TestZellijWebLifecycle(t *testing.T) {
