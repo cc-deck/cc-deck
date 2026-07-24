@@ -4,11 +4,55 @@ import (
 	"context"
 	"errors"
 	"os/exec"
+	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type recordingLocalRunner struct {
+	commands [][]string
+}
+
+func (r *recordingLocalRunner) Run(_ context.Context, name string, args ...string) ([]byte, error) {
+	r.commands = append(r.commands, append([]string{name}, args...))
+	return nil, nil
+}
+
+func TestLocalWorkspaceEnsureSessionCreatesSharedSession(t *testing.T) {
+	store := newTestStore(t)
+	require.NoError(t, store.AddInstance(&WorkspaceInstance{Name: "demo", Type: WorkspaceTypeLocal, SessionState: SessionStateNone}))
+	runner := &recordingLocalRunner{}
+	workspace := &LocalWorkspace{
+		name:          "demo",
+		store:         store,
+		commandRunner: runner,
+		sessionState:  func(string) string { return "" },
+	}
+
+	result, err := workspace.EnsureSession(context.Background(), SessionStartOptions{WebSharing: true})
+	require.NoError(t, err)
+	require.True(t, result.Created)
+	require.Equal(t, "cc-deck-demo", result.Name)
+	require.True(t, reflect.DeepEqual([][]string{{"zellij", "--layout", "cc-deck", "attach", "-b", "cc-deck-demo", "options", "--web-sharing", "on"}}, runner.commands))
+}
+
+func TestLocalWorkspaceEnsureSessionIsIdempotent(t *testing.T) {
+	runner := &recordingLocalRunner{}
+	workspace := &LocalWorkspace{
+		name:          "demo",
+		store:         newTestStore(t),
+		commandRunner: runner,
+		sessionState:  func(string) string { return "running" },
+	}
+
+	result, err := workspace.EnsureSession(context.Background(), SessionStartOptions{WebSharing: true})
+	require.NoError(t, err)
+	require.False(t, result.Created)
+	require.Equal(t, "cc-deck-demo", result.Name)
+	require.Empty(t, runner.commands)
+}
 
 // newTestStore is defined in state_test.go and shared across test files.
 
