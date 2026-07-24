@@ -31,6 +31,7 @@ func NewServiceWithGuard(store Store, zellij Zellij, provider Provider, guard Gu
 
 func (s *SharingService) Start(ctx context.Context, req StartRequest) (InvitationSet, error) {
 	var invitations InvitationSet
+	var activeOperationID string
 	err := s.store.WithLock(ctx, func() error {
 		existing, err := s.store.Load()
 		if err != nil {
@@ -157,21 +158,43 @@ func (s *SharingService) Start(ctx context.Context, req StartRequest) (Invitatio
 			return rollback(err)
 		}
 		persisted = true
-		if s.guard != nil {
-			guardHandle, guardErr := s.guard.Start(ctx, op.ID)
-			if guardErr != nil {
-				return rollback(fmt.Errorf("start sharing lifecycle guard: %w", guardErr))
-			}
-			op.Guard = guardHandle
-			if err = s.store.Save(op); err != nil {
-				_ = s.guard.Disarm(context.Background(), guardHandle)
-				return rollback(err)
-			}
-		}
+		activeOperationID = op.ID
 		return nil
 	})
 	if err != nil {
 		return InvitationSet{}, err
+	}
+	if s.guard != nil && activeOperationID != "" {
+		// The child validates persisted identity under the lifecycle lock, so never
+		// wait for readiness while holding that lock. Invitations remain local until
+		// the ready guard handle is persisted.
+		guardHandle, guardErr := s.guard.Start(ctx, activeOperationID)
+		if guardErr != nil {
+			_, cleanupErr := s.Stop(context.Background())
+			if cleanupErr != nil {
+				return InvitationSet{}, fmt.Errorf("start sharing lifecycle guard: %w; cleanup: %v", guardErr, cleanupErr)
+			}
+			return InvitationSet{}, fmt.Errorf("start sharing lifecycle guard: %w", guardErr)
+		}
+		persistErr := s.store.WithLock(ctx, func() error {
+			op, loadErr := s.store.Load()
+			if loadErr != nil {
+				return loadErr
+			}
+			if op == nil || op.ID != activeOperationID || op.State != StateActive {
+				return fmt.Errorf("sharing operation changed before guard became ready")
+			}
+			op.Guard = guardHandle
+			return s.store.Save(op)
+		})
+		if persistErr != nil {
+			_ = s.guard.Disarm(context.Background(), guardHandle)
+			_, cleanupErr := s.Stop(context.Background())
+			if cleanupErr != nil {
+				return InvitationSet{}, fmt.Errorf("persist sharing lifecycle guard: %w; cleanup: %v", persistErr, cleanupErr)
+			}
+			return InvitationSet{}, fmt.Errorf("persist sharing lifecycle guard: %w", persistErr)
+		}
 	}
 	return invitations, nil
 }

@@ -144,10 +144,16 @@ type fakeGuard struct {
 	startErr, disarmErr error
 	started             string
 	disarmed            bool
+	onStart             func() error
 }
 
 func (g *fakeGuard) Start(_ context.Context, operationID string) (GuardHandle, error) {
 	g.started = operationID
+	if g.onStart != nil {
+		if err := g.onStart(); err != nil {
+			return GuardHandle{}, err
+		}
+	}
 	if g.startErr != nil {
 		return GuardHandle{}, g.startErr
 	}
@@ -308,6 +314,19 @@ func TestStartLaunchesGuardOnlyAfterActiveStateIsPersisted(t *testing.T) {
 	require.NotEmpty(t, guard.started)
 	require.Equal(t, guard.handle, store.op.Guard)
 	require.Equal(t, StateActive, store.op.State)
+}
+
+func TestStartReleasesLifecycleLockBeforeWaitingForGuardReadiness(t *testing.T) {
+	store := &guardLockStore{startStore: &startStore{}}
+	guard := &fakeGuard{onStart: func() error {
+		if store.locked.Load() {
+			return errors.New("guard launched under lifecycle lock")
+		}
+		return nil
+	}}
+	_, err := NewServiceWithGuard(store, &startZellij{}, &startProvider{}, guard).Start(context.Background(), StartRequest{Session: "selected"})
+	require.NoError(t, err)
+	require.Equal(t, 2, store.lockRuns, "startup lock followed by short guard-handle persistence lock")
 }
 
 func TestStopDisarmsGuardBeforeEndpointTeardown(t *testing.T) {
