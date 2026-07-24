@@ -377,7 +377,8 @@ func TestClearLocalState(t *testing.T) {
 }
 
 func TestSelectCredentialMode_EmptyAvailable(t *testing.T) {
-	_, found := selectCredentialMode(nil, "")
+	_, found, err := selectCredentialMode(nil, "")
+	assert.NoError(t, err)
 	assert.False(t, found)
 }
 
@@ -386,7 +387,8 @@ func TestSelectCredentialMode_AutoSelect(t *testing.T) {
 		{Spec: agent.CredentialSpec{Name: "api"}},
 		{Spec: agent.CredentialSpec{Name: "vertex"}},
 	}
-	spec, found := selectCredentialMode(available, "")
+	spec, found, err := selectCredentialMode(available, "")
+	assert.NoError(t, err)
 	assert.True(t, found)
 	assert.Equal(t, "api", spec.Name)
 }
@@ -396,7 +398,8 @@ func TestSelectCredentialMode_AutoExplicit(t *testing.T) {
 		{Spec: agent.CredentialSpec{Name: "api"}},
 		{Spec: agent.CredentialSpec{Name: "vertex"}},
 	}
-	spec, found := selectCredentialMode(available, "auto")
+	spec, found, err := selectCredentialMode(available, "auto")
+	assert.NoError(t, err)
 	assert.True(t, found)
 	assert.Equal(t, "api", spec.Name)
 }
@@ -406,7 +409,8 @@ func TestSelectCredentialMode_ExplicitMatch(t *testing.T) {
 		{Spec: agent.CredentialSpec{Name: "api"}},
 		{Spec: agent.CredentialSpec{Name: "vertex"}},
 	}
-	spec, found := selectCredentialMode(available, "vertex")
+	spec, found, err := selectCredentialMode(available, "vertex")
+	assert.NoError(t, err)
 	assert.True(t, found)
 	assert.Equal(t, "vertex", spec.Name)
 }
@@ -415,7 +419,8 @@ func TestSelectCredentialMode_ExplicitNoMatch(t *testing.T) {
 	available := []credential.AvailableMode{
 		{Spec: agent.CredentialSpec{Name: "api"}},
 	}
-	_, found := selectCredentialMode(available, "vertex")
+	_, found, err := selectCredentialMode(available, "vertex")
+	assert.ErrorContains(t, err, `auth mode "vertex" was requested`)
 	assert.False(t, found)
 }
 
@@ -423,7 +428,8 @@ func TestSelectCredentialMode_NoneAuth(t *testing.T) {
 	available := []credential.AvailableMode{
 		{Spec: agent.CredentialSpec{Name: "api"}},
 	}
-	_, found := selectCredentialMode(available, "none")
+	_, found, err := selectCredentialMode(available, "none")
+	assert.NoError(t, err)
 	assert.False(t, found)
 }
 
