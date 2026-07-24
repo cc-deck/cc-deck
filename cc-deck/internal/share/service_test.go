@@ -30,7 +30,8 @@ func (s *startStore) Remove() error { s.op = nil; return nil }
 type startZellij struct {
 	calls              []string
 	fail               string
-	shareOwned         bool
+	preShared          bool
+	probeErr           error
 	cleanupSawCanceled bool
 }
 
@@ -48,14 +49,12 @@ func (z *startZellij) ResolveSession(_ context.Context, requested string) (strin
 	}
 	return requested, nil
 }
-func (z *startZellij) ShareSession(context.Context, string) (bool, error) {
-	if err := z.call("share"); err != nil {
-		return false, err
-	}
-	if !z.shareOwned {
-		return false, nil
-	}
-	return true, nil
+func (z *startZellij) SessionSharingEnabled(context.Context, string) (bool, error) {
+	z.calls = append(z.calls, "probe-sharing")
+	return z.preShared, z.probeErr
+}
+func (z *startZellij) ShareSession(context.Context, string) error {
+	return z.call("share")
 }
 func (z *startZellij) UnshareSession(ctx context.Context, _ string) error {
 	z.cleanupSawCanceled = z.cleanupSawCanceled || ctx.Err() != nil
@@ -141,7 +140,7 @@ func stringsContains(value, part string) bool {
 }
 
 func TestStartRevealsBothRolesOnlyAfterReadinessAndPersistsNoSecrets(t *testing.T) {
-	store, z, provider := &startStore{}, &startZellij{shareOwned: true}, &startProvider{}
+	store, z, provider := &startStore{}, &startZellij{}, &startProvider{}
 	got, err := NewService(store, z, provider).Start(context.Background(), StartRequest{Session: "selected", Provider: "cloudflare"})
 	require.NoError(t, err)
 	require.Contains(t, got.InteractiveBrowser, "interactive-token-SECRET")
@@ -149,13 +148,13 @@ func TestStartRevealsBothRolesOnlyAfterReadinessAndPersistsNoSecrets(t *testing.
 	require.Equal(t, StateActive, store.op.State)
 	require.Equal(t, "selected", store.op.Session)
 	require.NotContains(t, fmt.Sprintf("%+v", store.op), "SECRET")
-	require.Equal(t, []string{"validate-zellij", "resolve", "share", "web", "create-interactive-token", "create-observer-token"}, z.calls)
+	require.Equal(t, []string{"validate-zellij", "resolve", "probe-sharing", "share", "web", "create-interactive-token", "create-observer-token"}, z.calls)
 	require.Equal(t, []string{"validate-provider", "provider-start", "provider-ready"}, provider.calls)
 }
 
 func TestStartRejectsExistingOperationWithoutCreatingCredentials(t *testing.T) {
 	store := &startStore{op: &SharingOperation{Session: "existing", State: StateActive}}
-	z, provider := &startZellij{shareOwned: true}, &startProvider{}
+	z, provider := &startZellij{}, &startProvider{}
 	got, err := NewService(store, z, provider).Start(context.Background(), StartRequest{Session: "other"})
 	require.ErrorContains(t, err, "already exists")
 	require.Empty(t, got)
@@ -165,7 +164,7 @@ func TestStartRejectsExistingOperationWithoutCreatingCredentials(t *testing.T) {
 
 func TestStartSameActiveSessionIsIdempotentWithoutSecretReissue(t *testing.T) {
 	store := &startStore{op: &SharingOperation{Session: "selected", Provider: "cloudflare", State: StateActive}}
-	z, provider := &startZellij{shareOwned: true}, &startProvider{}
+	z, provider := &startZellij{}, &startProvider{}
 	got, err := NewService(store, z, provider).Start(context.Background(), StartRequest{Session: "selected", Provider: "cloudflare"})
 	require.NoError(t, err)
 	require.Empty(t, got.InteractiveBrowser)
@@ -177,13 +176,31 @@ func TestStartSameActiveSessionIsIdempotentWithoutSecretReissue(t *testing.T) {
 	require.Empty(t, provider.calls)
 }
 
+func TestStartWithoutSelectorRecognizesExistingActiveOperation(t *testing.T) {
+	store := &startStore{op: &SharingOperation{Session: "selected", Provider: "cloudflare", State: StateActive}}
+	z, provider := &startZellij{}, &startProvider{}
+	got, err := NewService(store, z, provider).Start(context.Background(), StartRequest{Provider: "cloudflare"})
+	require.NoError(t, err)
+	require.Empty(t, got.InteractiveBrowser)
+	require.Contains(t, got.Warnings[0], "credentials are not redisplayed")
+	require.Empty(t, z.calls)
+	require.Empty(t, provider.calls)
+}
+
+func TestStartWithoutSelectorRejectsDifferentProvider(t *testing.T) {
+	store := &startStore{op: &SharingOperation{Session: "selected", Provider: "cloudflare", State: StateActive}}
+	got, err := NewService(store, &startZellij{}, &startProvider{}).Start(context.Background(), StartRequest{Provider: "other"})
+	require.ErrorContains(t, err, "already exists")
+	require.Empty(t, got)
+}
+
 func TestStartRollbackIsReverseOrderedAndReturnsNoInvitation(t *testing.T) {
-	store, z, provider := &startStore{}, &startZellij{shareOwned: true}, &startProvider{fail: "provider-ready"}
+	store, z, provider := &startStore{}, &startZellij{}, &startProvider{fail: "provider-ready"}
 	got, err := NewService(store, z, provider).Start(context.Background(), StartRequest{Session: "selected"})
 	require.Error(t, err)
 	require.Empty(t, got)
 	require.Equal(t, []string{"validate-provider", "provider-start", "provider-ready", "provider-stop"}, provider.calls)
-	require.Equal(t, []string{"validate-zellij", "resolve", "share", "web", "create-interactive-token", "create-observer-token", "revoke-observer", "revoke-interactive", "stop-web", "unshare"}, z.calls)
+	require.Equal(t, []string{"validate-zellij", "resolve", "probe-sharing", "share", "web", "create-interactive-token", "create-observer-token", "revoke-observer", "revoke-interactive", "stop-web", "unshare"}, z.calls)
 }
 
 func TestStartCompensatesEveryMutationFailurePoint(t *testing.T) {
@@ -194,7 +211,7 @@ func TestStartCompensatesEveryMutationFailurePoint(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			store, z, provider := &startStore{}, &startZellij{fail: tc.zFail, shareOwned: true}, &startProvider{fail: tc.providerFail}
+			store, z, provider := &startStore{}, &startZellij{fail: tc.zFail}, &startProvider{fail: tc.providerFail}
 			got, err := NewService(store, z, provider).Start(context.Background(), StartRequest{Session: "selected"})
 			require.Error(t, err)
 			require.Empty(t, got)
@@ -205,23 +222,33 @@ func TestStartCompensatesEveryMutationFailurePoint(t *testing.T) {
 
 func TestStartSerializesThroughStoreLock(t *testing.T) {
 	store := &startStore{}
-	_, err := NewService(store, &startZellij{shareOwned: true}, &startProvider{}).Start(context.Background(), StartRequest{Session: "selected"})
+	_, err := NewService(store, &startZellij{}, &startProvider{}).Start(context.Background(), StartRequest{Session: "selected"})
 	require.NoError(t, err)
 	require.Equal(t, 1, store.lockRuns)
 }
 
 func TestStartRollbackDoesNotUnsharePreExistingSessionSharing(t *testing.T) {
-	store, z := &startStore{}, &startZellij{shareOwned: false}
-	provider := &startProvider{fail: "provider-ready"}
+	store, z := &startStore{}, &startZellij{preShared: true}
+	provider := &startProvider{}
 	_, err := NewService(store, z, provider).Start(context.Background(), StartRequest{Session: "selected"})
-	require.Error(t, err)
+	require.ErrorContains(t, err, "already web-shared outside cc-deck")
 	require.NotContains(t, z.calls, "unshare")
-	require.Contains(t, z.calls, "revoke-observer")
+	require.NotContains(t, z.calls, "share")
+}
+
+func TestStartFailsBeforeMutationWhenSharingPreStateCannotBeQueried(t *testing.T) {
+	store, z, provider := &startStore{}, &startZellij{probeErr: errors.New("query unavailable")}, &startProvider{}
+	_, err := NewService(store, z, provider).Start(context.Background(), StartRequest{Session: "selected"})
+	require.ErrorContains(t, err, "query unavailable")
+	require.Contains(t, z.calls, "probe-sharing")
+	require.NotContains(t, z.calls, "share")
+	require.NotContains(t, z.calls, "unshare")
+	require.NotContains(t, provider.calls, "provider-start")
 }
 
 func TestStartRollbackUsesIndependentContextAfterCallerCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	store, z := &startStore{}, &startZellij{shareOwned: true}
+	store, z := &startStore{}, &startZellij{}
 	provider := &startProvider{readyFn: func() error {
 		cancel()
 		return context.Canceled

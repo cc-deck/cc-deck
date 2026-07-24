@@ -91,15 +91,16 @@ func parseSessionName(line string) string {
 	}
 	return line
 }
-func (z *ZellijCLI) ShareSession(ctx context.Context, s string) (bool, error) {
-	out, err := z.run(ctx, "--session", s, "options", "--web-sharing", "on")
-	if err != nil {
-		return false, err
-	}
-	if strings.Contains(strings.ToLower(out), "already shared") {
-		return false, nil
-	}
-	return true, nil
+func (z *ZellijCLI) SessionSharingEnabled(context.Context, string) (bool, error) {
+	// SessionInfo.web_clients_allowed is authoritative, but Zellij 0.44.3 does
+	// not expose that field through its CLI. Until the plugin query bridge is
+	// available, fail before mutation rather than risk later unsharing a session
+	// that cc-deck did not enable (brainstorm/082-session-sharing-spike.md).
+	return false, fmt.Errorf("cannot safely determine whether the session is already web-shared: Zellij SessionInfo query is unavailable")
+}
+func (z *ZellijCLI) ShareSession(ctx context.Context, s string) error {
+	_, err := z.run(ctx, "--session", s, "options", "--web-sharing", "on")
+	return err
 }
 func (z *ZellijCLI) UnshareSession(ctx context.Context, s string) error {
 	_, e := z.run(ctx, "--session", s, "options", "--web-sharing", "off")
@@ -110,6 +111,9 @@ func (z *ZellijCLI) CreateToken(ctx context.Context, label string, readOnly bool
 	if readOnly {
 		flag = "--create-read-only-token"
 	}
+	// Spike validation found --token-name conflicts with token creation when
+	// combined, so naming and creation must remain separate commands. See
+	// brainstorm/082-session-sharing-spike.md.
 	if _, err := z.run(ctx, "web", "--token-name", label); err != nil {
 		return "", fmt.Errorf("set Zellij token name: %w", err)
 	}
