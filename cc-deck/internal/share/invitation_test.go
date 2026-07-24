@@ -35,3 +35,16 @@ func TestBuildInvitationsRejectsNonAbsoluteEndpoint(t *testing.T) {
 	_, err := BuildInvitations("localhost:8082", "session", "one", "two")
 	require.ErrorContains(t, err, "invalid sharing endpoint")
 }
+
+func TestBuildInvitationUsesRoleSpecificWarnings(t *testing.T) {
+	interactive, err := BuildInvitation("https://example.test", "selected", "brave-otter", "CONTROL_SECRET", RoleInteractive)
+	require.NoError(t, err)
+	require.Equal(t, "brave-otter", interactive.Label)
+	require.Equal(t, RoleInteractive, interactive.Role)
+	require.Equal(t, []string{TrustedControlWarning, TerminalTLSWarning}, interactive.Warnings)
+
+	observer, err := BuildInvitation("https://example.test", "selected", "calm-fox", "WATCH_SECRET", RoleObserver)
+	require.NoError(t, err)
+	require.Equal(t, []string{TerminalTLSWarning}, observer.Warnings)
+	require.Contains(t, observer.Browser, "WATCH_SECRET")
+}

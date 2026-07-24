@@ -77,11 +77,15 @@ func (s *SharingService) Start(ctx context.Context, req StartRequest) (Invitatio
 			return fmt.Errorf("provider %q is not available", providerName)
 		}
 		now := s.now().UTC()
+		interactiveLabel := "cc-deck-" + id + "-interactive"
+		observerLabel := "cc-deck-" + id + "-observer"
 		op := &SharingOperation{
 			ID: id, Session: session, Provider: providerName,
-			InteractiveTokenLabel: "cc-deck-" + id + "-interactive",
-			ObserverTokenLabel:    "cc-deck-" + id + "-observer",
-			State:                 StateStarting, CreatedAt: now, UpdatedAt: now,
+			Invitations: []InvitationRecord{
+				{Label: interactiveLabel, Role: RoleInteractive, State: InvitationActive, CreatedAt: now},
+				{Label: observerLabel, Role: RoleObserver, State: InvitationActive, CreatedAt: now},
+			},
+			State: StateStarting, CreatedAt: now, UpdatedAt: now,
 		}
 
 		var undo []func(context.Context) error
@@ -119,18 +123,18 @@ func (s *SharingService) Start(ctx context.Context, req StartRequest) (Invitatio
 		if webStarted {
 			undo = append(undo, func(cleanupCtx context.Context) error { return s.zellij.StopWebServer(cleanupCtx) })
 		}
-		interactiveToken, err := s.zellij.CreateToken(ctx, op.InteractiveTokenLabel, false)
+		interactiveToken, err := s.zellij.CreateToken(ctx, interactiveLabel, false)
 		if err != nil {
 			return rollback(err)
 		}
 		undo = append(undo, func(cleanupCtx context.Context) error {
-			return s.zellij.RevokeToken(cleanupCtx, op.InteractiveTokenLabel)
+			return s.zellij.RevokeToken(cleanupCtx, interactiveLabel)
 		})
-		observerToken, err := s.zellij.CreateToken(ctx, op.ObserverTokenLabel, true)
+		observerToken, err := s.zellij.CreateToken(ctx, observerLabel, true)
 		if err != nil {
 			return rollback(err)
 		}
-		undo = append(undo, func(cleanupCtx context.Context) error { return s.zellij.RevokeToken(cleanupCtx, op.ObserverTokenLabel) })
+		undo = append(undo, func(cleanupCtx context.Context) error { return s.zellij.RevokeToken(cleanupCtx, observerLabel) })
 		handle, err := s.provider.Start(ctx, localURL)
 		if err != nil {
 			return rollback(err)
@@ -257,12 +261,20 @@ func statusFromOperation(op *SharingOperation) SharingStatus {
 	if op == nil {
 		return SharingStatus{State: StateInactive}
 	}
-	return SharingStatus{
+	status := SharingStatus{
 		State: op.State, Session: op.Session, Provider: op.Provider,
-		EndpointURL: op.EndpointURL, InteractiveAvailable: op.State == StateActive,
-		ObserverAvailable: op.State == StateActive,
-		Residuals:         append([]string(nil), op.Residuals...),
+		EndpointURL: op.EndpointURL, Residuals: append([]string(nil), op.Residuals...),
 	}
+	if op.State == StateActive {
+		for _, invitation := range op.Invitations {
+			if invitation.State != InvitationActive {
+				continue
+			}
+			status.InteractiveAvailable = status.InteractiveAvailable || invitation.Role == RoleInteractive
+			status.ObserverAvailable = status.ObserverAvailable || invitation.Role == RoleObserver
+		}
+	}
+	return status
 }
 
 func (s *SharingService) reconcileLocked(ctx context.Context, op *SharingOperation, status *SharingStatus, providerErr error, providerStatus ProviderStatus) error {
@@ -301,13 +313,21 @@ func (s *SharingService) teardownLocked(ctx context.Context, op *SharingOperatio
 		residual string
 		run      func() error
 	}
-	steps := []cleanupStep{
-		{"public endpoint may remain active", func() error { return s.provider.Stop(ctx, op.ProviderHandle) }},
-		{"observer credential may remain active", func() error { return s.zellij.RevokeToken(ctx, op.ObserverTokenLabel) }},
-		{"interactive credential may remain active", func() error { return s.zellij.RevokeToken(ctx, op.InteractiveTokenLabel) }},
-		{"selected session may remain shared", func() error { return s.zellij.UnshareSession(ctx, op.Session) }},
-		{"remote clients may remain connected", func() error { return s.zellij.StopWebServer(ctx) }},
+	steps := []cleanupStep{{"public endpoint may remain active", func() error { return s.provider.Stop(ctx, op.ProviderHandle) }}}
+	for i := len(op.Invitations) - 1; i >= 0; i-- {
+		invitation := op.Invitations[i]
+		if invitation.State != InvitationActive {
+			continue
+		}
+		steps = append(steps, cleanupStep{
+			fmt.Sprintf("%s credential %q may remain active", invitation.Role, invitation.Label),
+			func() error { return s.zellij.RevokeToken(ctx, invitation.Label) },
+		})
 	}
+	steps = append(steps,
+		cleanupStep{"selected session may remain shared", func() error { return s.zellij.UnshareSession(ctx, op.Session) }},
+		cleanupStep{"remote clients may remain connected", func() error { return s.zellij.StopWebServer(ctx) }},
+	)
 	for _, step := range steps {
 		if err := step.run(); err != nil {
 			residuals = append(residuals, step.residual+": "+err.Error())

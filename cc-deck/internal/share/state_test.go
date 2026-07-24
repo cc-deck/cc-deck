@@ -11,7 +11,13 @@ import (
 func TestFileStoreAtomicPermissionsAndNoTokens(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "nested", "share.yaml")
 	s := NewFileStore(p)
-	op := &SharingOperation{ID: "x", Session: "s", State: StateActive, InteractiveTokenLabel: "i", ObserverTokenLabel: "o", CreatedAt: time.Now()}
+	op := &SharingOperation{
+		ID: "x", Workspace: "demo", Session: "s", State: StateActive, CreatedAt: time.Now(),
+		Invitations: []InvitationRecord{
+			{Label: "brave-otter", Role: RoleInteractive, State: InvitationActive, CreatedAt: time.Now()},
+			{Label: "calm-fox", Role: RoleObserver, State: InvitationActive, CreatedAt: time.Now()},
+		},
+	}
 	require.NoError(t, s.Save(op))
 	fi, e := os.Stat(p)
 	require.NoError(t, e)
@@ -22,6 +28,7 @@ func TestFileStoreAtomicPermissionsAndNoTokens(t *testing.T) {
 	b, e := os.ReadFile(p)
 	require.NoError(t, e)
 	require.NotContains(t, string(b), "raw-secret")
+	require.NotContains(t, string(b), "token")
 	got, e := s.Load()
 	require.NoError(t, e)
 	require.Equal(t, "x", got.ID)
