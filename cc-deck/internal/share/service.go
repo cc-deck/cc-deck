@@ -85,13 +85,6 @@ func (s *SharingService) Start(ctx context.Context, req StartRequest) (Invitatio
 			return fmt.Errorf("%w; rollback residuals: %s", cause, strings.Join(residuals, "; "))
 		}
 
-		alreadyShared, err := s.zellij.SessionSharingEnabled(ctx, session)
-		if err != nil {
-			return err
-		}
-		if alreadyShared {
-			return fmt.Errorf("session %q is already web-shared outside cc-deck; stop that sharing before starting", session)
-		}
 		if err = s.zellij.ShareSession(ctx, session); err != nil {
 			return err
 		}

@@ -91,13 +91,6 @@ func parseSessionName(line string) string {
 	}
 	return line
 }
-func (z *ZellijCLI) SessionSharingEnabled(context.Context, string) (bool, error) {
-	// SessionInfo.web_clients_allowed is authoritative, but Zellij 0.44.3 does
-	// not expose that field through its CLI. Until the plugin query bridge is
-	// available, fail before mutation rather than risk later unsharing a session
-	// that cc-deck did not enable (brainstorm/082-session-sharing-spike.md).
-	return false, fmt.Errorf("cannot safely determine whether the session is already web-shared: Zellij SessionInfo query is unavailable")
-}
 func (z *ZellijCLI) ShareSession(ctx context.Context, s string) error {
 	_, err := z.run(ctx, "--session", s, "options", "--web-sharing", "on")
 	return err
