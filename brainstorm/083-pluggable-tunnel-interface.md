@@ -1,7 +1,7 @@
 # Brainstorm: Pluggable Tunnel Interface
 
 **Date:** 2026-07-22
-**Status:** parked
+**Status:** active
 
 ## Problem Framing
 
@@ -88,3 +88,89 @@ Parked: Ready for specification. The spike validated both Cloudflare and Traefik
 | URL stability | Quick tunnels are ephemeral (acceptable for session sharing). Traefik backend gives stable `*.tichny.org` URLs. Named Cloudflare tunnels for persistent setup. |
 | Auto-install cloudflared? | Yes, via `brew install cloudflared`. Check with `command -v cloudflared` first. |
 | Idle timeout mitigation | 100-second Cloudflare timeout needs monitoring. Acceptable for active pair programming. May need heartbeat solution later. |
+
+---
+
+## Revisit: 2026-07-24
+
+### Updated Problem Framing
+
+The next sharing story should expose one complete Zellij session—not an individual CC Deck session, tab, or pane—to multiple external collaborators. Every connected user sees the full Zellij experience, including all tabs, panes, sidebars, and interactive controls.
+
+The host needs two simple invitation types for the same session:
+
+- **Collaborator:** full interactive access
+- **Observer:** read-only access for following along
+
+Both invitation types must support a browser link and a terminal `zellij attach` command. This is ephemeral host-controlled sharing, not a persistent hosted or multi-tenant service.
+
+### New Approaches Considered
+
+#### A: Host-controlled ephemeral share
+
+- Pros: Small, secure lifecycle; one action starts access and one action removes it completely.
+- Cons: Invitations and endpoint change whenever sharing restarts.
+
+#### B: Persistent sharing profile
+
+- Pros: Faster reuse and stable configuration between sessions.
+- Cons: Adds persistent state and a larger security surface before it is needed.
+
+#### C: Collaboration dashboard
+
+- Pros: Rich sharing, presence, invitation, and shutdown experience in the sidebar.
+- Cons: Combines the essential remote-access story with follow-up presence UX.
+
+For endpoint exposure, three scopes were considered:
+
+1. Cloudflare Quick Tunnel only
+2. Pluggable exposure providers from the first version
+3. User-supplied public endpoint only
+
+### Updated Decision
+
+Choose **host-controlled ephemeral sharing** with **pluggable exposure providers from the first version**. Cloudflare Quick Tunnel is the default initial provider, while the sharing behavior remains provider-independent.
+
+Each share operation creates exactly two shared temporary credentials: one interactive token and one read-only token. The host receives browser and terminal invitations for both roles. Multiple collaborators may concurrently reuse the appropriate role token.
+
+Stopping sharing is a complete teardown: revoke both tokens, disconnect access, and close the external endpoint.
+
+### Updated Scope
+
+**In scope:**
+
+- Share exactly one complete Zellij session
+- Multiple concurrent interactive collaborators
+- Multiple concurrent read-only observers
+- One shared temporary token per role
+- Browser URL and terminal attach command for each role
+- Pluggable exposure providers with Cloudflare Quick Tunnel as the first default provider
+- Host-controlled start, status, and complete stop lifecycle
+- Ensure only the intended Zellij session is shared
+
+**Out of scope:**
+
+- User accounts or collaborator identities
+- Per-person tokens, labels, or individual revocation
+- Persistent invitations or always-on sharing
+- Sharing an individual CC Deck session, pane, or tab
+- Presence UI, pair-programming roles, or hand-off controls
+- A hosted multi-tenant service
+- Multi-backend workspace exposure beyond the local Zellij session story
+
+### Key Requirements
+
+1. Starting sharing exposes only the selected complete Zellij session.
+2. The host receives an interactive browser invitation and interactive terminal attach command.
+3. The host receives a read-only browser invitation and read-only terminal attach command.
+4. The interactive invitation grants the full Zellij session experience.
+5. The observer invitation allows following the full session without sending input.
+6. Multiple users can concurrently use each shared role token.
+7. Exposure-provider choice does not alter the invitation or lifecycle experience.
+8. Stopping sharing revokes both tokens and closes the public endpoint.
+
+### Open Threads
+
+- Verify whether token revocation and endpoint shutdown immediately disconnect already-authenticated browser and terminal clients; define additional enforcement if they do not.
+- Confirm how the product prevents a web-server login token from reaching any Zellij session other than the explicitly shared session.
+- Define the minimum provider capability contract without pulling later multi-backend sharing into this story.
