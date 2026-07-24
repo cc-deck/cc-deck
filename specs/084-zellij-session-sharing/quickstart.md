@@ -19,6 +19,14 @@ Terminal attachment is experimental in V1 and includes an explicit certificate-v
 
 ## Acceptance record: 2026-07-24
 
+Focused workspace-centric evidence:
+
+* `go test ./internal/ws -run 'TestEnsureReady|TestLocalWorkspace' -count=1` passed.
+* `go test ./internal/ws -count=1` passed after all backends implemented canonical-session readiness.
+* `go test ./internal/share -count=1` passed for named invitations, workspace ownership, revoke/stop, session health, and guard behavior.
+* `go test ./internal/cmd -run 'TestWs|TestPromoted|TestRunWsStatus|TestRunWsList' -count=1` and `go test ./cmd/cc-deck -count=1` passed.
+* The complete command suite reaches Podman smoke tests that cannot access the sandboxed Podman socket; this does not complete deferred T034.
+
 The acceptance run used the feature worktree on macOS. Zellij 0.44.3 and cloudflared 2026.7.2 were present. No live public tunnel was opened and no real Zellij session was mutated during this unattended run.
 
 | Requirement | Result | Evidence or blocker |
