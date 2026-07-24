@@ -173,7 +173,7 @@ func (s *SharingService) Status(ctx context.Context) (SharingStatus, error) {
 
 		status = statusFromOperation(op)
 		providerStatus, providerErr := s.provider.Status(ctx, op.ProviderHandle)
-		if providerErr == nil && (providerStatus.State == "ready" || providerStatus.State == "starting") {
+		if op.State == StateActive && providerErr == nil && (providerStatus.State == "ready" || providerStatus.State == "starting") {
 			if providerStatus.EndpointURL != "" {
 				status.EndpointURL = providerStatus.EndpointURL
 			}
@@ -237,9 +237,11 @@ func (s *SharingService) teardownLocked(ctx context.Context, op *SharingOperatio
 	op.UpdatedAt = s.now().UTC()
 	op.Residuals = nil
 	// Persist stopping before mutation so a killed command is reconciled later.
+	var residuals []string
 	if err := s.store.Save(op); err != nil {
-		*status = statusFromOperation(op)
-		return fmt.Errorf("persist stopping state: %w", err)
+		// Persistence failure is itself a residual, but must never prevent the safety
+		// actions below. A state-store problem cannot justify leaving access active.
+		residuals = append(residuals, "stopping state could not be persisted: "+err.Error())
 	}
 
 	type cleanupStep struct {
@@ -253,7 +255,6 @@ func (s *SharingService) teardownLocked(ctx context.Context, op *SharingOperatio
 		{"selected session may remain shared", func() error { return s.zellij.UnshareSession(ctx, op.Session) }},
 		{"remote clients may remain connected", func() error { return s.zellij.StopWebServer(ctx) }},
 	}
-	var residuals []string
 	for _, step := range steps {
 		if err := step.run(); err != nil {
 			residuals = append(residuals, step.residual+": "+err.Error())
