@@ -16,6 +16,8 @@ type SharingService struct {
 	now      func() time.Time
 }
 
+const rollbackTimeout = 5 * time.Second
+
 func NewService(store Store, zellij Zellij, provider Provider) *SharingService {
 	return &SharingService{store: store, zellij: zellij, provider: provider, now: time.Now}
 }
@@ -28,6 +30,11 @@ func (s *SharingService) Start(ctx context.Context, req StartRequest) (Invitatio
 			return err
 		}
 		if existing != nil {
+			if existing.State == StateActive && req.Session != "" && req.Session == existing.Session &&
+				(req.Provider == "" || req.Provider == existing.Provider) {
+				invitations = InvitationSet{Warnings: []string{fmt.Sprintf("Sharing is already active for session %q with provider %s; existing credentials are not redisplayed.", existing.Session, existing.Provider)}}
+				return nil
+			}
 			return fmt.Errorf("sharing operation already exists for session %q; run cc-deck share status or stop first", existing.Session)
 		}
 		if err = s.zellij.ValidateCapabilities(ctx); err != nil {
@@ -60,11 +67,13 @@ func (s *SharingService) Start(ctx context.Context, req StartRequest) (Invitatio
 			State:                 StateStarting, CreatedAt: now, UpdatedAt: now,
 		}
 
-		var undo []func() error
+		var undo []func(context.Context) error
 		rollback := func(cause error) error {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), rollbackTimeout)
+			defer cancel()
 			var residuals []string
 			for i := len(undo) - 1; i >= 0; i-- {
-				if rollbackErr := undo[i](); rollbackErr != nil {
+				if rollbackErr := undo[i](cleanupCtx); rollbackErr != nil {
 					residuals = append(residuals, rollbackErr.Error())
 				}
 			}
@@ -76,33 +85,38 @@ func (s *SharingService) Start(ctx context.Context, req StartRequest) (Invitatio
 			return fmt.Errorf("%w; rollback residuals: %s", cause, strings.Join(residuals, "; "))
 		}
 
-		if err = s.zellij.ShareSession(ctx, session); err != nil {
+		shareOwned, err := s.zellij.ShareSession(ctx, session)
+		if err != nil {
 			return err
 		}
-		undo = append(undo, func() error { return s.zellij.UnshareSession(ctx, session) })
+		if shareOwned {
+			undo = append(undo, func(cleanupCtx context.Context) error { return s.zellij.UnshareSession(cleanupCtx, session) })
+		}
 		localURL, webStarted, err := s.zellij.EnsureWebServer(ctx)
 		if err != nil {
 			return rollback(err)
 		}
 		if webStarted {
-			undo = append(undo, func() error { return s.zellij.StopWebServer(ctx) })
+			undo = append(undo, func(cleanupCtx context.Context) error { return s.zellij.StopWebServer(cleanupCtx) })
 		}
 		interactiveToken, err := s.zellij.CreateToken(ctx, op.InteractiveTokenLabel, false)
 		if err != nil {
 			return rollback(err)
 		}
-		undo = append(undo, func() error { return s.zellij.RevokeToken(ctx, op.InteractiveTokenLabel) })
+		undo = append(undo, func(cleanupCtx context.Context) error {
+			return s.zellij.RevokeToken(cleanupCtx, op.InteractiveTokenLabel)
+		})
 		observerToken, err := s.zellij.CreateToken(ctx, op.ObserverTokenLabel, true)
 		if err != nil {
 			return rollback(err)
 		}
-		undo = append(undo, func() error { return s.zellij.RevokeToken(ctx, op.ObserverTokenLabel) })
+		undo = append(undo, func(cleanupCtx context.Context) error { return s.zellij.RevokeToken(cleanupCtx, op.ObserverTokenLabel) })
 		handle, err := s.provider.Start(ctx, localURL)
 		if err != nil {
 			return rollback(err)
 		}
 		op.ProviderHandle = handle
-		undo = append(undo, func() error { return s.provider.Stop(ctx, handle) })
+		undo = append(undo, func(cleanupCtx context.Context) error { return s.provider.Stop(cleanupCtx, handle) })
 		ready, err := s.provider.Ready(ctx, handle)
 		if err != nil {
 			return rollback(err)

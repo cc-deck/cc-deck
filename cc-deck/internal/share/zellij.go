@@ -91,9 +91,15 @@ func parseSessionName(line string) string {
 	}
 	return line
 }
-func (z *ZellijCLI) ShareSession(ctx context.Context, s string) error {
-	_, e := z.run(ctx, "--session", s, "options", "--web-sharing", "on")
-	return e
+func (z *ZellijCLI) ShareSession(ctx context.Context, s string) (bool, error) {
+	out, err := z.run(ctx, "--session", s, "options", "--web-sharing", "on")
+	if err != nil {
+		return false, err
+	}
+	if strings.Contains(strings.ToLower(out), "already shared") {
+		return false, nil
+	}
+	return true, nil
 }
 func (z *ZellijCLI) UnshareSession(ctx context.Context, s string) error {
 	_, e := z.run(ctx, "--session", s, "options", "--web-sharing", "off")
@@ -104,7 +110,10 @@ func (z *ZellijCLI) CreateToken(ctx context.Context, label string, readOnly bool
 	if readOnly {
 		flag = "--create-read-only-token"
 	}
-	return z.run(ctx, "web", flag, "--token-name", label)
+	if _, err := z.run(ctx, "web", "--token-name", label); err != nil {
+		return "", fmt.Errorf("set Zellij token name: %w", err)
+	}
+	return z.run(ctx, "web", flag)
 }
 func (z *ZellijCLI) RevokeToken(ctx context.Context, label string) error {
 	_, e := z.run(ctx, "web", "--revoke-token", label)

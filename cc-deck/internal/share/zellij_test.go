@@ -39,11 +39,24 @@ func TestZellijUsesSeparateTokenRolesAndSessionCommands(t *testing.T) {
 	ctx := context.Background()
 	_, _ = z.CreateToken(ctx, "interactive", false)
 	_, _ = z.CreateToken(ctx, "observer", true)
-	require.NoError(t, z.ShareSession(ctx, "my session"))
+	owned, err := z.ShareSession(ctx, "my session")
+	require.NoError(t, err)
+	require.True(t, owned)
 	require.NoError(t, z.UnshareSession(ctx, "my session"))
-	require.Equal(t, []string{"web", "--create-token", "--token-name", "interactive"}, r.calls[0].args)
-	require.Equal(t, []string{"web", "--create-read-only-token", "--token-name", "observer"}, r.calls[1].args)
-	require.Equal(t, []string{"--session", "my session", "options", "--web-sharing", "on"}, r.calls[2].args)
+	require.Equal(t, []string{"web", "--token-name", "interactive"}, r.calls[0].args)
+	require.Equal(t, []string{"web", "--create-token"}, r.calls[1].args)
+	require.Equal(t, []string{"web", "--token-name", "observer"}, r.calls[2].args)
+	require.Equal(t, []string{"web", "--create-read-only-token"}, r.calls[3].args)
+	require.Equal(t, []string{"--session", "my session", "options", "--web-sharing", "on"}, r.calls[4].args)
+}
+
+func TestZellijReportsPreExistingSessionSharingAsNotOwned(t *testing.T) {
+	r := &fakeRunner{outputs: map[string][]byte{
+		key("zellij", []string{"--session", "shared", "options", "--web-sharing", "on"}): []byte("session is already shared"),
+	}, errors: map[string]error{}}
+	owned, err := NewZellij(r).ShareSession(context.Background(), "shared")
+	require.NoError(t, err)
+	require.False(t, owned)
 }
 
 func TestZellijWebLifecycle(t *testing.T) {

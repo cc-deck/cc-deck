@@ -31,7 +31,7 @@ type Provider interface {
 type Zellij interface {
 	ValidateCapabilities(context.Context) error
 	ResolveSession(context.Context, string) (string, error)
-	ShareSession(context.Context, string) error
+	ShareSession(context.Context, string) (owned bool, err error)
 	UnshareSession(context.Context, string) error
 	CreateToken(context.Context, string, bool) (string, error)
 	RevokeToken(context.Context, string) error

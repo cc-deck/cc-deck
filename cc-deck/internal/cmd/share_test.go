@@ -64,3 +64,14 @@ func TestShareStartRequiresSafeUnambiguousSelectionFromService(t *testing.T) {
 	require.ErrorContains(t, err, "select one Zellij session explicitly")
 	require.Empty(t, service.req.Session)
 }
+
+func TestShareStartIdempotentResultDoesNotPrintEmptyInvitationSections(t *testing.T) {
+	service := &fakeShareStarter{set: sharing.InvitationSet{Warnings: []string{"already active; credentials are not redisplayed"}}}
+	command := newShareCmd(&GlobalFlags{}, service)
+	var output bytes.Buffer
+	command.SetOut(&output)
+	command.SetArgs([]string{"start", "selected"})
+	require.NoError(t, command.Execute())
+	require.Contains(t, output.String(), "already active")
+	require.NotContains(t, output.String(), "invitation")
+}
