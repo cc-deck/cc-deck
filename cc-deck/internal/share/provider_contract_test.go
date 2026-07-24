@@ -2,26 +2,38 @@ package share
 
 import (
 	"context"
+	"errors"
 	"github.com/stretchr/testify/require"
 	"os"
 	"sync"
 	"testing"
 )
 
-type contractProvider struct{ stopped bool }
+type contractProvider struct {
+	stopped                                             bool
+	validateErr, startErr, readyErr, statusErr, stopErr error
+	readyState                                          string
+}
 
-func (*contractProvider) Name() string                   { return "fake" }
-func (*contractProvider) Validate(context.Context) error { return nil }
-func (*contractProvider) Start(context.Context, string) (ProviderHandle, error) {
-	return ProviderHandle{PID: 1}, nil
+func (*contractProvider) Name() string                     { return "fake" }
+func (p *contractProvider) Validate(context.Context) error { return p.validateErr }
+func (p *contractProvider) Start(context.Context, string) (ProviderHandle, error) {
+	return ProviderHandle{PID: 1}, p.startErr
 }
-func (*contractProvider) Ready(context.Context, ProviderHandle) (ProviderStatus, error) {
-	return ProviderStatus{State: "ready", EndpointURL: "https://example.test"}, nil
+func (p *contractProvider) Ready(context.Context, ProviderHandle) (ProviderStatus, error) {
+	state := p.readyState
+	if state == "" {
+		state = "ready"
+	}
+	return ProviderStatus{State: state, EndpointURL: "https://example.test"}, p.readyErr
 }
-func (*contractProvider) Status(context.Context, ProviderHandle) (ProviderStatus, error) {
-	return ProviderStatus{State: "ready"}, nil
+func (p *contractProvider) Status(context.Context, ProviderHandle) (ProviderStatus, error) {
+	return ProviderStatus{State: "ready"}, p.statusErr
 }
-func (p *contractProvider) Stop(context.Context, ProviderHandle) error { p.stopped = true; return nil }
+func (p *contractProvider) Stop(context.Context, ProviderHandle) error {
+	p.stopped = true
+	return p.stopErr
+}
 func TestProviderContract(t *testing.T) {
 	p := &contractProvider{}
 	ctx := context.Background()
@@ -35,6 +47,25 @@ func TestProviderContract(t *testing.T) {
 	require.Contains(t, st.EndpointURL, "https://")
 	require.NoError(t, p.Stop(ctx, h))
 	require.NoError(t, p.Stop(ctx, h))
+}
+
+func TestIsolatedProviderFailureContractMatrix(t *testing.T) {
+	boom := errors.New("boom")
+	ctx := context.Background()
+	cases := []struct {
+		name string
+		p    *contractProvider
+		step func(*contractProvider) error
+	}{
+		{"missing prerequisite", &contractProvider{validateErr: boom}, func(p *contractProvider) error { return p.Validate(ctx) }},
+		{"startup failure", &contractProvider{startErr: boom}, func(p *contractProvider) error { _, e := p.Start(ctx, "local"); return e }},
+		{"readiness timeout or malformed", &contractProvider{readyErr: boom, readyState: "failed"}, func(p *contractProvider) error { _, e := p.Ready(ctx, ProviderHandle{}); return e }},
+		{"unexpected exit status", &contractProvider{statusErr: boom}, func(p *contractProvider) error { _, e := p.Status(ctx, ProviderHandle{}); return e }},
+		{"stop failure", &contractProvider{stopErr: boom}, func(p *contractProvider) error { return p.Stop(ctx, ProviderHandle{}) }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) { require.Error(t, tc.step(tc.p)) })
+	}
 }
 
 func TestSharedProviderHappyPathContract(t *testing.T) {

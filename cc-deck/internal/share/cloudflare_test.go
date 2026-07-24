@@ -85,6 +85,30 @@ func TestCloudflareRefusesMismatchedProcessIdentity(t *testing.T) {
 	require.ErrorContains(t, err, "identity")
 }
 
+func TestCloudflareStopIsIdempotentWhenPersistedProcessAlreadyGone(t *testing.T) {
+	h := ProviderHandle{PID: 321, Metadata: map[string]string{"log_path": "marker", "identity": "marker", "process_fingerprint": "fingerprint"}}
+	r := &fakeRunner{outputs: map[string][]byte{}, errors: map[string]error{key("ps", []string{"-p", "321", "-o", "lstart=,comm=,command="}): errors.New("no such process")}}
+	require.NoError(t, NewCloudflareProvider(r).Stop(context.Background(), h))
+}
+
+func TestCloudflareStopReconstructsPersistedVerifiedProcess(t *testing.T) {
+	wait := make(chan error, 1)
+	stopped := false
+	proc := &fakeProcess{pid: 322, waitCh: wait}
+	proc.onSignal = func() { stopped = true; wait <- nil }
+	fingerprint := "Fri Jul 24 cloudflared tunnel --logfile marker"
+	r := &fakeRunner{runFn: func(name string, args []string) ([]byte, error) {
+		if name == "ps" && stopped {
+			return nil, errors.New("no such process")
+		}
+		return []byte(fingerprint), nil
+	}}
+	p := NewCloudflareProvider(r)
+	p.findProcess = func(int) (Process, error) { return proc, nil }
+	h := ProviderHandle{PID: 322, Metadata: map[string]string{"log_path": "marker", "identity": "marker", "process_fingerprint": fingerprint}}
+	require.NoError(t, p.Stop(context.Background(), h))
+}
+
 func TestCloudflareStopFailureIsReported(t *testing.T) {
 	wait := make(chan error)
 	proc := &fakeProcess{pid: 53, waitCh: wait, signalErr: errors.New("denied")}
