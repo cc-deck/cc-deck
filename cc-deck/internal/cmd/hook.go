@@ -52,7 +52,7 @@ input is malformed, or any error occurs. Never disrupts the agent.`,
 	}
 
 	cmd.Flags().StringVar(&paneIDStr, "pane-id", "", "Zellij pane ID (use $ZELLIJ_PANE_ID for shell expansion)")
-	cmd.Flags().StringVar(&agentName, "agent", "claude", "Agent name (claude, opencode)")
+	cmd.Flags().StringVar(&agentName, "agent", "claude", "Agent name (claude, codex, opencode)")
 	cmd.Flags().BoolVar(&rawMode, "raw", false, "Accept pre-normalized JSON payload (skip TranslateEvent)")
 
 	return cmd
