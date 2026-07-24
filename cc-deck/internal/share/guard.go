@@ -2,10 +2,12 @@ package share
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -40,6 +42,15 @@ func (g *DetachedGuard) Start(ctx context.Context, operationID string) (GuardHan
 	g.mu.Lock()
 	g.processes[process.PID()] = process
 	g.mu.Unlock()
+	fingerprint, err := g.processFingerprint(ctx, process.PID())
+	if err != nil {
+		_ = process.Kill()
+		return GuardHandle{}, fmt.Errorf("capture sharing guard process identity: %w", err)
+	}
+	if !strings.Contains(fingerprint, filepath.Base(g.executable)) || !strings.Contains(fingerprint, "--operation "+operationID) {
+		_ = process.Kill()
+		return GuardHandle{}, fmt.Errorf("sharing guard process identity does not contain the expected executable and operation marker")
+	}
 
 	deadline := time.NewTimer(g.timeout)
 	defer deadline.Stop()
@@ -57,7 +68,7 @@ func (g *DetachedGuard) Start(ctx context.Context, operationID string) (GuardHan
 			contents, readErr := os.ReadFile(readyPath)
 			if readErr == nil && string(contents) == operationID {
 				_ = os.Remove(readyPath)
-				return GuardHandle{PID: process.PID(), OperationID: operationID, Ready: true}, nil
+				return GuardHandle{PID: process.PID(), OperationID: operationID, Ready: true, ProcessFingerprint: fingerprint}, nil
 			}
 		}
 	}
@@ -66,6 +77,17 @@ func (g *DetachedGuard) Start(ctx context.Context, operationID string) (GuardHan
 // Disarm only signals the guard. It deliberately does not wait: normal stop may
 // hold the lifecycle lock while the guard is about to request that same lock.
 func (g *DetachedGuard) Disarm(_ context.Context, handle GuardHandle) error {
+	current, err := g.processFingerprint(context.Background(), handle.PID)
+	if err != nil {
+		if errors.Is(err, errGuardProcessGone) {
+			return nil
+		}
+		return fmt.Errorf("validate sharing guard PID %d: %w", handle.PID, err)
+	}
+	if handle.ProcessFingerprint == "" || current != handle.ProcessFingerprint ||
+		!strings.Contains(current, filepath.Base(g.executable)) || !strings.Contains(current, "--operation "+handle.OperationID) {
+		return fmt.Errorf("refusing to signal PID %d: sharing guard process identity mismatch", handle.PID)
+	}
 	g.mu.Lock()
 	process := g.processes[handle.PID]
 	delete(g.processes, handle.PID)
@@ -81,6 +103,22 @@ func (g *DetachedGuard) Disarm(_ context.Context, handle GuardHandle) error {
 		return fmt.Errorf("signal sharing guard PID %s: %w", strconv.Itoa(handle.PID), err)
 	}
 	return nil
+}
+
+var errGuardProcessGone = errors.New("sharing guard process is gone")
+
+func (g *DetachedGuard) processFingerprint(ctx context.Context, pid int) (string, error) {
+	out, err := g.runner.Run(ctx, "ps", "-p", strconv.Itoa(pid), "-o", "lstart=,comm=,command=")
+	fingerprint := strings.TrimSpace(string(out))
+	if fingerprint == "" {
+		if err != nil || len(out) == 0 {
+			return "", errGuardProcessGone
+		}
+	}
+	if err != nil {
+		return "", err
+	}
+	return fingerprint, nil
 }
 
 // RunGuard is the hidden child process lifecycle. Identity validation occurs

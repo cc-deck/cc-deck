@@ -98,7 +98,10 @@ func TestGuardTeardownUsesNormalServiceAndAcquiresLifecycleLockOnlyAfterWatch(t 
 
 func TestDetachedGuardWaitsForBoundedReadinessHandshake(t *testing.T) {
 	process := &fakeProcess{pid: 77}
-	runner := &fakeRunner{process: process}
+	fingerprint := "Fri Jul 24 12:00:00 2026 cc-deck cc-deck share guard --operation operation --ready-file /tmp/ready"
+	runner := &fakeRunner{process: process, outputs: map[string][]byte{
+		key("ps", []string{"-p", "77", "-o", "lstart=,comm=,command="}): []byte(fingerprint),
+	}, errors: map[string]error{}}
 	runner.startFn = func(_ string, args []string) (Process, error) {
 		for i, arg := range args {
 			if arg == "--ready-file" && i+1 < len(args) {
@@ -110,7 +113,28 @@ func TestDetachedGuardWaitsForBoundedReadinessHandshake(t *testing.T) {
 	guard := NewDetachedGuard(runner, "cc-deck")
 	handle, err := guard.Start(context.Background(), "operation")
 	require.NoError(t, err)
-	require.Equal(t, GuardHandle{PID: 77, OperationID: "operation", Ready: true}, handle)
+	require.Equal(t, GuardHandle{PID: 77, OperationID: "operation", Ready: true, ProcessFingerprint: fingerprint}, handle)
+}
+
+func TestDetachedGuardRefusesToSignalReusedPID(t *testing.T) {
+	process := &fakeProcess{pid: 77}
+	signaled := false
+	process.onSignal = func() { signaled = true }
+	runner := &fakeRunner{process: process, outputs: map[string][]byte{
+		key("ps", []string{"-p", "77", "-o", "lstart=,comm=,command="}): []byte("other unrelated-process"),
+	}, errors: map[string]error{}}
+	guard := NewDetachedGuard(runner, "cc-deck")
+	err := guard.Disarm(context.Background(), GuardHandle{PID: 77, OperationID: "operation", ProcessFingerprint: "old cc-deck --operation operation"})
+	require.ErrorContains(t, err, "identity mismatch")
+	require.False(t, signaled)
+}
+
+func TestDetachedGuardDisarmIsIdempotentWhenProcessIsGone(t *testing.T) {
+	runner := &fakeRunner{outputs: map[string][]byte{}, errors: map[string]error{
+		key("ps", []string{"-p", "77", "-o", "lstart=,comm=,command="}): errors.New("exit status 1"),
+	}}
+	guard := NewDetachedGuard(runner, "cc-deck")
+	require.NoError(t, guard.Disarm(context.Background(), GuardHandle{PID: 77, OperationID: "operation", ProcessFingerprint: "old"}))
 }
 
 func fileExists(path string) bool { _, err := os.Stat(path); return err == nil }
