@@ -9,6 +9,31 @@ import (
 	"testing"
 )
 
+func TestProviderRegistrySelectionAndSortedNames(t *testing.T) {
+	cloudflare := &namedProvider{contractProvider: contractProvider{}, name: "cloudflare"}
+	fake := &namedProvider{contractProvider: contractProvider{}, name: "fake"}
+	registry, err := NewProviderRegistry(fake, cloudflare)
+	require.NoError(t, err)
+	require.Equal(t, []string{"cloudflare", "fake"}, registry.Names())
+	selected, err := registry.Get("fake")
+	require.NoError(t, err)
+	require.Same(t, fake, selected)
+	_, err = registry.Get("missing")
+	require.ErrorContains(t, err, "available")
+}
+
+func TestProviderRegistryRejectsDuplicateNames(t *testing.T) {
+	_, err := NewProviderRegistry(&contractProvider{}, &contractProvider{})
+	require.ErrorContains(t, err, "more than once")
+}
+
+type namedProvider struct {
+	contractProvider
+	name string
+}
+
+func (p *namedProvider) Name() string { return p.name }
+
 type contractProvider struct {
 	stopped                                             bool
 	validateErr, startErr, readyErr, statusErr, stopErr error
@@ -74,7 +99,11 @@ func TestSharedProviderHappyPathContract(t *testing.T) {
 		wait := make(chan error, 1)
 		var once sync.Once
 		proc := &fakeProcess{pid: 88, waitCh: wait}
-		proc.onSignal = func() { once.Do(func() { wait <- nil }) }
+		proc.onSignalWith = func(signal os.Signal) {
+			if signal == os.Interrupt {
+				once.Do(func() { wait <- nil })
+			}
+		}
 		r := &fakeRunner{outputs: map[string][]byte{key("cloudflared", []string{"--version"}): []byte("cloudflared 1")}, errors: map[string]error{}, process: proc}
 		r.startFn = func(_ string, args []string) (Process, error) {
 			for i, a := range args {
@@ -86,6 +115,55 @@ func TestSharedProviderHappyPathContract(t *testing.T) {
 		}
 		runHappyProviderContract(t, NewCloudflareProvider(r))
 	})
+}
+
+func TestSharedProviderServiceIntegrationContract(t *testing.T) {
+	t.Run("isolated fake", func(t *testing.T) {
+		runProviderServiceIntegrationContract(t, &contractProvider{})
+	})
+	t.Run("cloudflare runner fake", func(t *testing.T) {
+		wait := make(chan error, 1)
+		var once sync.Once
+		proc := &fakeProcess{pid: 89, waitCh: wait}
+		proc.onSignalWith = func(signal os.Signal) {
+			if signal == os.Interrupt {
+				once.Do(func() { wait <- nil })
+			}
+		}
+		runner := &fakeRunner{outputs: map[string][]byte{key("cloudflared", []string{"--version"}): []byte("cloudflared 1")}, errors: map[string]error{}, process: proc}
+		runner.startFn = func(_ string, args []string) (Process, error) {
+			for i, arg := range args {
+				if arg == "--logfile" && i+1 < len(args) {
+					require.NoError(t, os.WriteFile(args[i+1], []byte("https://integration.trycloudflare.com"), 0600))
+				}
+			}
+			return proc, nil
+		}
+		provider := NewCloudflareProvider(runner)
+		provider.findProcess = func(int) (Process, error) { return proc, nil }
+		runProviderServiceIntegrationContract(t, provider)
+	})
+}
+
+func runProviderServiceIntegrationContract(t *testing.T, provider Provider) {
+	t.Helper()
+	store, z := &startStore{}, &startZellij{}
+	service := NewService(store, z, provider)
+	invitations, err := service.Start(context.Background(), StartRequest{Session: "selected", Provider: provider.Name()})
+	require.NoError(t, err)
+	require.NotEmpty(t, invitations.InteractiveBrowser)
+	require.NotEmpty(t, invitations.ObserverBrowser)
+	status, err := service.Status(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, StateActive, status.State)
+	require.True(t, status.InteractiveAvailable)
+	require.True(t, status.ObserverAvailable)
+	status, err = service.Stop(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, StateInactive, status.State)
+	status, err = service.Stop(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, StateInactive, status.State)
 }
 
 func runHappyProviderContract(t *testing.T, p Provider) {
