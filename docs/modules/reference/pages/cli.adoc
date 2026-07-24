@@ -97,7 +97,7 @@ Browser invitations validate the HTTPS endpoint normally.
 === share status
 
 Report whether sharing is inactive, active, or degraded.
-Active and degraded output includes safe session, provider, endpoint, role-availability, and residual-resource information, but never raw credentials.
+Active and degraded output includes safe session, provider, endpoint, role availability, and residual-resource information, but never raw credentials.
 The command reconciles stale resources left by an earlier unclean exit before reporting an inactive state.
 
 [source,bash]
