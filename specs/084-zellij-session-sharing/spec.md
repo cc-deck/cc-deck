@@ -8,6 +8,14 @@
 
 **Input**: Host-controlled, ephemeral sharing of one complete Zellij session with interactive and read-only invitations, browser and terminal access, and pluggable exposure providers.
 
+## Clarifications
+
+### Session 2026-07-24
+
+- Q: How many sharing operations may one host run at once? → A: One active sharing operation at a time.
+- Q: How should the next command behave after an unclean host or provider exit? → A: Detect and clean stale sharing resources before starting or reporting status.
+- Q: What constitutes successful stop completion? → A: All clients disconnected, credentials revoked, session unshared, and endpoint closed; otherwise status remains degraded with residual exposure identified.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Share a Complete Session (Priority: P1)
@@ -33,7 +41,7 @@ As a host, I receive a separate observer invitation so people can follow the ent
 
 **Why this priority**: Observation supports teaching, demonstrations, and larger audiences without giving every viewer control.
 
-**Independent Test**: Start sharing, join with the observer browser invitation and observer terminal command, and verify that the observer can navigate the rendered session view but cannot send terminal or control input that changes the session.
+**Independent Test**: Start sharing, join with the observer browser invitation and observer terminal command, and verify that the observer can follow rendered output and use only client-local viewing behavior, such as scrolling when supported, but cannot send keyboard, mouse, paste, resize, focus, or control input to the shared session.
 
 **Acceptance Scenarios**:
 
@@ -61,17 +69,17 @@ As a host, I can stop sharing in one action so the public endpoint closes, both 
 
 ### User Story 4 - Choose an Exposure Provider (Priority: P4)
 
-As a host, I can use the default exposure provider or select another available provider without changing how invitations and the sharing lifecycle behave.
+As a host, I use the initial default exposure provider through a provider-independent sharing experience that permits additional providers to be added without changing invitations or lifecycle behavior.
 
 **Why this priority**: Different networks require different exposure mechanisms, but provider choice must not complicate the core collaboration experience.
 
-**Independent Test**: Start equivalent sharing operations with two provider implementations and verify that each produces the same four invitation forms and supports the same status and stop behavior.
+**Independent Test**: Exercise the default production provider and an isolated provider-contract test implementation, verifying that each produces the same four invitation forms and supports the same status, failure-cleanup, and stop behavior.
 
 **Acceptance Scenarios**:
 
 1. **Given** the default provider is available, **When** the host starts sharing without choosing a provider, **Then** sharing uses that provider and reports which one is active.
-2. **Given** another configured provider is available, **When** the host selects it, **Then** the same interactive and observer invitations are produced through that provider.
-3. **Given** the selected provider is missing or cannot start, **When** sharing is requested, **Then** the host receives an actionable error and no partially active sharing operation remains.
+2. **Given** an additional provider implementation is installed and configured, **When** the host selects it, **Then** the same interactive and observer invitations are produced through that provider.
+3. **Given** the selected provider or a required runtime capability is missing, incompatible, or cannot start, **When** sharing is requested, **Then** the host receives an actionable prerequisite error and no partially active sharing operation remains.
 
 ### Edge Cases
 
@@ -80,17 +88,30 @@ As a host, I can use the default exposure provider or select another available p
 - A generated endpoint becomes unavailable after invitations have been issued.
 - A provider exits unexpectedly while clients are connected.
 - The host process exits without explicitly stopping an active sharing operation.
+- A new start or status request encounters resources left by an unclean prior exit.
 - One credential is created successfully but creation of the other fails.
 - Credential revocation succeeds for one role but fails for the other.
 - Multiple hosts or commands attempt to start or stop sharing concurrently.
 - Session names contain spaces or characters that require safe invitation encoding.
 - An observer attempts to send keyboard, mouse, resize, paste, or control input.
 
+### Error Handling and Recovery
+
+- If the selected session is already the active sharing operation, start is idempotent and returns its safe status without creating new credentials or another endpoint.
+- If a different sharing operation is active, start is rejected until the host stops it successfully.
+- If no running session can be selected, startup fails before creating credentials or an endpoint.
+- If the endpoint or provider exits unexpectedly, status becomes degraded, existing credentials are revoked, session sharing is disabled, and the host is told whether any residual endpoint remains.
+- If the sharing controller exits uncleanly, an independent lifecycle guard detects the loss and automatically starts safety teardown; a later start or status action also detects and cleans any residual resources before permitting new invitations.
+- If either credential cannot be created, startup revokes any credential already created, disables session sharing, closes the endpoint, and issues no invitation.
+- Concurrent lifecycle actions are serialized; redundant starts are idempotent for the same operation and stops remain safe to repeat.
+- Every partial startup or teardown failure produces a degraded status naming each resource whose safe state could not be confirmed.
+
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
 
 - **FR-001**: The system MUST start an ephemeral sharing operation for exactly one host-selected, currently running Zellij session.
+- **FR-001a**: The system MUST allow no more than one active sharing operation per host at a time.
 - **FR-002**: The sharing operation MUST expose the complete selected Zellij session, including all tabs, panes, sidebars, and session-level controls available to an attached client.
 - **FR-003**: The system MUST ensure that the sharing operation does not grant access to any other Zellij session owned by the host.
 - **FR-004**: The system MUST create exactly one temporary interactive credential and one temporary read-only credential for each sharing operation.
@@ -100,9 +121,11 @@ As a host, I can use the default exposure provider or select another available p
 - **FR-008**: The system MUST provide a session-specific browser invitation for read-only observers.
 - **FR-009**: The system MUST provide a session-specific terminal attach command for read-only observers.
 - **FR-010**: Interactive clients MUST be able to control the complete shared session according to the normal capabilities of an attached Zellij client.
-- **FR-011**: Read-only clients MUST be prevented from sending any input that changes the shared session.
+- **FR-011**: Read-only clients MUST be prevented from sending keyboard, mouse, paste, resize, tab or pane focus, or terminal control input to the shared session; client-local viewing behavior that cannot change shared state MAY remain available.
 - **FR-012**: Invitations MUST clearly identify their access role and connection method so the host cannot accidentally distribute the wrong level of access.
-- **FR-013**: The system MUST support multiple interchangeable exposure providers that present a consistent start, status, and stop experience.
+- **FR-013**: The system MUST define one provider contract covering endpoint start, readiness, safe status, failure reporting, and idempotent stop so additional interchangeable providers can preserve the same sharing experience.
+- **FR-013a**: V1 MUST include Cloudflare Quick Tunnel as its default production exposure provider and MUST validate provider interchangeability with an isolated contract test implementation; additional production providers are out of scope.
+- **FR-013b**: Every production exposure provider MUST encrypt credentials and session traffic in transit. V1 terminal invitations MAY require an explicit certificate-validation bypass when the selected provider is incompatible with Zellij terminal validation, but MUST label the command experimental and display a prominent interception-risk warning before revealing it.
 - **FR-014**: The system MUST provide a default exposure provider requiring no inbound network configuration from the host.
 - **FR-015**: The host MUST be able to select a non-default available provider when starting sharing.
 - **FR-016**: The system MUST report whether sharing is active, the selected session, the active provider, the endpoint, and the availability of both invitation roles without redisplaying secret credential values after initial creation.
@@ -111,10 +134,16 @@ As a host, I can use the default exposure provider or select another available p
 - **FR-019**: The host MUST be able to stop the active sharing operation with one action.
 - **FR-020**: Stopping sharing MUST revoke both role credentials, stop sharing the selected session, close the public endpoint, and disconnect already-authenticated remote clients.
 - **FR-021**: Teardown MUST attempt all safety actions even if an earlier action fails, and MUST report any credential, session, client, or endpoint that may remain active.
+- **FR-021a**: Stop MUST be reported as complete only after remote clients are disconnected, both credentials are revoked, the selected session is no longer shared, and the public endpoint is closed; otherwise status MUST remain degraded and identify residual exposure.
 - **FR-022**: Old invitations MUST remain invalid after sharing stops or after a new sharing operation begins.
 - **FR-023**: The system MUST prevent conflicting concurrent start and stop operations from creating multiple endpoints or leaving untracked credentials active.
+- **FR-023a**: Before starting a new operation or reporting inactive status, the system MUST detect resources left by an unclean prior exit and attempt to clean them up; if safe cleanup cannot be confirmed, it MUST refuse to issue new invitations and identify the residual exposure.
+- **FR-023b**: V1 MUST run a detached lifecycle guard that attempts teardown when it receives a supported termination signal or observes provider exit. Uncatchable guard termination MAY leave resources active until a later lifecycle command reconciles them; status and documentation MUST identify this limitation.
 - **FR-024**: The system MUST communicate that interactive access grants trusted users control over the host's terminal session before displaying or copying an interactive invitation.
 - **FR-025**: User-facing documentation MUST explain prerequisites, interactive versus observer access, browser and terminal joining, provider selection, lifecycle commands, security implications, and recovery from partial failures.
+- **FR-025a**: Documentation delivery MUST include README updates, CLI reference coverage, an Antora sharing guide, configuration reference coverage, and successful prose-profile validation.
+- **FR-026**: Before creating sharing resources, the system MUST verify that the installed Zellij runtime supports web serving, session-specific sharing, interactive credentials, read-only credentials, remote terminal attach, and forced shutdown of remote access; unsupported or incompatible runtimes MUST fail with an actionable prerequisite message.
+- **FR-027**: Session names and all invitation values MUST be encoded separately for URL and command contexts so spaces and reserved characters produce valid invitations without altering command structure or targeting another session.
 
 ### Key Entities
 
@@ -128,23 +157,32 @@ As a host, I can use the default exposure provider or select another available p
 
 ### Measurable Outcomes
 
-- **SC-001**: A host can start sharing and obtain all four invitation forms within 15 seconds under normal network conditions.
+- **SC-001**: A host can start sharing and obtain all four invitation forms within 15 seconds when the provider can establish its endpoint within 10 seconds and the host-to-provider round-trip latency is at most 250 milliseconds.
 - **SC-002**: At least two interactive collaborators and two observers can connect concurrently to the same complete session using the two shared role credentials.
-- **SC-003**: In acceptance testing, 100% of observer attempts to change the session through keyboard, mouse, resize, paste, or control input are rejected.
+- **SC-003**: In acceptance testing, 100% of observer attempts to change the session through keyboard, mouse, resize, paste, tab or pane focus, or terminal control sequences are rejected.
 - **SC-004**: In acceptance testing with multiple local sessions present, 100% of invitations expose only the host-selected session.
-- **SC-005**: A host can stop sharing with one action, and all connected remote clients lose access within 5 seconds under normal network conditions.
+- **SC-005**: A host can stop sharing with one action, and all connected remote clients lose access within 5 seconds when the host-to-provider round-trip latency is at most 250 milliseconds.
 - **SC-006**: After stop completes, 100% of attempts to reuse either old invitation are denied.
-- **SC-007**: Equivalent tests against any conforming exposure provider produce the same invitation roles, connection methods, status information, and teardown outcome.
+- **SC-007**: The production provider and isolated contract test implementation pass the same endpoint-start, readiness, status, startup-rollback, invitation, idempotent-stop, and partial-failure test suite.
 - **SC-008**: A first-time host can complete the documented start, invite, inspect-status, and stop flow without external networking configuration or undocumented steps.
+- **SC-009**: Forced sharing-controller termination tests document which resources are cleaned automatically and verify that a subsequent stop, status, or start action detects and attempts cleanup of every residual resource.
+- **SC-010**: Invitations generated for a representative set of session names containing spaces and URL or shell reserved characters connect only to the intended session and never alter command structure.
 
 ## Assumptions
 
 - The host intentionally trusts interactive collaborators with the same terminal-level capabilities available in the shared Zellij session.
 - One interactive credential and one observer credential are shared by role; individual identity, audit attribution, and per-person revocation are out of scope.
 - Sharing is temporary. Credentials and endpoints are not reused between sharing operations.
-- Both browser and terminal clients support the complete-session experience and the selected access role.
-- The initial default provider can create an outbound, automatically secured public endpoint without inbound firewall or router changes.
+- Zellij 0.44.3 is the validated minimum baseline for web serving, session-specific sharing, interactive and read-only credentials, browser access, remote terminal attach, and stopping remote access. Runtime capability checks remain authoritative so incompatible builds fail safely even when their version string appears sufficient.
+- Supported browser and terminal clients provide the complete-session experience and enforce the selected access role; compatibility is rejected rather than silently degraded when a required capability is absent.
+- Cloudflare Quick Tunnel can create an outbound encrypted public endpoint with no inbound firewall or router changes. Browser invitations validate the public endpoint normally; V1 terminal invitations are explicitly experimental because the validated spike required a certificate-validation bypass.
 - Provider-specific accounts or configuration may be required by non-default providers and are supplied by the host outside this feature.
 - Presence displays, named users, pair-programming roles, hand-off controls, persistent URLs, hosted multi-tenancy, and sharing remote workspace backends are out of scope.
 - The existing multiplayer resilience and independent focus behavior remain prerequisites for a stable multi-client experience.
 
+## Known V1 Security Limitations
+
+- Terminal attachment through the default provider is experimental because current evidence requires disabling server-identity validation. The invitation MUST explain the interception risk and MUST NOT hide or silently add the bypass.
+- Cleanup after an unclean sharing-controller exit is best effort. Credentials or an endpoint may remain usable until the host runs a later stop, status, or start action.
+- Hosts are expected to remain present during V1 sharing, distribute invitations only to trusted recipients, and explicitly stop sharing when collaboration ends.
+- Brainstorm 089 tracks the hardening spike required to remove these limitations; they are accepted V1 risks, not evidence that secure teardown or validated terminal TLS has been achieved.
