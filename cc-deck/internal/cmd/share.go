@@ -14,7 +14,9 @@ import (
 )
 
 type shareLifecycle interface {
-	Start(context.Context, sharing.StartRequest) (sharing.InvitationSet, error)
+	Start(context.Context, sharing.StartRequest) ([]sharing.Invitation, error)
+	Invite(context.Context, sharing.InviteRequest) (sharing.Invitation, error)
+	Revoke(context.Context, string) (sharing.SharingStatus, error)
 	Status(context.Context) (sharing.SharingStatus, error)
 	Stop(context.Context) (sharing.SharingStatus, error)
 }
@@ -93,22 +95,17 @@ func newShareCmdWithFactory(gf *GlobalFlags, factory shareServiceFactory, provid
 			if err != nil {
 				return err
 			}
-			invitations, err := service.Start(cmd.Context(), sharing.StartRequest{Session: session, Provider: provider})
+			invitations, err := service.Start(cmd.Context(), sharing.StartRequest{Workspace: session, Session: session, Provider: provider})
 			if err != nil {
 				return fmt.Errorf("start session sharing: %w", err)
 			}
 			out := cmd.OutOrStdout()
-			for _, warning := range invitations.Warnings {
-				fmt.Fprintln(out, warning)
+			for _, invitation := range invitations {
+				for _, warning := range invitation.Warnings {
+					fmt.Fprintln(out, warning)
+				}
+				fmt.Fprintf(out, "\n%s invitation %q:\nBrowser:\n%s\nTerminal (experimental):\n%s\n", invitation.Role, invitation.Label, invitation.Browser, invitation.Terminal)
 			}
-			if invitations.InteractiveBrowser == "" && invitations.InteractiveTerminal == "" &&
-				invitations.ObserverBrowser == "" && invitations.ObserverTerminal == "" {
-				return nil
-			}
-			fmt.Fprintf(out, "\nInteractive browser invitation:\n%s\n", invitations.InteractiveBrowser)
-			fmt.Fprintf(out, "\nInteractive terminal invitation (experimental):\n%s\n", invitations.InteractiveTerminal)
-			fmt.Fprintf(out, "\nObserver browser invitation (read-only):\n%s\n", invitations.ObserverBrowser)
-			fmt.Fprintf(out, "\nObserver terminal invitation (read-only, experimental):\n%s\n", invitations.ObserverTerminal)
 			return nil
 		},
 	}
@@ -219,7 +216,7 @@ func (osCommandRunner) Run(ctx context.Context, name string, args ...string) ([]
 
 func (osCommandRunner) Start(ctx context.Context, name string, args ...string) (sharing.Process, error) {
 	command := exec.CommandContext(ctx, name, args...)
-	if len(args) >= 2 && args[0] == "share" && args[1] == "guard" {
+	if len(args) >= 2 && ((args[0] == "share" && args[1] == "guard") || (len(args) >= 3 && args[0] == "ws" && args[1] == "share-guard")) {
 		command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 		command.Stdin, command.Stdout, command.Stderr = nil, nil, nil
 	} else {

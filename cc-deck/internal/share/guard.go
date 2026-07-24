@@ -35,7 +35,7 @@ func (g *DetachedGuard) Start(ctx context.Context, operationID string) (GuardHan
 	}
 	readyPath := filepath.Join(os.TempDir(), "cc-deck-guard-"+operationID+".ready")
 	_ = os.Remove(readyPath)
-	process, err := g.runner.Start(ctx, g.executable, "share", "guard", "--operation", operationID, "--ready-file", readyPath)
+	process, err := g.runner.Start(ctx, g.executable, "ws", "share-guard", "--operation", operationID, "--ready-file", readyPath)
 	if err != nil {
 		return GuardHandle{}, fmt.Errorf("launch detached sharing guard: %w", err)
 	}
