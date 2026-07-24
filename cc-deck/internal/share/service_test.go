@@ -30,8 +30,6 @@ func (s *startStore) Remove() error { s.op = nil; return nil }
 type startZellij struct {
 	calls              []string
 	fail               string
-	preShared          bool
-	probeErr           error
 	cleanupSawCanceled bool
 }
 
@@ -48,10 +46,6 @@ func (z *startZellij) ResolveSession(_ context.Context, requested string) (strin
 		return "", err
 	}
 	return requested, nil
-}
-func (z *startZellij) SessionSharingEnabled(context.Context, string) (bool, error) {
-	z.calls = append(z.calls, "probe-sharing")
-	return z.preShared, z.probeErr
 }
 func (z *startZellij) ShareSession(context.Context, string) error {
 	return z.call("share")
@@ -148,7 +142,7 @@ func TestStartRevealsBothRolesOnlyAfterReadinessAndPersistsNoSecrets(t *testing.
 	require.Equal(t, StateActive, store.op.State)
 	require.Equal(t, "selected", store.op.Session)
 	require.NotContains(t, fmt.Sprintf("%+v", store.op), "SECRET")
-	require.Equal(t, []string{"validate-zellij", "resolve", "probe-sharing", "share", "web", "create-interactive-token", "create-observer-token"}, z.calls)
+	require.Equal(t, []string{"validate-zellij", "resolve", "share", "web", "create-interactive-token", "create-observer-token"}, z.calls)
 	require.Equal(t, []string{"validate-provider", "provider-start", "provider-ready"}, provider.calls)
 }
 
@@ -200,7 +194,7 @@ func TestStartRollbackIsReverseOrderedAndReturnsNoInvitation(t *testing.T) {
 	require.Error(t, err)
 	require.Empty(t, got)
 	require.Equal(t, []string{"validate-provider", "provider-start", "provider-ready", "provider-stop"}, provider.calls)
-	require.Equal(t, []string{"validate-zellij", "resolve", "probe-sharing", "share", "web", "create-interactive-token", "create-observer-token", "revoke-observer", "revoke-interactive", "stop-web", "unshare"}, z.calls)
+	require.Equal(t, []string{"validate-zellij", "resolve", "share", "web", "create-interactive-token", "create-observer-token", "revoke-observer", "revoke-interactive", "stop-web", "unshare"}, z.calls)
 }
 
 func TestStartCompensatesEveryMutationFailurePoint(t *testing.T) {
@@ -227,23 +221,13 @@ func TestStartSerializesThroughStoreLock(t *testing.T) {
 	require.Equal(t, 1, store.lockRuns)
 }
 
-func TestStartRollbackDoesNotUnsharePreExistingSessionSharing(t *testing.T) {
-	store, z := &startStore{}, &startZellij{preShared: true}
-	provider := &startProvider{}
+func TestStartSuccessfulShareCommandOwnsSessionForRollback(t *testing.T) {
+	store, z := &startStore{}, &startZellij{}
+	provider := &startProvider{fail: "provider-ready"}
 	_, err := NewService(store, z, provider).Start(context.Background(), StartRequest{Session: "selected"})
-	require.ErrorContains(t, err, "already web-shared outside cc-deck")
-	require.NotContains(t, z.calls, "unshare")
-	require.NotContains(t, z.calls, "share")
-}
-
-func TestStartFailsBeforeMutationWhenSharingPreStateCannotBeQueried(t *testing.T) {
-	store, z, provider := &startStore{}, &startZellij{probeErr: errors.New("query unavailable")}, &startProvider{}
-	_, err := NewService(store, z, provider).Start(context.Background(), StartRequest{Session: "selected"})
-	require.ErrorContains(t, err, "query unavailable")
-	require.Contains(t, z.calls, "probe-sharing")
-	require.NotContains(t, z.calls, "share")
-	require.NotContains(t, z.calls, "unshare")
-	require.NotContains(t, provider.calls, "provider-start")
+	require.Error(t, err)
+	require.Contains(t, z.calls, "share")
+	require.Contains(t, z.calls, "unshare")
 }
 
 func TestStartRollbackUsesIndependentContextAfterCallerCancellation(t *testing.T) {

@@ -48,12 +48,6 @@ func TestZellijUsesSeparateTokenRolesAndSessionCommands(t *testing.T) {
 	require.Equal(t, []string{"--session", "my session", "options", "--web-sharing", "on"}, r.calls[4].args)
 }
 
-func TestZellijFailsSafeWhenAuthoritativeSessionInfoQueryIsUnavailable(t *testing.T) {
-	shared, err := NewZellij(&fakeRunner{}).SessionSharingEnabled(context.Background(), "shared")
-	require.ErrorContains(t, err, "SessionInfo query is unavailable")
-	require.False(t, shared)
-}
-
 func TestZellijWebLifecycle(t *testing.T) {
 	statusCalls := 0
 	r := &fakeRunner{runFn: func(_ string, args []string) ([]byte, error) {
