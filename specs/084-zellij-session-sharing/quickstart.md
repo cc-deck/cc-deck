@@ -2,7 +2,18 @@
 
 Run `make test`, `make lint`, and `make verify` from the repository root.
 
-For manual acceptance, use supported Zellij, cloudflared, one running local session, and four client contexts. Start sharing; join twice interactively and twice as observers; verify full-session interaction versus rejected observer input; verify other sessions are unavailable; verify status hides tokens; stop and confirm disconnection and rejected old invitations. Repeat with reserved characters in the session name and forced provider/controller termination to validate reconciliation.
+For manual acceptance, use supported Zellij, cloudflared, one local workspace, and four client contexts. Exercise the workspace-centric flow:
+
+```bash
+cc-deck ws new demo --share
+cc-deck ws invite demo --role interactive --name alice
+cc-deck ws invite demo --role observer
+cc-deck ws status demo
+cc-deck ws revoke demo alice
+cc-deck ws unshare demo
+```
+
+The equivalent sharing entry points are `cc-deck ws start demo --share` and `cc-deck ws attach demo --share`. Join twice interactively and twice as observers; verify complete-session interaction versus rejected observer input; verify other sessions are unavailable; verify list/status hide tokens; unshare and confirm disconnection and rejected old invitations. Repeat with reserved characters, forced provider/controller termination, and canonical-session death. Confirm that a plain restart after session death is private.
 
 Terminal attachment is experimental in V1 and includes an explicit certificate-validation bypass. Perform it only after acknowledging the documented interception risk.
 
