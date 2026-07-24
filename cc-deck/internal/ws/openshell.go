@@ -525,10 +525,15 @@ func (w *OpenShellWorkspace) Attach(ctx context.Context) error {
 	if err := w.ensureClient(); err != nil {
 		return err
 	}
+	if _, err := w.EnsureSession(ctx, SessionStartOptions{}); err != nil {
+		return err
+	}
 
 	cmdStr := w.resolveSandboxCommand()
 	var command []string
-	if strings.ContainsAny(cmdStr, `"'\`) {
+	if cmdStr == defaultSandboxCommand {
+		command = []string{"zellij", "attach", ZellijSessionName(w.name)}
+	} else if strings.ContainsAny(cmdStr, `"'\`) {
 		command = []string{"bash", "-lc", cmdStr}
 	} else {
 		command = strings.Fields(cmdStr)
@@ -596,6 +601,41 @@ func (w *OpenShellWorkspace) Attach(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// EnsureSession idempotently creates the canonical session inside the sandbox.
+func (w *OpenShellWorkspace) EnsureSession(ctx context.Context, opts SessionStartOptions) (SessionStartResult, error) {
+	if opts.WebSharing {
+		return SessionStartResult{}, fmt.Errorf("sharing is currently supported for local workspaces only")
+	}
+	w.loadSandboxID()
+	if w.sandboxID == "" {
+		return SessionStartResult{}, fmt.Errorf("workspace %s has no sandbox; create it first", w.name)
+	}
+	if err := w.ensureClient(); err != nil {
+		return SessionStartResult{}, err
+	}
+	name := ZellijSessionName(w.name)
+	result, err := w.client.Exec().Run(ctx, w.sandboxID, []string{"zellij", "list-sessions", "-n"})
+	if err == nil && result.ExitCode == 0 {
+		for _, line := range strings.Split(string(result.Stdout), "\n") {
+			if fields := strings.Fields(line); len(fields) > 0 && fields[0] == name && !strings.Contains(line, "(EXITED") {
+				return SessionStartResult{Name: name}, nil
+			}
+		}
+	}
+	result, err = w.client.Exec().Run(ctx, w.sandboxID, []string{"zellij", "--layout", "cc-deck", "attach", "-b", name})
+	if err != nil {
+		return SessionStartResult{}, fmt.Errorf("creating canonical session: %w", err)
+	}
+	if result.ExitCode != 0 {
+		return SessionStartResult{}, fmt.Errorf("creating canonical session: command exited with code %d: %s", result.ExitCode, string(result.Stderr))
+	}
+	if inst, err := w.store.FindInstanceByName(w.name); err == nil {
+		inst.SessionState = SessionStateExists
+		_ = w.store.UpdateInstance(inst)
+	}
+	return SessionStartResult{Created: true, Name: name}, nil
 }
 
 // Exec runs a command inside the sandbox.
