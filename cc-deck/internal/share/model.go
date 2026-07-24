@@ -54,7 +54,8 @@ type SharingStatus struct {
 	Residuals                               []string
 }
 type GuardHandle struct {
-	PID         int
-	OperationID string
-	Ready       bool
+	PID                int    `yaml:"pid"`
+	OperationID        string `yaml:"operation_id"`
+	Ready              bool   `yaml:"ready"`
+	ProcessFingerprint string `yaml:"process_fingerprint"`
 }
