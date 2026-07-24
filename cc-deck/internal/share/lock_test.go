@@ -3,6 +3,7 @@ package share
 import (
 	"context"
 	"github.com/stretchr/testify/require"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -20,4 +21,12 @@ func TestFileStoreLockSerializesAndCancels(t *testing.T) {
 	require.ErrorIs(t, e, context.DeadlineExceeded)
 	close(release)
 	require.Eventually(t, func() bool { return s.WithLock(context.Background(), func() error { return nil }) == nil }, time.Second, 10*time.Millisecond)
+}
+
+func TestFileStoreLockIgnoresOrphanedLockFile(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "share.yaml")
+	s := NewFileStore(p)
+	require.NoError(t, os.MkdirAll(filepath.Dir(s.lockPath), 0700))
+	require.NoError(t, os.WriteFile(s.lockPath, []byte("orphan"), 0600))
+	require.NoError(t, s.WithLock(context.Background(), func() error { return nil }))
 }

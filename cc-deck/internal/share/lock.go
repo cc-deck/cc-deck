@@ -2,8 +2,8 @@ package share
 
 import (
 	"context"
-	"errors"
 	"os"
+	"syscall"
 	"time"
 )
 
@@ -11,15 +11,18 @@ func (s *FileStore) WithLock(ctx context.Context, fn func() error) error {
 	if err := os.MkdirAll(filepathDir(s.lockPath), 0700); err != nil {
 		return err
 	}
+	f, err := os.OpenFile(s.lockPath, os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
 	for {
-		f, err := os.OpenFile(s.lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+		err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
 		if err == nil {
-			_, _ = f.WriteString("locked\n")
-			_ = f.Close()
-			defer os.Remove(s.lockPath)
+			defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
 			return fn()
 		}
-		if !errors.Is(err, os.ErrExist) {
+		if err != syscall.EWOULDBLOCK && err != syscall.EAGAIN {
 			return err
 		}
 		select {

@@ -57,3 +57,39 @@ func TestCloudflareStopWithoutProcessIsIdempotent(t *testing.T) {
 	require.NoError(t, p.Stop(context.Background(), ProviderHandle{}))
 	require.NoError(t, p.Stop(context.Background(), ProviderHandle{}))
 }
+
+func TestCloudflareReadyDetectsUnexpectedExit(t *testing.T) {
+	wait := make(chan error, 1)
+	p := NewCloudflareProvider(&fakeRunner{process: &fakeProcess{pid: 51, waitCh: wait}})
+	h, err := p.Start(context.Background(), "http://127.0.0.1:8082")
+	require.NoError(t, err)
+	wait <- errors.New("exited 1")
+	_, err = p.Ready(context.Background(), h)
+	require.ErrorContains(t, err, "before readiness")
+}
+
+func TestCloudflareStopWaitsThenEscalates(t *testing.T) {
+	wait := make(chan error, 1)
+	proc := &fakeProcess{pid: 52, waitCh: wait}
+	proc.onKill = func() { wait <- errors.New("killed") }
+	p := NewCloudflareProvider(&fakeRunner{process: proc})
+	p.stopTimeout = 10 * time.Millisecond
+	h, err := p.Start(context.Background(), "http://127.0.0.1:8082")
+	require.NoError(t, err)
+	require.NoError(t, p.Stop(context.Background(), h))
+}
+
+func TestCloudflareRefusesMismatchedProcessIdentity(t *testing.T) {
+	p := NewCloudflareProvider(&fakeRunner{outputs: map[string][]byte{}, errors: map[string]error{}})
+	err := p.Stop(context.Background(), ProviderHandle{PID: 123, Metadata: map[string]string{"log_path": "expected", "identity": "other"}})
+	require.ErrorContains(t, err, "identity")
+}
+
+func TestCloudflareStopFailureIsReported(t *testing.T) {
+	wait := make(chan error)
+	proc := &fakeProcess{pid: 53, waitCh: wait, signalErr: errors.New("denied")}
+	p := NewCloudflareProvider(&fakeRunner{process: proc})
+	h, err := p.Start(context.Background(), "http://127.0.0.1:8082")
+	require.NoError(t, err)
+	require.ErrorContains(t, p.Stop(context.Background(), h), "denied")
+}

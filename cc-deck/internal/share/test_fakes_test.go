@@ -10,12 +10,30 @@ import (
 type fakeProcess struct {
 	pid                         int
 	waitErr, signalErr, killErr error
+	waitCh                      chan error
+	onSignal                    func()
+	onKill                      func()
 }
 
-func (p *fakeProcess) PID() int               { return p.pid }
-func (p *fakeProcess) Wait() error            { return p.waitErr }
-func (p *fakeProcess) Signal(os.Signal) error { return p.signalErr }
-func (p *fakeProcess) Kill() error            { return p.killErr }
+func (p *fakeProcess) PID() int { return p.pid }
+func (p *fakeProcess) Wait() error {
+	if p.waitCh != nil {
+		return <-p.waitCh
+	}
+	return p.waitErr
+}
+func (p *fakeProcess) Signal(os.Signal) error {
+	if p.onSignal != nil {
+		p.onSignal()
+	}
+	return p.signalErr
+}
+func (p *fakeProcess) Kill() error {
+	if p.onKill != nil {
+		p.onKill()
+	}
+	return p.killErr
+}
 
 type runnerCall struct {
 	name string
@@ -38,6 +56,15 @@ func (r *fakeRunner) Run(_ context.Context, n string, a ...string) ([]byte, erro
 	r.calls = append(r.calls, runnerCall{n, append([]string(nil), a...)})
 	if r.runFn != nil {
 		return r.runFn(n, a)
+	}
+	if n == "ps" && r.process != nil {
+		for i := len(r.calls) - 1; i >= 0; i-- {
+			for j, arg := range r.calls[i].args {
+				if arg == "--logfile" && j+1 < len(r.calls[i].args) {
+					return []byte("cloudflared --logfile " + r.calls[i].args[j+1]), nil
+				}
+			}
+		}
 	}
 	return r.outputs[key(n, a)], r.errors[key(n, a)]
 }
