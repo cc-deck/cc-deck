@@ -364,3 +364,37 @@ func TestStatusRetainsDegradedStateWhenStaleReconciliationIsIncomplete(t *testin
 	require.Contains(t, got.Residuals[0], "selected session")
 	require.Equal(t, 1, store.lockRuns)
 }
+
+func TestStatusReconcilesDegradedOperationEvenWhenProviderLooksReady(t *testing.T) {
+	op := activeOperation()
+	op.State = StateDegraded
+	op.Residuals = []string{"previous cleanup failed"}
+	store, z := &startStore{op: op}, &startZellij{}
+	provider := &statusProvider{startProvider: &startProvider{}, status: ProviderStatus{State: "ready"}}
+	got, err := NewService(store, z, provider).Status(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, StateInactive, got.State)
+	require.Equal(t, []string{"provider-status", "provider-stop"}, provider.calls)
+	require.Equal(t, []string{"revoke-observer", "revoke-interactive", "unshare", "stop-web"}, z.calls)
+}
+
+func TestStatusReconcilesStoppingOperationEvenWhenProviderLooksStarting(t *testing.T) {
+	op := activeOperation()
+	op.State = StateStopping
+	store, z := &startStore{op: op}, &startZellij{}
+	provider := &statusProvider{startProvider: &startProvider{}, status: ProviderStatus{State: "starting"}}
+	got, err := NewService(store, z, provider).Status(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, StateInactive, got.State)
+	require.Contains(t, provider.calls, "provider-stop")
+}
+
+func TestStopAttemptsEverySafetyActionWhenStoppingStateCannotBePersisted(t *testing.T) {
+	store := &startStore{op: activeOperation(), saveErr: errors.New("disk unavailable")}
+	z, provider := &startZellij{}, &startProvider{}
+	got, err := NewService(store, z, provider).Stop(context.Background())
+	require.ErrorContains(t, err, "stopping state could not be persisted")
+	require.Equal(t, StateDegraded, got.State)
+	require.Equal(t, []string{"provider-stop"}, provider.calls)
+	require.Equal(t, []string{"revoke-observer", "revoke-interactive", "unshare", "stop-web"}, z.calls)
+}
