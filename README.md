@@ -222,6 +222,25 @@ Auto-sort uses stable active and paused zones. Focusing or clicking a session ne
 
 **Known limitation:** Keyboard shortcuts (Alt+s, Alt+a, Alt+w) work for the primary client only. Other clients use mouse clicks for session navigation. This is due to Zellij pipe messages not carrying client identity (tracked upstream).
 
+### Share a Zellij session
+
+`cc-deck share` temporarily exposes one complete local Zellij session to remote collaborators. One shared interactive invitation gives trusted collaborators full control. A separate observer invitation lets people follow the session without sending input. Each role can join in a browser or from a terminal, and multiple people can reuse the same role invitation.
+
+```bash
+cc-deck share start my-session
+cc-deck share status
+cc-deck share stop
+```
+
+Sharing requires Zellij 0.44.3 or later with the required web capabilities and `cloudflared`. Cloudflare Quick Tunnel is the default and only production provider in V1. Invitations appear only once, after the session, both role credentials, and the public endpoint are ready. `share status` never displays the credentials again.
+
+> [!CAUTION]
+> Interactive access grants control of the entire shared terminal session. Share that invitation only with people you trust. Terminal attachment is experimental in V1: its generated command uses `--insecure`, which disables server certificate validation and creates an interception risk. Browser access validates the public endpoint normally.
+
+`cc-deck share stop` attempts to disconnect clients, revoke both credentials, unshare the session, and close the endpoint. A detached lifecycle guard also attempts cleanup after supported termination signals or provider exit. Guard cleanup is best-effort: an uncatchable guard termination can leave resources active until the next `share start`, `share status`, or `share stop` reconciles them. Treat a degraded status as possible residual exposure and follow the reported recovery actions.
+
+See the [session sharing guide](https://cc-deck.github.io/docs/cc-deck/0.1/using/sharing.html) for prerequisites, joining instructions, and recovery details.
+
 ---
 
 ## Usage
