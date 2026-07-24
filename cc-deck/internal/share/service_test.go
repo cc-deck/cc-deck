@@ -357,9 +357,13 @@ func TestStopContinuesSafetyActionsWhenGuardDisarmFails(t *testing.T) {
 func activeOperation() *SharingOperation {
 	return &SharingOperation{
 		ID: "operation", Session: "selected", Provider: "cloudflare",
-		EndpointURL: "https://public.example", InteractiveTokenLabel: "interactive-label",
-		ObserverTokenLabel: "observer-label", ProviderHandle: ProviderHandle{PID: 42},
-		State: StateActive,
+		EndpointURL: "https://public.example",
+		Invitations: []InvitationRecord{
+			{Label: "interactive-label", Role: RoleInteractive, State: InvitationActive},
+			{Label: "observer-label", Role: RoleObserver, State: InvitationActive},
+		},
+		ProviderHandle: ProviderHandle{PID: 42},
+		State:          StateActive,
 	}
 }
 

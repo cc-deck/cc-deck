@@ -25,6 +25,22 @@ func BuildInvitations(endpoint, session, interactiveToken, observerToken string)
 	}, nil
 }
 
+func BuildInvitation(endpoint, session, label, token string, role InvitationRole) (Invitation, error) {
+	remote, err := sessionURL(endpoint, session)
+	if err != nil {
+		return Invitation{}, err
+	}
+	warnings := []string{TerminalTLSWarning}
+	if role == RoleInteractive {
+		warnings = []string{TrustedControlWarning, TerminalTLSWarning}
+	}
+	return Invitation{
+		Label: label, Role: role,
+		Browser: browserInvitation(remote, token), Terminal: terminalInvitation(remote, token),
+		Warnings: warnings,
+	}, nil
+}
+
 func sessionURL(endpoint, session string) (string, error) {
 	u, err := url.Parse(endpoint)
 	if err != nil || u.Scheme == "" || u.Host == "" {

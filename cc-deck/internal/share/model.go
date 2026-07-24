@@ -13,18 +13,39 @@ const (
 )
 
 type SharingOperation struct {
-	ID                    string         `yaml:"id"`
-	Session               string         `yaml:"session"`
-	Provider              string         `yaml:"provider"`
-	EndpointURL           string         `yaml:"endpoint_url,omitempty"`
-	InteractiveTokenLabel string         `yaml:"interactive_token_label"`
-	ObserverTokenLabel    string         `yaml:"observer_token_label"`
-	ProviderHandle        ProviderHandle `yaml:"provider_handle"`
-	Guard                 GuardHandle    `yaml:"guard,omitempty"`
-	State                 LifecycleState `yaml:"state"`
-	CreatedAt             time.Time      `yaml:"created_at"`
-	UpdatedAt             time.Time      `yaml:"updated_at"`
-	Residuals             []string       `yaml:"residuals,omitempty"`
+	ID             string             `yaml:"id"`
+	Workspace      string             `yaml:"workspace"`
+	Session        string             `yaml:"session"`
+	Provider       string             `yaml:"provider"`
+	EndpointURL    string             `yaml:"endpoint_url,omitempty"`
+	Invitations    []InvitationRecord `yaml:"invitations,omitempty"`
+	ProviderHandle ProviderHandle     `yaml:"provider_handle"`
+	Guard          GuardHandle        `yaml:"guard,omitempty"`
+	State          LifecycleState     `yaml:"state"`
+	CreatedAt      time.Time          `yaml:"created_at"`
+	UpdatedAt      time.Time          `yaml:"updated_at"`
+	Residuals      []string           `yaml:"residuals,omitempty"`
+}
+
+type InvitationRole string
+
+const (
+	RoleInteractive InvitationRole = "interactive"
+	RoleObserver    InvitationRole = "observer"
+)
+
+type InvitationState string
+
+const (
+	InvitationActive  InvitationState = "active"
+	InvitationRevoked InvitationState = "revoked"
+)
+
+type InvitationRecord struct {
+	Label     string          `yaml:"label"`
+	Role      InvitationRole  `yaml:"role"`
+	State     InvitationState `yaml:"state"`
+	CreatedAt time.Time       `yaml:"created_at"`
 }
 
 func (o *SharingOperation) Transition(next LifecycleState, now time.Time) bool {
@@ -46,6 +67,14 @@ type InvitationSet struct {
 	InteractiveBrowser, InteractiveTerminal string
 	ObserverBrowser, ObserverTerminal       string
 	Warnings                                []string
+}
+
+type Invitation struct {
+	Label    string
+	Browser  string
+	Terminal string
+	Role     InvitationRole
+	Warnings []string
 }
 type SharingStatus struct {
 	State                                   LifecycleState
