@@ -7,6 +7,15 @@ import (
 	"testing"
 )
 
+// overrideClaudeMCPConfig redirects MCP config writes to a temp directory
+// and returns a cleanup function. Call in any test that invokes InstallHooks.
+func overrideClaudeMCPConfig(t *testing.T, dir string) func() {
+	t.Helper()
+	orig := claudeMCPConfigPathFunc
+	claudeMCPConfigPathFunc = func() string { return filepath.Join(dir, ".mcp.json") }
+	return func() { claudeMCPConfigPathFunc = orig }
+}
+
 func TestClaudeAgentIdentity(t *testing.T) {
 	a := &ClaudeAgent{}
 	if a.Name() != "claude" {
@@ -169,6 +178,7 @@ func TestClaudeAgentInstallHooksIdempotent(t *testing.T) {
 	origFunc := claudeSettingsPathFunc
 	claudeSettingsPathFunc = func() string { return settingsPath }
 	defer func() { claudeSettingsPathFunc = origFunc }()
+	defer overrideClaudeMCPConfig(t, dir)()
 
 	a := &ClaudeAgent{}
 
@@ -232,6 +242,7 @@ func TestClaudeAgentUninstallHooksSafety(t *testing.T) {
 	origFunc := claudeSettingsPathFunc
 	claudeSettingsPathFunc = func() string { return settingsPath }
 	defer func() { claudeSettingsPathFunc = origFunc }()
+	defer overrideClaudeMCPConfig(t, dir)()
 
 	a := &ClaudeAgent{}
 
@@ -258,6 +269,7 @@ func TestClaudeAgentInstallHooksPreservesExisting(t *testing.T) {
 	origFunc := claudeSettingsPathFunc
 	claudeSettingsPathFunc = func() string { return settingsPath }
 	defer func() { claudeSettingsPathFunc = origFunc }()
+	defer overrideClaudeMCPConfig(t, dir)()
 
 	// Pre-populate with a non-cc-deck hook on SessionEnd
 	initial := map[string]any{
@@ -358,6 +370,7 @@ func TestClaudeAgentInstallHooksPreservesTopLevelKeys(t *testing.T) {
 	origFunc := claudeSettingsPathFunc
 	claudeSettingsPathFunc = func() string { return settingsPath }
 	defer func() { claudeSettingsPathFunc = origFunc }()
+	defer overrideClaudeMCPConfig(t, dir)()
 
 	// Pre-populate with permissions and allowedTools alongside hooks
 	initial := map[string]any{
@@ -460,6 +473,10 @@ func TestClaudeAgentHookEventCount(t *testing.T) {
 	claudeSettingsPathFunc = func() string { return settingsPath }
 	defer func() { claudeSettingsPathFunc = origFunc }()
 
+	origMCP := claudeMCPConfigPathFunc
+	claudeMCPConfigPathFunc = func() string { return filepath.Join(dir, ".claude", ".mcp.json") }
+	defer func() { claudeMCPConfigPathFunc = origMCP }()
+
 	a := &ClaudeAgent{}
 
 	if count := a.HookEventCount(); count != 0 {
@@ -472,5 +489,123 @@ func TestClaudeAgentHookEventCount(t *testing.T) {
 
 	if count := a.HookEventCount(); count != len(claudeHookEvents) {
 		t.Errorf("HookEventCount() = %d, want %d", count, len(claudeHookEvents))
+	}
+}
+
+func TestClaudeMCPConfigInstall(t *testing.T) {
+	t.Run("fresh install creates .mcp.json", func(t *testing.T) {
+		dir := t.TempDir()
+		mcpPath := filepath.Join(dir, ".mcp.json")
+
+		if err := installMCPConfig(mcpPath); err != nil {
+			t.Fatalf("installMCPConfig() error: %v", err)
+		}
+
+		data, err := os.ReadFile(mcpPath)
+		if err != nil {
+			t.Fatalf("reading .mcp.json: %v", err)
+		}
+
+		var config map[string]any
+		if err := json.Unmarshal(data, &config); err != nil {
+			t.Fatalf("parsing .mcp.json: %v", err)
+		}
+
+		servers, ok := config["mcpServers"].(map[string]any)
+		if !ok {
+			t.Fatal("mcpServers not found")
+		}
+		ccDeck, ok := servers["cc-deck"].(map[string]any)
+		if !ok {
+			t.Fatal("cc-deck server not found")
+		}
+		if ccDeck["command"] != "cc-deck" {
+			t.Errorf("command = %v, want cc-deck", ccDeck["command"])
+		}
+	})
+
+	t.Run("preserves existing entries", func(t *testing.T) {
+		dir := t.TempDir()
+		mcpPath := filepath.Join(dir, ".mcp.json")
+
+		existing := map[string]any{
+			"mcpServers": map[string]any{
+				"other-tool": map[string]any{
+					"command": "other",
+					"args":    []string{"serve"},
+				},
+			},
+		}
+		data, _ := json.MarshalIndent(existing, "", "  ")
+		if err := os.WriteFile(mcpPath, data, 0644); err != nil {
+			t.Fatalf("writing initial .mcp.json: %v", err)
+		}
+
+		if err := installMCPConfig(mcpPath); err != nil {
+			t.Fatalf("installMCPConfig() error: %v", err)
+		}
+
+		data, err := os.ReadFile(mcpPath)
+		if err != nil {
+			t.Fatalf("reading .mcp.json: %v", err)
+		}
+
+		var config map[string]any
+		if err := json.Unmarshal(data, &config); err != nil {
+			t.Fatalf("parsing .mcp.json: %v", err)
+		}
+
+		servers := config["mcpServers"].(map[string]any)
+		if _, ok := servers["other-tool"]; !ok {
+			t.Error("existing other-tool entry was removed")
+		}
+		if _, ok := servers["cc-deck"]; !ok {
+			t.Error("cc-deck entry not added")
+		}
+	})
+
+	t.Run("idempotent update", func(t *testing.T) {
+		dir := t.TempDir()
+		mcpPath := filepath.Join(dir, ".mcp.json")
+
+		if err := installMCPConfig(mcpPath); err != nil {
+			t.Fatalf("first installMCPConfig() error: %v", err)
+		}
+
+		firstData, _ := os.ReadFile(mcpPath)
+
+		if err := installMCPConfig(mcpPath); err != nil {
+			t.Fatalf("second installMCPConfig() error: %v", err)
+		}
+
+		secondData, _ := os.ReadFile(mcpPath)
+
+		if string(firstData) != string(secondData) {
+			t.Error("file content changed on second install (not idempotent)")
+		}
+	})
+}
+
+func TestClaudeInstallHooksCreatesMCPConfig(t *testing.T) {
+	dir := t.TempDir()
+	settingsPath := filepath.Join(dir, ".claude", "settings.json")
+	mcpPath := filepath.Join(dir, ".claude", ".mcp.json")
+
+	origSettings := claudeSettingsPathFunc
+	claudeSettingsPathFunc = func() string { return settingsPath }
+	defer func() { claudeSettingsPathFunc = origSettings }()
+
+	origMCP := claudeMCPConfigPathFunc
+	claudeMCPConfigPathFunc = func() string { return mcpPath }
+	defer func() { claudeMCPConfigPathFunc = origMCP }()
+
+	a := &ClaudeAgent{}
+	if err := a.InstallHooks(); err != nil {
+		t.Fatalf("InstallHooks() error: %v", err)
+	}
+
+	// Verify .mcp.json was created.
+	if _, err := os.Stat(mcpPath); os.IsNotExist(err) {
+		t.Error(".mcp.json was not created by InstallHooks()")
 	}
 }

@@ -57,6 +57,7 @@ type NormalizedPayload struct {
 	ToolName       string   `json:"tool_name,omitempty"`
 	Cwd            string   `json:"cwd,omitempty"`
 	AgentID        string   `json:"agent_id,omitempty"`
+	Prompt         string   `json:"prompt,omitempty"`
 	Badges         []string `json:"badges,omitempty"`
 }
 

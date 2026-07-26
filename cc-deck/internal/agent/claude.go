@@ -62,7 +62,11 @@ func (c *ClaudeAgent) InstallHooks() error {
 	}
 
 	settings["hooks"] = hooks
-	return writeClaudeSettings(settingsPath, settings)
+	if err := writeClaudeSettings(settingsPath, settings); err != nil {
+		return err
+	}
+
+	return installMCPConfig(claudeMCPConfigPath())
 }
 
 func (c *ClaudeAgent) UninstallHooks() error {
@@ -139,6 +143,7 @@ type claudeHookPayload struct {
 	ToolName  string `json:"tool_name,omitempty"`
 	CWD       string `json:"cwd,omitempty"`
 	AgentID   string `json:"agent_id,omitempty"`
+	Prompt    string `json:"prompt,omitempty"`
 }
 
 func (c *ClaudeAgent) TranslateEvent(input []byte) (*NormalizedPayload, error) {
@@ -156,6 +161,7 @@ func (c *ClaudeAgent) TranslateEvent(input []byte) (*NormalizedPayload, error) {
 		ToolName:  hook.ToolName,
 		Cwd:       hook.CWD,
 		AgentID:   hook.AgentID,
+		Prompt:    hook.Prompt,
 	}, nil
 }
 
@@ -369,6 +375,73 @@ func writeClaudeSettings(path string, settings map[string]any) error {
 	data, err := json.MarshalIndent(settings, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encoding settings: %w", err)
+	}
+	data = append(data, '\n')
+	return fileutil.AtomicWrite(path, data, 0o644)
+}
+
+// --- MCP config (.mcp.json) management ---
+
+var claudeMCPConfigPathFunc = defaultClaudeMCPConfigPath
+
+func claudeMCPConfigPath() string {
+	return claudeMCPConfigPathFunc()
+}
+
+func defaultClaudeMCPConfigPath() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".claude", ".mcp.json")
+}
+
+// installMCPConfig adds or updates the cc-deck MCP server entry in the
+// specified .mcp.json file. Preserves any existing mcpServers entries.
+// Creates the file if it does not exist. Idempotent.
+func installMCPConfig(path string) error {
+	config, err := readMCPConfig(path)
+	if err != nil {
+		return err
+	}
+
+	servers, _ := config["mcpServers"].(map[string]any)
+	if servers == nil {
+		servers = make(map[string]any)
+	}
+
+	servers["cc-deck"] = map[string]any{
+		"command": "cc-deck",
+		"args":    []string{"mcp", "serve"},
+	}
+
+	config["mcpServers"] = servers
+	return writeMCPConfig(path, config)
+}
+
+func readMCPConfig(path string) (map[string]any, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return make(map[string]any), nil
+		}
+		return nil, fmt.Errorf("reading .mcp.json: %w", err)
+	}
+	if len(data) == 0 {
+		return make(map[string]any), nil
+	}
+	var config map[string]any
+	if err := json.Unmarshal(data, &config); err != nil {
+		return nil, fmt.Errorf("parsing .mcp.json: %w", err)
+	}
+	return config, nil
+}
+
+func writeMCPConfig(path string, config map[string]any) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("creating directory %s: %w", dir, err)
+	}
+	data, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encoding .mcp.json: %w", err)
 	}
 	data = append(data, '\n')
 	return fileutil.AtomicWrite(path, data, 0o644)

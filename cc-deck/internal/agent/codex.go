@@ -61,7 +61,11 @@ func (c *CodexAgent) InstallHooks() error {
 	}
 
 	hooksFile["hooks"] = hooks
-	return writeCodexHooks(hooksPath, hooksFile)
+	if err := writeCodexHooks(hooksPath, hooksFile); err != nil {
+		return err
+	}
+
+	return installMCPConfig(codexMCPConfigPath())
 }
 
 func (c *CodexAgent) UninstallHooks() error {
@@ -133,6 +137,7 @@ type codexHookPayload struct {
 	HookEvent string `json:"hook_event_name"`
 	ToolName  string `json:"tool_name,omitempty"`
 	CWD       string `json:"cwd,omitempty"`
+	Prompt    string `json:"prompt,omitempty"`
 }
 
 func (c *CodexAgent) TranslateEvent(input []byte) (*NormalizedPayload, error) {
@@ -149,6 +154,7 @@ func (c *CodexAgent) TranslateEvent(input []byte) (*NormalizedPayload, error) {
 		HookEvent: hook.HookEvent,
 		ToolName:  hook.ToolName,
 		Cwd:       hook.CWD,
+		Prompt:    hook.Prompt,
 	}, nil
 }
 
@@ -234,4 +240,17 @@ func writeCodexHooks(path string, hooksFile map[string]any) error {
 	}
 	data = append(data, '\n')
 	return fileutil.AtomicWrite(path, data, 0o644)
+}
+
+// --- Codex MCP config ---
+
+var codexMCPConfigPathFunc = defaultCodexMCPConfigPath
+
+func codexMCPConfigPath() string {
+	return codexMCPConfigPathFunc()
+}
+
+func defaultCodexMCPConfigPath() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".codex", ".mcp.json")
 }
