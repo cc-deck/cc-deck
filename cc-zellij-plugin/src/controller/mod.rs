@@ -14,6 +14,7 @@
 pub mod actions;
 pub mod events;
 pub mod hooks;
+pub mod mcp_handlers;
 pub mod render_broadcast;
 pub mod sidebar_registry;
 pub mod state;
@@ -218,12 +219,19 @@ impl ZellijPlugin for ControllerPlugin {
         );
 
         // Unblock CLI pipe input so `zellij pipe` does not hang.
-        // DumpState handles its own unblock after sending output.
+        // DumpState and MCP actions handle their own unblock after sending output.
         // For pipes with input payload, Zellij requires cli_pipe_output
         // before unblock_cli_pipe_input to release the CLI process.
         #[cfg(target_family = "wasm")]
         if let PipeSource::Cli(ref pipe_id) = pipe_message.source {
-            if !matches!(action, PipeAction::DumpState) {
+            if !matches!(
+                action,
+                PipeAction::DumpState
+                    | PipeAction::McpSessions
+                    | PipeAction::McpScrollback(_)
+                    | PipeAction::McpState(_)
+                    | PipeAction::McpInject(_)
+            ) {
                 cli_pipe_output_wasm(pipe_id, "");
                 unblock_cli_pipe_input_wasm(pipe_id);
             }
@@ -472,6 +480,30 @@ impl ZellijPlugin for ControllerPlugin {
                     self.state.plugin_id, sidebar_plugin_id
                 ));
                 render_broadcast::targeted_render(&self.state, sidebar_plugin_id);
+            }
+            PipeAction::McpSessions => {
+                #[cfg(target_family = "wasm")]
+                if let PipeSource::Cli(ref pipe_id) = pipe_message.source {
+                    mcp_handlers::handle_mcp_sessions(&self.state, pipe_id);
+                }
+            }
+            PipeAction::McpScrollback(payload) => {
+                #[cfg(target_family = "wasm")]
+                if let PipeSource::Cli(ref pipe_id) = pipe_message.source {
+                    mcp_handlers::handle_mcp_scrollback(&self.state, pipe_id, &payload);
+                }
+            }
+            PipeAction::McpState(payload) => {
+                #[cfg(target_family = "wasm")]
+                if let PipeSource::Cli(ref pipe_id) = pipe_message.source {
+                    mcp_handlers::handle_mcp_state(&self.state, pipe_id, &payload);
+                }
+            }
+            PipeAction::McpInject(payload) => {
+                #[cfg(target_family = "wasm")]
+                if let PipeSource::Cli(ref pipe_id) = pipe_message.source {
+                    mcp_handlers::handle_mcp_inject(&mut self.state, pipe_id, &payload);
+                }
             }
             PipeAction::Unknown => {}
             _ => {

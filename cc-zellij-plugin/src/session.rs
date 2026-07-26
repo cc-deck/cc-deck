@@ -183,6 +183,12 @@ pub struct Session {
     /// directory. Set from CWD changes; persisted for reattach.
     #[serde(default)]
     pub in_worktree: bool,
+    /// Short summary of the current task (first 100 chars of last user prompt).
+    #[serde(default)]
+    pub topic: Option<String>,
+    /// Recent tool names used in this session (max 10, oldest first).
+    #[serde(default)]
+    pub recent_tools: Vec<String>,
 }
 
 impl Session {
@@ -207,6 +213,8 @@ impl Session {
             agent_indicator: None,
             pending_permissions: 0,
             in_worktree: false,
+            topic: None,
+            recent_tools: Vec::new(),
         }
     }
 

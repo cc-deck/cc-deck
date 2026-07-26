@@ -18,6 +18,8 @@ pub struct HookPayload {
     pub agent_id: Option<String>,
     #[serde(default)]
     pub badges: Vec<String>,
+    #[serde(default)]
+    pub prompt: Option<String>,
 }
 
 /// Pipe message types that the plugin handles.
@@ -74,6 +76,14 @@ pub enum PipeAction {
     ControllerPong,
     /// Sidebar requests initial render from controller (cc-deck:render-request).
     RenderRequest(u32),
+    /// MCP: list all sessions (cc-deck:mcp-sessions).
+    McpSessions,
+    /// MCP: get scrollback for a pane (cc-deck:mcp-scrollback).
+    McpScrollback(String),
+    /// MCP: get detailed state for a pane (cc-deck:mcp-state).
+    McpState(String),
+    /// MCP: inject text into an idle pane (cc-deck:mcp-inject).
+    McpInject(String),
     /// Unknown message.
     Unknown,
 }
@@ -137,6 +147,10 @@ pub fn parse_pipe_message(name: &str, payload: Option<&str>) -> PipeAction {
                 .map(PipeAction::RenderRequest)
                 .unwrap_or(PipeAction::Unknown)
         }
+        "cc-deck:mcp-sessions" => PipeAction::McpSessions,
+        "cc-deck:mcp-scrollback" => PipeAction::McpScrollback(payload.unwrap_or("").to_string()),
+        "cc-deck:mcp-state" => PipeAction::McpState(payload.unwrap_or("").to_string()),
+        "cc-deck:mcp-inject" => PipeAction::McpInject(payload.unwrap_or("").to_string()),
         _ => PipeAction::Unknown,
     }
 }
@@ -361,5 +375,59 @@ mod tests {
         assert!(is_request_message("cc-deck:request:12345"));
         assert!(!is_request_message("cc-deck:sync"));
         assert!(!is_request_message("cc-deck:hook"));
+    }
+
+    #[test]
+    fn test_parse_mcp_sessions() {
+        assert!(matches!(
+            parse_pipe_message("cc-deck:mcp-sessions", None),
+            PipeAction::McpSessions
+        ));
+        assert!(matches!(
+            parse_pipe_message("cc-deck:mcp-sessions", Some("")),
+            PipeAction::McpSessions
+        ));
+    }
+
+    #[test]
+    fn test_parse_mcp_scrollback() {
+        match parse_pipe_message("cc-deck:mcp-scrollback", Some(r#"{"pane_id":1,"lines":50}"#)) {
+            PipeAction::McpScrollback(payload) => {
+                assert!(payload.contains("pane_id"));
+            }
+            _ => panic!("expected McpScrollback"),
+        }
+        match parse_pipe_message("cc-deck:mcp-scrollback", None) {
+            PipeAction::McpScrollback(payload) => assert_eq!(payload, ""),
+            _ => panic!("expected McpScrollback with empty payload"),
+        }
+    }
+
+    #[test]
+    fn test_parse_mcp_state() {
+        match parse_pipe_message("cc-deck:mcp-state", Some(r#"{"pane_id":42}"#)) {
+            PipeAction::McpState(payload) => {
+                assert!(payload.contains("pane_id"));
+            }
+            _ => panic!("expected McpState"),
+        }
+        match parse_pipe_message("cc-deck:mcp-state", None) {
+            PipeAction::McpState(payload) => assert_eq!(payload, ""),
+            _ => panic!("expected McpState with empty payload"),
+        }
+    }
+
+    #[test]
+    fn test_parse_mcp_inject() {
+        match parse_pipe_message("cc-deck:mcp-inject", Some(r#"{"pane_id":1,"text":"hello"}"#)) {
+            PipeAction::McpInject(payload) => {
+                assert!(payload.contains("text"));
+            }
+            _ => panic!("expected McpInject"),
+        }
+        match parse_pipe_message("cc-deck:mcp-inject", None) {
+            PipeAction::McpInject(payload) => assert_eq!(payload, ""),
+            _ => panic!("expected McpInject with empty payload"),
+        }
     }
 }
