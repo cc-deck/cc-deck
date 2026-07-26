@@ -1119,3 +1119,39 @@ cc-deck hook --pane-id "$ZELLIJ_PANE_ID"
 ----
 
 Forwards Claude Code session events to the sidebar plugin.
+
+=== mcp serve
+
+Start an MCP server that exposes cross-pane communication tools over stdio.
+This command is launched automatically by AI agents via their MCP configuration.
+It is not intended for direct user invocation.
+
+The server communicates with the cc-deck Zellij plugin via pipe messages to access session metadata, scrollback buffers, and pane state across the Zellij instance.
+
+[source,bash]
+----
+cc-deck mcp serve
+----
+
+The following MCP tools are exposed:
+
+[cols="1,3"]
+|===
+| Tool | Description
+
+| `cc_deck_sessions`
+| List all active agent sessions with metadata (name, agent type, state, working directory, git branch, topic, recent tools, modified files)
+
+| `cc_deck_read_scrollback`
+| Read the last N lines (1 to 500) from a target session's terminal scrollback buffer
+
+| `cc_deck_session_state`
+| Query structured state for a session including git diff, recent commits, tool usage, and activity timeline
+
+| `cc_deck_ask`
+| Inject a question into an idle target session and wait for a file-based response (configurable timeout, 10 to 600 seconds)
+|===
+
+The MCP server is registered in the agent's configuration file during `cc-deck config plugin install`.
+For Claude Code, this adds an entry to `.mcp.json`.
+For Codex and OpenCode, equivalent entries are added to their respective configuration files.
