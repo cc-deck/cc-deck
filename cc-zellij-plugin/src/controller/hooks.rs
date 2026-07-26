@@ -104,6 +104,8 @@ pub fn process_hook(state: &mut ControllerState, hook: HookPayload) -> bool {
             session.pending_permissions = 0;
             session.working_dir = None;
             session.in_worktree = false;
+            session.agent_name = None;
+            session.agent_indicator = None;
         }
     }
 
@@ -966,6 +968,31 @@ mod tests {
         assert_eq!(
             state.sessions[&42].agent_name,
             Some("claude".to_string())
+        );
+    }
+
+    #[test]
+    fn test_session_replacement_resets_agent_name() {
+        let mut state = ControllerState::default();
+
+        let mut hook1 = make_hook(42, "SessionStart");
+        hook1.agent = Some("claude".to_string());
+        hook1.agent_indicator = Some("\u{2733}".to_string());
+        hook1.session_id = Some("session-a".to_string());
+        process_hook(&mut state, hook1);
+
+        assert_eq!(state.sessions[&42].agent_name, Some("claude".to_string()));
+
+        let mut hook2 = make_hook(42, "SessionStart");
+        hook2.agent = Some("codex".to_string());
+        hook2.agent_indicator = Some("\u{25c6}".to_string());
+        hook2.session_id = Some("session-b".to_string());
+        process_hook(&mut state, hook2);
+
+        assert_eq!(state.sessions[&42].agent_name, Some("codex".to_string()));
+        assert_eq!(
+            state.sessions[&42].agent_indicator,
+            Some("\u{25c6}".to_string())
         );
     }
 
