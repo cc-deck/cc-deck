@@ -7,6 +7,14 @@ import (
 	"testing"
 )
 
+// overrideCodexMCPConfig redirects MCP config writes to a temp directory.
+func overrideCodexMCPConfig(t *testing.T, dir string) func() {
+	t.Helper()
+	orig := codexMCPConfigPathFunc
+	codexMCPConfigPathFunc = func() string { return filepath.Join(dir, ".mcp.json") }
+	return func() { codexMCPConfigPathFunc = orig }
+}
+
 func TestCodexAgentIdentity(t *testing.T) {
 	a := &CodexAgent{}
 	if a.Name() != "codex" {
@@ -27,6 +35,7 @@ func TestCodexAgentInstallHooks(t *testing.T) {
 	origFunc := codexHooksPathFunc
 	codexHooksPathFunc = func() string { return hooksPath }
 	defer func() { codexHooksPathFunc = origFunc }()
+	defer overrideCodexMCPConfig(t, dir)()
 
 	a := &CodexAgent{}
 
@@ -87,6 +96,7 @@ func TestCodexAgentInstallHooksIdempotent(t *testing.T) {
 	origFunc := codexHooksPathFunc
 	codexHooksPathFunc = func() string { return hooksPath }
 	defer func() { codexHooksPathFunc = origFunc }()
+	defer overrideCodexMCPConfig(t, dir)()
 
 	a := &CodexAgent{}
 
@@ -129,6 +139,7 @@ func TestCodexAgentInstallHooksPreservesOtherHooks(t *testing.T) {
 	origFunc := codexHooksPathFunc
 	codexHooksPathFunc = func() string { return hooksPath }
 	defer func() { codexHooksPathFunc = origFunc }()
+	defer overrideCodexMCPConfig(t, dir)()
 
 	initial := map[string]any{
 		"hooks": map[string]any{
@@ -222,6 +233,7 @@ func TestCodexAgentUninstallHooks(t *testing.T) {
 	origFunc := codexHooksPathFunc
 	codexHooksPathFunc = func() string { return hooksPath }
 	defer func() { codexHooksPathFunc = origFunc }()
+	defer overrideCodexMCPConfig(t, dir)()
 
 	a := &CodexAgent{}
 
@@ -333,6 +345,7 @@ func TestCodexAgentHooksInstalled(t *testing.T) {
 	origFunc := codexHooksPathFunc
 	codexHooksPathFunc = func() string { return hooksPath }
 	defer func() { codexHooksPathFunc = origFunc }()
+	defer overrideCodexMCPConfig(t, dir)()
 
 	a := &CodexAgent{}
 
