@@ -26,6 +26,32 @@ func ReadProjectSummary(cwd string) string {
 	return s
 }
 
+// ReadMemoryIndex reads the first 500 characters of the MEMORY.md file
+// from the Claude Code project-specific memory directory for the given CWD.
+// Returns an empty string if the file is not found or cannot be read.
+func ReadMemoryIndex(cwd string) string {
+	if cwd == "" {
+		return ""
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	// Claude Code stores project memory at ~/.claude/projects/{path-encoded}/memory/MEMORY.md
+	// The path encoding replaces / with - and prepends -
+	encoded := strings.ReplaceAll(cwd, "/", "-")
+	memoryPath := filepath.Join(home, ".claude", "projects", encoded, "memory", "MEMORY.md")
+	data, err := os.ReadFile(memoryPath)
+	if err != nil {
+		return ""
+	}
+	s := string(data)
+	if len(s) > 500 {
+		s = s[:500]
+	}
+	return s
+}
+
 // ReadGitBranch returns the current git branch name for the given directory.
 // Returns an empty string if git is not available or the directory is not
 // a git repository.

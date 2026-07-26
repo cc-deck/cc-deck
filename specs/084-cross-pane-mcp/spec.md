@@ -109,7 +109,7 @@ When a user installs the cc-deck plugin, the MCP server configuration is automat
 
 - **FR-001**: System MUST implement an MCP server as a `cc-deck mcp serve` Go CLI subcommand that communicates via stdio transport.
 - **FR-002**: System MUST provide a `cc_deck_sessions` tool that returns a list of all active sessions with: display name, agent type, activity state, working directory, git branch, topic, project summary, recent activity, and modified files.
-- **FR-003**: System MUST provide a `cc_deck_read_scrollback` tool that reads the last N lines from a specified session's terminal scrollback buffer.
+- **FR-003**: System MUST provide a `cc_deck_read_scrollback` tool that reads the last N lines from a specified session's terminal scrollback buffer. **Known limitation**: The Zellij plugin API (zellij-tile 0.43.x) does not expose terminal pane scrollback to WASM plugins. Until a future zellij-tile version adds this capability, the tool returns empty content with an explanatory note. The tool structure, validation, and wiring are fully implemented and will work once the API becomes available.
 - **FR-004**: System MUST provide a `cc_deck_session_state` tool that returns structured state for a session including git diff summary, recent tool calls, working directory, and activity timeline.
 - **FR-005**: System MUST provide a `cc_deck_ask` tool that injects a question into an idle target session and returns the response via a file-based handshake.
 - **FR-006**: The `cc_deck_ask` tool MUST verify the target session is idle before injecting a question and return a "session busy" error if the target is not idle.

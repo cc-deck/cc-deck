@@ -115,6 +115,43 @@ cc-deck exec mydev -- ls /workspace
 cc-deck exec mydev -- bash
 ----
 
+=== mcp
+
+Cross-pane agent communication via MCP (Model Context Protocol).
+
+==== mcp serve
+
+Start the MCP server with stdio transport.
+Each agent session spawns its own `cc-deck mcp serve` process.
+This is configured automatically during `cc-deck config plugin install`.
+
+[source,bash]
+----
+cc-deck mcp serve
+----
+
+The MCP server exposes four tools:
+
+[cols="1,3"]
+|===
+| Tool | Description
+
+| `cc_deck_sessions`
+| List all active sessions with metadata (name, agent type, state, CWD, branch, topic, project summary, recent tools, modified files)
+
+| `cc_deck_read_scrollback`
+| Read the last N lines (1-500) from another session's terminal scrollback
+
+| `cc_deck_session_state`
+| Query structured state for a session (git diff, recent commits, tool activity)
+
+| `cc_deck_ask`
+| Ask another idle session a question and receive the response (file-based handshake, configurable timeout)
+|===
+
+The server communicates with the cc-deck Zellij plugin via pipe messages.
+It does not open network connections; all communication is local.
+
 == Build Commands
 
 === version

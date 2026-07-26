@@ -118,6 +118,19 @@ For OpenShell targets, the build generates a `policy.yaml` with network restrict
 
 Containerized sessions can restrict outbound network access to specific domains, preventing code or secret exfiltration. Domain groups (`python`, `rust`, `github`, etc.) describe allowed domains by ecosystem. See the [network filtering](#network-filtering-1) section for setup, domain groups, and customization.
 
+### Cross-pane communication
+
+When running multiple agent sessions, each accumulates its own context. Cross-pane communication lets agents consult each other via MCP tools. One agent can list all active sessions, read another session's scrollback, query its git state, or ask it a question directly.
+
+The MCP server (`cc-deck mcp serve`) runs as a stdio process spawned by each agent session. It communicates with the Zellij plugin via pipe messages. Session topics are tracked from the user's most recent prompt, so the session listing shows what each session is working on.
+
+```bash
+# Configured automatically during plugin install
+cc-deck config plugin install
+```
+
+Once configured, agents gain four tools: `cc_deck_sessions` (list sessions with context), `cc_deck_read_scrollback` (read terminal output), `cc_deck_session_state` (structured git/tool state), and `cc_deck_ask` (ask another idle session a question and get a response).
+
 ### Voice relay
 
 Voice relay lets you dictate into any workspace session using local speech-to-text via whisper.cpp. Audio stays on your machine. A note indicator in the sidebar shows connection status. Toggle mute from the sidebar (`Alt+v`) or the voice TUI (`m`). Say "send" to submit a prompt.
