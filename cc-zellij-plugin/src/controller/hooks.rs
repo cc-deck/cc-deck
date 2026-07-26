@@ -239,6 +239,32 @@ pub fn process_hook(state: &mut ControllerState, hook: HookPayload) -> bool {
         }
     }
 
+    // Store topic from user prompt (first 100 chars of the prompt text)
+    if hook.hook_event_name == "UserPromptSubmit" {
+        if let Some(ref prompt) = hook.prompt {
+            let trimmed = prompt.trim();
+            if !trimmed.is_empty() {
+                if let Some(s) = state.sessions.get_mut(&hook.pane_id) {
+                    let truncated: String = trimmed.chars().take(100).collect();
+                    s.topic = Some(truncated);
+                }
+            }
+        }
+    }
+
+    // Track recent tool names (max 10, oldest first)
+    if let Some(ref tool_name) = hook.tool_name {
+        let trimmed = tool_name.trim();
+        if !trimmed.is_empty() {
+            if let Some(s) = state.sessions.get_mut(&hook.pane_id) {
+                if s.recent_tools.len() >= 10 {
+                    s.recent_tools.remove(0);
+                }
+                s.recent_tools.push(trimmed.to_string());
+            }
+        }
+    }
+
     // Store agent name and indicator from the first hook event
     if hook.agent.is_some() {
         if let Some(s) = state.sessions.get_mut(&hook.pane_id) {
@@ -456,6 +482,7 @@ mod tests {
             cwd: None,
             agent_id: None,
             badges: vec![],
+            prompt: None,
         }
     }
 
@@ -470,6 +497,7 @@ mod tests {
             cwd: None,
             agent_id: Some("sub-1".to_string()),
             badges: vec![],
+            prompt: None,
         }
     }
 
@@ -628,6 +656,7 @@ mod tests {
             cwd: Some("/home/user/my-project".to_string()),
             agent_id: None,
             badges: vec![],
+            prompt: None,
         };
         process_hook(&mut state, hook);
         assert_eq!(
@@ -655,6 +684,7 @@ mod tests {
             cwd: Some("/home/user/project/.claude/worktree".to_string()),
             agent_id: None,
             badges: vec![],
+            prompt: None,
         };
         process_hook(&mut state, hook);
         // CWD should NOT change to the worktree path
@@ -683,6 +713,7 @@ mod tests {
             cwd: None,
             agent_id: None,
             badges: vec![],
+            prompt: None,
         };
         process_hook(&mut state, hook);
 
@@ -717,6 +748,7 @@ mod tests {
             cwd: Some("/home/user/api".to_string()),
             agent_id: None,
             badges: vec![],
+            prompt: None,
         };
         process_hook(&mut state, hook);
 
@@ -854,6 +886,7 @@ mod tests {
             cwd: None,
             agent_id: Some("".to_string()),
             badges: vec![],
+            prompt: None,
         };
         let changed = process_hook(&mut state, hook);
         assert!(!changed);
@@ -1013,6 +1046,7 @@ mod tests {
             cwd: Some("/home/user/project/.claude/worktrees/076-fix/".to_string()),
             agent_id: None,
             badges: vec![],
+            prompt: None,
         };
         process_hook(&mut state, hook);
 
@@ -1042,6 +1076,7 @@ mod tests {
             cwd: Some("/home/user/project/.claude/settings.json".to_string()),
             agent_id: None,
             badges: vec![],
+            prompt: None,
         };
         process_hook(&mut state, hook);
 
@@ -1072,6 +1107,7 @@ mod tests {
             cwd: Some("/home/user/project".to_string()),
             agent_id: None,
             badges: vec![],
+            prompt: None,
         };
         process_hook(&mut state, hook);
 
@@ -1102,6 +1138,7 @@ mod tests {
             cwd: Some("/home/user/project/.claude/worktrees/077-other/".to_string()),
             agent_id: None,
             badges: vec![],
+            prompt: None,
         };
         process_hook(&mut state, hook);
 
