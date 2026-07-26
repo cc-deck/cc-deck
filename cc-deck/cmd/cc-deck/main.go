@@ -90,6 +90,7 @@ SSH remotes for agent workspaces.`,
 	)
 
 	rootCmd.AddCommand(cmd.NewHookCmd())
+	rootCmd.AddCommand(cmd.NewMcpCmd())
 	rootCmd.AddCommand(cmd.NewVersionCmd(gf))
 
 	return rootCmd
