@@ -116,8 +116,10 @@ When a user installs the cc-deck plugin, the MCP server configuration is automat
 - **FR-011**: System MUST parse the `prompt` field from UserPromptSubmit hook events and store the first ~100 characters as the session's current topic.
 - **FR-012**: The session listing MUST aggregate context from existing files: CLAUDE.md for project description, MEMORY.md index for project knowledge, and git state for branch and modified files.
 - **FR-013**: The `cc-deck plugin install` command MUST automatically configure the MCP server in the agent's configuration file (e.g., `.mcp.json` for Claude Code).
-- **FR-014**: Sessions MUST be identifiable by their display name in all MCP tool calls.
+- **FR-014**: Sessions MUST be identifiable by their display name in all MCP tool calls. If multiple sessions share the same display name, the system MUST return an error listing the ambiguous matches with their pane IDs, allowing the caller to retry with a pane ID.
 - **FR-015**: The MCP server MUST operate within a single Zellij instance (no cross-machine communication).
+- **FR-016**: The `cc_deck_read_scrollback` tool MUST enforce a maximum of 500 lines per request to prevent excessive data transfer.
+- **FR-017**: The `cc_deck_ask` tool MUST construct the injected prompt to include: the question text, the path to the response file, and clear instructions for the target agent to write its answer to that file.
 
 ### Key Entities
 
@@ -135,6 +137,14 @@ When a user installs the cc-deck plugin, the MCP server configuration is automat
 - **SC-004**: The MCP server introduces zero overhead to sessions that do not use cross-pane tools (lazy communication, no polling).
 - **SC-005**: Plugin installation automatically configures the MCP server without requiring manual configuration file edits.
 - **SC-006**: All temporary files from ask/response exchanges are cleaned up within 5 seconds of completion.
+
+## Clarifications
+
+### Session 2026-07-26
+
+- Q: How should sessions be identified when display names conflict? → A: Display name is primary; on conflict, return error with pane IDs for disambiguation.
+- Q: What is the maximum scrollback that can be read in one request? → A: 500 lines maximum to prevent excessive data transfer.
+- Q: What format should the injected prompt use for the ask flow? → A: Structured prompt including question text, response file path, and clear instructions for the target to write its answer to that file.
 
 ## Assumptions
 
