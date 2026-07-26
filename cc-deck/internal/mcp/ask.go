@@ -23,6 +23,40 @@ func generateUUID() (string, error) {
 		b[0:4], b[4:6], b[6:8], b[8:10], b[10:16]), nil
 }
 
+// cleanStaleAskFiles removes response files older than maxAge from the
+// cc-deck-ask temp directory. This handles orphaned files from timed-out
+// or crashed ask operations where the defer cleanup could not run.
+// Rejects symlinked directories to prevent following attacker-controlled paths.
+func cleanStaleAskFiles(dir string, maxAge time.Duration) {
+	fi, err := os.Lstat(dir)
+	if err != nil {
+		return
+	}
+	if fi.Mode()&os.ModeSymlink != 0 {
+		return
+	}
+	if !fi.IsDir() {
+		return
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	now := time.Now()
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		if now.Sub(info.ModTime()) > maxAge {
+			os.Remove(filepath.Join(dir, e.Name()))
+		}
+	}
+}
+
 // AskSession injects a question into a target session and polls for a
 // file-based response. It creates a temporary directory for the response
 // file, sends the question as an injection prompt via the pipe, and waits
@@ -41,9 +75,17 @@ func AskSession(
 	}
 
 	tempDir := filepath.Join(os.TempDir(), "cc-deck-ask")
+	if fi, err := os.Lstat(tempDir); err == nil {
+		if fi.Mode()&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("cannot create temporary files: %s is a symlink", tempDir)
+		}
+	}
 	if err := os.MkdirAll(tempDir, 0o700); err != nil {
 		return "", fmt.Errorf("cannot create temporary files: %v", err)
 	}
+
+	// Sweep stale response files from previous timed-out or crashed asks.
+	cleanStaleAskFiles(tempDir, 15*time.Minute)
 
 	responsePath := filepath.Join(tempDir, uuid+".response")
 
@@ -79,12 +121,12 @@ After writing the file, you can continue with your other work.
 		return "", fmt.Errorf("cc-deck plugin not running")
 	}
 
-	// Check if the injection was rejected (session not idle).
+	// Check if the injection was rejected (session not idle, not found, etc.).
 	var injectResult map[string]any
 	if err := json.Unmarshal([]byte(resp), &injectResult); err == nil {
 		if errMsg, ok := injectResult["error"].(string); ok {
 			if errMsg != "" {
-				return "", fmt.Errorf("session '%s' is not idle (current state: working)", sessionName)
+				return "", fmt.Errorf("ask failed for session '%s': %s", sessionName, errMsg)
 			}
 		}
 	}

@@ -44,6 +44,9 @@ type MCPSession struct {
 type SessionState struct {
 	Name             string          `json:"name"`
 	PaneID           uint32          `json:"pane_id"`
+	State            string          `json:"state"`
+	Agent            string          `json:"agent,omitempty"`
+	Paused           bool            `json:"paused"`
 	Cwd              string          `json:"cwd"`
 	Branch           string          `json:"branch,omitempty"`
 	GitDiff          string          `json:"git_diff,omitempty"`
@@ -159,8 +162,8 @@ func handleSessions(ctx context.Context, request mcp.CallToolRequest) (*mcp.Call
 		}
 
 		if s.WorkingDir != "" {
-			ms.Branch = ReadGitBranch(s.WorkingDir)
-			ms.ModifiedFiles = ReadModifiedFiles(s.WorkingDir)
+			ms.Branch = ReadGitBranch(ctx, s.WorkingDir)
+			ms.ModifiedFiles = ReadModifiedFiles(ctx, s.WorkingDir)
 			ms.ProjectSummary = ReadProjectSummary(s.WorkingDir)
 			ms.MemoryIndex = ReadMemoryIndex(s.WorkingDir)
 		}
@@ -240,10 +243,22 @@ func handleSessionState(ctx context.Context, request mcp.CallToolRequest) (*mcp.
 		return toolError("cc-deck plugin not running")
 	}
 
+	// Check for error response from the plugin (e.g., session removed between
+	// fetchSessions and mcp-state calls).
+	var errResp struct {
+		Error string `json:"error"`
+	}
+	if json.Unmarshal([]byte(resp), &errResp) == nil && errResp.Error != "" {
+		return toolError(errResp.Error)
+	}
+
 	// Parse the plugin response to get working_dir and other fields.
 	var pluginState struct {
 		DisplayName      string          `json:"name"`
 		PaneID           uint32          `json:"pane_id"`
+		State            string          `json:"state"`
+		Agent            string          `json:"agent"`
+		Paused           bool            `json:"paused"`
 		WorkingDir       string          `json:"cwd"`
 		RecentTools      []string        `json:"recent_tools"`
 		Topic            string          `json:"topic"`
@@ -256,6 +271,9 @@ func handleSessionState(ctx context.Context, request mcp.CallToolRequest) (*mcp.
 	state := SessionState{
 		Name:             pluginState.DisplayName,
 		PaneID:           pluginState.PaneID,
+		State:            pluginState.State,
+		Agent:            pluginState.Agent,
+		Paused:           pluginState.Paused,
 		Cwd:              pluginState.WorkingDir,
 		RecentTools:      pluginState.RecentTools,
 		Topic:            pluginState.Topic,
@@ -263,10 +281,10 @@ func handleSessionState(ctx context.Context, request mcp.CallToolRequest) (*mcp.
 	}
 
 	if pluginState.WorkingDir != "" {
-		state.Branch = ReadGitBranch(pluginState.WorkingDir)
-		state.GitDiff = ReadGitDiffStat(pluginState.WorkingDir)
-		state.ModifiedFiles = ReadModifiedFiles(pluginState.WorkingDir)
-		state.RecentCommits = ReadRecentCommits(pluginState.WorkingDir, 5)
+		state.Branch = ReadGitBranch(ctx, pluginState.WorkingDir)
+		state.GitDiff = ReadGitDiffStat(ctx, pluginState.WorkingDir)
+		state.ModifiedFiles = ReadModifiedFiles(ctx, pluginState.WorkingDir)
+		state.RecentCommits = ReadRecentCommits(ctx, pluginState.WorkingDir, 5)
 	}
 
 	data, err := json.Marshal(state)

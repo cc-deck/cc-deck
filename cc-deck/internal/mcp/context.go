@@ -1,12 +1,17 @@
 package mcp
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
+
+// gitTimeout is the per-command timeout for git subprocesses.
+const gitTimeout = 3 * time.Second
 
 // ReadProjectSummary reads the first 500 characters of the CLAUDE.md file
 // in the given directory. Returns an empty string if the file is not found
@@ -20,8 +25,9 @@ func ReadProjectSummary(cwd string) string {
 		return ""
 	}
 	s := string(data)
-	if len(s) > 500 {
-		s = s[:500]
+	runes := []rune(s)
+	if len(runes) > 500 {
+		s = string(runes[:500])
 	}
 	return s
 }
@@ -46,8 +52,9 @@ func ReadMemoryIndex(cwd string) string {
 		return ""
 	}
 	s := string(data)
-	if len(s) > 500 {
-		s = s[:500]
+	runes := []rune(s)
+	if len(runes) > 500 {
+		s = string(runes[:500])
 	}
 	return s
 }
@@ -55,11 +62,13 @@ func ReadMemoryIndex(cwd string) string {
 // ReadGitBranch returns the current git branch name for the given directory.
 // Returns an empty string if git is not available or the directory is not
 // a git repository.
-func ReadGitBranch(cwd string) string {
+func ReadGitBranch(ctx context.Context, cwd string) string {
 	if cwd == "" {
 		return ""
 	}
-	out, err := exec.Command("git", "-C", cwd, "branch", "--show-current").Output()
+	gitCtx, cancel := context.WithTimeout(ctx, gitTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(gitCtx, "git", "-C", cwd, "branch", "--show-current").Output()
 	if err != nil {
 		return ""
 	}
@@ -68,11 +77,13 @@ func ReadGitBranch(cwd string) string {
 
 // ReadModifiedFiles returns a list of files with uncommitted changes in the
 // given directory. Returns nil if git is not available or there are no changes.
-func ReadModifiedFiles(cwd string) []string {
+func ReadModifiedFiles(ctx context.Context, cwd string) []string {
 	if cwd == "" {
 		return nil
 	}
-	out, err := exec.Command("git", "-C", cwd, "diff", "--name-only").Output()
+	gitCtx, cancel := context.WithTimeout(ctx, gitTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(gitCtx, "git", "-C", cwd, "diff", "--name-only").Output()
 	if err != nil {
 		return nil
 	}
@@ -89,11 +100,13 @@ func ReadModifiedFiles(cwd string) []string {
 
 // ReadGitDiffStat returns the `git diff --stat` output for the given directory.
 // Returns an empty string if git is not available or there are no changes.
-func ReadGitDiffStat(cwd string) string {
+func ReadGitDiffStat(ctx context.Context, cwd string) string {
 	if cwd == "" {
 		return ""
 	}
-	out, err := exec.Command("git", "-C", cwd, "diff", "--stat").Output()
+	gitCtx, cancel := context.WithTimeout(ctx, gitTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(gitCtx, "git", "-C", cwd, "diff", "--stat").Output()
 	if err != nil {
 		return ""
 	}
@@ -102,11 +115,13 @@ func ReadGitDiffStat(cwd string) string {
 
 // ReadRecentCommits returns the last n commit messages (oneline format)
 // for the given directory. Returns nil if git is not available.
-func ReadRecentCommits(cwd string, n int) []string {
+func ReadRecentCommits(ctx context.Context, cwd string, n int) []string {
 	if cwd == "" {
 		return nil
 	}
-	out, err := exec.Command("git", "-C", cwd, "log", "--oneline", fmt.Sprintf("-%d", n)).Output()
+	gitCtx, cancel := context.WithTimeout(ctx, gitTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(gitCtx, "git", "-C", cwd, "log", "--oneline", fmt.Sprintf("-%d", n)).Output()
 	if err != nil {
 		return nil
 	}

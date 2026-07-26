@@ -66,6 +66,16 @@ impl Activity {
     pub fn is_waiting(&self) -> bool {
         matches!(self, Activity::Waiting(_))
     }
+
+    /// String representation for MCP tool responses.
+    pub fn as_mcp_str(&self) -> &'static str {
+        match self {
+            Activity::Init | Activity::Idle => "idle",
+            Activity::Working => "working",
+            Activity::Waiting(_) => "waiting",
+            Activity::Done | Activity::AgentDone => "done",
+        }
+    }
 }
 
 /// Compute a time-aware faded color for a session's activity indicator.

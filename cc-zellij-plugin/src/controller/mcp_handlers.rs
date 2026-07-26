@@ -13,17 +13,11 @@ use serde::Deserialize;
 pub fn serialize_sessions(state: &ControllerState) -> String {
     let mut entries = Vec::new();
     for (_, session) in &state.sessions {
-        let activity_str = match &session.activity {
-            Activity::Init | Activity::Idle => "idle",
-            Activity::Working => "working",
-            Activity::Waiting(_) => "waiting",
-            Activity::Done | Activity::AgentDone => "done",
-        };
         let entry = serde_json::json!({
             "pane_id": session.pane_id,
             "name": session.display_name,
             "agent": session.agent_name.as_deref().unwrap_or(""),
-            "state": activity_str,
+            "state": session.activity.as_mcp_str(),
             "cwd": session.working_dir,
             "topic": session.topic,
             "recent_tools": session.recent_tools,
@@ -96,12 +90,6 @@ pub fn handle_mcp_state(state: &ControllerState, pipe_id: &str, payload: &str) {
     let response = match serde_json::from_str::<StateRequest>(payload) {
         Ok(req) => {
             if let Some(session) = state.sessions.get(&req.pane_id) {
-                let activity_str = match &session.activity {
-                    Activity::Init | Activity::Idle => "idle",
-                    Activity::Working => "working",
-                    Activity::Waiting(_) => "waiting",
-                    Activity::Done | Activity::AgentDone => "done",
-                };
                 serde_json::json!({
                     "name": session.display_name,
                     "pane_id": session.pane_id,
@@ -111,7 +99,7 @@ pub fn handle_mcp_state(state: &ControllerState, pipe_id: &str, payload: &str) {
                     "paused": session.paused,
                     "badges": session.badges,
                     "agent": session.agent_name.as_deref().unwrap_or(""),
-                    "state": activity_str,
+                    "state": session.activity.as_mcp_str(),
                     "last_event_ts": session.last_event_ts,
                 }).to_string()
             } else {
@@ -320,13 +308,7 @@ mod tests {
         let req: StateRequest = serde_json::from_str(payload).unwrap();
         let session = state.sessions.get(&req.pane_id).unwrap();
 
-        let activity_str = match &session.activity {
-            Activity::Init | Activity::Idle => "idle",
-            Activity::Working => "working",
-            Activity::Waiting(_) => "waiting",
-            Activity::Done | Activity::AgentDone => "done",
-        };
-        assert_eq!(activity_str, "working");
+        assert_eq!(session.activity.as_mcp_str(), "working");
         assert_eq!(session.display_name, "api-server");
         assert_eq!(session.topic, Some("fix auth".to_string()));
     }
