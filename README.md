@@ -179,6 +179,10 @@ The build system generates network policies with domain allowlists for each decl
 
 Use `cc-deck hook --raw` to send pre-normalized JSON payloads from custom integrations.
 
+### Cross-pane agent communication
+
+cc-deck provides an MCP server (`cc-deck mcp serve`) that enables agents running in separate Zellij panes to communicate with each other. Agents can discover active sessions, read another session's terminal scrollback, query structured state (git changes, recent tools, activity timeline), and ask other agents questions directly. The MCP server is configured automatically during `cc-deck config plugin install` and introduces zero overhead for sessions that do not use cross-pane tools.
+
 ### Credential transport
 
 Each agent declares its supported auth modes via `CredentialSpecs()`.
