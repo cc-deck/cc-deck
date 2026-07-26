@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -13,10 +14,10 @@ import (
 // SessionInfo holds parsed session data from the plugin's pipe response.
 type SessionInfo struct {
 	PaneID      uint32   `json:"pane_id"`
-	DisplayName string   `json:"display_name"`
-	Activity    string   `json:"activity"`
-	WorkingDir  string   `json:"working_dir"`
-	AgentName   string   `json:"agent_name"`
+	DisplayName string   `json:"name"`
+	Activity    string   `json:"state"`
+	WorkingDir  string   `json:"cwd"`
+	AgentName   string   `json:"agent"`
 	Topic       string   `json:"topic"`
 	RecentTools []string `json:"recent_tools"`
 	Paused      bool     `json:"paused"`
@@ -33,6 +34,7 @@ type MCPSession struct {
 	Branch         string   `json:"branch,omitempty"`
 	Topic          string   `json:"topic,omitempty"`
 	ProjectSummary string   `json:"project_summary,omitempty"`
+	MemoryIndex    string   `json:"memory_index,omitempty"`
 	RecentTools    []string `json:"recent_tools,omitempty"`
 	ModifiedFiles  []string `json:"modified_files,omitempty"`
 	Paused         bool     `json:"paused"`
@@ -111,7 +113,7 @@ func resolveSession(sessions []SessionInfo, nameOrID string) (uint32, error) {
 			parts[i] = fmt.Sprintf("pane %d: '%s'", m.PaneID, m.DisplayName)
 		}
 		return 0, fmt.Errorf("ambiguous session name '%s', matches: [%s]",
-			nameOrID, joinStrings(parts, ", "))
+			nameOrID, strings.Join(parts, ", "))
 	}
 }
 
@@ -160,6 +162,7 @@ func handleSessions(ctx context.Context, request mcp.CallToolRequest) (*mcp.Call
 			ms.Branch = ReadGitBranch(s.WorkingDir)
 			ms.ModifiedFiles = ReadModifiedFiles(s.WorkingDir)
 			ms.ProjectSummary = ReadProjectSummary(s.WorkingDir)
+			ms.MemoryIndex = ReadMemoryIndex(s.WorkingDir)
 		}
 
 		mcpSessions[i] = ms
@@ -239,9 +242,9 @@ func handleSessionState(ctx context.Context, request mcp.CallToolRequest) (*mcp.
 
 	// Parse the plugin response to get working_dir and other fields.
 	var pluginState struct {
-		DisplayName      string          `json:"display_name"`
+		DisplayName      string          `json:"name"`
 		PaneID           uint32          `json:"pane_id"`
-		WorkingDir       string          `json:"working_dir"`
+		WorkingDir       string          `json:"cwd"`
 		RecentTools      []string        `json:"recent_tools"`
 		Topic            string          `json:"topic"`
 		ActivityTimeline json.RawMessage `json:"activity_timeline"`
@@ -317,14 +320,3 @@ func handleAsk(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolR
 	return toolText(resp)
 }
 
-// joinStrings concatenates strings with a separator.
-func joinStrings(parts []string, sep string) string {
-	result := ""
-	for i, p := range parts {
-		if i > 0 {
-			result += sep
-		}
-		result += p
-	}
-	return result
-}

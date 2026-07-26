@@ -247,9 +247,9 @@ func TestHandleSessionState(t *testing.T) {
 
 	t.Run("returns enriched session state", func(t *testing.T) {
 		stateResp := map[string]any{
-			"display_name": "cc-spex",
+			"name":         "cc-spex",
 			"pane_id":      42,
-			"working_dir":  "",
+			"cwd":          "",
 			"recent_tools": []string{"Read"},
 			"topic":        "testing",
 		}
