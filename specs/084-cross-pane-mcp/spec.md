@@ -8,6 +8,10 @@
 
 **Input**: User description: "Cross-Pane Agent Communication via MCP Server"
 
+## Purpose
+
+When running multiple AI agent sessions side by side in Zellij, each session operates in isolation with no awareness of what the others are doing. This feature adds an MCP server (`cc-deck mcp serve`) that exposes cross-pane tools, enabling agents to discover active sessions, read their scrollback, query structured state, and ask other agents questions. The goal is to let agents with different contexts collaborate without the user manually relaying information between panes.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Discover Active Sessions (Priority: P1)
@@ -93,11 +97,11 @@ When a user installs the cc-deck plugin, the MCP server configuration is automat
 
 ### Edge Cases
 
-- What happens when a session exits while another session is mid-ask? The ask should timeout and return an error, cleaning up temp files.
-- How does the system handle multiple simultaneous asks to the same target? Each ask uses a unique UUID for its temp files, so they do not conflict. However, only one can be injected at a time since the target must be idle.
-- What happens when the Zellij plugin is not running (e.g., cc-deck not installed)? The MCP server should return a clear error indicating it cannot communicate with the plugin.
-- How does the system behave when a session's working directory does not contain a CLAUDE.md? The project summary field is omitted or empty in the session listing.
-- What happens if the temp file directory (/tmp) is not writable? The ask tool returns an error indicating it cannot create temporary files.
+- What happens when a session exits while another session is mid-ask? The ask MUST timeout and return an error, cleaning up temp files.
+- How does the system handle multiple simultaneous asks to the same target? Each ask uses a unique UUID for its temp files, so they do not conflict. Only one ask can be injected at a time since the target must be idle; subsequent concurrent asks receive a "session busy" error.
+- What happens when the Zellij plugin is not running (e.g., cc-deck not installed)? The MCP server MUST return a clear error indicating it cannot communicate with the plugin.
+- How does the system behave when a session's working directory does not contain a CLAUDE.md? The project summary field is omitted from the session listing JSON.
+- What happens if the system temporary directory is not writable? The ask tool returns an error indicating it cannot create temporary files.
 
 ## Requirements *(mandatory)*
 
@@ -109,7 +113,7 @@ When a user installs the cc-deck plugin, the MCP server configuration is automat
 - **FR-004**: System MUST provide a `cc_deck_session_state` tool that returns structured state for a session including git diff summary, recent tool calls, working directory, and activity timeline.
 - **FR-005**: System MUST provide a `cc_deck_ask` tool that injects a question into an idle target session and returns the response via a file-based handshake.
 - **FR-006**: The `cc_deck_ask` tool MUST verify the target session is idle before injecting a question and return a "session busy" error if the target is not idle.
-- **FR-007**: The `cc_deck_ask` tool MUST use unique temporary files per request (UUID-based naming) to prevent conflicts between concurrent requests.
+- **FR-007**: The `cc_deck_ask` tool MUST use unique temporary files per request (UUID-based naming) in the system temporary directory (Go's `os.TempDir()`) to prevent conflicts between concurrent requests.
 - **FR-008**: The `cc_deck_ask` tool MUST support a configurable timeout and return a timeout error if the target does not respond within the specified period.
 - **FR-009**: System MUST clean up temporary query and response files after each ask interaction completes (success, timeout, or error).
 - **FR-010**: The MCP server MUST communicate with the Zellij plugin via the existing `zellij pipe` infrastructure for all pane operations (scrollback reads, text injection, state queries).
@@ -121,11 +125,21 @@ When a user installs the cc-deck plugin, the MCP server configuration is automat
 - **FR-016**: The `cc_deck_read_scrollback` tool MUST enforce a maximum of 500 lines per request to prevent excessive data transfer.
 - **FR-017**: The `cc_deck_ask` tool MUST construct the injected prompt to include: the question text, the path to the response file, and clear instructions for the target agent to write its answer to that file.
 
+### Error Handling
+
+- **Session not found**: When a tool receives a session identifier that does not match any active session, it MUST return a structured error with a "session not found" message and the requested identifier.
+- **Session busy**: When `cc_deck_ask` targets a session that is not idle, it MUST return a "session busy" error without disrupting the target session.
+- **Name ambiguity**: When a display name matches multiple sessions, the tool MUST return an error listing all matching sessions with their pane IDs so the caller can retry with a specific pane ID (per FR-014).
+- **Ask timeout**: When the target does not respond within the configured timeout, the tool MUST return a timeout error and clean up all temporary files.
+- **Plugin not running**: When the MCP server cannot reach the Zellij plugin via pipe, it MUST return an error indicating the plugin is not available.
+- **Temp directory not writable**: When temporary files cannot be created, the ask tool MUST return an error indicating the temporary directory is not writable.
+- **Invalid parameters**: When `cc_deck_read_scrollback` receives 0 or negative line counts, or a line count exceeding the 500-line maximum, it MUST return a validation error with the acceptable range.
+
 ### Key Entities
 
 - **Session**: A tracked AI agent pane in Zellij, identified by display name, associated with a pane ID, agent type, activity state, working directory, topic, and context metadata.
 - **MCP Server**: A Go process spawned by the agent (one per session), serving MCP tools over stdio and communicating with the Zellij plugin via pipe messages.
-- **Query/Response Pair**: A file-based handshake consisting of a query file and a response file in /tmp, identified by a shared UUID, with lifecycle management (creation, monitoring, cleanup).
+- **Query/Response Pair**: A file-based handshake consisting of a query file and a response file in the system temporary directory, identified by a shared UUID, with lifecycle management (creation, monitoring, cleanup).
 
 ## Success Criteria *(mandatory)*
 
@@ -146,6 +160,15 @@ When a user installs the cc-deck plugin, the MCP server configuration is automat
 - Q: What is the maximum scrollback that can be read in one request? → A: 500 lines maximum to prevent excessive data transfer.
 - Q: What format should the injected prompt use for the ask flow? → A: Structured prompt including question text, response file path, and clear instructions for the target to write its answer to that file.
 
+## Out of Scope
+
+- Cross-machine or cross-network communication between Zellij instances.
+- Persistent message queuing or conversation history between sessions.
+- Automatic session pairing or automatic delegation of work between agents.
+- GUI or web-based interfaces for session management.
+- Authentication or authorization between sessions (all sessions in the same Zellij instance are trusted).
+- MCP server configuration for agents other than Claude Code, Codex, and OpenCode.
+
 ## Assumptions
 
 - All target sessions run within the same Zellij instance on the same machine. Cross-machine communication is out of scope for this version.
@@ -155,5 +178,5 @@ When a user installs the cc-deck plugin, the MCP server configuration is automat
 - Target sessions must be idle (not working or waiting) to receive injected questions. Busy sessions reject ask requests.
 - The `/tmp` directory is writable and available for temporary file storage.
 - Each Claude Code, Codex, or OpenCode session can be configured to use an MCP server via its native MCP configuration mechanism.
-- The `prompt` field is available in the UserPromptSubmit hook payload for Claude Code. Availability for Codex and OpenCode should be verified during implementation.
-- Agent sessions have unique display names within a Zellij instance. If names conflict, the system uses the first match.
+- The `prompt` field is available in the UserPromptSubmit hook payload for Claude Code. Availability for Codex and OpenCode MUST be verified during implementation.
+- Agent sessions typically have unique display names within a Zellij instance. When names conflict, the system returns an error listing ambiguous matches with pane IDs for disambiguation (per FR-014).
