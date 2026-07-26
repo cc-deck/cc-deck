@@ -97,6 +97,21 @@ docs/                                 # Documentation
 
 **Structure Decision**: Extends existing project structure. Go CLI gets a new `internal/mcp/` package for the MCP server. Rust plugin gets a new `mcp_handlers.rs` module. No new top-level directories.
 
+## Global Constraints
+
+These values are copied from the spec and apply to all tasks:
+
+- **Scrollback line cap**: 500 lines maximum per request (FR-016)
+- **Default ask timeout**: 120 seconds (FR-008, SC-003)
+- **Topic truncation**: first ~100 characters of user prompt (FR-011)
+- **Recent tools ring buffer**: 10 entries maximum
+- **CLAUDE.md summary**: first ~500 characters for project summary
+- **Supported agents**: Claude Code, Codex, OpenCode
+- **Build commands**: `make test`, `make lint` only (never `go build` / `cargo build`)
+- **XDG paths**: use `internal/xdg` package
+- **Container runtime**: podman only
+- **Interface contracts**: defined in `contracts/mcp-tools.md` and `data-model.md`
+
 ## Implementation Phases
 
 ### Phase 1: Foundation (Plugin State + Hook Prompt)

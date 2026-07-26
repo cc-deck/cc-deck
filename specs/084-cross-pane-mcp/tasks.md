@@ -18,10 +18,9 @@
 
 ## Phase 1: Setup
 
-**Purpose**: Add MCP dependency and create package structure
+**Purpose**: Add MCP dependency
 
 - [ ] T001 Add `github.com/mark3labs/mcp-go` dependency to cc-deck/go.mod and run `go mod tidy`
-- [ ] T002 Create `cc-deck/internal/mcp/` package directory structure
 
 ---
 
@@ -31,15 +30,16 @@
 
 **CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T003 Add `topic: Option<String>` and `recent_tools: Vec<String>` fields to Session struct in cc-zellij-plugin/src/session.rs
-- [ ] T004 [P] Add `Prompt` field to `claudeHookPayload` struct in cc-deck/internal/agent/claude.go and update `TranslateEvent` to map it
-- [ ] T005 [P] Add `Prompt` field to `codexHookPayload` struct in cc-deck/internal/agent/codex.go and update `TranslateEvent` to map it
-- [ ] T006 Add `Prompt` field to `NormalizedPayload` struct in cc-deck/internal/agent/agent.go
+- [ ] T003 Add `topic: Option<String>` and `recent_tools: Vec<String>` fields (with `#[serde(default)]`) to Session struct in cc-zellij-plugin/src/session.rs, initialize in `Session::new()`
+- [ ] T004 Add `Prompt` field to `NormalizedPayload` struct in cc-deck/internal/agent/agent.go (json tag: `"prompt,omitempty"`)
+- [ ] T005 [P] Add `Prompt` field to `claudeHookPayload` struct in cc-deck/internal/agent/claude.go and update `TranslateEvent` to map it to `NormalizedPayload.Prompt`. **Depends on T004.**
+- [ ] T006 [P] Add `Prompt` field to `codexHookPayload` struct in cc-deck/internal/agent/codex.go and update `TranslateEvent` to map it to `NormalizedPayload.Prompt`. **Depends on T004.**
+- [ ] T006b [P] Add `Prompt` field to `opencodeHookPayload` struct in cc-deck/internal/agent/opencode.go and update `TranslateEvent` to map it to `NormalizedPayload.Prompt`. **Depends on T004.**
 - [ ] T007 Update `process_hook` in cc-zellij-plugin/src/controller/hooks.rs to store topic from hook payload prompt field (first ~100 chars) and append tool_name to recent_tools ring buffer (max 10)
 - [ ] T008 Add MCP pipe actions (`McpSessions`, `McpScrollback`, `McpState`, `McpInject`) to `PipeAction` enum in cc-zellij-plugin/src/pipe_handler.rs and update `parse_pipe_message`
 - [ ] T009 Create cc-zellij-plugin/src/controller/mcp_handlers.rs module with handler functions for each MCP pipe action, register module in cc-zellij-plugin/src/lib.rs
 - [ ] T010 Add MCP pipe action dispatch to controller `pipe()` method in cc-zellij-plugin/src/controller/mod.rs, routing to mcp_handlers
-- [ ] T011 Implement MCP server core in cc-deck/internal/mcp/server.go: create MCP server with stdio transport, register 4 tool schemas (cc_deck_sessions, cc_deck_read_scrollback, cc_deck_session_state, cc_deck_ask) with JSON Schema parameters per contracts/mcp-tools.md
+- [ ] T011 Create `cc-deck/internal/mcp/` package and implement MCP server core in cc-deck/internal/mcp/server.go: create MCP server with stdio transport, register 4 tool schemas (cc_deck_sessions, cc_deck_read_scrollback, cc_deck_session_state, cc_deck_ask) with JSON Schema parameters per contracts/mcp-tools.md
 - [ ] T012 Implement pipe communication helpers in cc-deck/internal/mcp/pipe.go: send pipe messages to Zellij plugin via `zellij pipe` and read responses, with timeout handling
 - [ ] T013 Add `cc-deck mcp serve` subcommand in cc-deck/internal/cmd/mcp.go that starts the MCP server from T011
 
@@ -56,7 +56,8 @@
 - [ ] T014 [US1] Implement `handle_mcp_sessions` in cc-zellij-plugin/src/controller/mcp_handlers.rs: serialize all sessions with pane_id, display_name, activity, working_dir, agent_name, topic, recent_tools, paused, badges via `cli_pipe_output`
 - [ ] T015 [US1] Implement session context aggregation in cc-deck/internal/mcp/context.go: read CLAUDE.md (first 500 chars), MEMORY.md entries, git branch, and modified files for a given CWD
 - [ ] T016 [US1] Implement `cc_deck_sessions` tool handler in cc-deck/internal/mcp/tools.go: call plugin via mcp-sessions pipe, enrich each session with context from T015, return JSON array per contract
-- [ ] T017 [US1] Add unit tests for session listing in cc-deck/internal/mcp/tools_test.go and cc-zellij-plugin/src/controller/mcp_handlers.rs (test serialization, context aggregation, empty sessions)
+- [ ] T017 [US1] Add unit tests for session listing in cc-deck/internal/mcp/tools_test.go (context aggregation, empty sessions, JSON response shape)
+- [ ] T017b [US1] Add unit tests for `handle_mcp_sessions` serialization in cc-zellij-plugin/src/controller/mcp_handlers.rs (session serialization, empty session list, field coverage)
 
 **Checkpoint**: Session listing works end-to-end. Agents can discover all active sessions with rich context.
 
@@ -152,7 +153,7 @@
 
 ### Parallel Opportunities
 
-- T004, T005 (hook payload changes) can run in parallel
+- T005, T006, T006b (agent-specific Prompt field) can run in parallel after T004 (NormalizedPayload.Prompt)
 - T029, T030 (MCP config for different agents) can run in parallel
 - T032, T033 (documentation files) can run in parallel
 - US1 and US5 can run in parallel after Foundational completes
