@@ -902,6 +902,9 @@ func runWsDelete(name string, force bool, keepVolumes bool) error {
 	}
 
 	if err := e.Delete(cmd_context(), force); err != nil {
+		if !force {
+			return fmt.Errorf("%w\n\nHint: use --force to remove local state even when the remote resource is unreachable", err)
+		}
 		return err
 	}
 
