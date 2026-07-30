@@ -443,12 +443,24 @@ impl ControllerState {
     pub fn merge_sessions(&mut self, incoming: BTreeMap<u32, Session>) -> bool {
         let mut changed = false;
         for (pane_id, mut session) in incoming {
-            let dominated = self
-                .sessions
-                .get(&pane_id)
-                .map(|existing| session.last_event_ts > existing.last_event_ts)
-                .unwrap_or(true);
-            if dominated {
+            if let Some(existing) = self.sessions.get(&pane_id) {
+                if session.last_event_ts > existing.last_event_ts {
+                    // Preserve manual rename from the existing session:
+                    // the user's rename is about the pane's purpose, not
+                    // about which snapshot is newer.
+                    if existing.manually_renamed && !session.manually_renamed {
+                        session.display_name = existing.display_name.clone();
+                        session.manually_renamed = true;
+                        session.meta_ts = existing.meta_ts;
+                    }
+                    if let Some((idx, name)) = self.pane_to_tab.get(&pane_id) {
+                        session.tab_index = Some(*idx);
+                        session.tab_name = Some(name.clone());
+                    }
+                    self.sessions.insert(pane_id, session);
+                    changed = true;
+                }
+            } else {
                 if let Some((idx, name)) = self.pane_to_tab.get(&pane_id) {
                     session.tab_index = Some(*idx);
                     session.tab_name = Some(name.clone());
@@ -771,6 +783,29 @@ mod tests {
         assert!(state.merge_sessions(incoming));
         assert_eq!(state.sessions.len(), 1);
         assert_eq!(state.sessions[&1].display_name, "api");
+    }
+
+    #[test]
+    fn test_merge_sessions_preserves_manual_rename() {
+        let mut state = ControllerState::default();
+        let mut existing = make_session(1);
+        existing.display_name = "my-custom-name".to_string();
+        existing.manually_renamed = true;
+        existing.last_event_ts = 50;
+        existing.meta_ts = 42;
+        state.sessions.insert(1, existing);
+
+        let mut incoming = BTreeMap::new();
+        let mut newer = make_session(1);
+        newer.display_name = "cc-deck".to_string();
+        newer.manually_renamed = false;
+        newer.last_event_ts = 100;
+        incoming.insert(1, newer);
+
+        assert!(state.merge_sessions(incoming));
+        assert_eq!(state.sessions[&1].display_name, "my-custom-name");
+        assert!(state.sessions[&1].manually_renamed);
+        assert_eq!(state.sessions[&1].meta_ts, 42);
     }
 
     #[test]
