@@ -91,32 +91,61 @@ pub fn process_hook(state: &mut ControllerState, hook: HookPayload) -> bool {
         });
     if session_replaced {
         if let Some(session) = state.sessions.get_mut(&hook.pane_id) {
-            crate::debug_log(&format!(
-                "CTRL SESSION replaced pane={}: {} -> {} (manually_renamed={})",
-                hook.pane_id,
-                session.session_id,
-                hook.session_id.as_deref().unwrap_or("?"),
-                session.manually_renamed,
-            ));
-            // Preserve user's custom name across session replacements.
-            // The rename is about the pane's purpose, not the agent instance.
-            if !session.manually_renamed {
-                session.display_name = format!("session-{}", hook.pane_id);
+            let same_agent = hook
+                .agent
+                .as_deref()
+                .map(|a| session.agent_name.as_deref() == Some(a))
+                .unwrap_or(true);
+
+            if same_agent {
+                crate::debug_log(&format!(
+                    "CTRL SESSION replaced pane={}: {} -> {} (manually_renamed={})",
+                    hook.pane_id,
+                    session.session_id,
+                    hook.session_id.as_deref().unwrap_or("?"),
+                    session.manually_renamed,
+                ));
+                if !session.manually_renamed {
+                    session.display_name = format!("session-{}", hook.pane_id);
+                }
+                session.meta_ts = 0;
+                session.done_attended = false;
+                session.pending_permissions = 0;
+                session.working_dir = None;
+                session.in_worktree = false;
+                session.agent_name = None;
+                session.agent_indicator = None;
+            } else {
+                crate::debug_log(&format!(
+                    "CTRL SESSION cross-agent pane={}: {} -> {} (no state reset)",
+                    hook.pane_id,
+                    session.agent_name.as_deref().unwrap_or("?"),
+                    hook.agent.as_deref().unwrap_or("?"),
+                ));
+                // Update agent identity without resetting session state.
+                session.agent_name = hook.agent.clone();
+                session.agent_indicator = hook.agent_indicator.clone();
             }
-            session.meta_ts = 0;
-            session.done_attended = false;
-            session.pending_permissions = 0;
-            session.working_dir = None;
-            session.in_worktree = false;
-            session.agent_name = None;
-            session.agent_indicator = None;
+            // Always update session_id to prevent repeated replacement
+            // detection on subsequent hooks from the same new session.
+            if let Some(ref sid) = hook.session_id {
+                session.session_id = sid.clone();
+            }
         }
     }
 
-    // Skip updates for paused sessions
+    // Skip updates for paused sessions, but always allow session_id to be
+    // updated (handled above) to prevent replacement detection spirals.
     if !is_new {
         if let Some(s) = state.sessions.get(&hook.pane_id) {
             if s.paused {
+                // Still update session_id even for paused sessions to prevent
+                // the replacement detection from firing on every subsequent hook.
+                if let Some(ref sid) = hook.session_id {
+                    if let Some(s) = state.sessions.get_mut(&hook.pane_id) {
+                        s.session_id = sid.clone();
+                    }
+                }
                 return false;
             }
         }
@@ -1017,6 +1046,54 @@ mod tests {
 
         assert_eq!(state.sessions[&42].display_name, "callum-gordon");
         assert!(state.sessions[&42].manually_renamed);
+    }
+
+    #[test]
+    fn test_cross_agent_no_replacement_reset() {
+        let mut state = ControllerState::default();
+
+        let mut hook1 = make_hook(42, "SessionStart");
+        hook1.agent = Some("claude".to_string());
+        hook1.session_id = Some("claude-session".to_string());
+        process_hook(&mut state, hook1);
+
+        state.sessions.get_mut(&42).unwrap().display_name = "my-project".to_string();
+        state.sessions.get_mut(&42).unwrap().manually_renamed = true;
+
+        // Codex hook arrives for the same pane (child process)
+        let mut hook2 = make_hook(42, "PreToolUse");
+        hook2.agent = Some("codex".to_string());
+        hook2.agent_indicator = Some("\u{25c6}".to_string());
+        hook2.session_id = Some("codex-session".to_string());
+        process_hook(&mut state, hook2);
+
+        // Name preserved, agent updated, no replacement state reset
+        assert_eq!(state.sessions[&42].display_name, "my-project");
+        assert!(state.sessions[&42].manually_renamed);
+        assert_eq!(state.sessions[&42].agent_name, Some("codex".to_string()));
+        assert_eq!(state.sessions[&42].session_id, "codex-session");
+    }
+
+    #[test]
+    fn test_paused_session_updates_session_id() {
+        let mut state = ControllerState::default();
+
+        let mut hook1 = make_hook(42, "SessionStart");
+        hook1.session_id = Some("old-session".to_string());
+        hook1.agent = Some("codex".to_string());
+        process_hook(&mut state, hook1);
+
+        state.sessions.get_mut(&42).unwrap().paused = true;
+
+        // New session starts in same pane while paused
+        let mut hook2 = make_hook(42, "SessionStart");
+        hook2.session_id = Some("new-session".to_string());
+        hook2.agent = Some("codex".to_string());
+        process_hook(&mut state, hook2);
+
+        // Session ID must be updated even though the session is paused,
+        // otherwise every subsequent hook triggers another replacement.
+        assert_eq!(state.sessions[&42].session_id, "new-session");
     }
 
     #[test]
