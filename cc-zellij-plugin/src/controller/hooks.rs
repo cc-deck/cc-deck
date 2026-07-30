@@ -92,13 +92,17 @@ pub fn process_hook(state: &mut ControllerState, hook: HookPayload) -> bool {
     if session_replaced {
         if let Some(session) = state.sessions.get_mut(&hook.pane_id) {
             crate::debug_log(&format!(
-                "CTRL SESSION replaced pane={}: {} -> {}",
+                "CTRL SESSION replaced pane={}: {} -> {} (manually_renamed={})",
                 hook.pane_id,
                 session.session_id,
-                hook.session_id.as_deref().unwrap_or("?")
+                hook.session_id.as_deref().unwrap_or("?"),
+                session.manually_renamed,
             ));
-            session.manually_renamed = false;
-            session.display_name = format!("session-{}", hook.pane_id);
+            // Preserve user's custom name across session replacements.
+            // The rename is about the pane's purpose, not the agent instance.
+            if !session.manually_renamed {
+                session.display_name = format!("session-{}", hook.pane_id);
+            }
             session.meta_ts = 0;
             session.done_attended = false;
             session.pending_permissions = 0;
@@ -686,9 +690,9 @@ mod tests {
         };
         process_hook(&mut state, hook);
 
-        // Session should be reset (new Claude Code instance)
-        assert!(!state.sessions[&42].manually_renamed);
-        assert!(state.sessions[&42].display_name.starts_with("session-"));
+        // Manual rename is preserved across session replacement
+        assert!(state.sessions[&42].manually_renamed);
+        assert_eq!(state.sessions[&42].display_name, "my-project");
     }
 
     #[test]
@@ -994,6 +998,25 @@ mod tests {
             state.sessions[&42].agent_indicator,
             Some("\u{25c6}".to_string())
         );
+    }
+
+    #[test]
+    fn test_session_replacement_preserves_manual_rename() {
+        let mut state = ControllerState::default();
+
+        let mut hook1 = make_hook(42, "SessionStart");
+        hook1.session_id = Some("session-a".to_string());
+        process_hook(&mut state, hook1);
+
+        state.sessions.get_mut(&42).unwrap().display_name = "callum-gordon".to_string();
+        state.sessions.get_mut(&42).unwrap().manually_renamed = true;
+
+        let mut hook2 = make_hook(42, "SessionStart");
+        hook2.session_id = Some("session-b".to_string());
+        process_hook(&mut state, hook2);
+
+        assert_eq!(state.sessions[&42].display_name, "callum-gordon");
+        assert!(state.sessions[&42].manually_renamed);
     }
 
     #[test]
