@@ -108,6 +108,9 @@ A maintainer reviewing the codebase finds that the homegrown policy generation c
 - **FR-009**: The existing policy generation code MUST continue to work for non-OpenShell targets (compose environments).
 - **FR-010**: When the manifest has no `agents` field, cc-deck MUST default to `["claude"]` for backward compatibility.
 - **FR-011**: The git-hosting profile ("github", "gitlab") MUST always be included regardless of manifest declarations, since git access is required for all workspaces.
+- **FR-012**: cc-deck MUST verify each standard profile exists on the gateway via `ProfileInterface.Get()` before creating a provider for it. Missing profiles are handled per FR-007 (warn and skip).
+- **FR-013**: Imported ephemeral profiles MUST use deterministic names based on the workspace name: `cc-deck-<workspace-name>-mcp` for MCP endpoints and `cc-deck-<workspace-name>-custom` for user domain overrides.
+- **FR-014**: Credential providers MUST reference their profile via `Provider.Type` and carry credentials in `ProviderSpec.Credentials`. Profile declarations (network endpoints) and credential injection (API keys, ADC) are orthogonal and coexist on the same provider.
 
 ### Key Entities
 
@@ -142,3 +145,6 @@ A maintainer reviewing the codebase finds that the homegrown policy generation c
 - Q: Should there be an offline fallback for builds without gateway connectivity? A: No. OpenShell workspaces inherently require a gateway. No offline mode needed.
 - Q: How should MCP endpoints be handled since they're user-specific? A: Import ephemeral profiles via `ProfileInterface.Import()`. The gateway resolves them uniformly alongside standard profiles.
 - Q: Should auto-detection be removed in favor of manifest-only declarations? A: No. Both paths coexist. Manifest declarations take priority, auto-detection fills gaps. The result is a union.
+- Q: Should cc-deck verify that referenced profiles exist on the gateway before creating providers? A: Yes. Call `ProfileInterface.Get()` to verify each profile exists. If missing, emit a warning and skip (consistent with FR-007). This prevents confusing gateway errors from non-existent profile references.
+- Q: How are imported ephemeral profiles named to avoid collisions across workspaces? A: Use deterministic naming with `cc-deck-<workspace-name>-mcp` and `cc-deck-<workspace-name>-custom` patterns. Same workspace always references the same profile name, enabling re-creation without duplicates.
+- Q: How do existing credential providers interact with profile-based providers? A: Orthogonal concerns. Credential providers use `ProviderSpec.Credentials` for secrets and `Provider.Type` to reference the profile. The profile declares network endpoints; the credential populates authentication. Same provider carries both.
