@@ -107,9 +107,9 @@ A maintainer reviewing the codebase finds that the homegrown policy generation c
 - **FR-008**: When `ProfileInterface.Import()` fails, cc-deck MUST emit a warning and continue without the custom profile.
 - **FR-009**: The existing policy generation code MUST continue to work for non-OpenShell targets (compose environments).
 - **FR-010**: When the manifest has no `agents` field, cc-deck MUST default to `["claude"]` for backward compatibility.
-- **FR-011**: The git-hosting profile ("github", "gitlab") MUST always be included regardless of manifest declarations, since git access is required for all workspaces.
+- **FR-011**: The git-hosting profiles MUST always be included regardless of manifest declarations, since git access is required for all workspaces. Both "github" and "gitlab" profiles are included by default. If the manifest specifies a `git_hosting` field, only the declared provider's profile is included.
 - **FR-012**: cc-deck MUST verify each standard profile exists on the gateway via `ProfileInterface.Get()` before creating a provider for it. Missing profiles are handled per FR-007 (warn and skip).
-- **FR-013**: Imported ephemeral profiles MUST use deterministic names based on the workspace name: `cc-deck-<workspace-name>-mcp` for MCP endpoints and `cc-deck-<workspace-name>-custom` for user domain overrides.
+- **FR-013**: Imported ephemeral profiles MUST use deterministic names based on the workspace name: `cc-deck-<workspace-name>-mcp` for MCP endpoints and `cc-deck-<workspace-name>-custom` for user domain overrides. Workspace names MUST be sanitized to produce valid profile names (lowercase alphanumeric and hyphens only, truncated to a reasonable length).
 - **FR-014**: Credential providers MUST reference their profile via `Provider.Type` and carry credentials in `ProviderSpec.Credentials`. Profile declarations (network endpoints) and credential injection (API keys, ADC) are orthogonal and coexist on the same provider.
 
 ### Key Entities
@@ -127,6 +127,12 @@ A maintainer reviewing the codebase finds that the homegrown policy generation c
 - **SC-003**: Adding a new tool/agent to cc-deck requires only adding an entry to the profile mapping table (one line of code), not modifying policy assembly or adding YAML components.
 - **SC-004**: All existing tests for non-OpenShell targets continue to pass without modification.
 - **SC-005**: The profile mapping table covers all 13 current mappings: anthropic, openai, python, nodejs, golang, rust, github, gitlab, docker, quay, vertexai, claude-agent, opencode-agent.
+
+## Documentation Requirements
+
+- The manifest reference documentation MUST be updated to describe the `agents` field behavior (default to `["claude"]`, mapping to profiles) and the `tools` field interaction with auto-detection.
+- The architecture guide MUST document the profile delegation model: cc-deck determines profiles, gateway resolves them into policy.
+- The troubleshooting guide MUST cover common profile-related errors (missing gateway profiles, import failures) and their warning messages.
 
 ## Assumptions
 
