@@ -6,8 +6,9 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"os"
-	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -20,7 +21,6 @@ import (
 	v1 "github.com/rhuss/openshell-sdk-go/openshell/v1"
 	"github.com/rhuss/openshell-sdk-go/openshell/v1/types"
 	"golang.org/x/term"
-	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -32,7 +32,6 @@ const (
 type SandboxConfig struct {
 	Image     string
 	Command   string
-	Policy    string
 	Providers []string
 }
 
@@ -104,9 +103,149 @@ func (w *OpenShellWorkspace) resolveGatewayConfig() openshell.GatewayConfig {
 	return openshell.ResolveGatewayConfig(defGw)
 }
 
-// policyFilePath is the well-known location of the policy file inside
-// OpenShell sandbox images.
-const policyFilePath = "/etc/openshell/policy.yaml"
+// profileManifestPath is the well-known location of the profile manifest
+// inside OpenShell sandbox images.
+const profileManifestPath = "/etc/openshell/profiles.yaml"
+
+// extractProfileManifest extracts and parses the profile manifest from an
+// OCI image. Returns nil (without error) if the manifest is not present.
+func extractProfileManifest(image string) (*build.ProfileManifest, error) {
+	data, err := oci.ExtractFileFromImage(image, profileManifestPath)
+	if err != nil {
+		log.Printf("INFO: no profile manifest in image %s: %v", image, err)
+		return nil, nil
+	}
+	pm, parseErr := build.ParseProfileManifest(data)
+	if parseErr != nil {
+		return nil, fmt.Errorf("parsing profile manifest from image %s: %w", image, parseErr)
+	}
+	return pm, nil
+}
+
+// importMCPProfile creates and imports an ephemeral profile containing all MCP
+// endpoints and agent binaries for a workspace, then creates a provider
+// referencing that profile. Returns the provider name, or empty string if no
+// MCP entries have endpoints.
+func importMCPProfile(ctx context.Context, client v1.ClientInterface, wsName string, mcpEntries []build.MCPManifestEntry, agentBinaries []string) (string, error) {
+	var endpoints []types.NetworkEndpoint
+	for _, mcp := range mcpEntries {
+		if mcp.Endpoint == "" {
+			continue
+		}
+		host, port, err := parseHostPort(mcp.Endpoint)
+		if err != nil {
+			log.Printf("WARNING: MCP %q endpoint %q: %v, skipping", mcp.Name, mcp.Endpoint, err)
+			continue
+		}
+		endpoints = append(endpoints, types.NetworkEndpoint{
+			Host:     host,
+			Port:     uint32(port),
+			Protocol: "rest",
+		})
+	}
+
+	if len(endpoints) == 0 {
+		return "", nil
+	}
+
+	var binaries []types.NetworkBinary
+	for _, b := range agentBinaries {
+		binaries = append(binaries, types.NetworkBinary{Path: b})
+	}
+
+	profileID := fmt.Sprintf("cc-deck-%s-mcp", openshell.SanitizeWorkspaceName(wsName))
+	profile := types.ProviderProfile{
+		ID:          profileID,
+		DisplayName: fmt.Sprintf("MCP endpoints for %s", wsName),
+		Category:    types.ProfileCategoryOther,
+		Endpoints:   endpoints,
+		Binaries:    binaries,
+	}
+
+	_, err := client.Providers().Profiles().Import(ctx, []types.ProfileImportItem{
+		{Profile: profile},
+	})
+	if err != nil {
+		log.Printf("WARNING: failed to import MCP profile %s: %v", profileID, err)
+		return "", nil
+	}
+
+	providerName := profileID
+	provider := &v1.Provider{
+		Name: providerName,
+		Type: profileID,
+	}
+	if _, err := client.Providers().Ensure(ctx, provider); err != nil {
+		return "", fmt.Errorf("creating MCP provider %s: %w", providerName, err)
+	}
+	log.Printf("DEBUG: openshell: imported MCP profile %s with %d endpoints", profileID, len(endpoints))
+	return providerName, nil
+}
+
+// importCustomDomainsProfile creates and imports an ephemeral profile
+// containing user-defined domain endpoints. Returns the provider name,
+// or empty string if no domains are given.
+func importCustomDomainsProfile(ctx context.Context, client v1.ClientInterface, wsName string, domains []string) (string, error) {
+	if len(domains) == 0 {
+		return "", nil
+	}
+
+	var endpoints []types.NetworkEndpoint
+	for _, d := range domains {
+		endpoints = append(endpoints, types.NetworkEndpoint{
+			Host:     d,
+			Port:     443,
+			Protocol: "https",
+		})
+	}
+
+	profileID := fmt.Sprintf("cc-deck-%s-custom", openshell.SanitizeWorkspaceName(wsName))
+	profile := types.ProviderProfile{
+		ID:          profileID,
+		DisplayName: fmt.Sprintf("Custom domains for %s", wsName),
+		Category:    types.ProfileCategoryOther,
+		Endpoints:   endpoints,
+	}
+
+	_, err := client.Providers().Profiles().Import(ctx, []types.ProfileImportItem{
+		{Profile: profile},
+	})
+	if err != nil {
+		log.Printf("WARNING: failed to import custom domains profile %s: %v", profileID, err)
+		return "", nil
+	}
+
+	providerName := profileID
+	provider := &v1.Provider{
+		Name: providerName,
+		Type: profileID,
+	}
+	if _, err := client.Providers().Ensure(ctx, provider); err != nil {
+		return "", fmt.Errorf("creating custom domains provider %s: %w", providerName, err)
+	}
+	log.Printf("DEBUG: openshell: imported custom domains profile %s with %d domains", profileID, len(domains))
+	return providerName, nil
+}
+
+// parseHostPort splits a "host:port" string into its components. Uses
+// net.SplitHostPort for correct IPv6 handling.
+func parseHostPort(endpoint string) (string, int, error) {
+	host, portStr, err := net.SplitHostPort(endpoint)
+	if err != nil {
+		return "", 0, fmt.Errorf("parsing endpoint %q: %w", endpoint, err)
+	}
+	if host == "" {
+		return "", 0, fmt.Errorf("empty host in %q", endpoint)
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return "", 0, fmt.Errorf("invalid port in %q: %w", endpoint, err)
+	}
+	if port <= 0 || port > 65535 {
+		return "", 0, fmt.Errorf("port %d out of range in %q", port, endpoint)
+	}
+	return host, port, nil
+}
 
 func (w *OpenShellWorkspace) resolveSandboxConfig() (SandboxConfig, error) {
 	cfg := SandboxConfig{
@@ -126,32 +265,8 @@ func (w *OpenShellWorkspace) resolveSandboxConfig() (SandboxConfig, error) {
 	if def.SandboxCommand != "" {
 		cfg.Command = def.SandboxCommand
 	}
-	cfg.Policy = def.Policy
 	if def.Provider != "" {
 		cfg.Providers = []string{def.Provider}
-	}
-
-	// If no explicit policy is set and we have an image reference, attempt
-	// to extract the policy file directly from the OCI image.
-	if cfg.Policy == "" && cfg.Image != "" {
-		policyBytes, extractErr := oci.ExtractFileFromImage(cfg.Image, policyFilePath)
-		if extractErr != nil {
-			log.Printf("WARNING: could not extract policy from image %s: %v", cfg.Image, extractErr)
-			return cfg, nil
-		}
-
-		tmpFile, tmpErr := os.CreateTemp("", "cc-deck-policy-*.yaml")
-		if tmpErr != nil {
-			return cfg, fmt.Errorf("creating temp file for extracted policy: %w", tmpErr)
-		}
-		if _, writeErr := tmpFile.Write(policyBytes); writeErr != nil {
-			tmpFile.Close()
-			os.Remove(tmpFile.Name())
-			return cfg, fmt.Errorf("writing extracted policy to temp file: %w", writeErr)
-		}
-		tmpFile.Close()
-		cfg.Policy = tmpFile.Name()
-		log.Printf("INFO: oci: extracted policy to %s", tmpFile.Name())
 	}
 
 	return cfg, nil
@@ -239,10 +354,10 @@ func (w *OpenShellWorkspace) clearLocalState() {
 	log.Printf("DEBUG: openshell: cleared local state for %s", w.name)
 }
 
-// resolveAgentName returns the agent name from a workspace definition,
-// defaulting to "claude" when unset.
-func resolveAgentName(def *WorkspaceDefinition) string {
-	return "claude"
+// resolveAgentNames always returns ["claude"]. Multi-agent support is
+// not yet implemented; this stub centralizes the default.
+func resolveAgentNames() []string {
+	return []string{"claude"}
 }
 
 // resolveAuthField returns the workspace definition's Auth field, or empty
@@ -283,20 +398,20 @@ func selectCredentialMode(available []credential.AvailableMode, authField string
 }
 
 // mapToOpenShellProvider maps a resolved credential spec to an OpenShell
-// provider name, type, and credentials map. Returns empty providerType when
-// no provider should be created (e.g., bedrock has no OpenShell provider).
-func mapToOpenShellProvider(wsName string, spec agent.CredentialSpec, resolved credential.ResolvedCredentials) (name, providerType string, creds map[string]string) {
+// provider name, type, and credentials map. The providerType is resolved from
+// the profile mapping table. Returns empty providerType when no provider
+// should be created (e.g., bedrock has no OpenShell provider).
+func mapToOpenShellProvider(wsName string, agentName string, spec agent.CredentialSpec, resolved credential.ResolvedCredentials) (name, providerType string, creds map[string]string) {
 	name = fmt.Sprintf("cc-deck-%s-%s", wsName, spec.Name)
+	providerType = openshell.LookupCredentialProfile(spec.Name, agentName)
 
 	switch spec.Name {
 	case "api":
-		providerType = "claude"
 		creds = make(map[string]string)
 		for k, v := range resolved.EnvVars {
 			creds[k] = v
 		}
 	case "vertex":
-		providerType = "google-cloud"
 		creds = make(map[string]string)
 		if v, ok := resolved.EnvVars["ANTHROPIC_VERTEX_PROJECT_ID"]; ok {
 			creds["project_id"] = v
@@ -309,6 +424,38 @@ func mapToOpenShellProvider(wsName string, spec agent.CredentialSpec, resolved c
 	}
 
 	return name, providerType, creds
+}
+
+// createProfileProviders creates OpenShell providers for each profile ID in the
+// manifest. It verifies profiles against the gateway, creates one provider per
+// verified profile, and returns the list of created provider names.
+func createProfileProviders(ctx context.Context, client v1.ClientInterface, wsName string, profileIDs []string) ([]string, error) {
+	if len(profileIDs) == 0 {
+		return nil, nil
+	}
+
+	verified, missing, verifyErr := openshell.VerifyProfiles(ctx, client, profileIDs)
+	if verifyErr != nil {
+		return nil, fmt.Errorf("verifying profiles: %w", verifyErr)
+	}
+	if len(missing) > 0 {
+		log.Printf("WARNING: %d profiles not found on gateway: %v", len(missing), missing)
+	}
+
+	var providers []string
+	for _, profileID := range verified {
+		providerName := fmt.Sprintf("cc-deck-%s-%s", openshell.SanitizeWorkspaceName(wsName), profileID)
+		provider := &v1.Provider{
+			Name: providerName,
+			Type: profileID,
+		}
+		if _, err := client.Providers().Ensure(ctx, provider); err != nil {
+			return nil, fmt.Errorf("creating profile provider %s (type=%s): %w", providerName, profileID, err)
+		}
+		providers = append(providers, providerName)
+		log.Printf("DEBUG: openshell: created profile provider %s (type=%s)", providerName, profileID)
+	}
+	return providers, nil
 }
 
 // Create provisions a new OpenShell sandbox.
@@ -325,56 +472,86 @@ func (w *OpenShellWorkspace) Create(ctx context.Context, _ CreateOpts) error {
 		return cfgErr
 	}
 
-	// Clean up any temp policy file extracted from the OCI image after
-	// sandbox creation completes (success or failure).
-	if sbCfg.Policy != "" {
-		if _, statErr := os.Stat(sbCfg.Policy); statErr == nil {
-			if matched, _ := filepath.Match("cc-deck-policy-*.yaml", filepath.Base(sbCfg.Policy)); matched {
-				defer os.Remove(sbCfg.Policy)
-			}
-		}
-	}
-
 	// Resolve credentials via agent-declared specs.
 	var resolved credential.ResolvedCredentials
 	var credProviders []string
 
-	agentName := "claude"
-	if w.defs != nil {
-		if def, defErr := w.defs.FindByName(w.name); defErr == nil && def != nil {
-			agentName = resolveAgentName(def)
+	agentNames := resolveAgentNames()
+
+	authField := w.resolveAuthField()
+	for _, agentName := range agentNames {
+		agentObj := agent.Get(agentName)
+		if agentObj == nil {
+			continue
 		}
-	}
-	agentObj := agent.Get(agentName)
-	if agentObj != nil {
 		specs := agentObj.CredentialSpecs()
 		available := credential.Detect(specs)
-		selectedSpec, found, selectErr := selectCredentialMode(available, w.resolveAuthField())
+		selectedSpec, found, selectErr := selectCredentialMode(available, authField)
 		if selectErr != nil {
 			return selectErr
 		}
-		if found {
-			resolved = credential.Resolve(selectedSpec)
-			providerName, providerType, providerCreds := mapToOpenShellProvider(w.name, selectedSpec, resolved)
-			if providerType != "" {
-				provider := &v1.Provider{
-					Name: providerName,
-					Type: providerType,
-					Spec: types.ProviderSpec{
-						Credentials: providerCreds,
-					},
+		if !found {
+			continue
+		}
+		resolved = credential.Resolve(selectedSpec)
+		providerName, providerType, providerCreds := mapToOpenShellProvider(w.name, agentName, selectedSpec, resolved)
+		if providerType != "" {
+			provider := &v1.Provider{
+				Name: providerName,
+				Type: providerType,
+				Spec: types.ProviderSpec{
+					Credentials: providerCreds,
+				},
+			}
+			if _, err := w.client.Providers().Ensure(ctx, provider); err != nil {
+				return fmt.Errorf("creating credential provider %s: %w", providerName, err)
+			}
+			credProviders = append(credProviders, providerName)
+			log.Printf("DEBUG: openshell: created provider %s (type=%s)", providerName, providerType)
+		}
+		break
+	}
+
+	// Extract profile manifest from OCI image and create providers.
+	var profileProviders []string
+	if sbCfg.Image != "" {
+		pm, pmErr := extractProfileManifest(sbCfg.Image)
+		if pmErr != nil {
+			return pmErr
+		}
+		if pm != nil && len(pm.Profiles) > 0 {
+			pp, ppErr := createProfileProviders(ctx, w.client, w.name, pm.Profiles)
+			if ppErr != nil {
+				return ppErr
+			}
+			profileProviders = pp
+			log.Printf("INFO: openshell: using profile-based path with %d profiles", len(pm.Profiles))
+
+			if len(pm.MCP) > 0 {
+				mcpProvider, mcpErr := importMCPProfile(ctx, w.client, w.name, pm.MCP, pm.AgentBinaries)
+				if mcpErr != nil {
+					return mcpErr
 				}
-				if _, err := w.client.Providers().Ensure(ctx, provider); err != nil {
-					return fmt.Errorf("creating credential provider %s: %w", providerName, err)
+				if mcpProvider != "" {
+					profileProviders = append(profileProviders, mcpProvider)
 				}
-				credProviders = append(credProviders, providerName)
-				log.Printf("DEBUG: openshell: created provider %s (type=%s)", providerName, providerType)
+			}
+
+			if len(pm.CustomDomains) > 0 {
+				domainProvider, domErr := importCustomDomainsProfile(ctx, w.client, w.name, pm.CustomDomains)
+				if domErr != nil {
+					return domErr
+				}
+				if domainProvider != "" {
+					profileProviders = append(profileProviders, domainProvider)
+				}
 			}
 		}
 	}
 
-	// Merge credential providers with any providers from the definition.
-	allProviders := append(sbCfg.Providers, credProviders...)
+	// Merge all providers: definition providers + profile providers + credential providers.
+	allProviders := append(sbCfg.Providers, profileProviders...)
+	allProviders = append(allProviders, credProviders...)
 
 	sbSpec := &v1.SandboxSpec{
 		Template: &v1.SandboxTemplate{
@@ -383,13 +560,6 @@ func (w *OpenShellWorkspace) Create(ctx context.Context, _ CreateOpts) error {
 		Providers: allProviders,
 	}
 
-	if sbCfg.Policy != "" {
-		sdkPolicy, policyErr := loadSDKPolicy(sbCfg.Policy)
-		if policyErr != nil {
-			return fmt.Errorf("loading sandbox policy: %w", policyErr)
-		}
-		sbSpec.Policy = sdkPolicy
-	}
 	created, err := w.client.Sandboxes().Create(ctx, "", sbSpec, nil)
 	if err != nil {
 		return fmt.Errorf("creating sandbox: %w", err)
@@ -661,80 +831,6 @@ func (w *OpenShellWorkspace) ExecOutput(ctx context.Context, cmd []string) (stri
 		return string(result.Stdout), fmt.Errorf("command exited with code %d: %s", result.ExitCode, string(result.Stderr))
 	}
 	return string(result.Stdout), nil
-}
-
-// loadSDKPolicy reads a policy YAML file and converts it to the SDK's SandboxPolicy type.
-func loadSDKPolicy(path string) (*v1.SandboxPolicy, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("reading policy file: %w", err)
-	}
-
-	var pf build.PolicyFile
-	if err := yaml.Unmarshal(data, &pf); err != nil {
-		return nil, fmt.Errorf("parsing policy YAML: %w", err)
-	}
-
-	policy := &v1.SandboxPolicy{
-		Version: uint32(pf.Version),
-	}
-
-	if pf.FilesystemPolicy != nil {
-		policy.Filesystem = &types.FilesystemPolicy{
-			IncludeWorkdir: pf.FilesystemPolicy.IncludeWorkdir,
-			ReadOnly:       pf.FilesystemPolicy.ReadOnly,
-			ReadWrite:      pf.FilesystemPolicy.ReadWrite,
-		}
-	}
-	if pf.Landlock != nil {
-		policy.Landlock = &types.LandlockPolicy{
-			Compatibility: pf.Landlock.Compatibility,
-		}
-	}
-	if pf.Process != nil {
-		policy.Process = &types.ProcessPolicy{
-			RunAsUser:  pf.Process.RunAsUser,
-			RunAsGroup: pf.Process.RunAsGroup,
-		}
-	}
-	if len(pf.NetworkPolicies) > 0 {
-		policy.NetworkPolicies = make(map[string]types.NetworkPolicyRule, len(pf.NetworkPolicies))
-		for key, np := range pf.NetworkPolicies {
-			rule := types.NetworkPolicyRule{Name: np.Name}
-			for _, ep := range np.Endpoints {
-				port := uint32(0)
-				if ep.Port > 0 && ep.Port <= 65535 {
-					port = uint32(ep.Port)
-				}
-				sdkEP := types.PolicyNetworkEndpoint{
-					Host:        ep.Host,
-					Port:        port,
-					Protocol:    ep.Protocol,
-					Enforcement: ep.Enforcement,
-					Access:      ep.Access,
-				}
-				for _, r := range ep.Rules {
-					if r.Allow != nil {
-						sdkEP.Rules = append(sdkEP.Rules, types.L7Rule{
-							Allow: &types.L7Allow{
-								Method: r.Allow.Method,
-								Path:   r.Allow.Path,
-							},
-						})
-					}
-				}
-				rule.Endpoints = append(rule.Endpoints, sdkEP)
-			}
-			for _, b := range np.Binaries {
-				rule.Binaries = append(rule.Binaries, types.PolicyNetworkBinary{
-					Path: b.Path,
-				})
-			}
-			policy.NetworkPolicies[key] = rule
-		}
-	}
-
-	return policy, nil
 }
 
 // Push synchronizes local files into the sandbox.

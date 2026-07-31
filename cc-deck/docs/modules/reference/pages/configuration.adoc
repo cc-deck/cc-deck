@@ -22,6 +22,90 @@ When `probe_tools` is defined, these entries are merged with the default tool se
 Manifest entries override defaults by name.
 Tools not in the default set are added to the probe.
 
+=== `agents`
+
+A list of AI coding agents to include in the build.
+Each agent maps to one or more OpenShell provider profiles.
+When no `agents` field is present, the build defaults to `claude`.
+
+[source,yaml]
+----
+agents:
+  - claude
+  - opencode
+----
+
+Supported agents: `claude`, `opencode`, `codex`.
+
+=== `tools`
+
+A list of tools to install in the image.
+For OpenShell targets, each tool also maps to a provider profile that allows access to the tool's package registry.
+
+[source,yaml]
+----
+tools:
+  - name: python
+  - name: go
+  - name: node
+  - name: rust
+----
+
+=== `credentials`
+
+Credential declarations for OpenShell workspaces.
+Each entry maps to a provider profile at workspace creation time.
+No secrets are stored in the manifest.
+
+[source,yaml]
+----
+credentials:
+  - type: claude-vertex
+  - type: github
+----
+
+Supported types: `claude`, `claude-vertex`, `github`, `gitlab`, `openai`, `nvidia`, `generic`.
+
+== Profile Manifest (`profiles.yaml`)
+
+For OpenShell targets, the build embeds a `profiles.yaml` at `/etc/openshell/profiles.yaml` in the OCI image.
+This file lists the provider profiles that cc-deck creates at workspace creation time.
+
+[source,yaml]
+----
+profiles:
+  - anthropic
+  - claude-agent
+  - github
+  - gitlab
+  - python
+mcp:
+  - name: my-mcp-server
+    endpoint: "mcp.example.com:9090"
+custom_domains:
+  - custom.example.com
+  - internal.corp
+agent_binaries:
+  - /usr/bin/claude
+----
+
+`profiles`::
+A sorted, deduplicated list of OpenShell provider profile IDs.
+These are resolved from the manifest's `agents`, `tools`, and `credentials` fields via a static mapping table.
+
+`mcp`::
+MCP server entries with endpoints in `host:port` format.
+At workspace creation time, cc-deck imports an ephemeral profile containing these endpoints.
+Entries without an endpoint are excluded.
+
+`custom_domains`::
+User-defined domains from `network.allowed_domains` and `network.allowed_domains_per_agent`.
+At workspace creation time, cc-deck imports an ephemeral profile with these domains as network endpoints (port 443, HTTPS).
+
+`agent_binaries`::
+Binary paths for agent executables.
+Used in ephemeral MCP profiles to restrict which binaries can access MCP endpoints.
+
 == Cache Files
 
 === `probe-cache.json`

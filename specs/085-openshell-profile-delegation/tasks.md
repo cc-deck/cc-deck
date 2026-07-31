@@ -13,11 +13,11 @@
 
 **Purpose**: Profile mapping infrastructure that all user stories depend on
 
-- [ ] T001 Create `ProfileMapping` type and static mapping table in `cc-deck/internal/openshell/profiles.go` with `ResolveProfiles(agents, tools, credentials []string) []string` function returning deduplicated, sorted profile IDs
-- [ ] T002 [P] Add unit tests for `ResolveProfiles()` covering: single agent, multiple agents, tool mapping, deduplication, always-included profiles (github, gitlab), empty inputs defaulting to claude in `cc-deck/internal/openshell/profiles_test.go`
-- [ ] T003 Create `ProfileManifest` struct and `BuildProfileManifest(manifest *Manifest) (*ProfileManifest, error)` in `cc-deck/internal/build/profiles.go` with YAML serialization to `profiles.yaml` format
-- [ ] T004 [P] Add unit tests for `BuildProfileManifest()` covering: manifest with agents+tools, empty manifest defaulting to claude, deterministic sorting in `cc-deck/internal/build/profiles_test.go`
-- [ ] T005 Add `SanitizeWorkspaceName(name string) string` helper to `cc-deck/internal/openshell/profiles.go` for deterministic ephemeral profile naming (lowercase alphanumeric + hyphens, truncated to 50 chars)
+- [x] T001 Create `ProfileMapping` type and static mapping table in `cc-deck/internal/openshell/profiles.go` with `ResolveProfiles(agents, tools, credentials []string) []string` function returning deduplicated, sorted profile IDs
+- [x] T002 [P] Add unit tests for `ResolveProfiles()` covering: single agent, multiple agents, tool mapping, deduplication, always-included profiles (github, gitlab), empty inputs defaulting to claude in `cc-deck/internal/openshell/profiles_test.go`
+- [x] T003 Create `ProfileManifest` struct and `BuildProfileManifest(manifest *Manifest) (*ProfileManifest, error)` in `cc-deck/internal/build/profiles.go` with YAML serialization to `profiles.yaml` format
+- [x] T004 [P] Add unit tests for `BuildProfileManifest()` covering: manifest with agents+tools, empty manifest defaulting to claude, deterministic sorting in `cc-deck/internal/build/profiles_test.go`
+- [x] T005 Add `SanitizeWorkspaceName(name string) string` helper to `cc-deck/internal/openshell/profiles.go` for deterministic ephemeral profile naming (lowercase alphanumeric + hyphens, truncated to 50 chars)
 
 ---
 
@@ -27,12 +27,12 @@
 
 **Warning**: No user story work can begin until this phase is complete
 
-- [ ] T006 Replace hardcoded `resolveAgentName()` in `cc-deck/internal/ws/openshell.go` (line 244) to read agents from the profile manifest or manifest config instead of always returning `"claude"`
-- [ ] T007 Update credential resolution in `cc-deck/internal/ws/openshell.go` (line 342) to iterate over all agents from the profile manifest instead of hardcoding `agentName := "claude"`
-- [ ] T008 Add `VerifyProfiles(ctx context.Context, client v1.ClientInterface, profileIDs []string) (verified []string, missing []string, err error)` to `cc-deck/internal/openshell/profiles.go` that calls `ProfileInterface.Get()` for each profile ID
-- [ ] T009 [P] Add unit tests for `VerifyProfiles()` using `fake.NewClient()` in `cc-deck/internal/openshell/profiles_test.go`
+- [x] T006 Replace hardcoded `resolveAgentName()` in `cc-deck/internal/ws/openshell.go` (line 244) to read agents from the profile manifest or manifest config instead of always returning `"claude"`
+- [x] T007 Update credential resolution in `cc-deck/internal/ws/openshell.go` (line 342) to iterate over all agents from the profile manifest instead of hardcoding `agentName := "claude"`
+- [x] T008 Add `VerifyProfiles(ctx context.Context, client v1.ClientInterface, profileIDs []string) (verified []string, missing []string, err error)` to `cc-deck/internal/openshell/profiles.go` that calls `ProfileInterface.Get()` for each profile ID
+- [x] T009 [P] Add unit tests for `VerifyProfiles()` using `fake.NewClient()` in `cc-deck/internal/openshell/profiles_test.go`
   - **Interfaces**: Depends on T008. Test with mock profiles: all found, some missing, all missing. Verify warnings emitted for missing profiles.
-- [ ] T010 Update `mapToOpenShellProvider()` in `cc-deck/internal/ws/openshell.go` (line 288) to set `Provider.Type` to the profile ID from the mapping table, not just hardcoded `"claude"` and `"google-cloud"`
+- [x] T010 Update `mapToOpenShellProvider()` in `cc-deck/internal/ws/openshell.go` (line 288) to set `Provider.Type` to the profile ID from the mapping table, not just hardcoded `"claude"` and `"google-cloud"`
 
 **Checkpoint**: Multi-agent support and profile verification ready
 
@@ -44,13 +44,13 @@
 
 **Independent Test**: Create a workspace with `agents: [claude]` and `tools: [python]`. Verify no `SandboxPolicy` is constructed and providers reference the correct profiles.
 
-- [ ] T011 [US1] Add `extractProfileManifest(image string) (*ProfileManifest, error)` to `cc-deck/internal/ws/openshell.go` that extracts `/etc/openshell/profiles.yaml` from OCI image (reuse `oci.ExtractFileFromImage` pattern)
-- [ ] T012 [US1] Add `createProfileProviders(ctx context.Context, client v1.ClientInterface, profileIDs []string, credentials *credential.ResolvedCredentials) ([]string, error)` to `cc-deck/internal/ws/openshell.go` that creates providers referencing each profile ID via `Providers().Ensure()`, merging credentials for credential-carrying profiles
-- [ ] T013 [US1] Modify `Create()` in `cc-deck/internal/ws/openshell.go` to use the profile-based path: extract profile manifest, verify profiles, create providers, set `SandboxSpec.Policy` to nil
+- [x] T011 [US1] Add `extractProfileManifest(image string) (*ProfileManifest, error)` to `cc-deck/internal/ws/openshell.go` that extracts `/etc/openshell/profiles.yaml` from OCI image (reuse `oci.ExtractFileFromImage` pattern)
+- [x] T012 [US1] Add `createProfileProviders(ctx context.Context, client v1.ClientInterface, profileIDs []string, credentials *credential.ResolvedCredentials) ([]string, error)` to `cc-deck/internal/ws/openshell.go` that creates providers referencing each profile ID via `Providers().Ensure()`, merging credentials for credential-carrying profiles
+- [x] T013 [US1] Modify `Create()` in `cc-deck/internal/ws/openshell.go` to use the profile-based path: extract profile manifest, verify profiles, create providers, set `SandboxSpec.Policy` to nil
   - **Interfaces**: Consumes T011 (`extractProfileManifest`), T008 (`VerifyProfiles`), T012 (`createProfileProviders`). The `SandboxSpec.Providers` list is populated from created provider names. `SandboxSpec.Policy` is set to nil.
-- [ ] T014 [P] [US1] Add unit tests for `extractProfileManifest()` in `cc-deck/internal/ws/openshell_test.go` verifying YAML parsing and error handling
-- [ ] T015 [P] [US1] Add unit tests for `createProfileProviders()` in `cc-deck/internal/ws/openshell_test.go` using `fake.NewClient()`, verifying provider creation with correct `Type` and credential merging
-- [ ] T016 [US1] Add integration test for profile-based `Create()` in `cc-deck/internal/ws/openshell_test.go` verifying: no `SandboxPolicy` passed, correct provider names in `SandboxSpec.Providers`, backward compatibility with empty agents field
+- [x] T014 [P] [US1] Add unit tests for `extractProfileManifest()` in `cc-deck/internal/ws/openshell_test.go` verifying YAML parsing and error handling
+- [x] T015 [P] [US1] Add unit tests for `createProfileProviders()` in `cc-deck/internal/ws/openshell_test.go` using `fake.NewClient()`, verifying provider creation with correct `Type` and credential merging
+- [x] T016 [US1] Add integration test for profile-based `Create()` in `cc-deck/internal/ws/openshell_test.go` verifying: no `SandboxPolicy` passed, correct provider names in `SandboxSpec.Providers`, backward compatibility with empty agents field
 
 **Checkpoint**: Profile-based sandbox creation works for standard profiles
 
@@ -62,11 +62,11 @@
 
 **Independent Test**: Build an image with Python + Node.js without listing them in manifest. Verify the profile manifest contains "python" and "nodejs".
 
-- [ ] T017 [US2] Add OpenShell profile manifest generation to the build pipeline in `cc-deck/internal/build/policy.go`: when `manifest.Targets.OpenShell` is configured, call `BuildProfileManifest()` instead of `AssemblePolicy()` and write `/etc/openshell/profiles.yaml` to the build output
+- [x] T017 [US2] Add OpenShell profile manifest generation to the build pipeline in `cc-deck/internal/build/policy.go`: when `manifest.Targets.OpenShell` is configured, call `BuildProfileManifest()` instead of `AssemblePolicy()` and write `/etc/openshell/profiles.yaml` to the build output
   - **Interfaces**: Consumes `BuildProfileManifest()` from T003. Reads `manifest.EffectiveAgents()`, matched tool components, and the profile mapping table. Writes YAML to the build context.
-- [ ] T018 [P] [US2] Add unit tests verifying profile manifest generation includes auto-detected tools (matched via component `Match.Tools`) in `cc-deck/internal/build/policy_test.go`
-- [ ] T019 [US2] Add unit test verifying union merge: manifest `tools: [python]` + detected Node.js results in both profiles present, with no duplicates in `cc-deck/internal/build/policy_test.go`
-- [ ] T020 [US2] Add unit test verifying backward compatibility: non-OpenShell targets still produce full policy via `AssemblePolicy()` in `cc-deck/internal/build/policy_test.go`
+- [x] T018 [P] [US2] Add unit tests verifying profile manifest generation includes auto-detected tools (matched via component `Match.Tools`) in `cc-deck/internal/build/policy_test.go`
+- [x] T019 [US2] Add unit test verifying union merge: manifest `tools: [python]` + detected Node.js results in both profiles present, with no duplicates in `cc-deck/internal/build/policy_test.go`
+- [x] T020 [US2] Add unit test verifying backward compatibility: non-OpenShell targets still produce full policy via `AssemblePolicy()` in `cc-deck/internal/build/policy_test.go`
 
 **Checkpoint**: Build phase produces profile manifests for OpenShell targets
 
@@ -78,9 +78,9 @@
 
 **Independent Test**: Configure an MCP endpoint in manifest. Verify an ephemeral profile is imported and a provider references it.
 
-- [ ] T021 [US3] Add `importMCPProfile(ctx context.Context, client v1.ClientInterface, workspaceName string, mcpEntries []MCPEntry, agentBinaries []string) (string, error)` to `cc-deck/internal/ws/openshell.go` that imports a single profile via `ProfileInterface.Import()` with all MCP endpoints and agent binaries, using name `cc-deck-<sanitized-name>-mcp`
-- [ ] T022 [US3] Integrate `importMCPProfile()` into `Create()` in `cc-deck/internal/ws/openshell.go`: when manifest has MCP entries, import the profile and add its provider to `SandboxSpec.Providers`
-- [ ] T023 [P] [US3] Add unit tests for `importMCPProfile()` in `cc-deck/internal/ws/openshell_test.go` using `fake.NewClient()`: single endpoint, multiple endpoints, import failure (warn and continue)
+- [x] T021 [US3] Add `importMCPProfile(ctx context.Context, client v1.ClientInterface, workspaceName string, mcpEntries []MCPEntry, agentBinaries []string) (string, error)` to `cc-deck/internal/ws/openshell.go` that imports a single profile via `ProfileInterface.Import()` with all MCP endpoints and agent binaries, using name `cc-deck-<sanitized-name>-mcp`
+- [x] T022 [US3] Integrate `importMCPProfile()` into `Create()` in `cc-deck/internal/ws/openshell.go`: when manifest has MCP entries, import the profile and add its provider to `SandboxSpec.Providers`
+- [x] T023 [P] [US3] Add unit tests for `importMCPProfile()` in `cc-deck/internal/ws/openshell_test.go` using `fake.NewClient()`: single endpoint, multiple endpoints, import failure (warn and continue)
 
 **Checkpoint**: MCP endpoints work through profile delegation
 
@@ -92,9 +92,9 @@
 
 **Independent Test**: Add `allowed_domains: ["custom.example.com"]` to manifest. Verify an ephemeral profile is imported with that domain.
 
-- [ ] T024 [US4] Add `importCustomDomainsProfile(ctx context.Context, client v1.ClientInterface, workspaceName string, domains []string) (string, error)` to `cc-deck/internal/ws/openshell.go` that imports a profile with user-defined domain endpoints, using name `cc-deck-<sanitized-name>-custom`
-- [ ] T025 [US4] Integrate `importCustomDomainsProfile()` into `Create()` in `cc-deck/internal/ws/openshell.go`: resolve `AllowedDomains` + filtered `AllowedDomainsPerAgent` into domain list, import profile, add provider
-- [ ] T026 [P] [US4] Add unit tests for `importCustomDomainsProfile()` in `cc-deck/internal/ws/openshell_test.go`: basic domains, per-agent filtering (included vs excluded agent), empty domains (skip import)
+- [x] T024 [US4] Add `importCustomDomainsProfile(ctx context.Context, client v1.ClientInterface, workspaceName string, domains []string) (string, error)` to `cc-deck/internal/ws/openshell.go` that imports a profile with user-defined domain endpoints, using name `cc-deck-<sanitized-name>-custom`
+- [x] T025 [US4] Integrate `importCustomDomainsProfile()` into `Create()` in `cc-deck/internal/ws/openshell.go`: resolve `AllowedDomains` + filtered `AllowedDomainsPerAgent` into domain list, import profile, add provider
+- [x] T026 [P] [US4] Add unit tests for `importCustomDomainsProfile()` in `cc-deck/internal/ws/openshell_test.go`: basic domains, per-agent filtering (included vs excluded agent), empty domains (skip import)
 
 **Checkpoint**: User-defined domain overrides work through profile delegation
 
@@ -106,10 +106,10 @@
 
 **Independent Test**: Search the OpenShell workspace creation code for any remaining `SandboxPolicy` construction. None should exist.
 
-- [ ] T027 [US5] Remove `loadSDKPolicy()` and related policy-loading code from `cc-deck/internal/ws/openshell.go` (the function that reads policy YAML and converts to SDK types)
-- [ ] T028 [US5] Remove `SandboxConfig.Policy` field and policy extraction from `resolveSandboxConfig()` in `cc-deck/internal/ws/openshell.go`
-- [ ] T029 [US5] Update or remove tests in `cc-deck/internal/ws/openshell_test.go` that assert on `SandboxPolicy` construction for OpenShell targets
-- [ ] T030 [US5] Verify that compose environment tests in `cc-deck/internal/build/policy_test.go` still pass (non-OpenShell targets unaffected)
+- [x] T027 [US5] Remove `loadSDKPolicy()` and related policy-loading code from `cc-deck/internal/ws/openshell.go` (the function that reads policy YAML and converts to SDK types)
+- [x] T028 [US5] Remove `SandboxConfig.Policy` field and policy extraction from `resolveSandboxConfig()` in `cc-deck/internal/ws/openshell.go`
+- [x] T029 [US5] Update or remove tests in `cc-deck/internal/ws/openshell_test.go` that assert on `SandboxPolicy` construction for OpenShell targets
+- [x] T030 [US5] Verify that compose environment tests in `cc-deck/internal/build/policy_test.go` still pass (non-OpenShell targets unaffected)
 
 **Checkpoint**: Zero `SandboxPolicy` construction in OpenShell code path
 
@@ -119,11 +119,11 @@
 
 **Purpose**: Documentation, validation, and cleanup
 
-- [ ] T031 [P] Update `./README.md` with profile delegation documentation: manifest `agents` and `tools` fields, profile manifest concept, ephemeral profiles for MCP/custom domains
-- [ ] T032 [P] Update `docs/modules/reference/pages/configuration.adoc` with profile-related manifest fields and `profiles.yaml` format
-- [ ] T033 [P] Create Antora guide page at `docs/modules/guides/pages/profile-delegation.adoc` covering: profile delegation architecture (cc-deck determines profiles, gateway resolves them into policy), manifest `agents`/`tools` field interaction with auto-detection, ephemeral profiles for MCP endpoints and custom domains, troubleshooting common errors (missing gateway profiles, import failures) with warning messages
-- [ ] T034 Run `make verify` to confirm all tests pass and linting is clean
-- [ ] T035 Verify backward compatibility: build for both OpenShell and compose targets, confirm compose output is unchanged
+- [x] T031 [P] Update `./README.md` with profile delegation documentation: manifest `agents` and `tools` fields, profile manifest concept, ephemeral profiles for MCP/custom domains
+- [x] T032 [P] Update `docs/modules/reference/pages/configuration.adoc` with profile-related manifest fields and `profiles.yaml` format
+- [x] T033 [P] Create Antora guide page at `docs/modules/guides/pages/profile-delegation.adoc` covering: profile delegation architecture (cc-deck determines profiles, gateway resolves them into policy), manifest `agents`/`tools` field interaction with auto-detection, ephemeral profiles for MCP endpoints and custom domains, troubleshooting common errors (missing gateway profiles, import failures) with warning messages
+- [x] T034 Run `make verify` to confirm all tests pass and linting is clean
+- [x] T035 Verify backward compatibility: build for both OpenShell and compose targets, confirm compose output is unchanged
 
 ---
 
