@@ -121,8 +121,9 @@
 
 - [ ] T031 [P] Update `./README.md` with profile delegation documentation: manifest `agents` and `tools` fields, profile manifest concept, ephemeral profiles for MCP/custom domains
 - [ ] T032 [P] Update `docs/modules/reference/pages/configuration.adoc` with profile-related manifest fields and `profiles.yaml` format
-- [ ] T033 Run `make verify` to confirm all tests pass and linting is clean
-- [ ] T034 Verify backward compatibility: build for both OpenShell and compose targets, confirm compose output is unchanged
+- [ ] T033 [P] Create Antora guide page at `docs/modules/guides/pages/profile-delegation.adoc` covering: profile delegation architecture (cc-deck determines profiles, gateway resolves them into policy), manifest `agents`/`tools` field interaction with auto-detection, ephemeral profiles for MCP endpoints and custom domains, troubleshooting common errors (missing gateway profiles, import failures) with warning messages
+- [ ] T034 Run `make verify` to confirm all tests pass and linting is clean
+- [ ] T035 Verify backward compatibility: build for both OpenShell and compose targets, confirm compose output is unchanged
 
 ---
 
@@ -154,7 +155,7 @@
 - T014 and T015 can run in parallel (different test aspects)
 - T018 can run in parallel with T019 (different test scenarios)
 - T023 and T026 can run in parallel (different test files)
-- T031 and T032 can run in parallel (different doc files)
+- T031, T032, and T033 can run in parallel (different doc files)
 - US1 and US2 can run in parallel after Phase 2
 
 ---
