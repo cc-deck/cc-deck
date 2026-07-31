@@ -32,6 +32,28 @@ Ideas captured from code reviews for future brainstorming.
 >
 > Fix: wrap the WaitReady call in a `context.WithTimeout(ctx, 60*time.Second)` to preserve the old behavior.
 
+### openshell-error-messages
+
+- **Source**: manual testing
+- **Date**: 2026-07-27
+- **Reference**: `ws new` and `ws delete` error paths
+- **Summary**: OpenShell error messages expose raw gRPC transport errors without identifying the root cause. When the gateway tunnel is not running, the user sees `Unavailable: connection error: desc = "transport: Error while dialing: dial tcp 127.0.0.1:17670: connect: connection refused"` instead of a clear message like "OpenShell gateway is not reachable. Is the tunnel running?" The SDK client connection errors should be caught and translated to actionable messages that name the likely cause and suggest a fix.
+
+> Two concrete cases:
+> - `ws new` fails during credential provider creation with a raw gRPC error. Should say "Gateway not reachable" and suggest checking the tunnel.
+> - `ws delete` fails with the same raw error. Already improved with `--force` hint, but the root cause message is still opaque.
+>
+> The fix belongs in `internal/openshell/client.go` (or a wrapper) where `ensureClient` connects. Catch `connection refused` on localhost:17670 and wrap with a human-readable explanation.
+
+### openshell-policy-extraction-local-image
+
+- **Source**: manual testing
+- **Date**: 2026-07-27
+- **Reference**: `ws new --type openshell --image openshell-test:latest`
+- **Summary**: Policy extraction fails with a confusing error when the image name has no registry prefix. The message `Get "https:///v2/": http: no Host in request URL` comes from trying to query a remote registry with an empty host. The image `openshell-test:latest` is a local-only image (no registry), so remote lookup makes no sense. The extraction code should recognize registry-less image names and skip the remote fallback, or produce a clearer error like "Image 'openshell-test:latest' not found locally and has no registry to query remotely. Push it to a registry or use --policy to provide the policy file."
+
+> The OCI extraction code in `internal/oci/` tries local podman first, then falls back to a remote registry. The remote fallback constructs a URL without a host when the image reference has no registry component, causing the `no Host in request URL` error.
+
 ### multi-file-credential-support
 
 - **Source**: deep-review
