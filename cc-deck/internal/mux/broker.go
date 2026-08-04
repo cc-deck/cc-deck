@@ -33,6 +33,7 @@ type Broker struct {
 	dedupKeys []string
 	queue     []Message
 	stopCh    chan struct{}
+	connWg    sync.WaitGroup
 	idleMu    sync.Mutex
 	lastMsg   time.Time
 }
@@ -118,6 +119,7 @@ func (b *Broker) Run() error {
 
 	b.listener.Close()
 	wg.Wait()
+	b.connWg.Wait()
 
 	b.finalFlush()
 	os.Remove(b.SocketPath)
@@ -146,7 +148,11 @@ func (b *Broker) acceptLoop() {
 				continue
 			}
 		}
-		go b.handleConn(conn)
+		b.connWg.Add(1)
+		go func() {
+			defer b.connWg.Done()
+			b.handleConn(conn)
+		}()
 	}
 }
 
