@@ -1,21 +1,18 @@
 package cmd
 
 import (
-	"context"
 	"encoding/json"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
-	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/cc-deck/cc-deck/internal/agent"
 	"github.com/cc-deck/cc-deck/internal/badge"
 	"github.com/cc-deck/cc-deck/internal/config"
-	"github.com/cc-deck/cc-deck/internal/mux"
 	"github.com/cc-deck/cc-deck/internal/session"
 	"github.com/cc-deck/cc-deck/internal/xdg"
 )
@@ -147,26 +144,7 @@ func runHook(stdin io.Reader, paneIDStr string, agentName string) {
 		return
 	}
 
-	muxSent := false
-	if cfg != nil && cfg.Mux.Enabled {
-		if sessionName := os.Getenv("ZELLIJ_SESSION_NAME"); sessionName != "" {
-			socketPath := filepath.Join(xdg.RuntimeDir(), "cc-deck", "mux.sock")
-			msg := mux.Message{SessionName: sessionName, PipeName: "cc-deck:hook", Args: string(payloadJSON)}
-			if err := mux.SendOrStart(socketPath, msg); err == nil {
-				muxSent = true
-			}
-		}
-	}
-
-	if !muxSent {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
-
-		cmd := exec.CommandContext(ctx, zellijPath, "pipe",
-			"--name", "cc-deck:hook",
-			"--", string(payloadJSON))
-		_ = cmd.Run()
-	}
+	_ = sendPipeMessage(zellijPath, cfg, payloadJSON)
 
 	session.AutoSave()
 

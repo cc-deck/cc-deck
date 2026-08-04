@@ -54,7 +54,7 @@ func NewFileLogger() Logger {
 func (l *FileLogger) write(format string, args ...any) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	ts := time.Now().Format("2006-01-02T15:04:05.000")
+	ts := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
 	fmt.Fprintf(l.file, ts+" "+format+"\n", args...)
 }
 

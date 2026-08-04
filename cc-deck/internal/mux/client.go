@@ -70,7 +70,7 @@ func isDialFailure(err error) bool {
 	if errors.As(err, &opErr) {
 		return opErr.Op == "dial"
 	}
-	return true
+	return false
 }
 
 func startBroker() error {

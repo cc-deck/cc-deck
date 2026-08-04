@@ -185,6 +185,40 @@ func TestBroker_NoDedupPreservesAll(t *testing.T) {
 	assert.Equal(t, 5, count, "dedup=false should preserve all messages")
 }
 
+func TestBroker_NoDedupQueueSizeDropsOldest(t *testing.T) {
+	var mu sync.Mutex
+	var flushed []Message
+
+	b, _ := startTestBroker(t, func(b *Broker) {
+		b.Dedup = false
+		b.QueueSize = 3
+		b.FlushFn = func(msg Message) error {
+			mu.Lock()
+			flushed = append(flushed, msg)
+			mu.Unlock()
+			return nil
+		}
+	})
+
+	for i := 0; i < 5; i++ {
+		msg := Message{SessionName: "s1", PipeName: "p", Args: fmt.Sprintf("%d", i)}
+		require.NoError(t, Send(b.SocketPath, msg))
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	time.Sleep(200 * time.Millisecond)
+
+	mu.Lock()
+	result := make([]Message, len(flushed))
+	copy(result, flushed)
+	mu.Unlock()
+
+	assert.Equal(t, 3, len(result), "dedup=false with queue_size=3 should keep only 3 messages")
+	assert.Equal(t, "2", result[0].Args, "oldest messages should be dropped, keeping 2,3,4")
+	assert.Equal(t, "3", result[1].Args)
+	assert.Equal(t, "4", result[2].Args)
+}
+
 func TestBroker_ConcurrentWriteAndFlush(t *testing.T) {
 	var mu sync.Mutex
 	var flushed []Message
