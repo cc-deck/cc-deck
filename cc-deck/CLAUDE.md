@@ -1,5 +1,5 @@
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at `specs/085-openshell-profile-delegation/plan.md`
+at `specs/086-pipe-mux-broker/plan.md`
 <!-- SPECKIT END -->
