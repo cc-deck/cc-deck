@@ -221,11 +221,11 @@ func downloadModel(ctx context.Context, info ModelInfo, destPath, expectedSHA st
 		return fmt.Errorf("download returned status %d", resp.StatusCode)
 	}
 
-	tmpPath := destPath + ".tmp"
-	f, err := os.Create(tmpPath)
+	f, err := os.CreateTemp(filepath.Dir(destPath), filepath.Base(destPath)+".*.tmp")
 	if err != nil {
 		return fmt.Errorf("creating temp file: %w", err)
 	}
+	tmpPath := f.Name()
 
 	hasher := sha256.New()
 	writer := io.MultiWriter(f, hasher)

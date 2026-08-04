@@ -35,6 +35,12 @@ func Restore(name string, w io.Writer) error {
 	// sessions start and report their CWD via hook events.
 	sendPendingOverrides(snap.Sessions)
 
+	// Track which directories have already had a session started so we
+	// can add extra delay between sessions sharing the same directory.
+	// Claude Code needs time to fully initialize before a second instance
+	// can start in the same project directory.
+	startedDirs := make(map[string]bool)
+
 	total := len(snap.Sessions)
 	for i, entry := range snap.Sessions {
 		fmt.Fprintf(w, "Creating tab %d/%d: %s...\n", i+1, total, entry.DisplayName)
@@ -50,6 +56,16 @@ func Restore(name string, w io.Writer) error {
 		// Uses the dump-state pipe as a readiness probe: if the plugin
 		// responds, it is ready to handle events.
 		waitForPluginReady(3 * time.Second)
+
+		// If another session was already started in this directory,
+		// wait for the previous Claude instance to finish initializing.
+		// Without this delay, the second instance may fail to start
+		// due to project-level initialization conflicts.
+		if entry.WorkingDir != "" && startedDirs[entry.WorkingDir] {
+			fmt.Fprintf(w, "  Waiting for previous session in %s to initialize...\n",
+				entry.WorkingDir)
+			time.Sleep(5 * time.Second)
+		}
 
 		// Change to the original working directory where the session ran.
 		if entry.WorkingDir != "" {
@@ -67,6 +83,10 @@ func Restore(name string, w io.Writer) error {
 			writeChars(fmt.Sprintf("claude --resume %s\n", entry.SessionID))
 		} else {
 			writeChars("claude\n")
+		}
+
+		if entry.WorkingDir != "" {
+			startedDirs[entry.WorkingDir] = true
 		}
 
 		// Brief pause between tabs

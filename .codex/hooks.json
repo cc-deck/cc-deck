@@ -1,0 +1,24 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "command": "sh /Users/rhuss/Development/context-engineering/cc-spex/spex/scripts/hooks/python-resolve.sh /Users/rhuss/Development/context-engineering/cc-spex/spex/scripts/adapters/codex/context-hook.py",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "sh /Users/rhuss/Development/context-engineering/cc-spex/spex/scripts/hooks/python-resolve.sh /Users/rhuss/Development/context-engineering/cc-spex/spex/scripts/adapters/codex/pretool-gate.py",
+            "type": "command"
+          }
+        ]
+      }
+    ]
+  }
+}

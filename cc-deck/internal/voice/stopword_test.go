@@ -66,7 +66,7 @@ func TestProcessStopwords_Defaults(t *testing.T) {
 		{"send it after filler", "um, send it", true, "submit"},
 		{"send it after multiple fillers", "uh um send it", true, "submit"},
 		{"send it with punctuation", "Send it!", true, "submit"},
-		{"send alone is not command", "send", false, ""},
+		{"send alone is command", "send", true, "submit"},
 		{"send in sentence", "please send the email", false, ""},
 		{"submit is not default", "submit", false, ""},
 		{"enter is not default", "enter", false, ""},
@@ -77,7 +77,7 @@ func TestProcessStopwords_Defaults(t *testing.T) {
 		{"ship it standalone", "ship it", true, "submit_attend"},
 		{"ship it uppercase", "Ship it", true, "submit_attend"},
 		{"ship it after filler", "um, ship it", true, "submit_attend"},
-		{"ship alone is not command", "ship", false, ""},
+		{"ship alone is command", "ship", true, "submit_attend"},
 	}
 
 	for _, tt := range tests {
@@ -137,7 +137,7 @@ func TestProcessStopwords_DefaultAttend(t *testing.T) {
 		{"go next uppercase", "Go next", true, "attend"},
 		{"go next after filler", "um, go next", true, "attend"},
 		{"go next after multiple fillers", "uh um go next", true, "attend"},
-		{"next alone is not command", "next", false, ""},
+		{"next alone is command", "next", true, "attend"},
 		{"next in sentence", "the next step is to refactor", false, ""},
 		{"send it still works", "send it", true, "submit"},
 	}

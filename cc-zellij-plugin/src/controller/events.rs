@@ -14,23 +14,16 @@ use zellij_tile::prelude::*;
 /// Handle TabUpdate event: track tabs, detect active tab, register keybindings,
 /// clean up dead sessions.
 pub fn handle_tab_update(state: &mut ControllerState, tabs: Vec<TabInfo>) {
-    let old_active = state.active_tab_index;
+    let old_active = state.own_active_tab();
     let new_active = tabs.iter().find(|t| t.active).map(|t| t.position);
-    state.active_tab_index = new_active;
 
     // Detect tab count change for sidebar reindex
     let current_tab_count = tabs.len();
     let tab_count_changed = current_tab_count != state.last_tab_count;
 
     state.tabs = tabs;
-    let pre_focus = state.focused_pane_id;
     state.rebuild_pane_map();
-    if state.focused_pane_id != pre_focus {
-        crate::debug_log(&format!(
-            "CTRL[{}] TAB_UPDATE: rebuild changed focus {:?} -> {:?}",
-            state.plugin_id, pre_focus, state.focused_pane_id
-        ));
-    }
+    let client_views_changed = state.reconcile_client_views();
 
     // Register keybindings on first TabUpdate or when tabs are closed,
     // but only if this instance is the active leader.
@@ -41,6 +34,15 @@ pub fn handle_tab_update(state: &mut ControllerState, tabs: Vec<TabInfo>) {
         state.keybindings_registered = true;
     }
     state.last_tab_count = current_tab_count;
+
+    let active_clients = state
+        .client_views
+        .keys()
+        .copied()
+        .collect::<std::collections::HashSet<_>>();
+    state
+        .sidebar_registry
+        .retain(|_, (_, client_id)| active_clients.contains(client_id));
 
     // Clean up dead sessions
     let dead_removed = state.remove_dead_sessions();
@@ -67,18 +69,23 @@ pub fn handle_tab_update(state: &mut ControllerState, tabs: Vec<TabInfo>) {
 
     // Only mark render dirty when something actually changed
     let active_tab_changed = new_active != old_active;
-    if tab_count_changed || active_tab_changed || dead_removed || stale_transitioned {
+    if tab_count_changed
+        || active_tab_changed
+        || client_views_changed
+        || dead_removed
+        || stale_transitioned
+    {
         state.mark_render_dirty();
     }
 }
 
 /// Handle PaneUpdate event: update manifest, rebuild pane map, remove dead sessions.
 pub fn handle_pane_update(state: &mut ControllerState, manifest: PaneManifest) {
-    let old_focused = state.focused_pane_id;
     let old_session_count = state.sessions.len();
 
     state.pane_manifest = Some(manifest);
     state.rebuild_pane_map();
+    let client_views_changed = state.reconcile_client_views();
 
     // Confirm restored sessions whose panes still exist in the manifest.
     // On reattach, Claude Code processes don't re-fire hooks, so the pane
@@ -114,50 +121,8 @@ pub fn handle_pane_update(state: &mut ControllerState, manifest: PaneManifest) {
         removed = state.remove_dead_sessions();
     }
 
-    // Auto-discover sidebar plugin panes from manifest for reliable targeting.
-    // Send an immediate render to newly discovered sidebars so they don't
-    // have to wait for the next timer tick.
-    let new_sidebars = super::sidebar_registry::discover_sidebars_from_manifest(state);
-    if !new_sidebars.is_empty() {
-        let payload = render_broadcast::build_render_payload(state);
-        if let Ok(json) = serde_json::to_string(&payload) {
-            for &sidebar_id in &new_sidebars {
-                render_broadcast::send_render_to_plugin_pub(sidebar_id, &json);
-                crate::debug_log(&format!(
-                    "CTRL[{}] PUSH-ON-DISCOVERY: sent render to new sidebar={}",
-                    state.plugin_id, sidebar_id
-                ));
-            }
-        }
-    }
-
-    // Auto-unpause: when the user focuses a paused session, unpause it.
-    if let Some(focused_pid) = state.focused_pane_id {
-        if state.focused_pane_id != old_focused {
-            if let Some(s) = state.sessions.get_mut(&focused_pid) {
-                if s.paused {
-                    crate::debug_log(&format!(
-                        "CTRL PANE_UPDATE: auto-unpausing pane={focused_pid}"
-                    ));
-                    s.paused = false;
-                    s.last_event_ts = session::unix_now();
-                }
-            }
-        }
-    }
-
-    // Broadcast immediately on focus change (for responsive click/switch feedback).
-    // Other changes (count, removal) use coalesced rendering via timer.
-    let focus_changed = state.focused_pane_id != old_focused;
     let count_changed = state.sessions.len() != old_session_count;
-    if focus_changed {
-        crate::debug_log(&format!(
-            "CTRL PANE_UPDATE: focus changed {:?} -> {:?}, immediate broadcast",
-            old_focused, state.focused_pane_id
-        ));
-        super::render_broadcast::broadcast_render(state);
-        state.render_dirty = false;
-    } else if count_changed || removed {
+    if count_changed || removed || client_views_changed {
         state.mark_render_dirty();
     }
 }
@@ -167,7 +132,7 @@ pub fn handle_timer(state: &mut ControllerState, _elapsed: f64) {
     state.tick_count += 1;
 
     // --- Leader election protocol ---
-    use super::state::{ELECTION_TIMEOUT_TICKS, LEADER_HEARTBEAT_TICKS, LEADER_FAILURE_TIMEOUT_MS};
+    use super::state::{ELECTION_TIMEOUT_TICKS, LEADER_FAILURE_TIMEOUT_MS, LEADER_HEARTBEAT_TICKS};
 
     if !state.is_leader {
         state.election_ticks += 1;
@@ -195,7 +160,7 @@ pub fn handle_timer(state: &mut ControllerState, _elapsed: f64) {
             ));
             // Broadcast ping so other dormant instances discover the new
             // leader and don't also self-activate after their own timeout.
-            broadcast_controller_ping(state.plugin_id);
+            broadcast_controller_ping(state.client_id, state.plugin_id);
             register_keybindings(state);
             state.keybindings_registered = true;
             render_broadcast::broadcast_render(state);
@@ -210,7 +175,7 @@ pub fn handle_timer(state: &mut ControllerState, _elapsed: f64) {
     // Leader heartbeat: broadcast ping periodically so dormant instances
     // know the leader is still alive.
     if state.tick_count.is_multiple_of(LEADER_HEARTBEAT_TICKS) {
-        broadcast_controller_ping(state.plugin_id);
+        broadcast_controller_ping(state.client_id, state.plugin_id);
         crate::debug_log("CTRL ELECTION: leader heartbeat");
     }
 
@@ -227,7 +192,9 @@ pub fn handle_timer(state: &mut ControllerState, _elapsed: f64) {
                 }
                 state.auto_sort_tail.retain(|&p| p != pane_id);
             }
-            crate::debug_log(&format!("CTRL CLEANUP removed {count} unconfirmed restored sessions"));
+            crate::debug_log(&format!(
+                "CTRL CLEANUP removed {count} unconfirmed restored sessions"
+            ));
             state.save_sessions();
             state.mark_render_dirty();
         }
@@ -258,6 +225,14 @@ pub fn handle_timer(state: &mut ControllerState, _elapsed: f64) {
     }
 
     let now_ms = session::unix_now_ms();
+
+    if state.client_views.values().any(|view| {
+        view.pending_focus
+            .is_some_and(|pending| now_ms >= pending.expires_at_ms)
+    }) && state.reconcile_client_views()
+    {
+        state.mark_render_dirty();
+    }
 
     // Voice heartbeat timeout: if voice is enabled but no ping for 15 seconds, clear voice state
     if state.voice_enabled
@@ -332,9 +307,7 @@ pub fn handle_timer(state: &mut ControllerState, _elapsed: f64) {
         state
             .perf
             .record_raw("gauge:sessions", state.sessions.len() as u64);
-        state
-            .perf
-            .record_raw("gauge:tabs", state.tabs.len() as u64);
+        state.perf.record_raw("gauge:tabs", state.tabs.len() as u64);
         state
             .perf
             .record_raw("gauge:sidebars", state.sidebar_registry.len() as u64);
@@ -371,7 +344,7 @@ pub fn handle_run_command_result(
             let should_rename = state
                 .sessions
                 .get(&pane_id)
-                .map(|s| !s.manually_renamed)
+                .map(|s| !s.manually_renamed && !s.in_worktree)
                 .unwrap_or(false);
 
             if should_rename {
@@ -541,16 +514,84 @@ fn set_timer(interval: f64) {
 fn set_timer(_interval: f64) {}
 
 /// Broadcast a controller ping for leader election protocol.
+/// The payload encodes `client_id:plugin_id` so election priority uses
+/// the (client_id, plugin_id) tuple (lowest wins).
 #[cfg(target_family = "wasm")]
-pub fn broadcast_controller_ping(plugin_id: u32) {
+pub fn broadcast_controller_ping(client_id: u16, plugin_id: u32) {
     use zellij_tile::prelude::*;
     let mut msg = MessageToPlugin::new("cc-deck:controller-ping");
-    msg.message_payload = Some(plugin_id.to_string());
+    msg.message_payload = Some(format!("{}:{}", client_id, plugin_id));
     pipe_message_to_plugin(msg);
 }
 
 #[cfg(not(target_family = "wasm"))]
-pub fn broadcast_controller_ping(_plugin_id: u32) {}
+pub fn broadcast_controller_ping(_client_id: u16, _plugin_id: u32) {}
+
+/// Standard ANSI 16-color palette (indices 0-15).
+const ANSI_16: [(u8, u8, u8); 16] = [
+    (0, 0, 0),
+    (128, 0, 0),
+    (0, 128, 0),
+    (128, 128, 0),
+    (0, 0, 128),
+    (128, 0, 128),
+    (0, 128, 128),
+    (192, 192, 192),
+    (128, 128, 128),
+    (255, 0, 0),
+    (0, 255, 0),
+    (255, 255, 0),
+    (0, 0, 255),
+    (255, 0, 255),
+    (0, 255, 255),
+    (255, 255, 255),
+];
+
+fn eightbit_to_rgb(n: u8) -> (u8, u8, u8) {
+    match n {
+        0..=15 => ANSI_16[n as usize],
+        16..=231 => {
+            let idx = n - 16;
+            let r = (idx / 36) * 51;
+            let g = ((idx % 36) / 6) * 51;
+            let b = (idx % 6) * 51;
+            (r, g, b)
+        }
+        232..=255 => {
+            let v = 8 + (n - 232) * 10;
+            (v, v, v)
+        }
+    }
+}
+
+/// Handle ModeUpdate event: extract multiplayer user colors from the Zellij palette.
+pub fn handle_mode_update(state: &mut ControllerState, mode_info: ModeInfo) {
+    let colors = &mode_info.style.colors;
+    let mp = &colors.multiplayer_user_colors;
+    let to_rgb = |c: &PaletteColor| -> (u8, u8, u8) {
+        match c {
+            PaletteColor::Rgb((r, g, b)) => (*r, *g, *b),
+            PaletteColor::EightBit(n) => eightbit_to_rgb(*n),
+        }
+    };
+    let palette: Vec<(u8, u8, u8)> = vec![
+        to_rgb(&mp.player_1),
+        to_rgb(&mp.player_2),
+        to_rgb(&mp.player_3),
+        to_rgb(&mp.player_4),
+        to_rgb(&mp.player_5),
+        to_rgb(&mp.player_6),
+        to_rgb(&mp.player_7),
+        to_rgb(&mp.player_8),
+        to_rgb(&mp.player_9),
+        to_rgb(&mp.player_10),
+    ];
+    if state.multiplayer_colors.as_ref() != Some(&palette) {
+        state.multiplayer_colors = Some(palette);
+        state.mark_render_dirty();
+        crate::debug_log("CTRL MODE_UPDATE: multiplayer palette changed; render scheduled");
+    }
+}
 
 /// Derive the Shift variant of a keybinding string by uppercasing the last character.
 #[allow(dead_code)]
@@ -570,6 +611,26 @@ fn shift_variant(key: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mode_update_marks_render_dirty_only_when_palette_changes() {
+        let mut state = ControllerState::default();
+        let mode_info = ModeInfo::default();
+
+        handle_mode_update(&mut state, mode_info.clone());
+        assert!(state.render_dirty);
+
+        state.render_dirty = false;
+        handle_mode_update(&mut state, mode_info.clone());
+        assert!(!state.render_dirty);
+
+        let mut changed = mode_info;
+        changed.style.colors.multiplayer_user_colors.player_1 =
+            PaletteColor::Rgb((12, 34, 56));
+        handle_mode_update(&mut state, changed);
+        assert!(state.render_dirty);
+        assert_eq!(state.multiplayer_colors.as_ref().unwrap()[0], (12, 34, 56));
+    }
 
     #[test]
     fn test_shift_variant() {
@@ -717,7 +778,11 @@ mod tests {
         state.keybindings_registered = true;
 
         let tabs = vec![make_tab_info(0, true)];
-        state.active_tab_index = Some(0);
+        state
+            .client_views
+            .entry(state.client_id)
+            .or_default()
+            .active_tab_index = Some(0);
         state.last_tab_count = 1;
 
         handle_tab_update(&mut state, tabs);
@@ -744,7 +809,11 @@ mod tests {
         let mut state = ControllerState::default();
         state.permissions_granted = true;
         state.keybindings_registered = true;
-        state.active_tab_index = Some(0);
+        state
+            .client_views
+            .entry(state.client_id)
+            .or_default()
+            .active_tab_index = Some(0);
         state.last_tab_count = 2;
 
         let tabs = vec![make_tab_info(0, false), make_tab_info(1, true)];
@@ -757,9 +826,7 @@ mod tests {
     #[test]
     fn test_handle_pane_closed_terminal() {
         let mut state = ControllerState::default();
-        state
-            .sessions
-            .insert(42, Session::new(42, "test".into()));
+        state.sessions.insert(42, Session::new(42, "test".into()));
 
         handle_pane_closed(&mut state, PaneId::Terminal(42));
         assert!(!state.sessions.contains_key(&42));
@@ -769,7 +836,7 @@ mod tests {
     #[test]
     fn test_handle_pane_closed_plugin_cleans_registry() {
         let mut state = ControllerState::default();
-        state.sidebar_registry.insert(99, 0);
+        state.sidebar_registry.insert(99, (0, 0));
 
         handle_pane_closed(&mut state, PaneId::Plugin(99));
         assert!(!state.sidebar_registry.contains_key(&99));
@@ -810,7 +877,9 @@ mod tests {
         ];
         handle_tab_update(&mut state, tabs);
 
-        let order = state.sort_order.expect("sort_order should be preserved when tab is added");
+        let order = state
+            .sort_order
+            .expect("sort_order should be preserved when tab is added");
         assert_eq!(order[0], 2, "existing order preserved");
         assert_eq!(order[1], 1, "existing order preserved");
         assert_eq!(order[2], 3, "new session appended at end");
@@ -829,13 +898,12 @@ mod tests {
 
         state.last_tab_count = 3;
 
-        let tabs = vec![
-            make_tab_info(0, true),
-            make_tab_info(1, false),
-        ];
+        let tabs = vec![make_tab_info(0, true), make_tab_info(1, false)];
         handle_tab_update(&mut state, tabs);
 
-        let order = state.sort_order.expect("sort_order should be preserved when tab is closed");
+        let order = state
+            .sort_order
+            .expect("sort_order should be preserved when tab is closed");
         assert_eq!(order, vec![3, 1], "dead pane_id removed from sort order");
     }
 
@@ -848,14 +916,97 @@ mod tests {
         state.sort_order = Some(vec![1, 2]);
 
         state.last_tab_count = 2;
-        state.active_tab_index = Some(0);
+        state
+            .client_views
+            .entry(state.client_id)
+            .or_default()
+            .active_tab_index = Some(0);
 
-        let tabs = vec![
-            make_tab_info(0, true),
-            make_tab_info(1, false),
-        ];
+        let tabs = vec![make_tab_info(0, true), make_tab_info(1, false)];
         handle_tab_update(&mut state, tabs);
 
-        assert!(state.sort_order.is_some(), "sort_order should be preserved when tab count is unchanged");
+        assert!(
+            state.sort_order.is_some(),
+            "sort_order should be preserved when tab count is unchanged"
+        );
+    }
+
+    // --- Multiplayer client_focus cleanup tests ---
+
+    #[test]
+    fn test_tab_update_cleans_disconnected_client_focus() {
+        let mut state = ControllerState::default();
+        state.permissions_granted = true;
+        state.keybindings_registered = true;
+        state.client_id = 1;
+        state.last_tab_count = 1;
+
+        // Two clients with focus entries
+        state
+            .client_views
+            .insert(1, super::super::state::ClientViewState::default());
+        state
+            .client_views
+            .insert(2, super::super::state::ClientViewState::default());
+
+        // TabUpdate shows only client 1 (client 2 disconnected)
+        let tabs = vec![make_tab_info(0, true)];
+        handle_tab_update(&mut state, tabs);
+
+        assert!(
+            state.client_views.contains_key(&1),
+            "controller's own client preserved"
+        );
+        assert!(
+            !state.client_views.contains_key(&2),
+            "disconnected client removed"
+        );
+        assert!(state.render_dirty, "render dirty after cleanup");
+    }
+
+    #[test]
+    fn test_tab_update_preserves_active_client_focus() {
+        let mut state = ControllerState::default();
+        state.permissions_granted = true;
+        state.keybindings_registered = true;
+        state.client_id = 1;
+        state.last_tab_count = 1;
+
+        state
+            .client_views
+            .insert(1, super::super::state::ClientViewState::default());
+        state
+            .client_views
+            .insert(2, super::super::state::ClientViewState::default());
+
+        // TabUpdate shows client 2 still connected
+        let mut tab = make_tab_info(0, true);
+        tab.other_focused_clients = vec![2];
+        let tabs = vec![tab];
+        handle_tab_update(&mut state, tabs);
+
+        assert!(state.client_views.contains_key(&1));
+        assert!(
+            state.client_views.contains_key(&2),
+            "connected client preserved"
+        );
+    }
+
+    #[test]
+    fn test_tab_update_no_cleanup_when_no_focus_entries() {
+        let mut state = ControllerState::default();
+        state.permissions_granted = true;
+        state.keybindings_registered = true;
+        state.last_tab_count = 1;
+        state
+            .client_views
+            .entry(state.client_id)
+            .or_default()
+            .active_tab_index = Some(0);
+
+        let tabs = vec![make_tab_info(0, true)];
+        handle_tab_update(&mut state, tabs);
+
+        assert!(!state.render_dirty, "no render dirty when nothing to clean");
     }
 }

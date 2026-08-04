@@ -5,6 +5,7 @@
 // until Phase 2+ migrates them here.
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 // ---------------------------------------------------------------------------
 // Render payload: controller -> sidebar via cc-deck:render pipe
@@ -35,8 +36,6 @@ pub struct RenderSession {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RenderPayload {
     pub sessions: Vec<RenderSession>,
-    pub focused_pane_id: Option<u32>,
-    pub active_tab_index: usize,
     pub notification: Option<String>,
     #[serde(default)]
     pub notification_expiry: Option<u64>,
@@ -53,8 +52,20 @@ pub struct RenderPayload {
     pub show_agent_indicators: bool,
     #[serde(default)]
     pub sort_active: bool,
+    /// Per-client presentation state. Presence, active highlighting and local
+    /// ordering are all derived from this single map.
     #[serde(default)]
-    pub separator_after_index: Option<usize>,
+    pub client_views: BTreeMap<u16, ClientViewSnapshot>,
+    #[serde(default)]
+    pub multiplayer_colors: Option<Vec<(u8, u8, u8)>>,
+}
+
+/// Render-safe projection of a connected client's state.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClientViewSnapshot {
+    pub active_tab_index: Option<usize>,
+    pub focused_pane_id: Option<u32>,
+    pub revision: u64,
 }
 
 // ---------------------------------------------------------------------------
@@ -64,7 +75,6 @@ pub struct RenderPayload {
 /// Types of actions a sidebar can request from the controller.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ActionType {
-    Switch,
     Rename,
     Delete,
     Pause,
@@ -72,7 +82,6 @@ pub enum ActionType {
     AttendPrev,
     Working,
     WorkingPrev,
-    Navigate,
     NewSession,
     Refresh,
     VoiceMute,
@@ -99,6 +108,11 @@ pub struct ActionMessage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SidebarHello {
     pub plugin_id: u32,
+    /// The Zellij client that owns this sidebar instance.
+    /// Defaults to 0 for backward compatibility with older plugin versions
+    /// that do not include this field in the hello payload.
+    #[serde(default)]
+    pub client_id: u16,
 }
 
 /// Sent from controller to sidebar with tab assignment.
@@ -107,6 +121,33 @@ pub struct SidebarInit {
     pub tab_index: usize,
     pub controller_plugin_id: u32,
 }
+
+// ---------------------------------------------------------------------------
+// Focus report: sidebar -> controller for multiplayer presence tracking
+// ---------------------------------------------------------------------------
+
+/// Sent from sidebar to controller when a client switches session focus locally.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FocusReport {
+    pub client_id: u16,
+    pub pane_id: u32,
+    pub tab_index: usize,
+}
+
+/// Fallback multiplayer palette when ModeUpdate hasn't delivered colors yet.
+/// Matches Zellij's default multiplayer_user_colors.
+pub const FALLBACK_MULTIPLAYER_COLORS: [(u8, u8, u8); 10] = [
+    (255, 0, 255),   // magenta
+    (0, 0, 255),     // blue
+    (128, 0, 128),   // purple
+    (255, 255, 0),   // yellow
+    (0, 255, 255),   // cyan
+    (0, 255, 0),     // green
+    (255, 165, 0),   // orange
+    (128, 128, 128), // gray
+    (255, 192, 203), // pink
+    (139, 69, 19),   // brown
+];
 
 #[cfg(test)]
 mod protocol_tests {
@@ -129,8 +170,6 @@ mod protocol_tests {
                 agent_indicator: None,
                 in_worktree: false,
             }],
-            focused_pane_id: Some(1),
-            active_tab_index: 0,
             notification: None,
             notification_expiry: None,
             total: 1,
@@ -142,7 +181,8 @@ mod protocol_tests {
             voice_muted: false,
             show_agent_indicators: false,
             sort_active: false,
-            separator_after_index: None,
+            client_views: BTreeMap::new(),
+            multiplayer_colors: None,
         };
         let json = serde_json::to_string(&payload).unwrap();
         let restored: RenderPayload = serde_json::from_str(&json).unwrap();
@@ -155,7 +195,7 @@ mod protocol_tests {
     #[test]
     fn test_action_message_roundtrip() {
         let msg = ActionMessage {
-            action: ActionType::Switch,
+            action: ActionType::Pause,
             pane_id: Some(5),
             tab_index: Some(2),
             value: None,
@@ -183,10 +223,24 @@ mod protocol_tests {
 
     #[test]
     fn test_sidebar_hello_roundtrip() {
-        let hello = SidebarHello { plugin_id: 99 };
+        let hello = SidebarHello {
+            plugin_id: 99,
+            client_id: 3,
+        };
         let json = serde_json::to_string(&hello).unwrap();
         let restored: SidebarHello = serde_json::from_str(&json).unwrap();
         assert_eq!(restored.plugin_id, 99);
+        assert_eq!(restored.client_id, 3);
+    }
+
+    #[test]
+    fn test_sidebar_hello_backward_compat_no_client_id() {
+        // Simulate an older plugin that does not include the client_id field.
+        // The #[serde(default)] attribute ensures client_id defaults to 0.
+        let json = r#"{"plugin_id":42}"#;
+        let restored: SidebarHello = serde_json::from_str(json).unwrap();
+        assert_eq!(restored.plugin_id, 42);
+        assert_eq!(restored.client_id, 0);
     }
 
     #[test]
@@ -205,8 +259,6 @@ mod protocol_tests {
     fn test_render_payload_voice_fields() {
         let payload = RenderPayload {
             sessions: vec![],
-            focused_pane_id: None,
-            active_tab_index: 0,
             notification: None,
             notification_expiry: None,
             total: 0,
@@ -218,7 +270,8 @@ mod protocol_tests {
             voice_muted: false,
             show_agent_indicators: false,
             sort_active: false,
-            separator_after_index: None,
+            client_views: BTreeMap::new(),
+            multiplayer_colors: None,
         };
         let json = serde_json::to_string(&payload).unwrap();
         let restored: RenderPayload = serde_json::from_str(&json).unwrap();
@@ -239,8 +292,6 @@ mod protocol_tests {
     fn test_render_payload_empty_sessions() {
         let payload = RenderPayload {
             sessions: vec![],
-            focused_pane_id: None,
-            active_tab_index: 0,
             notification: Some("No sessions".into()),
             notification_expiry: Some(1000),
             total: 0,
@@ -252,7 +303,8 @@ mod protocol_tests {
             voice_muted: false,
             show_agent_indicators: false,
             sort_active: false,
-            separator_after_index: None,
+            client_views: BTreeMap::new(),
+            multiplayer_colors: None,
         };
         let json = serde_json::to_string(&payload).unwrap();
         let restored: RenderPayload = serde_json::from_str(&json).unwrap();
@@ -263,7 +315,6 @@ mod protocol_tests {
     #[test]
     fn test_all_action_types_serialize() {
         let types = vec![
-            ActionType::Switch,
             ActionType::Rename,
             ActionType::Delete,
             ActionType::Pause,
@@ -271,7 +322,6 @@ mod protocol_tests {
             ActionType::AttendPrev,
             ActionType::Working,
             ActionType::WorkingPrev,
-            ActionType::Navigate,
             ActionType::NewSession,
             ActionType::Refresh,
             ActionType::VoiceMute,
@@ -288,5 +338,56 @@ mod protocol_tests {
             let json = serde_json::to_string(&msg).unwrap();
             let _: ActionMessage = serde_json::from_str(&json).unwrap();
         }
+    }
+
+    #[test]
+    fn test_focus_report_roundtrip() {
+        let report = FocusReport {
+            client_id: 2,
+            pane_id: 42,
+            tab_index: 3,
+        };
+        let json = serde_json::to_string(&report).unwrap();
+        let restored: FocusReport = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.client_id, 2);
+        assert_eq!(restored.pane_id, 42);
+        assert_eq!(restored.tab_index, 3);
+    }
+
+    #[test]
+    fn test_render_payload_client_views_default() {
+        let json = r#"{"sessions":[],"focused_pane_id":null,"active_tab_index":0,"notification":null,"total":0,"waiting":0,"working":0,"idle":0,"controller_plugin_id":1}"#;
+        let restored: RenderPayload = serde_json::from_str(json).unwrap();
+        assert!(restored.client_views.is_empty());
+    }
+
+    #[test]
+    fn test_render_payload_client_views_roundtrip() {
+        let payload = RenderPayload {
+            sessions: vec![],
+            notification: None,
+            notification_expiry: None,
+            total: 0,
+            waiting: 0,
+            working: 0,
+            idle: 0,
+            controller_plugin_id: 1,
+            voice_connected: false,
+            voice_muted: false,
+            show_agent_indicators: false,
+            sort_active: false,
+            client_views: BTreeMap::from([(
+                2,
+                ClientViewSnapshot {
+                    active_tab_index: Some(3),
+                    focused_pane_id: Some(42),
+                    revision: 4,
+                },
+            )]),
+            multiplayer_colors: None,
+        };
+        let json = serde_json::to_string(&payload).unwrap();
+        let restored: RenderPayload = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.client_views[&2].focused_pane_id, Some(42));
     }
 }

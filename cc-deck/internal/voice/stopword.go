@@ -22,6 +22,12 @@ var whisperHallucinations = []string{
 	"leave a comment",
 	"bye bye",
 	"goodbye",
+	"and the other one",
+	"you're welcome",
+	"i'll see you",
+	"take care",
+	"have a good",
+	"have a nice",
 }
 
 var fillerWords = map[string]bool{
@@ -36,9 +42,9 @@ var fillerWords = map[string]bool{
 // Two-word phrases improve Whisper recognition accuracy and stay
 // comfortably above the MinSpeechDuration threshold.
 var DefaultCommands = map[string][]string{
-	"submit":        {"send it"},
-	"attend":        {"go next"},
-	"submit_attend": {"ship it"},
+	"submit":        {"send it", "send"},
+	"attend":        {"go next", "next"},
+	"submit_attend": {"ship it", "ship"},
 }
 
 // BuildCommandMap flattens an action-to-words map into a word-to-action
@@ -90,6 +96,9 @@ func IsWhisperArtifact(text string) bool {
 		}
 	}
 	if hasRepetitionLoop(lower) {
+		return true
+	}
+	if looksLikeURL(lower) {
 		return true
 	}
 	stripped := strings.Map(func(r rune) rune {
@@ -147,6 +156,23 @@ func hasRepetitionLoop(lower string) bool {
 		if seen[norm] >= 2 {
 			return true
 		}
+	}
+	return false
+}
+
+func looksLikeURL(lower string) bool {
+	trimmed := strings.TrimRight(strings.TrimSpace(lower), ".,!?")
+	if strings.HasPrefix(trimmed, "www.") || strings.HasPrefix(trimmed, "http") {
+		return true
+	}
+	if strings.Count(trimmed, " ") == 0 && strings.Contains(trimmed, ".com") {
+		return true
+	}
+	if strings.Count(trimmed, " ") == 0 && strings.Contains(trimmed, ".org") {
+		return true
+	}
+	if strings.Count(trimmed, " ") == 0 && strings.Contains(trimmed, ".io") {
+		return true
 	}
 	return false
 }

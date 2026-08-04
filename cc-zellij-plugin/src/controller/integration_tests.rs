@@ -86,7 +86,7 @@ fn test_controller_sidebar_hello_registration() {
 
     // Verify sidebar is registered with the correct tab index
     assert!(plugin.test_state().sidebar_registry.contains_key(&99));
-    assert_eq!(plugin.test_state().sidebar_registry[&99], 0);
+    assert_eq!(plugin.test_state().sidebar_registry[&99], (0, 0));
 }
 
 // ---------------------------------------------------------------------------
@@ -627,4 +627,57 @@ fn test_voice_reconnect_resync_muted() {
     assert!(plugin.test_state().voice_enabled);
     assert!(plugin.test_state().voice_muted);
     assert!(plugin.test_state().voice_mute_requested.is_none());
+}
+
+// ---------------------------------------------------------------------------
+// T015: Election comparison with (client_id, plugin_id) tuples
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_election_lower_client_id_wins() {
+    // Controller with (client_id=2, plugin_id=0) should yield
+    // to a ping from (client_id=1, plugin_id=0).
+    let mut plugin = setup_controller();
+    plugin.test_state_mut().client_id = 2;
+    plugin.test_state_mut().plugin_id = 0;
+    plugin.test_state_mut().is_leader = true;
+
+    // Ping from (1, 0) using new "client_id:plugin_id" format
+    let ping = make_pipe("cc-deck:controller-ping", "1:0");
+    plugin.pipe(ping);
+
+    assert!(!plugin.test_state().is_leader);
+    assert_eq!(plugin.test_state().leader_plugin_id, Some(0));
+}
+
+#[test]
+fn test_election_client_id_primary_sort_key() {
+    // (1,5) should beat (2,0) because client_id=1 < client_id=2,
+    // even though plugin_id=5 > plugin_id=0.
+    let mut plugin = setup_controller();
+    plugin.test_state_mut().client_id = 2;
+    plugin.test_state_mut().plugin_id = 0;
+    plugin.test_state_mut().is_leader = true;
+
+    let ping = make_pipe("cc-deck:controller-ping", "1:5");
+    plugin.pipe(ping);
+
+    assert!(!plugin.test_state().is_leader);
+    assert_eq!(plugin.test_state().leader_plugin_id, Some(5));
+}
+
+#[test]
+fn test_election_backward_compat_old_format_ping() {
+    // Old-format ping (just "5") should be parsed as (client_id=0, plugin_id=5).
+    // A controller with (0, 10) should yield to (0, 5).
+    let mut plugin = setup_controller();
+    plugin.test_state_mut().client_id = 0;
+    plugin.test_state_mut().plugin_id = 10;
+    plugin.test_state_mut().is_leader = true;
+
+    let ping = make_pipe("cc-deck:controller-ping", "5");
+    plugin.pipe(ping);
+
+    assert!(!plugin.test_state().is_leader);
+    assert_eq!(plugin.test_state().leader_plugin_id, Some(5));
 }

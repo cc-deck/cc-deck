@@ -10,11 +10,11 @@
 // are kept as historical documentation only. New seeds will be written to
 // `proptest-regressions/sidebar_plugin/fuzz_tests.txt`.
 
-use proptest::prelude::*;
 use super::input;
-use super::modes::SidebarMode;
+use super::modes::{NavigationOverlay, SidebarMode};
 use super::state::SidebarState;
 use super::test_helpers::{bare, make_payload, make_session};
+use proptest::prelude::*;
 use zellij_tile::prelude::*;
 
 /// All possible user actions that can be applied to the sidebar state machine.
@@ -40,6 +40,8 @@ enum FuzzAction {
     ToggleNavigatePrev,
     LeftClick(usize),
     RightClick(usize),
+    ScrollUp,
+    ScrollDown,
     AddSession,
     RemoveSession,
 }
@@ -67,6 +69,8 @@ fn arb_fuzz_action() -> impl Strategy<Value = FuzzAction> {
         Just(FuzzAction::ToggleNavigatePrev),
         (0..20usize).prop_map(FuzzAction::LeftClick),
         (0..20usize).prop_map(FuzzAction::RightClick),
+        Just(FuzzAction::ScrollUp),
+        Just(FuzzAction::ScrollDown),
         Just(FuzzAction::AddSession),
         Just(FuzzAction::RemoveSession),
     ]
@@ -76,36 +80,80 @@ fn arb_fuzz_action() -> impl Strategy<Value = FuzzAction> {
 /// bookkeeping (click region rebuilds, cursor preservation after mutations).
 fn apply_action(state: &mut SidebarState, action: &FuzzAction, next_pane_id: &mut u32) {
     match action {
-        FuzzAction::KeyJ => { input::handle_key(state, bare(BareKey::Char('j'))); }
-        FuzzAction::KeyK => { input::handle_key(state, bare(BareKey::Char('k'))); }
-        FuzzAction::KeyEnter => { input::handle_key(state, bare(BareKey::Enter)); }
-        FuzzAction::KeyEsc => { input::handle_key(state, bare(BareKey::Esc)); }
-        FuzzAction::KeyD => { input::handle_key(state, bare(BareKey::Char('d'))); }
-        FuzzAction::KeyR => { input::handle_key(state, bare(BareKey::Char('r'))); }
-        FuzzAction::KeyP => { input::handle_key(state, bare(BareKey::Char('p'))); }
-        FuzzAction::KeySlash => { input::handle_key(state, bare(BareKey::Char('/'))); }
-        FuzzAction::KeyQuestion => { input::handle_key(state, bare(BareKey::Char('?'))); }
-        FuzzAction::KeyM => { input::handle_key(state, bare(BareKey::Char('m'))); }
-        FuzzAction::KeyN => { input::handle_key(state, bare(BareKey::Char('n'))); }
-        FuzzAction::KeyBigR => { input::handle_key(state, bare(BareKey::Char('R'))); }
-        FuzzAction::KeyY => { input::handle_key(state, bare(BareKey::Char('y'))); }
-        FuzzAction::KeyBigY => { input::handle_key(state, bare(BareKey::Char('Y'))); }
-        FuzzAction::KeyBackspace => { input::handle_key(state, bare(BareKey::Backspace)); }
-        FuzzAction::ArbitraryChar(c) => { input::handle_key(state, bare(BareKey::Char(*c))); }
-        FuzzAction::ToggleNavigate => { input::toggle_navigate(state); }
-        FuzzAction::ToggleNavigatePrev => { input::toggle_navigate_prev(state); }
+        FuzzAction::KeyJ => {
+            input::handle_key(state, bare(BareKey::Char('j')));
+        }
+        FuzzAction::KeyK => {
+            input::handle_key(state, bare(BareKey::Char('k')));
+        }
+        FuzzAction::KeyEnter => {
+            input::handle_key(state, bare(BareKey::Enter));
+        }
+        FuzzAction::KeyEsc => {
+            input::handle_key(state, bare(BareKey::Esc));
+        }
+        FuzzAction::KeyD => {
+            input::handle_key(state, bare(BareKey::Char('d')));
+        }
+        FuzzAction::KeyR => {
+            input::handle_key(state, bare(BareKey::Char('r')));
+        }
+        FuzzAction::KeyP => {
+            input::handle_key(state, bare(BareKey::Char('p')));
+        }
+        FuzzAction::KeySlash => {
+            input::handle_key(state, bare(BareKey::Char('/')));
+        }
+        FuzzAction::KeyQuestion => {
+            input::handle_key(state, bare(BareKey::Char('?')));
+        }
+        FuzzAction::KeyM => {
+            input::handle_key(state, bare(BareKey::Char('m')));
+        }
+        FuzzAction::KeyN => {
+            input::handle_key(state, bare(BareKey::Char('n')));
+        }
+        FuzzAction::KeyBigR => {
+            input::handle_key(state, bare(BareKey::Char('R')));
+        }
+        FuzzAction::KeyY => {
+            input::handle_key(state, bare(BareKey::Char('y')));
+        }
+        FuzzAction::KeyBigY => {
+            input::handle_key(state, bare(BareKey::Char('Y')));
+        }
+        FuzzAction::KeyBackspace => {
+            input::handle_key(state, bare(BareKey::Backspace));
+        }
+        FuzzAction::ArbitraryChar(c) => {
+            input::handle_key(state, bare(BareKey::Char(*c)));
+        }
+        FuzzAction::ToggleNavigate => {
+            input::toggle_navigate(state);
+        }
+        FuzzAction::ToggleNavigatePrev => {
+            input::toggle_navigate_prev(state);
+        }
         FuzzAction::LeftClick(row) => {
             input::handle_mouse(state, Mouse::LeftClick(*row as isize, 0));
         }
         FuzzAction::RightClick(row) => {
             input::handle_mouse(state, Mouse::RightClick(*row as isize, 0));
         }
+        FuzzAction::ScrollUp => {
+            input::handle_mouse(state, Mouse::ScrollUp(3));
+        }
+        FuzzAction::ScrollDown => {
+            input::handle_mouse(state, Mouse::ScrollDown(3));
+        }
         FuzzAction::AddSession => {
             let id = *next_pane_id;
             *next_pane_id += 1;
             if let Some(ref mut payload) = state.cached_payload {
                 let tab = payload.sessions.len();
-                payload.sessions.push(make_session(id, &format!("session-{id}"), tab));
+                payload
+                    .sessions
+                    .push(make_session(id, &format!("session-{id}"), tab));
                 payload.total = payload.sessions.len();
             }
             state.click_regions = build_click_regions(state);
@@ -142,36 +190,27 @@ fn build_click_regions(state: &SidebarState) -> Vec<(usize, u32, usize)> {
 fn check_invariants(state: &SidebarState, action: &FuzzAction, step: usize) {
     let context = || format!("step={step} action={action:?} mode={:?}", state.mode);
 
-    // INV-1: Cursor in bounds when in a navigation sub-mode.
+    // INV-1: A navigation cursor identifies a currently visible session.
     if let Some(ctx) = state.mode.nav_ctx() {
-        let filtered_count = state.filtered_sessions().len();
-        let upper = std::cmp::max(1, filtered_count);
+        let sessions = state.filtered_sessions();
+        let cursor_is_valid = match ctx.cursor_pane_id {
+            Some(pane_id) => sessions.iter().any(|session| session.pane_id == pane_id),
+            None => sessions.is_empty(),
+        };
         assert!(
-            ctx.cursor_index < upper,
-            "INV-1 CURSOR OUT OF BOUNDS: cursor_index={} but max valid={} (filtered_count={}) [{}]",
-            ctx.cursor_index,
-            upper - 1,
-            filtered_count,
-            context(),
+            cursor_is_valid,
+            "INV-1 CURSOR PANE IS NOT VISIBLE [{}]",
+            context()
         );
     }
-    // Also check cursor inside Help wrapping a nav mode.
-    if let SidebarMode::Help(inner) = &state.mode {
-        if let Some(ctx) = inner.nav_ctx() {
-            let filtered_count = state.filtered_sessions().len();
-            let upper = std::cmp::max(1, filtered_count);
-            assert!(
-                ctx.cursor_index < upper,
-                "INV-1 CURSOR OUT OF BOUNDS (Help inner): cursor_index={} max valid={} [{}]",
-                ctx.cursor_index,
-                upper - 1,
-                context(),
-            );
-        }
-    }
-
     // INV-2: Filter state consistency. NavigateFilter must have filter_state().
-    if matches!(state.mode, SidebarMode::NavigateFilter { .. }) {
+    if matches!(
+        state.mode,
+        SidebarMode::Navigate {
+            overlay: NavigationOverlay::Filter(_),
+            ..
+        }
+    ) {
         assert!(
             state.mode.filter_state().is_some(),
             "INV-2 FILTER STATE MISSING: mode is NavigateFilter but filter_state() is None [{}]",
@@ -200,12 +239,12 @@ fn check_invariants(state: &SidebarState, action: &FuzzAction, step: usize) {
         context(),
     );
 
-    // INV-5: Help consistency. If in Help mode, the inner mode should be valid
-    // (not another Help, and toggle_help round-trip preserves state).
-    if let SidebarMode::Help(inner) = &state.mode {
+    // INV-6: Scroll offset in bounds when set.
+    if let Some(offset) = state.scroll_offset {
+        let total = state.filtered_sessions().len();
         assert!(
-            !inner.is_help(),
-            "INV-5 NESTED HELP: Help wraps another Help [{}]",
+            offset <= total,
+            "INV-6 SCROLL OUT OF BOUNDS: scroll_offset={offset} total={total} [{}]",
             context(),
         );
     }

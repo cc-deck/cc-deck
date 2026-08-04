@@ -82,6 +82,8 @@ The sidebar tracks every Claude Code session across Zellij tabs. It shows activi
 
 Session indicators fade over time: a green checkmark dims to grey after five minutes, an idle circle darkens over an hour. You can tell at a glance how fresh each session is.
 
+**Multiplayer sessions.** When multiple terminals attach to the same Zellij session via `zellij attach`, the sidebar remains stable for the primary client. The controller filters render broadcasts to only target sidebars from its own client connection, so zombie plugin instances from disconnected clients do not cause flickering or render storms. Note that Zellij does not clean up plugin instances from disconnected clients until the session is killed ([zellij-org/zellij#4064](https://github.com/zellij-org/zellij/issues/4064)), so the sidebar registry will grow over repeated attach/detach cycles, but this has no visible performance impact.
+
 ### Workspace management
 
 The `cc-deck ws` command manages Claude Code sessions across local, containerized, remote, and sandboxed backends. See the [workspace management](#workspace-management) section for the full subcommand reference, project-local configuration, and workspace type details.
@@ -110,7 +112,7 @@ Tools with non-standard install paths (Go at `/usr/local/go/bin`, Rust/Cargo at 
 
 For OpenShell targets, a `getifaddrs` shim is compiled into the image automatically. The shim works around the OpenShell supervisor's seccomp filter that blocks `AF_NETLINK` sockets, which would otherwise cause Claude Code (Node.js) to crash with `getifaddrs returned an error` on API calls.
 
-For OpenShell targets, the build generates a `policy.yaml` with network restrictions. Package registry endpoints (crates.io, proxy.golang.org, npmjs.org, pypi.org) are added automatically when the corresponding tools appear in the manifest. MCP server endpoints are also included when the manifest contains MCP entries with an `endpoint` field (in `host:port` format). The capture command extracts these endpoints from HTTP/SSE server URLs and `mcp-remote` arguments automatically. After a successful build, cc-deck stamps the image with a `dev.cc-deck.policy-layer` label that records which layer contains the policy file. At `ws new` time, the policy is extracted directly from the OCI image (using the label for fast single-layer fetch, or falling back to a full layer scan for unlabeled images). This means you no longer need the original build directory on the host to create sandboxes. If extraction fails, pass `--policy` to provide the policy file manually. Credentials for OpenShell are declared in the manifest without storing secrets (`credentials: [{type: claude-vertex}, {type: github}]`). At `ws new` time, cc-deck resolves values from your host environment and creates OpenShell providers on the gateway. Supported types: `claude`, `claude-vertex`, `github`, `gitlab`, `openai`, `nvidia`, `generic`. For Vertex AI (`claude-vertex`), cc-deck creates an OpenShell `google-cloud` provider via `--from-gcloud-adc`, which runs a GCE metadata emulator inside the sandbox. GCP credentials never enter the sandbox process. Claude Code env vars (`CLAUDE_CODE_USE_VERTEX`, `ANTHROPIC_VERTEX_PROJECT_ID`, `CLOUD_ML_REGION`) are still injected as non-secret configuration.
+For OpenShell targets, the build generates a `profiles.yaml` that maps the manifest's agents, tools, and credentials to OpenShell provider profile IDs. Each tool in the manifest (python, go, node, rust) resolves to a profile that the gateway manages. Package registry endpoints, agent API domains, and code hosting profiles are included automatically based on what the manifest declares. MCP server endpoints are embedded in the profile manifest when the manifest contains MCP entries with an `endpoint` field (in `host:port` format). User-defined custom domains from `network.allowed_domains` and `network.allowed_domains_per_agent` are also embedded. The capture command extracts MCP endpoints from HTTP/SSE server URLs and `mcp-remote` arguments automatically. At `ws new` time, the profile manifest is extracted directly from the OCI image at `/etc/openshell/profiles.yaml`. cc-deck creates providers for each profile, imports ephemeral profiles for MCP endpoints and custom domains, and passes the provider list to the gateway with no sandbox policy. The gateway resolves profiles into the complete network policy. This means you no longer need the original build directory on the host to create sandboxes. Credentials for OpenShell are declared in the manifest without storing secrets (`credentials: [{type: claude-vertex}, {type: github}]`). At `ws new` time, cc-deck resolves values from your host environment and creates OpenShell providers on the gateway. Supported types: `claude`, `claude-vertex`, `github`, `gitlab`, `openai`, `nvidia`, `generic`. For Vertex AI (`claude-vertex`), cc-deck creates an OpenShell `google-cloud` provider via `--from-gcloud-adc`, which runs a GCE metadata emulator inside the sandbox. GCP credentials never enter the sandbox process. Claude Code env vars (`CLAUDE_CODE_USE_VERTEX`, `ANTHROPIC_VERTEX_PROJECT_ID`, `CLOUD_ML_REGION`) are still injected as non-secret configuration.
 
 ### Network filtering
 
@@ -209,6 +211,16 @@ For K8s workspaces where credentials come from Secrets or external providers, ma
 ### Multi-platform
 
 Run cc-deck locally with Zellij, in Podman containers, or on Kubernetes clusters with persistent StatefulSet-backed workspaces. OpenShift is detected automatically. The sidebar works the same everywhere.
+
+### Multiplayer sessions
+
+When multiple clients are attached to the same Zellij session (`zellij attach`), each client controls its own focus independently. Clicking a session in the sidebar switches only the clicking client's terminal, not the other clients.
+
+The sidebar shows colored presence indicators on session lines, marking which sessions other clients are currently focused on. The indicator colors match Zellij's multiplayer user colors (the same palette used in the tab bar for client cursors).
+
+Auto-sort uses stable active and paused zones. Focusing or clicking a session never changes its position. A session leaves the active zone only when paused; when reactivated, it is appended to the active zone.
+
+**Known limitation:** Keyboard shortcuts (Alt+s, Alt+a, Alt+w) work for the primary client only. Other clients use mouse clicks for session navigation. This is due to Zellij pipe messages not carrying client identity (tracked upstream).
 
 ---
 
@@ -486,22 +498,20 @@ cc-deck config domains add my-session pypi.org   # Add domain at runtime
 cc-deck config domains show python               # Inspect a group's domains
 ```
 
-### OpenShell policy components
+### OpenShell profile delegation
 
-For OpenShell targets, `build refresh` assembles `openshell/policy.yaml` from declarative YAML component files. Components are loaded from three tiers in precedence order:
+For OpenShell targets, `build refresh` generates a `profiles.yaml` that maps the manifest to OpenShell provider profile IDs. cc-deck determines which profiles an image needs; the gateway resolves those profiles into a complete sandbox policy at workspace creation time.
 
-1. **Embedded** (built into the binary): Claude Code, GitHub, and package registry endpoints
-2. **Cached catalog** (`.cc-deck/setup/openshell/components/`): fetched by `capture`
-3. **User-local** (`.cc-deck/setup/openshell/policies/`): project-specific custom endpoints
+The profile mapping table covers agents (claude, opencode, codex), tools (python, go, node, rust), credentials (vertex, github, gitlab), and always-included profiles (github, gitlab). A manifest with `agents: [claude]` and `tools: [python, go]` produces profiles `["anthropic", "claude-agent", "github", "gitlab", "golang", "python"]`.
 
-The assembly is deterministic: the same manifest with the same components always produces identical output. Components declare match conditions (`always`, `tools`, `credentials`, `agents`) and are included only when their conditions match the manifest. Agent-specific components (like `claude-code.yaml` and `opencode.yaml`) match only when their agent is in the manifest's `agents` list.
+Auto-detected tools from policy components are merged with explicit manifest declarations. The union is deduplicated and sorted, so the same manifest always produces the same profile list.
 
-Binary paths for network policy entries are discovered automatically using a two-pass build process. The first pass builds the image without binary restrictions. A probe step then runs `which` and `find` inside the built image to discover actual binary locations. The second pass rebuilds with the corrected policy containing probed paths and runtime glob patterns. This approach works regardless of install method, base image, or tool version. Components with explicit `binaries` fields are preserved as-is, providing an override mechanism for custom installations.
+MCP endpoints and custom domains are handled through ephemeral profiles. At workspace creation time, cc-deck imports a profile for MCP endpoints (named `cc-deck-<workspace>-mcp`) and another for user-defined domains (named `cc-deck-<workspace>-custom`). These profiles are scoped to the workspace and managed by the gateway.
 
-Each component YAML can optionally declare `probe_binaries` (binary names to search for) and `runtime_globs` (glob patterns for binaries created at runtime, such as Python venvs or Rust toolchains). If a probe or second-pass build fails, the first-pass image is retained with a `:probe-debug` tag for inspection. For the full workflow and troubleshooting, see the [Build Command](docs/modules/using/pages/build.adoc) and [Policy Components](docs/modules/using/pages/policy-components.adoc) guides.
+Compose targets continue to use policy assembly via `AssemblePolicy()`. Both paths can coexist when a manifest declares both OpenShell and compose targets.
 
 ```bash
-cc-deck build refresh    # Assemble policy from components + manifest
+cc-deck build refresh    # Generate profiles.yaml for OpenShell, policy.yaml for compose
 ```
 
 ### OpenShell SDK
@@ -731,3 +741,4 @@ cc-deck follows [Spec-Driven Development](CONTRIBUTING.md#spec-driven-developmen
 | [056](specs/056-openshell-build-target/) | OpenShell Build Target | In Progress |
 | [058](specs/058-openshell-credential-injection/) | OpenShell Credential Injection | In Progress |
 | [075](specs/075-openshell-sdk-migration/) | OpenShell SDK Migration | In Progress |
+| [085](specs/085-openshell-profile-delegation/) | OpenShell Profile Delegation | In Progress |
