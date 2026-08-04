@@ -95,6 +95,7 @@ The broker process shuts itself down after a configurable idle period (default 3
 - What happens when a message targets a Zellij session that no longer exists? The `zellij pipe --session` call fails. The broker logs the error (if logging enabled) and discards the message. No retry.
 - What happens when the config file is malformed? The broker uses compiled defaults for any value it cannot parse.
 - What happens when the queue is full and a high-value message arrives? The oldest message is dropped regardless of content. No priority classification in V1.
+- What happens when `$ZELLIJ_SESSION_NAME` is not set? The hook client skips broker delivery and falls back to direct `zellij pipe` (which targets the current session implicitly). The broker requires an explicit session name for routing.
 
 ## Requirements *(mandatory)*
 
@@ -102,7 +103,7 @@ The broker process shuts itself down after a configurable idle period (default 3
 
 - **FR-001**: System MUST provide a `cc-deck mux` subcommand that runs as a standalone daemon process accepting pipe messages on a Unix domain socket.
 - **FR-002**: System MUST deduplicate messages using the key `(session_name, pipe_name, hash(args))` with last-writer-wins semantics within each flush window.
-- **FR-003**: System MUST flush queued messages to `zellij pipe --session <name>` at a configurable interval (default 200ms), delivering one `zellij pipe` call per unique dedup key.
+- **FR-003**: System MUST flush queued messages at a configurable interval (default 200ms), delivering one `zellij pipe --session <session_name> --name cc-deck:hook -- <payload>` call per unique dedup key.
 - **FR-004**: System MUST self-terminate after a configurable idle timeout (default 30 seconds) with no incoming messages, removing the socket file on exit.
 - **FR-005**: System MUST use socket `bind()` as the exclusive locking mechanism to prevent multiple broker instances.
 - **FR-006**: The `cc-deck hook` command MUST check `mux.enabled` in config before attempting broker communication. When disabled or absent, hooks MUST call `zellij pipe` directly.
@@ -111,6 +112,7 @@ The broker process shuts itself down after a configurable idle period (default 3
 - **FR-009**: Each pipe message sent to the broker MUST include a `session_name` field populated from the `$ZELLIJ_SESSION_NAME` environment variable.
 - **FR-010**: System MUST drop the oldest messages when the queue exceeds the configured `queue_size` limit (default 1000) and log the drop event when logging is enabled.
 - **FR-011**: System MUST support configurable parameters via `~/.config/cc-deck/config.yaml` under a `mux` section: `enabled`, `flush_interval`, `idle_timeout`, `queue_size`, `dedup`, `log`.
+- **FR-014**: When `mux.dedup` is set to `false`, the broker MUST skip deduplication and deliver every received message in arrival order during each flush cycle.
 - **FR-012**: System MUST write debug logs to `~/.local/state/cc-deck/mux.log` when `mux.log` is `true`, covering incoming messages, dedup hits, flush events, drop events, and lifecycle events.
 - **FR-013**: System MUST create the socket directory if it does not exist, and fall back to `/tmp/cc-deck-$UID/` if `$XDG_RUNTIME_DIR` is not set.
 
