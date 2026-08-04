@@ -52,7 +52,8 @@ cc-deck/
 ├── internal/
 │   ├── cmd/
 │   │   ├── mux.go                   # NEW: cc-deck mux subcommand (daemon entry point)
-│   │   └── hook.go                  # MODIFY: route through mux client when enabled
+│   │   ├── hook.go                  # MODIFY: route through mux client when enabled
+│   │   └── hook_raw.go              # MODIFY: route through mux client when enabled
 │   ├── config/
 │   │   ├── config.go                # MODIFY: add MuxConfig struct and field
 │   │   └── validate.go              # MODIFY: add mux config validation
@@ -70,7 +71,7 @@ cc-deck/
     └── mux_integration_test.go      # NEW: integration test (broker + client)
 ```
 
-**Structure Decision**: New `internal/mux/` package contains the broker and client library. The cmd layer (`internal/cmd/mux.go`) wires cobra commands to the mux package. The hook modification in `internal/cmd/hook.go` is minimal: check config, use mux client if enabled, fallback to direct pipe.
+**Structure Decision**: New `internal/mux/` package contains the broker and client library. The cmd layer (`internal/cmd/mux.go`) wires cobra commands to the mux package. The hook modification in `internal/cmd/hook.go` and `internal/cmd/hook_raw.go` is minimal: check config, use mux client if enabled, fallback to direct pipe.
 
 ## Key Design Decisions
 
@@ -86,15 +87,19 @@ The client writes one JSON line and closes the connection (fire-and-forget, no r
 
 ### 2. Dedup Map
 
-The flush queue is a `map[string]Message` protected by a mutex. The dedup key is computed as `sha256(session_name + "|" + pipe_name + "|" + args)[:16]` (hex-encoded, 16 chars). The map stores the latest message for each key. On flush, the map is swapped atomically (replace with empty map, iterate old map).
+When `config.Dedup` is true (default), the flush queue is a `map[string]Message` protected by a mutex. The dedup key is computed as `sha256(session_name + "|" + pipe_name + "|" + args)[:16]` (hex-encoded, 16 chars). The map stores the latest message for each key (last-writer-wins). On flush, the map is swapped atomically (replace with empty map, iterate old map).
+
+When `config.Dedup` is false (FR-014), the flush queue is a `[]Message` slice protected by the same mutex. Every received message is appended, preserving arrival order. On flush, the slice is swapped with an empty slice and drained sequentially. The `queue_size` limit applies to both modes (oldest entries dropped when exceeded).
 
 ### 3. Hook Integration Point
 
-The modification to `hook.go` is at lines 151-153, where `exec.CommandContext` calls `zellij pipe`. Before that call, check:
+Both `hook.go` (line 151) and `hook_raw.go` (line 52) call `exec.CommandContext` to invoke `zellij pipe`. Before each call, check:
 1. Is `config.Mux.Enabled` true?
 2. Is `$ZELLIJ_SESSION_NAME` set?
-3. If both yes, call `mux.Send(socketPath, sessionName, pipeName, payload)` instead.
-4. If Send fails (broker down), fall through to the existing direct `zellij pipe` call.
+3. If both yes, construct a `mux.Message` and call `mux.SendOrStart(socketPath, msg)` instead.
+4. If SendOrStart fails (broker down), fall through to the existing direct `zellij pipe` call.
+
+For `hook_raw.go`, add a `config.Load("")` call to access the mux config (matching the pattern in `runHook`).
 
 ### 4. Daemon Lifecycle
 
