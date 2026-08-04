@@ -130,7 +130,8 @@ mux:
 | `enabled`
 | bool
 | `false`
-| Enable the mux broker. When disabled or absent, hooks call `zellij pipe` directly.
+| Enable the mux broker.
+When disabled or absent, hooks call `zellij pipe` directly.
 
 | `flush_interval`
 | duration
@@ -145,17 +146,20 @@ mux:
 | `queue_size`
 | int
 | `1000`
-| Maximum number of messages in the queue. Oldest messages are dropped when exceeded.
+| Maximum number of messages in the queue.
+Oldest messages are dropped when exceeded.
 
 | `dedup`
 | bool
 | `true`
-| Deduplicate messages by (session_name, pipe_name, hash(args)). When false, every message is delivered in arrival order.
+| Deduplicate messages by (session_name, pipe_name, hash(args)).
+When false, every message is delivered in arrival order.
 
 | `log`
 | bool
 | `false`
-| Write debug logs to `~/.local/state/cc-deck/mux.log`. The log is truncated on each broker start.
+| Write debug logs to `~/.local/state/cc-deck/mux.log`.
+The log is truncated on each broker start.
 |===
 
 The broker socket is created at `$XDG_RUNTIME_DIR/cc-deck/mux.sock`.

@@ -652,6 +652,7 @@ fn build_local_presence(state: &super::state::SidebarState) -> Vec<LocalPresence
     let colors = payload
         .multiplayer_colors
         .as_deref()
+        .filter(|c| !c.is_empty())
         .unwrap_or(&cc_deck::FALLBACK_MULTIPLAYER_COLORS);
     let my_cid = state.my_client_id;
 

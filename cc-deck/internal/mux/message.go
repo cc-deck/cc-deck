@@ -14,9 +14,13 @@ type Message struct {
 }
 
 // DedupKey returns a truncated SHA-256 hash of the message's identifying fields.
-// The key format is sha256(session_name + "|" + pipe_name + "|" + args)[:16] hex chars.
 func (m Message) DedupKey() string {
-	h := sha256.Sum256([]byte(m.SessionName + "|" + m.PipeName + "|" + m.Args))
+	identity := fmt.Sprintf("%d:%s%d:%s%d:%s",
+		len(m.SessionName), m.SessionName,
+		len(m.PipeName), m.PipeName,
+		len(m.Args), m.Args,
+	)
+	h := sha256.Sum256([]byte(identity))
 	return fmt.Sprintf("%x", h[:8])
 }
 

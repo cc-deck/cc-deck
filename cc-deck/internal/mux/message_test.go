@@ -62,3 +62,12 @@ func TestDedupKey_EmptyFields(t *testing.T) {
 	key := m.DedupKey()
 	assert.Len(t, key, 16)
 }
+
+func TestDedupKey_DelimiterInFieldsDoNotCollide(t *testing.T) {
+	m1 := Message{SessionName: "a|b", PipeName: "c", Args: "d"}
+	m2 := Message{SessionName: "a", PipeName: "b|c", Args: "d"}
+	m3 := Message{SessionName: "a", PipeName: "b", Args: "c|d"}
+	assert.NotEqual(t, m1.DedupKey(), m2.DedupKey())
+	assert.NotEqual(t, m2.DedupKey(), m3.DedupKey())
+	assert.NotEqual(t, m1.DedupKey(), m3.DedupKey())
+}

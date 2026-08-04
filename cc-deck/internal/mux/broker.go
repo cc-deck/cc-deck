@@ -27,13 +27,14 @@ type Broker struct {
 	Logger        Logger
 	FlushFn       FlushFunc
 
-	listener *net.UnixListener
-	mu       sync.Mutex
-	dedupMap map[string]Message
-	queue    []Message
-	stopCh   chan struct{}
-	idleMu   sync.Mutex
-	lastMsg  time.Time
+	listener  *net.UnixListener
+	mu        sync.Mutex
+	dedupMap  map[string]Message
+	dedupKeys []string
+	queue     []Message
+	stopCh    chan struct{}
+	idleMu    sync.Mutex
+	lastMsg   time.Time
 }
 
 // NewBroker creates a Broker with the given configuration.
@@ -149,16 +150,22 @@ func (b *Broker) acceptLoop() {
 	}
 }
 
+const maxMessageSize = 256 * 1024
+
 func (b *Broker) handleConn(conn *net.UnixConn) {
 	defer conn.Close()
 	conn.SetReadDeadline(time.Now().Add(1 * time.Second))
 	scanner := bufio.NewScanner(conn)
+	scanner.Buffer(make([]byte, 0, bufio.MaxScanTokenSize), maxMessageSize)
 	if scanner.Scan() {
 		msg, err := UnmarshalMessage(scanner.Bytes())
 		if err != nil {
 			return
 		}
 		b.enqueue(msg)
+	}
+	if err := scanner.Err(); err != nil {
+		b.Logger.FlushError(Message{}, err)
 	}
 }
 
@@ -176,6 +183,8 @@ func (b *Broker) enqueue(msg Message) {
 		key := msg.DedupKey()
 		if _, exists := b.dedupMap[key]; exists {
 			b.Logger.DedupHit(key, msg)
+		} else {
+			b.dedupKeys = append(b.dedupKeys, key)
 		}
 		b.dedupMap[key] = msg
 		if len(b.dedupMap) > b.QueueSize {
@@ -192,10 +201,14 @@ func (b *Broker) enqueue(msg Message) {
 }
 
 func (b *Broker) dropOldestDedup() {
-	for k, v := range b.dedupMap {
+	if len(b.dedupKeys) == 0 {
+		return
+	}
+	key := b.dedupKeys[0]
+	b.dedupKeys = b.dedupKeys[1:]
+	if v, ok := b.dedupMap[key]; ok {
 		b.Logger.Drop(v)
-		delete(b.dedupMap, k)
-		break
+		delete(b.dedupMap, key)
 	}
 }
 
@@ -217,11 +230,13 @@ func (b *Broker) flush() {
 	b.mu.Lock()
 	var msgs []Message
 	if b.Dedup {
-		old := b.dedupMap
-		b.dedupMap = make(map[string]Message)
-		for _, m := range old {
-			msgs = append(msgs, m)
+		for _, key := range b.dedupKeys {
+			if m, ok := b.dedupMap[key]; ok {
+				msgs = append(msgs, m)
+			}
 		}
+		b.dedupMap = make(map[string]Message)
+		b.dedupKeys = nil
 	} else {
 		msgs = b.queue
 		b.queue = nil
