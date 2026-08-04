@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Helper to create a pointer to an int.
@@ -585,6 +586,73 @@ func TestValidateAndWarn_WithErrors(t *testing.T) {
 	errors := countBySeverity(findings, SeverityError)
 	if errors > 0 && !strings.Contains(output, fmt.Sprintf("%d error", errors)) {
 		t.Errorf("expected error count in stderr, got %q", output)
+	}
+}
+
+// --- Mux Validation Tests ---
+
+func boolPtr(v bool) *bool { return &v }
+
+func TestValidateMux_DisabledSkipsValidation(t *testing.T) {
+	mux := MuxConfig{Enabled: false, FlushInterval: -1 * time.Second}
+	findings := validateMux(mux)
+	if len(findings) != 0 {
+		t.Errorf("expected no findings when mux disabled, got %d", len(findings))
+	}
+}
+
+func TestValidateMux_ValidConfig(t *testing.T) {
+	mux := MuxConfig{
+		Enabled:       true,
+		FlushInterval: 200 * time.Millisecond,
+		IdleTimeout:   30 * time.Second,
+		QueueSize:     1000,
+		Dedup:         boolPtr(true),
+	}
+	findings := validateMux(mux)
+	if len(findings) != 0 {
+		t.Errorf("expected no findings for valid mux config, got %d", len(findings))
+	}
+}
+
+func TestValidateMux_NegativeFlushInterval(t *testing.T) {
+	mux := MuxConfig{Enabled: true, FlushInterval: -1 * time.Second}
+	findings := validateMux(mux)
+	if f := findFinding(findings, SeverityError, "negative"); f == nil {
+		t.Error("expected error for negative flush_interval")
+	}
+}
+
+func TestValidateMux_HighFlushInterval(t *testing.T) {
+	mux := MuxConfig{Enabled: true, FlushInterval: 2 * time.Second}
+	findings := validateMux(mux)
+	if f := findFinding(findings, SeverityWarning, "unusually high"); f == nil {
+		t.Error("expected warning for high flush_interval")
+	}
+}
+
+func TestValidateMux_NegativeIdleTimeout(t *testing.T) {
+	mux := MuxConfig{Enabled: true, IdleTimeout: -1 * time.Second}
+	findings := validateMux(mux)
+	if f := findFinding(findings, SeverityError, "negative"); f == nil {
+		t.Error("expected error for negative idle_timeout")
+	}
+}
+
+func TestValidateMux_NegativeQueueSize(t *testing.T) {
+	mux := MuxConfig{Enabled: true, QueueSize: -1}
+	findings := validateMux(mux)
+	if f := findFinding(findings, SeverityError, "negative"); f == nil {
+		t.Error("expected error for negative queue_size")
+	}
+}
+
+func TestValidateMux_DefaultsPassValidation(t *testing.T) {
+	mux := MuxDefaults()
+	mux.Enabled = true
+	findings := validateMux(mux)
+	if len(findings) != 0 {
+		t.Errorf("expected no findings for default mux config, got %d", len(findings))
 	}
 }
 

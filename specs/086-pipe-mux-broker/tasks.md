@@ -13,7 +13,7 @@
 
 **Purpose**: XDG path extension and project scaffolding
 
-- [ ] T001 Add `RuntimeDir` to `internal/xdg/xdg.go` resolving `$XDG_RUNTIME_DIR` with fallback to `/tmp/cc-deck-<uid>/`
+- [x] T001 Add `RuntimeDir` to `internal/xdg/xdg.go` resolving `$XDG_RUNTIME_DIR` with fallback to `/tmp/cc-deck-<uid>/`
 
 ---
 
@@ -23,9 +23,9 @@
 
 **CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T002 [P] Create `internal/mux/message.go` with `Message` struct (session_name, pipe_name, args), JSON serialization, `DedupKey()` method using sha256 truncated to 16 hex chars, and `message_test.go` with unit tests
-- [ ] T003 [P] Add `MuxConfig` struct to `internal/config/config.go` with fields: enabled (bool), flush_interval (time.Duration), idle_timeout (time.Duration), queue_size (int), dedup (*bool), log (bool). Add `Mux MuxConfig` field to `Config` struct. Add defaults function returning enabled=false, flush_interval=200ms, idle_timeout=30s, queue_size=1000, dedup=true, log=false
-- [ ] T004 Create `internal/cmd/mux.go` with cobra `NewMuxCmd` returning a command that starts the broker. Register it in `cmd/cc-deck/main.go` as a top-level command
+- [x] T002 [P] Create `internal/mux/message.go` with `Message` struct (session_name, pipe_name, args), JSON serialization, `DedupKey()` method using sha256 truncated to 16 hex chars, and `message_test.go` with unit tests
+- [x] T003 [P] Add `MuxConfig` struct to `internal/config/config.go` with fields: enabled (bool), flush_interval (time.Duration), idle_timeout (time.Duration), queue_size (int), dedup (*bool), log (bool). Add `Mux MuxConfig` field to `Config` struct. Add defaults function returning enabled=false, flush_interval=200ms, idle_timeout=30s, queue_size=1000, dedup=true, log=false
+- [x] T004 Create `internal/cmd/mux.go` with cobra `NewMuxCmd` returning a command that starts the broker. Register it in `cmd/cc-deck/main.go` as a top-level command
 
 **Checkpoint**: Foundation ready, message types and config available for broker implementation
 
@@ -39,12 +39,12 @@
 
 ### Implementation
 
-- [ ] T005 [US1] Create `internal/mux/broker.go` with `Broker` struct: Unix socket listener via `net.ListenUnix` (SOCK_STREAM), accept loop goroutine reading newline-delimited JSON. Two queue modes controlled by `config.Dedup`: when true, use dedup map (`map[string]Message` with mutex, last-writer-wins), atomic map swap on flush (replace with empty map, iterate old); when false (FR-014), use `[]Message` slice preserving arrival order, swap with empty slice on flush. Flush timer (200ms ticker) iterates the drained collection and calls `zellij pipe --session <session_name> --name <pipe_name> -- <args>` sequentially. If a `zellij pipe` call fails during flush, log the error (via logger, if enabled) and discard the message (no retry, per spec edge case)
-- [ ] T006 [US5] Add idle timer to `Broker` in `internal/mux/broker.go`: reset on every incoming message, fire shutdown on expiry (default 30s). Add signal handling (`SIGTERM`, `SIGINT`) triggering clean shutdown. Shutdown sequence: stop accept loop, final flush of remaining messages, close and remove socket file, exit
-- [ ] T007 [US1] Create `internal/mux/client.go` with `Send(socketPath, msg Message) error` function: dial Unix socket, write JSON + newline, close connection. Fire-and-forget, no response expected. Return error if connect or write fails
-- [ ] T008 [US1] Wire `internal/cmd/mux.go` to create `Broker` from `MuxConfig`, resolve socket path via `xdg.RuntimeDir + "/cc-deck/mux.sock"`, create socket directory if needed, call `broker.Run()` which blocks until shutdown
-- [ ] T009 [P] [US1] Create `internal/mux/broker_test.go` with unit tests: broker starts and accepts connections, dedup collapses identical messages, flush delivers all unique messages, queue_size limit drops oldest, map swap is atomic (no lost messages during concurrent write+flush), dedup=false preserves all messages in arrival order, failed zellij pipe call during flush is logged and message discarded (no retry)
-- [ ] T010 [P] [US1] Create `internal/mux/client_test.go` with unit tests: successful send to running broker, send failure returns error when no broker, connection close after send
+- [x] T005 [US1] Create `internal/mux/broker.go` with `Broker` struct: Unix socket listener via `net.ListenUnix` (SOCK_STREAM), accept loop goroutine reading newline-delimited JSON. Two queue modes controlled by `config.Dedup`: when true, use dedup map (`map[string]Message` with mutex, last-writer-wins), atomic map swap on flush (replace with empty map, iterate old); when false (FR-014), use `[]Message` slice preserving arrival order, swap with empty slice on flush. Flush timer (200ms ticker) iterates the drained collection and calls `zellij pipe --session <session_name> --name <pipe_name> -- <args>` sequentially. If a `zellij pipe` call fails during flush, log the error (via logger, if enabled) and discard the message (no retry, per spec edge case)
+- [x] T006 [US5] Add idle timer to `Broker` in `internal/mux/broker.go`: reset on every incoming message, fire shutdown on expiry (default 30s). Add signal handling (`SIGTERM`, `SIGINT`) triggering clean shutdown. Shutdown sequence: stop accept loop, final flush of remaining messages, close and remove socket file, exit
+- [x] T007 [US1] Create `internal/mux/client.go` with `Send(socketPath, msg Message) error` function: dial Unix socket, write JSON + newline, close connection. Fire-and-forget, no response expected. Return error if connect or write fails
+- [x] T008 [US1] Wire `internal/cmd/mux.go` to create `Broker` from `MuxConfig`, resolve socket path via `xdg.RuntimeDir + "/cc-deck/mux.sock"`, create socket directory if needed, call `broker.Run()` which blocks until shutdown
+- [x] T009 [P] [US1] Create `internal/mux/broker_test.go` with unit tests: broker starts and accepts connections, dedup collapses identical messages, flush delivers all unique messages, queue_size limit drops oldest, map swap is atomic (no lost messages during concurrent write+flush), dedup=false preserves all messages in arrival order, failed zellij pipe call during flush is logged and message discarded (no retry)
+- [x] T010 [P] [US1] Create `internal/mux/client_test.go` with unit tests: successful send to running broker, send failure returns error when no broker, connection close after send
 
 **Checkpoint**: Broker runs standalone, accepts messages, deduplicates, flushes, and self-terminates
 
@@ -58,11 +58,11 @@
 
 ### Implementation
 
-- [ ] T011 [US2] Modify `internal/cmd/hook.go` at the pipe delivery point (around line 151): before calling `exec.CommandContext(ctx, zellijPath, "pipe", ...)`, check `config.Mux.Enabled` and `$ZELLIJ_SESSION_NAME`. If both set, construct a `mux.Message{SessionName: sessionName, PipeName: "cc-deck:hook", Args: string(payloadJSON)}` and call `mux.SendOrStart(socketPath, msg)`. If it returns error, fall through to existing direct `zellij pipe` call
-- [ ] T011b [US2] Modify `internal/cmd/hook_raw.go` at the pipe delivery point (around line 52): apply the same mux routing as T011. Before calling `exec.CommandContext(ctx, zellijPath, "pipe", ...)`, check `config.Mux.Enabled` and `$ZELLIJ_SESSION_NAME`. If both set, construct a `mux.Message` and call `mux.SendOrStart(socketPath, msg)`. If it returns error, fall through to existing direct `zellij pipe` call. Load config via `config.Load("")` (same pattern as `runHook`)
-- [ ] T012 [US2] Add `SendOrStart(socketPath string, msg Message) error` to `internal/mux/client.go`: try `Send()`, if fails check for stale socket (file exists but connect refused), remove stale socket, spawn `cc-deck mux` as detached process (`exec.Cmd` with `SysProcAttr{Setsid: true}`, `cmd.Start()` + `cmd.Process.Release()`), retry `Send()` 3 times with 10ms sleep between attempts, return error if all retries fail
-- [ ] T013 [US2] Add stale socket detection to `internal/mux/client.go`: if `os.Stat(socketPath)` succeeds but `net.DialUnix` fails, call `os.Remove(socketPath)` before starting fresh broker
-- [ ] T014 [P] [US2] Add tests to `internal/mux/client_test.go`: SendOrStart starts broker when socket missing, SendOrStart cleans stale socket and starts fresh broker, SendOrStart falls back after 3 failed retries
+- [x] T011 [US2] Modify `internal/cmd/hook.go` at the pipe delivery point (around line 151): before calling `exec.CommandContext(ctx, zellijPath, "pipe", ...)`, check `config.Mux.Enabled` and `$ZELLIJ_SESSION_NAME`. If both set, construct a `mux.Message{SessionName: sessionName, PipeName: "cc-deck:hook", Args: string(payloadJSON)}` and call `mux.SendOrStart(socketPath, msg)`. If it returns error, fall through to existing direct `zellij pipe` call
+- [x] T011b [US2] Modify `internal/cmd/hook_raw.go` at the pipe delivery point (around line 52): apply the same mux routing as T011. Before calling `exec.CommandContext(ctx, zellijPath, "pipe", ...)`, check `config.Mux.Enabled` and `$ZELLIJ_SESSION_NAME`. If both set, construct a `mux.Message` and call `mux.SendOrStart(socketPath, msg)`. If it returns error, fall through to existing direct `zellij pipe` call. Load config via `config.Load("")` (same pattern as `runHook`)
+- [x] T012 [US2] Add `SendOrStart(socketPath string, msg Message) error` to `internal/mux/client.go`: try `Send()`, if fails check for stale socket (file exists but connect refused), remove stale socket, spawn `cc-deck mux` as detached process (`exec.Cmd` with `SysProcAttr{Setsid: true}`, `cmd.Start()` + `cmd.Process.Release()`), retry `Send()` 3 times with 10ms sleep between attempts, return error if all retries fail
+- [x] T013 [US2] Add stale socket detection to `internal/mux/client.go`: if `os.Stat(socketPath)` succeeds but `net.DialUnix` fails, call `os.Remove(socketPath)` before starting fresh broker
+- [x] T014 [P] [US2] Add tests to `internal/mux/client_test.go`: SendOrStart starts broker when socket missing, SendOrStart cleans stale socket and starts fresh broker, SendOrStart falls back after 3 failed retries
 
 **Checkpoint**: Hooks transparently route through broker with fallback to direct pipe
 
@@ -76,8 +76,8 @@
 
 ### Implementation
 
-- [ ] T015 [US3] Add mux validation to `internal/config/validate.go`: check flush_interval > 0, idle_timeout > 0, queue_size > 0, warn if enabled but flush_interval > 1s. Add `CategoryMux` constant for validation findings
-- [ ] T016 [P] [US3] Add unit tests for mux config validation in `internal/config/validate_test.go`: valid config passes, negative flush_interval fails, zero queue_size fails, missing mux section uses defaults
+- [x] T015 [US3] Add mux validation to `internal/config/validate.go`: check flush_interval > 0, idle_timeout > 0, queue_size > 0, warn if enabled but flush_interval > 1s. Add `CategoryMux` constant for validation findings
+- [x] T016 [P] [US3] Add unit tests for mux config validation in `internal/config/validate_test.go`: valid config passes, negative flush_interval fails, zero queue_size fails, missing mux section uses defaults
 
 **Checkpoint**: Config validation catches all invalid mux parameters
 
@@ -91,9 +91,9 @@
 
 ### Implementation
 
-- [ ] T017 [US4] Create `internal/mux/log.go` with `Logger` interface and two implementations: `fileLogger` (writes to `xdg.StateHome + "/cc-deck/mux.log"`, truncates on open, timestamped entries) and `noopLogger` (no-op when logging disabled). Log methods: `Incoming(msg)`, `Dedup(key, count)`, `Flush(count, duration)`, `Drop(msg)`, `Lifecycle(event)`
-- [ ] T018 [US4] Integrate logger into `Broker` in `internal/mux/broker.go`: call `logger.Incoming()` on accept, `logger.Dedup()` when map key already exists, `logger.Flush()` after each flush cycle with message count and duration, `logger.Drop()` when queue_size exceeded, `logger.Lifecycle()` on start, idle timeout, signal shutdown
-- [ ] T019 [P] [US4] Add unit tests in `internal/mux/log_test.go`: fileLogger writes to expected path, noopLogger produces no output, log entries contain timestamp and event type
+- [x] T017 [US4] Create `internal/mux/log.go` with `Logger` interface and two implementations: `fileLogger` (writes to `xdg.StateHome + "/cc-deck/mux.log"`, truncates on open, timestamped entries) and `noopLogger` (no-op when logging disabled). Log methods: `Incoming(msg)`, `Dedup(key, count)`, `Flush(count, duration)`, `Drop(msg)`, `Lifecycle(event)`
+- [x] T018 [US4] Integrate logger into `Broker` in `internal/mux/broker.go`: call `logger.Incoming()` on accept, `logger.Dedup()` when map key already exists, `logger.Flush()` after each flush cycle with message count and duration, `logger.Drop()` when queue_size exceeded, `logger.Lifecycle()` on start, idle timeout, signal shutdown
+- [x] T019 [P] [US4] Add unit tests in `internal/mux/log_test.go`: fileLogger writes to expected path, noopLogger produces no output, log entries contain timestamp and event type
 
 **Checkpoint**: Debug logging captures all broker events when enabled
 
@@ -103,10 +103,10 @@
 
 **Purpose**: Integration testing, documentation, and final validation
 
-- [ ] T020 Create `test/mux_integration_test.go`: start broker in-process, send 100 messages from 5 concurrent goroutines across 3 session names, verify correct dedup behavior, verify flush delivers to mock zellij pipe, verify idle timeout shutdown, verify stale socket recovery
-- [ ] T021 Update CLI reference documentation in `docs/modules/reference/pages/cli.adoc` with `cc-deck mux` command description
-- [ ] T022 Update configuration reference in `docs/modules/reference/pages/configuration.adoc` with `mux` config section and all parameters
-- [ ] T023 Run `make verify` to ensure all tests pass and linting is clean
+- [x] T020 Create `test/mux_integration_test.go`: start broker in-process, send 100 messages from 5 concurrent goroutines across 3 session names, verify correct dedup behavior, verify flush delivers to mock zellij pipe, verify idle timeout shutdown, verify stale socket recovery
+- [x] T021 Update CLI reference documentation in `docs/modules/reference/pages/cli.adoc` with `cc-deck mux` command description
+- [x] T022 Update configuration reference in `docs/modules/reference/pages/configuration.adoc` with `mux` config section and all parameters
+- [x] T023 Run `make verify` to ensure all tests pass and linting is clean
 
 ---
 

@@ -22,6 +22,48 @@ type Config struct {
 	Profiles       map[string]Profile `yaml:"profiles,omitempty"`
 	Sessions       []Session         `yaml:"sessions,omitempty"`
 	Badges         []BadgeRule       `yaml:"badges,omitempty"`
+	Mux            MuxConfig         `yaml:"mux,omitempty"`
+}
+
+// MuxConfig holds settings for the pipe mux broker daemon.
+type MuxConfig struct {
+	Enabled       bool          `yaml:"enabled"`
+	FlushInterval time.Duration `yaml:"flush_interval"`
+	IdleTimeout   time.Duration `yaml:"idle_timeout"`
+	QueueSize     int           `yaml:"queue_size"`
+	Dedup         *bool         `yaml:"dedup,omitempty"`
+	Log           bool          `yaml:"log"`
+}
+
+// MuxDefaults returns a MuxConfig with default values applied.
+func MuxDefaults() MuxConfig {
+	dedupTrue := true
+	return MuxConfig{
+		Enabled:       false,
+		FlushInterval: 200 * time.Millisecond,
+		IdleTimeout:   30 * time.Second,
+		QueueSize:     1000,
+		Dedup:         &dedupTrue,
+		Log:           false,
+	}
+}
+
+// WithDefaults returns a copy of c with zero-value fields filled from defaults.
+func (c MuxConfig) WithDefaults() MuxConfig {
+	d := MuxDefaults()
+	if c.FlushInterval == 0 {
+		c.FlushInterval = d.FlushInterval
+	}
+	if c.IdleTimeout == 0 {
+		c.IdleTimeout = d.IdleTimeout
+	}
+	if c.QueueSize == 0 {
+		c.QueueSize = d.QueueSize
+	}
+	if c.Dedup == nil {
+		c.Dedup = d.Dedup
+	}
+	return c
 }
 
 // BadgeRule defines a file-based badge indicator for the sidebar.

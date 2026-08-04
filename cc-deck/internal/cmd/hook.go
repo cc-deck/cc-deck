@@ -15,6 +15,7 @@ import (
 	"github.com/cc-deck/cc-deck/internal/agent"
 	"github.com/cc-deck/cc-deck/internal/badge"
 	"github.com/cc-deck/cc-deck/internal/config"
+	"github.com/cc-deck/cc-deck/internal/mux"
 	"github.com/cc-deck/cc-deck/internal/session"
 	"github.com/cc-deck/cc-deck/internal/xdg"
 )
@@ -133,8 +134,9 @@ func runHook(stdin io.Reader, paneIDStr string, agentName string) {
 
 	normalized.PaneID = paneID
 
+	cfg, _ := config.Load("")
+
 	if normalized.Cwd != "" {
-		cfg, _ := config.Load("")
 		if cfg != nil && len(cfg.Badges) > 0 {
 			normalized.Badges = badge.Evaluate(cfg.Badges, normalized.Cwd)
 		}
@@ -145,13 +147,26 @@ func runHook(stdin io.Reader, paneIDStr string, agentName string) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
+	muxSent := false
+	if cfg != nil && cfg.Mux.Enabled {
+		if sessionName := os.Getenv("ZELLIJ_SESSION_NAME"); sessionName != "" {
+			socketPath := filepath.Join(xdg.RuntimeDir(), "cc-deck", "mux.sock")
+			msg := mux.Message{SessionName: sessionName, PipeName: "cc-deck:hook", Args: string(payloadJSON)}
+			if err := mux.SendOrStart(socketPath, msg); err == nil {
+				muxSent = true
+			}
+		}
+	}
 
-	cmd := exec.CommandContext(ctx, zellijPath, "pipe",
-		"--name", "cc-deck:hook",
-		"--", string(payloadJSON))
-	_ = cmd.Run()
+	if !muxSent {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+
+		cmd := exec.CommandContext(ctx, zellijPath, "pipe",
+			"--name", "cc-deck:hook",
+			"--", string(payloadJSON))
+		_ = cmd.Run()
+	}
 
 	session.AutoSave()
 

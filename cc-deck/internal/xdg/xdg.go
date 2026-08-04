@@ -4,6 +4,7 @@
 package xdg
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -21,6 +22,14 @@ var (
 	// CacheHome is $XDG_CACHE_HOME or ~/.cache.
 	CacheHome = envOrDefault("XDG_CACHE_HOME", ".cache")
 )
+
+// RuntimeDir returns $XDG_RUNTIME_DIR if set, otherwise /tmp/cc-deck-<uid>/.
+func RuntimeDir() string {
+	if v := os.Getenv("XDG_RUNTIME_DIR"); v != "" {
+		return v
+	}
+	return fmt.Sprintf("/tmp/cc-deck-%d", os.Getuid())
+}
 
 func envOrDefault(envVar string, subPaths ...string) string {
 	if v := os.Getenv(envVar); v != "" {

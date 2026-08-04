@@ -106,6 +106,61 @@ At workspace creation time, cc-deck imports an ephemeral profile with these doma
 Binary paths for agent executables.
 Used in ephemeral MCP profiles to restrict which binaries can access MCP endpoints.
 
+== Mux Configuration (`config.yaml`)
+
+The `mux` section in `~/.config/cc-deck/config.yaml` controls the pipe mux broker daemon.
+The broker intercepts hook pipe messages via a Unix domain socket, deduplicates them, and flushes to `zellij pipe` at regular intervals.
+This prevents CliPipe timeout storms when multiple Claude Code sessions fire hooks concurrently.
+
+[source,yaml]
+----
+mux:
+  enabled: true
+  flush_interval: 200ms
+  idle_timeout: 30s
+  queue_size: 1000
+  dedup: true
+  log: false
+----
+
+[cols="1,1,1,3"]
+|===
+| Parameter | Type | Default | Description
+
+| `enabled`
+| bool
+| `false`
+| Enable the mux broker. When disabled or absent, hooks call `zellij pipe` directly.
+
+| `flush_interval`
+| duration
+| `200ms`
+| How often the broker flushes queued messages to `zellij pipe`.
+
+| `idle_timeout`
+| duration
+| `30s`
+| The broker self-terminates after this period of inactivity.
+
+| `queue_size`
+| int
+| `1000`
+| Maximum number of messages in the queue. Oldest messages are dropped when exceeded.
+
+| `dedup`
+| bool
+| `true`
+| Deduplicate messages by (session_name, pipe_name, hash(args)). When false, every message is delivered in arrival order.
+
+| `log`
+| bool
+| `false`
+| Write debug logs to `~/.local/state/cc-deck/mux.log`. The log is truncated on each broker start.
+|===
+
+The broker socket is created at `$XDG_RUNTIME_DIR/cc-deck/mux.sock`.
+When `$XDG_RUNTIME_DIR` is not set, the fallback path is `/tmp/cc-deck-<uid>/cc-deck/mux.sock`.
+
 == Cache Files
 
 === `probe-cache.json`
