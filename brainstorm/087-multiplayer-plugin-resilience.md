@@ -220,3 +220,107 @@ Defense-in-depth on the receiving end. Even with the broker, the plugin should h
 - What counts as "low priority" vs "high priority" in the plugin's pipe_message()?
 - Should the broker share a single instance across multiple Zellij sessions or be per-session?
 - How does the broker know which Zellij session to target when calling `zellij pipe`?
+
+---
+
+## Revisit: 2026-08-04
+
+### Focus: cc-deck mux Architecture Decisions
+
+Resolved all open questions from the 2026-08-03 revisit and scoped the mux broker for implementation. MCP convergence (brainstorm 089) was explicitly deferred since cross-pane MCP has not been built yet and designing around hypothetical MCP traffic would be premature.
+
+### Resolved Open Questions
+
+| Question | Decision | Rationale |
+|----------|----------|-----------|
+| Idle timeout | 30 seconds | Aggressive cleanup. Restart cost is sub-second, so short gaps between bursts have no real penalty. |
+| Dedup key | `(session_name, pipe_name, hash(args))` | Preserves distinct events while collapsing redundant updates. Same pipe name with different arguments stays separate; identical updates collapse. |
+| Flush interval | 200ms | 5 flushes/second keeps UI responsive. 200ms latency on status updates is imperceptible to humans. |
+| Plugin priority queue | Deferred | The broker's dedup + rate limiting should be sufficient. Add plugin-side drop logic only if storms persist after broker deployment, informed by real data. |
+| Broker multiplicity | Shared singleton | One broker process for all Zellij sessions on the machine. Fewer processes, centralized rate limiting. |
+| Session targeting | Client-supplied `session_name` field | Each hook message includes a `session_name` (from `$ZELLIJ_SESSION_NAME`). The broker calls `zellij pipe --session <name>`. |
+
+### Updated Decision
+
+**Approach D only (broker), approach E (plugin priority) deferred.** The 2026-08-03 revisit proposed both D and E as defense-in-depth. After further analysis, the broker alone should eliminate the storm. Plugin-side priority adds complexity for a scenario that may never materialize once the broker is working. If post-deployment data shows storms still reaching the plugin, priority classification will be easier to design with real traffic patterns.
+
+### Process Model
+
+The mux broker is a standalone OS process (`cc-deck mux`), not a goroutine within the hook process. This is necessary because `cc-deck hook` must exit immediately (non-blocking for Claude Code hooks). The broker survives across hook invocations.
+
+**Startup flow:**
+1. Hook tries to `connect()` to the Unix socket.
+2. If connected, fire-and-forget the message, exit.
+3. If connect fails, fork `cc-deck mux` as a detached background process (`Setsid = true`).
+4. `cc-deck mux` calls `bind()` on the socket path. `bind()` is atomic: if two brokers race, exactly one wins, the loser gets `EADDRINUSE` and exits silently.
+5. Hook retries `connect()` (3 attempts, 10ms apart).
+6. If still no connection, fall back to direct `zellij pipe`.
+
+**Stale socket recovery:** If `connect()` fails on an existing socket file (broker crashed), the hook removes the stale socket and starts a fresh broker. Self-healing.
+
+### Architecture: Simple Queue-and-Flush
+
+Single goroutine accepts connections on the Unix socket, stores messages in a `map[dedupKey]message` (last-writer-wins). A ticker goroutine flushes the map every 200ms by calling `zellij pipe --session <name>` for each entry sequentially.
+
+Estimated size: ~200 lines of Go.
+
+Per-session parallel flush (concurrent pipe calls across sessions) was considered and rejected as premature. If multi-session usage grows, it is a localized change to the flush loop.
+
+### Configuration
+
+All mux parameters are configurable via `~/.config/cc-deck/config.yaml`:
+
+```yaml
+mux:
+  enabled: false          # opt-in/opt-out; default off until stable
+  flush_interval: 200ms   # how often the broker drains the queue
+  idle_timeout: 30s       # self-terminate after this duration of no messages
+  queue_size: 1000        # max messages before dropping oldest
+  dedup: true             # enable/disable dedup (key: session + pipe_name + hash(args))
+  log: false              # enable debug logging
+```
+
+The hook reads `mux.enabled` before deciding whether to route through the broker or call `zellij pipe` directly. When `mux.enabled` is false (or config absent), behavior is identical to current: direct pipe call.
+
+### Debug Logging
+
+Optional, toggleable via `mux.log: true` in config.
+
+**Log location:** `~/.local/state/cc-deck/mux.log`
+
+**Events logged:**
+- Incoming messages (sender, session, pipe_name, args summary)
+- Dedup hits (which key was collapsed, how many times)
+- Flush events (how many messages flushed, which sessions, duration)
+- Drop events (queue full, which message was dropped)
+- Lifecycle events (broker start, idle timeout, shutdown)
+
+### Updated Scope
+
+**In scope (cc-deck mux V1):**
+- `cc-deck mux` subcommand: standalone daemon process
+- Shared singleton across all Zellij sessions
+- Unix domain socket at `$XDG_RUNTIME_DIR/cc-deck/mux.sock`
+- Socket-as-lock startup (bind is the lock, stale socket cleanup)
+- Client-supplied `session_name` routing via `$ZELLIJ_SESSION_NAME`
+- Dedup by `(session_name, pipe_name, hash(args))`, last-writer-wins
+- 200ms flush interval, sequential `zellij pipe` calls
+- 30-second idle timeout, self-termination
+- Hook client: connect-or-start, fire-and-forget, exit immediately
+- Fallback to direct `zellij pipe` when broker unavailable
+- Opt-in/opt-out via `mux.enabled` in config (default: off)
+- Configurable parameters: flush interval, idle timeout, queue size, dedup toggle
+- Debug logging to `~/.local/state/cc-deck/mux.log`
+
+**Out of scope:**
+- MCP convergence (defer until brainstorm 089 is built and tested)
+- Plugin-side priority queue (defer until post-broker data)
+- Per-session parallel flush (upgrade path for multi-session scaling)
+- Cross-machine brokering
+- Zellij-aware message semantics (V1 is a pure relay)
+
+### Open Questions
+
+- What queue_size default is appropriate? (100? 1000? Unbounded with a warning threshold?)
+- Should `mux.log` rotation be handled (e.g., max file size, or truncate on broker start)?
+- Should the broker expose a health/status endpoint (e.g., `cc-deck mux status` reads a stats file)?
