@@ -161,3 +161,62 @@ The original brainstorm assumed `client_id=0` would mark orphans. Testing dispro
 
 - Does the controller election need to handle the case where the lowest-client_id controller is a zombie? (The leader heartbeat timeout should cover this, but needs testing.)
 - Should dormant controllers also track sidebar registrations for faster failover?
+
+---
+
+## Revisit: 2026-08-03
+
+### Updated Problem Framing
+
+A new failure mode emerged: **CliPipe timeout storms**. The Zellij server log accumulated 58,350 `Action CliPipe did not complete within 1s timeout` errors in 3.5 hours, driving the server process to 187% CPU. This is distinct from the sidebar duplication problem (brainstorm 082) and the replacement spiral (fixed in commit 92a9a0a).
+
+**Root cause**: `zellij pipe` is synchronous with a 1-second server-side timeout. When multiple Claude Code sessions (or rapid hook firings from a single session) send pipes faster than the plugin's single-threaded WASM event loop can drain them, every unprocessed pipe waits 1 second and then logs an error. At ~16 timeouts/second, the server spends nearly all its CPU processing and timing out pipe actions.
+
+**Evidence**: 58,350 out of 58,456 server log lines (99.8%) were CliPipe timeouts. The plugin's own debug log was 0 bytes (disabled), so the plugin wasn't doing anything expensive; it simply couldn't keep up with the inbound pipe rate.
+
+### New Approaches Considered
+
+#### D: Message Queue Broker (Chosen)
+
+Introduce a lightweight background daemon (`cc-deck mux`) that decouples pipe senders from the Zellij server:
+
+- **Transport**: Unix domain socket at `$XDG_RUNTIME_DIR/cc-deck/mux.sock`
+- **Startup**: Lazy, implicit. The cc-deck hook checks if the socket exists and accepts connections. If yes, fire-and-forget the message to the broker. If no, start the broker in the background, then send. If startup fails, fall back to direct `zellij pipe`.
+- **Behavior (V1, Zellij-agnostic)**: Rate limiting, dedup by message type (only latest version of each message kept), batch flushing on a timer (e.g., every 200ms). The broker calls `zellij pipe` as the single controlled sender.
+- **Lifecycle**: Self-terminates after an idle timeout (no orphaned daemons). The idle timeout and flush interval are open questions for the spec phase.
+
+- Pros: Eliminates the synchronous bottleneck entirely. N hook invocations become N fast socket writes plus 1 controlled pipe delivery. The Zellij server never sees bursts. Broker can evolve to add Zellij-aware coalescing later.
+- Cons: New daemon process to manage. Socket file lifecycle. Adds a hop to the message path. Needs graceful fallback when the broker is unavailable.
+
+#### E: Plugin-Side Priority Queue with Drop Logic
+
+Defense-in-depth on the receiving end. Even with the broker, the plugin should handle pipe bursts gracefully (e.g., direct `zellij pipe` calls that bypass the broker):
+
+- Classify incoming pipes by urgency: user actions (focus, rename) are high priority; periodic session updates are low priority
+- Under load (more than N pipes per timer tick), drop low-priority pipes
+- Always process high-priority pipes
+
+- Pros: Protects the plugin regardless of how pipes arrive. Cheap to implement (timestamp + counter in `pipe_message()`).
+- Cons: Adds complexity to the WASM event loop. Priority classification is a judgment call that may need tuning.
+
+### Updated Decision
+
+**Both D (broker) and E (plugin resilience).** Defense in depth. The broker prevents the storm from reaching Zellij. The plugin drops low-priority messages if bursts get through anyway.
+
+### Key Requirements (Pipe Resilience)
+
+1. **cc-deck mux daemon**: Unix domain socket broker that accepts pipe messages, deduplicates by type, and flushes to `zellij pipe` at a controlled rate
+2. **Lazy startup**: Hooks start the broker on first use if absent. No explicit setup required. Fallback to direct pipe if broker unavailable.
+3. **Self-terminating**: Broker exits after idle timeout (no zombie daemons)
+4. **V1 is Zellij-agnostic**: No knowledge of plugin IDs, tabs, or message semantics. Pure relay with rate limiting.
+5. **Plugin priority queue**: `pipe_message()` classifies incoming pipes and drops low-priority messages under load
+6. **Backward compatible**: If the broker isn't running, hooks fall back to direct `zellij pipe` (current behavior)
+
+### Open Questions (Pipe Resilience)
+
+- What idle timeout duration for the broker? (30 seconds? 5 minutes?)
+- What dedup key format? (pipe name only? pipe name + payload hash?)
+- What flush interval? (100ms? 200ms? 500ms?)
+- What counts as "low priority" vs "high priority" in the plugin's pipe_message()?
+- Should the broker share a single instance across multiple Zellij sessions or be per-session?
+- How does the broker know which Zellij session to target when calling `zellij pipe`?
