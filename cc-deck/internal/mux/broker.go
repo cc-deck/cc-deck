@@ -2,6 +2,7 @@ package mux
 
 import (
 	"bufio"
+	"context"
 	"net"
 	"os"
 	"os/exec"
@@ -55,7 +56,9 @@ func NewBroker(socketPath string, flushInterval, idleTimeout time.Duration, queu
 }
 
 func defaultFlushFn(msg Message) error {
-	cmd := exec.Command("zellij", "pipe",
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "zellij", "pipe",
 		"--session", msg.SessionName,
 		"--name", msg.PipeName,
 		"--", msg.Args)
