@@ -109,7 +109,7 @@ The broker process shuts itself down after a configurable idle period (default 3
 - **FR-007**: The hook client MUST attempt to connect to the broker socket, start a new broker if the socket is unavailable, and fall back to direct `zellij pipe` after 3 failed connection attempts (10ms apart).
 - **FR-008**: The hook client MUST detect stale socket files (connect fails on existing file), remove them, and attempt a fresh broker start.
 - **FR-009**: Each pipe message sent to the broker MUST include a `session_name` field populated from the `$ZELLIJ_SESSION_NAME` environment variable.
-- **FR-010**: System MUST drop the oldest messages when the queue exceeds the configured `queue_size` limit and log the drop event when logging is enabled.
+- **FR-010**: System MUST drop the oldest messages when the queue exceeds the configured `queue_size` limit (default 1000) and log the drop event when logging is enabled.
 - **FR-011**: System MUST support configurable parameters via `~/.config/cc-deck/config.yaml` under a `mux` section: `enabled`, `flush_interval`, `idle_timeout`, `queue_size`, `dedup`, `log`.
 - **FR-012**: System MUST write debug logs to `~/.local/state/cc-deck/mux.log` when `mux.log` is `true`, covering incoming messages, dedup hits, flush events, drop events, and lifecycle events.
 - **FR-013**: System MUST create the socket directory if it does not exist, and fall back to `/tmp/cc-deck-$UID/` if `$XDG_RUNTIME_DIR` is not set.
@@ -132,6 +132,12 @@ The broker process shuts itself down after a configurable idle period (default 3
 - **SC-004**: No orphaned broker processes remain 60 seconds after all Zellij sessions are closed.
 - **SC-005**: Fallback to direct pipe completes within 50ms when the broker is unavailable, with no message loss.
 - **SC-006**: Configuration changes take effect on the next broker restart without requiring recompilation.
+
+## Clarifications
+
+### Session 2026-08-04
+
+- Q: What is the default queue_size? → A: 1000 messages (large enough to absorb bursts without unbounded memory risk; the brainstorm config example used this value)
 
 ## Assumptions
 
