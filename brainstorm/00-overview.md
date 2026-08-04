@@ -1,6 +1,6 @@
 # Brainstorm Overview
 
-Last updated: 2026-08-04
+Last updated: 2026-07-31
 
 ## Sessions
 
@@ -102,7 +102,7 @@ Last updated: 2026-08-04
 - Sidebar auto-sort: separator line style (thin/dashed/labeled), separator width and alignment (from #080)
 - Codex agent adapter: indicator symbol selection, version detection for hooks, tool name normalization (apply_patch vs Write/Edit) (from #081)
 - Pluggable tunnel interface: provider abstraction, Cloudflare Quick Tunnel as default (from #083)
-- Multiplayer plugin resilience: get_plugin_ids client distinction, election with web client instances, sidebar skip for web clients, upstream plugin cleanup on disconnect, mux queue_size default (100/1000/unbounded?), mux.log rotation strategy, mux status/health endpoint (from #087)
+- Multiplayer plugin resilience: get_plugin_ids client distinction, election with web client instances, sidebar skip for web clients, client_id=0 reliability, upstream plugin cleanup on disconnect (from #087)
 - Multiplayer focus modes: tab switch sync scope, per-client vs global mode state, session tracking in independent mode, focus_terminal_pane cross-client correctness (from #088)
 - Cross-pane MCP: prompt injection format across agents, timeout/error handling, temp file cleanup strategy, auto-add MCP config on install, voice relay infrastructure sharing, new pipe message type vs extension (from #089)
 - OpenShell profile delegation: profile name mapping granularity, auto-detection vs manifest declaration interaction, missing gateway profile handling, ephemeral profile lifecycle, AllowedDomains override migration (from #090)
