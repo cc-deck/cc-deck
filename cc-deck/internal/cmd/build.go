@@ -1048,7 +1048,23 @@ func refreshOpenShellPolicy(dir string, m *build.Manifest, report *build.ProbeRe
 	if err := os.MkdirAll(filepath.Dir(policyPath), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(policyPath, data, 0o644)
+	if err := os.WriteFile(policyPath, data, 0o644); err != nil {
+		return err
+	}
+
+	pm := build.GenerateProfileManifest(m, result.MatchedComponents)
+	if pm != nil {
+		pmData, pmErr := build.MarshalProfileManifest(pm)
+		if pmErr != nil {
+			return pmErr
+		}
+		profilesPath := filepath.Join(dir, "openshell", "profiles.yaml")
+		if err := os.WriteFile(profilesPath, pmData, 0o644); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 
