@@ -40,6 +40,8 @@ type startZellij struct {
 	fail               string
 	cleanupSawCanceled bool
 	roles              map[string]bool
+	credentialNames    map[string]string
+	revokedNames       []string
 	sessionMissing     bool
 }
 
@@ -70,7 +72,7 @@ func (z *startZellij) UnshareSession(ctx context.Context, _ string) error {
 	z.cleanupSawCanceled = z.cleanupSawCanceled || ctx.Err() != nil
 	return z.call("unshare")
 }
-func (z *startZellij) CreateToken(_ context.Context, label string, readOnly bool) (string, error) {
+func (z *startZellij) CreateToken(_ context.Context, label string, readOnly bool) (TokenCredential, error) {
 	if z.roles == nil {
 		z.roles = map[string]bool{}
 	}
@@ -80,12 +82,18 @@ func (z *startZellij) CreateToken(_ context.Context, label string, readOnly bool
 		name = "observer-token"
 	}
 	if err := z.call("create-" + name); err != nil {
-		return "", err
+		return TokenCredential{}, err
 	}
-	return name + "-SECRET", nil
+	credentialName := label
+	if z.credentialNames[label] != "" {
+		credentialName = z.credentialNames[label]
+	}
+	z.roles[credentialName] = readOnly
+	return TokenCredential{Name: credentialName, Secret: name + "-SECRET"}, nil
 }
 func (z *startZellij) RevokeToken(ctx context.Context, label string) error {
 	z.cleanupSawCanceled = z.cleanupSawCanceled || ctx.Err() != nil
+	z.revokedNames = append(z.revokedNames, label)
 	if z.roles[label] || stringsContains(label, "observer") {
 		return z.call("revoke-observer")
 	}
@@ -151,29 +159,6 @@ func (p *startProvider) Stop(ctx context.Context, _ ProviderHandle) error {
 	return p.call("provider-stop")
 }
 
-type fakeGuard struct {
-	handle              GuardHandle
-	startErr, disarmErr error
-	started             string
-	disarmed            bool
-	onStart             func() error
-}
-
-func (g *fakeGuard) Start(_ context.Context, operationID string) (GuardHandle, error) {
-	g.started = operationID
-	if g.onStart != nil {
-		if err := g.onStart(); err != nil {
-			return GuardHandle{}, err
-		}
-	}
-	if g.startErr != nil {
-		return GuardHandle{}, g.startErr
-	}
-	g.handle = GuardHandle{PID: 99, OperationID: operationID, Ready: true}
-	return g.handle, nil
-}
-func (g *fakeGuard) Disarm(context.Context, GuardHandle) error { g.disarmed = true; return g.disarmErr }
-
 func stringsContains(value, part string) bool {
 	for i := 0; i+len(part) <= len(value); i++ {
 		if value[i:i+len(part)] == part {
@@ -208,19 +193,21 @@ func TestStartRejectsMissingCanonicalSessionBeforeResources(t *testing.T) {
 }
 
 func TestInviteAddsIndependentCredentialAndRevokeOnlyNamedCredential(t *testing.T) {
-	store, z := &startStore{op: activeOperation()}, &startZellij{}
+	store, z := &startStore{op: activeOperation()}, &startZellij{credentialNames: map[string]string{"alice": "swift-seal"}}
 	store.op.Workspace = "demo"
 	service := NewService(store, z, &startProvider{})
 	invitation, err := service.Invite(context.Background(), InviteRequest{Label: "alice", Role: RoleInteractive})
 	require.NoError(t, err)
 	require.Equal(t, "alice", invitation.Label)
 	require.Len(t, store.op.Invitations, 3)
+	require.Equal(t, "swift-seal", store.op.Invitations[2].CredentialName)
 
-	status, err := service.Revoke(context.Background(), "alice")
+	status, err := service.Revoke(context.Background(), "", "alice")
 	require.NoError(t, err)
 	require.Len(t, status.Invitations, 3)
 	require.Equal(t, InvitationRevoked, status.Invitations[2].State)
 	require.Equal(t, InvitationActive, status.Invitations[0].State)
+	require.Equal(t, []string{"swift-seal"}, z.revokedNames)
 }
 
 func TestStartRejectsExistingOperationWithoutCreatingCredentials(t *testing.T) {
@@ -339,53 +326,6 @@ func TestStartRollbackUsesIndependentContextAfterCallerCancellation(t *testing.T
 	require.False(t, z.cleanupSawCanceled)
 }
 
-func TestStartLaunchesGuardOnlyAfterActiveStateIsPersisted(t *testing.T) {
-	store, z, provider, guard := &startStore{}, &startZellij{}, &startProvider{}, &fakeGuard{}
-	_, err := NewServiceWithGuard(store, z, provider, guard).Start(context.Background(), StartRequest{Session: "selected"})
-	require.NoError(t, err)
-	require.NotEmpty(t, guard.started)
-	require.Equal(t, guard.handle, store.op.Guard)
-	require.Equal(t, StateActive, store.op.State)
-}
-
-func TestStartReleasesLifecycleLockBeforeWaitingForGuardReadiness(t *testing.T) {
-	store := &guardLockStore{startStore: &startStore{}}
-	guard := &fakeGuard{onStart: func() error {
-		if store.locked.Load() {
-			return errors.New("guard launched under lifecycle lock")
-		}
-		return nil
-	}}
-	_, err := NewServiceWithGuard(store, &startZellij{}, &startProvider{}, guard).Start(context.Background(), StartRequest{Session: "selected"})
-	require.NoError(t, err)
-	require.Equal(t, 2, store.lockRuns, "startup lock followed by short guard-handle persistence lock")
-}
-
-func TestStopDisarmsGuardBeforeEndpointTeardown(t *testing.T) {
-	op, guard := activeOperation(), &fakeGuard{}
-	op.Guard = GuardHandle{PID: 99, OperationID: op.ID, Ready: true}
-	provider := &startProvider{beforeStop: func() error {
-		if !guard.disarmed {
-			return errors.New("provider stopped before guard disarm")
-		}
-		return nil
-	}}
-	got, err := NewServiceWithGuard(&startStore{op: op}, &startZellij{}, provider, guard).Stop(context.Background())
-	require.NoError(t, err)
-	require.Equal(t, StateInactive, got.State)
-}
-
-func TestStopContinuesSafetyActionsWhenGuardDisarmFails(t *testing.T) {
-	op, guard := activeOperation(), &fakeGuard{disarmErr: errors.New("guard unavailable")}
-	op.Guard = GuardHandle{PID: 99, OperationID: op.ID, Ready: true}
-	store, z, provider := &startStore{op: op}, &startZellij{}, &startProvider{}
-	got, err := NewServiceWithGuard(store, z, provider, guard).Stop(context.Background())
-	require.ErrorContains(t, err, "guard could not be disarmed")
-	require.Equal(t, StateDegraded, got.State)
-	require.Equal(t, []string{"provider-stop"}, provider.calls)
-	require.Equal(t, []string{"revoke-observer", "revoke-interactive", "stop-web"}, z.calls)
-}
-
 func activeOperation() *SharingOperation {
 	return &SharingOperation{
 		ID: "operation", Session: "selected", Provider: "cloudflare",
@@ -401,7 +341,7 @@ func activeOperation() *SharingOperation {
 
 func TestStopAttemptsEverySafetyActionAndRemovesState(t *testing.T) {
 	store, z, provider := &startStore{op: activeOperation()}, &startZellij{}, &startProvider{}
-	got, err := NewService(store, z, provider).Stop(context.Background())
+	got, err := NewService(store, z, provider).Stop(context.Background(), "")
 	require.NoError(t, err)
 	require.Equal(t, StateInactive, got.State)
 	require.Nil(t, store.op)
@@ -411,7 +351,7 @@ func TestStopAttemptsEverySafetyActionAndRemovesState(t *testing.T) {
 
 func TestStopIsIdempotentWhenNoOperationExists(t *testing.T) {
 	store, z, provider := &startStore{}, &startZellij{}, &startProvider{}
-	got, err := NewService(store, z, provider).Stop(context.Background())
+	got, err := NewService(store, z, provider).Stop(context.Background(), "")
 	require.NoError(t, err)
 	require.Equal(t, StateInactive, got.State)
 	require.Empty(t, z.calls)
@@ -421,7 +361,7 @@ func TestStopIsIdempotentWhenNoOperationExists(t *testing.T) {
 func TestStopContinuesAfterFailuresAndPersistsSafeResiduals(t *testing.T) {
 	store := &startStore{op: activeOperation()}
 	z, provider := &startZellij{fail: "revoke-observer"}, &startProvider{fail: "provider-stop"}
-	got, err := NewService(store, z, provider).Stop(context.Background())
+	got, err := NewService(store, z, provider).Stop(context.Background(), "")
 	require.ErrorContains(t, err, "cleanup incomplete")
 	require.Equal(t, StateDegraded, got.State)
 	require.Contains(t, got.Residuals[0], "public endpoint")
@@ -429,6 +369,52 @@ func TestStopContinuesAfterFailuresAndPersistsSafeResiduals(t *testing.T) {
 	require.NotContains(t, fmt.Sprintf("%+v", got), "SECRET")
 	require.Equal(t, []string{"revoke-observer", "revoke-interactive", "stop-web"}, z.calls)
 	require.Equal(t, StateDegraded, store.op.State)
+}
+
+func TestStopRetrySkipsPreviouslyCompletedEndpointAndWebCleanup(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		firstFailure  string
+		secondFailure string
+		wantProvider  []string
+		wantWebCalls  int
+	}{
+		{name: "endpoint already stopped", firstFailure: "stop-web", secondFailure: "provider-stop", wantProvider: []string{"provider-stop"}, wantWebCalls: 2},
+		{name: "web server already stopped", firstFailure: "provider-stop", secondFailure: "stop-web", wantProvider: []string{"provider-stop", "provider-stop"}, wantWebCalls: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &startStore{op: activeOperation()}
+			z, provider := &startZellij{}, &startProvider{}
+			if tc.firstFailure == "stop-web" {
+				z.fail = tc.firstFailure
+			} else {
+				provider.fail = tc.firstFailure
+			}
+			_, err := NewService(store, z, provider).Stop(context.Background(), "")
+			require.Error(t, err)
+
+			z.fail, provider.fail = "", ""
+			if tc.secondFailure == "stop-web" {
+				z.fail = tc.secondFailure
+			} else {
+				provider.fail = tc.secondFailure
+			}
+			_, err = NewService(store, z, provider).Stop(context.Background(), "")
+			require.NoError(t, err)
+			require.Equal(t, tc.wantProvider, provider.calls)
+			require.Equal(t, tc.wantWebCalls, countString(z.calls, "stop-web"))
+		})
+	}
+}
+
+func countString(values []string, want string) int {
+	count := 0
+	for _, value := range values {
+		if value == want {
+			count++
+		}
+	}
+	return count
 }
 
 func TestStatusReportsActiveWithoutSecrets(t *testing.T) {
@@ -506,9 +492,38 @@ func TestStatusReconcilesStoppingOperationEvenWhenProviderLooksStarting(t *testi
 func TestStopAttemptsEverySafetyActionWhenStoppingStateCannotBePersisted(t *testing.T) {
 	store := &startStore{op: activeOperation(), saveErr: errors.New("disk unavailable")}
 	z, provider := &startZellij{}, &startProvider{}
-	got, err := NewService(store, z, provider).Stop(context.Background())
+	got, err := NewService(store, z, provider).Stop(context.Background(), "")
 	require.ErrorContains(t, err, "stopping state could not be persisted")
 	require.Equal(t, StateDegraded, got.State)
 	require.Equal(t, []string{"provider-stop"}, provider.calls)
 	require.Equal(t, []string{"revoke-observer", "revoke-interactive", "stop-web"}, z.calls)
+}
+
+func TestWorkspaceScopedMutationsRejectDifferentWorkspace(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		run  func(*SharingService, *startStore) error
+	}{
+		{"invite", func(service *SharingService, _ *startStore) error {
+			_, err := service.Invite(context.Background(), InviteRequest{Workspace: "beta", Role: RoleObserver})
+			return err
+		}},
+		{"revoke", func(service *SharingService, store *startStore) error {
+			_, err := service.Revoke(context.Background(), "beta", store.op.Invitations[0].Label)
+			return err
+		}},
+		{"stop", func(service *SharingService, _ *startStore) error {
+			_, err := service.Stop(context.Background(), "beta")
+			return err
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store, z, provider := &startStore{op: activeOperation()}, &startZellij{}, &startProvider{}
+			store.op.Workspace = "alpha"
+			err := tc.run(NewService(store, z, provider), store)
+			require.ErrorContains(t, err, `workspace "beta" is not shared`)
+			require.Empty(t, z.calls)
+			require.Empty(t, provider.calls)
+		})
+	}
 }

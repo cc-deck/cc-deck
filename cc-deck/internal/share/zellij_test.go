@@ -33,15 +33,28 @@ func TestZellijRejectsMissingRequiredCapability(t *testing.T) {
 	require.ErrorContains(t, NewZellij(r).ValidateCapabilities(context.Background()), "read-only")
 }
 func TestZellijUsesSeparateTokenRoles(t *testing.T) {
-	r := &fakeRunner{outputs: map[string][]byte{}, errors: map[string]error{}}
+	r := &fakeRunner{outputs: map[string][]byte{
+		key("zellij", []string{"web", "--create-token"}):           []byte("Created token successfully\n\nswift-seal: INTERACTIVE_SECRET"),
+		key("zellij", []string{"web", "--create-read-only-token"}): []byte("Created token successfully\n\nquiet-otter: OBSERVER_SECRET (read-only)"),
+	}, errors: map[string]error{}}
 	z := NewZellij(r)
 	ctx := context.Background()
-	_, _ = z.CreateToken(ctx, "interactive", false)
-	_, _ = z.CreateToken(ctx, "observer", true)
-	require.Equal(t, []string{"web", "--token-name", "interactive"}, r.calls[0].args)
-	require.Equal(t, []string{"web", "--create-token"}, r.calls[1].args)
-	require.Equal(t, []string{"web", "--token-name", "observer"}, r.calls[2].args)
-	require.Equal(t, []string{"web", "--create-read-only-token"}, r.calls[3].args)
+	interactive, err := z.CreateToken(ctx, "interactive", false)
+	require.NoError(t, err)
+	observer, err := z.CreateToken(ctx, "observer", true)
+	require.NoError(t, err)
+	require.Equal(t, TokenCredential{Name: "swift-seal", Secret: "INTERACTIVE_SECRET"}, interactive)
+	require.Equal(t, TokenCredential{Name: "quiet-otter", Secret: "OBSERVER_SECRET"}, observer)
+	require.Equal(t, []string{"web", "--create-token"}, r.calls[0].args)
+	require.Equal(t, []string{"web", "--create-read-only-token"}, r.calls[1].args)
+}
+
+func TestZellijRejectsMalformedTokenOutput(t *testing.T) {
+	r := &fakeRunner{outputs: map[string][]byte{
+		key("zellij", []string{"web", "--create-token"}): []byte("Created token successfully"),
+	}, errors: map[string]error{}}
+	_, err := NewZellij(r).CreateToken(context.Background(), "interactive", false)
+	require.ErrorContains(t, err, "parse Zellij token output")
 }
 
 func TestZellijWebLifecycle(t *testing.T) {

@@ -14,8 +14,9 @@ import (
 )
 
 const (
-	containerNamePrefix = "cc-deck-"
-	defaultImage        = "quay.io/cc-deck/cc-deck-demo:latest"
+	containerNamePrefix     = "cc-deck-"
+	defaultImage            = "quay.io/cc-deck/cc-deck-demo:latest"
+	containerCleanupTimeout = 10 * time.Second
 )
 
 // Deprecated: AuthMode is superseded by agent-declared CredentialSpecs and the credential package.
@@ -133,9 +134,6 @@ func (e *ContainerWorkspace) Create(ctx context.Context, opts CreateOpts) error 
 	}
 
 	cName := containerName(e.name)
-	if _, err := e.EnsureSession(ctx, SessionStartOptions{}); err != nil {
-		return err
-	}
 
 	// Remove any existing container with the same name (orphaned from a
 	// previous run or failed cleanup).
@@ -249,6 +247,12 @@ func (e *ContainerWorkspace) Create(ctx context.Context, opts CreateOpts) error 
 	if err != nil {
 		return fmt.Errorf("creating container: %w", err)
 	}
+	if _, err := e.EnsureSession(ctx, SessionStartOptions{}); err != nil {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), containerCleanupTimeout)
+		defer cancel()
+		_ = podman.Remove(cleanupCtx, cName, true)
+		return err
+	}
 
 	// Clone repos into workspace if defined.
 	if len(e.Repos) > 0 {
@@ -302,7 +306,7 @@ func (e *ContainerWorkspace) Create(ctx context.Context, opts CreateOpts) error 
 		Name:         e.name,
 		Type:         WorkspaceTypeContainer,
 		InfraState:   &running,
-		SessionState: SessionStateNone,
+		SessionState: SessionStateExists,
 		CreatedAt:    time.Now().UTC(),
 		Container: &ContainerFields{
 			ContainerID:   containerID,

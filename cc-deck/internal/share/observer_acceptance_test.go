@@ -24,22 +24,21 @@ func (t *behavioralTransport) attempt(client behavioralClient, _ string) bool {
 
 func TestTwoObserversReuseReadOnlyCredentialAndRejectCompleteInputMatrix(t *testing.T) {
 	runner := &fakeRunner{outputs: map[string][]byte{
-		key("zellij", []string{"web", "--token-name", "observer"}): []byte("ok"),
-		key("zellij", []string{"web", "--create-read-only-token"}): []byte("OBSERVER_SECRET"),
+		key("zellij", []string{"web", "--create-read-only-token"}): []byte("Created token successfully\n\nquiet-otter: OBSERVER_SECRET (read-only)"),
 	}}
-	token, err := NewZellij(runner).CreateToken(context.Background(), "observer", true)
+	credential, err := NewZellij(runner).CreateToken(context.Background(), "observer", true)
 	require.NoError(t, err)
-	require.Equal(t, "OBSERVER_SECRET", token)
-	require.Equal(t, []string{"web", "--create-read-only-token"}, runner.calls[1].args)
+	require.Equal(t, "OBSERVER_SECRET", credential.Secret)
+	require.Equal(t, []string{"web", "--create-read-only-token"}, runner.calls[0].args)
 
 	transport := &behavioralTransport{}
 	observers := []behavioralClient{
-		{credential: token, readOnly: true},
-		{credential: token, readOnly: true},
+		{credential: credential.Secret, readOnly: true},
+		{credential: credential.Secret, readOnly: true},
 	}
 	inputs := []string{"keyboard", "mouse", "paste", "resize", "tab-focus", "pane-focus", "terminal-control"}
 	for observerNumber, observer := range observers {
-		require.Equal(t, token, observer.credential, "observer %d did not reuse the observer credential", observerNumber+1)
+		require.Equal(t, credential.Secret, observer.credential, "observer %d did not reuse the observer credential", observerNumber+1)
 		for _, input := range inputs {
 			before := transport.revision
 			accepted := transport.attempt(observer, input)

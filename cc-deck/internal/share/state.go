@@ -10,7 +10,12 @@ import (
 
 type FileStore struct{ path, lockPath string }
 
-func DefaultStatePath() string { return filepath.Join(xdg.StateHome, "cc-deck", "share.yaml") }
+func DefaultStatePath() string {
+	if path := os.Getenv("CC_DECK_SHARE_STATE_FILE"); path != "" {
+		return path
+	}
+	return filepath.Join(xdg.StateHome, "cc-deck", "share.yaml")
+}
 func NewFileStore(path string) *FileStore {
 	if path == "" {
 		path = DefaultStatePath()

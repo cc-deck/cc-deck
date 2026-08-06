@@ -34,6 +34,7 @@ func setupTestWs(t *testing.T) (stateDir string) {
 	stateDir = t.TempDir()
 	stateFile := filepath.Join(stateDir, "state.yaml")
 	t.Setenv("CC_DECK_STATE_FILE", stateFile)
+	t.Setenv("CC_DECK_SHARE_STATE_FILE", filepath.Join(stateDir, "share.yaml"))
 
 	// Isolate definition store so system definitions don't leak into tests.
 	defsFile := filepath.Join(stateDir, "workspaces.yaml")
