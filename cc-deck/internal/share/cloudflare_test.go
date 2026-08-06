@@ -109,6 +109,16 @@ func TestCloudflareStopReconstructsPersistedVerifiedProcess(t *testing.T) {
 	require.NoError(t, p.Stop(context.Background(), h))
 }
 
+func TestIsProcessGone(t *testing.T) {
+	require.False(t, isProcessGone(nil))
+	require.False(t, isProcessGone(errors.New("some random error")))
+	require.True(t, isProcessGone(errors.New("no such process")))
+	require.True(t, isProcessGone(errors.New("not found")))
+	require.True(t, isProcessGone(errors.New("process finished")))
+	require.True(t, isProcessGone(errors.New("exit status 1")))
+	require.True(t, isProcessGone(errors.New("ps -p 85353: exit status 1")))
+}
+
 func TestCloudflareStopFailureIsReported(t *testing.T) {
 	wait := make(chan error)
 	proc := &fakeProcess{pid: 53, waitCh: wait, signalErr: errors.New("denied")}
