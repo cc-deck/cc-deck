@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"os/signal"
-	"syscall"
 
 	"github.com/cc-deck/cc-deck/internal/config"
 	sharing "github.com/cc-deck/cc-deck/internal/share"
@@ -14,34 +12,29 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func workspaceShareService(gf *GlobalFlags, guarded bool) (sharing.Service, error) {
+func workspaceShareService(_ *GlobalFlags) (sharing.Service, error) {
 	runner := osCommandRunner{}
 	store := sharing.NewFileStore("")
-	providerName := defaultProvider(gf)
 	provider := sharing.NewCloudflareProvider(runner)
-	if providerName != provider.Name() {
-		return nil, fmt.Errorf("provider %q is not available", providerName)
-	}
 	zellij := sharing.NewZellij(runner)
-	if !guarded {
-		return sharing.NewService(store, zellij, provider), nil
-	}
-	executable, err := os.Executable()
-	if err != nil {
-		executable = "cc-deck"
-	}
-	return sharing.NewServiceWithGuard(store, zellij, provider, sharing.NewDetachedGuard(runner, executable)), nil
+	return sharing.NewService(store, zellij, provider), nil
 }
 
-func defaultProvider(gf *GlobalFlags) string {
-	if gf == nil {
-		return "cloudflare"
+var makeWorkspaceShareService = workspaceShareService
+
+func configuredProvider(gf *GlobalFlags) (string, error) {
+	configFile := ""
+	if gf != nil {
+		configFile = gf.ConfigFile
 	}
-	cfg, err := config.Load(gf.ConfigFile)
-	if err == nil && cfg.SharingProvider() != "" {
-		return cfg.SharingProvider()
+	cfg, err := config.Load(configFile)
+	if err != nil {
+		return "", fmt.Errorf("load sharing configuration: %w", err)
 	}
-	return "cloudflare"
+	if provider := cfg.SharingProvider(); provider != "" {
+		return provider, nil
+	}
+	return "cloudflare", nil
 }
 
 type osCommandRunner struct{}
@@ -51,12 +44,7 @@ func (osCommandRunner) Run(ctx context.Context, name string, args ...string) ([]
 }
 func (osCommandRunner) Start(ctx context.Context, name string, args ...string) (sharing.Process, error) {
 	command := exec.CommandContext(ctx, name, args...)
-	if len(args) >= 2 && args[0] == "ws" && args[1] == "share-guard" {
-		command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-		command.Stdin, command.Stdout, command.Stderr = nil, nil, nil
-	} else {
-		command.Stdout, command.Stderr = os.Stdout, os.Stderr
-	}
+	command.Stdout, command.Stderr = os.Stdout, os.Stderr
 	if err := command.Start(); err != nil {
 		return nil, err
 	}
@@ -92,7 +80,14 @@ func readyAndMaybeShare(ctx context.Context, gf *GlobalFlags, workspace ws.Works
 		ready, err := ws.EnsureReady(ctx, workspace, ws.ReadyOptions{})
 		return nil, ready, err
 	}
-	service, err := workspaceShareService(gf, true)
+	providerName, err := configuredProvider(gf)
+	if err != nil {
+		return nil, ws.ReadyResult{}, err
+	}
+	if providerName != "cloudflare" {
+		return nil, ws.ReadyResult{}, fmt.Errorf("provider %q is not available", providerName)
+	}
+	service, err := makeWorkspaceShareService(gf)
 	if err != nil {
 		return nil, ws.ReadyResult{}, err
 	}
@@ -101,7 +96,7 @@ func readyAndMaybeShare(ctx context.Context, gf *GlobalFlags, workspace ws.Works
 	if err != nil {
 		return nil, ready, err
 	}
-	invitations, err := service.Start(ctx, sharing.StartRequest{Workspace: workspace.Name(), Session: ws.ZellijSessionName(workspace.Name()), Provider: defaultProvider(gf)})
+	invitations, err := service.Start(ctx, sharing.StartRequest{Workspace: workspace.Name(), Session: ws.ZellijSessionName(workspace.Name()), Provider: providerName})
 	if err != nil && ready.SessionCreated {
 		_ = workspace.KillSession(context.Background())
 	}
@@ -125,16 +120,15 @@ func newWsSharingCommands(gf *GlobalFlags) []*cobra.Command {
 		if err != nil {
 			return err
 		}
-		service, err := workspaceShareService(gf, true)
+		service, err := makeWorkspaceShareService(gf)
 		if err != nil {
 			return err
 		}
-		invitation, err := service.Invite(cmd.Context(), sharing.InviteRequest{Label: label, Role: sharing.InvitationRole(role)})
+		invitation, err := service.Invite(cmd.Context(), sharing.InviteRequest{Workspace: name, Label: label, Role: sharing.InvitationRole(role)})
 		if err != nil {
 			return err
 		}
 		printInvitations(cmd, []sharing.Invitation{invitation})
-		_ = name
 		return nil
 	}}
 	invite.Flags().StringVar(&role, "role", "", "Invitation role: interactive or observer")
@@ -143,40 +137,29 @@ func newWsSharingCommands(gf *GlobalFlags) []*cobra.Command {
 
 	revoke := &cobra.Command{Use: "revoke [name] INVITATION_LABEL", Args: cobra.RangeArgs(1, 2), RunE: func(cmd *cobra.Command, args []string) error {
 		labelArg := args[len(args)-1]
-		service, err := workspaceShareService(gf, true)
+		nameArgs := args[:len(args)-1]
+		name, _, err := resolveWorkspaceName(nameArgs, ws.NewStateStore(""))
 		if err != nil {
 			return err
 		}
-		_, err = service.Revoke(cmd.Context(), labelArg)
+		service, err := makeWorkspaceShareService(gf)
+		if err != nil {
+			return err
+		}
+		_, err = service.Revoke(cmd.Context(), name, labelArg)
 		return err
 	}}
-	unshare := &cobra.Command{Use: "unshare [name]", Args: cobra.MaximumNArgs(1), RunE: func(cmd *cobra.Command, _ []string) error {
-		service, err := workspaceShareService(gf, true)
+	unshare := &cobra.Command{Use: "unshare [name]", Args: cobra.MaximumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		name, _, err := resolveWorkspaceName(args, ws.NewStateStore(""))
 		if err != nil {
 			return err
 		}
-		_, err = service.Stop(cmd.Context())
+		service, err := makeWorkspaceShareService(gf)
+		if err != nil {
+			return err
+		}
+		_, err = service.Stop(cmd.Context(), name)
 		return err
 	}}
-	return []*cobra.Command{invite, revoke, unshare, newWsShareGuardCmd(gf)}
-}
-
-func newWsShareGuardCmd(gf *GlobalFlags) *cobra.Command {
-	var operationID, readyFile string
-	cmd := &cobra.Command{Use: "share-guard", Hidden: true, Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
-		store := sharing.NewFileStore("")
-		provider := sharing.NewCloudflareProvider(osCommandRunner{})
-		service, err := workspaceShareService(gf, false)
-		if err != nil {
-			return err
-		}
-		guardCtx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-		defer cancel()
-		return sharing.RunGuard(guardCtx, store, provider, service, operationID, readyFile)
-	}}
-	cmd.Flags().StringVar(&operationID, "operation", "", "sharing operation identity")
-	cmd.Flags().StringVar(&readyFile, "ready-file", "", "guard readiness path")
-	_ = cmd.MarkFlagRequired("operation")
-	_ = cmd.MarkFlagRequired("ready-file")
-	return cmd
+	return []*cobra.Command{invite, revoke, unshare}
 }

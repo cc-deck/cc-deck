@@ -22,6 +22,7 @@ type ProviderHandle struct {
 	Metadata map[string]string `yaml:"metadata,omitempty"`
 }
 type ProviderStatus struct{ State, EndpointURL, Diagnostic string }
+type TokenCredential struct{ Name, Secret string }
 type Provider interface {
 	Name() string
 	Validate(context.Context) error
@@ -33,7 +34,7 @@ type Provider interface {
 type Zellij interface {
 	ValidateCapabilities(context.Context) error
 	SessionExists(context.Context, string) (bool, error)
-	CreateToken(context.Context, string, bool) (string, error)
+	CreateToken(context.Context, string, bool) (TokenCredential, error)
 	RevokeToken(context.Context, string) error
 	EnsureWebServer(context.Context) (string, bool, error)
 	StopWebServer(context.Context) error
@@ -47,13 +48,9 @@ type Store interface {
 type Service interface {
 	Start(context.Context, StartRequest) ([]Invitation, error)
 	Invite(context.Context, InviteRequest) (Invitation, error)
-	Revoke(context.Context, string) (SharingStatus, error)
+	Revoke(context.Context, string, string) (SharingStatus, error)
 	Status(context.Context) (SharingStatus, error)
-	Stop(context.Context) (SharingStatus, error)
-}
-type Guard interface {
-	Start(context.Context, string) (GuardHandle, error)
-	Disarm(context.Context, GuardHandle) error
+	Stop(context.Context, string) (SharingStatus, error)
 }
 
 type ProviderRegistry struct {

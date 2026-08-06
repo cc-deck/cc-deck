@@ -91,18 +91,32 @@ func parseSessionName(line string) string {
 	}
 	return line
 }
-func (z *ZellijCLI) CreateToken(ctx context.Context, label string, readOnly bool) (string, error) {
+func (z *ZellijCLI) CreateToken(ctx context.Context, _ string, readOnly bool) (TokenCredential, error) {
 	flag := "--create-token"
 	if readOnly {
 		flag = "--create-read-only-token"
 	}
-	// Spike validation found --token-name conflicts with token creation when
-	// combined, so naming and creation must remain separate commands. See
-	// brainstorm/082-session-sharing-spike.md.
-	if _, err := z.run(ctx, "web", "--token-name", label); err != nil {
-		return "", fmt.Errorf("set Zellij token name: %w", err)
+	out, err := z.run(ctx, "web", flag)
+	if err != nil {
+		return TokenCredential{}, err
 	}
-	return z.run(ctx, "web", flag)
+	return parseTokenCredential(out, readOnly)
+}
+
+func parseTokenCredential(out string, readOnly bool) (TokenCredential, error) {
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if len(lines) == 0 {
+		return TokenCredential{}, fmt.Errorf("parse Zellij token output: empty output")
+	}
+	last := strings.TrimSpace(lines[len(lines)-1])
+	if readOnly {
+		last = strings.TrimSuffix(last, " (read-only)")
+	}
+	name, secret, found := strings.Cut(last, ": ")
+	if !found || strings.TrimSpace(name) == "" || strings.TrimSpace(secret) == "" {
+		return TokenCredential{}, fmt.Errorf("parse Zellij token output: unexpected response")
+	}
+	return TokenCredential{Name: strings.TrimSpace(name), Secret: strings.TrimSpace(secret)}, nil
 }
 func (z *ZellijCLI) RevokeToken(ctx context.Context, label string) error {
 	_, e := z.run(ctx, "web", "--revoke-token", label)

@@ -13,18 +13,19 @@ const (
 )
 
 type SharingOperation struct {
-	ID             string             `yaml:"id"`
-	Workspace      string             `yaml:"workspace"`
-	Session        string             `yaml:"session"`
-	Provider       string             `yaml:"provider"`
-	EndpointURL    string             `yaml:"endpoint_url,omitempty"`
-	Invitations    []InvitationRecord `yaml:"invitations,omitempty"`
-	ProviderHandle ProviderHandle     `yaml:"provider_handle"`
-	Guard          GuardHandle        `yaml:"guard,omitempty"`
-	State          LifecycleState     `yaml:"state"`
-	CreatedAt      time.Time          `yaml:"created_at"`
-	UpdatedAt      time.Time          `yaml:"updated_at"`
-	Residuals      []string           `yaml:"residuals,omitempty"`
+	ID               string             `yaml:"id"`
+	Workspace        string             `yaml:"workspace"`
+	Session          string             `yaml:"session"`
+	Provider         string             `yaml:"provider"`
+	EndpointURL      string             `yaml:"endpoint_url,omitempty"`
+	Invitations      []InvitationRecord `yaml:"invitations,omitempty"`
+	ProviderHandle   ProviderHandle     `yaml:"provider_handle"`
+	EndpointStopped  bool               `yaml:"endpoint_stopped,omitempty"`
+	WebServerStopped bool               `yaml:"web_server_stopped,omitempty"`
+	State            LifecycleState     `yaml:"state"`
+	CreatedAt        time.Time          `yaml:"created_at"`
+	UpdatedAt        time.Time          `yaml:"updated_at"`
+	Residuals        []string           `yaml:"residuals,omitempty"`
 }
 
 type InvitationRole string
@@ -42,10 +43,11 @@ const (
 )
 
 type InvitationRecord struct {
-	Label     string          `yaml:"label"`
-	Role      InvitationRole  `yaml:"role"`
-	State     InvitationState `yaml:"state"`
-	CreatedAt time.Time       `yaml:"created_at"`
+	Label          string          `yaml:"label"`
+	CredentialName string          `yaml:"credential_name,omitempty"`
+	Role           InvitationRole  `yaml:"role"`
+	State          InvitationState `yaml:"state"`
+	CreatedAt      time.Time       `yaml:"created_at"`
 }
 
 func (o *SharingOperation) Transition(next LifecycleState, now time.Time) bool {
@@ -64,8 +66,9 @@ func (o *SharingOperation) Transition(next LifecycleState, now time.Time) bool {
 
 type StartRequest struct{ Workspace, Session, Provider string }
 type InviteRequest struct {
-	Label string
-	Role  InvitationRole
+	Workspace string
+	Label     string
+	Role      InvitationRole
 }
 type InvitationSet struct {
 	InteractiveBrowser, InteractiveTerminal string
@@ -84,13 +87,6 @@ type SharingStatus struct {
 	State                                     LifecycleState
 	Workspace, Session, Provider, EndpointURL string
 	Invitations                               []InvitationRecord
-	GuardReady                                bool
 	InteractiveAvailable, ObserverAvailable   bool
 	Residuals                                 []string
-}
-type GuardHandle struct {
-	PID                int    `yaml:"pid"`
-	OperationID        string `yaml:"operation_id"`
-	Ready              bool   `yaml:"ready"`
-	ProcessFingerprint string `yaml:"process_fingerprint"`
 }

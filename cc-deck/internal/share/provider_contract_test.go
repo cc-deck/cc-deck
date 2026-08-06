@@ -219,7 +219,7 @@ func runProviderPartialStopContract(t *testing.T, provider Provider) {
 		require.NotEmpty(t, invitation.Browser)
 		require.NotEmpty(t, invitation.Terminal)
 	}
-	status, err := service.Stop(context.Background())
+	status, err := service.Stop(context.Background(), "")
 	require.Error(t, err)
 	require.Equal(t, StateDegraded, status.State)
 	require.Contains(t, status.Residuals[0], "public endpoint")
@@ -241,10 +241,10 @@ func runProviderServiceIntegrationContract(t *testing.T, provider Provider) {
 	require.Equal(t, StateActive, status.State)
 	require.True(t, status.InteractiveAvailable)
 	require.True(t, status.ObserverAvailable)
-	status, err = service.Stop(context.Background())
+	status, err = service.Stop(context.Background(), "")
 	require.NoError(t, err)
 	require.Equal(t, StateInactive, status.State)
-	status, err = service.Stop(context.Background())
+	status, err = service.Stop(context.Background(), "")
 	require.NoError(t, err)
 	require.Equal(t, StateInactive, status.State)
 }
