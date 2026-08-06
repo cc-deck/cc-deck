@@ -219,7 +219,7 @@ func (r *VoiceRelay) Start(ctx context.Context) error {
 	}
 	onCancel()
 
-	// No dedicated heartbeat goroutine needed: the dump-state poll (every 1s)
+	// No dedicated heartbeat goroutine needed: the dump-state poll (every 3s)
 	// serves as the heartbeat. The plugin refreshes voice_last_ping_ms on each
 	// dump-state request when voice is enabled.
 
@@ -310,7 +310,7 @@ func (r *VoiceRelay) levelPoll(ctx context.Context) {
 
 func (r *VoiceRelay) statePoll(ctx context.Context, sr PipeSendReceiver) {
 	defer r.wg.Done()
-	ticker := time.NewTicker(1 * time.Second)
+	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
 
 	var lastTarget string

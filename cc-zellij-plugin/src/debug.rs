@@ -54,11 +54,12 @@ pub fn debug_log(msg: &str) {
     let line = format!("[{secs}.{millis:03}] {msg}");
 
     LOG_BUFFER.with(|buf| {
-        let mut buf = buf.borrow_mut();
-        buf.push(line);
-        if buf.len() >= BUFFER_CAPACITY {
-            flush_buffer(&buf);
-            buf.clear();
+        if let Ok(mut buf) = buf.try_borrow_mut() {
+            buf.push(line);
+            if buf.len() >= BUFFER_CAPACITY {
+                flush_buffer(&buf);
+                buf.clear();
+            }
         }
     });
 }
@@ -69,10 +70,11 @@ pub fn debug_flush() {
         return;
     }
     LOG_BUFFER.with(|buf| {
-        let mut buf = buf.borrow_mut();
-        if !buf.is_empty() {
-            flush_buffer(&buf);
-            buf.clear();
+        if let Ok(mut buf) = buf.try_borrow_mut() {
+            if !buf.is_empty() {
+                flush_buffer(&buf);
+                buf.clear();
+            }
         }
     });
 }

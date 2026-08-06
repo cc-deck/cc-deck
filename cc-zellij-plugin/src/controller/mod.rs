@@ -157,19 +157,22 @@ impl ZellijPlugin for ControllerPlugin {
         }
 
         // Dormant guard: non-leader only processes election protocol messages.
-        // Do NOT unblock CLI pipes here. The leader instance handles all CLI
-        // pipe lifecycle (output + unblock). Unblocking from the dormant
-        // instance can race with the leader's cli_pipe_output, causing the
-        // CLI process to exit before receiving the response (breaks dump-state
-        // polling for voice relay and other CLI consumers).
+        // For most pipes, do NOT unblock: the leader handles all CLI pipe
+        // lifecycle (output + unblock). For DumpState however, the dormant
+        // instance must unblock with an empty response to avoid a 1-second
+        // CliPipe timeout on the Zellij server (each broadcast pipe waits
+        // for ALL instances to complete).
         if !self.state.is_leader
             && pipe_message.name != "cc-deck:controller-ping"
             && pipe_message.name != "cc-deck:controller-pong"
         {
-            crate::debug_log(&format!(
-                "CTRL DORMANT: ignoring pipe name={}",
-                pipe_message.name
-            ));
+            #[cfg(target_family = "wasm")]
+            if pipe_message.name == "cc-deck:dump-state" {
+                if let PipeSource::Cli(ref pipe_id) = pipe_message.source {
+                    cli_pipe_output_wasm(pipe_id, "");
+                    unblock_cli_pipe_input_wasm(pipe_id);
+                }
+            }
             return false;
         }
 
@@ -665,10 +668,6 @@ impl ControllerPlugin {
         }
         // Suppress unused variable warning in non-wasm builds
         let _ = pipe_message;
-        crate::debug_log(&format!(
-            "CTRL DUMP-STATE responded with {} sessions",
-            self.state.sessions.len()
-        ));
     }
 }
 
