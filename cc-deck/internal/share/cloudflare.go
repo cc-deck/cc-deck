@@ -243,5 +243,5 @@ func (p *CloudflareProvider) processFingerprint(ctx context.Context, pid int) (s
 	return s, nil
 }
 func isProcessGone(err error) bool {
-	return err != nil && (regexp.MustCompile(`(?i)(finished|not found|no such process)`).MatchString(err.Error()))
+	return err != nil && (regexp.MustCompile(`(?i)(finished|not found|no such process|exit status 1)`).MatchString(err.Error()))
 }
