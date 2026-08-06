@@ -9,6 +9,12 @@ import (
 	"time"
 )
 
+func testRelayConfig() RelayConfig {
+	c := DefaultRelayConfig()
+	c.PollInterval = 100 * time.Millisecond
+	return c
+}
+
 type mockAudioSource struct {
 	mu      sync.Mutex
 	frames  chan []int16
@@ -116,7 +122,7 @@ func TestVoiceRelay_TextFlowsToSender(t *testing.T) {
 	transcriber := &mockTranscriber{results: []string{"add error handling"}}
 	pipe := &mockPipeSender{}
 
-	config := DefaultRelayConfig()
+	config := testRelayConfig()
 	config.VADConfig.Threshold = 0.01
 	config.VADConfig.SilenceDuration = 0.1
 	config.VADConfig.PreRollDuration = 0
@@ -170,7 +176,7 @@ func TestVoiceRelay_CommandWordSendsEnter(t *testing.T) {
 	transcriber := &mockTranscriber{results: []string{"send it"}}
 	pipe := &mockPipeSender{}
 
-	config := DefaultRelayConfig()
+	config := testRelayConfig()
 	config.VADConfig.Threshold = 0.01
 	config.VADConfig.SilenceDuration = 0.1
 	config.VADConfig.PreRollDuration = 0
@@ -201,7 +207,7 @@ func TestVoiceRelay_NonCommandRelaysFullText(t *testing.T) {
 	transcriber := &mockTranscriber{results: []string{"please send the email"}}
 	pipe := &mockPipeSender{}
 
-	config := DefaultRelayConfig()
+	config := testRelayConfig()
 	config.VADConfig.Threshold = 0.01
 	config.VADConfig.SilenceDuration = 0.1
 	config.VADConfig.PreRollDuration = 0
@@ -235,7 +241,7 @@ func TestVoiceRelay_WhisperArtifactDiscarded(t *testing.T) {
 	transcriber := &mockTranscriber{results: []string{"[background noise]"}}
 	pipe := &mockPipeSender{}
 
-	config := DefaultRelayConfig()
+	config := testRelayConfig()
 	config.VADConfig.Threshold = 0.01
 	config.VADConfig.SilenceDuration = 0.1
 	config.VADConfig.PreRollDuration = 0
@@ -260,7 +266,7 @@ func TestVoiceRelay_EmptyTranscriptionDiscarded(t *testing.T) {
 	transcriber := &mockTranscriber{results: []string{"  "}}
 	pipe := &mockPipeSender{}
 
-	config := DefaultRelayConfig()
+	config := testRelayConfig()
 	config.VADConfig.Threshold = 0.01
 	config.VADConfig.SilenceDuration = 0.1
 	config.VADConfig.PreRollDuration = 0
@@ -285,7 +291,7 @@ func TestVoiceRelay_TranscriptionErrorProducesEvent(t *testing.T) {
 	transcriber := &mockTranscriber{err: fmt.Errorf("model crashed")}
 	pipe := &mockPipeSender{}
 
-	config := DefaultRelayConfig()
+	config := testRelayConfig()
 	config.VADConfig.Threshold = 0.01
 	config.VADConfig.SilenceDuration = 0.1
 	config.VADConfig.PreRollDuration = 0
@@ -320,7 +326,7 @@ func TestVoiceRelay_DeliveryErrorProducesEvent(t *testing.T) {
 	transcriber := &mockTranscriber{results: []string{"hello"}}
 	pipe := &mockPipeSender{sendErr: fmt.Errorf("workspace disconnected")}
 
-	config := DefaultRelayConfig()
+	config := testRelayConfig()
 	config.VADConfig.Threshold = 0.01
 	config.VADConfig.SilenceDuration = 0.1
 	config.VADConfig.PreRollDuration = 0
@@ -350,7 +356,7 @@ func TestVoiceRelay_StopClosesEvents(t *testing.T) {
 	transcriber := &mockTranscriber{}
 	pipe := &mockPipeSender{}
 
-	relay := NewVoiceRelay(DefaultRelayConfig(), audio, transcriber, pipe, nil)
+	relay := NewVoiceRelay(testRelayConfig(), audio, transcriber, pipe, nil)
 	if err := relay.Start(context.Background()); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -372,7 +378,7 @@ func TestVoiceRelay_DoubleStartReturnsError(t *testing.T) {
 	transcriber := &mockTranscriber{}
 	pipe := &mockPipeSender{}
 
-	relay := NewVoiceRelay(DefaultRelayConfig(), audio, transcriber, pipe, nil)
+	relay := NewVoiceRelay(testRelayConfig(), audio, transcriber, pipe, nil)
 	if err := relay.Start(context.Background()); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -509,7 +515,7 @@ func TestVoiceRelay_ContextCancelGracefulShutdown(t *testing.T) {
 		recvErr:      fmt.Errorf("context cancelled"),
 	}
 
-	config := DefaultRelayConfig()
+	config := testRelayConfig()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -529,7 +535,7 @@ func TestVoiceRelay_AttendCommandSendsAttend(t *testing.T) {
 	transcriber := &mockTranscriber{results: []string{"go next"}}
 	pipe := &mockPipeSender{}
 
-	config := DefaultRelayConfig()
+	config := testRelayConfig()
 	config.VADConfig.Threshold = 0.01
 	config.VADConfig.SilenceDuration = 0.1
 	config.VADConfig.PreRollDuration = 0
@@ -651,7 +657,7 @@ func TestVoiceRelay_HeartbeatSendsMuteState(t *testing.T) {
 				recvCalled:   recvCalled,
 			}
 
-			config := DefaultRelayConfig()
+			config := testRelayConfig()
 			relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
 			relay.mu.Lock()
 			relay.muted = tt.muted
@@ -711,7 +717,7 @@ func TestVoiceRelay_SendsVoiceOnAtStart(t *testing.T) {
 	transcriber := &mockTranscriber{}
 	pipe := &mockPipeSender{}
 
-	relay := NewVoiceRelay(DefaultRelayConfig(), audio, transcriber, pipe, nil)
+	relay := NewVoiceRelay(testRelayConfig(), audio, transcriber, pipe, nil)
 	if err := relay.Start(context.Background()); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -739,7 +745,7 @@ func TestVoiceRelay_TranscribesWhileMutedAndRecording(t *testing.T) {
 	transcriber := &mockTranscriber{results: []string{"notes to self"}}
 	pipe := &mockPipeSender{}
 
-	config := DefaultRelayConfig()
+	config := testRelayConfig()
 	config.VADConfig.Threshold = 0.01
 	config.VADConfig.SilenceDuration = 0.1
 	config.VADConfig.PreRollDuration = 0
@@ -791,7 +797,7 @@ func TestVoiceRelay_DiscardsWhileMutedNotRecording(t *testing.T) {
 	transcriber := &mockTranscriber{results: []string{"should be discarded"}}
 	pipe := &mockPipeSender{}
 
-	config := DefaultRelayConfig()
+	config := testRelayConfig()
 	config.VADConfig.Threshold = 0.01
 	config.VADConfig.SilenceDuration = 0.1
 	config.VADConfig.PreRollDuration = 0
@@ -831,7 +837,7 @@ func TestVoiceRelay_SetRecordingAutoMutes(t *testing.T) {
 	transcriber := &mockTranscriber{}
 	pipe := &mockPipeSender{}
 
-	config := DefaultRelayConfig()
+	config := testRelayConfig()
 	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
 
 	// Start unmuted
@@ -863,7 +869,7 @@ func TestVoiceRelay_SetRecordingPreservesMuted(t *testing.T) {
 	transcriber := &mockTranscriber{}
 	pipe := &mockPipeSender{}
 
-	config := DefaultRelayConfig()
+	config := testRelayConfig()
 	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
 
 	// Start already muted
@@ -889,7 +895,7 @@ func TestVoiceRelay_SetRecordingEmitsMuteEvent(t *testing.T) {
 	transcriber := &mockTranscriber{}
 	pipe := &mockPipeSender{}
 
-	config := DefaultRelayConfig()
+	config := testRelayConfig()
 	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
 
 	relay.SetRecording(true)
@@ -956,7 +962,7 @@ func TestVoiceRelay_BracketAnnotationStripped(t *testing.T) {
 	transcriber := &mockTranscriber{results: []string{"hello [typing] world"}}
 	pipe := &mockPipeSender{}
 
-	config := DefaultRelayConfig()
+	config := testRelayConfig()
 	config.VADConfig.Threshold = 0.01
 	config.VADConfig.SilenceDuration = 0.1
 	config.VADConfig.PreRollDuration = 0

@@ -24,18 +24,20 @@ type PipeSendReceiver interface {
 
 // RelayConfig configures the voice relay pipeline.
 type RelayConfig struct {
-	SampleRate int
-	VADConfig  VADConfig
-	Verbose    bool
-	Commands   map[string]string // word -> action lookup (built by BuildCommandMap)
+	SampleRate    int
+	VADConfig     VADConfig
+	Verbose       bool
+	Commands      map[string]string // word -> action lookup (built by BuildCommandMap)
+	PollInterval  time.Duration
 }
 
 // DefaultRelayConfig returns sensible defaults for the relay.
 func DefaultRelayConfig() RelayConfig {
 	return RelayConfig{
-		SampleRate: 16000,
-		VADConfig:  DefaultVADConfig(),
-		Commands:   BuildCommandMap(DefaultCommands),
+		SampleRate:   16000,
+		VADConfig:    DefaultVADConfig(),
+		Commands:     BuildCommandMap(DefaultCommands),
+		PollInterval: 3 * time.Second,
 	}
 }
 
@@ -310,7 +312,7 @@ func (r *VoiceRelay) levelPoll(ctx context.Context) {
 
 func (r *VoiceRelay) statePoll(ctx context.Context, sr PipeSendReceiver) {
 	defer r.wg.Done()
-	ticker := time.NewTicker(3 * time.Second)
+	ticker := time.NewTicker(r.config.PollInterval)
 	defer ticker.Stop()
 
 	var lastTarget string
