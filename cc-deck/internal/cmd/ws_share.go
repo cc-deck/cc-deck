@@ -80,6 +80,15 @@ func readyAndMaybeShare(ctx context.Context, gf *GlobalFlags, workspace ws.Works
 		ready, err := ws.EnsureReady(ctx, workspace, ws.ReadyOptions{})
 		return nil, ready, err
 	}
+	configChanged, configErr := sharing.EnsureZellijWebSharing("")
+	if configErr != nil {
+		return nil, ws.ReadyResult{}, fmt.Errorf("configure Zellij web sharing: %w", configErr)
+	}
+	if configChanged {
+		fmt.Fprintln(os.Stderr, "Enabled web_sharing in Zellij config. A Zellij restart is required for this to take effect.")
+		fmt.Fprintln(os.Stderr, "Run: cc-deck ws stop "+workspace.Name()+" && killall zellij && zellij --layout cc-deck")
+		return nil, ws.ReadyResult{}, fmt.Errorf("web_sharing was just enabled in Zellij config; restart Zellij to activate it")
+	}
 	providerName, err := configuredProvider(gf)
 	if err != nil {
 		return nil, ws.ReadyResult{}, err
