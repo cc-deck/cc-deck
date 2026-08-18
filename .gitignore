@@ -44,5 +44,8 @@ dist/
 !**/.specify/memory/
 !**/.specify/memory/constitution.md
 
+# Playwright MCP artifacts (snapshots, screenshots)
+.playwright-mcp/
+
 # Base image digest tracking (local state)
 .base-images-digests.json
