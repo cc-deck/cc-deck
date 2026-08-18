@@ -37,8 +37,9 @@ dist/
 # MCP server config (contains auth tokens)
 **/.mcp.json
 
-# Claude Code local settings (any level)
+# Claude Code / Codex local settings (any level)
 **/.claude/
+**/.codex/
 # spex: generated/local files (only constitution is committed)
 **/.specify/**
 !**/.specify/memory/
