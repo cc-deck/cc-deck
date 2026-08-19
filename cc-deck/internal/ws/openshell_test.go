@@ -2,6 +2,7 @@ package ws
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/cc-deck/cc-deck/internal/agent"
+	"github.com/cc-deck/cc-deck/internal/build"
 	"github.com/cc-deck/cc-deck/internal/credential"
 	"github.com/rhuss/openshell-sdk-go/openshell/v1/fake"
 	v1 "github.com/rhuss/openshell-sdk-go/openshell/v1"
@@ -43,7 +45,6 @@ func TestResolveSandboxConfig_Defaults(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, defaultSandboxImage, cfg.Image)
 	assert.Equal(t, defaultSandboxCommand, cfg.Command)
-	assert.Empty(t, cfg.Policy)
 	assert.Empty(t, cfg.Providers)
 }
 
@@ -56,7 +57,6 @@ workspaces:
     type: openshell
     sandbox-image: custom/image:v1
     sandbox-command: tmux
-    policy: /etc/policy.yaml
     provider: my-provider
 `), 0644)
 
@@ -66,7 +66,6 @@ workspaces:
 	require.NoError(t, err)
 	assert.Equal(t, "custom/image:v1", cfg.Image)
 	assert.Equal(t, "tmux", cfg.Command)
-	assert.Equal(t, "/etc/policy.yaml", cfg.Policy)
 	assert.Equal(t, []string{"my-provider"}, cfg.Providers)
 }
 
@@ -377,7 +376,8 @@ func TestClearLocalState(t *testing.T) {
 }
 
 func TestSelectCredentialMode_EmptyAvailable(t *testing.T) {
-	_, found := selectCredentialMode(nil, "")
+	_, found, err := selectCredentialMode(nil, "")
+	require.NoError(t, err)
 	assert.False(t, found)
 }
 
@@ -386,7 +386,8 @@ func TestSelectCredentialMode_AutoSelect(t *testing.T) {
 		{Spec: agent.CredentialSpec{Name: "api"}},
 		{Spec: agent.CredentialSpec{Name: "vertex"}},
 	}
-	spec, found := selectCredentialMode(available, "")
+	spec, found, err := selectCredentialMode(available, "")
+	require.NoError(t, err)
 	assert.True(t, found)
 	assert.Equal(t, "api", spec.Name)
 }
@@ -396,7 +397,8 @@ func TestSelectCredentialMode_AutoExplicit(t *testing.T) {
 		{Spec: agent.CredentialSpec{Name: "api"}},
 		{Spec: agent.CredentialSpec{Name: "vertex"}},
 	}
-	spec, found := selectCredentialMode(available, "auto")
+	spec, found, err := selectCredentialMode(available, "auto")
+	require.NoError(t, err)
 	assert.True(t, found)
 	assert.Equal(t, "api", spec.Name)
 }
@@ -406,7 +408,8 @@ func TestSelectCredentialMode_ExplicitMatch(t *testing.T) {
 		{Spec: agent.CredentialSpec{Name: "api"}},
 		{Spec: agent.CredentialSpec{Name: "vertex"}},
 	}
-	spec, found := selectCredentialMode(available, "vertex")
+	spec, found, err := selectCredentialMode(available, "vertex")
+	require.NoError(t, err)
 	assert.True(t, found)
 	assert.Equal(t, "vertex", spec.Name)
 }
@@ -415,15 +418,16 @@ func TestSelectCredentialMode_ExplicitNoMatch(t *testing.T) {
 	available := []credential.AvailableMode{
 		{Spec: agent.CredentialSpec{Name: "api"}},
 	}
-	_, found := selectCredentialMode(available, "vertex")
-	assert.False(t, found)
+	_, _, err := selectCredentialMode(available, "vertex")
+	assert.Error(t, err)
 }
 
 func TestSelectCredentialMode_NoneAuth(t *testing.T) {
 	available := []credential.AvailableMode{
 		{Spec: agent.CredentialSpec{Name: "api"}},
 	}
-	_, found := selectCredentialMode(available, "none")
+	_, found, err := selectCredentialMode(available, "none")
+	require.NoError(t, err)
 	assert.False(t, found)
 }
 
@@ -432,10 +436,19 @@ func TestMapToOpenShellProvider_API(t *testing.T) {
 	resolved := credential.ResolvedCredentials{
 		EnvVars: map[string]string{"ANTHROPIC_API_KEY": "sk-test"},
 	}
-	name, pType, creds := mapToOpenShellProvider("ws1", spec, resolved)
+	name, pType, creds := mapToOpenShellProvider("ws1", "claude", spec, resolved)
 	assert.Equal(t, "cc-deck-ws1-api", name)
-	assert.Equal(t, "claude", pType)
+	assert.Equal(t, "anthropic", pType)
 	assert.Equal(t, "sk-test", creds["ANTHROPIC_API_KEY"])
+}
+
+func TestMapToOpenShellProvider_APIOpenCode(t *testing.T) {
+	spec := agent.CredentialSpec{Name: "api"}
+	resolved := credential.ResolvedCredentials{
+		EnvVars: map[string]string{"OPENAI_API_KEY": "sk-test"},
+	}
+	_, pType, _ := mapToOpenShellProvider("ws1", "opencode", spec, resolved)
+	assert.Equal(t, "openai", pType)
 }
 
 func TestMapToOpenShellProvider_Vertex(t *testing.T) {
@@ -446,9 +459,9 @@ func TestMapToOpenShellProvider_Vertex(t *testing.T) {
 			"CLOUD_ML_REGION":            "us-east5",
 		},
 	}
-	name, pType, creds := mapToOpenShellProvider("ws1", spec, resolved)
+	name, pType, creds := mapToOpenShellProvider("ws1", "claude", spec, resolved)
 	assert.Equal(t, "cc-deck-ws1-vertex", name)
-	assert.Equal(t, "google-cloud", pType)
+	assert.Equal(t, "vertexai", pType)
 	assert.Equal(t, "my-project", creds["project_id"])
 	assert.Equal(t, "us-east5", creds["region"])
 }
@@ -460,7 +473,7 @@ func TestMapToOpenShellProvider_VertexDefaultRegion(t *testing.T) {
 			"ANTHROPIC_VERTEX_PROJECT_ID": "my-project",
 		},
 	}
-	_, _, creds := mapToOpenShellProvider("ws1", spec, resolved)
+	_, _, creds := mapToOpenShellProvider("ws1", "claude", spec, resolved)
 	assert.Equal(t, "global", creds["region"])
 }
 
@@ -469,56 +482,8 @@ func TestMapToOpenShellProvider_Bedrock(t *testing.T) {
 	resolved := credential.ResolvedCredentials{
 		EnvVars: map[string]string{"AWS_REGION": "us-east-1"},
 	}
-	_, pType, _ := mapToOpenShellProvider("ws1", spec, resolved)
+	_, pType, _ := mapToOpenShellProvider("ws1", "claude", spec, resolved)
 	assert.Empty(t, pType, "bedrock has no OpenShell provider")
-}
-
-func TestResolveSandboxConfig_NoPolicyNoImage(t *testing.T) {
-	// When no definition store is set, resolveSandboxConfig should return
-	// defaults without attempting OCI extraction.
-	w := &OpenShellWorkspace{name: "test-ws"}
-	cfg, err := w.resolveSandboxConfig()
-	require.NoError(t, err)
-	assert.Empty(t, cfg.Policy, "policy should be empty without OCI extraction")
-}
-
-func TestResolveSandboxConfig_ExplicitPolicySkipsOCI(t *testing.T) {
-	// When an explicit policy path is set in the definition, OCI extraction
-	// should be skipped entirely.
-	dir := t.TempDir()
-	defPath := filepath.Join(dir, "workspaces.yaml")
-	os.WriteFile(defPath, []byte(`version: 3
-workspaces:
-  - name: test-ws
-    type: openshell
-    sandbox-image: my-registry/sandbox:v1
-    policy: /explicit/policy.yaml
-`), 0644)
-
-	defs := NewDefinitionStore(defPath)
-	w := &OpenShellWorkspace{name: "test-ws", defs: defs}
-	cfg, err := w.resolveSandboxConfig()
-	require.NoError(t, err)
-	assert.Equal(t, "/explicit/policy.yaml", cfg.Policy, "explicit policy should be used as-is")
-}
-
-func TestResolveSandboxConfig_OCIExtractionErrorIncludesSuggestion(t *testing.T) {
-	// When OCI extraction fails (image not found), the error should suggest
-	// using the --policy flag as a manual alternative.
-	dir := t.TempDir()
-	defPath := filepath.Join(dir, "workspaces.yaml")
-	os.WriteFile(defPath, []byte(`version: 3
-workspaces:
-  - name: test-ws
-    type: openshell
-    sandbox-image: nonexistent-registry.invalid/no-such-image:v999
-`), 0644)
-
-	defs := NewDefinitionStore(defPath)
-	w := &OpenShellWorkspace{name: "test-ws", defs: defs}
-	cfg, err := w.resolveSandboxConfig()
-	require.NoError(t, err)
-	assert.Empty(t, cfg.Policy, "policy should be empty when OCI extraction fails")
 }
 
 func TestStatusMapping_Deleting(t *testing.T) {
@@ -591,6 +556,35 @@ func TestCreate_HappyPath(t *testing.T) {
 	assert.Equal(t, "fake://localhost:17670", inst.OpenShell.GatewayAddr)
 }
 
+func TestCreate_ProfileBased_NoPolicy(t *testing.T) {
+	fc := fake.NewClient()
+	store := newTestStore(t)
+
+	w := newOpenShellWS("profile-ws", fc, store)
+	err := w.Create(context.Background(), CreateOpts{})
+	require.NoError(t, err)
+
+	sb, getErr := fc.Sandboxes().Get(context.Background(), w.sandboxID)
+	require.NoError(t, getErr)
+	assert.Equal(t, types.SandboxReady, sb.Status.Phase)
+	assert.Nil(t, sb.Spec.Policy, "SandboxSpec.Policy must be nil for profile-based path (FR-001)")
+}
+
+func TestCreate_BackwardCompat_EmptyAgents(t *testing.T) {
+	fc := fake.NewClient()
+	store := newTestStore(t)
+
+	w := newOpenShellWS("compat-ws", fc, store)
+	err := w.Create(context.Background(), CreateOpts{})
+	require.NoError(t, err)
+
+	inst, findErr := store.FindInstanceByName("compat-ws")
+	require.NoError(t, findErr)
+	assert.Equal(t, WorkspaceTypeOpenShell, inst.Type)
+	require.NotNil(t, inst.InfraState)
+	assert.Equal(t, InfraStateRunning, *inst.InfraState)
+}
+
 // newOpenShellWS creates an OpenShellWorkspace with a pre-injected client,
 // ensuring ensureClient() is a no-op and won't overwrite the fake.
 func newOpenShellWS(name string, client v1.ClientInterface, store *FileStateStore) *OpenShellWorkspace {
@@ -602,6 +596,341 @@ func newOpenShellWS(name string, client v1.ClientInterface, store *FileStateStor
 	}
 	w.clientOnce.Do(func() {})
 	return w
+}
+
+func TestExtractProfileManifest_NoImage(t *testing.T) {
+	pm, err := extractProfileManifest("nonexistent-registry.invalid/no-image:v999")
+	require.NoError(t, err)
+	assert.Nil(t, pm, "should return nil for missing image")
+}
+
+func TestExtractProfileManifest_EmptyImage(t *testing.T) {
+	pm, err := extractProfileManifest("")
+	require.NoError(t, err)
+	assert.Nil(t, pm)
+}
+
+func TestCreateProfileProviders_Empty(t *testing.T) {
+	fc := fake.NewClient()
+	providers, err := createProfileProviders(context.Background(), fc, "test-ws", nil)
+	require.NoError(t, err)
+	assert.Empty(t, providers)
+}
+
+func TestCreateProfileProviders_WithProfiles(t *testing.T) {
+	fc := fake.NewClient()
+	pc := newTestProfileClient("anthropic", "python", "github")
+	client := &profileOverrideClientWS{inner: fc, profiles: pc}
+
+	providers, err := createProfileProviders(context.Background(), client, "test-ws", []string{"anthropic", "python", "github"})
+	require.NoError(t, err)
+	assert.Len(t, providers, 3)
+	assert.Contains(t, providers, "cc-deck-test-ws-anthropic")
+	assert.Contains(t, providers, "cc-deck-test-ws-python")
+	assert.Contains(t, providers, "cc-deck-test-ws-github")
+
+	for _, name := range providers {
+		p, getErr := client.Providers().Get(context.Background(), name)
+		require.NoError(t, getErr, "provider %s should exist in fake after Ensure()", name)
+		assert.NotEmpty(t, p.Type, "provider %s should have a Type referencing a profile ID", name)
+	}
+}
+
+func TestCreateProfileProviders_MissingProfilesSkipped(t *testing.T) {
+	fc := fake.NewClient()
+	pc := newTestProfileClient("anthropic")
+	client := &profileOverrideClientWS{inner: fc, profiles: pc}
+
+	providers, err := createProfileProviders(context.Background(), client, "ws1", []string{"anthropic", "missing-profile"})
+	require.NoError(t, err)
+	assert.Len(t, providers, 1)
+	assert.Contains(t, providers, "cc-deck-ws1-anthropic")
+}
+
+func TestCreateProfileProviders_NameSanitization(t *testing.T) {
+	fc := fake.NewClient()
+	pc := newTestProfileClient("python")
+	client := &profileOverrideClientWS{inner: fc, profiles: pc}
+
+	providers, err := createProfileProviders(context.Background(), client, "My_Workspace!!", []string{"python"})
+	require.NoError(t, err)
+	assert.Len(t, providers, 1)
+	assert.Equal(t, "cc-deck-my-workspace-python", providers[0])
+}
+
+// profileOverrideClientWS wraps a fake client but overrides the Providers()
+// method to use a custom profile client. This is the ws package equivalent of
+// the openshell package's profileOverrideClient.
+type profileOverrideClientWS struct {
+	inner    v1.ClientInterface
+	profiles v1.ProfileInterface
+}
+
+func (c *profileOverrideClientWS) Sandboxes() v1.SandboxInterface  { return c.inner.Sandboxes() }
+func (c *profileOverrideClientWS) Providers() v1.ProviderInterface {
+	return &profileOverrideProviderWS{inner: c.inner.Providers(), profiles: c.profiles}
+}
+func (c *profileOverrideClientWS) Services() v1.ServiceInterface { return c.inner.Services() }
+func (c *profileOverrideClientWS) Exec() v1.ExecInterface        { return c.inner.Exec() }
+func (c *profileOverrideClientWS) Files() v1.FileInterface       { return c.inner.Files() }
+func (c *profileOverrideClientWS) Health() v1.HealthInterface    { return c.inner.Health() }
+func (c *profileOverrideClientWS) SSH() v1.SSHInterface          { return c.inner.SSH() }
+func (c *profileOverrideClientWS) TCP() v1.TCPInterface          { return c.inner.TCP() }
+func (c *profileOverrideClientWS) Config() v1.ConfigInterface    { return c.inner.Config() }
+func (c *profileOverrideClientWS) Policy() v1.PolicyInterface    { return c.inner.Policy() }
+func (c *profileOverrideClientWS) Close() error                  { return c.inner.Close() }
+
+type profileOverrideProviderWS struct {
+	inner    v1.ProviderInterface
+	profiles v1.ProfileInterface
+}
+
+func (c *profileOverrideProviderWS) Create(ctx context.Context, p *types.Provider) (*types.Provider, error) {
+	return c.inner.Create(ctx, p)
+}
+func (c *profileOverrideProviderWS) Get(ctx context.Context, name string) (*types.Provider, error) {
+	return c.inner.Get(ctx, name)
+}
+func (c *profileOverrideProviderWS) List(ctx context.Context, opts ...v1.ListOptions) ([]*types.Provider, error) {
+	return c.inner.List(ctx, opts...)
+}
+func (c *profileOverrideProviderWS) Update(ctx context.Context, p *types.Provider) (*types.Provider, error) {
+	return c.inner.Update(ctx, p)
+}
+func (c *profileOverrideProviderWS) Delete(ctx context.Context, name string) error {
+	return c.inner.Delete(ctx, name)
+}
+func (c *profileOverrideProviderWS) Ensure(ctx context.Context, p *types.Provider) (*types.Provider, error) {
+	return c.inner.Ensure(ctx, p)
+}
+func (c *profileOverrideProviderWS) Profiles() v1.ProfileInterface { return c.profiles }
+func (c *profileOverrideProviderWS) Refresh() v1.RefreshInterface  { return c.inner.Refresh() }
+
+// testProfileClientWS implements ProfileInterface with an in-memory store.
+type testProfileClientWS struct {
+	profiles map[string]*types.ProviderProfile
+}
+
+func newTestProfileClient(existing ...string) *testProfileClientWS {
+	c := &testProfileClientWS{profiles: make(map[string]*types.ProviderProfile)}
+	for _, id := range existing {
+		c.profiles[id] = &types.ProviderProfile{ID: id, DisplayName: id}
+	}
+	return c
+}
+
+func (c *testProfileClientWS) List(_ context.Context, _ ...v1.ListOptions) ([]*types.ProviderProfile, error) {
+	var result []*types.ProviderProfile
+	for _, p := range c.profiles {
+		result = append(result, p)
+	}
+	return result, nil
+}
+
+func (c *testProfileClientWS) Get(_ context.Context, id string) (*types.ProviderProfile, error) {
+	p, ok := c.profiles[id]
+	if !ok {
+		return nil, &types.StatusError{Code: types.ErrorNotFound, Message: "profile not found: " + id}
+	}
+	return p, nil
+}
+
+func (c *testProfileClientWS) Import(_ context.Context, items []types.ProfileImportItem) (*types.ImportResult, error) {
+	result := &types.ImportResult{Imported: true}
+	for _, item := range items {
+		p := item.Profile
+		c.profiles[p.ID] = &p
+		result.Profiles = append(result.Profiles, p)
+	}
+	return result, nil
+}
+
+func (c *testProfileClientWS) Update(_ context.Context, _ string, _ uint64, _ types.ProfileImportItem) (*types.UpdateResult, error) {
+	return &types.UpdateResult{Updated: true}, nil
+}
+
+func (c *testProfileClientWS) Lint(_ context.Context, _ []types.ProfileImportItem) (*types.LintResult, error) {
+	return &types.LintResult{Valid: true}, nil
+}
+
+func (c *testProfileClientWS) Delete(_ context.Context, id string) (bool, error) {
+	_, ok := c.profiles[id]
+	if ok {
+		delete(c.profiles, id)
+	}
+	return ok, nil
+}
+
+func TestImportMCPProfile_SingleEndpoint(t *testing.T) {
+	fc := fake.NewClient()
+	pc := newTestProfileClient()
+	client := &profileOverrideClientWS{inner: fc, profiles: pc}
+
+	entries := []build.MCPManifestEntry{
+		{Name: "my-mcp", Endpoint: "localhost:8080"},
+	}
+	providerName, err := importMCPProfile(context.Background(), client, "test-ws", entries, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "cc-deck-test-ws-mcp", providerName)
+
+	imported, ok := pc.profiles["cc-deck-test-ws-mcp"]
+	require.True(t, ok, "profile should be imported into fake")
+	assert.Len(t, imported.Endpoints, 1)
+	assert.Equal(t, "localhost", imported.Endpoints[0].Host)
+	assert.Equal(t, uint32(8080), imported.Endpoints[0].Port)
+
+	p, getErr := client.Providers().Get(context.Background(), providerName)
+	require.NoError(t, getErr, "provider should be created via Ensure()")
+	assert.Equal(t, "cc-deck-test-ws-mcp", p.Type)
+}
+
+func TestImportMCPProfile_MultipleEndpoints(t *testing.T) {
+	fc := fake.NewClient()
+	pc := newTestProfileClient()
+	client := &profileOverrideClientWS{inner: fc, profiles: pc}
+
+	entries := []build.MCPManifestEntry{
+		{Name: "mcp-a", Endpoint: "host-a:9090"},
+		{Name: "mcp-b", Endpoint: "host-b:9091"},
+	}
+	providerName, err := importMCPProfile(context.Background(), client, "ws1", entries, []string{"/usr/bin/claude"})
+	require.NoError(t, err)
+	assert.Equal(t, "cc-deck-ws1-mcp", providerName)
+
+	imported, ok := pc.profiles["cc-deck-ws1-mcp"]
+	require.True(t, ok)
+	assert.Len(t, imported.Endpoints, 2)
+	assert.Equal(t, "host-a", imported.Endpoints[0].Host)
+	assert.Equal(t, uint32(9090), imported.Endpoints[0].Port)
+	assert.Equal(t, "host-b", imported.Endpoints[1].Host)
+	assert.Equal(t, uint32(9091), imported.Endpoints[1].Port)
+	assert.Len(t, imported.Binaries, 1)
+	assert.Equal(t, "/usr/bin/claude", imported.Binaries[0].Path)
+}
+
+func TestImportMCPProfile_NoEndpoints(t *testing.T) {
+	fc := fake.NewClient()
+	pc := newTestProfileClient()
+	client := &profileOverrideClientWS{inner: fc, profiles: pc}
+
+	entries := []build.MCPManifestEntry{
+		{Name: "mcp-no-endpoint"},
+	}
+	providerName, err := importMCPProfile(context.Background(), client, "ws1", entries, nil)
+	require.NoError(t, err)
+	assert.Empty(t, providerName, "no endpoints means no profile import")
+}
+
+func TestImportMCPProfile_InvalidEndpointSkipped(t *testing.T) {
+	fc := fake.NewClient()
+	pc := newTestProfileClient()
+	client := &profileOverrideClientWS{inner: fc, profiles: pc}
+
+	entries := []build.MCPManifestEntry{
+		{Name: "bad-mcp", Endpoint: "no-port"},
+		{Name: "good-mcp", Endpoint: "host:8080"},
+	}
+	providerName, err := importMCPProfile(context.Background(), client, "ws1", entries, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "cc-deck-ws1-mcp", providerName)
+
+	imported := pc.profiles["cc-deck-ws1-mcp"]
+	assert.Len(t, imported.Endpoints, 1, "invalid endpoint should be skipped")
+	assert.Equal(t, "host", imported.Endpoints[0].Host)
+}
+
+func TestImportMCPProfile_ImportFailure(t *testing.T) {
+	fc := fake.NewClient()
+	failPC := &failingProfileClientWS{}
+	client := &profileOverrideClientWS{inner: fc, profiles: failPC}
+
+	entries := []build.MCPManifestEntry{
+		{Name: "mcp", Endpoint: "host:8080"},
+	}
+	providerName, err := importMCPProfile(context.Background(), client, "ws1", entries, nil)
+	require.NoError(t, err, "import failure should warn, not error")
+	assert.Empty(t, providerName, "failed import returns empty provider name")
+}
+
+func TestImportCustomDomainsProfile_BasicDomains(t *testing.T) {
+	fc := fake.NewClient()
+	pc := newTestProfileClient()
+	client := &profileOverrideClientWS{inner: fc, profiles: pc}
+
+	domains := []string{"custom.example.com", "api.internal.io"}
+	providerName, err := importCustomDomainsProfile(context.Background(), client, "ws1", domains)
+	require.NoError(t, err)
+	assert.Equal(t, "cc-deck-ws1-custom", providerName)
+
+	imported, ok := pc.profiles["cc-deck-ws1-custom"]
+	require.True(t, ok)
+	assert.Len(t, imported.Endpoints, 2)
+	assert.Equal(t, "custom.example.com", imported.Endpoints[0].Host)
+	assert.Equal(t, uint32(443), imported.Endpoints[0].Port)
+	assert.Equal(t, "https", imported.Endpoints[0].Protocol)
+	assert.Equal(t, "api.internal.io", imported.Endpoints[1].Host)
+}
+
+func TestImportCustomDomainsProfile_EmptyDomains(t *testing.T) {
+	fc := fake.NewClient()
+	providerName, err := importCustomDomainsProfile(context.Background(), fc, "ws1", nil)
+	require.NoError(t, err)
+	assert.Empty(t, providerName, "empty domains should skip import")
+}
+
+func TestImportCustomDomainsProfile_ImportFailure(t *testing.T) {
+	fc := fake.NewClient()
+	failPC := &failingProfileClientWS{}
+	client := &profileOverrideClientWS{inner: fc, profiles: failPC}
+
+	domains := []string{"example.com"}
+	providerName, err := importCustomDomainsProfile(context.Background(), client, "ws1", domains)
+	require.NoError(t, err, "import failure should warn, not error")
+	assert.Empty(t, providerName, "failed import returns empty provider name")
+}
+
+func TestParseHostPort_Valid(t *testing.T) {
+	host, port, err := parseHostPort("example.com:443")
+	require.NoError(t, err)
+	assert.Equal(t, "example.com", host)
+	assert.Equal(t, 443, port)
+}
+
+func TestParseHostPort_InvalidFormat(t *testing.T) {
+	_, _, err := parseHostPort("no-colon")
+	assert.Error(t, err)
+}
+
+func TestParseHostPort_InvalidPort(t *testing.T) {
+	_, _, err := parseHostPort("host:abc")
+	assert.Error(t, err)
+}
+
+func TestParseHostPort_PortOutOfRange(t *testing.T) {
+	_, _, err := parseHostPort("host:99999")
+	assert.Error(t, err)
+}
+
+// failingProfileClientWS is a profile client whose Import always fails.
+type failingProfileClientWS struct{}
+
+func (c *failingProfileClientWS) Get(_ context.Context, _ string) (*types.ProviderProfile, error) {
+	return nil, fmt.Errorf("not found")
+}
+func (c *failingProfileClientWS) List(_ context.Context, _ ...v1.ListOptions) ([]*types.ProviderProfile, error) {
+	return nil, nil
+}
+func (c *failingProfileClientWS) Import(_ context.Context, _ []types.ProfileImportItem) (*types.ImportResult, error) {
+	return nil, fmt.Errorf("gateway unavailable")
+}
+func (c *failingProfileClientWS) Update(_ context.Context, _ string, _ uint64, _ types.ProfileImportItem) (*types.UpdateResult, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+func (c *failingProfileClientWS) Lint(_ context.Context, _ []types.ProfileImportItem) (*types.LintResult, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+func (c *failingProfileClientWS) Delete(_ context.Context, _ string) (bool, error) {
+	return false, fmt.Errorf("not implemented")
 }
 
 func infraPtr(v InfraStateValue) *InfraStateValue { return &v }

@@ -131,6 +131,22 @@ Smoke-test a provisioned target by verifying installed tools.
 | Target to verify: `container` or `ssh`
 |===
 
+== Mux Commands
+
+=== `cc-deck mux` (hidden)
+
+Run the pipe mux broker daemon.
+This command starts a background daemon that receives pipe messages on a Unix domain socket, deduplicates them by session and pipe name, and flushes to `zellij pipe` at regular intervals.
+The broker prevents CliPipe timeout storms when multiple Claude Code sessions fire hooks concurrently.
+
+Normally started automatically by hook commands when `mux.enabled: true` is configured.
+There is no need to invoke it directly.
+
+The broker self-terminates after 30 seconds of inactivity.
+The Unix socket is created at `$XDG_RUNTIME_DIR/cc-deck/mux.sock` (fallback: `/tmp/cc-deck-<uid>/cc-deck/mux.sock`).
+
+See the xref:configuration.adoc[configuration reference] for tunable parameters under the `mux` section.
+
 === `cc-deck build diff`
 
 Compare the current manifest against generated artifacts and report drift.

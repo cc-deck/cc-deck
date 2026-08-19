@@ -1,15 +1,14 @@
 package cmd
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
-	"time"
 
 	"github.com/cc-deck/cc-deck/internal/agent"
+	"github.com/cc-deck/cc-deck/internal/config"
 	"github.com/cc-deck/cc-deck/internal/session"
 )
 
@@ -46,13 +45,8 @@ func runHookRaw(stdin io.Reader, stderr io.Writer) {
 		os.Exit(1)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-
-	pipeCmd := exec.CommandContext(ctx, zellijPath, "pipe",
-		"--name", "cc-deck:hook",
-		"--", string(payloadJSON))
-	if err := pipeCmd.Run(); err != nil {
+	cfg, _ := config.Load("")
+	if err := sendPipeMessage(zellijPath, cfg, payloadJSON); err != nil {
 		fmt.Fprintf(stderr, "error: failed to send pipe message: %v\n", err)
 		os.Exit(1)
 	}

@@ -1,14 +1,12 @@
 package cmd
 
 import (
-	"context"
 	"encoding/json"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
-	"time"
 
 	"github.com/spf13/cobra"
 
@@ -133,8 +131,9 @@ func runHook(stdin io.Reader, paneIDStr string, agentName string) {
 
 	normalized.PaneID = paneID
 
+	cfg, _ := config.Load("")
+
 	if normalized.Cwd != "" {
-		cfg, _ := config.Load("")
 		if cfg != nil && len(cfg.Badges) > 0 {
 			normalized.Badges = badge.Evaluate(cfg.Badges, normalized.Cwd)
 		}
@@ -145,13 +144,7 @@ func runHook(stdin io.Reader, paneIDStr string, agentName string) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, zellijPath, "pipe",
-		"--name", "cc-deck:hook",
-		"--", string(payloadJSON))
-	_ = cmd.Run()
+	_ = sendPipeMessage(zellijPath, cfg, payloadJSON)
 
 	session.AutoSave()
 

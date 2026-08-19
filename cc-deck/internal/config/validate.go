@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -20,6 +21,7 @@ type Category string
 
 const (
 	CategoryBadges    Category = "badges"
+	CategoryMux       Category = "mux"
 	CategoryProfiles  Category = "profiles"
 	CategoryVoice     Category = "voice"
 	CategoryStructure Category = "structure"
@@ -38,6 +40,7 @@ type Finding struct {
 func (c *Config) Validate() []Finding {
 	var findings []Finding
 	findings = append(findings, validateBadges(c.Badges)...)
+	findings = append(findings, validateMux(c.Mux)...)
 	findings = append(findings, validateProfiles(c.Profiles, c.DefaultProfile)...)
 	findings = append(findings, validateVoice(c.Defaults.Voice)...)
 	return findings
@@ -411,6 +414,51 @@ func validateProfiles(profiles map[string]Profile, defaultProfile string) []Find
 				Suggestion: fmt.Sprintf("available profiles: %s", strings.Join(names, ", ")),
 			})
 		}
+	}
+
+	return findings
+}
+
+// validateMux checks mux broker configuration for valid parameter values.
+func validateMux(mux MuxConfig) []Finding {
+	var findings []Finding
+
+	if !mux.Enabled {
+		return findings
+	}
+
+	if mux.FlushInterval < 0 {
+		findings = append(findings, Finding{
+			Severity:   SeverityError,
+			Category:   CategoryMux,
+			Message:    fmt.Sprintf("mux.flush_interval %s is negative", mux.FlushInterval),
+			Suggestion: "flush_interval must be a positive duration (e.g. 200ms)",
+		})
+	} else if mux.FlushInterval > time.Second {
+		findings = append(findings, Finding{
+			Severity:   SeverityWarning,
+			Category:   CategoryMux,
+			Message:    fmt.Sprintf("mux.flush_interval %s is unusually high", mux.FlushInterval),
+			Suggestion: "values above 1s may cause noticeable delay in pipe delivery",
+		})
+	}
+
+	if mux.IdleTimeout < 0 {
+		findings = append(findings, Finding{
+			Severity:   SeverityError,
+			Category:   CategoryMux,
+			Message:    fmt.Sprintf("mux.idle_timeout %s is negative", mux.IdleTimeout),
+			Suggestion: "idle_timeout must be a positive duration (e.g. 30s)",
+		})
+	}
+
+	if mux.QueueSize < 0 {
+		findings = append(findings, Finding{
+			Severity:   SeverityError,
+			Category:   CategoryMux,
+			Message:    fmt.Sprintf("mux.queue_size %d is negative", mux.QueueSize),
+			Suggestion: "queue_size must be a positive integer (e.g. 1000)",
+		})
 	}
 
 	return findings

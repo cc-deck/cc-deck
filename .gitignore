@@ -55,3 +55,4 @@ dist/
 
 # Base image digest tracking (local state)
 .base-images-digests.json
+cc-deck/specs
