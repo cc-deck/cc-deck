@@ -48,5 +48,10 @@ dist/
 # Playwright MCP artifacts (snapshots, screenshots)
 .playwright-mcp/
 
+# Tool-generated dev artifacts
+**/.agents/
+**/.beads/
+**/.style/
+
 # Base image digest tracking (local state)
 .base-images-digests.json
