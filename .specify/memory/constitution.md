@@ -66,9 +66,19 @@ affect Containerfile generation and build behavior.
   those instructions
 - Bot review comments on command files are as valid as comments on compiled code
 
+### VI. Zellij is an implementation detail
+
+cc-deck fully abstracts the Zellij multiplexer. Users interact exclusively through `cc-deck` commands.
+
+1. **All examples and documentation** MUST use `cc-deck` commands only. Never instruct users to run `zellij` directly.
+2. **If a workflow requires a raw `zellij` command**, that is a gap in cc-deck's coverage. Document it as a known limitation and file a follow-up to close the gap.
+3. **Configuration**: cc-deck owns the Zellij config lifecycle. Features that need Zellij config changes (e.g., `web_sharing`, `web_server`) must apply them programmatically, not ask users to edit `config.kdl`.
+4. **Session lifecycle**: `cc-deck ws` commands handle session creation, attachment, sharing, and teardown. Users should never need `zellij attach`, `zellij delete-session`, or `zellij web` directly.
+5. **Smoke tests and acceptance criteria** for cc-deck features must be expressible entirely in `cc-deck` commands. If they cannot, the feature has incomplete coverage.
+
 ## Governance
 
 Constitution principles are enforced in CLAUDE.md and apply to ALL code changes, whether from a spec workflow or ad-hoc.
 Amendments require updating both this file and the Constitution Principles section of CLAUDE.md.
 
-**Version**: 1.3 | **Ratified**: 2026-03-30 | **Last Amended**: 2026-06-28
+**Version**: 1.4 | **Ratified**: 2026-03-30 | **Last Amended**: 2026-08-07

@@ -58,6 +58,29 @@ Build::
 Three high-frequency workspace commands are available directly at the top level.
 They behave identically to their `ws` subcommand counterparts.
 
+== Workspace Sharing Commands
+
+Sharing is integrated into local workspace lifecycle commands. Only one workspace may be shared per host, and raw invitation secrets print once.
+
+[source,bash]
+----
+cc-deck ws new demo --share
+cc-deck ws start demo --share
+cc-deck ws attach demo --share
+cc-deck ws invite demo --role interactive --name alice
+cc-deck ws invite demo --role observer
+cc-deck ws revoke demo alice
+cc-deck ws unshare demo
+----
+
+`ws new` is ready and private by default; `--no-start` leaves it stopped and cannot be combined with `--share`. The `--share` flag creates a missing canonical session with web sharing enabled but never replaces a running private session.
+
+`ws invite` creates an independently revocable interactive or observer credential. Omit `--name` for a random memorable label. Interactive invitations grant complete terminal control. Terminal invitations are experimental and print the `--insecure` interception warning before the secret.
+
+`ws list` displays `INFRA`, `SESSION`, and `SHARING`. `ws status` includes safe endpoint, invitation labels and roles, guard health, and residuals without tokens. Local state is `private`, `shared`, or `degraded`; non-local workspaces are `unsupported`.
+
+`ws unshare` revokes every active invitation and closes the endpoint while leaving the canonical session running. After Zellij `Ctrl+q` kills the shared session, the guard tears sharing down and a plain start or attach recreates a private session.
+
 === attach
 
 Attach to a running workspace.

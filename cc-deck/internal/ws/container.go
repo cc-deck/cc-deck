@@ -14,8 +14,9 @@ import (
 )
 
 const (
-	containerNamePrefix = "cc-deck-"
-	defaultImage        = "quay.io/cc-deck/cc-deck-demo:latest"
+	containerNamePrefix     = "cc-deck-"
+	defaultImage            = "quay.io/cc-deck/cc-deck-demo:latest"
+	containerCleanupTimeout = 10 * time.Second
 )
 
 // Deprecated: AuthMode is superseded by agent-declared CredentialSpecs and the credential package.
@@ -246,6 +247,12 @@ func (e *ContainerWorkspace) Create(ctx context.Context, opts CreateOpts) error 
 	if err != nil {
 		return fmt.Errorf("creating container: %w", err)
 	}
+	if _, err := e.EnsureSession(ctx, SessionStartOptions{}); err != nil {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), containerCleanupTimeout)
+		defer cancel()
+		_ = podman.Remove(cleanupCtx, cName, true)
+		return err
+	}
 
 	// Clone repos into workspace if defined.
 	if len(e.Repos) > 0 {
@@ -299,7 +306,7 @@ func (e *ContainerWorkspace) Create(ctx context.Context, opts CreateOpts) error 
 		Name:         e.name,
 		Type:         WorkspaceTypeContainer,
 		InfraState:   &running,
-		SessionState: SessionStateNone,
+		SessionState: SessionStateExists,
 		CreatedAt:    time.Now().UTC(),
 		Container: &ContainerFields{
 			ContainerID:   containerID,
@@ -349,17 +356,28 @@ func (e *ContainerWorkspace) Attach(ctx context.Context) error {
 		SetRemoteBG(remoteBG)
 	}
 
-	// If any Zellij session exists inside the container, attach to it.
-	// Otherwise, create a new session using the cc-deck layout (sidebar plugin).
-	// Uses -n (--new-session-with-layout) which reliably starts with the layout.
-	if ContainerHasZellijSession(ctx, cName) {
-		return podman.ExecWithCleanup(ctx, cName, []string{"zellij", "attach"}, ResetBGEscape)
-	}
-	return podman.ExecWithCleanup(ctx, cName, []string{
-		"zellij", "-n", "cc-deck",
-	}, ResetBGEscape)
+	return podman.ExecWithCleanup(ctx, cName, []string{"zellij", "attach", ZellijSessionName(e.name)}, ResetBGEscape)
 }
 
+// EnsureSession idempotently creates the canonical session inside the container.
+func (e *ContainerWorkspace) EnsureSession(ctx context.Context, opts SessionStartOptions) (SessionStartResult, error) {
+	if opts.WebSharing {
+		return SessionStartResult{}, fmt.Errorf("sharing is currently supported for local workspaces only")
+	}
+	name := ZellijSessionName(e.name)
+	cName := containerName(e.name)
+	if ContainerHasZellijSession(ctx, cName) {
+		return SessionStartResult{Name: name}, nil
+	}
+	if err := podman.Exec(ctx, cName, []string{"zellij", "--layout", "cc-deck", "attach", "-b", name}, false); err != nil {
+		return SessionStartResult{}, fmt.Errorf("creating canonical session: %w", err)
+	}
+	if inst, err := e.store.FindInstanceByName(e.name); err == nil {
+		inst.SessionState = SessionStateExists
+		_ = e.store.UpdateInstance(inst)
+	}
+	return SessionStartResult{Created: true, Name: name}, nil
+}
 
 // Delete removes the container and its resources.
 func (e *ContainerWorkspace) Delete(ctx context.Context, force bool) error {
@@ -681,5 +699,3 @@ func CleanupOrphanedContainer(ctx context.Context, wsName string, keepVolumes bo
 
 	return cleaned
 }
-
-

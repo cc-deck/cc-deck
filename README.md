@@ -222,6 +222,29 @@ Auto-sort uses stable active and paused zones. Focusing or clicking a session ne
 
 **Known limitation:** Keyboard shortcuts (Alt+s, Alt+a, Alt+w) work for the primary client only. Other clients use mouse clicks for session navigation. This is due to Zellij pipe messages not carrying client identity (tracked upstream).
 
+### Share a Zellij session
+
+Workspace sharing temporarily exposes one local workspace's canonical Zellij session. Interactive invitations grant trusted collaborators full control; observer invitations are read-only. Invitations have memorable labels and can be revoked independently.
+
+```bash
+cc-deck ws new demo --share
+cc-deck ws start demo --share
+cc-deck ws attach demo --share
+cc-deck ws invite demo --role interactive --name alice
+cc-deck ws invite demo --role observer
+cc-deck ws revoke demo alice
+cc-deck ws unshare demo
+```
+
+Sharing is local-only and requires Zellij 0.44.3 or later plus `cloudflared`. Only one workspace may be shared per host. Raw invitation secrets print once; `ws list` and `ws status` show only safe labels, roles, endpoint, and `private|shared|degraded` state.
+
+> [!CAUTION]
+> Interactive access grants control of the entire shared terminal session. Share that invitation only with people you trust. Terminal attachment is experimental in V1: its generated command uses `--insecure`, which disables server certificate validation and creates an interception risk. Browser access validates the public endpoint normally.
+
+`cc-deck ws unshare demo` revokes every active invitation and closes the endpoint while keeping the canonical session running. `--share` never replaces a private running session. If a shared session dies (for example with Zellij's `Ctrl+q`), the guard tears sharing down; a plain start or attach recreates the session privately. Treat degraded status as possible residual exposure.
+
+See the [session sharing guide](https://cc-deck.github.io/docs/cc-deck/0.1/using/sharing.html) for prerequisites, joining instructions, and recovery details.
+
 ---
 
 ## Usage

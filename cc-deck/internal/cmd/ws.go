@@ -22,6 +22,7 @@ import (
 	"github.com/cc-deck/cc-deck/internal/config"
 	"github.com/cc-deck/cc-deck/internal/credential"
 	"github.com/cc-deck/cc-deck/internal/project"
+	sharing "github.com/cc-deck/cc-deck/internal/share"
 	sshPkg "github.com/cc-deck/cc-deck/internal/ssh"
 	"github.com/cc-deck/cc-deck/internal/ws"
 )
@@ -65,6 +66,7 @@ matching the current directory against workspace definitions.`,
 		newWsDeleteCmd(gf),
 		newWsRefreshCredsCmd(gf),
 	)
+	addToGroup(wsCmd, "lifecycle", newWsSharingCommands(gf)...)
 
 	// Info
 	addToGroup(wsCmd, "info",
@@ -94,6 +96,8 @@ matching the current directory against workspace definitions.`,
 // --- create ---
 
 type newFlags struct {
+	share          bool
+	noStart        bool
 	wsType         string
 	image          string
 	ports          []string
@@ -115,21 +119,21 @@ type newFlags struct {
 	workspace    string
 
 	// k8s-deploy flags
-	namespace      string
-	kubeconfig     string
-	k8sContext     string
-	storageSize    string
-	storageClass   string
-	existingSecret string
-	secretStore    string
-	secretStoreRef string
-	secretPath     string
-	buildDir       string
+	namespace       string
+	kubeconfig      string
+	k8sContext      string
+	storageSize     string
+	storageClass    string
+	existingSecret  string
+	secretStore     string
+	secretStoreRef  string
+	secretPath      string
+	buildDir        string
 	noNetworkPolicy bool
-	allowDomain    []string
-	allowGroup     []string
-	keepVolumes    bool
-	timeout        string
+	allowDomain     []string
+	allowGroup      []string
+	keepVolumes     bool
+	timeout         string
 
 	// Repo cloning flags
 	repos    []string
@@ -192,6 +196,8 @@ Workspace types (--type):
 	cmd.Flags().StringArrayVar(&cf.branches, "branch", nil, "Branch for corresponding --repo, repeatable")
 	cmd.Flags().StringVar(&cf.variant, "variant", "", "Variant name for multiple instances from same definition")
 	cmd.Flags().BoolVar(&cf.update, "update", false, "Update existing workspace (deprecated: use ws update)")
+	cmd.Flags().BoolVar(&cf.share, "share", false, "Create and share the canonical session")
+	cmd.Flags().BoolVar(&cf.noStart, "no-start", false, "Create without starting infrastructure or a session")
 	_ = cmd.Flags().MarkDeprecated("update", "use 'cc-deck ws update' instead")
 
 	// Container/compose flags
@@ -245,6 +251,9 @@ Workspace types (--type):
 }
 
 func runWsNew(gf *GlobalFlags, name string, cf *newFlags, cmd *cobra.Command) error {
+	if cf.share && cf.noStart {
+		return fmt.Errorf("--share and --no-start cannot be used together")
+	}
 	store := ws.NewStateStore("")
 	defs := ws.NewDefinitionStore("")
 
@@ -533,6 +542,23 @@ func runWsNew(gf *GlobalFlags, name string, cf *newFlags, cmd *cobra.Command) er
 	}
 
 	fmt.Fprintf(os.Stdout, "Workspace %q created (type: %s)\n", name, wsType)
+	// Direct unit callers pass nil; command construction always supplies flags.
+	if gf == nil {
+		return nil
+	}
+	if cf.noStart {
+		if infra, ok := e.(ws.InfraManager); ok {
+			if err := infra.Stop(cmd.Context()); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	invitations, _, readyErr := readyAndMaybeShare(cmd.Context(), gf, e, cf.share)
+	if readyErr != nil {
+		return readyErr
+	}
+	printInvitations(cmd, invitations)
 	return nil
 }
 
@@ -705,8 +731,9 @@ func splitCredential(s string) []string {
 
 // --- attach ---
 
-func newAttachCmdCore(_ *GlobalFlags) *cobra.Command {
+func newAttachCmdCore(gf *GlobalFlags) *cobra.Command {
 	var reset bool
+	var share bool
 
 	cmd := &cobra.Command{
 		Use:   "attach [name]",
@@ -726,11 +753,12 @@ Use --reset to kill a running session and start fresh.`,
 			if reset {
 				return runWsAttachReset(name)
 			}
-			return runWsAttach(name)
+			return runWsAttachWithShare(gf, name, share, cmd)
 		},
 	}
 
 	cmd.Flags().BoolVar(&reset, "reset", false, "Kill a running session and start fresh")
+	cmd.Flags().BoolVar(&share, "share", false, "Create and share a missing canonical session")
 
 	return cmd
 }
@@ -758,6 +786,10 @@ func runWsAttachReset(name string) error {
 }
 
 func runWsAttach(name string) error {
+	return runWsAttachWithShare(&GlobalFlags{}, name, false, nil)
+}
+
+func runWsAttachWithShare(gf *GlobalFlags, name string, share bool, cmd *cobra.Command) error {
 	store := ws.NewStateStore("")
 	defs := ws.NewDefinitionStore("")
 
@@ -766,7 +798,21 @@ func runWsAttach(name string) error {
 		return err
 	}
 
-	return e.Attach(cmd_context())
+	ctx := cmd_context()
+	invitations, ready, err := readyAndMaybeShare(ctx, gf, e, share)
+	if err != nil {
+		return err
+	}
+	if cmd != nil {
+		printInvitations(cmd, invitations)
+	}
+	if ready.InfrastructureStarted {
+		fmt.Fprintf(os.Stderr, "Workspace %q was stopped; started infrastructure.\n", name)
+	}
+	if ready.SessionCreated {
+		fmt.Fprintln(os.Stderr, "Canonical session was absent; started it.")
+	}
+	return e.Attach(ctx)
 }
 
 // --- update ---
@@ -847,9 +893,9 @@ func newWsDeleteCmd(_ *GlobalFlags) *cobra.Command {
 	var keepVolumes bool
 
 	cmd := &cobra.Command{
-		Use:   "delete [name]",
+		Use:     "delete [name]",
 		Aliases: []string{"rm"},
-		Short: "Destroy a workspace",
+		Short:   "Destroy a workspace",
 		Long: `Destroy the named workspace and remove it from the state store.
 If the workspace is running, use --force to stop and destroy it.
 For container workspaces, use --keep-volumes to preserve data volumes.
@@ -914,7 +960,6 @@ func runWsDelete(name string, force bool, keepVolumes bool) error {
 }
 
 // --- list ---
-
 
 func newListCmdCore(gf *GlobalFlags) *cobra.Command {
 	var filterType string
@@ -984,24 +1029,28 @@ func runWsList(gf *GlobalFlags, filterType string, showWorktrees bool, verbose b
 
 	switch gf.Output {
 	case "json", "yaml":
-		return writeWsStructured(gf.Output, instances, allDefs, instanceNames, filterType, projectMap)
+		return writeWsStructured(gf, gf.Output, instances, allDefs, instanceNames, filterType, projectMap)
 	default:
-		return writeWsTableWithProjects(instances, allDefs, instanceNames, filterType, projectMap, verbose)
+		return writeWsTableWithProjects(gf, instances, allDefs, instanceNames, filterType, projectMap, verbose)
 	}
 }
 
 // wsListEntry is a unified representation for JSON/YAML output.
 type wsListEntry struct {
-	Name         string `json:"name" yaml:"name"`
-	Type         string `json:"type" yaml:"type"`
-	Infra        string `json:"infra" yaml:"infra"`
-	Session      string `json:"session" yaml:"session"`
-	Project      string `json:"project" yaml:"project"`
-	Auth         string `json:"auth,omitempty" yaml:"auth,omitempty"`
-	Storage      string `json:"storage,omitempty" yaml:"storage,omitempty"`
-	Image        string `json:"image,omitempty" yaml:"image,omitempty"`
-	LastAttached string `json:"last_attached,omitempty" yaml:"last_attached,omitempty"`
-	Age          string `json:"age,omitempty" yaml:"age,omitempty"`
+	Name             string                   `json:"name" yaml:"name"`
+	Type             string                   `json:"type" yaml:"type"`
+	Infra            string                   `json:"infra" yaml:"infra"`
+	Session          string                   `json:"session" yaml:"session"`
+	Project          string                   `json:"project" yaml:"project"`
+	Auth             string                   `json:"auth,omitempty" yaml:"auth,omitempty"`
+	Storage          string                   `json:"storage,omitempty" yaml:"storage,omitempty"`
+	Image            string                   `json:"image,omitempty" yaml:"image,omitempty"`
+	LastAttached     string                   `json:"last_attached,omitempty" yaml:"last_attached,omitempty"`
+	Age              string                   `json:"age,omitempty" yaml:"age,omitempty"`
+	SharingState     ws.WorkspaceSharingState `json:"sharing_state" yaml:"sharing_state"`
+	SharingEndpoint  string                   `json:"sharing_endpoint,omitempty" yaml:"sharing_endpoint,omitempty"`
+	Invitations      []ws.InvitationSummary   `json:"invitations,omitempty" yaml:"invitations,omitempty"`
+	SharingResiduals []string                 `json:"sharing_residuals,omitempty" yaml:"sharing_residuals,omitempty"`
 }
 
 func buildAuthMap(allDefs []*ws.WorkspaceDefinition) map[string]string {
@@ -1044,7 +1093,7 @@ func buildProjectPathMap(allDefs []*ws.WorkspaceDefinition) map[string]string {
 	return pathMap
 }
 
-func writeWsStructured(format string, instances []*ws.WorkspaceInstance, allDefs []*ws.WorkspaceDefinition, instanceNames map[string]bool, filterType string, projectMap map[string]string) error {
+func writeWsStructured(gf *GlobalFlags, format string, instances []*ws.WorkspaceInstance, allDefs []*ws.WorkspaceDefinition, instanceNames map[string]bool, filterType string, projectMap map[string]string) error {
 	var entries []wsListEntry
 	authMap := buildAuthMap(allDefs)
 
@@ -1073,6 +1122,7 @@ func writeWsStructured(format string, instances []*ws.WorkspaceInstance, allDefs
 		if authStr == "" {
 			authStr = "-"
 		}
+		sharingState, endpoint, invitations, residuals := workspaceSharingDetails(gf, inst.Name, inst.Type)
 		entries = append(entries, wsListEntry{
 			Name:         inst.Name,
 			Type:         instType,
@@ -1084,6 +1134,7 @@ func writeWsStructured(format string, instances []*ws.WorkspaceInstance, allDefs
 			Image:        image,
 			LastAttached: formatRelativeTime(inst.LastAttached),
 			Age:          formatDuration(time.Since(inst.CreatedAt)),
+			SharingState: sharingState, SharingEndpoint: endpoint, Invitations: invitations, SharingResiduals: residuals,
 		})
 	}
 
@@ -1103,14 +1154,16 @@ func writeWsStructured(format string, instances []*ws.WorkspaceInstance, allDefs
 		if authStr == "" {
 			authStr = "-"
 		}
+		sharingState, endpoint, invitations, residuals := workspaceSharingDetails(gf, def.Name, def.Type)
 		entries = append(entries, wsListEntry{
-			Name:     def.Name,
-			Type:     string(def.Type),
-			Infra:    "-",
-			Session:  "none",
-			Project:  proj,
-			Auth:     authStr,
-			Storage:  "-",
+			Name:         def.Name,
+			Type:         string(def.Type),
+			Infra:        "-",
+			Session:      "none",
+			Project:      proj,
+			Auth:         authStr,
+			Storage:      "-",
+			SharingState: sharingState, SharingEndpoint: endpoint, Invitations: invitations, SharingResiduals: residuals,
 		})
 	}
 
@@ -1125,7 +1178,7 @@ func writeWsStructured(format string, instances []*ws.WorkspaceInstance, allDefs
 }
 
 // writeWsTableWithProjects writes the ws list table with PROJECT column.
-func writeWsTableWithProjects(instances []*ws.WorkspaceInstance, allDefs []*ws.WorkspaceDefinition, instanceNames map[string]bool, filterType string, projectMap map[string]string, verbose bool) error {
+func writeWsTableWithProjects(gf *GlobalFlags, instances []*ws.WorkspaceInstance, allDefs []*ws.WorkspaceDefinition, instanceNames map[string]bool, filterType string, projectMap map[string]string, verbose bool) error {
 	tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 
 	authMap := buildAuthMap(allDefs)
@@ -1136,7 +1189,7 @@ func writeWsTableWithProjects(instances []*ws.WorkspaceInstance, allDefs []*ws.W
 	}
 
 	type row struct {
-		name, wsType, infra, session, proj, auth, storage, lastAttached, age, path string
+		name, wsType, infra, session, sharing, proj, auth, storage, lastAttached, age, path string
 	}
 	var rows []row
 
@@ -1167,7 +1220,8 @@ func writeWsTableWithProjects(instances []*ws.WorkspaceInstance, allDefs []*ws.W
 			authStr = "-"
 		}
 		infra, sess := formatWorkspaceColumns(inst)
-		r := row{inst.Name, string(instType), infra, sess, proj, authStr, storage,
+		sharingState, _, _, _ := workspaceSharingDetails(gf, inst.Name, instType)
+		r := row{inst.Name, string(instType), infra, sess, string(sharingState), proj, authStr, storage,
 			formatRelativeTime(inst.LastAttached), formatDuration(time.Since(inst.CreatedAt)), ""}
 		if verbose && pathMap[inst.Name] != "" {
 			r.path = pathMap[inst.Name]
@@ -1197,7 +1251,8 @@ func writeWsTableWithProjects(instances []*ws.WorkspaceInstance, allDefs []*ws.W
 		if authStr == "" {
 			authStr = "-"
 		}
-		r := row{d.Name, string(d.Type), "-", "none", proj, authStr, storage, "never", "-", ""}
+		sharingState, _, _, _ := workspaceSharingDetails(gf, d.Name, d.Type)
+		r := row{d.Name, string(d.Type), "-", "none", string(sharingState), proj, authStr, storage, "never", "-", ""}
 		if verbose && pathMap[d.Name] != "" {
 			r.path = pathMap[d.Name]
 		}
@@ -1210,16 +1265,16 @@ func writeWsTableWithProjects(instances []*ws.WorkspaceInstance, allDefs []*ws.W
 	}
 
 	if verbose {
-		fmt.Fprintln(tw, "NAME\tTYPE\tINFRA\tSESSION\tPROJECT\tAUTH\tSTORAGE\tLAST ATTACHED\tAGE\tPROJECT PATH")
+		fmt.Fprintln(tw, "NAME\tTYPE\tINFRA\tSESSION\tSHARING\tPROJECT\tAUTH\tSTORAGE\tLAST ATTACHED\tAGE\tPROJECT PATH")
 		for _, r := range rows {
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-				r.name, r.wsType, r.infra, r.session, r.proj, r.auth, r.storage, r.lastAttached, r.age, r.path)
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				r.name, r.wsType, r.infra, r.session, r.sharing, r.proj, r.auth, r.storage, r.lastAttached, r.age, r.path)
 		}
 	} else {
-		fmt.Fprintln(tw, "NAME\tTYPE\tINFRA\tSESSION\tPROJECT\tSTORAGE\tLAST ATTACHED\tAGE")
+		fmt.Fprintln(tw, "NAME\tTYPE\tINFRA\tSESSION\tSHARING\tPROJECT\tSTORAGE\tLAST ATTACHED\tAGE")
 		for _, r := range rows {
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-				r.name, r.wsType, r.infra, r.session, r.proj, r.storage, r.lastAttached, r.age)
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				r.name, r.wsType, r.infra, r.session, r.sharing, r.proj, r.storage, r.lastAttached, r.age)
 		}
 	}
 
@@ -1237,6 +1292,38 @@ func formatWorkspaceColumns(inst *ws.WorkspaceInstance) (infra, session string) 
 		session = "active"
 	}
 	return infra, session
+}
+
+func workspaceSharingDetails(gf *GlobalFlags, name string, wsType ws.WorkspaceType) (ws.WorkspaceSharingState, string, []ws.InvitationSummary, []string) {
+	if wsType != ws.WorkspaceTypeLocal {
+		return ws.SharingUnsupported, "", nil, nil
+	}
+	service, err := makeWorkspaceShareService(gf)
+	if err != nil {
+		return ws.SharingDegraded, "", nil, []string{err.Error()}
+	}
+	status, err := service.Status(cmd_context())
+	if err != nil && status.State == sharing.StateInactive {
+		return ws.SharingDegraded, "", nil, []string{err.Error()}
+	}
+	if status.State == sharing.StateInactive || status.Workspace != name {
+		return ws.SharingPrivate, "", nil, nil
+	}
+	state := ws.SharingShared
+	if status.State == sharing.StateDegraded || len(status.Residuals) > 0 || err != nil {
+		state = ws.SharingDegraded
+	}
+	summaries := make([]ws.InvitationSummary, 0, len(status.Invitations))
+	for _, invitation := range status.Invitations {
+		if invitation.State == sharing.InvitationActive {
+			summaries = append(summaries, ws.InvitationSummary{Label: invitation.Label, Role: string(invitation.Role)})
+		}
+	}
+	residuals := append([]string(nil), status.Residuals...)
+	if err != nil {
+		residuals = append(residuals, err.Error())
+	}
+	return state, status.EndpointURL, summaries, residuals
 }
 
 func formatRelativeTime(t *time.Time) string {
@@ -1286,16 +1373,20 @@ func newWsStatusCmd(gf *GlobalFlags) *cobra.Command {
 
 // wsStatusOutput is used for JSON/YAML marshaling of status information.
 type wsStatusOutput struct {
-	Name         string            `json:"name" yaml:"name"`
-	Type         ws.WorkspaceType  `json:"type" yaml:"type"`
-	InfraState   *ws.InfraStateValue   `json:"infra_state,omitempty" yaml:"infra_state,omitempty"`
-	SessionState ws.SessionStateValue  `json:"session_state" yaml:"session_state"`
-	Storage      string            `json:"storage" yaml:"storage"`
-	Uptime       string            `json:"uptime" yaml:"uptime"`
-	LastAttached string            `json:"last_attached" yaml:"last_attached"`
-	Sessions     []ws.SessionInfo  `json:"sessions,omitempty" yaml:"sessions,omitempty"`
-	Image        string            `json:"image,omitempty" yaml:"image,omitempty"`
-	ProjectPath  string            `json:"project_path,omitempty" yaml:"project_path,omitempty"`
+	Name             string                   `json:"name" yaml:"name"`
+	Type             ws.WorkspaceType         `json:"type" yaml:"type"`
+	InfraState       *ws.InfraStateValue      `json:"infra_state,omitempty" yaml:"infra_state,omitempty"`
+	SessionState     ws.SessionStateValue     `json:"session_state" yaml:"session_state"`
+	Storage          string                   `json:"storage" yaml:"storage"`
+	Uptime           string                   `json:"uptime" yaml:"uptime"`
+	LastAttached     string                   `json:"last_attached" yaml:"last_attached"`
+	Sessions         []ws.SessionInfo         `json:"sessions,omitempty" yaml:"sessions,omitempty"`
+	Image            string                   `json:"image,omitempty" yaml:"image,omitempty"`
+	ProjectPath      string                   `json:"project_path,omitempty" yaml:"project_path,omitempty"`
+	SharingState     ws.WorkspaceSharingState `json:"sharing_state" yaml:"sharing_state"`
+	SharingEndpoint  string                   `json:"sharing_endpoint,omitempty" yaml:"sharing_endpoint,omitempty"`
+	Invitations      []ws.InvitationSummary   `json:"invitations,omitempty" yaml:"invitations,omitempty"`
+	SharingResiduals []string                 `json:"sharing_residuals,omitempty" yaml:"sharing_residuals,omitempty"`
 }
 
 func runWsStatus(gf *GlobalFlags, name string) error {
@@ -1313,6 +1404,7 @@ func runWsStatus(gf *GlobalFlags, name string) error {
 	}
 
 	wsType := e.Type()
+	sharingState, endpoint, invitations, residuals := workspaceSharingDetails(gf, name, wsType)
 	storage := "-"
 	lastAttached := "never"
 	image := ""
@@ -1360,6 +1452,7 @@ func runWsStatus(gf *GlobalFlags, name string) error {
 			Sessions:     status.Sessions,
 			Image:        image,
 			ProjectPath:  projectPath,
+			SharingState: sharingState, SharingEndpoint: endpoint, Invitations: invitations, SharingResiduals: residuals,
 		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
@@ -1376,14 +1469,15 @@ func runWsStatus(gf *GlobalFlags, name string) error {
 			Sessions:     status.Sessions,
 			Image:        image,
 			ProjectPath:  projectPath,
+			SharingState: sharingState, SharingEndpoint: endpoint, Invitations: invitations, SharingResiduals: residuals,
 		}
 		return yaml.NewEncoder(os.Stdout).Encode(out)
 	default:
-		return writeWsStatusText(name, wsType, status, storage, uptime, lastAttached, image, projectPath)
+		return writeWsStatusText(name, wsType, status, storage, uptime, lastAttached, image, projectPath, sharingState, endpoint, invitations, residuals)
 	}
 }
 
-func writeWsStatusText(name string, wsType ws.WorkspaceType, status *ws.WorkspaceStatus, storage, uptime, lastAttached, image, projectPath string) error {
+func writeWsStatusText(name string, wsType ws.WorkspaceType, status *ws.WorkspaceStatus, storage, uptime, lastAttached, image, projectPath string, sharingState ws.WorkspaceSharingState, endpoint string, invitations []ws.InvitationSummary, residuals []string) error {
 	tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
 	fmt.Fprintf(tw, "Workspace:\t%s\n", name)
 	fmt.Fprintf(tw, "Type:\t%s\n", wsType)
@@ -1391,6 +1485,16 @@ func writeWsStatusText(name string, wsType ws.WorkspaceType, status *ws.Workspac
 		fmt.Fprintf(tw, "Infra:\t%s\n", *status.InfraState)
 	}
 	fmt.Fprintf(tw, "Session:\t%s\n", status.SessionState)
+	fmt.Fprintf(tw, "Sharing:\t%s\n", sharingState)
+	if endpoint != "" {
+		fmt.Fprintf(tw, "Endpoint:\t%s\n", endpoint)
+	}
+	for _, invitation := range invitations {
+		fmt.Fprintf(tw, "Invitation:\t%s (%s)\n", invitation.Label, invitation.Role)
+	}
+	for _, residual := range residuals {
+		fmt.Fprintf(tw, "Sharing residual:\t%s\n", residual)
+	}
 	fmt.Fprintf(tw, "Storage:\t%s\n", storage)
 	fmt.Fprintf(tw, "Uptime:\t%s\n", uptime)
 	fmt.Fprintf(tw, "Attached:\t%s\n", lastAttached)
@@ -1470,8 +1574,9 @@ func runWsKillSession(name string) error {
 
 // --- start ---
 
-func newStartCmdCore(_ *GlobalFlags) *cobra.Command {
-	return &cobra.Command{
+func newStartCmdCore(gf *GlobalFlags) *cobra.Command {
+	var share bool
+	cmd := &cobra.Command{
 		Use:   "start [name]",
 		Short: "Start a stopped workspace",
 		Long: `Bring a stopped workspace back to a running state.
@@ -1483,9 +1588,11 @@ When no name is provided, auto-resolves from workspace definitions in the centra
 			if err != nil {
 				return err
 			}
-			return runWsStart(name)
+			return runWsStartWithShare(gf, name, share, cmd)
 		},
 	}
+	cmd.Flags().BoolVar(&share, "share", false, "Create and share a missing canonical session")
+	return cmd
 }
 
 func newWsStartCmd(gf *GlobalFlags) *cobra.Command {
@@ -1493,6 +1600,10 @@ func newWsStartCmd(gf *GlobalFlags) *cobra.Command {
 }
 
 func runWsStart(name string) error {
+	return runWsStartWithShare(&GlobalFlags{}, name, false, nil)
+}
+
+func runWsStartWithShare(gf *GlobalFlags, name string, share bool, cmd *cobra.Command) error {
 	store := ws.NewStateStore("")
 	defs := ws.NewDefinitionStore("")
 
@@ -1501,23 +1612,20 @@ func runWsStart(name string) error {
 		return err
 	}
 
-	im, ok := e.(ws.InfraManager)
-	if !ok {
-		fmt.Fprintf(os.Stderr, "%s workspaces have no infrastructure to start. Use 'cc-deck ws attach %s' to connect.\n", e.Type(), name)
-		return nil
-	}
-
-	if err := im.Start(cmd_context()); err != nil {
+	invitations, _, err := readyAndMaybeShare(cmd_context(), gf, e, share)
+	if err != nil {
 		return err
 	}
-
-	fmt.Fprintf(os.Stdout, "Workspace %q started\n", name)
+	if cmd != nil {
+		printInvitations(cmd, invitations)
+	}
+	fmt.Fprintf(os.Stdout, "Workspace %q ready\n", name)
 	return nil
 }
 
 // --- stop ---
 
-func newStopCmdCore(_ *GlobalFlags) *cobra.Command {
+func newStopCmdCore(gf *GlobalFlags) *cobra.Command {
 	return &cobra.Command{
 		Use:   "stop [name]",
 		Short: "Stop a running workspace",
@@ -1530,7 +1638,7 @@ When no name is provided, auto-resolves from workspace definitions in the centra
 			if err != nil {
 				return err
 			}
-			return runWsStop(name)
+			return runWsStopWithFlags(gf, name)
 		},
 	}
 }
@@ -1540,6 +1648,10 @@ func newWsStopCmd(gf *GlobalFlags) *cobra.Command {
 }
 
 func runWsStop(name string) error {
+	return runWsStopWithFlags(&GlobalFlags{}, name)
+}
+
+func runWsStopWithFlags(gf *GlobalFlags, name string) error {
 	store := ws.NewStateStore("")
 	defs := ws.NewDefinitionStore("")
 
@@ -1548,16 +1660,29 @@ func runWsStop(name string) error {
 		return err
 	}
 
-	im, ok := e.(ws.InfraManager)
-	if !ok {
-		fmt.Fprintf(os.Stderr, "%s workspaces have no infrastructure to stop. Use 'cc-deck ws kill-session %s' to end the session.\n", e.Type(), name)
-		return nil
+	ctx := cmd_context()
+	var failures []string
+	if service, serviceErr := makeWorkspaceShareService(gf); serviceErr != nil {
+		failures = append(failures, "sharing teardown unavailable: "+serviceErr.Error())
+	} else if sharingStatus, statusErr := service.Status(ctx); statusErr != nil {
+		failures = append(failures, statusErr.Error())
+	} else if sharingStatus.State != sharing.StateInactive && sharingStatus.Workspace == name {
+		if _, stopErr := service.Stop(ctx, name); stopErr != nil {
+			failures = append(failures, stopErr.Error())
+		}
+	}
+	if err := e.KillSession(ctx); err != nil {
+		failures = append(failures, err.Error())
+	}
+	if im, ok := e.(ws.InfraManager); ok {
+		if err := im.Stop(ctx); err != nil {
+			failures = append(failures, err.Error())
+		}
 	}
 
-	if err := im.Stop(cmd_context()); err != nil {
-		return err
+	if len(failures) > 0 {
+		return fmt.Errorf("workspace stop incomplete: %s", strings.Join(failures, "; "))
 	}
-
 	fmt.Fprintf(os.Stdout, "Workspace %q stopped\n", name)
 	return nil
 }

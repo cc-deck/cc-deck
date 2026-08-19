@@ -14,6 +14,17 @@ func intPtr(v int) *int { return &v }
 // Helper to create a pointer to a float64.
 func float64Ptr(v float64) *float64 { return &v }
 
+func TestValidateSharingProvider(t *testing.T) {
+	requireNoSharing := (&Config{Sharing: SharingConfig{Provider: "cloudflare"}}).Validate()
+	if f := findFinding(requireNoSharing, SeverityError, "sharing provider"); f != nil {
+		t.Fatalf("unexpected finding: %+v", f)
+	}
+	findings := (&Config{Sharing: SharingConfig{Provider: "unknown"}}).Validate()
+	if f := findFinding(findings, SeverityError, "unknown sharing provider"); f == nil || f.Category != CategorySharing {
+		t.Fatalf("missing sharing finding: %+v", findings)
+	}
+}
+
 // findFinding searches findings for one matching the given severity and message substring.
 func findFinding(findings []Finding, sev Severity, msgSubstr string) *Finding {
 	for i := range findings {

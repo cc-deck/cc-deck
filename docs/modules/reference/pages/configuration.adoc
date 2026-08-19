@@ -35,6 +35,10 @@ defaults:
         - enter
       attend:
         - next
+
+# Session sharing defaults
+sharing:
+  provider: cloudflare
 ----
 
 The `defaults.voice.threshold` setting controls how sensitive voice activity detection is.
@@ -63,6 +67,24 @@ Words embedded in longer sentences are treated as normal dictation.
 
 When you set `commands` in the config, it replaces the defaults entirely.
 Each action can have multiple trigger words, and you can change the defaults to avoid conflicts with your natural speech patterns.
+
+== Session Sharing Configuration
+
+The optional `sharing.provider` setting selects the exposure provider used by workspace sharing commands such as `cc-deck ws start NAME --share`.
+Its default is `cloudflare`, the only production provider included in V1.
+
+[source,yaml]
+----
+sharing:
+  provider: cloudflare
+----
+
+The `--provider` flag overrides this value for one sharing operation.
+Unknown or unavailable providers fail prerequisite validation before an invitation is issued.
+
+Sharing runtime state is not configuration.
+cc-deck stores non-secret operation metadata under `$XDG_STATE_HOME/cc-deck/` with restricted permissions so later lifecycle commands can reconcile an unclean exit.
+Raw interactive and observer credentials are never persisted.
 
 === Voice Glossary
 
@@ -138,6 +160,9 @@ The hex portion must be exactly 6 valid hexadecimal characters.
 | `XDG_CACHE_HOME`
 | Base directory for cache files. Default: `~/.cache`
 
+| `XDG_STATE_HOME`
+| Base directory for runtime state. Default: `~/.local/state`
+
 | `KUBECONFIG`
 | Path to kubeconfig file. Default: `~/.kube/config`
 
@@ -192,6 +217,9 @@ The hex portion must be exactly 6 valid hexadecimal characters.
 
 | `~/.local/state/cc-deck/voice.log`
 | Voice relay diagnostic log (created with `--verbose`)
+
+| `~/.local/state/cc-deck/`
+| Restricted session-sharing operation state. Contains no raw invitation credentials.
 
 | `<project>/.cc-deck/voice-glossary.txt`
 | Project-specific voice glossary (one term per line)

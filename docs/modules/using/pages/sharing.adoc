@@ -1,0 +1,42 @@
+= Share a workspace
+
+Workspace sharing gives remote collaborators temporary browser or terminal access to one local workspace's canonical Zellij session. Interactive invitations grant trusted users complete terminal control; observer invitations are read-only.
+
+== Prerequisites and limits
+
+Install Zellij 0.44.3 or later and `cloudflared`. Sharing is local-only, and only one workspace can be shared per host. Terminal invitations use `--insecure`; read the printed interception warning before distributing them.
+
+== Start sharing
+
+[source,bash]
+----
+cc-deck ws new demo --share
+cc-deck ws start demo --share
+cc-deck ws attach demo --share
+----
+
+The `--share` flag only affects creation of a missing canonical session. It never kills or converts an existing private session. Follow the printed `kill-session` and restart instructions when that explicit transition is desired.
+
+== Manage invitations
+
+[source,bash]
+----
+cc-deck ws invite demo --role interactive --name alice
+cc-deck ws invite demo --role observer
+cc-deck ws revoke demo alice
+----
+
+Each invitation has an independent credential. Omit `--name` for a random memorable label. The raw browser and terminal secrets print exactly once; later list and status output contains only labels and roles.
+
+== Inspect and stop sharing
+
+[source,bash]
+----
+cc-deck ws list
+cc-deck ws status demo
+cc-deck ws unshare demo
+----
+
+List output separates `INFRA`, `SESSION`, and `SHARING`. Local sharing state is `private`, `shared`, or `degraded`; non-local workspaces are `unsupported`. Unsharing revokes every active invitation and closes the public endpoint without stopping the canonical session.
+
+If the session exits with Zellij's `Ctrl+q`, the lifecycle guard attempts teardown. A plain `ws start` or `ws attach` after session death recreates a private session; pass `--share` again to share it. A degraded result means cleanup could not confirm that all exposure ended, so correct the listed residual and retry `ws unshare`.

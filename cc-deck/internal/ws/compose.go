@@ -394,13 +394,30 @@ func (e *ComposeWorkspace) Attach(ctx context.Context) error {
 	_ = e.store.UpdateInstance(inst)
 
 	cName := e.sessionContainerName()
-
-	if ContainerHasZellijSession(ctx, cName) {
-		return podman.Exec(ctx, cName, []string{"zellij", "attach"}, true)
+	if _, err := e.EnsureSession(ctx, SessionStartOptions{}); err != nil {
+		return err
 	}
-	return podman.Exec(ctx, cName, []string{
-		"zellij", "-n", "cc-deck",
-	}, true)
+	return podman.Exec(ctx, cName, []string{"zellij", "attach", ZellijSessionName(e.name)}, true)
+}
+
+// EnsureSession idempotently creates the canonical session inside the session container.
+func (e *ComposeWorkspace) EnsureSession(ctx context.Context, opts SessionStartOptions) (SessionStartResult, error) {
+	if opts.WebSharing {
+		return SessionStartResult{}, fmt.Errorf("sharing is currently supported for local workspaces only")
+	}
+	name := ZellijSessionName(e.name)
+	cName := e.sessionContainerName()
+	if ContainerHasZellijSession(ctx, cName) {
+		return SessionStartResult{Name: name}, nil
+	}
+	if err := podman.Exec(ctx, cName, []string{"zellij", "--layout", "cc-deck", "attach", "-b", name}, false); err != nil {
+		return SessionStartResult{}, fmt.Errorf("creating canonical session: %w", err)
+	}
+	if inst, err := e.store.FindInstanceByName(e.name); err == nil {
+		inst.SessionState = SessionStateExists
+		_ = e.store.UpdateInstance(inst)
+	}
+	return SessionStartResult{Created: true, Name: name}, nil
 }
 
 // KillSession kills the Zellij session inside the session container
