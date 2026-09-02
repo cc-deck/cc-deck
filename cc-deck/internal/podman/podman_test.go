@@ -1,6 +1,7 @@
 package podman
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,6 +12,53 @@ func TestAvailable(t *testing.T) {
 	// The actual result depends on whether podman is installed.
 	result := Available()
 	assert.IsType(t, true, result)
+}
+
+func TestAvailable_WithFakeBinary(t *testing.T) {
+	fakePodman(t, `exit 0`)
+	assert.True(t, Available())
+}
+
+func TestAvailable_NotOnPath(t *testing.T) {
+	// Point PATH at an empty directory so podman cannot be found.
+	t.Setenv("PATH", t.TempDir())
+	assert.False(t, Available())
+}
+
+func TestRunHelper_Success(t *testing.T) {
+	fakePodman(t, `printf 'hello output\n'`)
+	out, err := run(context.Background(), "info")
+	assert.NoError(t, err)
+	assert.Equal(t, "hello output", out)
+}
+
+func TestRunHelper_Error(t *testing.T) {
+	fakePodman(t, `echo "boom" >&2; exit 1`)
+	out, err := run(context.Background(), "info")
+	assert.Error(t, err)
+	assert.Empty(t, out)
+	assert.Contains(t, err.Error(), "podman info")
+	assert.Contains(t, err.Error(), "boom")
+}
+
+func TestIsRootless_True(t *testing.T) {
+	fakePodman(t, `echo "true"`)
+	got, err := IsRootless(context.Background())
+	assert.NoError(t, err)
+	assert.True(t, got)
+}
+
+func TestIsRootless_False(t *testing.T) {
+	fakePodman(t, `echo "false"`)
+	got, err := IsRootless(context.Background())
+	assert.NoError(t, err)
+	assert.False(t, got)
+}
+
+func TestIsRootless_Error(t *testing.T) {
+	fakePodman(t, `echo "boom" >&2; exit 1`)
+	_, err := IsRootless(context.Background())
+	assert.Error(t, err)
 }
 
 func TestRunOpts_BuildArgs(t *testing.T) {
