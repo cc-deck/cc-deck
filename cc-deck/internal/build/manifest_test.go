@@ -686,3 +686,43 @@ func TestManifest_BaseImage(t *testing.T) {
 		})
 	}
 }
+
+func TestManifest_PackageTools(t *testing.T) {
+	m := &Manifest{
+		Tools: []ToolEntry{
+			{Name: "ripgrep"},
+			{Name: "fd", Install: "package"},
+			{Name: "gh", Install: "github-release", Repo: "cli/cli"},
+		},
+	}
+
+	result := m.PackageTools()
+	require.Len(t, result, 2)
+	assert.Equal(t, "ripgrep", result[0].Name)
+	assert.Equal(t, "fd", result[1].Name)
+}
+
+func TestManifest_PackageTools_Empty(t *testing.T) {
+	m := &Manifest{}
+	assert.Nil(t, m.PackageTools())
+}
+
+func TestManifest_GithubReleaseTools(t *testing.T) {
+	m := &Manifest{
+		Tools: []ToolEntry{
+			{Name: "ripgrep"},
+			{Name: "gh", Install: "github-release", Repo: "cli/cli"},
+			{Name: "fzf", Install: "github-release", Repo: "junegunn/fzf"},
+		},
+	}
+
+	result := m.GithubReleaseTools()
+	require.Len(t, result, 2)
+	assert.Equal(t, "gh", result[0].Name)
+	assert.Equal(t, "fzf", result[1].Name)
+}
+
+func TestManifest_GithubReleaseTools_Empty(t *testing.T) {
+	m := &Manifest{Tools: []ToolEntry{{Name: "ripgrep"}}}
+	assert.Nil(t, m.GithubReleaseTools())
+}
