@@ -45,7 +45,13 @@ Use --type to select the runtime backend when creating a workspace:
   k8s-sandbox Ephemeral Kubernetes pod (planned)
 
 Most commands accept a workspace name, or auto-resolve by
-matching the current directory against workspace definitions.`,
+matching the current directory against workspace definitions.
+
+Without a subcommand, lists workspaces (same as "cc-deck ws list").`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runWsList(gf, "", false, gf.Verbose)
+		},
 	}
 
 	wsCmd.AddGroup(
@@ -1106,9 +1112,18 @@ func buildProjectPathMap(allDefs []*ws.WorkspaceDefinition) map[string]string {
 	return pathMap
 }
 
+// dashIfEmpty renders an optional table cell, using "-" for absent values.
+func dashIfEmpty(value string) string {
+	if value == "" {
+		return "-"
+	}
+	return value
+}
+
 func writeWsStructured(gf *GlobalFlags, format string, instances []*ws.WorkspaceInstance, allDefs []*ws.WorkspaceDefinition, instanceNames map[string]bool, filterType string, projectMap map[string]string) error {
 	var entries []wsListEntry
 	authMap := buildAuthMap(allDefs)
+	snap := newSharingSnapshot(gf)
 
 	for _, inst := range instances {
 		image := ""
@@ -1135,7 +1150,7 @@ func writeWsStructured(gf *GlobalFlags, format string, instances []*ws.Workspace
 		if authStr == "" {
 			authStr = "-"
 		}
-		sharingState, endpoint, invitations, residuals := workspaceSharingDetails(gf, inst.Name, inst.Type)
+		sharingState, endpoint, invitations, residuals := snap.details(inst.Name, inst.Type)
 		entries = append(entries, wsListEntry{
 			Name:         inst.Name,
 			Type:         instType,
@@ -1167,7 +1182,7 @@ func writeWsStructured(gf *GlobalFlags, format string, instances []*ws.Workspace
 		if authStr == "" {
 			authStr = "-"
 		}
-		sharingState, endpoint, invitations, residuals := workspaceSharingDetails(gf, def.Name, def.Type)
+		sharingState, endpoint, invitations, residuals := snap.details(def.Name, def.Type)
 		entries = append(entries, wsListEntry{
 			Name:         def.Name,
 			Type:         string(def.Type),
@@ -1195,6 +1210,7 @@ func writeWsTableWithProjects(gf *GlobalFlags, instances []*ws.WorkspaceInstance
 	tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 
 	authMap := buildAuthMap(allDefs)
+	snap := newSharingSnapshot(gf)
 
 	var pathMap map[string]string
 	if verbose {
@@ -1202,7 +1218,7 @@ func writeWsTableWithProjects(gf *GlobalFlags, instances []*ws.WorkspaceInstance
 	}
 
 	type row struct {
-		name, wsType, infra, session, sharing, proj, auth, storage, lastAttached, age, path string
+		name, wsType, infra, session, sharing, endpoint, proj, auth, storage, lastAttached, age, path string
 	}
 	var rows []row
 
@@ -1233,8 +1249,8 @@ func writeWsTableWithProjects(gf *GlobalFlags, instances []*ws.WorkspaceInstance
 			authStr = "-"
 		}
 		infra, sess := formatWorkspaceColumns(inst)
-		sharingState, _, _, _ := workspaceSharingDetails(gf, inst.Name, instType)
-		r := row{inst.Name, string(instType), infra, sess, string(sharingState), proj, authStr, storage,
+		sharingState, endpoint, _, _ := snap.details(inst.Name, instType)
+		r := row{inst.Name, string(instType), infra, sess, string(sharingState), dashIfEmpty(endpoint), proj, authStr, storage,
 			formatRelativeTime(inst.LastAttached), formatDuration(time.Since(inst.CreatedAt)), ""}
 		if verbose && pathMap[inst.Name] != "" {
 			r.path = pathMap[inst.Name]
@@ -1264,8 +1280,8 @@ func writeWsTableWithProjects(gf *GlobalFlags, instances []*ws.WorkspaceInstance
 		if authStr == "" {
 			authStr = "-"
 		}
-		sharingState, _, _, _ := workspaceSharingDetails(gf, d.Name, d.Type)
-		r := row{d.Name, string(d.Type), "-", "none", string(sharingState), proj, authStr, storage, "never", "-", ""}
+		sharingState, endpoint, _, _ := snap.details(d.Name, d.Type)
+		r := row{d.Name, string(d.Type), "-", "none", string(sharingState), dashIfEmpty(endpoint), proj, authStr, storage, "never", "-", ""}
 		if verbose && pathMap[d.Name] != "" {
 			r.path = pathMap[d.Name]
 		}
@@ -1278,10 +1294,10 @@ func writeWsTableWithProjects(gf *GlobalFlags, instances []*ws.WorkspaceInstance
 	}
 
 	if verbose {
-		fmt.Fprintln(tw, "NAME\tTYPE\tINFRA\tSESSION\tSHARING\tPROJECT\tAUTH\tSTORAGE\tLAST ATTACHED\tAGE\tPROJECT PATH")
+		fmt.Fprintln(tw, "NAME\tTYPE\tINFRA\tSESSION\tSHARING\tENDPOINT\tPROJECT\tAUTH\tSTORAGE\tLAST ATTACHED\tAGE\tPROJECT PATH")
 		for _, r := range rows {
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-				r.name, r.wsType, r.infra, r.session, r.sharing, r.proj, r.auth, r.storage, r.lastAttached, r.age, r.path)
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				r.name, r.wsType, r.infra, r.session, r.sharing, r.endpoint, r.proj, r.auth, r.storage, r.lastAttached, r.age, r.path)
 		}
 	} else {
 		fmt.Fprintln(tw, "NAME\tTYPE\tINFRA\tSESSION\tSHARING\tPROJECT\tSTORAGE\tLAST ATTACHED\tAGE")
@@ -1307,15 +1323,44 @@ func formatWorkspaceColumns(inst *ws.WorkspaceInstance) (infra, session string) 
 	return infra, session
 }
 
+// sharingSnapshot resolves the global sharing status at most once and derives
+// per-workspace details from it. Sharing state is a single file, and Status()
+// takes the lifecycle lock and shells out to zellij and ps, so a listing must
+// not repeat that lookup for every row.
+type sharingSnapshot struct {
+	gf     *GlobalFlags
+	loaded bool
+	status sharing.SharingStatus
+	err    error
+}
+
+func newSharingSnapshot(gf *GlobalFlags) *sharingSnapshot {
+	return &sharingSnapshot{gf: gf}
+}
+
+func (s *sharingSnapshot) load() {
+	if s.loaded {
+		return
+	}
+	s.loaded = true
+	service, err := makeWorkspaceShareService(s.gf)
+	if err != nil {
+		s.status, s.err = sharing.SharingStatus{State: sharing.StateInactive}, err
+		return
+	}
+	s.status, s.err = service.Status(cmd_context())
+}
+
 func workspaceSharingDetails(gf *GlobalFlags, name string, wsType ws.WorkspaceType) (ws.WorkspaceSharingState, string, []ws.InvitationSummary, []string) {
+	return newSharingSnapshot(gf).details(name, wsType)
+}
+
+func (s *sharingSnapshot) details(name string, wsType ws.WorkspaceType) (ws.WorkspaceSharingState, string, []ws.InvitationSummary, []string) {
 	if wsType != ws.WorkspaceTypeLocal {
 		return ws.SharingUnsupported, "", nil, nil
 	}
-	service, err := makeWorkspaceShareService(gf)
-	if err != nil {
-		return ws.SharingDegraded, "", nil, []string{err.Error()}
-	}
-	status, err := service.Status(cmd_context())
+	s.load()
+	status, err := s.status, s.err
 	if err != nil && status.State == sharing.StateInactive {
 		return ws.SharingDegraded, "", nil, []string{err.Error()}
 	}

@@ -619,7 +619,7 @@ The `cc-deck ws` command group manages Claude Code sessions across all supported
 | `cc-deck ws start` | Start infrastructure for container/compose/k8s workspaces |
 | `cc-deck ws stop` | Stop infrastructure (kills session first, then stops container/pod) |
 | `cc-deck ws delete` | Delete a workspace and its resources |
-| `cc-deck ws list` | List all workspaces with type-appropriate state display |
+| `cc-deck ws list` | List all workspaces with type-appropriate state display (also the default for a bare `cc-deck ws`; add `-v` for the sharing ENDPOINT column) |
 | `cc-deck ws status` | Show detailed status of a workspace |
 | `cc-deck ws prune` | Remove stale project registry entries |
 

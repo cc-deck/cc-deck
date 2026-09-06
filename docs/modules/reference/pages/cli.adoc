@@ -660,6 +660,8 @@ cc-deck config domains remove my-session docker
 
 Manage workspaces across all supported backends (local, container, compose).
 When run inside a project with `.cc-deck/environment.yaml`, workspace names are resolved automatically.
+Running `cc-deck ws` without a subcommand lists workspaces, the same as `cc-deck ws list`.
+The global `--verbose` flag adds the extra columns described under <<ws list>>.
 
 NOTE: The commands `attach`, `ls`, and `exec` are also available at the top level (see <<Daily Commands>>).
 
@@ -935,11 +937,15 @@ cc-deck ws delete --force --keep-volumes
 List all workspaces with their current status.
 Shows both global and project-local workspaces in a unified view.
 Each entry includes a SOURCE column indicating the definition origin (`global`, `project`, or empty for orphan instances).
+The SHARING column reports `private`, `shared`, `degraded`, or `unsupported` for each workspace.
+The sharing state is looked up once per listing, not once per row, so long lists do not repeat the Zellij and provider checks.
 
 [source,bash]
 ----
+cc-deck ws                           # same as "ws list"
 cc-deck ws list
 cc-deck ws ls                        # alias
+cc-deck ws list -v                   # adds ENDPOINT, AUTH, and PROJECT PATH columns
 cc-deck ws list --type container
 cc-deck ws list --worktrees
 cc-deck ws list -o json
@@ -953,10 +959,17 @@ cc-deck ws list -o json
 | `-t`
 | Filter by workspace type
 
+| `--verbose`
+| `-v`
+| Show additional columns: ENDPOINT (public sharing URL, or `-` when the workspace is not shared), AUTH, and PROJECT PATH
+
 | `--worktrees`
 | `-w`
 | Show git worktrees within each project
 |===
+
+The compact table omits the endpoint to stay narrow.
+Use `cc-deck ws status NAME` to see the endpoint together with the active invitations and any cleanup residuals.
 
 ==== ws status
 
