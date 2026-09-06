@@ -39,4 +39,19 @@ cc-deck ws unshare demo
 
 List output separates `INFRA`, `SESSION`, and `SHARING`. Local sharing state is `private`, `shared`, or `degraded`; non-local workspaces are `unsupported`. Unsharing revokes every active invitation and closes the public endpoint without stopping the canonical session.
 
-If the session exits with Zellij's `Ctrl+q`, the lifecycle guard attempts teardown. A plain `ws start` or `ws attach` after session death recreates a private session; pass `--share` again to share it. A degraded result means cleanup could not confirm that all exposure ended, so correct the listed residual and retry `ws unshare`.
+If the session exits with Zellij's `Ctrl+q`, the next cc-deck command detects the dead session and completes the teardown.
+Cleanup therefore runs when a command observes the change, not from a background process.
+A plain `ws start` or `ws attach` after session death recreates a private session; pass `--share` again to share it.
+A degraded result means cleanup could not confirm that all exposure ended, so correct the listed residual and retry `ws unshare`.
+
+== When Zellij stops responding
+
+Every `zellij` call is bounded by a ten second timeout.
+A Zellij session server that stops answering therefore delays a command rather than blocking it forever.
+
+Sharing is reported as `degraded` with the residual `sharing state could not be verified` when the state of the session or the public endpoint cannot be determined.
+In that case cc-deck deliberately changes nothing.
+Credentials stay valid and the public endpoint stays open, because an unresponsive server is not evidence that sharing has ended, and tearing down on an inconclusive check would revoke working access.
+
+Resolve the underlying Zellij problem, then run `cc-deck ws status NAME` again to get a definitive result.
+To confirm whether Zellij itself is affected, run `zellij list-sessions` directly and observe whether it returns.

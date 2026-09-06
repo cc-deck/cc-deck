@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -298,6 +299,9 @@ func (s *SharingService) Status(ctx context.Context) (SharingStatus, error) {
 
 		status = statusFromOperation(op)
 		sessionExists, sessionErr := s.zellij.SessionExists(ctx, op.Session)
+		if errors.Is(sessionErr, ErrZellijUnresponsive) {
+			return reportUnverified(op, &status, sessionErr)
+		}
 		if sessionErr != nil || !sessionExists {
 			diagnostic := "canonical session disappeared"
 			if sessionErr != nil {
@@ -306,6 +310,13 @@ func (s *SharingService) Status(ctx context.Context) (SharingStatus, error) {
 			return s.reconcileLocked(ctx, op, &status, fmt.Errorf("%s", diagnostic), ProviderStatus{})
 		}
 		providerStatus, providerErr := s.provider.Status(ctx, op.ProviderHandle)
+		if providerStatus.State == "unknown" {
+			diagnostic := providerStatus.Diagnostic
+			if diagnostic == "" {
+				diagnostic = "provider state could not be determined"
+			}
+			return reportUnverified(op, &status, errors.New(diagnostic))
+		}
 		if op.State == StateActive && providerErr == nil && (providerStatus.State == "ready" || providerStatus.State == "starting") {
 			if providerStatus.EndpointURL != "" {
 				status.EndpointURL = providerStatus.EndpointURL
@@ -360,6 +371,19 @@ func statusFromOperation(op *SharingOperation) SharingStatus {
 		}
 	}
 	return status
+}
+
+// reportUnverified surfaces an operation whose health could not be determined.
+// It deliberately leaves every resource in place and does not persist the
+// degraded state: a wedged or slow Zellij server is not evidence that sharing
+// ended, and tearing down here would revoke live credentials and close a
+// working endpoint. Persisting StateDegraded would be just as harmful, because
+// a degraded operation is reconciled (torn down) on the next healthy call.
+func reportUnverified(op *SharingOperation, status *SharingStatus, cause error) error {
+	*status = statusFromOperation(op)
+	status.State = StateDegraded
+	status.Residuals = append(status.Residuals, "sharing state could not be verified: "+cause.Error())
+	return fmt.Errorf("sharing state could not be verified, leaving resources untouched: %w", cause)
 }
 
 func (s *SharingService) reconcileLocked(ctx context.Context, op *SharingOperation, status *SharingStatus, providerErr error, providerStatus ProviderStatus) error {

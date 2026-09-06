@@ -3,9 +3,69 @@ package share
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
+
+// deadlineRunner records the context deadline each call was given, and can
+// simulate a command that outlives it.
+type deadlineRunner struct {
+	deadlines []time.Time
+	hadNone   bool
+	block     bool
+}
+
+func (r *deadlineRunner) Run(ctx context.Context, _ string, _ ...string) ([]byte, error) {
+	if deadline, ok := ctx.Deadline(); ok {
+		r.deadlines = append(r.deadlines, deadline)
+	} else {
+		r.hadNone = true
+	}
+	if r.block {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	return []byte("ok"), nil
+}
+
+func (r *deadlineRunner) Start(context.Context, string, ...string) (Process, error) {
+	return nil, nil
+}
+
+func TestZellijCallsAreBoundedByATimeout(t *testing.T) {
+	runner := &deadlineRunner{}
+	_, err := NewZellij(runner).run(context.Background(), "list-sessions")
+	require.NoError(t, err)
+	require.False(t, runner.hadNone, "an unbounded context must gain a deadline")
+	require.Len(t, runner.deadlines, 1)
+	require.WithinDuration(t, time.Now().Add(zellijCommandTimeout), runner.deadlines[0], 2*time.Second)
+}
+
+func TestZellijKeepsAnEarlierCallerDeadline(t *testing.T) {
+	runner := &deadlineRunner{}
+	callerDeadline := time.Now().Add(50 * time.Millisecond)
+	ctx, cancel := context.WithDeadline(context.Background(), callerDeadline)
+	defer cancel()
+
+	_, err := NewZellij(runner).run(ctx, "list-sessions")
+	require.NoError(t, err)
+	require.Len(t, runner.deadlines, 1)
+	require.WithinDuration(t, callerDeadline, runner.deadlines[0], time.Millisecond,
+		"a caller's own deadline must not be replaced")
+}
+
+func TestZellijReportsAnUnresponsiveServerOnTimeout(t *testing.T) {
+	original := zellijCommandTimeout
+	zellijCommandTimeout = 20 * time.Millisecond
+	t.Cleanup(func() { zellijCommandTimeout = original })
+
+	_, err := NewZellij(&deadlineRunner{block: true}).run(context.Background(), "list-sessions")
+	require.Error(t, err)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.ErrorContains(t, err, "not responding")
+	require.ErrorContains(t, err, "list-sessions")
+}
 
 func TestZellijCapabilitiesAndSessionIsolation(t *testing.T) {
 	r := &fakeRunner{outputs: map[string][]byte{

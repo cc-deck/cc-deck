@@ -43,6 +43,7 @@ type startZellij struct {
 	credentialNames    map[string]string
 	revokedNames       []string
 	sessionMissing     bool
+	sessionErr         error
 }
 
 func (z *startZellij) call(name string) error {
@@ -56,6 +57,9 @@ func (z *startZellij) ValidateCapabilities(context.Context) error { return z.cal
 func (z *startZellij) SessionExists(context.Context, string) (bool, error) {
 	if err := z.call("session-exists"); err != nil {
 		return false, err
+	}
+	if z.sessionErr != nil {
+		return false, z.sessionErr
 	}
 	return !z.sessionMissing, nil
 }
@@ -442,6 +446,62 @@ type statusProvider struct {
 func (p *statusProvider) Status(context.Context, ProviderHandle) (ProviderStatus, error) {
 	p.calls = append(p.calls, "provider-status")
 	return p.status, p.statusErr
+}
+
+// An unresponsive Zellij server must never be mistaken for a session that
+// ended. Tearing down here would revoke live credentials and close a working
+// public endpoint, which is exactly what a wedged server once caused.
+func TestStatusLeavesSharingIntactWhenZellijIsUnresponsive(t *testing.T) {
+	op := activeOperation()
+	store := &startStore{op: op}
+	z := &startZellij{sessionErr: fmt.Errorf("probe: %w", ErrZellijUnresponsive)}
+	provider := &statusProvider{startProvider: &startProvider{}, status: ProviderStatus{State: "ready"}}
+
+	got, err := NewService(store, z, provider).Status(context.Background())
+
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrZellijUnresponsive)
+	require.Equal(t, StateDegraded, got.State, "reported as degraded to the caller")
+	require.Equal(t, "selected", got.Session, "the operation's identity is still reported")
+	require.Equal(t, "https://public.example", got.EndpointURL)
+	require.Contains(t, got.Residuals[0], "could not be verified")
+
+	require.NotNil(t, store.op, "the operation must survive an inconclusive probe")
+	require.Equal(t, StateActive, store.op.State, "degraded state must not be persisted")
+	require.NotContains(t, provider.calls, "provider-stop", "the endpoint must stay up")
+	require.NotContains(t, z.calls, "stop-web")
+	require.Empty(t, z.revokedNames, "credentials must not be revoked")
+}
+
+// A provider probe that cannot identify its process is equally inconclusive.
+func TestStatusLeavesSharingIntactWhenProviderStateIsUnknown(t *testing.T) {
+	store := &startStore{op: activeOperation()}
+	z := &startZellij{}
+	provider := &statusProvider{startProvider: &startProvider{},
+		status: ProviderStatus{State: "unknown", Diagnostic: "cannot validate cloudflared process identity"}}
+
+	got, err := NewService(store, z, provider).Status(context.Background())
+
+	require.Error(t, err)
+	require.Contains(t, got.Residuals[0], "cannot validate cloudflared process identity")
+	require.NotNil(t, store.op)
+	require.NotContains(t, provider.calls, "provider-stop")
+	require.Empty(t, z.revokedNames)
+}
+
+// The opposite case must keep working: a session positively reported absent is
+// real evidence, and cleanup still runs.
+func TestStatusStillReconcilesWhenSessionIsPositivelyGone(t *testing.T) {
+	store := &startStore{op: activeOperation()}
+	z := &startZellij{sessionMissing: true}
+	provider := &statusProvider{startProvider: &startProvider{}, status: ProviderStatus{State: "ready"}}
+
+	got, err := NewService(store, z, provider).Status(context.Background())
+
+	require.NoError(t, err)
+	require.Equal(t, StateInactive, got.State)
+	require.Nil(t, store.op)
+	require.Contains(t, provider.calls, "provider-stop")
 }
 
 func TestStatusReconcilesStaleProviderAndReportsInactiveAfterCleanup(t *testing.T) {

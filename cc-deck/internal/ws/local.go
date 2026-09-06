@@ -347,9 +347,21 @@ func ZellijSessionName(name string) string {
 	return zellijSessionPrefix + name
 }
 
+// zellijCLITimeout bounds direct "zellij" invocations from this package. A
+// wedged session server accepts the connection but never answers, and without
+// a bound every cc-deck command that inspects sessions would hang forever.
+const zellijCLITimeout = 10 * time.Second
+
+// runZellijListSessions runs "zellij list-sessions -n" under a timeout.
+func runZellijListSessions() ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), zellijCLITimeout)
+	defer cancel()
+	return exec.CommandContext(ctx, "zellij", "list-sessions", "-n").Output()
+}
+
 // ZellijSessionState returns "running", "exited", or "" for a session.
 func ZellijSessionState(sessionName string) string {
-	out, err := exec.Command("zellij", "list-sessions", "-n").Output()
+	out, err := runZellijListSessions()
 	if err != nil {
 		return ""
 	}
@@ -372,7 +384,7 @@ func ZellijSessionState(sessionName string) string {
 // returns session names. When includeExited is false, EXITED sessions are
 // skipped. Returns nil if zellij is not available or the command fails.
 func listZellijSessions(includeExited bool) []string {
-	out, err := exec.Command("zellij", "list-sessions", "-n").Output()
+	out, err := runZellijListSessions()
 	if err != nil {
 		return nil
 	}

@@ -2,18 +2,46 @@ package share
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
+
+// zellijCommandTimeout bounds every zellij CLI call. A wedged Zellij session
+// server still accepts the connection but never answers, so an unbounded call
+// blocks forever. Sharing status is consulted by ordinary commands such as
+// "cc-deck ws", so one unresponsive session must not hang the whole CLI.
+// Declared as a variable so tests can shorten it.
+var zellijCommandTimeout = 10 * time.Second
+
+// ErrZellijUnresponsive marks a probe that could not determine an answer, as
+// opposed to one that positively established absence. An unresponsive server
+// is not evidence that a session ended, so cleanup must never run on it.
+var ErrZellijUnresponsive = errors.New("zellij is not responding")
 
 type ZellijCLI struct{ runner CommandRunner }
 
 func NewZellij(r CommandRunner) *ZellijCLI { return &ZellijCLI{runner: r} }
 func (z *ZellijCLI) run(ctx context.Context, args ...string) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	// Only impose the default bound when the caller has not set its own, so a
+	// caller with a shorter deadline keeps it.
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, zellijCommandTimeout)
+		defer cancel()
+	}
 	b, e := z.runner.Run(ctx, "zellij", args...)
 	if e != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return "", fmt.Errorf("zellij %s: %w (timed out after %s): %w",
+				strings.Join(args, " "), ErrZellijUnresponsive, zellijCommandTimeout, ctx.Err())
+		}
 		return "", fmt.Errorf("zellij %s: %w", strings.Join(args, " "), e)
 	}
 	return strings.TrimSpace(string(b)), nil
