@@ -1,0 +1,11 @@
+# Forbidden words/phrases for cc-deck documentation
+# One entry per line. These are flagged during style checks.
+
+docker
+Docker
+container runtime
+robust
+intuitive
+leverage
+utilize
+seamlessly

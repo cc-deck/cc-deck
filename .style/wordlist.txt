@@ -1,0 +1,11 @@
+# Preferred terminology for cc-deck
+# One term per line. Use these instead of alternatives.
+
+cc-deck
+environment
+definition
+project-local
+worktree
+podman
+Zellij
+sidebar
