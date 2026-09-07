@@ -154,7 +154,10 @@ fn test_controller_deferred_events() {
     // Do NOT grant permissions yet. Send events that should be queued.
     // Note: pipe() returns false before permissions are granted (controller
     // drops pipe messages). But update() with non-permission events queues them.
-    plugin.update(Event::Timer(1.0));
+    //
+    // Deliberately not a Timer: while unpermissioned the timer is claimed by
+    // the lost-grant retry and is not queued. Every other event still is.
+    plugin.update(Event::TabUpdate(vec![]));
 
     // Verify event was queued
     assert_eq!(plugin.test_state().pending_events.len(), 1);
@@ -680,4 +683,64 @@ fn test_election_backward_compat_old_format_ping() {
 
     assert!(!plugin.test_state().is_leader);
     assert_eq!(plugin.test_state().leader_plugin_id, Some(5));
+}
+
+// ---------------------------------------------------------------------------
+// Lost Permission Grant Recovery
+//
+// The controller is a background plugin with no client of its own, so the
+// permission result Zellij addresses to a client is the likeliest of all to be
+// dropped. While the grant is missing, pipe() discards every message, so a
+// sidebar's hello never registers and no render is ever broadcast.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_controller_timer_reasks_for_lost_permission_grant() {
+    let mut plugin = ControllerPlugin::default();
+    plugin.load(std::collections::BTreeMap::new());
+    assert_eq!(plugin.test_state().permission_retries, 0);
+
+    plugin.update(Event::Timer(1.0));
+
+    assert_eq!(plugin.test_state().permission_retries, 1);
+    assert!(!plugin.test_state().permissions_granted);
+}
+
+#[test]
+fn test_controller_permission_retry_is_bounded() {
+    let mut plugin = ControllerPlugin::default();
+    plugin.load(std::collections::BTreeMap::new());
+
+    for _ in 0..(crate::sidebar_plugin::PERMISSION_RETRY_LIMIT as usize + 20) {
+        plugin.update(Event::Timer(1.0));
+    }
+
+    assert_eq!(
+        plugin.test_state().permission_retries,
+        crate::sidebar_plugin::PERMISSION_RETRY_LIMIT
+    );
+}
+
+#[test]
+fn test_controller_timer_does_not_reask_once_granted() {
+    let mut plugin = ControllerPlugin::default();
+    plugin.load(std::collections::BTreeMap::new());
+    plugin.update(Event::PermissionRequestResult(PermissionStatus::Granted));
+
+    plugin.update(Event::Timer(1.0));
+
+    assert_eq!(plugin.test_state().permission_retries, 0);
+}
+
+#[test]
+fn test_controller_still_queues_non_timer_events_while_unpermissioned() {
+    let mut plugin = ControllerPlugin::default();
+    plugin.load(std::collections::BTreeMap::new());
+
+    // The retry hooks into the timer only. Every other event must still be
+    // queued for replay once the grant lands, exactly as before.
+    plugin.update(Event::TabUpdate(vec![]));
+
+    assert_eq!(plugin.test_state().pending_events.len(), 1);
+    assert_eq!(plugin.test_state().permission_retries, 0);
 }

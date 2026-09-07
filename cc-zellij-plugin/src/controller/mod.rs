@@ -130,6 +130,41 @@ impl ZellijPlugin for ControllerPlugin {
             }
             _ => {
                 if !self.state.permissions_granted {
+                    // A grant that never arrives strands this plugin silently:
+                    // pipe() drops every message while this flag is false, so a
+                    // sidebar's hello is discarded and no sidebar is ever
+                    // registered. The controller is a background plugin with no
+                    // client of its own, and Zellij addresses the permission
+                    // result to a client, so the result can be sent to nobody.
+                    //
+                    // The timer is the one signal that still reaches us here, so
+                    // ask again from it. A cached grant needs no prompt, so
+                    // still being unpermissioned means the answer was lost
+                    // rather than that the user has yet to give one.
+                    if matches!(event, Event::Timer(_)) {
+                        // Bounded for the same reason as the sidebar: recover a
+                        // lost answer, never nag for one the user owes us.
+                        if self.state.permission_retries
+                            >= crate::sidebar_plugin::PERMISSION_RETRY_LIMIT
+                        {
+                            return false;
+                        }
+                        self.state.permission_retries += 1;
+                        crate::debug_log("CTRL TIMER re-requesting lost permission grant");
+                        crate::wasm_compat::request_permission_wasm(&[
+                            PermissionType::ReadApplicationState,
+                            PermissionType::ChangeApplicationState,
+                            PermissionType::RunCommands,
+                            PermissionType::ReadCliPipes,
+                            PermissionType::MessageAndLaunchOtherPlugins,
+                            PermissionType::Reconfigure,
+                            PermissionType::WriteToStdin,
+                        ]);
+                        // Re-arm: without this the single load-time timer is
+                        // consumed here and nothing ever asks again.
+                        crate::wasm_compat::set_timeout_wasm(1.0);
+                        return false;
+                    }
                     self.state.pending_events.push(event);
                     return false;
                 }

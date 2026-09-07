@@ -262,3 +262,68 @@ fn test_local_mute_override_preserved_on_mismatch() {
 
 use super::SidebarRendererPlugin;
 use cc_deck::RenderPayload;
+
+// ---------------------------------------------------------------------------
+// Lost Permission Grant Recovery
+//
+// Zellij addresses a PermissionRequestResult to a specific client. A sidebar
+// created during the initial layout load can be handed that result before any
+// client is ready, and the grant is then dropped. The pane sits on the
+// permission prompt forever, because every other recovery path depends on the
+// controller having registered this sidebar, which itself depends on the
+// grant. The timer is the only signal that reaches the plugin from outside
+// that loop.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_sidebar_timer_reasks_for_lost_permission_grant() {
+    let mut plugin = SidebarRendererPlugin::default();
+    plugin.load(std::collections::BTreeMap::new());
+    assert_eq!(plugin.test_state().permission_retries, 0);
+
+    plugin.update(Event::Timer(1.0));
+
+    assert_eq!(plugin.test_state().permission_retries, 1);
+    assert!(!plugin.test_state().permissions_granted);
+}
+
+#[test]
+fn test_sidebar_permission_retry_is_bounded() {
+    let mut plugin = SidebarRendererPlugin::default();
+    plugin.load(std::collections::BTreeMap::new());
+
+    // Far more ticks than the limit: a request the user has genuinely not
+    // answered yet must not be re-raised on a loop.
+    for _ in 0..(super::PERMISSION_RETRY_LIMIT as usize + 20) {
+        plugin.update(Event::Timer(1.0));
+    }
+
+    assert_eq!(
+        plugin.test_state().permission_retries,
+        super::PERMISSION_RETRY_LIMIT
+    );
+}
+
+#[test]
+fn test_sidebar_timer_does_not_reask_once_granted() {
+    let mut plugin = SidebarRendererPlugin::default();
+    plugin.load(std::collections::BTreeMap::new());
+    plugin.update(Event::PermissionRequestResult(PermissionStatus::Granted));
+
+    plugin.update(Event::Timer(1.0));
+
+    assert_eq!(plugin.test_state().permission_retries, 0);
+}
+
+#[test]
+fn test_sidebar_permission_grant_requests_repaint() {
+    let mut plugin = SidebarRendererPlugin::default();
+    plugin.load(std::collections::BTreeMap::new());
+
+    // render() draws the permission prompt while the grant is missing, and the
+    // pane is made unselectable on grant, so nothing else will ever prompt a
+    // repaint. Without this the prompt stays on screen over a working sidebar.
+    let should_render = plugin.update(Event::PermissionRequestResult(PermissionStatus::Granted));
+
+    assert!(should_render);
+}

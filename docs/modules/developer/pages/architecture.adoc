@@ -15,6 +15,25 @@ The command-line tool that users interact with directly.
 Handles plugin installation, hook registration, snapshots, and the container image build pipeline.
 Embeds the WASM binary so a single `cc-deck` binary installs everything.
 
+== Plugin Permissions
+
+Both roles run from the same WASM binary and request the same seven Zellij permissions on load.
+The controller runs as a background plugin, which cannot display a permission dialog at all, so `cc-deck install` pre-populates Zellij's `permissions.kdl` cache before the plugin ever loads.
+A pre-populated grant is answered immediately, without prompting the user.
+
+Pre-population alone is not sufficient.
+Zellij addresses the `PermissionRequestResult` event to a specific client, and a plugin started during the initial layout load can be handed that result before any client is ready to receive it.
+The grant is then dropped in transit.
+
+A dropped grant used to strand the plugin permanently.
+The controller discards every pipe message while it is unpermissioned, so a sidebar's registration never lands, no render is ever broadcast, and the sidebar keeps showing the permission prompt on a pane that has already been made unfocusable.
+Every recovery path ran through the same broken loop.
+
+Both roles therefore drive their own recovery from a timer, which is the one signal that arrives from outside that loop.
+A plugin that is still unpermissioned when a timer fires asks again and re-arms the timer.
+The retry is bounded by `PERMISSION_RETRY_LIMIT`, so a request that is genuinely waiting on a human answer is never re-raised on a loop.
+On a healthy start the grant has already arrived, the first tick returns early, and the recovery costs a single timer tick.
+
 == Sync Protocol
 
 The WASM plugin runs as a separate instance on every tab (via the layout template).

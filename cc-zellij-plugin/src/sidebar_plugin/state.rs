@@ -56,6 +56,11 @@ pub struct SidebarState {
     /// Whether plugin permissions have been granted.
     pub permissions_granted: bool,
 
+    /// How many times we have re-asked for a permission grant that never
+    /// arrived. Bounded, because a request that is genuinely waiting on the
+    /// user must not be re-raised on a loop.
+    pub permission_retries: u8,
+
     /// Last left-click timestamp (ms) and pane_id for double-click detection.
     pub last_click: Option<(u64, u32)>,
 
@@ -98,6 +103,7 @@ impl Default for SidebarState {
             config: PluginConfig::default(),
             initialized: false,
             permissions_granted: false,
+            permission_retries: 0,
             last_click: None,
             local_focus_override: None,
             local_mute_override: None,

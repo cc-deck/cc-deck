@@ -94,6 +94,11 @@ pub struct ControllerState {
     pub client_id: u16,
     /// Whether plugin permissions have been granted.
     pub permissions_granted: bool,
+
+    /// How many times we have re-asked for a permission grant that never
+    /// arrived. Bounded, because a request that is genuinely waiting on the
+    /// user must not be re-raised on a loop.
+    pub permission_retries: u8,
     /// Whether the render payload needs to be broadcast on the next timer tick.
     pub render_dirty: bool,
     /// Millisecond timestamp until which `remove_dead_sessions()` is skipped.
