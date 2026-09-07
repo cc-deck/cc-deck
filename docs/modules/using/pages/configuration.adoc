@@ -161,7 +161,7 @@ plugin location="file:~/.config/zellij/plugins/cc_deck.wasm" {
 
 | `voice_timeout_secs`
 | 15
-| Seconds without a poll from the voice relay before the voice indicator is cleared. The relay polls every 5 seconds; values below 5 are ignored.
+| Seconds without a poll from the voice relay before the voice indicator is cleared. The relay polls every five seconds. Values below five are ignored.
 |===
 
 Auto-paused sessions unpause automatically when you switch to them (via click, navigate, or attend).
