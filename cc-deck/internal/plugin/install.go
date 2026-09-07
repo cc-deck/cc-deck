@@ -43,11 +43,12 @@ func Install(opts InstallOptions) error {
 
 	if !zInfo.Installed {
 		fmt.Fprintln(opts.Stderr, "Warning: Zellij not found on PATH. Install Zellij first.")
-	} else {
-		compat := CheckCompatibility(zInfo.Version, pInfo.SDKVersion)
-		if compat == "incompatible" {
-			fmt.Fprintf(opts.Stderr, "Warning: Zellij version %s may be incompatible (requires %s+).\n", zInfo.Version, pInfo.MinZellij)
-		}
+	} else if CheckCompatibility(zInfo.Version, pInfo.MaxTested) == "incompatible" {
+		// A background plugin on an older Zellij can be instantiated twice on
+		// startup, and the plugin no longer guards against that. Refuse rather
+		// than install something that will misbehave.
+		return fmt.Errorf("Zellij %s is too old: cc-deck requires Zellij %s or later (re-run with --install-zellij to download a supported release)",
+			zInfo.Version, pInfo.MinZellij)
 	}
 
 	// 2. Check if already installed (prompt if not --force)

@@ -98,7 +98,7 @@ impl ZellijPlugin for SidebarRendererPlugin {
 
                     self.send_hello();
                     // Retry registration until sidebar-init arrives. This is
-                    // resilient to controller election and manifest startup races.
+                    // resilient to controller and manifest startup races.
                     crate::wasm_compat::set_timeout_wasm(1.0);
 
                     // Repaint now: render() draws the permission prompt while

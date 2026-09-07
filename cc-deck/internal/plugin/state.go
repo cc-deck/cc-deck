@@ -30,7 +30,7 @@ func DetectInstallState(zInfo ZellijInfo, pInfo PluginInfo) InstallState {
 		return state
 	}
 
-	state.Compatibility = CheckCompatibility(zInfo.Version, pInfo.SDKVersion)
+	state.Compatibility = CheckCompatibility(zInfo.Version, pInfo.MaxTested)
 
 	// Check if the WASM plugin binary is installed
 	pluginPath := filepath.Join(zInfo.PluginsDir, "cc_deck.wasm")

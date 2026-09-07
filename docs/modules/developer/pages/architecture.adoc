@@ -7,8 +7,10 @@ cc-deck consists of two components that work together: a Rust WASM plugin for th
 Rust WASM Plugin (`cc-zellij-plugin/`)::
 The sidebar that runs inside Zellij.
 Compiled to WebAssembly (wasm32-wasip1) and loaded by Zellij as a plugin.
-Handles rendering, navigation, smart attend, and session tracking.
-Communicates with other instances via the Zellij pipe system.
+One binary serves two roles, selected by the `mode` key in the plugin configuration.
+The controller runs once per Zellij session as a background plugin from `load_plugins` and owns all session state.
+A sidebar runs in every tab, renders what the controller sends it, and forwards user actions back.
+The two roles communicate over the Zellij pipe system.
 
 Go CLI (`cc-deck/`)::
 The command-line tool that users interact with directly.
@@ -34,26 +36,39 @@ A plugin that is still unpermissioned when a timer fires asks again and re-arms 
 The retry is bounded by `PERMISSION_RETRY_LIMIT`, so a request that is genuinely waiting on a human answer is never re-raised on a loop.
 On a healthy start the grant has already arrived, the first tick returns early, and the recovery costs a single timer tick.
 
-== Sync Protocol
+== Controller and Sidebars
 
-The WASM plugin runs as a separate instance on every tab (via the layout template).
-These instances synchronize session state through Zellij's pipe messaging system:
+Zellij places one plugin pane in every tab, so there is one sidebar instance per tab and the number of instances grows with the number of tabs.
+The design keeps those instances thin.
+The controller is the single writer of session state.
+It processes hook events, pane and tab updates, and the timer, and it persists state to a per-session file in the plugin cache.
+Sidebars hold no session state of their own.
+They receive a pre-computed render payload, draw it, and send user actions back to the controller.
 
-`cc-deck:sync`::
-Broadcast session state to all instances.
-Used when a session's activity changes.
+cc-deck requires Zellij 0.45.0 or later.
+Earlier releases could instantiate a `load_plugins` background plugin twice on startup (zellij-org/zellij#5178), and the plugin relies on there being exactly one controller per session.
 
-`cc-deck:request`::
-Request the latest state from other instances.
+The pipe messages between the two roles:
+
+`cc-deck:sidebar-hello` and `cc-deck:sidebar-init`::
+A sidebar announces itself after its permission grant.
+The controller finds the sidebar's tab in the pane manifest and answers with the tab index.
+The sidebar repeats the hello once a second until the answer arrives.
+
+`cc-deck:render`::
+The controller sends the full render payload to each registered sidebar.
+Renders are coalesced: state changes mark the payload dirty, and the one-second timer flushes it.
+User actions flush immediately.
+
+`cc-deck:action` and `cc-deck:focus-report`::
+A sidebar forwards a user action (attend, rename, pause, sort) or a focus change to the controller.
 
 `cc-deck:hook`::
-Incoming hook events from Claude Code (via the Go CLI).
+Incoming hook events from an agent (via the Go CLI).
 
-`cc-deck:navigate`::
-Navigation commands (switch tab, attend).
-
-`cc-deck:attend`::
-Smart attend requests.
+`cc-deck:navigate`, `cc-deck:attend`, `cc-deck:working`::
+Keybindings registered by the controller.
+They address the controller by plugin id, so a keypress reaches one plugin instance.
 
 == Hook Integration
 

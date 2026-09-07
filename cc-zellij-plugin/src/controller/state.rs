@@ -33,9 +33,6 @@ pub const FOCUS_CONFIRM_TIMEOUT_MS: u64 = 3000;
 ///
 /// Matches `FOCUS_CONFIRM_TIMEOUT_MS` and the startup grace: all three answer
 /// the same question, "how long do we wait for Zellij to tell us the truth".
-/// It must exceed the election window (`ELECTION_TIMEOUT_TICKS` ticks) so a
-/// controller that has just won leadership still gets at least one more tick
-/// to receive its first `PaneUpdate`.
 pub const HOOK_CONFIRM_TIMEOUT_MS: u64 = 3000;
 
 /// How long a session restored from the on-disk cache may wait for
@@ -57,15 +54,6 @@ pub struct Quarantine {
     pub kind: QuarantineKind,
     pub deadline_ms: u64,
 }
-
-/// Timer ticks to wait before self-activating as leader.
-pub const ELECTION_TIMEOUT_TICKS: u32 = 2;
-
-/// Ticks between leader heartbeat pings.
-pub const LEADER_HEARTBEAT_TICKS: u64 = 30;
-
-/// Milliseconds without leader ping before dormant instance re-activates.
-pub const LEADER_FAILURE_TIMEOUT_MS: u64 = 60_000;
 
 /// Metadata override to apply when a restored session is discovered via CWD matching.
 #[derive(Debug, Clone)]
@@ -181,14 +169,6 @@ pub struct ControllerState {
     /// unblock). Tracks (text_hash, timestamp_ms) to suppress duplicates
     /// within a short window.
     pub voice_last_inject: Option<(u64, u64)>,
-    /// Whether this controller instance is the active leader.
-    pub is_leader: bool,
-    /// Plugin ID of the known leader (if not self).
-    pub leader_plugin_id: Option<u32>,
-    /// Timestamp (ms) of last received leader ping.
-    pub last_leader_ping_ms: u64,
-    /// Timer ticks since startup ping was sent.
-    pub election_ticks: u32,
     /// Frozen display order from the last sort-by-activity (pane IDs).
     /// When Some, the render broadcast uses this order instead of tab_index.
     pub sort_order: Option<Vec<u32>>,
@@ -1230,22 +1210,6 @@ mod tests {
     fn test_sessions_path() {
         assert_eq!(super::sessions_path(12345), "/cache/sessions-12345.json");
         assert_eq!(super::sessions_path(0), "/cache/sessions.json");
-    }
-
-    #[test]
-    fn test_election_pessimistic_default() {
-        let state = ControllerState::default();
-        assert!(!state.is_leader);
-        assert!(state.leader_plugin_id.is_none());
-        assert_eq!(state.last_leader_ping_ms, 0);
-        assert_eq!(state.election_ticks, 0);
-    }
-
-    #[test]
-    fn test_election_constants() {
-        assert_eq!(super::ELECTION_TIMEOUT_TICKS, 2);
-        assert_eq!(super::LEADER_HEARTBEAT_TICKS, 30);
-        assert_eq!(super::LEADER_FAILURE_TIMEOUT_MS, 60_000);
     }
 
     #[test]

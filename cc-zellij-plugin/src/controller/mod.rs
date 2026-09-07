@@ -3,6 +3,8 @@
 // The controller is a headless Zellij plugin (no rendering) that:
 // - Subscribes to heavyweight events (PaneUpdate, TabUpdate, Timer, etc.)
 //   but NOT Mouse or Key (no UI interaction)
+// - Is loaded exactly once per Zellij session via `load_plugins` (requires
+//   Zellij >= 0.45.0, which fixed the duplicate background instance race)
 // - Owns the single authoritative session state (BTreeMap<u32, Session>)
 // - Processes hook events from the CLI (cc-deck:hook)
 // - Broadcasts RenderPayload to sidebar instances (cc-deck:render)
@@ -117,16 +119,6 @@ impl ZellijPlugin for ControllerPlugin {
                     for e in pending {
                         self.handle_event_inner(e);
                     }
-
-                    // Start leader election: broadcast ping with own plugin_id.
-                    // Remain dormant (is_leader = false) and start counting
-                    // election ticks. If no lower-ID controller responds within
-                    // ELECTION_TIMEOUT_TICKS, self-activate as leader.
-                    broadcast_controller_ping(self.state.client_id, self.state.plugin_id);
-                    crate::debug_log(&format!(
-                        "CTRL ELECTION: starting probe (dormant) plugin_id={} client_id={}",
-                        self.state.plugin_id, self.state.client_id
-                    ));
                 }
                 false // Controller has no UI to render
             }
@@ -170,27 +162,6 @@ impl ZellijPlugin for ControllerPlugin {
                     self.state.pending_events.push(event);
                     return false;
                 }
-                // Dormant guard: non-leader only processes Timer (for election)
-                // and PermissionRequestResult. All other events are ignored.
-                if !self.state.is_leader {
-                    // Capture the pane manifest even while dormant. Zellij emits
-                    // PaneUpdate only when the pane set changes, never on a
-                    // schedule, so an instance that wins the election later would
-                    // otherwise run on a stale or absent manifest until the next
-                    // pane change. The manifest is what confirms a session is
-                    // real, so it must be current the moment leadership starts.
-                    //
-                    // Only the raw field is captured. handle_pane_update also
-                    // rebuilds the pane map and removes sessions, and a dormant
-                    // instance must never mutate session state.
-                    if let Event::PaneUpdate(ref manifest) = event {
-                        self.state.pane_manifest = Some(manifest.clone());
-                    }
-                    if matches!(event, Event::Timer(_)) {
-                        self.handle_event_inner(event);
-                    }
-                    return false;
-                }
                 self.handle_event_inner(event);
                 false // Controller has no UI
             }
@@ -202,26 +173,6 @@ impl ZellijPlugin for ControllerPlugin {
             #[cfg(target_family = "wasm")]
             if let PipeSource::Cli(ref pipe_id) = pipe_message.source {
                 zellij_tile::prelude::unblock_cli_pipe_input(pipe_id);
-            }
-            return false;
-        }
-
-        // Dormant guard: non-leader only processes election protocol messages.
-        // For most pipes, do NOT unblock: the leader handles all CLI pipe
-        // lifecycle (output + unblock). For DumpState however, the dormant
-        // instance must unblock with an empty response to avoid a 1-second
-        // CliPipe timeout on the Zellij server (each broadcast pipe waits
-        // for ALL instances to complete).
-        if !self.state.is_leader
-            && pipe_message.name != "cc-deck:controller-ping"
-            && pipe_message.name != "cc-deck:controller-pong"
-        {
-            #[cfg(target_family = "wasm")]
-            if pipe_message.name == "cc-deck:dump-state" {
-                if let PipeSource::Cli(ref pipe_id) = pipe_message.source {
-                    cli_pipe_output_wasm(pipe_id, "");
-                    unblock_cli_pipe_input_wasm(pipe_id);
-                }
             }
             return false;
         }
@@ -502,47 +453,6 @@ impl ZellijPlugin for ControllerPlugin {
                     unblock_cli_pipe_input_wasm(pipe_id);
                 }
             }
-            PipeAction::ControllerPing | PipeAction::ControllerPong => {
-                if let Some(payload) = pipe_message.payload.as_deref() {
-                    // Parse "client_id:plugin_id" format, with backward compat
-                    // for old "plugin_id"-only format (client_id defaults to 0).
-                    let parsed = if let Some((cid_str, pid_str)) = payload.split_once(':') {
-                        match (cid_str.parse::<u16>(), pid_str.parse::<u32>()) {
-                            (Ok(cid), Ok(pid)) => Some((cid, pid)),
-                            _ => None, // malformed, skip
-                        }
-                    } else {
-                        // Backward compat: old format with plugin_id only
-                        payload.parse::<u32>().ok().map(|pid| (0u16, pid))
-                    };
-
-                    if let Some((sender_client_id, sender_plugin_id)) = parsed {
-                        let self_key = (self.state.client_id, self.state.plugin_id);
-                        let sender_key = (sender_client_id, sender_plugin_id);
-
-                        if sender_key == self_key {
-                            // Ignore own ping
-                        } else if sender_key < self_key {
-                            // Lower (client_id, plugin_id) wins: stay/go dormant
-                            let was_leader = self.state.is_leader;
-                            self.state.is_leader = false;
-                            self.state.leader_plugin_id = Some(sender_plugin_id);
-                            self.state.last_leader_ping_ms = session::unix_now_ms();
-                            self.state.election_ticks = 0;
-                            crate::debug_log(&format!(
-                                "CTRL ELECTION: lost to ({},{}) (staying dormant)",
-                                sender_client_id, sender_plugin_id
-                            ));
-                            if was_leader {
-                                self.state.keybindings_registered = false;
-                            }
-                        } else {
-                            // Higher (client_id, plugin_id): respond with own ping
-                            broadcast_controller_ping(self.state.client_id, self.state.plugin_id);
-                        }
-                    }
-                }
-            }
             PipeAction::RenderRequest(sidebar_plugin_id) => {
                 crate::debug_log(&format!(
                     "CTRL[{}] RENDER-REQUEST from sidebar={}",
@@ -764,10 +674,6 @@ fn broadcast_navigate(state: &ControllerState, direction: &str) {
 
 #[cfg(not(target_family = "wasm"))]
 fn broadcast_navigate(_state: &ControllerState, _direction: &str) {}
-
-fn broadcast_controller_ping(client_id: u16, plugin_id: u32) {
-    events::broadcast_controller_ping(client_id, plugin_id);
-}
 
 impl ControllerPlugin {
     fn inject_voice_text(&self, text: &str) {

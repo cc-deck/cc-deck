@@ -138,27 +138,39 @@ func EnsurePluginPermissions(cacheDir, pluginsDir string) error {
 	return os.WriteFile(permPath, content, 0644)
 }
 
+// MinZellijVersion is the oldest Zellij release cc-deck supports.
+//
+// 0.45.0 is the first release that loads a `load_plugins` background plugin
+// exactly once (zellij-org/zellij#5178). Older releases could create two
+// controller instances on startup, and cc-deck no longer carries the leader
+// election that used to paper over that.
+const MinZellijVersion = "0.45"
+
+// MaxTestedZellijVersion is the newest Zellij minor the plugin has been
+// verified against. Newer releases are reported as "untested", not refused.
+const MaxTestedZellijVersion = "0.45"
+
 // CheckCompatibility returns "compatible", "untested", or "incompatible"
-// based on the Zellij version and the plugin SDK version.
+// based on the Zellij version and the newest tested Zellij version.
 //
 // Rules:
-//   - If major.minor < 0.40: "incompatible"
-//   - If major.minor >= 0.40 and <= sdkVersion: "compatible"
-//   - If major.minor > sdkVersion: "untested"
+//   - If major.minor < MinZellijVersion: "incompatible"
+//   - If major.minor >= MinZellijVersion and <= maxTested: "compatible"
+//   - If major.minor > maxTested: "untested"
 //   - If version cannot be parsed: "untested"
-func CheckCompatibility(zellijVersion, sdkVersion string) string {
+func CheckCompatibility(zellijVersion, maxTested string) string {
 	major, minor, ok := parseVersion(zellijVersion)
 	if !ok {
 		return "untested"
 	}
 
-	sdkMajor, sdkMinor, sdkOk := parseVersion(sdkVersion)
+	sdkMajor, sdkMinor, sdkOk := parseVersion(maxTested)
 	if !sdkOk {
 		return "untested"
 	}
 
-	// Compare against minimum (0.40)
-	if major == 0 && minor < 40 {
+	minMajor, minMinor, _ := parseVersion(MinZellijVersion)
+	if major < minMajor || (major == minMajor && minor < minMinor) {
 		return "incompatible"
 	}
 

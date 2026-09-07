@@ -25,11 +25,8 @@ pub fn handle_tab_update(state: &mut ControllerState, tabs: Vec<TabInfo>) {
     state.rebuild_pane_map();
     let client_views_changed = state.reconcile_client_views();
 
-    // Register keybindings on first TabUpdate or when tabs are closed,
-    // but only if this instance is the active leader.
-    if state.is_leader
-        && (!state.keybindings_registered || current_tab_count < state.last_tab_count)
-    {
+    // Register keybindings on first TabUpdate or when tabs are closed.
+    if !state.keybindings_registered || current_tab_count < state.last_tab_count {
         register_keybindings(state);
         state.keybindings_registered = true;
     }
@@ -140,54 +137,6 @@ pub fn handle_pane_update(state: &mut ControllerState, manifest: PaneManifest) {
 /// Handle Timer event: flush render, clean up stale sessions, poll git branches.
 pub fn handle_timer(state: &mut ControllerState, _elapsed: f64) {
     state.tick_count += 1;
-
-    // --- Leader election protocol ---
-    use super::state::{ELECTION_TIMEOUT_TICKS, LEADER_FAILURE_TIMEOUT_MS, LEADER_HEARTBEAT_TICKS};
-
-    if !state.is_leader {
-        state.election_ticks += 1;
-
-        // Check for leader failure: if we know a leader but haven't heard
-        // from it in LEADER_FAILURE_TIMEOUT_MS, clear it and start a new election.
-        if let Some(_leader_id) = state.leader_plugin_id {
-            let now_ms = session::unix_now_ms();
-            if state.last_leader_ping_ms > 0
-                && now_ms.saturating_sub(state.last_leader_ping_ms) > LEADER_FAILURE_TIMEOUT_MS
-            {
-                crate::debug_log("CTRL ELECTION: leader timeout, starting new election");
-                state.leader_plugin_id = None;
-                state.election_ticks = 0;
-            }
-        }
-
-        // Election timeout: if no lower-ID controller has pinged us,
-        // activate as leader.
-        if state.election_ticks >= ELECTION_TIMEOUT_TICKS && state.leader_plugin_id.is_none() {
-            state.is_leader = true;
-            crate::debug_log(&format!(
-                "CTRL ELECTION: won (activating as leader) plugin_id={}",
-                state.plugin_id
-            ));
-            // Broadcast ping so other dormant instances discover the new
-            // leader and don't also self-activate after their own timeout.
-            broadcast_controller_ping(state.client_id, state.plugin_id);
-            register_keybindings(state);
-            state.keybindings_registered = true;
-            render_broadcast::broadcast_render(state);
-            state.render_dirty = false;
-        }
-
-        // Reschedule timer even when dormant
-        set_timer(state.config.timer_interval);
-        return;
-    }
-
-    // Leader heartbeat: broadcast ping periodically so dormant instances
-    // know the leader is still alive.
-    if state.tick_count.is_multiple_of(LEADER_HEARTBEAT_TICKS) {
-        broadcast_controller_ping(state.client_id, state.plugin_id);
-        crate::debug_log("CTRL ELECTION: leader heartbeat");
-    }
 
     // After startup grace expires, run one deferred cleanup pass.
     // Quarantined sessions are no longer drained here: `sweep_quarantine`
@@ -446,50 +395,50 @@ fn register_keybindings(state: &ControllerState) {
     let att_prev = shift_variant(&state.config.attend_key);
     let wrk_prev = shift_variant(&state.config.working_key);
 
-    // Use broadcast MessagePlugin (no ID) instead of MessagePluginId.
-    // With duplicate controller instances (Zellij bug), MessagePluginId
-    // routes to the plugin_map entry which may be the dormant instance.
-    // Broadcast reaches both; the dormant guard drops it, the leader processes.
+    // Target this controller by plugin id so a keypress is delivered to one
+    // plugin instance rather than broadcast to every sidebar.
+    let id = state.plugin_id;
     let kdl = format!(
         r#"keybinds {{
     shared_except "locked" {{
         bind "{nav}" {{
-            MessagePlugin {{
+            MessagePluginId {id} {{
                 name "cc-deck:navigate"
             }}
         }}
         bind "{att}" {{
-            MessagePlugin {{
+            MessagePluginId {id} {{
                 name "cc-deck:attend"
             }}
         }}
         bind "{wrk}" {{
-            MessagePlugin {{
+            MessagePluginId {id} {{
                 name "cc-deck:working"
             }}
         }}
         bind "{nav_prev}" {{
-            MessagePlugin {{
+            MessagePluginId {id} {{
                 name "cc-deck:navigate-prev"
             }}
         }}
         bind "{att_prev}" {{
-            MessagePlugin {{
+            MessagePluginId {id} {{
                 name "cc-deck:attend-prev"
             }}
         }}
         bind "{wrk_prev}" {{
-            MessagePlugin {{
+            MessagePluginId {id} {{
                 name "cc-deck:working-prev"
             }}
         }}
         bind "{voice}" {{
-            MessagePlugin {{
+            MessagePluginId {id} {{
                 name "cc-deck:voice-mute-toggle"
             }}
         }}
     }}
 }}"#,
+        id = id,
         nav = state.config.navigate_key,
         att = state.config.attend_key,
         wrk = state.config.working_key,
@@ -499,8 +448,8 @@ fn register_keybindings(state: &ControllerState) {
         voice = state.config.voice_key,
     );
     crate::debug_log(&format!(
-        "CTRL KEYBINDS registering: navigate={} attend={} working={} (broadcast)",
-        state.config.navigate_key, state.config.attend_key, state.config.working_key
+        "CTRL KEYBINDS registering: navigate={} attend={} working={} (plugin_id={})",
+        state.config.navigate_key, state.config.attend_key, state.config.working_key, id
     ));
     zellij_tile::prelude::reconfigure(kdl, false);
 }
@@ -516,20 +465,6 @@ fn set_timer(interval: f64) {
 
 #[cfg(not(target_family = "wasm"))]
 fn set_timer(_interval: f64) {}
-
-/// Broadcast a controller ping for leader election protocol.
-/// The payload encodes `client_id:plugin_id` so election priority uses
-/// the (client_id, plugin_id) tuple (lowest wins).
-#[cfg(target_family = "wasm")]
-pub fn broadcast_controller_ping(client_id: u16, plugin_id: u32) {
-    use zellij_tile::prelude::*;
-    let mut msg = MessageToPlugin::new("cc-deck:controller-ping");
-    msg.message_payload = Some(format!("{}:{}", client_id, plugin_id));
-    pipe_message_to_plugin(msg);
-}
-
-#[cfg(not(target_family = "wasm"))]
-pub fn broadcast_controller_ping(_client_id: u16, _plugin_id: u32) {}
 
 /// Standard ANSI 16-color palette (indices 0-15).
 const ANSI_16: [(u8, u8, u8); 16] = [
@@ -721,8 +656,6 @@ mod tests {
     #[test]
     fn test_timer_auto_restore_runs_only_once() {
         let mut state = ControllerState::default();
-        // Only the leader reaches the restore block.
-        state.is_leader = true;
         assert!(!state.restore_attempted);
 
         handle_timer(&mut state, 1.0);
@@ -893,7 +826,6 @@ mod tests {
         let mut state = ControllerState::default();
         state.permissions_granted = true;
         state.keybindings_registered = true;
-        state.is_leader = true;
         let mut s1 = Session::new(1, "s1".into());
         s1.tab_index = Some(0);
         let mut s2 = Session::new(2, "s2".into());
@@ -927,7 +859,6 @@ mod tests {
         let mut state = ControllerState::default();
         state.permissions_granted = true;
         state.keybindings_registered = true;
-        state.is_leader = true;
         // Session 2 will be "dead" (not in sessions map after cleanup)
         state.sessions.insert(1, Session::new(1, "s1".into()));
         state.sessions.insert(3, Session::new(3, "s3".into()));
@@ -949,7 +880,6 @@ mod tests {
         let mut state = ControllerState::default();
         state.permissions_granted = true;
         state.keybindings_registered = true;
-        state.is_leader = true;
         state.sort_order = Some(vec![1, 2]);
 
         state.last_tab_count = 2;
