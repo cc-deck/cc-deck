@@ -493,6 +493,23 @@ fn test_controller_timer_does_not_reask_once_granted() {
 }
 
 #[test]
+fn test_controller_denied_permission_stops_retrying() {
+    let mut plugin = ControllerPlugin::default();
+    plugin.load(std::collections::BTreeMap::new());
+
+    plugin.update(Event::PermissionRequestResult(PermissionStatus::Denied));
+
+    assert!(!plugin.test_state().permissions_granted);
+    for _ in 0..3 {
+        plugin.update(Event::Timer(1.0));
+    }
+    assert_eq!(
+        plugin.test_state().permission_retries,
+        crate::sidebar_plugin::PERMISSION_RETRY_LIMIT
+    );
+}
+
+#[test]
 fn test_controller_still_queues_non_timer_events_while_unpermissioned() {
     let mut plugin = ControllerPlugin::default();
     plugin.load(std::collections::BTreeMap::new());

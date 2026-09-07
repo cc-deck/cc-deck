@@ -13,6 +13,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/cc-deck/cc-deck/internal/plugin"
 )
 
 const (
@@ -109,6 +111,13 @@ func (e *LocalWorkspace) Attach(_ context.Context) error {
 	// cc-deck layout. We try --layout with attach -b first, then fall back
 	// to attach -b without layout.
 	if !zellijSessionExists(sessionName) {
+		// The controller only ever sees a cached permission grant, so make
+		// sure the cache still carries one before Zellij loads the plugin.
+		if repaired, err := plugin.PreflightPluginPermissions(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not check Zellij plugin permissions: %v\n", err)
+		} else if repaired {
+			fmt.Fprintln(os.Stderr, "Restored cc-deck plugin permissions in Zellij's permissions.kdl")
+		}
 		create := exec.Command(zellijPath, "--layout", "cc-deck", "attach", "-b", sessionName)
 		if out, createErr := create.CombinedOutput(); createErr != nil {
 			fallback := exec.Command(zellijPath, "attach", "-b", sessionName)

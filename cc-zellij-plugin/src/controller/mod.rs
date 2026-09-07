@@ -56,15 +56,7 @@ impl ZellijPlugin for ControllerPlugin {
             EventType::ModeUpdate,
         ]);
 
-        crate::wasm_compat::request_permission_wasm(&[
-            PermissionType::ReadApplicationState,
-            PermissionType::ChangeApplicationState,
-            PermissionType::RunCommands,
-            PermissionType::ReadCliPipes,
-            PermissionType::MessageAndLaunchOtherPlugins,
-            PermissionType::Reconfigure,
-            PermissionType::WriteToStdin,
-        ]);
+        crate::wasm_compat::request_permission_wasm(&cc_deck::REQUIRED_PERMISSIONS);
 
         crate::wasm_compat::set_timeout_wasm(self.state.config.timer_interval);
 
@@ -119,6 +111,11 @@ impl ZellijPlugin for ControllerPlugin {
                     for e in pending {
                         self.handle_event_inner(e);
                     }
+                } else {
+                    // The user said no. Stay quiet: re-asking would only
+                    // re-raise the prompt they just dismissed.
+                    self.state.permission_retries = crate::sidebar_plugin::PERMISSION_RETRY_LIMIT;
+                    crate::debug_log_immediate("CTRL PERMISSION denied; not retrying");
                 }
                 false // Controller has no UI to render
             }
@@ -145,15 +142,9 @@ impl ZellijPlugin for ControllerPlugin {
                         }
                         self.state.permission_retries += 1;
                         crate::debug_log("CTRL TIMER re-requesting lost permission grant");
-                        crate::wasm_compat::request_permission_wasm(&[
-                            PermissionType::ReadApplicationState,
-                            PermissionType::ChangeApplicationState,
-                            PermissionType::RunCommands,
-                            PermissionType::ReadCliPipes,
-                            PermissionType::MessageAndLaunchOtherPlugins,
-                            PermissionType::Reconfigure,
-                            PermissionType::WriteToStdin,
-                        ]);
+                        crate::wasm_compat::request_permission_wasm(
+                            &cc_deck::REQUIRED_PERMISSIONS,
+                        );
                         // Re-arm: without this the single load-time timer is
                         // consumed here and nothing ever asks again.
                         crate::wasm_compat::set_timeout_wasm(1.0);

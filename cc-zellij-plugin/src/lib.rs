@@ -6,6 +6,23 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use zellij_tile::prelude::PermissionType;
+
+/// Every Zellij permission the plugin needs, in either role.
+///
+/// Both roles request the same set on purpose: Zellij caches grants by plugin
+/// URL, and the two roles share one binary, so the sidebar's dialog is what
+/// grants the background controller. The Go CLI seeds the same set into
+/// Zellij's `permissions.kdl`; a test there keeps the two lists identical.
+pub const REQUIRED_PERMISSIONS: [PermissionType; 7] = [
+    PermissionType::ReadApplicationState,
+    PermissionType::ChangeApplicationState,
+    PermissionType::RunCommands,
+    PermissionType::ReadCliPipes,
+    PermissionType::MessageAndLaunchOtherPlugins,
+    PermissionType::Reconfigure,
+    PermissionType::WriteToStdin,
+];
 
 // ---------------------------------------------------------------------------
 // Render payload: controller -> sidebar via cc-deck:render pipe

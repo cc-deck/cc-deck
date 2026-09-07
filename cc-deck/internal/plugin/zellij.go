@@ -82,60 +82,117 @@ func resolveZellijCacheDir() string {
 	return filepath.Join(home, ".cache", "zellij")
 }
 
-// EnsurePluginPermissions adds plugin permissions to Zellij's permissions.kdl
-// cache. Background plugins loaded via load_plugins cannot show permission
-// dialogs, so permissions must be pre-populated before the plugin loads.
-// With the single-binary architecture, both controller (background) and sidebar
-// (visible) share the same WASM URL. The sidebar would eventually show a dialog,
-// but the controller may load first and enter a blocking state waiting for
-// permissions that can never be granted interactively.
-func EnsurePluginPermissions(cacheDir, pluginsDir string) error {
+// RequiredPermissions is every Zellij permission the plugin asks for, in
+// either role. It must match REQUIRED_PERMISSIONS in the plugin's lib.rs;
+// a test compares the two.
+var RequiredPermissions = []string{
+	"ReadApplicationState",
+	"ChangeApplicationState",
+	"RunCommands",
+	"ReadCliPipes",
+	"MessageAndLaunchOtherPlugins",
+	"Reconfigure",
+	"WriteToStdin",
+}
+
+// EnsurePluginPermissions seeds Zellij's permissions.kdl cache with the
+// plugin's grant and reports whether the file had to be written.
+//
+// The controller is a background plugin from `load_plugins`. Zellij cannot
+// show it a permission dialog (zellij-org/zellij#4982), and a grant given to
+// the sidebar's dialog does not reach a controller that is already waiting
+// (zellij-org/zellij#4990 is still open). A cached grant is the only thing
+// that lets the controller start on the first run, so the cache is seeded
+// before Zellij ever loads the plugin and checked again before every launch.
+//
+// The write is idempotent: an entry that already carries exactly
+// RequiredPermissions is left alone, so a preflight on a healthy machine
+// touches nothing.
+func EnsurePluginPermissions(cacheDir, pluginsDir string) (bool, error) {
 	permPath := filepath.Join(cacheDir, "permissions.kdl")
 	pluginPath := filepath.Join(pluginsDir, "cc_deck.wasm")
 
 	content, err := os.ReadFile(permPath)
 	if err != nil && !os.IsNotExist(err) {
-		return err
+		return false, err
 	}
 
-	entry := fmt.Sprintf(`"%s" {
-    MessageAndLaunchOtherPlugins
-    ChangeApplicationState
-    Reconfigure
-    RunCommands
-    ReadCliPipes
-    ReadApplicationState
-    WriteToStdin
+	kept, existing := splitPermissionEntry(string(content), pluginPath)
+	if existing != nil && sameStringSet(existing, RequiredPermissions) {
+		return false, nil
+	}
+
+	var b strings.Builder
+	b.WriteString(kept)
+	if kept != "" && !strings.HasSuffix(kept, "\n") {
+		b.WriteString("\n")
+	}
+	fmt.Fprintf(&b, "%q {\n", pluginPath)
+	for _, p := range RequiredPermissions {
+		fmt.Fprintf(&b, "    %s\n", p)
+	}
+	b.WriteString("}\n")
+
+	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+		return false, err
+	}
+	if err := os.WriteFile(permPath, []byte(b.String()), 0644); err != nil {
+		return false, err
+	}
+	return true, nil
 }
-`, pluginPath)
 
-	if strings.Contains(string(content), pluginPath) {
-		// Replace stale entry with current permissions
-		lines := strings.Split(string(content), "\n")
-		var filtered []string
-		skip := false
-		for _, line := range lines {
-			if strings.Contains(line, pluginPath) {
-				skip = true
-				continue
+// PreflightPluginPermissions runs EnsurePluginPermissions against the
+// detected Zellij directories. It is meant for the moment just before a
+// Zellij session is created, when a wiped cache would otherwise strand the
+// controller until the next restart.
+func PreflightPluginPermissions() (bool, error) {
+	configDir := resolveZellijConfigDir()
+	return EnsurePluginPermissions(resolveZellijCacheDir(), filepath.Join(configDir, "plugins"))
+}
+
+// splitPermissionEntry removes the block for pluginPath from a
+// permissions.kdl body. It returns the remaining content and the permission
+// names found in the removed block, or nil when there was no block.
+func splitPermissionEntry(content, pluginPath string) (string, []string) {
+	if !strings.Contains(content, pluginPath) {
+		return content, nil
+	}
+	var kept []string
+	var found []string
+	inBlock := false
+	for _, line := range strings.Split(content, "\n") {
+		switch {
+		case !inBlock && strings.Contains(line, pluginPath):
+			inBlock = true
+			found = []string{}
+		case inBlock && strings.TrimSpace(line) == "}":
+			inBlock = false
+		case inBlock:
+			if name := strings.TrimSpace(line); name != "" {
+				found = append(found, name)
 			}
-			if skip && strings.TrimSpace(line) == "}" {
-				skip = false
-				continue
-			}
-			if skip {
-				continue
-			}
-			filtered = append(filtered, line)
+		default:
+			kept = append(kept, line)
 		}
-		content = []byte(strings.Join(filtered, "\n"))
 	}
+	return strings.Join(kept, "\n"), found
+}
 
-	if !strings.HasSuffix(string(content), "\n") && len(content) > 0 {
-		content = append(content, '\n')
+func sameStringSet(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
 	}
-	content = append(content, []byte(entry)...)
-	return os.WriteFile(permPath, content, 0644)
+	set := make(map[string]bool, len(a))
+	for _, s := range a {
+		set[s] = true
+	}
+	for _, s := range b {
+		if !set[s] {
+			return false
+		}
+	}
+	return true
 }
 
 // MinZellijVersion is the oldest Zellij release cc-deck supports.

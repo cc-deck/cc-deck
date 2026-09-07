@@ -5,6 +5,7 @@
 // chain without requiring a running Zellij instance.
 
 use super::test_helpers::*;
+use super::PERMISSION_RETRY_LIMIT;
 use zellij_tile::prelude::*;
 
 // ---------------------------------------------------------------------------
@@ -82,15 +83,28 @@ fn test_sidebar_render_before_permissions() {
 
     let payload = make_payload(vec![make_session(1, "api-server", 0)]);
     let json = serde_json::to_string(&payload).unwrap();
-    // Pipe still processes render payload (it re-requests permissions and
-    // stores the payload), but the sidebar is not "initialized" via
-    // permissions_granted alone. The render payload processing happens
-    // regardless of permission state for cc-deck:render.
+    // The payload is cached regardless of permission state, so the first
+    // frame after the grant is already there. A render must not count as a
+    // permission retry: only the bounded timer path asks again.
     plugin.pipe(make_pipe("cc-deck:render", &json));
 
-    // The sidebar stores the payload even without permissions (it re-requests
-    // them on each render pipe). Verify it was stored.
     assert!(plugin.test_state().cached_payload.is_some());
+    assert_eq!(plugin.test_state().permission_retries, 0);
+}
+
+#[test]
+fn test_sidebar_denied_permission_stops_retrying() {
+    let mut plugin = SidebarRendererPlugin::default();
+    plugin.load(std::collections::BTreeMap::new());
+
+    plugin.update(Event::PermissionRequestResult(PermissionStatus::Denied));
+
+    assert!(!plugin.test_state().permissions_granted);
+    // Timer ticks must not re-raise the prompt the user just dismissed.
+    for _ in 0..3 {
+        plugin.update(Event::Timer(1.0));
+    }
+    assert_eq!(plugin.test_state().permission_retries, PERMISSION_RETRY_LIMIT);
 }
 
 // ---------------------------------------------------------------------------
