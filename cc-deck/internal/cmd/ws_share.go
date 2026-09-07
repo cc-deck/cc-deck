@@ -35,6 +35,10 @@ func workspaceShareService(gf *GlobalFlags, opts shareOptions) (sharing.Service,
 
 var makeWorkspaceShareService = workspaceShareService
 
+// ensureReady is a seam so tests can drive the share path without provisioning
+// real infrastructure.
+var ensureReady = ws.EnsureReady
+
 func loadSharingConfig(gf *GlobalFlags) (*config.Config, error) {
 	configFile := ""
 	if gf != nil {
@@ -91,8 +95,11 @@ func readyAndMaybeShare(ctx context.Context, gf *GlobalFlags, workspace ws.Works
 	if err != nil {
 		return nil, ws.ReadyResult{}, err
 	}
-	current, _ := service.Status(ctx)
-	ready, err := ensureWorkspaceReady(ctx, workspace, share, current, ws.EnsureReady)
+	// Stored state is enough to tell whether this workspace is already shared.
+	// Start runs the verification gate itself, so probing twice would only
+	// double the cost of every share.
+	current, _ := service.Snapshot(ctx)
+	ready, err := ensureWorkspaceReady(ctx, workspace, share, current, ensureReady)
 	if err != nil {
 		return nil, ready, err
 	}

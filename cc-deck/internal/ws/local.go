@@ -141,11 +141,22 @@ func (e *LocalWorkspace) Attach(ctx context.Context) error {
 }
 
 // EnsureSession idempotently creates the workspace's canonical Zellij session.
+//
+// Inside an existing Zellij session, "zellij --layout NAME attach -b SESSION"
+// adds a tab to the current session, exits zero, and creates nothing. Reporting
+// success for that is worse than refusing, because every later step then acts
+// on a session that does not exist. Attach already refuses for the same reason.
 func (e *LocalWorkspace) EnsureSession(ctx context.Context, opts SessionStartOptions) (SessionStartResult, error) {
 	name := e.zellijSessionName()
 	state := e.currentSessionState(name)
 	if state == "running" {
 		return SessionStartResult{Name: name}, nil
+	}
+	if os.Getenv("ZELLIJ") != "" {
+		return SessionStartResult{}, fmt.Errorf(
+			"cannot create the canonical session for %q from inside a Zellij session: "+
+				"the command would add a tab to this session instead. Detach first (Ctrl+o d), then run:\n"+
+				"  cc-deck ws start %s", e.name, e.name)
 	}
 	if state == "exited" {
 		_, _ = e.runner().Run(ctx, "zellij", "delete-session", "--force", name)

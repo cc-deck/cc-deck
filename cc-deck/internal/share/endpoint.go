@@ -25,10 +25,10 @@ type StaticEndpoint struct {
 	zellij   Zellij
 
 	// Test seams. Production leaves these nil, which selects the system
-	// resolver, a well known public resolver, and strict TLS verification.
-	systemResolver *net.Resolver
-	publicResolver *net.Resolver
-	tlsConfig      *tls.Config
+	// resolver, an independent public resolver, and strict TLS verification.
+	systemLookup func(ctx context.Context, host string) ([]net.IPAddr, error)
+	publicLookup func(ctx context.Context, host string) ([]net.IPAddr, error)
+	tlsConfig    *tls.Config
 }
 
 func NewStaticEndpoint(cfg config.SharingConfig, override, selected string, zellij Zellij) *StaticEndpoint {

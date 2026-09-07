@@ -161,6 +161,15 @@ func (s *SharingService) Start(ctx context.Context, req StartRequest) ([]Invitat
 			return s.zellij.RevokeToken(cleanupCtx, observerCredential.Name)
 		})
 
+		// The verification gate. It blocks: no invitation is printed until the
+		// endpoint has been shown to reach a live terminal, because an
+		// invitation to a blank page is worse than no invitation at all.
+		if probe, err := s.verify(ctx, ref, session, req.NoVerify); err != nil {
+			return rollback(err)
+		} else {
+			op.LastProbe = probe
+		}
+
 		op.Transition(StateActive, s.now())
 		interactive, err := BuildInvitation(ref.BaseURL, session, interactiveLabel, interactiveCredential.Secret, RoleInteractive)
 		if err != nil {
@@ -181,6 +190,30 @@ func (s *SharingService) Start(ctx context.Context, req StartRequest) ([]Invitat
 		return nil, err
 	}
 	return invitations, nil
+}
+
+// verify runs the endpoint probe under a single deadline derived from the
+// configured budget, following the convention ZellijCLI.run already uses:
+// impose the default bound only when the caller has not set a shorter one.
+//
+// When skipped it returns a nil result rather than a zero value, because a
+// zero timestamp would render as an age and claim a verification that never
+// happened.
+func (s *SharingService) verify(ctx context.Context, ref EndpointRef, session string, skip bool) (*ProbeResult, error) {
+	if skip {
+		return nil, nil
+	}
+	probeCtx := ctx
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		probeCtx, cancel = context.WithTimeout(ctx, s.verifyTimeout)
+		defer cancel()
+	}
+	result, err := s.endpoint.Probe(probeCtx, ref, session)
+	if err != nil {
+		return nil, err
+	}
+	return &result, nil
 }
 
 func operationID() (string, error) {
@@ -227,6 +260,16 @@ func (s *SharingService) Invite(ctx context.Context, req InviteRequest) (Invitat
 		}
 		if existing[label] {
 			return fmt.Errorf("invitation label %q already exists", label)
+		}
+		// The same blocking gate as Start, and for the same reason. It runs
+		// before any credential is minted, so a failed verification leaves
+		// nothing behind to clean up.
+		probe, err := s.verify(ctx, EndpointRef{Name: op.EndpointName, BaseURL: op.EndpointURL}, op.Session, req.NoVerify)
+		if err != nil {
+			return err
+		}
+		if probe != nil {
+			op.LastProbe = probe
 		}
 		credential, err := s.zellij.CreateToken(ctx, label, req.Role == RoleObserver)
 		if err != nil {
@@ -314,6 +357,63 @@ func (s *SharingService) Status(ctx context.Context) (SharingStatus, error) {
 		if op.State != StateActive {
 			return s.reconcileLocked(ctx, op, &status, "sharing operation is "+string(op.State))
 		}
+
+		// The endpoint is verified for the caller's benefit, and the result is
+		// recorded. Neither the outcome nor the recording moves the operation's
+		// state or triggers teardown: an endpoint being unreachable is not
+		// evidence that the shared session ended, and treating it as such is
+		// what once destroyed a live share from an ordinary listing.
+		//
+		// The address probed is the one recorded when the share was created,
+		// not the currently configured one, so editing configuration never
+		// silently retargets a live share.
+		ref := EndpointRef{Name: op.EndpointName, BaseURL: op.EndpointURL}
+		probe, probeErr := s.verify(ctx, ref, op.Session, false)
+		if probeErr != nil {
+			var failed *ProbeFailedError
+			if !errors.As(probeErr, &failed) {
+				// The probe could not reach a verdict. That is not evidence of
+				// anything, so nothing is recorded and nothing is touched.
+				return reportUnverified(op, &status, probeErr)
+			}
+			s.recordProbe(op, &failed.Result)
+			status = statusFromOperation(op)
+			// Exactly two reported values, never a third.
+			status.State = StateDegraded
+			status.Residuals = append(status.Residuals,
+				fmt.Sprintf("endpoint verification failed at the %s stage: %s", failed.Result.FailedAt, failed.Result.Diagnostic))
+			return probeErr
+		}
+		s.recordProbe(op, probe)
+		status = statusFromOperation(op)
+		return nil
+	})
+	return status, err
+}
+
+// recordProbe persists an observation. It deliberately does not call
+// Transition and does not touch State: writing what was seen must never be a
+// state change, or a report becomes an action.
+func (s *SharingService) recordProbe(op *SharingOperation, probe *ProbeResult) {
+	if probe == nil {
+		return
+	}
+	op.LastProbe = probe
+	op.UpdatedAt = s.now().UTC()
+	_ = s.store.Save(op)
+}
+
+// Snapshot reports the stored sharing state without probing anything. A
+// listing uses this: it renders the last recorded result and its age, and
+// performs no network access at any cost.
+func (s *SharingService) Snapshot(ctx context.Context) (SharingStatus, error) {
+	var status SharingStatus
+	err := s.store.WithLock(ctx, func() error {
+		op, err := s.store.Load()
+		if err != nil {
+			return err
+		}
+		status = statusFromOperation(op)
 		return nil
 	})
 	return status, err

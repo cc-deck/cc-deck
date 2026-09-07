@@ -21,6 +21,10 @@ func (r *recordingLocalRunner) Run(_ context.Context, name string, args ...strin
 }
 
 func TestLocalWorkspaceEnsureSessionCreatesSharedSession(t *testing.T) {
+	// The suite itself is often run from inside a Zellij session, and creating
+	// a session is refused there. Say so explicitly rather than depending on
+	// where the tests happen to be run.
+	t.Setenv("ZELLIJ", "")
 	store := newTestStore(t)
 	require.NoError(t, store.AddInstance(&WorkspaceInstance{Name: "demo", Type: WorkspaceTypeLocal, SessionState: SessionStateNone}))
 	runner := &recordingLocalRunner{}
@@ -52,6 +56,45 @@ func TestLocalWorkspaceEnsureSessionIsIdempotent(t *testing.T) {
 	require.False(t, result.Created)
 	require.Equal(t, "cc-deck-demo", result.Name)
 	require.Empty(t, runner.commands)
+}
+
+// Inside an existing Zellij session, the session-creating command adds a tab to
+// the current session, exits zero, and creates nothing. Reporting success for
+// that is the defect: every later step then acts on a session that never
+// existed. Attach already refuses for the same reason.
+func TestLocalWorkspaceEnsureSessionRefusesInsideAZellijSession(t *testing.T) {
+	t.Setenv("ZELLIJ", "0")
+	runner := &recordingLocalRunner{}
+	workspace := &LocalWorkspace{
+		name:          "demo",
+		store:         newTestStore(t),
+		commandRunner: runner,
+		sessionState:  func(string) string { return "" },
+	}
+
+	result, err := workspace.EnsureSession(context.Background(), SessionStartOptions{})
+
+	require.Error(t, err, "creating a session from inside Zellij must fail rather than silently add a tab")
+	require.ErrorContains(t, err, "inside a Zellij session")
+	require.ErrorContains(t, err, "Detach first")
+	require.False(t, result.Created)
+	require.Empty(t, runner.commands, "the command that would add a tab must never run")
+}
+
+// An already-running session is still reported, because nothing needs creating.
+func TestLocalWorkspaceEnsureSessionStillReportsARunningSessionInsideZellij(t *testing.T) {
+	t.Setenv("ZELLIJ", "0")
+	workspace := &LocalWorkspace{
+		name:          "demo",
+		store:         newTestStore(t),
+		commandRunner: &recordingLocalRunner{},
+		sessionState:  func(string) string { return "running" },
+	}
+
+	result, err := workspace.EnsureSession(context.Background(), SessionStartOptions{})
+	require.NoError(t, err)
+	require.Equal(t, "cc-deck-demo", result.Name)
+	require.False(t, result.Created)
 }
 
 // newTestStore is defined in state_test.go and shared across test files.

@@ -117,8 +117,8 @@ func generateConfigMap(name, ns string, labels map[string]string) *corev1.Config
 			Labels:    labels,
 		},
 		Data: map[string]string{
-			"env-type":    "k8s-deploy",
-			"managed-by":  "cc-deck",
+			"env-type":   "k8s-deploy",
+			"managed-by": "cc-deck",
 		},
 	}
 }

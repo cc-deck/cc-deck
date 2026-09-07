@@ -468,3 +468,293 @@ func TestWorkspaceScopedMutationsRejectDifferentWorkspace(t *testing.T) {
 		})
 	}
 }
+
+// --- US2: diagnosis must never destroy ---------------------------------------
+
+// T033: a failing probe during Status revokes nothing, stops nothing, and
+// deletes no state, at every stage and on timeout. This is the defect that
+// mattered most: a single listing used to revoke live credentials.
+func TestStatusFailingProbeChangesNothingAtAnyStage(t *testing.T) {
+	timeout := &fakeEndpoint{probeFn: func(context.Context) (ProbeResult, error) {
+		return ProbeResult{CheckedAt: time.Now().UTC()}, context.DeadlineExceeded
+	}}
+	cases := map[string]*fakeEndpoint{
+		"dns":       failingEndpoint(StageDNS),
+		"tls":       failingEndpoint(StageTLS),
+		"http":      failingEndpoint(StageHTTP),
+		"auth":      failingEndpoint(StageAuth),
+		"websocket": failingEndpoint(StageWebSocket),
+		"timeout":   timeout,
+	}
+	for name, endpoint := range cases {
+		t.Run(name, func(t *testing.T) {
+			op := activeOperation()
+			op.WebServerOwned = true
+			store, z := &startStore{op: op}, &startZellij{}
+
+			status, err := NewService(store, z, endpoint).Status(context.Background())
+
+			require.Error(t, err, "a broken endpoint is reported as an error so scripts can detect it")
+			require.Equal(t, StateDegraded, status.State, "reported degraded, never a third value")
+
+			require.NotNil(t, store.op, "the share must still exist afterwards")
+			require.Equal(t, StateActive, store.op.State, "an observation must not move the persisted state")
+			require.Empty(t, z.revokedNames, "no credential may be revoked by a failed check")
+			require.NotContains(t, z.calls, "stop-web", "no web server may be stopped by a failed check")
+			for _, invitation := range store.op.Invitations {
+				require.Equal(t, InvitationActive, invitation.State, "every invitation stays live")
+			}
+		})
+	}
+}
+
+// T038: the completed result is recorded on every check, pass or fail, without
+// moving State and without triggering teardown.
+func TestStatusRecordsTheProbeResultWithoutMovingState(t *testing.T) {
+	t.Run("a failure is recorded", func(t *testing.T) {
+		store := &startStore{op: activeOperation()}
+		_, err := NewService(store, &startZellij{}, failingEndpoint(StageWebSocket)).Status(context.Background())
+		require.Error(t, err)
+		require.NotNil(t, store.op.LastProbe)
+		require.False(t, store.op.LastProbe.OK)
+		require.Equal(t, StageWebSocket, store.op.LastProbe.FailedAt)
+		require.False(t, store.op.LastProbe.CheckedAt.IsZero())
+		require.Equal(t, StateActive, store.op.State)
+	})
+	t.Run("a pass is recorded", func(t *testing.T) {
+		store := &startStore{op: activeOperation()}
+		status, err := NewService(store, &startZellij{}, &fakeEndpoint{}).Status(context.Background())
+		require.NoError(t, err)
+		require.NotNil(t, store.op.LastProbe)
+		require.True(t, store.op.LastProbe.OK)
+		require.Empty(t, store.op.LastProbe.FailedAt)
+		require.Equal(t, StateActive, status.State)
+	})
+}
+
+// T035: an endpoint that recovers returns to shared with no user intervention.
+func TestStatusReturnsToSharedWhenTheEndpointRecovers(t *testing.T) {
+	store, z := &startStore{op: activeOperation()}, &startZellij{}
+	broken := true
+	endpoint := &fakeEndpoint{probeFn: func(context.Context) (ProbeResult, error) {
+		if broken {
+			result := ProbeResult{OK: false, FailedAt: StageHTTP, Diagnostic: "endpoint is down", CheckedAt: time.Now().UTC()}
+			return result, &ProbeFailedError{Result: result}
+		}
+		return ProbeResult{OK: true, CheckedAt: time.Now().UTC()}, nil
+	}}
+	service := NewService(store, z, endpoint)
+
+	status, err := service.Status(context.Background())
+	require.Error(t, err)
+	require.Equal(t, StateDegraded, status.State)
+
+	broken = false
+	status, err = service.Status(context.Background())
+	require.NoError(t, err, "recovery needs no user intervention")
+	require.Equal(t, StateActive, status.State)
+	require.True(t, status.LastProbe.OK)
+	require.Empty(t, z.revokedNames, "nothing was destroyed while the endpoint was down")
+}
+
+// T053: Status re-probes the address recorded at share time, not whatever the
+// configuration currently says, so editing configuration never silently
+// retargets a live share.
+func TestStatusProbesTheAddressRecordedAtShareTime(t *testing.T) {
+	op := activeOperation()
+	op.EndpointName = "work"
+	op.EndpointURL = "https://recorded.example"
+	store := &startStore{op: op}
+
+	var probed EndpointRef
+	endpoint := &fakeEndpoint{ref: EndpointRef{Name: "reconfigured", BaseURL: "https://reconfigured.example"}}
+	endpoint.probeFn = func(context.Context) (ProbeResult, error) {
+		return ProbeResult{OK: true, CheckedAt: time.Now().UTC()}, nil
+	}
+	recording := &refRecordingEndpoint{fakeEndpoint: endpoint, seen: &probed}
+
+	status, err := NewService(store, &startZellij{}, recording).Status(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "https://recorded.example", probed.BaseURL)
+	require.Equal(t, "work", probed.Name)
+	require.Equal(t, "work", status.EndpointName)
+}
+
+type refRecordingEndpoint struct {
+	*fakeEndpoint
+	seen *EndpointRef
+}
+
+func (e *refRecordingEndpoint) Probe(ctx context.Context, ref EndpointRef, session string) (ProbeResult, error) {
+	*e.seen = ref
+	return e.fakeEndpoint.Probe(ctx, ref, session)
+}
+
+// Snapshot is what a listing reads. It must contact nothing at all.
+func TestSnapshotReadsStoredStateWithoutProbingOrAskingZellij(t *testing.T) {
+	op := activeOperation()
+	op.LastProbe = &ProbeResult{OK: true, CheckedAt: time.Now().UTC().Add(-12 * time.Minute)}
+	store, z, endpoint := &startStore{op: op}, &startZellij{}, &fakeEndpoint{}
+
+	status, err := NewService(store, z, endpoint).Snapshot(context.Background())
+
+	require.NoError(t, err)
+	require.Equal(t, StateActive, status.State)
+	require.NotNil(t, status.LastProbe)
+	require.True(t, status.LastProbe.OK)
+	require.Empty(t, endpoint.calls, "a listing must never probe")
+	require.Empty(t, z.calls, "a listing must not even ask zellij whether the session exists")
+}
+
+// --- US3: unsharing removes only what cc-deck created ------------------------
+
+// T040: ownership decides. A web server cc-deck started is stopped; one the
+// user was already running survives.
+func TestTeardownStopsOnlyAWebServerCcDeckStarted(t *testing.T) {
+	t.Run("cc-deck started it, so cc-deck stops it", func(t *testing.T) {
+		op := activeOperation()
+		op.WebServerOwned = true
+		store, z := &startStore{op: op}, &startZellij{}
+		_, err := NewService(store, z, &fakeEndpoint{}).Stop(context.Background(), "")
+		require.NoError(t, err)
+		require.Contains(t, z.calls, "stop-web")
+	})
+	t.Run("the user was already running it, so it survives", func(t *testing.T) {
+		op := activeOperation()
+		op.WebServerOwned = false
+		store, z := &startStore{op: op}, &startZellij{}
+		status, err := NewService(store, z, &fakeEndpoint{}).Stop(context.Background(), "")
+		require.NoError(t, err)
+		require.Equal(t, StateInactive, status.State)
+		require.NotContains(t, z.calls, "stop-web", "a web server cc-deck did not start is not cc-deck's to stop")
+		require.Contains(t, z.calls, "revoke-observer", "every invitation is still revoked")
+		require.Contains(t, z.calls, "revoke-interactive")
+	})
+}
+
+// T043: ownership is recorded when cc-deck acts, not inferred later.
+func TestStartRecordsWebServerOwnershipWhenItActs(t *testing.T) {
+	for _, started := range []bool{true, false} {
+		t.Run(fmt.Sprintf("started=%v", started), func(t *testing.T) {
+			store, z := &startStore{}, &startZellij{webStarted: started}
+			_, err := NewService(store, z, &fakeEndpoint{}).Start(context.Background(), StartRequest{Session: "selected"})
+			require.NoError(t, err)
+			require.Equal(t, started, store.op.WebServerOwned)
+		})
+	}
+}
+
+// T041: teardown never ends the workspace session and never touches the user's
+// endpoint. The endpoint has no stop step at all, which is why cc-deck cannot
+// stop one even by mistake.
+func TestTeardownNeverEndsTheSessionAndNeverTouchesTheEndpoint(t *testing.T) {
+	op := activeOperation()
+	op.WebServerOwned = true
+	store, z, endpoint := &startStore{op: op}, &startZellij{}, &fakeEndpoint{}
+
+	_, err := NewService(store, z, endpoint).Stop(context.Background(), "")
+	require.NoError(t, err)
+
+	require.Empty(t, endpoint.calls, "unshare must not contact the endpoint at all, healthy or not")
+	for _, call := range z.calls {
+		require.NotContains(t, call, "kill", "teardown must never end the workspace session")
+		require.NotContains(t, call, "delete-session")
+	}
+	require.Equal(t, []string{"revoke-observer", "revoke-interactive", "stop-web"}, z.calls)
+}
+
+// T042: an interrupted teardown resumes on the next invocation and strands
+// nothing. Work already completed is not repeated.
+func TestInterruptedTeardownResumesAndStrandsNothing(t *testing.T) {
+	op := activeOperation()
+	op.WebServerOwned = true
+	store := &startStore{op: op}
+
+	// The first attempt revokes the observer credential, then fails to stop the
+	// web server.
+	first := &startZellij{fail: "stop-web"}
+	_, err := NewService(store, first, &fakeEndpoint{}).Stop(context.Background(), "")
+	require.Error(t, err)
+	require.NotNil(t, store.op, "an incomplete teardown keeps its state so it can be resumed")
+	require.Equal(t, StateDegraded, store.op.State)
+	for _, invitation := range store.op.Invitations {
+		require.Equal(t, InvitationRevoked, invitation.State, "revocation already done is persisted")
+	}
+
+	// The second attempt finishes the work, and does not re-revoke.
+	second := &startZellij{}
+	status, err := NewService(store, second, &fakeEndpoint{}).Stop(context.Background(), "")
+	require.NoError(t, err)
+	require.Equal(t, StateInactive, status.State)
+	require.Nil(t, store.op, "nothing is stranded")
+	require.Empty(t, second.revokedNames, "credentials already revoked are not revoked again")
+	require.Equal(t, 1, countString(second.calls, "stop-web"))
+}
+
+// T044 and T045 together: teardown has exactly the steps it is entitled to.
+func TestTeardownRetrySkipsWorkAlreadyCompleted(t *testing.T) {
+	op := activeOperation()
+	op.WebServerOwned = true
+	store := &startStore{op: op}
+
+	first := &startZellij{fail: "revoke-observer"}
+	_, err := NewService(store, first, &fakeEndpoint{}).Stop(context.Background(), "")
+	require.Error(t, err)
+	require.Equal(t, 1, countString(first.calls, "stop-web"), "a failed revocation does not block the web server step")
+
+	second := &startZellij{}
+	_, err = NewService(store, second, &fakeEndpoint{}).Stop(context.Background(), "")
+	require.NoError(t, err)
+	require.Equal(t, 0, countString(second.calls, "stop-web"), "a web server already stopped is not stopped twice")
+	require.Contains(t, second.calls, "revoke-observer", "the credential that failed is retried")
+}
+
+// T025: a --no-verify share is created with no recorded result, which is what
+// makes a listing show no verification age. It introduces no third state.
+func TestNoVerifyStartCreatesAShareWithNoRecordedResult(t *testing.T) {
+	store, z, endpoint := &startStore{}, &startZellij{}, &fakeEndpoint{}
+	invitations, err := NewService(store, z, endpoint).Start(context.Background(), StartRequest{Session: "selected", NoVerify: true})
+	require.NoError(t, err)
+	require.Len(t, invitations, 2)
+	require.Nil(t, store.op.LastProbe, "a skipped check records no result, not a zero one")
+	require.Equal(t, StateActive, store.op.State)
+	require.Equal(t, []string{"resolve"}, endpoint.calls, "--no-verify skips the probe entirely")
+}
+
+// T024: invite runs the same gate, and leaves no credential behind when it fails.
+func TestInviteRunsTheSameGateAndLeavesNoCredentialBehind(t *testing.T) {
+	store := &startStore{op: activeOperation()}
+	store.op.Workspace = "demo"
+	z := &startZellij{}
+	_, err := NewService(store, z, failingEndpoint(StageAuth)).Invite(context.Background(), InviteRequest{Label: "alice", Role: RoleObserver})
+	require.Error(t, err)
+	require.NotContains(t, z.calls, "create-observer-token", "no credential is minted before verification passes")
+	require.Len(t, store.op.Invitations, 2, "no invitation is recorded")
+}
+
+func TestInviteSkipsTheGateWithNoVerify(t *testing.T) {
+	store := &startStore{op: activeOperation()}
+	store.op.Workspace = "demo"
+	endpoint := failingEndpoint(StageWebSocket)
+	invitation, err := NewService(store, &startZellij{}, endpoint).Invite(context.Background(),
+		InviteRequest{Label: "alice", Role: RoleObserver, NoVerify: true})
+	require.NoError(t, err)
+	require.Equal(t, "alice", invitation.Label)
+	require.Empty(t, endpoint.calls, "--no-verify skips the probe entirely")
+}
+
+// The verification budget is configurable, which is what makes the fifteen
+// second default a default rather than a constant.
+func TestVerifyTimeoutIsConfigurable(t *testing.T) {
+	var seenDeadline time.Duration
+	endpoint := &fakeEndpoint{probeFn: func(ctx context.Context) (ProbeResult, error) {
+		deadline, ok := ctx.Deadline()
+		require.True(t, ok, "the probe always runs under a deadline")
+		seenDeadline = time.Until(deadline)
+		return ProbeResult{OK: true, CheckedAt: time.Now().UTC()}, nil
+	}}
+	_, err := NewServiceWithTimeout(&startStore{}, &startZellij{}, endpoint, 2*time.Second).
+		Start(context.Background(), StartRequest{Session: "selected"})
+	require.NoError(t, err)
+	require.InDelta(t, 2*time.Second, seenDeadline, float64(500*time.Millisecond))
+}

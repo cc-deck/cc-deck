@@ -49,6 +49,11 @@ type Service interface {
 	Start(context.Context, StartRequest) ([]Invitation, error)
 	Invite(context.Context, InviteRequest) (Invitation, error)
 	Revoke(context.Context, string, string) (SharingStatus, error)
+	// Status verifies the endpoint before reporting. It probes.
 	Status(context.Context) (SharingStatus, error)
+	// Snapshot reports the stored state and nothing else. It performs no
+	// network access and contacts no endpoint, whatever the state says, which
+	// is what lets a listing stay as cheap as an unshared one.
+	Snapshot(context.Context) (SharingStatus, error)
 	Stop(context.Context, string) (SharingStatus, error)
 }

@@ -20,10 +20,10 @@ func TestK8sDeployWorkspace_Name(t *testing.T) {
 
 func TestK8sDeployWorkspace_ResolveNamespace(t *testing.T) {
 	tests := []struct {
-		name      string
-		envNS     string
-		instNS    string
-		expected  string
+		name     string
+		envNS    string
+		instNS   string
+		expected string
 	}{
 		{"from instance", "", "inst-ns", "inst-ns"},
 		{"from env config", "env-ns", "", "env-ns"},
@@ -139,10 +139,10 @@ func TestK8sDeployWorkspace_Create_NameConflict(t *testing.T) {
 func TestK8sDeployWorkspace_Delete_KeepVolumes(t *testing.T) {
 	store := createTempStateStore(t)
 	_ = store.AddInstance(&WorkspaceInstance{
-		Name:  "keep-vol",
-		Type:  WorkspaceTypeK8sDeploy,
+		Name:       "keep-vol",
+		Type:       WorkspaceTypeK8sDeploy,
 		InfraState: infraStatePtr(InfraStateStopped), SessionState: SessionStateNone,
-		K8s:   &K8sFields{Namespace: "default"},
+		K8s: &K8sFields{Namespace: "default"},
 	})
 
 	e := &K8sDeployWorkspace{name: "keep-vol", store: store, KeepVolumes: true}
@@ -172,10 +172,10 @@ func TestK8sDeployWorkspace_Delete_RunningWithoutForce(t *testing.T) {
 func TestK8sDeployWorkspace_NotRunningErrorIsActionable(t *testing.T) {
 	store := createTempStateStore(t)
 	_ = store.AddInstance(&WorkspaceInstance{
-		Name:  "stopped-env",
-		Type:  WorkspaceTypeK8sDeploy,
+		Name:       "stopped-env",
+		Type:       WorkspaceTypeK8sDeploy,
 		InfraState: infraStatePtr(InfraStateStopped), SessionState: SessionStateNone,
-		K8s:   &K8sFields{Namespace: "default"},
+		K8s: &K8sFields{Namespace: "default"},
 	})
 
 	e := &K8sDeployWorkspace{name: "stopped-env", store: store}
@@ -211,8 +211,8 @@ func TestReconcileK8sDeployWorkspaces_EmptyStore(t *testing.T) {
 func TestReconcileK8sDeployWorkspaces_SkipsNonK8s(t *testing.T) {
 	store := createTempStateStore(t)
 	_ = store.AddInstance(&WorkspaceInstance{
-		Name:  "local-env",
-		Type:  WorkspaceTypeLocal,
+		Name:       "local-env",
+		Type:       WorkspaceTypeLocal,
 		InfraState: infraStatePtr(InfraStateRunning), SessionState: SessionStateNone,
 	})
 

@@ -248,4 +248,3 @@ func (s *FileStateStore) ListInstances(filter *ListFilter) ([]*WorkspaceInstance
 
 	return result, nil
 }
-

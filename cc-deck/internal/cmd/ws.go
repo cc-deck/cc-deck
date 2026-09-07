@@ -1249,8 +1249,8 @@ func writeWsTableWithProjects(gf *GlobalFlags, instances []*ws.WorkspaceInstance
 			authStr = "-"
 		}
 		infra, sess := formatWorkspaceColumns(inst)
-		sharingState, endpoint, _, _ := snap.details(inst.Name, instType)
-		r := row{inst.Name, string(instType), infra, sess, string(sharingState), dashIfEmpty(endpoint), proj, authStr, storage,
+		sharingState, endpoint, _, _, probe := snap.detailsWithProbe(inst.Name, instType)
+		r := row{inst.Name, string(instType), infra, sess, sharingColumn(sharingState, probe), dashIfEmpty(endpoint), proj, authStr, storage,
 			formatRelativeTime(inst.LastAttached), formatDuration(time.Since(inst.CreatedAt)), ""}
 		if verbose && pathMap[inst.Name] != "" {
 			r.path = pathMap[inst.Name]
@@ -1280,8 +1280,8 @@ func writeWsTableWithProjects(gf *GlobalFlags, instances []*ws.WorkspaceInstance
 		if authStr == "" {
 			authStr = "-"
 		}
-		sharingState, endpoint, _, _ := snap.details(d.Name, d.Type)
-		r := row{d.Name, string(d.Type), "-", "none", string(sharingState), dashIfEmpty(endpoint), proj, authStr, storage, "never", "-", ""}
+		sharingState, endpoint, _, _, probe := snap.detailsWithProbe(d.Name, d.Type)
+		r := row{d.Name, string(d.Type), "-", "none", sharingColumn(sharingState, probe), dashIfEmpty(endpoint), proj, authStr, storage, "never", "-", ""}
 		if verbose && pathMap[d.Name] != "" {
 			r.path = pathMap[d.Name]
 		}
@@ -1323,12 +1323,16 @@ func formatWorkspaceColumns(inst *ws.WorkspaceInstance) (infra, session string) 
 	return infra, session
 }
 
-// sharingSnapshot resolves the global sharing status at most once and derives
-// per-workspace details from it. Sharing state is a single file, and Status()
-// takes the lifecycle lock and shells out to zellij and ps, so a listing must
-// not repeat that lookup for every row.
+// sharingSnapshot resolves the global sharing state at most once and derives
+// per-workspace details from it. Sharing state is a single file, so a listing
+// must not repeat the lookup for every row.
+//
+// A listing never probes. It reads what was recorded and renders its age, so
+// listing a shared workspace costs what listing an unshared one costs. Only
+// "cc-deck ws status" verifies, and it says so by asking for it.
 type sharingSnapshot struct {
 	gf     *GlobalFlags
+	verify bool
 	loaded bool
 	status sharing.SharingStatus
 	err    error
@@ -1336,6 +1340,12 @@ type sharingSnapshot struct {
 
 func newSharingSnapshot(gf *GlobalFlags) *sharingSnapshot {
 	return &sharingSnapshot{gf: gf}
+}
+
+// newVerifyingSharingSnapshot probes the endpoint before reporting. It is for
+// "cc-deck ws status", which is the one read the contract says verifies.
+func newVerifyingSharingSnapshot(gf *GlobalFlags) *sharingSnapshot {
+	return &sharingSnapshot{gf: gf, verify: true}
 }
 
 func (s *sharingSnapshot) load() {
@@ -1348,27 +1358,63 @@ func (s *sharingSnapshot) load() {
 		s.status, s.err = sharing.SharingStatus{State: sharing.StateInactive}, err
 		return
 	}
-	s.status, s.err = service.Status(cmd_context())
+	if s.verify {
+		s.status, s.err = service.Status(cmd_context())
+		return
+	}
+	s.status, s.err = service.Snapshot(cmd_context())
 }
 
 func workspaceSharingDetails(gf *GlobalFlags, name string, wsType ws.WorkspaceType) (ws.WorkspaceSharingState, string, []ws.InvitationSummary, []string) {
-	return newSharingSnapshot(gf).details(name, wsType)
+	return newVerifyingSharingSnapshot(gf).details(name, wsType)
+}
+
+// sharingColumn renders the SHARING cell. A listing performs no network access
+// whatsoever, so what it shows is the stored verification result and how old it
+// is, never a fresh check.
+//
+// Three shapes, fixed by the CLI contract:
+//
+//	shared (verified 12m ago)      the last check passed
+//	degraded (websocket, 3m ago)   the last check failed, naming the layer
+//	shared                         created with --no-verify, so there is no age
+func sharingColumn(state ws.WorkspaceSharingState, probe *sharing.ProbeResult) string {
+	if probe == nil || probe.CheckedAt.IsZero() {
+		return string(state)
+	}
+	age := formatDuration(time.Since(probe.CheckedAt)) + " ago"
+	if probe.OK {
+		return fmt.Sprintf("%s (verified %s)", state, age)
+	}
+	return fmt.Sprintf("%s (%s, %s)", state, probe.FailedAt, age)
 }
 
 func (s *sharingSnapshot) details(name string, wsType ws.WorkspaceType) (ws.WorkspaceSharingState, string, []ws.InvitationSummary, []string) {
+	state, endpoint, invitations, residuals, _ := s.detailsWithProbe(name, wsType)
+	return state, endpoint, invitations, residuals
+}
+
+// detailsWithProbe additionally returns the stored verification result, which
+// the listing renders and nothing else consults.
+func (s *sharingSnapshot) detailsWithProbe(name string, wsType ws.WorkspaceType) (ws.WorkspaceSharingState, string, []ws.InvitationSummary, []string, *sharing.ProbeResult) {
 	if wsType != ws.WorkspaceTypeLocal {
-		return ws.SharingUnsupported, "", nil, nil
+		return ws.SharingUnsupported, "", nil, nil, nil
 	}
 	s.load()
 	status, err := s.status, s.err
 	if err != nil && status.State == sharing.StateInactive {
-		return ws.SharingDegraded, "", nil, []string{err.Error()}
+		return ws.SharingDegraded, "", nil, []string{err.Error()}, nil
 	}
 	if status.State == sharing.StateInactive || status.Workspace != name {
-		return ws.SharingPrivate, "", nil, nil
+		return ws.SharingPrivate, "", nil, nil, nil
 	}
+	// Exactly two reported states, never a third. A share whose last check
+	// failed is degraded; anything else that is shared is shared.
 	state := ws.SharingShared
 	if status.State == sharing.StateDegraded || len(status.Residuals) > 0 || err != nil {
+		state = ws.SharingDegraded
+	}
+	if status.LastProbe != nil && !status.LastProbe.OK {
 		state = ws.SharingDegraded
 	}
 	summaries := make([]ws.InvitationSummary, 0, len(status.Invitations))
@@ -1381,7 +1427,7 @@ func (s *sharingSnapshot) details(name string, wsType ws.WorkspaceType) (ws.Work
 	if err != nil {
 		residuals = append(residuals, err.Error())
 	}
-	return state, status.EndpointURL, summaries, residuals
+	return state, status.EndpointURL, summaries, residuals, status.LastProbe
 }
 
 func formatRelativeTime(t *time.Time) string {
@@ -1724,7 +1770,10 @@ func runWsStopWithFlags(gf *GlobalFlags, name string) error {
 	var failures []string
 	if service, serviceErr := makeWorkspaceShareService(gf, shareOptions{}); serviceErr != nil {
 		failures = append(failures, "sharing teardown unavailable: "+serviceErr.Error())
-	} else if sharingStatus, statusErr := service.Status(ctx); statusErr != nil {
+		// Teardown must not depend on endpoint health, so this reads stored
+		// state rather than verifying. An endpoint that is down is not a reason
+		// a workspace cannot be stopped.
+	} else if sharingStatus, statusErr := service.Snapshot(ctx); statusErr != nil {
 		failures = append(failures, statusErr.Error())
 	} else if sharingStatus.State != sharing.StateInactive && sharingStatus.Workspace == name {
 		if _, stopErr := service.Stop(ctx, name); stopErr != nil {
