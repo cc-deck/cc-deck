@@ -47,6 +47,72 @@ and never answers. No secret is ever persisted. No background process, no pollin
 **Scale/Scope**: One active share per machine, held in a single state file guarded by one lock. Roughly
 1,900 lines removed and 900 added across `internal/share`, `internal/cmd`, and `internal/config`.
 
+## Global Constraints
+
+Every task inherits this section. Values are copied verbatim from `spec.md` and the constitution and
+must not be restated differently anywhere else.
+
+| Constraint | Value | Source |
+|------------|-------|--------|
+| Go version | 1.25.0 | `cc-deck/go.mod` |
+| Minimum Zellij | 0.44.3, enforced by `ValidateCapabilities` | `internal/share/zellij.go:62` |
+| New dependencies | **None permitted.** The WebSocket stage is hand written rather than pulling in a library | research R1 |
+| Build commands | `make test`, `make lint`, `make install` only. **Never** `go build` or `cargo build` | constitution III |
+| XDG paths | `internal/xdg` package only, never `adrg/xdg` | constitution III |
+| Container runtime | `podman` only, never Docker | constitution III |
+| Verification budget | 15 seconds default, configurable via `sharing.verify_timeout` | FR-012, SC-005 |
+| Zellij call bound | 10 seconds per invocation, already implemented | `internal/share/zellij.go:18` |
+| Secrets on disk | **Zero.** No credential may be persisted or logged, including the probe's own | FR-045, SC-013 |
+| Background work | **None.** No polling, no supervision, no daemon, no scheduled check | FR-020 |
+| Sharing states | Exactly two: `shared` and `degraded`. No third value anywhere | FR-016 |
+| Listing network access | **Zero** requests | FR-017, SC-008 |
+| Documentation voice | prose plugin with the `cc-deck` voice profile | constitution I, FR-042 |
+| Session-creating commands | Must run under `env -u ZELLIJ -u ZELLIJ_SESSION_NAME -u ZELLIJ_PANE_ID` | research R8 |
+
+## Shared Interfaces
+
+Signatures that cross task boundaries. A task implementer sees only their own task, so these are the
+names and types they can rely on without reading neighbouring tasks.
+
+```go
+// internal/share/model.go  (T003, T005)
+type ProbeStage string
+const (
+    StageDNS ProbeStage = "dns"; StageTLS ProbeStage = "tls"; StageHTTP ProbeStage = "http"
+    StageAuth ProbeStage = "auth"; StageWebSocket ProbeStage = "websocket"
+)
+type ProbeResult struct {
+    OK         bool
+    FailedAt   ProbeStage
+    Diagnostic string
+    CheckedAt  time.Time
+}
+
+// internal/share/provider.go  (T006)
+type EndpointRef struct{ Name, BaseURL string }
+type Endpoint interface {
+    Name() string
+    Resolve(ctx context.Context) (EndpointRef, error)
+    Probe(ctx context.Context, ref EndpointRef, session string) (ProbeResult, error)
+}
+
+// internal/share/zellij.go  (existing, unchanged)
+CreateToken(ctx context.Context, label string, readOnly bool) (TokenCredential, error)
+RevokeToken(ctx context.Context, name string) error
+EnsureWebServer(ctx context.Context) (localURL string, started bool, err error)
+
+// internal/config/config.go  (T004)
+type SharingConfig struct {
+    Endpoint      string
+    Endpoints     map[string]string
+    Default       string
+    VerifyTimeout time.Duration
+}
+```
+
+`CreateToken` ignores its `label` argument because `zellij web --create-token` rejects being combined
+with `--token-name`. Always revoke by `TokenCredential.Name`, never by a label you chose.
+
 ## Constitution Check
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
