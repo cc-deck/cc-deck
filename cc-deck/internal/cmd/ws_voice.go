@@ -132,6 +132,9 @@ func runVoiceRelay(wsName, modelName string, verbose bool, port int, flags vadOv
 	}
 
 	server := voice.NewWhisperServer(modelPath, port)
+	if verbose {
+		server.SetLogWriter(log.Writer())
+	}
 	if err := server.Start(ctx); err != nil {
 		return fmt.Errorf("starting whisper-server: %w", err)
 	}

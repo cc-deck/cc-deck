@@ -115,6 +115,30 @@ func savePaneMap(m map[string]paneMapEntry) {
 	_ = os.WriteFile(paneMapFile, data, 0600)
 }
 
+// paneMapRefresh is how old a still-correct cache entry may get before its
+// timestamp is renewed. Between refreshes an unchanged mapping costs no
+// write, which matters because this runs on every hook event.
+const paneMapRefresh = time.Hour
+
+// recordPaneMapping stores the session's pane, writing the cache only when
+// the mapping is new, changed, or due for a timestamp refresh.
+func recordPaneMapping(sessionID string, paneID uint32, zellijSession string) {
+	m := loadPaneMap()
+	now := time.Now()
+	if cur, ok := m[sessionID]; ok &&
+		cur.PaneID == paneID &&
+		cur.ZellijSession == zellijSession &&
+		now.Unix()-cur.UpdatedAt < int64(paneMapRefresh.Seconds()) {
+		return
+	}
+	m[sessionID] = paneMapEntry{
+		PaneID:        paneID,
+		ZellijSession: zellijSession,
+		UpdatedAt:     now.Unix(),
+	}
+	savePaneMap(m)
+}
+
 // currentZellijSession reports the Zellij session this process belongs to.
 //
 // Zellij exports ZELLIJ and ZELLIJ_SESSION_NAME into every pane, and an agent
@@ -189,13 +213,7 @@ func runHook(stdin io.Reader, paneIDStr string, agentName string) {
 		paneID = uint32(paneID64)
 		logHookEnv(normalized.HookEvent, paneIDStr, "from-arg")
 		if normalized.SessionID != "" {
-			m := loadPaneMap()
-			m[normalized.SessionID] = paneMapEntry{
-				PaneID:        paneID,
-				ZellijSession: zellijSession,
-				UpdatedAt:     time.Now().Unix(),
-			}
-			savePaneMap(m)
+			recordPaneMapping(normalized.SessionID, paneID, zellijSession)
 		}
 	} else if normalized.SessionID != "" {
 		// The pane id reaches this command by shell expansion of

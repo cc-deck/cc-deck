@@ -43,11 +43,12 @@ func Install(opts InstallOptions) error {
 
 	if !zInfo.Installed {
 		fmt.Fprintln(opts.Stderr, "Warning: Zellij not found on PATH. Install Zellij first.")
-	} else {
-		compat := CheckCompatibility(zInfo.Version, pInfo.SDKVersion)
-		if compat == "incompatible" {
-			fmt.Fprintf(opts.Stderr, "Warning: Zellij version %s may be incompatible (requires %s+).\n", zInfo.Version, pInfo.MinZellij)
-		}
+	} else if CheckCompatibility(zInfo.Version, pInfo.MaxTested) == "incompatible" {
+		// A background plugin on an older Zellij can be instantiated twice on
+		// startup, and the plugin no longer guards against that. Refuse rather
+		// than install something that will misbehave.
+		return fmt.Errorf("Zellij %s is too old: cc-deck requires Zellij %s or later (re-run with --install-zellij to download a supported release)",
+			zInfo.Version, pInfo.MinZellij)
 	}
 
 	// 2. Check if already installed (prompt if not --force)
@@ -91,11 +92,11 @@ func Install(opts InstallOptions) error {
 		fmt.Fprintf(opts.Stderr, "Warning: Could not update config.kdl: %v\n", err)
 	}
 
-	// 4c. Pre-populate permissions.kdl so the background plugin can load
-	// without showing a permission dialog (which cannot be displayed for
-	// background plugins). See https://github.com/zellij-org/zellij/issues/4982
-	if err := EnsurePluginPermissions(zInfo.CacheDir, zInfo.PluginsDir); err != nil {
-		fmt.Fprintf(opts.Stderr, "Warning: Could not pre-populate permissions.kdl: %v\n", err)
+	// 4c. Seed permissions.kdl so the background controller can load without
+	// a dialog it cannot show. See https://github.com/zellij-org/zellij/issues/4982
+	// Without this the controller never starts, so a failure here is fatal.
+	if _, err := EnsurePluginPermissions(zInfo.CacheDir, zInfo.PluginsDir); err != nil {
+		return fmt.Errorf("seeding Zellij plugin permissions in %s: %w", zInfo.CacheDir, err)
 	}
 
 	// 5. Write all layout variants (with diff check for existing files)

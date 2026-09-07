@@ -262,6 +262,12 @@ plugin location="file:~/.config/zellij/plugins/cc_deck.wasm" {
 | `Alt m`
 | Global shortcut for voice mute toggle
 
+| `voice_timeout_secs`
+| `15`
+| Seconds without a poll from the voice relay before the sidebar clears the voice indicator.
+The relay polls every five seconds, so keep this above the poll interval.
+Values below five are ignored.
+
 | `auto_sort`
 | `true`
 | When enabled, the sidebar groups active sessions above a visual separator and paused sessions below it.
@@ -647,7 +653,8 @@ Snippet files:
 |===
 
 The Zellij binary installed by `--install-zellij` defaults to the latest GitHub release.
-Pin a specific version with `cc-deck config plugin install --install-zellij --zellij-version 0.44.3`.
+Pin a specific version with `cc-deck config plugin install --install-zellij --zellij-version 0.45.1`.
+Zellij 0.45.0 is the minimum: earlier releases could load the background controller plugin twice on startup.
 
 == Domain Groups Configuration
 

@@ -135,6 +135,9 @@ Manage the Zellij plugin installation and agent hooks.
 
 Install the WASM plugin, layouts, and hooks for all detected AI agents.
 The command auto-detects installed agents (Claude Code, OpenCode) and registers hooks for each.
+It refuses to install on Zellij older than 0.45.0, which is the first release that loads the background controller exactly once.
+Pass `--install-zellij` to download a supported release.
+It also seeds Zellij's plugin permission cache and fails if that cache cannot be written, because the background controller can only start from a cached grant.
 
 [source,bash]
 ----
@@ -208,6 +211,11 @@ The command exits silently when it is not running inside a Zellij session, which
 It also exits silently on malformed input or any other error, so that it never disrupts the agent that invoked it.
 
 Set the flag file `~/.local/state/cc-deck/hook-debug` to record why each invocation was forwarded or dropped to `~/.local/state/cc-deck/hook.log`.
+
+`cc-deck config plugin install` registers the command for the events that change a session's state: `SessionStart`, `UserPromptSubmit`, `PostToolUse`, `PostToolUseFailure`, `PermissionRequest`, `Notification`, `Stop`, `SubagentStart`, `SubagentStop`, and `SessionEnd`.
+`PreToolUse` is not registered.
+It fires once per tool call and would only repeat the Working state that `UserPromptSubmit` and `PostToolUse` already report, at the cost of one process per call.
+The command still accepts a `PreToolUse` event on its input.
 
 [source,bash]
 ----
@@ -1082,7 +1090,7 @@ cc-deck ws voice --list-devices
 | VAD sensitivity (0-100, logarithmic scale). Overrides the config file value.
 
 | `--verbose`
-| Enable detailed logging to `~/.local/state/cc-deck/voice.log`
+| Enable detailed logging to `~/.local/state/cc-deck/voice.log`, including whisper-server's own output
 
 | `--setup`
 | Check dependencies and download the whisper model
@@ -1090,6 +1098,11 @@ cc-deck ws voice --list-devices
 | `--list-devices`
 | List available audio input devices and exit
 |===
+
+The relay waits up to 60 seconds for whisper-server to answer its health check before giving up.
+A warm start takes about a second.
+The first start after a whisper.cpp upgrade is much slower, because it compiles Metal kernels and reads the model from a cold disk cache.
+When the wait does time out, run the command again with `--verbose` to see what whisper-server reported.
 
 ==== ws pipe
 

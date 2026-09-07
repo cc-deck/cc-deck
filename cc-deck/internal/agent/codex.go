@@ -170,9 +170,9 @@ func (c *CodexAgent) RequiredDomainGroups() []string {
 
 // --- Codex hooks.json management ---
 
+// PreToolUse is deliberately absent; see claudeHookEvents.
 var codexHookEvents = []string{
 	"SessionStart",
-	"PreToolUse",
 	"PostToolUse",
 	"PermissionRequest",
 	"UserPromptSubmit",

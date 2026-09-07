@@ -11,8 +11,11 @@ use crate::session::{self, Activity, Session};
 use std::collections::BTreeMap;
 use zellij_tile::prelude::*;
 
-/// Handle TabUpdate event: track tabs, detect active tab, register keybindings,
-/// clean up dead sessions.
+/// Handle TabUpdate event: track tabs, detect active tab, register keybindings.
+///
+/// This reconciles only. Time-based work (stale transitions, quarantine
+/// sweeps, dead-pane removal after the grace period) belongs to the timer,
+/// and pane liveness is settled by PaneUpdate and PaneClosed.
 pub fn handle_tab_update(state: &mut ControllerState, tabs: Vec<TabInfo>) {
     let old_active = state.own_active_tab();
     let new_active = tabs.iter().find(|t| t.active).map(|t| t.position);
@@ -25,11 +28,8 @@ pub fn handle_tab_update(state: &mut ControllerState, tabs: Vec<TabInfo>) {
     state.rebuild_pane_map();
     let client_views_changed = state.reconcile_client_views();
 
-    // Register keybindings on first TabUpdate or when tabs are closed,
-    // but only if this instance is the active leader.
-    if state.is_leader
-        && (!state.keybindings_registered || current_tab_count < state.last_tab_count)
-    {
+    // Register keybindings on first TabUpdate or when tabs are closed.
+    if !state.keybindings_registered || current_tab_count < state.last_tab_count {
         register_keybindings(state);
         state.keybindings_registered = true;
     }
@@ -43,10 +43,6 @@ pub fn handle_tab_update(state: &mut ControllerState, tabs: Vec<TabInfo>) {
     state
         .sidebar_registry
         .retain(|_, (_, client_id)| active_clients.contains(client_id));
-
-    // Clean up dead sessions
-    let dead_removed = state.remove_dead_sessions();
-    let stale_transitioned = state.cleanup_stale_sessions(state.config.done_timeout);
 
     // If tab count changed, notify sidebars to reindex and update virtual sort
     if tab_count_changed {
@@ -69,12 +65,7 @@ pub fn handle_tab_update(state: &mut ControllerState, tabs: Vec<TabInfo>) {
 
     // Only mark render dirty when something actually changed
     let active_tab_changed = new_active != old_active;
-    if tab_count_changed
-        || active_tab_changed
-        || client_views_changed
-        || dead_removed
-        || stale_transitioned
-    {
+    if tab_count_changed || active_tab_changed || client_views_changed {
         state.mark_render_dirty();
     }
 }
@@ -141,54 +132,6 @@ pub fn handle_pane_update(state: &mut ControllerState, manifest: PaneManifest) {
 pub fn handle_timer(state: &mut ControllerState, _elapsed: f64) {
     state.tick_count += 1;
 
-    // --- Leader election protocol ---
-    use super::state::{ELECTION_TIMEOUT_TICKS, LEADER_FAILURE_TIMEOUT_MS, LEADER_HEARTBEAT_TICKS};
-
-    if !state.is_leader {
-        state.election_ticks += 1;
-
-        // Check for leader failure: if we know a leader but haven't heard
-        // from it in LEADER_FAILURE_TIMEOUT_MS, clear it and start a new election.
-        if let Some(_leader_id) = state.leader_plugin_id {
-            let now_ms = session::unix_now_ms();
-            if state.last_leader_ping_ms > 0
-                && now_ms.saturating_sub(state.last_leader_ping_ms) > LEADER_FAILURE_TIMEOUT_MS
-            {
-                crate::debug_log("CTRL ELECTION: leader timeout, starting new election");
-                state.leader_plugin_id = None;
-                state.election_ticks = 0;
-            }
-        }
-
-        // Election timeout: if no lower-ID controller has pinged us,
-        // activate as leader.
-        if state.election_ticks >= ELECTION_TIMEOUT_TICKS && state.leader_plugin_id.is_none() {
-            state.is_leader = true;
-            crate::debug_log(&format!(
-                "CTRL ELECTION: won (activating as leader) plugin_id={}",
-                state.plugin_id
-            ));
-            // Broadcast ping so other dormant instances discover the new
-            // leader and don't also self-activate after their own timeout.
-            broadcast_controller_ping(state.client_id, state.plugin_id);
-            register_keybindings(state);
-            state.keybindings_registered = true;
-            render_broadcast::broadcast_render(state);
-            state.render_dirty = false;
-        }
-
-        // Reschedule timer even when dormant
-        set_timer(state.config.timer_interval);
-        return;
-    }
-
-    // Leader heartbeat: broadcast ping periodically so dormant instances
-    // know the leader is still alive.
-    if state.tick_count.is_multiple_of(LEADER_HEARTBEAT_TICKS) {
-        broadcast_controller_ping(state.client_id, state.plugin_id);
-        crate::debug_log("CTRL ELECTION: leader heartbeat");
-    }
-
     // After startup grace expires, run one deferred cleanup pass.
     // Quarantined sessions are no longer drained here: `sweep_quarantine`
     // below settles them on their own per-id deadlines, which for restored
@@ -238,10 +181,12 @@ pub fn handle_timer(state: &mut ControllerState, _elapsed: f64) {
         state.mark_render_dirty();
     }
 
-    // Voice heartbeat timeout: if voice is enabled but no ping for 15 seconds, clear voice state
+    // Voice heartbeat timeout: the relay's state poll is the heartbeat, so
+    // silence longer than the configured timeout means the relay is gone.
     if state.voice_enabled
         && state.voice_last_ping_ms > 0
-        && now_ms.saturating_sub(state.voice_last_ping_ms) > 15000
+        && now_ms.saturating_sub(state.voice_last_ping_ms)
+            > state.config.voice_timeout_secs.saturating_mul(1000)
     {
         state.voice_enabled = false;
         state.voice_muted = false;
@@ -288,13 +233,18 @@ pub fn handle_timer(state: &mut ControllerState, _elapsed: f64) {
     crate::debug_flush();
 
     // Git branch polling and orphan cleanup: every 60s.
+    // Only sessions that have shown activity recently are polled. A branch
+    // changes because an agent ran git, and that agent's hooks refresh the
+    // branch anyway; an idle session pays a subprocess per minute for
+    // nothing.
     let now_ms = session::unix_now_ms();
     if now_ms.saturating_sub(state.last_git_poll_ms) >= 60_000 {
         state.last_git_poll_ms = now_ms;
         // T019: Clean up orphaned state files from dead Zellij sessions
         super::state::cleanup_orphaned_state_files();
+        let now_secs = session::unix_now();
         for s in state.sessions.values() {
-            if s.paused {
+            if s.paused || !git_poll_due(s, now_secs) {
                 continue;
             }
             if let Some(ref cwd) = s.working_dir {
@@ -320,6 +270,15 @@ pub fn handle_timer(state: &mut ControllerState, _elapsed: f64) {
 
     // Reschedule timer
     set_timer(state.config.timer_interval);
+}
+
+/// How long after its last hook event a session keeps being polled for its
+/// git branch.
+pub const GIT_POLL_ACTIVE_WINDOW_SECS: u64 = 600;
+
+/// Whether a session is recent enough to be worth a `git rev-parse` this tick.
+pub fn git_poll_due(session: &Session, now_secs: u64) -> bool {
+    now_secs.saturating_sub(session.last_event_ts) < GIT_POLL_ACTIVE_WINDOW_SECS
 }
 
 /// Handle RunCommandResult: git repo/branch detection results.
@@ -426,12 +385,7 @@ pub fn handle_pane_closed(state: &mut ControllerState, pane_id: PaneId) {
             return;
         }
     };
-    let removed = state.sessions.remove(&id).is_some();
-    if removed {
-        state.pending_git_branch.remove(&id);
-        if let Some(ref mut order) = state.sort_order {
-            order.retain(|&p| p != id);
-        }
+    if state.evict_session(id) {
         state.save_sessions();
         state.mark_render_dirty();
     }
@@ -446,10 +400,11 @@ fn register_keybindings(state: &ControllerState) {
     let att_prev = shift_variant(&state.config.attend_key);
     let wrk_prev = shift_variant(&state.config.working_key);
 
-    // Use broadcast MessagePlugin (no ID) instead of MessagePluginId.
-    // With duplicate controller instances (Zellij bug), MessagePluginId
-    // routes to the plugin_map entry which may be the dormant instance.
-    // Broadcast reaches both; the dormant guard drops it, the leader processes.
+    // Broadcast with MessagePlugin. The targeted MessagePluginId form is
+    // undocumented upstream (Zellij's own serializer treats it as a
+    // "temporary keybinding" and has no tests for it) and did not deliver
+    // the keypress on 0.45.1. A broadcast reaches every sidebar too, but
+    // they drop these names without a payload, and keypresses are rare.
     let kdl = format!(
         r#"keybinds {{
     shared_except "locked" {{
@@ -516,20 +471,6 @@ fn set_timer(interval: f64) {
 
 #[cfg(not(target_family = "wasm"))]
 fn set_timer(_interval: f64) {}
-
-/// Broadcast a controller ping for leader election protocol.
-/// The payload encodes `client_id:plugin_id` so election priority uses
-/// the (client_id, plugin_id) tuple (lowest wins).
-#[cfg(target_family = "wasm")]
-pub fn broadcast_controller_ping(client_id: u16, plugin_id: u32) {
-    use zellij_tile::prelude::*;
-    let mut msg = MessageToPlugin::new("cc-deck:controller-ping");
-    msg.message_payload = Some(format!("{}:{}", client_id, plugin_id));
-    pipe_message_to_plugin(msg);
-}
-
-#[cfg(not(target_family = "wasm"))]
-pub fn broadcast_controller_ping(_client_id: u16, _plugin_id: u32) {}
 
 /// Standard ANSI 16-color palette (indices 0-15).
 const ANSI_16: [(u8, u8, u8); 16] = [
@@ -719,10 +660,32 @@ mod tests {
     }
 
     #[test]
+    fn test_git_poll_only_for_recently_active_sessions() {
+        let now = session::unix_now();
+        let mut fresh = Session::new(1, "s1".into());
+        fresh.last_event_ts = now.saturating_sub(60);
+        let mut stale = Session::new(2, "s2".into());
+        stale.last_event_ts = now.saturating_sub(GIT_POLL_ACTIVE_WINDOW_SECS + 1);
+
+        assert!(git_poll_due(&fresh, now));
+        assert!(!git_poll_due(&stale, now));
+    }
+
+    #[test]
+    fn test_voice_timeout_uses_configured_seconds() {
+        let mut state = ControllerState::default();
+        state.config.voice_timeout_secs = 5;
+        state.voice_enabled = true;
+        state.voice_last_ping_ms = session::unix_now_ms().saturating_sub(6_000);
+
+        handle_timer(&mut state, 1.0);
+
+        assert!(!state.voice_enabled, "silence past the timeout clears voice");
+    }
+
+    #[test]
     fn test_timer_auto_restore_runs_only_once() {
         let mut state = ControllerState::default();
-        // Only the leader reaches the restore block.
-        state.is_leader = true;
         assert!(!state.restore_attempted);
 
         handle_timer(&mut state, 1.0);
@@ -893,7 +856,6 @@ mod tests {
         let mut state = ControllerState::default();
         state.permissions_granted = true;
         state.keybindings_registered = true;
-        state.is_leader = true;
         let mut s1 = Session::new(1, "s1".into());
         s1.tab_index = Some(0);
         let mut s2 = Session::new(2, "s2".into());
@@ -927,7 +889,6 @@ mod tests {
         let mut state = ControllerState::default();
         state.permissions_granted = true;
         state.keybindings_registered = true;
-        state.is_leader = true;
         // Session 2 will be "dead" (not in sessions map after cleanup)
         state.sessions.insert(1, Session::new(1, "s1".into()));
         state.sessions.insert(3, Session::new(3, "s3".into()));
@@ -949,7 +910,6 @@ mod tests {
         let mut state = ControllerState::default();
         state.permissions_granted = true;
         state.keybindings_registered = true;
-        state.is_leader = true;
         state.sort_order = Some(vec![1, 2]);
 
         state.last_tab_count = 2;

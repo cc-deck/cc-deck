@@ -91,7 +91,7 @@ impl ZellijPlugin for UnifiedPlugin {
         debug_init();
         let mode = configuration.get("mode").map(|s| s.as_str());
         debug_log_immediate(&format!(
-            "UNIFIED LOAD mode={:?} config_keys={:?} build={} fingerprint=DR2",
+            "UNIFIED LOAD mode={:?} config_keys={:?} build={}",
             mode,
             configuration.keys().collect::<Vec<_>>(),
             env!("CARGO_PKG_VERSION"),
@@ -111,18 +111,6 @@ impl ZellijPlugin for UnifiedPlugin {
     }
 
     fn update(&mut self, event: Event) -> bool {
-        #[cfg(target_family = "wasm")]
-        {
-            let variant = match self {
-                UnifiedPlugin::Controller(_) => "controller",
-                UnifiedPlugin::Sidebar(_) => "sidebar",
-                UnifiedPlugin::Uninitialized => "uninitialized",
-            };
-            let flag = format!("/cache/unified_update_{}", variant);
-            if std::fs::metadata(&flag).is_err() {
-                let _ = std::fs::write(&flag, "first update event received\n");
-            }
-        }
         match self {
             UnifiedPlugin::Controller(p) => p.update(event),
             UnifiedPlugin::Sidebar(p) => p.update(event),

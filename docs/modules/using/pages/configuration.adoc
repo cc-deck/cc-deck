@@ -131,6 +131,7 @@ plugin location="file:~/.config/zellij/plugins/cc_deck.wasm" {
     auto_pause_secs "3600"    // auto-pause after idle for this many seconds (default: 3600, 0 to disable)
     attend_cycle_ms "2000"    // rapid-cycle window for attend/working in ms (default: 2000, 0 to disable)
     auto_sort "true"          // auto-sort paused sessions below active ones (default: true)
+    voice_timeout_secs "15"   // clear the voice indicator after this many seconds without a relay poll
 }
 ----
 
@@ -157,6 +158,10 @@ plugin location="file:~/.config/zellij/plugins/cc_deck.wasm" {
 | `auto_sort`
 | true
 | When enabled, the sidebar automatically groups active sessions above a visual separator and paused sessions below it. The sort is display-only (no physical tab reordering). Sessions that are unpaused appear at the end of the active zone. Set to `"false"` to disable and show all sessions in tab order.
+
+| `voice_timeout_secs`
+| 15
+| Seconds without a poll from the voice relay before the voice indicator is cleared. The relay polls every five seconds. Values below five are ignored.
 |===
 
 Auto-paused sessions unpause automatically when you switch to them (via click, navigate, or attend).

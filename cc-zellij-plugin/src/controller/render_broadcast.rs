@@ -198,14 +198,6 @@ pub fn broadcast_render(state: &ControllerState) {
         send_count += 1;
     }
 
-    // Untargeted broadcast as fallback for sidebars not yet in the registry.
-    // Only fire when the registry is empty (no known sidebars). Once sidebars
-    // register, targeted sends above handle delivery. This prevents the
-    // untargeted broadcast from bypassing the client_id filter (FR-005).
-    if state.sidebar_registry.is_empty() {
-        broadcast_render_all(&json);
-    }
-
     if state.perf.enabled {
         crate::debug_log(&format!(
             "CTRL RENDER broadcast: sidebars={} serialization_us={}",
@@ -253,19 +245,6 @@ fn activity_label(activity: &Activity) -> String {
 }
 
 // --- Wasm-gated host function wrappers ---
-
-/// Broadcast an untargeted render payload to all sidebar instances.
-/// Provides a fallback for sidebars not yet in the registry.
-#[cfg(target_family = "wasm")]
-fn broadcast_render_all(json: &str) {
-    use zellij_tile::prelude::*;
-    let mut msg = MessageToPlugin::new("cc-deck:render");
-    msg.message_payload = Some(json.to_string());
-    pipe_message_to_plugin(msg);
-}
-
-#[cfg(not(target_family = "wasm"))]
-fn broadcast_render_all(_json: &str) {}
 
 /// Send a render payload to a specific sidebar plugin by ID.
 #[cfg(target_family = "wasm")]
@@ -457,7 +436,7 @@ mod tests {
     }
 
     #[test]
-    fn test_broadcast_render_calls_both_targeted_and_untargeted() {
+    fn test_broadcast_render_iterates_registry_without_panic() {
         let mut state = ControllerState::default();
         state
             .sessions
@@ -465,9 +444,8 @@ mod tests {
         state.sidebar_registry.insert(42, (0, 0));
         state.sidebar_registry.insert(43, (1, 0));
 
-        // In non-WASM test mode, both send_render_to_plugin and
-        // broadcast_render_all are no-ops. This test verifies broadcast_render
-        // completes without panic and processes the registry.
+        // In non-WASM test mode send_render_to_plugin is a no-op. This test
+        // verifies broadcast_render completes and processes the registry.
         broadcast_render(&state);
     }
 
@@ -894,23 +872,6 @@ mod tests {
 
         // Registry unchanged (broadcast is read-only)
         assert_eq!(state.sidebar_registry.len(), 3);
-    }
-
-    #[test]
-    fn test_broadcast_render_all_skipped_when_registry_nonempty() {
-        // When the sidebar registry has entries, broadcast_render_all
-        // (untargeted fallback) should NOT be called. In non-WASM mode
-        // both paths are no-ops, but we verify the function completes
-        // and the guard condition is correct.
-        let mut state = ControllerState::default();
-        state.client_id = 1;
-        state
-            .sessions
-            .insert(1, make_session(1, "test", Activity::Working));
-        state.sidebar_registry.insert(42, (0, 1));
-
-        // With a non-empty registry, broadcast_render_all is skipped.
-        broadcast_render(&state);
     }
 
     // --- Multiplayer client views in payload tests ---

@@ -4,7 +4,7 @@
 
 * **Rust** (stable, with `wasm32-wasip1` target): `rustup target add wasm32-wasip1`
 * **Go** 1.22 or later
-* **Zellij** 0.40 or later (for testing)
+* **Zellij** 0.45 or later (for testing)
 * **make**
 
 == Quick Build

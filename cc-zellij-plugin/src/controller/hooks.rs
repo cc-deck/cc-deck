@@ -8,7 +8,7 @@
 use super::state::{ControllerState, PendingOverride, QuarantineKind};
 use crate::git;
 use crate::pipe_handler::{hook_event_to_activity, is_session_end, HookPayload};
-use crate::session::{self, Activity, Session};
+use crate::session::{self, Activity, HookOutcome, Session};
 
 /// Process a hook event from the CLI. Returns true if state changed visibly.
 pub fn process_hook(state: &mut ControllerState, hook: HookPayload) -> bool {
@@ -157,104 +157,42 @@ pub fn process_hook(state: &mut ControllerState, hook: HookPayload) -> bool {
         }
     }
 
-    // Permission counter management:
-    // - PermissionRequest: increment pending_permissions, transition to Waiting
-    // - PermissionReply: decrement pending_permissions, transition to Working only when 0
-    // - Working (PreToolUse/PostToolUse): suppress while pending_permissions > 0
-    // - Done/Stop: reset counter, allow transition
-    if matches!(activity, Activity::Waiting(session::WaitReason::Permission)) {
-        if let Some(s) = state.sessions.get_mut(&hook.pane_id) {
-            s.pending_permissions = s.pending_permissions.saturating_add(1);
-            crate::debug_log(&format!(
-                "CTRL HOOK: pane={} PermissionRequest, pending_permissions={}",
-                hook.pane_id, s.pending_permissions,
-            ));
-        }
-    }
-
-    // PermissionReply: decrement counter. Only clear Waiting when all
-    // permission prompts have been answered (counter reaches 0).
-    if hook.hook_event_name == "PermissionReply" {
-        if let Some(s) = state.sessions.get_mut(&hook.pane_id) {
-            s.pending_permissions = s.pending_permissions.saturating_sub(1);
-            crate::debug_log(&format!(
-                "CTRL HOOK: pane={} PermissionReply, pending_permissions={}",
-                hook.pane_id, s.pending_permissions,
-            ));
-            if s.pending_permissions > 0 {
-                // More prompts outstanding; stay in Waiting.
-                s.last_event_ts = session::unix_now();
-                return false;
-            }
-            // Counter reached 0: fall through to transition to Working.
-        }
-    }
-
-    // Suppress Working transitions while permission prompts are outstanding.
-    // For PostToolUse from main agent (no agent_id): treat as implicit
-    // PermissionReply for backward compatibility with Claude Code, which
-    // doesn't send explicit PermissionReply events.
-    // For PreToolUse or subagent events: always suppress while waiting.
-    if matches!(activity, Activity::Working) {
-        if let Some(s) = state.sessions.get(&hook.pane_id) {
-            if s.pending_permissions > 0 {
-                let is_main_agent_post = hook.hook_event_name == "PostToolUse"
-                    && hook.agent_id.is_none();
-                if is_main_agent_post {
-                    // Backward compat: PostToolUse from main agent acts as
-                    // implicit PermissionReply (Claude Code flow).
-                    if let Some(s) = state.sessions.get_mut(&hook.pane_id) {
-                        s.pending_permissions = s.pending_permissions.saturating_sub(1);
-                        crate::debug_log(&format!(
-                            "CTRL HOOK: pane={} PostToolUse as implicit PermissionReply, pending_permissions={}",
-                            hook.pane_id, s.pending_permissions,
-                        ));
-                        if s.pending_permissions > 0 {
-                            s.last_event_ts = session::unix_now();
-                            return false;
-                        }
-                        // Counter reached 0: fall through to transition to Working.
-                    }
-                } else {
-                    crate::debug_log(&format!(
-                        "CTRL HOOK: pane={} suppressing Working while {} permissions pending (event={})",
-                        hook.pane_id, s.pending_permissions, hook.hook_event_name,
-                    ));
-                    if let Some(s) = state.sessions.get_mut(&hook.pane_id) {
-                        s.last_event_ts = session::unix_now();
-                    }
-                    return false;
-                }
-            }
-        }
-    }
-
-    // Reset permission counter on session-ending events.
-    if matches!(activity, Activity::Done) {
-        if let Some(s) = state.sessions.get_mut(&hook.pane_id) {
-            s.pending_permissions = 0;
-        }
-    }
-
-    // Transition activity
-    let prev_activity = state
-        .sessions
-        .get(&hook.pane_id)
-        .map(|s| format!("{:?}", s.activity));
-    let was_waiting = state
-        .sessions
-        .get(&hook.pane_id)
-        .map(|s| s.activity.is_waiting())
-        .unwrap_or(false);
-    let changed = match state.sessions.get_mut(&hook.pane_id) {
-        Some(s) => s.transition(activity),
+    // Apply the event to the session's activity. The permission counter,
+    // the implicit PermissionReply carried by a main-agent PostToolUse, and
+    // the Waiting guard all live in Session::apply_hook so they can be
+    // tested and fuzzed without a controller.
+    let from_subagent = hook.agent_id.is_some();
+    let (prev_activity, was_waiting) = match state.sessions.get(&hook.pane_id) {
+        Some(s) => (format!("{:?}", s.activity), s.activity.is_waiting()),
         None => return false,
+    };
+    let outcome = match state.sessions.get_mut(&hook.pane_id) {
+        Some(s) => s.apply_hook(&hook.hook_event_name, activity, from_subagent),
+        None => return false,
+    };
+    let changed = match outcome {
+        HookOutcome::Changed => true,
+        HookOutcome::Unchanged => false,
+        HookOutcome::Absorbed => {
+            crate::debug_log(&format!(
+                "CTRL HOOK: pane={} {} absorbed while {} permissions pending",
+                hook.pane_id,
+                hook.hook_event_name,
+                state
+                    .sessions
+                    .get(&hook.pane_id)
+                    .map(|s| s.pending_permissions)
+                    .unwrap_or(0),
+            ));
+            return false;
+        }
     };
     if changed {
         crate::debug_log(&format!(
-            "CTRL HOOK: pane={} {} {:?}->{:?}",
-            hook.pane_id, hook.hook_event_name,
-            prev_activity.as_deref().unwrap_or("?"),
+            "CTRL HOOK: pane={} {} {}->{:?}",
+            hook.pane_id,
+            hook.hook_event_name,
+            prev_activity,
             state.sessions.get(&hook.pane_id).map(|s| format!("{:?}", s.activity)).unwrap_or_default()
         ));
     }

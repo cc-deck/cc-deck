@@ -4,7 +4,7 @@
 [![codecov](https://codecov.io/gh/cc-deck/cc-deck/graph/badge.svg)](https://codecov.io/gh/cc-deck/cc-deck)
 [![Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go)](https://go.dev)
 [![Rust](https://img.shields.io/badge/Rust-stable-orange?logo=rust)](https://www.rust-lang.org)
-[![Zellij](https://img.shields.io/badge/Zellij-0.44+-green)](https://zellij.dev)
+[![Zellij](https://img.shields.io/badge/Zellij-0.45+-green)](https://zellij.dev)
 [![License](https://img.shields.io/github/license/cc-deck/cc-deck)](LICENSE)
 [![Beta](https://img.shields.io/badge/status-beta-orange)](https://github.com/cc-deck/cc-deck)
 
@@ -66,7 +66,7 @@ cd cc-deck
 make install
 ```
 
-Requires [Zellij](https://zellij.dev) 0.44+, [Go](https://go.dev) 1.22+, and [Rust](https://www.rust-lang.org) stable with `wasm32-wasip1` target.
+Requires [Zellij](https://zellij.dev) 0.45+, [Go](https://go.dev) 1.22+, and [Rust](https://www.rust-lang.org) stable with `wasm32-wasip1` target.
 
 ---
 
@@ -304,6 +304,7 @@ plugin location="file:~/.config/zellij/plugins/cc_deck.wasm" {
     auto_pause_secs "3600"    // auto-pause after idle for this many seconds (default: 3600, 0 to disable)
     attend_cycle_ms "2000"    // rapid-cycle window for attend/working in ms (default: 2000, 0 to disable)
     auto_sort "true"          // auto-sort paused sessions below active ones (default: true, "false" to disable)
+    voice_timeout_secs "15"   // clear the voice indicator after this many seconds without a relay poll (default: 15)
 }
 ```
 
@@ -689,16 +690,6 @@ base-image/         Base container image build
 base-images.yaml    Base image registry (tested targets)
 specs/              Feature specifications (SDD)
 ```
-
-## Known issues
-
-### Duplicate controller instances (Zellij bug)
-
-Zellij 0.43 and 0.44 occasionally create two WASM instances of a background plugin when `load_plugins` races with the `AddClient` event. This causes duplicate keybinding registrations and render broadcasts.
-
-cc-deck mitigates this with a leader election protocol. On startup, each controller broadcasts a probe with its plugin ID. The instance with the lowest ID activates within two seconds; the other stays dormant. The leader sends a periodic heartbeat (every 30 seconds) so the dormant instance can detect failure and re-activate.
-
-The only visible effect is a two-second delay before keybindings become active on a fresh Zellij start, which overlaps with Zellij's own initialization time.
 
 ## Contributing
 

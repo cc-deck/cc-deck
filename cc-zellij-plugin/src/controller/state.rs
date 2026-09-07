@@ -21,11 +21,6 @@ fn sessions_path(pid: u32) -> String {
     }
 }
 
-/// Legacy file paths (pre-044, no PID suffix).
-const LEGACY_SESSIONS_PATH: &str = "/cache/sessions.json";
-const LEGACY_META_PATH: &str = "/cache/session-meta.json";
-const LEGACY_PID_PATH: &str = "/cache/zellij_pid";
-
 pub const FOCUS_CONFIRM_TIMEOUT_MS: u64 = 3000;
 
 /// How long a hook-created session may wait for the pane manifest to confirm
@@ -33,9 +28,6 @@ pub const FOCUS_CONFIRM_TIMEOUT_MS: u64 = 3000;
 ///
 /// Matches `FOCUS_CONFIRM_TIMEOUT_MS` and the startup grace: all three answer
 /// the same question, "how long do we wait for Zellij to tell us the truth".
-/// It must exceed the election window (`ELECTION_TIMEOUT_TICKS` ticks) so a
-/// controller that has just won leadership still gets at least one more tick
-/// to receive its first `PaneUpdate`.
 pub const HOOK_CONFIRM_TIMEOUT_MS: u64 = 3000;
 
 /// How long a session restored from the on-disk cache may wait for
@@ -57,15 +49,6 @@ pub struct Quarantine {
     pub kind: QuarantineKind,
     pub deadline_ms: u64,
 }
-
-/// Timer ticks to wait before self-activating as leader.
-pub const ELECTION_TIMEOUT_TICKS: u32 = 2;
-
-/// Ticks between leader heartbeat pings.
-pub const LEADER_HEARTBEAT_TICKS: u64 = 30;
-
-/// Milliseconds without leader ping before dormant instance re-activates.
-pub const LEADER_FAILURE_TIMEOUT_MS: u64 = 60_000;
 
 /// Metadata override to apply when a restored session is discovered via CWD matching.
 #[derive(Debug, Clone)]
@@ -181,14 +164,6 @@ pub struct ControllerState {
     /// unblock). Tracks (text_hash, timestamp_ms) to suppress duplicates
     /// within a short window.
     pub voice_last_inject: Option<(u64, u64)>,
-    /// Whether this controller instance is the active leader.
-    pub is_leader: bool,
-    /// Plugin ID of the known leader (if not self).
-    pub leader_plugin_id: Option<u32>,
-    /// Timestamp (ms) of last received leader ping.
-    pub last_leader_ping_ms: u64,
-    /// Timer ticks since startup ping was sent.
-    pub election_ticks: u32,
     /// Frozen display order from the last sort-by-activity (pane IDs).
     /// When Some, the render broadcast uses this order instead of tab_index.
     pub sort_order: Option<Vec<u32>>,
@@ -438,17 +413,16 @@ impl ControllerState {
         // Only remove sessions whose pane is confirmed exited.
         // Do NOT remove sessions whose pane_id is absent from the manifest,
         // as the manifest may be temporarily incomplete during rapid updates.
-        self.sessions
-            .retain(|pane_id, _| !exited_pane_ids.contains(pane_id));
+        let dead: Vec<u32> = self
+            .sessions
+            .keys()
+            .copied()
+            .filter(|id| exited_pane_ids.contains(id))
+            .collect();
+        for pane_id in dead {
+            self.evict_session(pane_id);
+        }
         if self.sessions.len() != before {
-            self.pending_git_branch
-                .retain(|id| self.sessions.contains_key(id));
-            if let Some(ref mut order) = self.sort_order {
-                order.retain(|pid| self.sessions.contains_key(pid));
-            }
-            self.auto_sort_tail
-                .retain(|pid| self.sessions.contains_key(pid));
-            self.prune_client_views();
             crate::debug_log(&format!(
                 "CTRL CLEANUP removed {} dead sessions, {} remaining",
                 before - self.sessions.len(),
@@ -537,6 +511,13 @@ impl ControllerState {
     /// Mark render payload as needing broadcast on the next timer flush.
     pub fn mark_render_dirty(&mut self) {
         self.render_dirty = true;
+    }
+
+    /// Whether the session on `pane_id` is currently waiting on the user.
+    pub fn session_is_waiting(&self, pane_id: u32) -> bool {
+        self.sessions
+            .get(&pane_id)
+            .is_some_and(|s| s.activity.is_waiting())
     }
 
     pub fn own_focus(&self) -> Option<u32> {
@@ -730,30 +711,6 @@ impl ControllerState {
         }
     }
 
-    /// Migrate legacy state files (pre-044) to PID-scoped paths.
-    /// Called once on controller startup.
-    pub fn migrate_legacy_files() {
-        let pid = current_zellij_pid();
-        if pid == 0 {
-            return;
-        }
-
-        let scoped_sessions = sessions_path(pid);
-
-        // Migrate sessions.json if PID-scoped file does not exist yet.
-        // Only remove legacy file after successful write.
-        if std::fs::metadata(&scoped_sessions).is_err() {
-            if let Ok(content) = std::fs::read_to_string(LEGACY_SESSIONS_PATH) {
-                if std::fs::write(&scoped_sessions, &content).is_ok() {
-                    let _ = std::fs::remove_file(LEGACY_SESSIONS_PATH);
-                }
-            }
-        }
-
-        // Remove legacy meta and PID files (controller does not use meta file)
-        let _ = std::fs::remove_file(LEGACY_META_PATH);
-        let _ = std::fs::remove_file(LEGACY_PID_PATH);
-    }
 }
 
 /// Get the Zellij server PID.
@@ -767,6 +724,17 @@ fn current_zellij_pid() -> u32 {
     0
 }
 
+/// Files earlier releases wrote to the shared cache and nothing reads any
+/// more. Removed once so a long-lived install does not carry them forever.
+const RETIRED_CACHE_FILES: [&str; 6] = [
+    "/cache/sessions.json",
+    "/cache/session-meta.json",
+    "/cache/zellij_pid",
+    "/cache/attend-state.json",
+    "/cache/unified_update_controller",
+    "/cache/unified_update_sidebar",
+];
+
 /// Clean up orphaned state files from killed Zellij sessions.
 /// Scans `/cache/` for `sessions-*.json` and `session-meta-*.json` files.
 /// Attempts to check process liveness via `/proc/{pid}/`. If `/proc/` is
@@ -776,6 +744,10 @@ pub fn cleanup_orphaned_state_files() {
     let current_pid = current_zellij_pid();
     if current_pid == 0 {
         return;
+    }
+
+    for path in RETIRED_CACHE_FILES {
+        let _ = std::fs::remove_file(path);
     }
 
     let entries = match std::fs::read_dir("/cache/") {
@@ -1230,22 +1202,6 @@ mod tests {
     fn test_sessions_path() {
         assert_eq!(super::sessions_path(12345), "/cache/sessions-12345.json");
         assert_eq!(super::sessions_path(0), "/cache/sessions.json");
-    }
-
-    #[test]
-    fn test_election_pessimistic_default() {
-        let state = ControllerState::default();
-        assert!(!state.is_leader);
-        assert!(state.leader_plugin_id.is_none());
-        assert_eq!(state.last_leader_ping_ms, 0);
-        assert_eq!(state.election_ticks, 0);
-    }
-
-    #[test]
-    fn test_election_constants() {
-        assert_eq!(super::ELECTION_TIMEOUT_TICKS, 2);
-        assert_eq!(super::LEADER_HEARTBEAT_TICKS, 30);
-        assert_eq!(super::LEADER_FAILURE_TIMEOUT_MS, 60_000);
     }
 
     #[test]

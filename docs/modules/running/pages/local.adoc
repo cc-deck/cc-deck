@@ -5,7 +5,7 @@ This is the simplest setup and requires no containers.
 
 == Prerequisites
 
-* https://zellij.dev/[Zellij] 0.43 or later
+* https://zellij.dev/[Zellij] 0.45 or later
 * https://go.dev/[Go] 1.22 or later (for building from source)
 * https://www.rust-lang.org/[Rust] stable with the `wasm32-wasip1` target (for building the plugin)
 

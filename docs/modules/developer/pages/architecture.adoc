@@ -7,8 +7,10 @@ cc-deck consists of two components that work together: a Rust WASM plugin for th
 Rust WASM Plugin (`cc-zellij-plugin/`)::
 The sidebar that runs inside Zellij.
 Compiled to WebAssembly (wasm32-wasip1) and loaded by Zellij as a plugin.
-Handles rendering, navigation, smart attend, and session tracking.
-Communicates with other instances via the Zellij pipe system.
+One binary serves two roles, selected by the `mode` key in the plugin configuration.
+The controller runs once per Zellij session as a background plugin from `load_plugins` and owns all session state.
+A sidebar runs in every tab, renders what the controller sends it, and forwards user actions back.
+The two roles communicate over the Zellij pipe system.
 
 Go CLI (`cc-deck/`)::
 The command-line tool that users interact with directly.
@@ -18,42 +20,59 @@ Embeds the WASM binary so a single `cc-deck` binary installs everything.
 == Plugin Permissions
 
 Both roles run from the same WASM binary and request the same seven Zellij permissions on load.
-The controller runs as a background plugin, which cannot display a permission dialog at all, so `cc-deck install` pre-populates Zellij's `permissions.kdl` cache before the plugin ever loads.
-A pre-populated grant is answered immediately, without prompting the user.
+The list lives in one place in the plugin (`REQUIRED_PERMISSIONS` in `lib.rs`), and the Go CLI seeds the identical list into Zellij's `permissions.kdl` cache.
+A test in the CLI keeps the two lists the same.
 
-Pre-population alone is not sufficient.
+Zellij caches grants by plugin URL, so the dialog the sidebar shows is what grants the background controller.
+The controller itself never sees a dialog.
+It runs from `load_plugins`, and Zellij cannot show a permission prompt for a plugin that has no pane (zellij-org/zellij#4982).
+A grant given to the sidebar also does not reach a controller that is already waiting (zellij-org/zellij#4990 is open).
+A cached grant is therefore the only way the controller starts on a first run.
+
+`cc-deck config plugin install` seeds the cache and fails if it cannot.
+Every workspace launch runs the same check again before Zellij creates the session, so a cache that was cleared in between is repaired instead of stranding the controller until the next restart.
+The check is idempotent and writes nothing when the entry is already correct.
+
+Seeding alone is not sufficient.
 Zellij addresses the `PermissionRequestResult` event to a specific client, and a plugin started during the initial layout load can be handed that result before any client is ready to receive it.
 The grant is then dropped in transit.
-
-A dropped grant used to strand the plugin permanently.
-The controller discards every pipe message while it is unpermissioned, so a sidebar's registration never lands, no render is ever broadcast, and the sidebar keeps showing the permission prompt on a pane that has already been made unfocusable.
-Every recovery path ran through the same broken loop.
-
-Both roles therefore drive their own recovery from a timer, which is the one signal that arrives from outside that loop.
-A plugin that is still unpermissioned when a timer fires asks again and re-arms the timer.
-The retry is bounded by `PERMISSION_RETRY_LIMIT`, so a request that is genuinely waiting on a human answer is never re-raised on a loop.
+Both roles therefore recover from a timer: a plugin that is still unpermissioned when a timer fires asks again and re-arms the timer.
+The retry is bounded by `PERMISSION_RETRY_LIMIT`, and a denied result stops it at once, so a request that is genuinely waiting on a human answer is never re-raised on a loop.
 On a healthy start the grant has already arrived, the first tick returns early, and the recovery costs a single timer tick.
 
-== Sync Protocol
+== Controller and Sidebars
 
-The WASM plugin runs as a separate instance on every tab (via the layout template).
-These instances synchronize session state through Zellij's pipe messaging system:
+Zellij places one plugin pane in every tab, so there is one sidebar instance per tab and the number of instances grows with the number of tabs.
+The design keeps those instances thin.
+The controller is the single writer of session state.
+It processes hook events, pane and tab updates, and the timer, and it persists state to a per-session file in the plugin cache.
+Sidebars hold no session state of their own.
+They receive a pre-computed render payload, draw it, and send user actions back to the controller.
 
-`cc-deck:sync`::
-Broadcast session state to all instances.
-Used when a session's activity changes.
+cc-deck requires Zellij 0.45.0 or later.
+Earlier releases could instantiate a `load_plugins` background plugin twice on startup (zellij-org/zellij#5178), and the plugin relies on there being exactly one controller per session.
 
-`cc-deck:request`::
-Request the latest state from other instances.
+The pipe messages between the two roles:
+
+`cc-deck:sidebar-hello` and `cc-deck:sidebar-init`::
+A sidebar announces itself after its permission grant.
+The controller finds the sidebar's tab in the pane manifest and answers with the tab index.
+The sidebar repeats the hello once a second until the answer arrives.
+
+`cc-deck:render`::
+The controller sends the full render payload to each registered sidebar.
+Renders are coalesced: state changes mark the payload dirty, and the one-second timer flushes it.
+User actions flush immediately.
+
+`cc-deck:action` and `cc-deck:focus-report`::
+A sidebar forwards a user action (attend, rename, pause, sort) or a focus change to the controller.
 
 `cc-deck:hook`::
-Incoming hook events from Claude Code (via the Go CLI).
+Incoming hook events from an agent (via the Go CLI).
 
-`cc-deck:navigate`::
-Navigation commands (switch tab, attend).
-
-`cc-deck:attend`::
-Smart attend requests.
+`cc-deck:navigate`, `cc-deck:attend`, `cc-deck:working`::
+Keybindings registered by the controller.
+They are broadcast to every plugin instance; sidebars drop them, and the controller acts on them.
 
 == Hook Integration
 

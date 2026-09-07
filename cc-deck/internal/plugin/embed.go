@@ -11,7 +11,8 @@ var wasmBinary []byte
 type PluginInfo struct {
 	Version    string // plugin version, e.g. "0.1.0"
 	SDKVersion string // zellij-tile SDK version, e.g. "0.44"
-	MinZellij  string // minimum supported Zellij version, e.g. "0.40"
+	MinZellij  string // minimum supported Zellij version, e.g. "0.45"
+	MaxTested  string // newest Zellij minor the plugin has been verified against, e.g. "0.45"
 	BinarySize int64
 	Binary     []byte
 }
@@ -21,7 +22,8 @@ func EmbeddedPlugin() PluginInfo {
 	return PluginInfo{
 		Version:    "0.8.0",
 		SDKVersion: "0.44",
-		MinZellij:  "0.40",
+		MinZellij:  MinZellijVersion,
+		MaxTested:  MaxTestedZellijVersion,
 		BinarySize: int64(len(wasmBinary)),
 		Binary:     wasmBinary,
 	}
