@@ -8,6 +8,17 @@
 
 **Input**: User description: "docs/superpowers/specs/2026-09-06-workspace-sharing-endpoint-design.md"
 
+## Clarifications
+
+New requirements added during clarification take the next free identifier rather than being inserted
+in document position, so that every identifier already referenced elsewhere stays stable.
+
+### Session 2026-09-07
+
+- Q: The spec calls an invitation a "time bound" grant, but no requirement defines a lifetime and the existing code has no expiry field. Do invitations expire on a timer? → A: No. Remove the "time bound" claim. Access ends only on unshare or on confirmed session death, both of which are already specified. Expiry is recorded as explicitly out of scope rather than silently dropped.
+- Q: FR-023 forbids persisting a degraded result, yet the Verification result entity records which layer failed and FR-018 reports the stored result in listings. Does a failed probe record anything? → A: Yes. A failed probe updates the stored verification result with the failing layer and the time, while leaving the sharing state machine untouched. FR-023 governs the state machine, not the observation.
+- Q: FR-010 requires verification to use the real credential path without consuming a person's invitation, but does not say what credential it uses instead. Which credential does the probe authenticate with? → A: A short lived observer-role credential minted for each probe and revoked as soon as the probe finishes. Nothing is persisted, preserving the existing invariant that the service stores no secrets.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Share a workspace through an endpoint I already run (Priority: P1)
@@ -45,6 +56,7 @@ A share that worked an hour ago no longer does. The developer asks cc-deck for t
 3. **Given** any degraded result, **When** status completes, **Then** no credentials have been revoked, no processes have been stopped, and the share can recover on its own when the entry point returns.
 4. **Given** a workspace whose underlying session is confirmed gone, **When** the developer asks for status, **Then** cc-deck revokes access and clears the share.
 5. **Given** any status check, **When** the entry point is unreachable and never answers, **Then** the command still returns within its time bound rather than hanging.
+6. **Given** a status check that reported a specific layer as broken, **When** the developer subsequently lists workspaces without re-checking, **Then** the listing names that same failing layer with the age of the check, so the failure survives beyond the command that found it.
 
 ---
 
@@ -111,6 +123,7 @@ A developer with more than one environment, for example one for work and one at 
 - The entry point is briefly down while the workspace is alive. This must be reported as degraded and must never revoke credentials, because a restarting entry point is not consent to end access.
 - The workspace session ends while sharing is active. Access must end with it, at the next command that establishes sharing state. Because nothing runs in the background, revocation is not immediate, and the documentation must not imply that it is.
 - The guest sits behind a different network filter than the host. cc-deck can only verify from its own machine and must not imply otherwise.
+- Verification times out or the process is interrupted partway through a probe. The credential it minted must still be revoked, so that a repeatedly failing endpoint does not leave a trail of live credentials behind.
 - Verification is skipped explicitly. The resulting share must carry no verification age, so it is never presented as though it had been checked.
 - A workspace is created and shared by one command and verification fails. The workspace must survive, because a problem in the exposure layer is not a reason to discard work the user asked for.
 - Two workspaces are shared through the same entry point at once. This is permitted, because the entry point belongs to the user and workspaces are selected by address path. Each share keeps its own invitations and its own verification result, and unsharing one must not affect the other.
@@ -134,6 +147,9 @@ A developer with more than one environment, for example one for work and one at 
 - **FR-008**: Each verification failure MUST identify which of those layers failed, in language a user can act on.
 - **FR-009**: When the address fails to resolve locally but resolves through an independent public resolver, cc-deck MUST report the failure as local filtering rather than as a missing address.
 - **FR-010**: Verification MUST exercise the real credential path rather than a substitute, so that a credential problem is caught by verification rather than by the guest. The credential it uses MUST NOT count against, consume, or invalidate any invitation issued to a person.
+- **FR-044**: Verification MUST mint its own credential for each probe, MUST scope it to the least privileged role available, and MUST revoke it when the probe finishes, whether the probe passed or failed.
+- **FR-045**: The probe credential MUST NOT be persisted to disk or recorded in sharing state at any point, preserving the existing guarantee that no secret is stored.
+- **FR-046**: A probe that fails or times out MUST still revoke the credential it minted, so that a repeatedly failing endpoint cannot accumulate live credentials.
 - **FR-011**: Verification MUST NOT disturb the workspace being shared. It MUST NOT attach to, write to, or otherwise alter the running session.
 - **FR-012**: The whole verification MUST complete within a bounded time, configurable, defaulting to fifteen seconds.
 - **FR-013**: Users MUST be able to skip verification explicitly for a single command.
@@ -144,7 +160,7 @@ A developer with more than one environment, for example one for work and one at 
 - **FR-015**: Sharing a workspace and issuing an invitation MUST both run full verification as a blocking gate.
 - **FR-016**: Asking for a workspace's status MUST re-run verification, and its result MUST determine whether sharing is reported as shared or degraded. These are the only two sharing states; no other value is reported anywhere.
 - **FR-017**: Listing workspaces MUST NOT perform any verification or network access.
-- **FR-018**: Listing workspaces MUST report the stored verification result together with its age, and MUST omit the age when no verification has been performed, per FR-014.
+- **FR-018**: Listing workspaces MUST report the stored verification result together with its age, and MUST omit the age when no verification has been performed, per FR-014. When the stored result is a failure, the listing MUST name the layer that failed alongside its age.
 - **FR-019**: Listing workspaces MUST resolve sharing state once for the whole listing, not once per workspace.
 - **FR-020**: cc-deck MUST NOT check sharing health in the background. Health is established only when a user runs a command that requires it.
 
@@ -152,7 +168,8 @@ A developer with more than one environment, for example one for work and one at 
 
 - **FR-021**: cc-deck MUST NOT tear down any resource without positive evidence that the underlying workspace session is gone. Absence of a response is not evidence of absence.
 - **FR-022**: A failed verification MUST NOT revoke credentials, stop any process, or delete sharing state.
-- **FR-023**: A degraded result MUST NOT be persisted as the workspace's stored state.
+- **FR-023**: A degraded result MUST NOT be persisted as the workspace's stored sharing state, because a persisted degraded operation would be torn down by the next healthy call. This governs the state machine only, not the recorded observation.
+- **FR-047**: Every completed verification, whether it passed or failed, MUST update the stored verification result with its outcome, the failing layer when there was one, and the time it was taken. This is an observation, not a state transition, and MUST NOT move the workspace's sharing state or trigger any teardown.
 - **FR-024**: When the workspace session is confirmed gone, cc-deck MUST revoke all access granted for it.
 - **FR-025**: Stopping sharing MUST revoke every invitation previously issued for that workspace.
 - **FR-026**: Stopping sharing MUST NOT stop, signal, or otherwise affect the user's entry point.
@@ -160,6 +177,7 @@ A developer with more than one environment, for example one for work and one at 
 - **FR-028**: Stopping sharing MUST NOT end the workspace session or affect its contents.
 - **FR-029**: Teardown MUST persist its progress after each step, so that an interrupted teardown resumes correctly rather than stranding resources.
 - **FR-030**: When sharing fails to complete, cc-deck MUST roll back every sharing resource it created, leaving no partial share.
+- **FR-043**: Invitations MUST NOT expire on a timer. Unsharing a workspace and confirming that its session is gone are the only two events that end access, and together they MUST be sufficient to revoke every invitation ever issued for that workspace.
 - **FR-031**: Rollback MUST NOT extend to the workspace session. When a single command both creates a workspace and shares it, and sharing fails, the workspace MUST remain running and usable locally, and only the sharing failure is reported. Sharing is an additive operation on a workspace, never a precondition for its existence.
 
 **Robustness**
@@ -183,8 +201,8 @@ A developer with more than one environment, for example one for work and one at 
 
 - **Shared workspace**: A workspace with sharing active. Carries the entry point in use, whether the supporting service was started by cc-deck, the last verification result and when it was taken, and the invitations issued for it.
 - **Entry point**: A named, user provided public address that forwards to the workspace host. cc-deck resolves it from configuration and verifies it, and has no control over its lifecycle.
-- **Verification result**: The outcome of the layered check, recording whether it passed, which layer failed if it did not, and the time it was taken. It is what listings report and what status recomputes.
-- **Invitation**: A time bound grant of access to a shared workspace, optionally labelled and role scoped. Always created by cc-deck and therefore always revocable by cc-deck.
+- **Verification result**: The outcome of the layered check, recording whether it passed, which layer failed if it did not, and the time it was taken. Every completed check overwrites it, pass or fail. It is what listings report and what status recomputes. It is an observation about the endpoint, deliberately separate from the workspace's sharing state, so recording a failure here never moves the state machine.
+- **Invitation**: A grant of access to a shared workspace, optionally labelled and role scoped. It does not expire on a timer. Always created by cc-deck and therefore always revocable by cc-deck.
 
 ## Success Criteria *(mandatory)*
 
@@ -202,6 +220,7 @@ A developer with more than one environment, for example one for work and one at 
 - **SC-010**: The complete share, verify, invite, diagnose, and unshare journey is demonstrable using only cc-deck commands.
 - **SC-011**: No sharing failure, in any test case, results in the loss of a workspace or its contents.
 - **SC-012**: Every documentation artifact required by the project's completion rules is updated on the same branch that delivers the change, verified before the feature is considered complete.
+- **SC-013**: After any sequence of verification attempts, successful or failed, no credential minted by verification remains valid and none has been written to disk.
 
 ## Assumptions
 
@@ -211,7 +230,7 @@ A developer with more than one environment, for example one for work and one at 
 - The interface separating cc-deck from the entry point is retained as a seam even though this release has exactly one implementation, so that a future supervised entry point is an addition rather than a restructuring.
 - When both a single entry point address and a set of named entry points are configured, the explicitly named or explicitly overridden value takes precedence, then the declared default, then the single address.
 - Verification opens a control channel rather than a terminal channel, so it can prove the connection layer works without touching the shared session.
-- Verification authenticates with a credential of its own rather than borrowing one issued to a guest, so that repeated status checks never erode a person's access.
+- Verification authenticates with a credential of its own rather than borrowing one issued to a guest, so that repeated status checks never erode a person's access. That credential is minted per probe, scoped to the least privileged role, revoked immediately afterwards, and never written down. The cost is one credential mint and revoke on every status check, accepted in exchange for storing no standing secret.
 - Sharing has exactly two reported states, shared and degraded. Skipping verification does not add a third; it only leaves the verification age absent.
 - The end to end acceptance test skips when the multiplexer is not installed, following the pattern already used by the existing container smoke tests, and runs in continuous integration where it is installed.
 - Reachability is verified from the host only. Guest side network conditions are out of scope and documented as a known limitation.
@@ -225,3 +244,4 @@ A developer with more than one environment, for example one for work and one at 
 - Mesh network sharing recipes, including the tailnet only variant. That variant offers a materially different security posture and is worth documenting only once properly tested.
 - Detecting whether a guest's own network can reach the entry point.
 - Background health monitoring of any kind.
+- Invitation expiry. Invitations do not expire on a timer in this release. Adding a lifetime later is an addition to the invitation model rather than a change to the sharing lifecycle, since revocation already exists and would carry it.

@@ -101,6 +101,39 @@ Minor:
 
 The specification is ready for `/speckit-plan`.
 
+### Validation iteration 4 (2026-09-07) — clarify session
+
+Three clarifications were asked and integrated. All 16 items still pass; no regressions. Requirements
+grew from FR-042 to FR-047 and success criteria from SC-012 to SC-013.
+
+1. **Invitation expiry.** The spec called an invitation a "time bound" grant while no requirement
+   defined a lifetime and `internal/share` has no expiry field at all, so the spec asserted a
+   property the code does not have. Resolved by dropping the claim: invitations do not expire on a
+   timer, access ends only on unshare or confirmed session death, and expiry moved to Out of Scope
+   so the gap is tracked. Added FR-043.
+2. **Probe credential.** FR-010 required the real credential path without consuming a person's
+   invitation but never said what the probe authenticates with. Resolved as a short lived
+   observer-role credential minted per probe and revoked immediately, persisted nowhere. This was
+   chosen over a reusable per-share credential specifically to preserve the existing invariant
+   proven by `TestStartRevealsBothRolesOnlyAfterReadinessAndPersistsNoSecrets`. Added FR-044 through
+   FR-046, SC-013, and an edge case covering revocation after a timed-out probe.
+3. **What a failed probe records.** FR-023 forbade persisting a degraded result while the
+   Verification result entity described a failing-layer field and FR-018 reported stored results in
+   listings, so the field could never be written. Resolved by separating observation from state: a
+   completed check always overwrites the stored result, and FR-023 was narrowed to govern the state
+   machine only, which is what the source design's reasoning actually covers. Added FR-047 and
+   amended FR-018, FR-023, and the entity.
+
+Deliberately not asked, judged low impact:
+
+- Whether the two existing invitation roles should be restated as requirements. They are retained
+  unchanged by the design, so no task or test would follow from stating them.
+- Whether status probes the endpoint recorded at share time or the current configured value if
+  configuration changed in between. The Key Entities section already records the endpoint per share,
+  which settles the default.
+- Structured logging or diagnostic output beyond the failure message. Better decided during
+  planning.
+
 Implementation detail scan: the source design is written at implementation level, naming Go
 interfaces, file names, HTTP paths, and the Zellij web client. The specification deliberately
 restates all of it behaviourally. Terms such as "long lived connection", "credential exchange",
