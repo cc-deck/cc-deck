@@ -88,9 +88,7 @@ impl ZellijPlugin for ControllerPlugin {
 
                     crate::wasm_compat::set_selectable_wasm(false);
 
-                    // T021-T023: Migrate legacy state files to PID-scoped paths
-                    ControllerState::migrate_legacy_files();
-                    // T018: Clean up orphaned state files from dead Zellij sessions
+                    // Clean up orphaned state files from dead Zellij sessions
                     state::cleanup_orphaned_state_files();
 
                     // Restore persisted sessions (reattach recovery). Marked
@@ -243,10 +241,6 @@ impl ZellijPlugin for ControllerPlugin {
                     render_broadcast::flush_render(&mut self.state);
                 }
             }
-            PipeAction::SyncState | PipeAction::RequestState => {
-                // Legacy sync messages: ignored in controller architecture.
-                // The controller is the single writer; no peer sync needed.
-            }
             PipeAction::Attend => {
                 actions::handle_action(
                     &mut self.state,
@@ -295,7 +289,7 @@ impl ZellijPlugin for ControllerPlugin {
                     },
                 );
             }
-            PipeAction::Navigate | PipeAction::NavToggle => {
+            PipeAction::Navigate => {
                 let is_own_broadcast = matches!(
                     &pipe_message.source,
                     PipeSource::Plugin(id) if *id == self.state.plugin_id
@@ -352,19 +346,6 @@ impl ZellijPlugin for ControllerPlugin {
                     );
                 }
             }
-            PipeAction::Rename => {
-                // Rename from keybinding targets the focused pane
-                if let Some(pid) = self.state.own_focus() {
-                    // The actual rename text comes from the sidebar UI.
-                    // This keybinding just triggers navigation mode on the sidebar.
-                    broadcast_navigate(&self.state, "forward");
-                    let _ = pid; // Suppress unused warning
-                }
-            }
-            PipeAction::Help => {
-                // Help from keybinding: forward to sidebars
-                broadcast_navigate(&self.state, "forward");
-            }
             PipeAction::VoiceText(text) if !text.is_empty() => {
                 if text.starts_with("[[") && text.ends_with("]]") {
                     let command = &text[2..text.len() - 2];
@@ -410,47 +391,6 @@ impl ZellijPlugin for ControllerPlugin {
                     ));
                 }
             }
-            PipeAction::TestInject => {
-                // Diagnostic: inject hardcoded text into the focused pane.
-                // Compares manifest-derived pane ID with tracked state to
-                // isolate whether write_chars_to_pane_id fails due to a
-                // wrong pane ID or the API itself.
-                let manifest_focus = self.state.pane_manifest.as_ref().and_then(|m| {
-                    self.state.tabs.iter().find(|t| t.active).and_then(|tab| {
-                        m.panes.get(&tab.position).and_then(|panes| {
-                            panes
-                                .iter()
-                                .find(|p| !p.is_plugin && p.is_focused)
-                                .map(|p| p.id)
-                        })
-                    })
-                });
-                let tracked_focus = self.state.own_focus();
-                let last_attended = self.state.last_attended_pane_id;
-                let target = manifest_focus.or(tracked_focus).or(last_attended);
-
-                let debug_info = format!(
-                    "manifest_focus={:?} tracked_focus={:?} last_attended={:?} target={:?}",
-                    manifest_focus, tracked_focus, last_attended, target
-                );
-                crate::debug_log(&format!("CTRL TEST-INJECT {}", debug_info));
-
-                if let Some(pane_id) = target {
-                    write_chars_to_pane(pane_id, "VOICE_TEST ");
-                    crate::debug_log(&format!(
-                        "CTRL TEST-INJECT called write_chars_to_pane({})",
-                        pane_id
-                    ));
-                } else {
-                    crate::debug_log("CTRL TEST-INJECT: no target pane found");
-                }
-
-                #[cfg(target_family = "wasm")]
-                if let PipeSource::Cli(ref pipe_id) = pipe_message.source {
-                    cli_pipe_output_wasm(pipe_id, &debug_info);
-                    unblock_cli_pipe_input_wasm(pipe_id);
-                }
-            }
             PipeAction::RenderRequest(sidebar_plugin_id) => {
                 crate::debug_log(&format!(
                     "CTRL[{}] RENDER-REQUEST from sidebar={}",
@@ -458,12 +398,10 @@ impl ZellijPlugin for ControllerPlugin {
                 ));
                 render_broadcast::targeted_render(&self.state, sidebar_plugin_id);
             }
-            PipeAction::Unknown => {}
-            _ => {
-                // NavUp, NavDown, NavSelect, etc. are sidebar-local concerns.
-                // The controller does not handle cursor movement; sidebars
-                // manage their own navigation state.
+            PipeAction::VoiceText(_) => {
+                // Empty voice text: nothing to inject.
             }
+            PipeAction::Unknown => {}
         }
 
         // Hook events and other pipe messages use coalesced rendering.

@@ -21,11 +21,6 @@ fn sessions_path(pid: u32) -> String {
     }
 }
 
-/// Legacy file paths (pre-044, no PID suffix).
-const LEGACY_SESSIONS_PATH: &str = "/cache/sessions.json";
-const LEGACY_META_PATH: &str = "/cache/session-meta.json";
-const LEGACY_PID_PATH: &str = "/cache/zellij_pid";
-
 pub const FOCUS_CONFIRM_TIMEOUT_MS: u64 = 3000;
 
 /// How long a hook-created session may wait for the pane manifest to confirm
@@ -418,17 +413,16 @@ impl ControllerState {
         // Only remove sessions whose pane is confirmed exited.
         // Do NOT remove sessions whose pane_id is absent from the manifest,
         // as the manifest may be temporarily incomplete during rapid updates.
-        self.sessions
-            .retain(|pane_id, _| !exited_pane_ids.contains(pane_id));
+        let dead: Vec<u32> = self
+            .sessions
+            .keys()
+            .copied()
+            .filter(|id| exited_pane_ids.contains(id))
+            .collect();
+        for pane_id in dead {
+            self.evict_session(pane_id);
+        }
         if self.sessions.len() != before {
-            self.pending_git_branch
-                .retain(|id| self.sessions.contains_key(id));
-            if let Some(ref mut order) = self.sort_order {
-                order.retain(|pid| self.sessions.contains_key(pid));
-            }
-            self.auto_sort_tail
-                .retain(|pid| self.sessions.contains_key(pid));
-            self.prune_client_views();
             crate::debug_log(&format!(
                 "CTRL CLEANUP removed {} dead sessions, {} remaining",
                 before - self.sessions.len(),
@@ -717,30 +711,6 @@ impl ControllerState {
         }
     }
 
-    /// Migrate legacy state files (pre-044) to PID-scoped paths.
-    /// Called once on controller startup.
-    pub fn migrate_legacy_files() {
-        let pid = current_zellij_pid();
-        if pid == 0 {
-            return;
-        }
-
-        let scoped_sessions = sessions_path(pid);
-
-        // Migrate sessions.json if PID-scoped file does not exist yet.
-        // Only remove legacy file after successful write.
-        if std::fs::metadata(&scoped_sessions).is_err() {
-            if let Ok(content) = std::fs::read_to_string(LEGACY_SESSIONS_PATH) {
-                if std::fs::write(&scoped_sessions, &content).is_ok() {
-                    let _ = std::fs::remove_file(LEGACY_SESSIONS_PATH);
-                }
-            }
-        }
-
-        // Remove legacy meta and PID files (controller does not use meta file)
-        let _ = std::fs::remove_file(LEGACY_META_PATH);
-        let _ = std::fs::remove_file(LEGACY_PID_PATH);
-    }
 }
 
 /// Get the Zellij server PID.
@@ -754,6 +724,17 @@ fn current_zellij_pid() -> u32 {
     0
 }
 
+/// Files earlier releases wrote to the shared cache and nothing reads any
+/// more. Removed once so a long-lived install does not carry them forever.
+const RETIRED_CACHE_FILES: [&str; 6] = [
+    "/cache/sessions.json",
+    "/cache/session-meta.json",
+    "/cache/zellij_pid",
+    "/cache/attend-state.json",
+    "/cache/unified_update_controller",
+    "/cache/unified_update_sidebar",
+];
+
 /// Clean up orphaned state files from killed Zellij sessions.
 /// Scans `/cache/` for `sessions-*.json` and `session-meta-*.json` files.
 /// Attempts to check process liveness via `/proc/{pid}/`. If `/proc/` is
@@ -763,6 +744,10 @@ pub fn cleanup_orphaned_state_files() {
     let current_pid = current_zellij_pid();
     if current_pid == 0 {
         return;
+    }
+
+    for path in RETIRED_CACHE_FILES {
+        let _ = std::fs::remove_file(path);
     }
 
     let entries = match std::fs::read_dir("/cache/") {

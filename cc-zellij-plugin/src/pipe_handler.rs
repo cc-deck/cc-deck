@@ -24,14 +24,8 @@ pub struct HookPayload {
 pub enum PipeAction {
     /// Hook event from CLI (cc-deck:hook).
     HookEvent(HookPayload),
-    /// State sync from another instance (cc-deck:sync).
-    SyncState,
-    /// State request from a new instance (cc-deck:request).
-    RequestState,
     /// Attend action (cc-deck:attend).
     Attend,
-    /// Rename action (cc-deck:rename).
-    Rename,
     /// New session action (cc-deck:new).
     NewSession,
     /// Navigate action - toggle sidebar navigation mode (cc-deck:navigate).
@@ -40,18 +34,8 @@ pub enum PipeAction {
     DumpState,
     /// Restore metadata overrides from snapshot (cc-deck:restore-meta).
     RestoreMeta(String),
-    /// Toggle navigation mode (cc-deck:nav-toggle).
-    NavToggle,
-    /// Move cursor up in navigation mode (cc-deck:nav-up).
-    NavUp,
-    /// Move cursor down in navigation mode (cc-deck:nav-down).
-    NavDown,
-    /// Select session at cursor in navigation mode (cc-deck:nav-select).
-    NavSelect,
-    /// Toggle pause on cursor session (cc-deck:pause).
+    /// Toggle pause on the focused session (cc-deck:pause).
     Pause,
-    /// Toggle help overlay (cc-deck:help).
-    Help,
     /// Navigate previous - enter navigation or move cursor up (cc-deck:navigate-prev).
     NavigatePrev,
     /// Attend previous - reverse-cycle through attend tiers (cc-deck:attend-prev).
@@ -66,33 +50,14 @@ pub enum PipeAction {
     VoiceText(String),
     /// Voice mute toggle from keybinding (cc-deck:voice-mute-toggle).
     VoiceMuteToggle,
-    /// Diagnostic: inject hardcoded text into focused pane (cc-deck:test-inject).
-    TestInject,
     /// Sidebar requests initial render from controller (cc-deck:render-request).
     RenderRequest(u32),
     /// Unknown message.
     Unknown,
 }
 
-fn is_sync_message(name: &str) -> bool {
-    name == "cc-deck:sync" || name.starts_with("cc-deck:sync:")
-}
-
-fn is_request_message(name: &str) -> bool {
-    name == "cc-deck:request" || name.starts_with("cc-deck:request:")
-}
-
 /// Parse a pipe message name into an action.
-/// Handles PID-scoped sync/request messages (cc-deck:sync:{pid}, cc-deck:request:{pid})
-/// as well as legacy names without PID suffix.
 pub fn parse_pipe_message(name: &str, payload: Option<&str>) -> PipeAction {
-    if is_sync_message(name) {
-        return PipeAction::SyncState;
-    }
-    if is_request_message(name) {
-        return PipeAction::RequestState;
-    }
-
     match name {
         "cc-deck:hook" => {
             if let Some(payload_str) = payload {
@@ -105,19 +70,13 @@ pub fn parse_pipe_message(name: &str, payload: Option<&str>) -> PipeAction {
             }
         }
         "cc-deck:attend" => PipeAction::Attend,
-        "cc-deck:rename" => PipeAction::Rename,
         "cc-deck:new" => PipeAction::NewSession,
         "cc-deck:navigate" | "navigate" => PipeAction::Navigate,
         "cc-deck:dump-state" => PipeAction::DumpState,
         "cc-deck:restore-meta" => {
             PipeAction::RestoreMeta(payload.unwrap_or("").to_string())
         }
-        "cc-deck:nav-toggle" => PipeAction::NavToggle,
-        "cc-deck:nav-up" => PipeAction::NavUp,
-        "cc-deck:nav-down" => PipeAction::NavDown,
-        "cc-deck:nav-select" => PipeAction::NavSelect,
         "cc-deck:pause" => PipeAction::Pause,
-        "cc-deck:help" => PipeAction::Help,
         "cc-deck:navigate-prev" => PipeAction::NavigatePrev,
         "cc-deck:attend-prev" => PipeAction::AttendPrev,
         "cc-deck:working" => PipeAction::Working,
@@ -125,7 +84,6 @@ pub fn parse_pipe_message(name: &str, payload: Option<&str>) -> PipeAction {
         "cc-deck:refresh" => PipeAction::Refresh,
         "cc-deck:voice" => PipeAction::VoiceText(payload.unwrap_or("").to_string()),
         "cc-deck:voice-mute-toggle" => PipeAction::VoiceMuteToggle,
-        "cc-deck:test-inject" => PipeAction::TestInject,
         "cc-deck:render-request" => {
             payload.and_then(|p| p.parse::<u32>().ok())
                 .map(PipeAction::RenderRequest)
@@ -255,7 +213,6 @@ mod tests {
             _ => panic!("expected HookEvent"),
         }
 
-        assert!(matches!(parse_pipe_message("cc-deck:request", None), PipeAction::RequestState));
         assert!(matches!(parse_pipe_message("cc-deck:attend", None), PipeAction::Attend));
         assert!(matches!(parse_pipe_message("cc-deck:new", None), PipeAction::NewSession));
         assert!(matches!(parse_pipe_message("cc-deck:dump-state", None), PipeAction::DumpState));
@@ -264,34 +221,35 @@ mod tests {
 
     #[test]
     fn test_parse_nav_and_control_commands() {
-        assert!(matches!(parse_pipe_message("cc-deck:nav-toggle", None), PipeAction::NavToggle));
-        assert!(matches!(parse_pipe_message("cc-deck:nav-up", None), PipeAction::NavUp));
-        assert!(matches!(parse_pipe_message("cc-deck:nav-down", None), PipeAction::NavDown));
-        assert!(matches!(parse_pipe_message("cc-deck:nav-select", None), PipeAction::NavSelect));
         assert!(matches!(parse_pipe_message("cc-deck:pause", None), PipeAction::Pause));
-        assert!(matches!(parse_pipe_message("cc-deck:help", None), PipeAction::Help));
         assert!(matches!(parse_pipe_message("cc-deck:navigate-prev", None), PipeAction::NavigatePrev));
         assert!(matches!(parse_pipe_message("cc-deck:attend-prev", None), PipeAction::AttendPrev));
     }
 
     #[test]
-    fn test_parse_refresh_command() {
-        assert!(matches!(parse_pipe_message("cc-deck:refresh", None), PipeAction::Refresh));
+    fn test_retired_pipe_names_are_unknown() {
+        // Names from the pre-controller sync protocol and sidebar-local
+        // navigation are no longer part of the interface.
+        for name in [
+            "cc-deck:sync",
+            "cc-deck:sync:12345",
+            "cc-deck:request",
+            "cc-deck:nav-toggle",
+            "cc-deck:nav-up",
+            "cc-deck:help",
+            "cc-deck:rename",
+            "cc-deck:test-inject",
+        ] {
+            assert!(
+                matches!(parse_pipe_message(name, None), PipeAction::Unknown),
+                "{name} should be unknown"
+            );
+        }
     }
 
     #[test]
-    fn test_parse_pid_scoped_sync_message() {
-        // PID-scoped sync messages should parse as SyncState
-        let payload = r#"{"1":{"pane_id":1}}"#;
-        assert!(matches!(
-            parse_pipe_message("cc-deck:sync:12345", Some(payload)),
-            PipeAction::SyncState
-        ));
-        // PID-scoped request messages should parse as RequestState
-        assert!(matches!(
-            parse_pipe_message("cc-deck:request:12345", None),
-            PipeAction::RequestState
-        ));
+    fn test_parse_refresh_command() {
+        assert!(matches!(parse_pipe_message("cc-deck:refresh", None), PipeAction::Refresh));
     }
 
     #[test]
@@ -316,33 +274,12 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_test_inject() {
-        assert!(matches!(parse_pipe_message("cc-deck:test-inject", None), PipeAction::TestInject));
-    }
-
-    #[test]
-    fn test_is_sync_message() {
-        assert!(is_sync_message("cc-deck:sync"));
-        assert!(is_sync_message("cc-deck:sync:12345"));
-        assert!(!is_sync_message("cc-deck:request"));
-        assert!(!is_sync_message("cc-deck:hook"));
-    }
-
-    #[test]
     fn test_parse_render_request() {
         match parse_pipe_message("cc-deck:render-request", Some("55")) {
             PipeAction::RenderRequest(id) => assert_eq!(id, 55),
             _ => panic!("expected RenderRequest"),
         }
         assert!(matches!(parse_pipe_message("cc-deck:render-request", None), PipeAction::Unknown));
-    }
-
-    #[test]
-    fn test_is_request_message() {
-        assert!(is_request_message("cc-deck:request"));
-        assert!(is_request_message("cc-deck:request:12345"));
-        assert!(!is_request_message("cc-deck:sync"));
-        assert!(!is_request_message("cc-deck:hook"));
     }
 
     #[test]

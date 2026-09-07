@@ -162,7 +162,6 @@ fn handle_working(state: &mut ControllerState) {
     let result = perform_working_directed(state, AttendDirection::Forward);
     if let Some((pane_id, tab_index)) = result {
         state.last_attended_pane_id = Some(pane_id);
-        write_last_attended(pane_id);
         state.set_client_focus_intent(state.client_id, pane_id, tab_index);
         super::render_broadcast::broadcast_render(state);
         state.render_dirty = false;
@@ -176,7 +175,6 @@ fn handle_working_prev(state: &mut ControllerState) {
     let result = perform_working_directed(state, AttendDirection::Backward);
     if let Some((pane_id, tab_index)) = result {
         state.last_attended_pane_id = Some(pane_id);
-        write_last_attended(pane_id);
         state.set_client_focus_intent(state.client_id, pane_id, tab_index);
         super::render_broadcast::broadcast_render(state);
         state.render_dirty = false;
@@ -305,8 +303,6 @@ enum AttendDirection {
     Backward,
 }
 
-const ATTEND_STATE_PATH: &str = "/cache/attend-state.json";
-
 /// Lightweight candidate data extracted from Session to avoid borrow conflicts.
 #[derive(Clone)]
 struct AttendCandidate {
@@ -394,7 +390,6 @@ fn perform_attend_directed(
     let result = cycle_through_tiers(state, &tiers, direction);
 
     if let Some((pane_id, _)) = result {
-        write_last_attended(pane_id);
         let is_done = tiers
             .iter()
             .flatten()
@@ -508,10 +503,6 @@ fn cycle_through_tiers(
     }
 
     None
-}
-
-fn write_last_attended(pane_id: u32) {
-    let _ = std::fs::write(ATTEND_STATE_PATH, pane_id.to_string());
 }
 
 /// Handle a focus-report from a sidebar (multiplayer presence tracking).

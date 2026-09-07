@@ -11,8 +11,11 @@ use crate::session::{self, Activity, Session};
 use std::collections::BTreeMap;
 use zellij_tile::prelude::*;
 
-/// Handle TabUpdate event: track tabs, detect active tab, register keybindings,
-/// clean up dead sessions.
+/// Handle TabUpdate event: track tabs, detect active tab, register keybindings.
+///
+/// This reconciles only. Time-based work (stale transitions, quarantine
+/// sweeps, dead-pane removal after the grace period) belongs to the timer,
+/// and pane liveness is settled by PaneUpdate and PaneClosed.
 pub fn handle_tab_update(state: &mut ControllerState, tabs: Vec<TabInfo>) {
     let old_active = state.own_active_tab();
     let new_active = tabs.iter().find(|t| t.active).map(|t| t.position);
@@ -41,10 +44,6 @@ pub fn handle_tab_update(state: &mut ControllerState, tabs: Vec<TabInfo>) {
         .sidebar_registry
         .retain(|_, (_, client_id)| active_clients.contains(client_id));
 
-    // Clean up dead sessions
-    let dead_removed = state.remove_dead_sessions();
-    let stale_transitioned = state.cleanup_stale_sessions(state.config.done_timeout);
-
     // If tab count changed, notify sidebars to reindex and update virtual sort
     if tab_count_changed {
         if let Some(ref mut order) = state.sort_order {
@@ -66,12 +65,7 @@ pub fn handle_tab_update(state: &mut ControllerState, tabs: Vec<TabInfo>) {
 
     // Only mark render dirty when something actually changed
     let active_tab_changed = new_active != old_active;
-    if tab_count_changed
-        || active_tab_changed
-        || client_views_changed
-        || dead_removed
-        || stale_transitioned
-    {
+    if tab_count_changed || active_tab_changed || client_views_changed {
         state.mark_render_dirty();
     }
 }
@@ -391,12 +385,7 @@ pub fn handle_pane_closed(state: &mut ControllerState, pane_id: PaneId) {
             return;
         }
     };
-    let removed = state.sessions.remove(&id).is_some();
-    if removed {
-        state.pending_git_branch.remove(&id);
-        if let Some(ref mut order) = state.sort_order {
-            order.retain(|&p| p != id);
-        }
+    if state.evict_session(id) {
         state.save_sessions();
         state.mark_render_dirty();
     }
