@@ -204,6 +204,11 @@ Forward AI agent hook events to the Zellij plugin.
 This command is normally called by agent hooks, not directly by users.
 Use `--raw` for custom integrations.
 
+The command exits silently when it is not running inside a Zellij session, which keeps agents started in a plain terminal out of the sidebar.
+It also exits silently on malformed input or any other error, so that it never disrupts the agent that invoked it.
+
+Set the flag file `~/.local/state/cc-deck/hook-debug` to record why each invocation was forwarded or dropped to `~/.local/state/cc-deck/hook.log`.
+
 [source,bash]
 ----
 echo '{"hook_event_name":"PreToolUse","session_id":"abc"}' | cc-deck hook --agent claude --pane-id "$ZELLIJ_PANE_ID"
@@ -1112,6 +1117,7 @@ cc-deck ws pipe mydev --name cc-deck:voice --payload "hello world"
 
 Internal command used by Claude Code hooks.
 Not intended for direct use.
+Exits silently when it is not running inside a Zellij session.
 
 [source,bash]
 ----

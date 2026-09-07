@@ -99,16 +99,18 @@ impl ZellijPlugin for ControllerPlugin {
                     // T018: Clean up orphaned state files from dead Zellij sessions
                     state::cleanup_orphaned_state_files();
 
-                    // Restore persisted sessions (reattach recovery)
-                    let restored = ControllerState::restore_sessions();
-                    if !restored.is_empty() {
-                        self.state.unconfirmed_pane_ids = restored.keys().copied().collect();
-                        self.state.merge_sessions(restored);
-                    }
+                    // Restore persisted sessions (reattach recovery). Marked
+                    // unconditionally, including when the cache is missing, so
+                    // a workspace that legitimately has no sessions does not
+                    // poll the disk once a second forever.
+                    self.state.restore_attempted = true;
+                    self.state.restore_and_quarantine();
                     // Grace period lets the pane manifest stabilize before
                     // we start removing "dead" sessions that may just be
-                    // slow to appear.
-                    self.state.startup_grace_until = Some(session::unix_now_ms() + 3000);
+                    // slow to appear. restore_and_quarantine arms this too;
+                    // set it here as well for the empty-cache case.
+                    self.state.startup_grace_until =
+                        Some(session::unix_now_ms() + state::RESTORE_GRACE_MS);
 
                     // Process any events queued before permissions
                     let pending = std::mem::take(&mut self.state.pending_events);
@@ -171,6 +173,19 @@ impl ZellijPlugin for ControllerPlugin {
                 // Dormant guard: non-leader only processes Timer (for election)
                 // and PermissionRequestResult. All other events are ignored.
                 if !self.state.is_leader {
+                    // Capture the pane manifest even while dormant. Zellij emits
+                    // PaneUpdate only when the pane set changes, never on a
+                    // schedule, so an instance that wins the election later would
+                    // otherwise run on a stale or absent manifest until the next
+                    // pane change. The manifest is what confirms a session is
+                    // real, so it must be current the moment leadership starts.
+                    //
+                    // Only the raw field is captured. handle_pane_update also
+                    // rebuilds the pane map and removes sessions, and a dormant
+                    // instance must never mutate session state.
+                    if let Event::PaneUpdate(ref manifest) = event {
+                        self.state.pane_manifest = Some(manifest.clone());
+                    }
                     if matches!(event, Event::Timer(_)) {
                         self.handle_event_inner(event);
                     }
@@ -680,15 +695,18 @@ impl ControllerPlugin {
         }
         #[derive(serde::Serialize)]
         struct DumpStateResponse<'a> {
-            sessions: &'a std::collections::BTreeMap<u32, crate::session::Session>,
+            sessions: &'a std::collections::BTreeMap<u32, &'a crate::session::Session>,
             attended_pane_id: Option<u32>,
             #[serde(skip_serializing_if = "Option::is_none")]
             focused_pane_id: Option<u32>,
             #[serde(skip_serializing_if = "Option::is_none")]
             voice_mute_requested: Option<bool>,
         }
+        // Withhold sessions the manifest has not confirmed, so the Go CLI's
+        // snapshots and status output never record a pane that does not exist.
+        let visible = self.state.visible_sessions();
         let resp = DumpStateResponse {
-            sessions: &self.state.sessions,
+            sessions: &visible,
             attended_pane_id: self.state.last_attended_pane_id,
             focused_pane_id: self.state.own_focus(),
             voice_mute_requested: self.state.voice_mute_requested,

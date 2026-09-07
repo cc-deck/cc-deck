@@ -64,8 +64,18 @@ The flow:
 
 1. Claude Code fires a hook event (e.g., session starts, permission request)
 2. `cc-deck hook --pane-id "$ZELLIJ_PANE_ID"` runs
-3. The CLI maps the pane ID to a plugin instance
-4. The plugin updates the session's state in the sidebar
+3. The CLI exits immediately when it is not running inside a Zellij session
+4. The CLI maps the pane ID to a plugin instance
+5. The plugin updates the session's state in the sidebar
+
+Step 3 matters because `zellij pipe` succeeds when it is run from outside a Zellij session and delivers to whichever session is running.
+Without that check, an agent started in a plain terminal would appear in the sidebar of an unrelated session.
+
+A pane ID arriving on a hook event is a claim that the controller has not yet verified.
+The controller therefore holds a newly created session back until the Zellij pane manifest confirms that the pane exists, and removes the session if that confirmation does not arrive.
+This matters because pane IDs restart from zero in every Zellij run.
+An ID carried over from an earlier run does not simply fail to match.
+It addresses a different pane that is genuinely in use.
 
 == Directory Structure
 

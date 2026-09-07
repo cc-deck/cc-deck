@@ -39,6 +39,73 @@ fn test_controller_hook_session_start() {
     assert_eq!(plugin.test_state().sessions[&42].activity, Activity::Init);
 }
 
+/// End to end reproduction of the reported bug: an agent running outside
+/// Zellij delivered hook events naming a pane from an earlier run. Driven
+/// through the real pipe entry point, the session must not survive.
+#[test]
+fn test_controller_phantom_hook_is_evicted_end_to_end() {
+    let mut plugin = setup_controller();
+
+    // The controller knows about pane 10. Pane 99 does not exist.
+    let mut panes = std::collections::HashMap::new();
+    panes.insert(0, vec![make_pane_info_full(10, false, false)]);
+    plugin.test_state_mut().pane_manifest = Some(PaneManifest { panes });
+
+    plugin.pipe(make_hook_pipe("SessionStart", 99));
+
+    assert!(
+        plugin.test_state().is_hidden(99),
+        "a pane the manifest never showed must be withheld from the sidebar"
+    );
+    assert!(
+        !crate::controller::render_broadcast::build_render_payload(plugin.test_state())
+            .sessions
+            .iter()
+            .any(|s| s.pane_id == 99),
+        "and must not appear in the render payload"
+    );
+
+    // Expire the deadline and let the sweep settle it.
+    plugin
+        .test_state_mut()
+        .unconfirmed_panes
+        .get_mut(&99)
+        .unwrap()
+        .deadline_ms = 0;
+    plugin.test_state_mut().sweep_quarantine();
+
+    assert!(
+        !plugin.test_state().sessions.contains_key(&99),
+        "the phantom must not outlive its deadline"
+    );
+}
+
+/// Zellij emits PaneUpdate only when the pane set changes, so an instance that
+/// wins the election later must already hold a current manifest.
+#[test]
+fn test_dormant_controller_captures_manifest_without_mutating_sessions() {
+    let mut plugin = setup_controller();
+    plugin.test_state_mut().is_leader = false;
+    plugin.test_state_mut().pane_manifest = None;
+    plugin
+        .test_state_mut()
+        .sessions
+        .insert(7, crate::session::Session::new(7, "s".into()));
+
+    let mut panes = std::collections::HashMap::new();
+    panes.insert(0, vec![make_pane_info_full(10, false, false)]);
+    plugin.update(Event::PaneUpdate(PaneManifest { panes }));
+
+    assert!(
+        plugin.test_state().pane_manifest.is_some(),
+        "a dormant controller must still capture the manifest"
+    );
+    assert!(
+        plugin.test_state().sessions.contains_key(&7),
+        "but must not touch session state, which only the leader may write"
+    );
+}
+
 #[test]
 fn test_controller_hook_pre_tool_use() {
     let mut plugin = setup_controller();
@@ -117,6 +184,13 @@ fn test_controller_action_pause() {
 #[test]
 fn test_controller_action_attend() {
     let mut plugin = setup_controller();
+
+    // Give the controller a pane manifest containing pane 42. Without one, the
+    // session stays quarantined and is withheld from the attend candidates,
+    // which is the point of the quarantine rather than a defect.
+    let mut panes = std::collections::HashMap::new();
+    panes.insert(0, vec![make_pane_info_full(42, false, false)]);
+    plugin.test_state_mut().pane_manifest = Some(PaneManifest { panes });
 
     // Create a Done session with a tab_index
     plugin.pipe(make_hook_pipe("SessionStart", 42));

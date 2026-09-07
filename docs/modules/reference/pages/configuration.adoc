@@ -196,8 +196,15 @@ The hex portion must be exactly 6 valid hexadecimal characters.
 | `<project>/.cc-deck/voice-glossary.txt`
 | Project-specific voice glossary (one term per line)
 
-| `/tmp/cc-deck-pane-map.json`
-| Hook pane ID cache (ephemeral)
+| `~/.local/state/cc-deck/pane-map.json`
+| Hook pane ID cache.
+Entries are scoped to the Zellij session that recorded them and expire after 12 hours.
+
+| `~/.local/state/cc-deck/hook-debug`
+| Flag file. When it exists, the hook command records diagnostics.
+
+| `~/.local/state/cc-deck/hook.log`
+| Hook diagnostic log, written only while the flag file above exists.
 |===
 
 == Workspace Definition Fields

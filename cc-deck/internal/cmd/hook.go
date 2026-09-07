@@ -38,8 +38,12 @@ directly, skipping TranslateEvent().
 The --pane-id flag should use shell expansion ($ZELLIJ_PANE_ID) so the
 shell resolves it before the binary runs.
 
-Exits silently (code 0) if not inside Zellij (empty pane-id),
-input is malformed, or any error occurs. Never disrupts the agent.`,
+Exits silently (code 0) when the process is not running inside a Zellij
+session, when the input is malformed, or on any other error, so that it
+never disrupts the agent. Zellij membership is decided from the $ZELLIJ
+environment variable rather than from an empty --pane-id: an agent outside
+Zellij has no pane, and "zellij pipe" would otherwise deliver its events to
+whichever session happens to be running.`,
 		Args:   cobra.NoArgs,
 		Hidden: true,
 		Run: func(cmd *cobra.Command, _ []string) {
@@ -58,27 +62,83 @@ input is malformed, or any error occurs. Never disrupts the agent.`,
 	return cmd
 }
 
-// paneMapFile is the path for the session_id -> pane_id cache.
+// paneMapFile is the path for the session_id -> pane cache.
 var hookStateDir = filepath.Join(xdg.StateHome, "cc-deck")
 
 var paneMapFile = filepath.Join(hookStateDir, "pane-map.json")
 
-func loadPaneMap() map[string]uint32 {
+// paneMapTTL bounds how long a cached pane id stays usable.
+//
+// Entries are removed on SessionEnd, but an agent that is killed or that
+// crashes never sends one, so without an expiry the cache grows a permanent
+// tail of mappings to panes that stopped existing long ago.
+const paneMapTTL = 12 * time.Hour
+
+// paneMapEntry records the pane an agent session was last seen in, scoped to
+// the Zellij session that observed it.
+//
+// The scope matters because Zellij numbers panes from zero in every run: a
+// pane id borrowed from an earlier run does not merely miss, it addresses a
+// different, live pane in the current one.
+type paneMapEntry struct {
+	PaneID        uint32 `json:"pane_id"`
+	ZellijSession string `json:"zellij_session"`
+	UpdatedAt     int64  `json:"updated_at"`
+}
+
+// loadPaneMap reads the cache, dropping entries that have expired.
+//
+// A file written in the older flat `session_id -> pane_id` shape fails to
+// decode and yields an empty map, which is the intended migration: those
+// entries carry no Zellij session and so could never be trusted anyway.
+func loadPaneMap() map[string]paneMapEntry {
 	data, err := os.ReadFile(paneMapFile)
 	if err != nil {
-		return make(map[string]uint32)
+		return make(map[string]paneMapEntry)
 	}
-	var m map[string]uint32
+	var m map[string]paneMapEntry
 	if err := json.Unmarshal(data, &m); err != nil {
-		return make(map[string]uint32)
+		return make(map[string]paneMapEntry)
+	}
+	cutoff := time.Now().Add(-paneMapTTL).Unix()
+	for sessionID, entry := range m {
+		if entry.UpdatedAt < cutoff {
+			delete(m, sessionID)
+		}
 	}
 	return m
 }
 
-func savePaneMap(m map[string]uint32) {
+func savePaneMap(m map[string]paneMapEntry) {
 	_ = os.MkdirAll(hookStateDir, 0700)
 	data, _ := json.Marshal(m)
 	_ = os.WriteFile(paneMapFile, data, 0600)
+}
+
+// currentZellijSession reports the Zellij session this process belongs to.
+//
+// Zellij exports ZELLIJ and ZELLIJ_SESSION_NAME into every pane, and an agent
+// started in a pane inherits them, as does the shell that runs its hooks. A
+// hook process without them is not running in any pane of any session.
+func currentZellijSession() (string, bool) {
+	if os.Getenv("ZELLIJ") == "" {
+		return "", false
+	}
+	return os.Getenv("ZELLIJ_SESSION_NAME"), true
+}
+
+// sendHookPayload forwards a normalized payload to the plugin.
+//
+// A package-level variable so tests can observe what would have been sent
+// without shelling out to zellij.
+var sendHookPayload = func(zellijPath string, payload []byte) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, zellijPath, "pipe",
+		"--name", "cc-deck:hook",
+		"--", string(payload))
+	_ = cmd.Run()
 }
 
 func runHook(stdin io.Reader, paneIDStr string, agentName string) {
@@ -108,26 +168,56 @@ func runHook(stdin io.Reader, paneIDStr string, agentName string) {
 
 	normalized.AgentIndicator = a.Indicator()
 
+	// An agent running outside Zellij has no pane and so no sidebar row to
+	// own. Stopping here is what keeps it out: `zellij pipe` succeeds from
+	// outside a session and delivers to whichever session is running, so
+	// without this check an agent in a plain terminal reaches the sidebar of
+	// an unrelated Zellij session and stays there.
+	zellijSession, inZellij := currentZellijSession()
+	if !inZellij {
+		logHookEnv(normalized.HookEvent, paneIDStr, "not-in-zellij")
+		return
+	}
+
 	var paneID uint32
 	if paneIDStr != "" {
 		paneID64, err := strconv.ParseUint(paneIDStr, 10, 32)
 		if err != nil {
+			logHookEnv(normalized.HookEvent, paneIDStr, "bad-pane-id-arg")
 			return
 		}
 		paneID = uint32(paneID64)
+		logHookEnv(normalized.HookEvent, paneIDStr, "from-arg")
 		if normalized.SessionID != "" {
 			m := loadPaneMap()
-			m[normalized.SessionID] = paneID
+			m[normalized.SessionID] = paneMapEntry{
+				PaneID:        paneID,
+				ZellijSession: zellijSession,
+				UpdatedAt:     time.Now().Unix(),
+			}
 			savePaneMap(m)
 		}
 	} else if normalized.SessionID != "" {
+		// The pane id reaches this command by shell expansion of
+		// $ZELLIJ_PANE_ID. Claude Code was once observed dropping the Zellij
+		// environment from hook subprocesses, which is why this cache exists;
+		// it is consulted only when the pane id really is missing.
 		m := loadPaneMap()
 		cached, ok := m[normalized.SessionID]
 		if !ok {
+			logHookEnv(normalized.HookEvent, paneIDStr, "no-cache-entry")
 			return
 		}
-		paneID = cached
+		if cached.ZellijSession != zellijSession {
+			// The mapping was recorded by a different Zellij session, where
+			// this pane id meant something else entirely.
+			logHookEnv(normalized.HookEvent, paneIDStr, "cache-session-mismatch")
+			return
+		}
+		paneID = cached.PaneID
+		logHookEnv(normalized.HookEvent, paneIDStr, "from-cache")
 	} else {
+		logHookEnv(normalized.HookEvent, paneIDStr, "no-pane-id-no-session-id")
 		return
 	}
 
@@ -145,13 +235,7 @@ func runHook(stdin io.Reader, paneIDStr string, agentName string) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, zellijPath, "pipe",
-		"--name", "cc-deck:hook",
-		"--", string(payloadJSON))
-	_ = cmd.Run()
+	sendHookPayload(zellijPath, payloadJSON)
 
 	session.AutoSave()
 
@@ -161,4 +245,3 @@ func runHook(stdin io.Reader, paneIDStr string, agentName string) {
 		savePaneMap(m)
 	}
 }
-

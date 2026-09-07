@@ -12,7 +12,15 @@ use cc_deck::{RenderPayload, RenderSession};
 /// Build a RenderPayload from the current controller state.
 pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
     let sessions: Vec<&crate::session::Session> = {
-        let mut s: Vec<_> = state.sessions.values().collect();
+        // Sessions awaiting confirmation from the pane manifest are withheld.
+        // A row that vanishes seconds later is more confusing than one that
+        // arrives seconds late, and while shown it would inflate the header
+        // counts below and be clickable through to a pane that does not exist.
+        let mut s: Vec<_> = state
+            .sessions
+            .values()
+            .filter(|sess| !state.is_hidden(sess.pane_id))
+            .collect();
         if let Some(ref order) = state.sort_order {
             s.sort_by_key(|sess| {
                 order
@@ -298,6 +306,41 @@ mod tests {
         s.activity = activity;
         s.tab_index = Some(pane_id as usize);
         s
+    }
+
+    #[test]
+    fn test_render_payload_omits_hook_quarantined_sessions() {
+        let mut state = ControllerState::default();
+        state
+            .sessions
+            .insert(1, make_session(1, "real", Activity::Working));
+        state
+            .sessions
+            .insert(2, make_session(2, "phantom", Activity::Working));
+        state.quarantine(2, crate::controller::state::QuarantineKind::Hook);
+
+        let payload = build_render_payload(&state);
+
+        assert_eq!(payload.sessions.len(), 1, "the phantom row must not render");
+        assert_eq!(payload.sessions[0].display_name, "real");
+        assert_eq!(payload.total, 1, "header count must exclude it too");
+        assert_eq!(payload.working, 1, "activity counters must exclude it too");
+    }
+
+    /// Sessions restored from disk stay visible through their grace window,
+    /// otherwise the sidebar would blank on every reattach.
+    #[test]
+    fn test_render_payload_includes_restored_quarantined_sessions() {
+        let mut state = ControllerState::default();
+        state
+            .sessions
+            .insert(1, make_session(1, "restored", Activity::Idle));
+        state.quarantine(1, crate::controller::state::QuarantineKind::Restored);
+
+        let payload = build_render_payload(&state);
+
+        assert_eq!(payload.sessions.len(), 1);
+        assert_eq!(payload.total, 1);
     }
 
     #[test]

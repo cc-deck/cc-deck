@@ -5,7 +5,7 @@
 // run_command results, and pane lifecycle events.
 
 use super::render_broadcast;
-use super::state::ControllerState;
+use super::state::{ControllerState, QuarantineKind};
 use crate::git::{self, GitResult};
 use crate::session::{self, Activity, Session};
 use std::collections::BTreeMap;
@@ -87,32 +87,42 @@ pub fn handle_pane_update(state: &mut ControllerState, manifest: PaneManifest) {
     state.rebuild_pane_map();
     let client_views_changed = state.reconcile_client_views();
 
-    // Confirm restored sessions whose panes still exist in the manifest.
+    // Confirm quarantined sessions whose panes appear in the fresh manifest.
     // On reattach, Claude Code processes don't re-fire hooks, so the pane
-    // manifest is the only way to verify they're still alive.
-    if !state.unconfirmed_pane_ids.is_empty() {
+    // manifest is the only way to verify they're still alive. It is also the
+    // only thing that can vouch for a pane a hook event merely claimed.
+    let mut graduated_hook = false;
+    if !state.unconfirmed_panes.is_empty() {
         if let Some(ref manifest) = state.pane_manifest {
             let mut confirmed = Vec::new();
             for panes in manifest.panes.values() {
                 for pane in panes {
                     if !pane.is_plugin
                         && !pane.exited
-                        && state.unconfirmed_pane_ids.contains(&pane.id)
+                        && state.unconfirmed_panes.contains_key(&pane.id)
                     {
                         confirmed.push(pane.id);
                     }
                 }
             }
             for id in &confirmed {
-                state.unconfirmed_pane_ids.remove(id);
+                if let Some(q) = state.unconfirmed_panes.remove(id) {
+                    // A hook session graduating goes from hidden and unpersisted
+                    // to visible and persisted. The session count does not move,
+                    // so the check below would otherwise miss it.
+                    graduated_hook |= q.kind == QuarantineKind::Hook;
+                }
             }
             if !confirmed.is_empty() {
                 crate::debug_log(&format!(
-                    "CTRL PANE_UPDATE confirmed {} restored sessions from manifest",
+                    "CTRL PANE_UPDATE confirmed {} unconfirmed sessions from manifest",
                     confirmed.len()
                 ));
             }
         }
+    }
+    if graduated_hook {
+        state.save_sessions();
     }
 
     // Remove dead sessions (unless in startup grace)
@@ -122,7 +132,7 @@ pub fn handle_pane_update(state: &mut ControllerState, manifest: PaneManifest) {
     }
 
     let count_changed = state.sessions.len() != old_session_count;
-    if count_changed || removed || client_views_changed {
+    if count_changed || removed || client_views_changed || graduated_hook {
         state.mark_render_dirty();
     }
 }
@@ -180,39 +190,33 @@ pub fn handle_timer(state: &mut ControllerState, _elapsed: f64) {
     }
 
     // After startup grace expires, run one deferred cleanup pass.
+    // Quarantined sessions are no longer drained here: `sweep_quarantine`
+    // below settles them on their own per-id deadlines, which for restored
+    // sessions expire on this same tick.
     if state.startup_grace_until.is_some() && !state.in_startup_grace() {
         state.startup_grace_until = None;
-        // Remove restored sessions that were never confirmed by a hook event.
-        if !state.unconfirmed_pane_ids.is_empty() {
-            let count = state.unconfirmed_pane_ids.len();
-            for pane_id in state.unconfirmed_pane_ids.drain() {
-                state.sessions.remove(&pane_id);
-                if let Some(ref mut order) = state.sort_order {
-                    order.retain(|&p| p != pane_id);
-                }
-                state.auto_sort_tail.retain(|&p| p != pane_id);
-            }
-            crate::debug_log(&format!(
-                "CTRL CLEANUP removed {count} unconfirmed restored sessions"
-            ));
-            state.save_sessions();
-            state.mark_render_dirty();
-        }
         if state.remove_dead_sessions() {
             state.save_sessions();
             state.mark_render_dirty();
         }
     }
 
+    // Settle quarantined panes whose deadline has passed. This must run before
+    // the auto-restore below, so an eviction is not read straight back off disk
+    // within the same tick.
+    if state.sweep_quarantine() {
+        state.save_sessions();
+        state.mark_render_dirty();
+    }
+
     // Auto-restore persisted sessions if sidebar is empty (reattach recovery).
-    if state.sessions.is_empty() {
-        let restored = ControllerState::restore_sessions();
-        if !restored.is_empty() {
-            crate::debug_log(&format!(
-                "CTRL TIMER: auto-restored {} sessions from disk",
-                restored.len()
-            ));
-            state.merge_sessions(restored);
+    // Once only: without the guard this re-reads the cache on every tick that
+    // finds no sessions, which resurrected the very sessions the sweep had just
+    // evicted. Restored entries are quarantined so they must still prove
+    // themselves against the manifest.
+    if state.sessions.is_empty() && !state.restore_attempted {
+        state.restore_attempted = true;
+        if state.restore_and_quarantine() {
             state.mark_render_dirty();
         }
     }
@@ -696,18 +700,51 @@ mod tests {
         PaneManifest { panes: map }
     }
 
+    /// A hook session graduating goes from hidden to visible without the
+    /// session count moving, so the render must be marked dirty explicitly.
+    #[test]
+    fn test_pane_update_graduating_hook_marks_render_dirty() {
+        let mut state = ControllerState::default();
+        state.sessions.insert(10, Session::new(10, "s1".into()));
+        state.quarantine(10, QuarantineKind::Hook);
+        state.render_dirty = false;
+
+        handle_pane_update(&mut state, make_manifest(&[10]));
+
+        assert!(state.unconfirmed_panes.is_empty(), "pane 10 is confirmed");
+        assert!(
+            state.render_dirty,
+            "becoming visible must trigger a re-render"
+        );
+    }
+
+    #[test]
+    fn test_timer_auto_restore_runs_only_once() {
+        let mut state = ControllerState::default();
+        // Only the leader reaches the restore block.
+        state.is_leader = true;
+        assert!(!state.restore_attempted);
+
+        handle_timer(&mut state, 1.0);
+
+        assert!(
+            state.restore_attempted,
+            "the disk cache must not be re-read on every idle tick"
+        );
+    }
+
     #[test]
     fn test_pane_update_confirms_restored_sessions() {
         let mut state = ControllerState::default();
         state.sessions.insert(10, Session::new(10, "s1".into()));
         state.sessions.insert(20, Session::new(20, "s2".into()));
-        state.unconfirmed_pane_ids.insert(10);
-        state.unconfirmed_pane_ids.insert(20);
+        state.quarantine(10, QuarantineKind::Restored);
+        state.quarantine(20, QuarantineKind::Restored);
         state.startup_grace_until = Some(session::unix_now_ms() + 3000);
 
         handle_pane_update(&mut state, make_manifest(&[10, 20]));
 
-        assert!(state.unconfirmed_pane_ids.is_empty());
+        assert!(state.unconfirmed_panes.is_empty());
         assert_eq!(state.sessions.len(), 2);
     }
 
@@ -716,15 +753,15 @@ mod tests {
         let mut state = ControllerState::default();
         state.sessions.insert(10, Session::new(10, "s1".into()));
         state.sessions.insert(20, Session::new(20, "s2".into()));
-        state.unconfirmed_pane_ids.insert(10);
-        state.unconfirmed_pane_ids.insert(20);
+        state.quarantine(10, QuarantineKind::Restored);
+        state.quarantine(20, QuarantineKind::Restored);
         state.startup_grace_until = Some(session::unix_now_ms() + 3000);
 
         // Only pane 10 in manifest, pane 20 is missing
         handle_pane_update(&mut state, make_manifest(&[10]));
 
-        assert!(!state.unconfirmed_pane_ids.contains(&10));
-        assert!(state.unconfirmed_pane_ids.contains(&20));
+        assert!(!state.unconfirmed_panes.contains_key(&10));
+        assert!(state.unconfirmed_panes.contains_key(&20));
     }
 
     #[test]
@@ -732,15 +769,15 @@ mod tests {
         let mut state = ControllerState::default();
         state.sessions.insert(10, Session::new(10, "s1".into()));
         state.sessions.insert(20, Session::new(20, "s2".into()));
-        state.unconfirmed_pane_ids.insert(10);
-        state.unconfirmed_pane_ids.insert(20);
+        state.quarantine(10, QuarantineKind::Restored);
+        state.quarantine(20, QuarantineKind::Restored);
         state.startup_grace_until = Some(session::unix_now_ms() + 3000);
 
         // Both panes in manifest but pane 20 has exited
         handle_pane_update(&mut state, make_manifest_with_exited(&[10, 20], &[20]));
 
-        assert!(!state.unconfirmed_pane_ids.contains(&10));
-        assert!(state.unconfirmed_pane_ids.contains(&20));
+        assert!(!state.unconfirmed_panes.contains_key(&10));
+        assert!(state.unconfirmed_panes.contains_key(&20));
     }
 
     // -----------------------------------------------------------------------

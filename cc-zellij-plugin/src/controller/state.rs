@@ -28,6 +28,36 @@ const LEGACY_PID_PATH: &str = "/cache/zellij_pid";
 
 pub const FOCUS_CONFIRM_TIMEOUT_MS: u64 = 3000;
 
+/// How long a hook-created session may wait for the pane manifest to confirm
+/// that its pane really exists, before it is evicted.
+///
+/// Matches `FOCUS_CONFIRM_TIMEOUT_MS` and the startup grace: all three answer
+/// the same question, "how long do we wait for Zellij to tell us the truth".
+/// It must exceed the election window (`ELECTION_TIMEOUT_TICKS` ticks) so a
+/// controller that has just won leadership still gets at least one more tick
+/// to receive its first `PaneUpdate`.
+pub const HOOK_CONFIRM_TIMEOUT_MS: u64 = 3000;
+
+/// How long a session restored from the on-disk cache may wait for
+/// confirmation. Names the startup grace window that was an inline literal.
+pub const RESTORE_GRACE_MS: u64 = 3000;
+
+/// Why a pane id is awaiting confirmation from the pane manifest.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QuarantineKind {
+    /// Restored from the on-disk session cache. Carries no live evidence.
+    Restored,
+    /// Created by a hook event naming a pane the manifest has not confirmed.
+    Hook,
+}
+
+/// A pane id awaiting confirmation, and the deadline by which it must arrive.
+#[derive(Debug, Clone, Copy)]
+pub struct Quarantine {
+    pub kind: QuarantineKind,
+    pub deadline_ms: u64,
+}
+
 /// Timer ticks to wait before self-activating as leader.
 pub const ELECTION_TIMEOUT_TICKS: u32 = 2;
 
@@ -111,9 +141,15 @@ pub struct ControllerState {
     pub keybindings_registered: bool,
     /// Tab count from last TabUpdate. Used to detect tab closures.
     pub last_tab_count: usize,
-    /// Pane IDs restored from cache that have not yet been confirmed by a hook
-    /// event. After the startup grace period, unconfirmed sessions are removed.
-    pub unconfirmed_pane_ids: HashSet<u32>,
+    /// Whether the on-disk session cache has already been read in this
+    /// process. The timer restore runs once; `handle_refresh` ignores it on
+    /// purpose, because refresh is the user's deliberate escape hatch.
+    pub restore_attempted: bool,
+    /// Pane IDs whose sessions the pane manifest has not confirmed, each with
+    /// the deadline by which confirmation must arrive. Two sources feed it:
+    /// sessions restored from the on-disk cache, and sessions created by a hook
+    /// event naming a pane the manifest does not show. See `sweep_quarantine`.
+    pub unconfirmed_panes: HashMap<u32, Quarantine>,
     /// Pane IDs with in-flight git branch detection commands.
     pub pending_git_branch: HashSet<u32>,
     /// Timestamp (ms) of the last timer-driven git branch poll.
@@ -211,6 +247,165 @@ impl ControllerState {
         }
     }
 
+    /// Whether a pane is live according to the current manifest.
+    ///
+    /// This is the single place a missing manifest is interpreted:
+    ///
+    /// - `Some(true)`  the pane exists, is not a plugin, and has not exited
+    /// - `Some(false)` the manifest is present and the pane is absent or exited
+    /// - `None`        liveness is unknown
+    ///
+    /// `None` is never a verdict. Callers decide what unknown means for them
+    /// and must not collapse it to `false`.
+    ///
+    /// A manifest carrying no terminal panes at all counts as unknown rather
+    /// than as proof of absence, for the same reason `remove_dead_sessions`
+    /// bails on an empty manifest: it is more likely mid-update than truthful.
+    pub fn pane_is_live(&self, pane_id: u32) -> Option<bool> {
+        let manifest = self.pane_manifest.as_ref()?;
+        let mut saw_terminal_pane = false;
+        let mut live = false;
+        for pane in manifest.panes.values().flatten() {
+            if pane.is_plugin {
+                continue;
+            }
+            saw_terminal_pane = true;
+            if pane.id == pane_id && !pane.exited {
+                live = true;
+            }
+        }
+        if !saw_terminal_pane {
+            return None;
+        }
+        Some(live)
+    }
+
+    /// Mark a pane id as awaiting confirmation from the pane manifest.
+    pub fn quarantine(&mut self, pane_id: u32, kind: QuarantineKind) {
+        let timeout = match kind {
+            QuarantineKind::Hook => HOOK_CONFIRM_TIMEOUT_MS,
+            QuarantineKind::Restored => RESTORE_GRACE_MS,
+        };
+        self.unconfirmed_panes.insert(
+            pane_id,
+            Quarantine {
+                kind,
+                deadline_ms: crate::session::unix_now_ms() + timeout,
+            },
+        );
+    }
+
+    /// Release a pane id from quarantine. Returns whether it was quarantined.
+    pub fn confirm_pane(&mut self, pane_id: u32) -> bool {
+        self.unconfirmed_panes.remove(&pane_id).is_some()
+    }
+
+    /// Whether a session must be withheld from the sidebar, the dump-state
+    /// response, and the on-disk cache.
+    ///
+    /// Only hook-created sessions are withheld. Sessions restored from disk
+    /// stay visible through their grace window, because hiding those would
+    /// blank the sidebar on every reattach.
+    pub fn is_hidden(&self, pane_id: u32) -> bool {
+        matches!(
+            self.unconfirmed_panes.get(&pane_id),
+            Some(q) if q.kind == QuarantineKind::Hook
+        )
+    }
+
+    /// Remove a session along with every index that refers to it.
+    ///
+    /// Consolidates removal side effects that were previously spelled out at
+    /// each call site, where they had already drifted apart.
+    pub fn evict_session(&mut self, pane_id: u32) -> bool {
+        let removed = self.sessions.remove(&pane_id).is_some();
+        self.unconfirmed_panes.remove(&pane_id);
+        self.pending_git_branch.remove(&pane_id);
+        if let Some(ref mut order) = self.sort_order {
+            order.retain(|&p| p != pane_id);
+        }
+        self.auto_sort_tail.retain(|&p| p != pane_id);
+        if removed {
+            self.prune_client_views();
+        }
+        removed
+    }
+
+    /// Settle quarantined panes whose deadline has passed.
+    ///
+    /// Returns whether anything visible changed, so the caller can persist and
+    /// re-render. Runs every tick; the map is normally empty.
+    pub fn sweep_quarantine(&mut self) -> bool {
+        if self.unconfirmed_panes.is_empty() {
+            return false;
+        }
+        let now = crate::session::unix_now_ms();
+        let expired: Vec<(u32, QuarantineKind)> = self
+            .unconfirmed_panes
+            .iter()
+            .filter(|(_, q)| now >= q.deadline_ms)
+            .map(|(pane_id, q)| (*pane_id, q.kind))
+            .collect();
+
+        let mut changed = false;
+        let mut evicted = Vec::new();
+        for (pane_id, kind) in expired {
+            match (kind, self.pane_is_live(pane_id)) {
+                // The manifest vouches for the pane. The race resolved in the
+                // session's favour.
+                (_, Some(true)) => {
+                    self.unconfirmed_panes.remove(&pane_id);
+                    // A hook session becoming confirmed also becomes visible.
+                    changed |= kind == QuarantineKind::Hook;
+                }
+                // Positive proof of absence.
+                (_, Some(false)) => evicted.push(pane_id),
+                // No manifest after the full wait. For a hook-created session
+                // this is the safety valve: without it, a controller that never
+                // receives a PaneUpdate would hide every session forever,
+                // trading a visible phantom for an invisible workspace. Give it
+                // the benefit of the doubt, degrading to the older behaviour.
+                (QuarantineKind::Hook, None) => {
+                    self.unconfirmed_panes.remove(&pane_id);
+                    changed = true;
+                }
+                // A restored session carries no live evidence at all: it came
+                // off disk, possibly from a previous Zellij run. Absence of
+                // proof is correctly fatal here, which preserves the previous
+                // startup-grace semantics exactly.
+                (QuarantineKind::Restored, None) => evicted.push(pane_id),
+            }
+        }
+
+        if !evicted.is_empty() {
+            for pane_id in &evicted {
+                self.evict_session(*pane_id);
+            }
+            crate::debug_log(&format!(
+                "CTRL QUARANTINE evicted {} unconfirmed sessions",
+                evicted.len()
+            ));
+            changed = true;
+        }
+        changed
+    }
+
+    /// Sessions this controller is willing to show and to store.
+    ///
+    /// Hook-created sessions awaiting confirmation are excluded: reporting one
+    /// puts a pane that may not exist in front of the user, and persisting one
+    /// is precisely what lets a phantom survive into the next process and
+    /// re-enter through the restore path. Restored sessions are kept, because
+    /// dropping them here would erase legitimate sessions from the cache
+    /// before they had any chance to be confirmed.
+    pub fn visible_sessions(&self) -> BTreeMap<u32, &Session> {
+        self.sessions
+            .iter()
+            .filter(|(pane_id, _)| !self.is_hidden(**pane_id))
+            .map(|(pane_id, session)| (*pane_id, session))
+            .collect()
+    }
+
     /// Remove sessions whose panes no longer exist or have exited.
     /// Uses the raw pane manifest for stable pane IDs.
     pub fn remove_dead_sessions(&mut self) -> bool {
@@ -265,7 +460,14 @@ impl ControllerState {
 
     /// Get sessions sorted by tab index for display.
     pub fn sessions_by_tab_order(&self) -> Vec<&Session> {
-        let mut sessions: Vec<&Session> = self.sessions.values().collect();
+        // Unconfirmed hook sessions are withheld here too, so a pane the
+        // manifest has never shown cannot become an attend or navigation
+        // target and yank the user to a tab that does not exist.
+        let mut sessions: Vec<&Session> = self
+            .sessions
+            .values()
+            .filter(|s| !self.is_hidden(s.pane_id))
+            .collect();
         sessions.sort_by_key(|s| s.tab_index.unwrap_or(usize::MAX));
         sessions
     }
@@ -484,9 +686,37 @@ impl ControllerState {
     /// Writes to the PID-scoped path (no separate PID file needed).
     pub fn save_sessions(&self) {
         let pid = current_zellij_pid();
-        if let Ok(json) = serde_json::to_string(&self.sessions) {
+        if let Ok(json) = serde_json::to_string(&self.visible_sessions()) {
             let _ = std::fs::write(sessions_path(pid), json);
         }
+    }
+
+    /// Merge the on-disk session cache into state, quarantining every session
+    /// it newly introduces and re-arming the grace window.
+    ///
+    /// Restored sessions carry no live evidence, so they must prove themselves
+    /// against the pane manifest before they count as real. Returns whether
+    /// anything was merged.
+    pub fn restore_and_quarantine(&mut self) -> bool {
+        let restored = Self::restore_sessions();
+        if restored.is_empty() {
+            return false;
+        }
+        let count = restored.len();
+        // Only genuinely new ids are quarantined: merge_sessions also replaces
+        // entries that are already present and already confirmed.
+        let new_ids: Vec<u32> = restored
+            .keys()
+            .copied()
+            .filter(|id| !self.sessions.contains_key(id))
+            .collect();
+        let changed = self.merge_sessions(restored);
+        for pane_id in new_ids {
+            self.quarantine(pane_id, QuarantineKind::Restored);
+        }
+        self.startup_grace_until = Some(crate::session::unix_now_ms() + RESTORE_GRACE_MS);
+        crate::debug_log(&format!("CTRL RESTORE merged {count} sessions from disk"));
+        changed
     }
 
     /// Restore sessions from disk (called on load/reattach).
@@ -710,25 +940,155 @@ mod tests {
     }
 
     #[test]
+    fn test_pane_is_live_is_tri_state() {
+        let mut state = ControllerState::default();
+
+        // No manifest: unknown, never a verdict.
+        assert_eq!(state.pane_is_live(10), None);
+
+        state.pane_manifest = Some(make_manifest(&[10]));
+        assert_eq!(state.pane_is_live(10), Some(true));
+        assert_eq!(state.pane_is_live(99), Some(false));
+
+        // An exited pane is not live.
+        state.pane_manifest = Some(make_manifest_with_exited(&[10, 20], &[20]));
+        assert_eq!(state.pane_is_live(20), Some(false));
+    }
+
+    /// A manifest carrying no terminal panes is more likely mid-update than
+    /// truthful, so it must not be read as proof that everything is gone.
+    #[test]
+    fn test_pane_is_live_treats_empty_manifest_as_unknown() {
+        let mut state = ControllerState::default();
+        state.pane_manifest = Some(PaneManifest {
+            panes: std::collections::HashMap::new(),
+        });
+        assert_eq!(state.pane_is_live(10), None);
+    }
+
+    #[test]
+    fn test_visible_sessions_excludes_hook_quarantine_only() {
+        let mut state = ControllerState::default();
+        state.sessions.insert(1, make_session(1));
+        state.sessions.insert(2, make_session(2));
+        state.sessions.insert(3, make_session(3));
+        state.quarantine(2, QuarantineKind::Hook);
+        state.quarantine(3, QuarantineKind::Restored);
+
+        let visible = state.visible_sessions();
+
+        assert!(visible.contains_key(&1), "confirmed sessions persist");
+        assert!(
+            !visible.contains_key(&2),
+            "an unverified hook session must not reach disk"
+        );
+        assert!(
+            visible.contains_key(&3),
+            "restored sessions must not be erased from the cache"
+        );
+    }
+
+    #[test]
+    fn test_evict_session_clears_every_index() {
+        let mut state = ControllerState::default();
+        state.sessions.insert(7, make_session(7));
+        state.quarantine(7, QuarantineKind::Hook);
+        state.pending_git_branch.insert(7);
+        state.sort_order = Some(vec![7, 8]);
+        state.auto_sort_tail = vec![7, 8];
+
+        assert!(state.evict_session(7));
+
+        assert!(!state.sessions.contains_key(&7));
+        assert!(!state.unconfirmed_panes.contains_key(&7));
+        assert!(!state.pending_git_branch.contains(&7));
+        assert_eq!(state.sort_order, Some(vec![8]));
+        assert_eq!(state.auto_sort_tail, vec![8]);
+    }
+
+    /// The asymmetry is the subtlest part of the design, so the two arms are
+    /// asserted side by side. A hook session with no manifest gets the benefit
+    /// of the doubt; a restored session, which carries no live evidence at
+    /// all, does not.
+    #[test]
+    fn test_sweep_without_manifest_confirms_hook_but_evicts_restored() {
+        let mut state = ControllerState::default();
+        state.sessions.insert(1, make_session(1));
+        state.sessions.insert(2, make_session(2));
+        state.quarantine(1, QuarantineKind::Hook);
+        state.quarantine(2, QuarantineKind::Restored);
+        assert!(state.pane_manifest.is_none());
+        for q in state.unconfirmed_panes.values_mut() {
+            q.deadline_ms = 0;
+        }
+
+        state.sweep_quarantine();
+
+        assert!(state.sessions.contains_key(&1), "hook session survives");
+        assert!(!state.is_hidden(1), "and becomes visible");
+        assert!(!state.sessions.contains_key(&2), "restored session is evicted");
+    }
+
+    #[test]
+    fn test_sweep_before_deadline_does_nothing() {
+        let mut state = ControllerState::default();
+        state.sessions.insert(1, make_session(1));
+        state.quarantine(1, QuarantineKind::Hook);
+        state.pane_manifest = Some(make_manifest(&[99]));
+
+        assert!(!state.sweep_quarantine());
+
+        assert!(state.sessions.contains_key(&1));
+        assert!(state.unconfirmed_panes.contains_key(&1));
+    }
+
+    #[test]
+    fn test_sweep_confirms_when_manifest_shows_pane_live() {
+        let mut state = ControllerState::default();
+        state.sessions.insert(1, make_session(1));
+        state.quarantine(1, QuarantineKind::Hook);
+        state.pane_manifest = Some(make_manifest(&[1]));
+        state.unconfirmed_panes.get_mut(&1).unwrap().deadline_ms = 0;
+
+        assert!(state.sweep_quarantine());
+
+        assert!(state.sessions.contains_key(&1));
+        assert!(state.unconfirmed_panes.is_empty());
+    }
+
+    #[test]
+    fn test_sessions_by_tab_order_withholds_hook_quarantine() {
+        let mut state = ControllerState::default();
+        state.sessions.insert(1, make_session(1));
+        state.sessions.insert(2, make_session(2));
+        state.quarantine(2, QuarantineKind::Hook);
+
+        let ordered = state.sessions_by_tab_order();
+
+        assert_eq!(ordered.len(), 1);
+        assert_eq!(ordered[0].pane_id, 1);
+    }
+
+    #[test]
     fn test_unconfirmed_restored_sessions_removed() {
         let mut state = ControllerState::default();
         state.sessions.insert(10, make_session(10));
         state.sessions.insert(20, make_session(20));
-        state.unconfirmed_pane_ids.insert(10);
-        state.unconfirmed_pane_ids.insert(20);
-        state.pane_manifest = Some(make_manifest(&[10, 20]));
+        state.quarantine(10, QuarantineKind::Restored);
+        state.quarantine(20, QuarantineKind::Restored);
+        // Pane 10 is real. Pane 20 is not in the manifest at all.
+        state.pane_manifest = Some(make_manifest(&[10]));
 
-        // Confirm pane 10 via hook
-        state.unconfirmed_pane_ids.remove(&10);
-
-        // Simulate grace period expiry cleanup
-        for pane_id in state.unconfirmed_pane_ids.drain() {
-            state.sessions.remove(&pane_id);
+        // Expire both deadlines so the sweep settles them on this call.
+        for q in state.unconfirmed_panes.values_mut() {
+            q.deadline_ms = 0;
         }
+        assert!(state.sweep_quarantine());
 
         assert_eq!(state.sessions.len(), 1);
         assert!(state.sessions.contains_key(&10));
         assert!(!state.sessions.contains_key(&20));
+        assert!(state.unconfirmed_panes.is_empty());
     }
 
     #[test]

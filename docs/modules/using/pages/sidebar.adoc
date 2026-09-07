@@ -87,6 +87,20 @@ The sidebar hooks into Claude Code's event system and receives updates for:
 Session tracking works across all tabs in the Zellij session.
 Opening a new tab and starting Claude Code there immediately appears in the sidebar.
 
+== What the Sidebar Does Not Track
+
+The sidebar lists the agents running in a pane of the current Zellij session.
+It does not list anything else.
+
+An agent started in a plain terminal outside Zellij does not appear, and neither does an agent running in a different Zellij session.
+Each Zellij session keeps its own sidebar.
+Pane numbering also restarts in every Zellij run, so a pane recorded in one session does not identify anything in another.
+
+A session joins the list once Zellij confirms that its pane exists, which normally takes no perceptible time.
+If that confirmation never arrives, the session is dropped instead of being left in place.
+Keep in mind that this check is about whether the pane exists at all.
+Sessions whose pane is closed later are removed by the ordinary session lifecycle described above.
+
 == Next Steps
 
 * xref:navigation.adoc[Keyboard Navigation] for all shortcuts

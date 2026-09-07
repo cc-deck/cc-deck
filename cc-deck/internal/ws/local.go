@@ -3,11 +3,12 @@ package ws
 import (
 	"bufio"
 	"context"
-	"log"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -17,9 +18,6 @@ import (
 const (
 	// zellijSessionPrefix is prepended to workspace names to form Zellij session names.
 	zellijSessionPrefix = "cc-deck-"
-
-	// paneMapPath is the location of the pane map file written by the hook.
-	paneMapPath = "/tmp/cc-deck-pane-map.json"
 )
 
 // LocalWorkspace manages a local Zellij-based workspace that runs
@@ -156,7 +154,7 @@ func (e *LocalWorkspace) Delete(ctx context.Context, force bool) error {
 
 // Status returns the current state of the local workspace by checking
 // for a running Zellij session and reading the pane map for session details.
-func (e *LocalWorkspace) Status(_ context.Context) (*WorkspaceStatus, error) {
+func (e *LocalWorkspace) Status(ctx context.Context) (*WorkspaceStatus, error) {
 	inst, err := e.store.FindInstanceByName(e.name)
 	if err != nil {
 		return nil, err
@@ -174,7 +172,7 @@ func (e *LocalWorkspace) Status(_ context.Context) (*WorkspaceStatus, error) {
 	}
 
 	if sessState == SessionStateExists {
-		if sessions, readErr := readPaneMapSessions(); readErr == nil {
+		if sessions, readErr := e.pluginSessions(ctx); readErr == nil {
 			status.Sessions = sessions
 		}
 	}
@@ -345,38 +343,74 @@ func listZellijSessions(includeExited bool) []string {
 	return sessions
 }
 
-// paneMapEntry represents a single entry in the pane map JSON file.
-type paneMapEntry struct {
-	PaneID        int    `json:"pane_id"`
-	HookEventName string `json:"hook_event_name"`
-	CWD           string `json:"cwd"`
-	ToolName      string `json:"tool_name"`
+// dumpStateSession mirrors one entry of the controller's dump-state response.
+type dumpStateSession struct {
+	DisplayName string          `json:"display_name"`
+	GitBranch   string          `json:"git_branch"`
+	Activity    json.RawMessage `json:"activity"`
+	LastEventTS int64           `json:"last_event_ts"`
 }
 
-// readPaneMapSessions reads the pane map JSON file and converts it to
-// SessionInfo entries. Returns an error if the file is missing or cannot
-// be parsed.
-func readPaneMapSessions() ([]SessionInfo, error) {
-	data, err := os.ReadFile(paneMapPath)
+type dumpStateResponse struct {
+	Sessions map[string]dumpStateSession `json:"sessions"`
+}
+
+// pluginSessions asks the controller running in this workspace's Zellij
+// session which sessions it is tracking.
+//
+// The controller is the only component that knows this, and it already
+// withholds sessions whose panes it has not confirmed, so a workspace never
+// reports a session that does not exist.
+func (e *LocalWorkspace) pluginSessions(ctx context.Context) ([]SessionInfo, error) {
+	channel, err := e.PipeChannel(ctx)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := channel.SendReceive(ctx, "cc-deck:dump-state", "")
 	if err != nil {
 		return nil, err
 	}
 
-	var paneMap map[string]paneMapEntry
-	if err := json.Unmarshal(data, &paneMap); err != nil {
+	var resp dumpStateResponse
+	if err := json.Unmarshal([]byte(raw), &resp); err != nil {
 		return nil, err
 	}
 
-	var sessions []SessionInfo
-	for id, entry := range paneMap {
+	sessions := make([]SessionInfo, 0, len(resp.Sessions))
+	for _, entry := range resp.Sessions {
 		sessions = append(sessions, SessionInfo{
-			Name:     id,
-			Activity: entry.HookEventName,
-			Branch:   "", // Not available from pane map.
+			Name:      entry.DisplayName,
+			Activity:  activityLabel(entry.Activity),
+			Branch:    entry.GitBranch,
+			LastEvent: time.Unix(entry.LastEventTS, 0),
 		})
 	}
+	sort.Slice(sessions, func(i, j int) bool {
+		return sessions[i].Name < sessions[j].Name
+	})
 
 	return sessions, nil
+}
+
+// activityLabel renders the plugin's Activity enum as a plain word.
+//
+// The enum serializes either as a bare string ("Working") or as a single-key
+// object for variants carrying data ({"Waiting":"Permission"}).
+func activityLabel(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var name string
+	if err := json.Unmarshal(raw, &name); err == nil {
+		return name
+	}
+	var tagged map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &tagged); err == nil {
+		for key := range tagged {
+			return key
+		}
+	}
+	return ""
 }
 
 // ReconcileLocalWorkspaces updates the state of all local workspaces by checking

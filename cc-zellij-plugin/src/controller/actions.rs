@@ -187,10 +187,10 @@ fn handle_working_prev(state: &mut ControllerState) {
 
 /// Force refresh: restore persisted sessions and broadcast.
 fn handle_refresh(state: &mut ControllerState) {
-    let restored = ControllerState::restore_sessions();
-    if !restored.is_empty() {
-        state.merge_sessions(restored);
-    }
+    // Refresh is an explicit user action, so it may re-read the cache even
+    // after the one-shot timer restore. It must not launder phantoms into
+    // permanence, so what it brings back is quarantined like any restore.
+    state.restore_and_quarantine();
     state.mark_render_dirty();
 }
 
