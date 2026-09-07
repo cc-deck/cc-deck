@@ -54,19 +54,30 @@ Tasks below carry an **Interfaces** note wherever they consume a symbol defined 
 
 **Purpose**: Data model, configuration, and the interface seam. Every user story depends on these.
 
-**⚠️ CRITICAL**: The package will not compile between T005 and T008. Treat T005 through T008 as one
-atomic change and do not attempt to run tests in the middle of it.
+**⚠️ CRITICAL**: T005 through T008d are ONE atomic change. The `share` package will not compile at any
+point inside that window, production code and test code alike. Do not run tests until T008d is done.
+
+The test files matter as much as the production files here. `Provider`, `ProviderHandle`,
+`ProviderStatus`, and `Process` are referenced by `service_test.go`, `provider_contract_test.go`,
+`test_fakes_test.go`, and `zellij_test.go`. Leaving any of them for a later phase leaves the package
+uncompilable for the whole of Phase 3, which destroys the T001 baseline exactly when it is needed most.
 
 - [ ] T003 [P] Add `ProbeStage` constants and the `ProbeResult` struct with `OK`, `FailedAt`, `Diagnostic`, and `CheckedAt` fields to `cc-deck/internal/share/model.go` per `data-model.md`
 - [ ] T004 [P] Replace `SharingConfig` in `cc-deck/internal/config/config.go` with `Endpoint`, `Endpoints`, `Default`, and `VerifyTimeout` fields, deleting `Provider`, `DefaultSharingProvider`, and the `SharingProvider()` method
 - [ ] T005 Add `EndpointName`, `WebServerOwned`, and `LastProbe` to `SharingOperation` and remove `Provider`, `ProviderHandle`, and `EndpointStopped` in `cc-deck/internal/share/model.go`, and mirror the field changes on `SharingStatus`
 - [ ] T006 Replace `Provider`, `ProviderHandle`, `ProviderStatus`, and `ProviderRegistry` with the `Endpoint` interface and `EndpointRef` struct in `cc-deck/internal/share/provider.go`, and remove `Process` and the `Start` method from `CommandRunner`
 - [ ] T007 Delete `cc-deck/internal/share/cloudflare.go` and `cc-deck/internal/share/cloudflare_test.go`
-- [ ] T008 Update `cc-deck/internal/share/service.go` and `cc-deck/internal/cmd/ws_share.go` so the package compiles against the new types, removing the process launch and its rollback arm from `Start`, the `commandProcess` type, and the hardcoded `provider != "cloudflare"` rejection at `ws_share.go:96`
+- [ ] T008 Update `cc-deck/internal/share/service.go` and `cc-deck/internal/cmd/ws_share.go` so they compile against the new types, removing the process launch and its rollback arm from `Start`, the `commandProcess` type, and the hardcoded `provider != "cloudflare"` rejection at `ws_share.go:96`
+- [ ] T008a Remove `fakeProcess` and the `Start` method on `fakeRunner` from `cc-deck/internal/share/test_fakes_test.go`, along with the Cloudflare-specific fake wiring, so the test build no longer references the deleted `Process` interface
+- [ ] T008b Remove the `Process` references from `cc-deck/internal/share/zellij_test.go`, keeping the token and web server coverage that this feature relies on unchanged
+- [ ] T008c Update `cc-deck/internal/share/service_test.go` so it compiles against `Endpoint`, replacing the provider fake with an endpoint fake; behavioural assertions are rewritten later in T033 through T035 and T040 through T042, so this task only restores compilation
+- [ ] T008d Replace the `Provider` scaffolding in `cc-deck/internal/share/provider_contract_test.go` with an `Endpoint` skeleton sufficient to compile; the real contract coverage lands in T013
 - [ ] T009 Replace the provider-name check in `cc-deck/internal/config/validate.go` with validation that each configured address parses as an absolute `http` or `https` URL, that `Default` names a key in `Endpoints`, and that `VerifyTimeout` is positive
 - [ ] T010 [P] Update `cc-deck/internal/config/config_test.go` and `cc-deck/internal/config/validate_test.go` to cover the new schema and drop `TestSharingProviderDefault`
 
-**Checkpoint**: `make test` compiles and runs. Sharing is temporarily non-functional by design.
+**Checkpoint**: `make test` compiles and every test that passed at the T001 baseline still passes, with
+the exception of sharing behaviour tests reduced to compilation stubs in T008c and T008d. Sharing is
+temporarily non-functional by design. If the package does not compile here, do not start Phase 3.
 
 ---
 
@@ -83,11 +94,16 @@ invitation is printed.
 
 > **Write these first and confirm they fail before implementing.**
 
-- [ ] T011 [P] [US1] Build the reusable `httptest` endpoint fake in `cc-deck/internal/share/probe_test.go` that can independently fail at each of the five stages, including the handler that serves the web client correctly and refuses to hijack the connection
-- [ ] T012 [P] [US1] Write the ten-case stage matrix from `contracts/endpoint-contract.md` as table-driven tests in `cc-deck/internal/share/probe_test.go`, asserting the exact `FailedAt` stage for each case
-- [ ] T012a [P] [US1] Add an exhaustiveness assertion in `cc-deck/internal/share/probe_test.go` that fails if any declared `ProbeStage` constant has no failure case in the T012 matrix, which is the measurement method for SC-003's claim of correct attribution in 100% of layer-specific cases
+> **Note on `[P]`**: T011, T012, T012a, T014, and T014a all write `probe_test.go`, so they are
+> sequential with respect to each other despite being conceptually independent. Only T013 is
+> genuinely parallel here, because it is the sole task touching `provider_contract_test.go`.
+
+- [ ] T011 [US1] Build the reusable `httptest` endpoint fake in `cc-deck/internal/share/probe_test.go` that can independently fail at each of the five stages, including the handler that serves the web client correctly and refuses to hijack the connection
+- [ ] T012 [US1] Write the ten-case stage matrix from `contracts/endpoint-contract.md` as table-driven tests in `cc-deck/internal/share/probe_test.go`, asserting the exact `FailedAt` stage for each case
+- [ ] T012a [US1] Add an exhaustiveness assertion in `cc-deck/internal/share/probe_test.go` that fails if any declared `ProbeStage` constant has no failure case in the T012 matrix, which is the measurement method for SC-003's claim of correct attribution in 100% of layer-specific cases
 - [ ] T013 [P] [US1] Rewrite `cc-deck/internal/share/provider_contract_test.go` against the `Endpoint` interface, covering contracts C-1 through C-9, including that `Resolve` performs no network access and that `Probe` never mutates sharing state
-- [ ] T014 [P] [US1] Write tests in `cc-deck/internal/share/probe_test.go` asserting the probe credential is minted per probe, is revoked on success, on failure, and on deadline expiry, and never appears in persisted state
+- [ ] T014 [US1] Write tests in `cc-deck/internal/share/probe_test.go` asserting the probe credential is minted per probe, is revoked on success, on failure, and on deadline expiry, and never appears in persisted state
+- [ ] T014a [US1] Add a test in `cc-deck/internal/share/probe_test.go` that fails every stage against a fake configured with a recognizable sentinel secret, then asserts the sentinel appears in no `ProbeResult.Diagnostic`, so the no-secrets property of T021 is red before it is implemented
 
 ### Implementation for User Story 1
 
@@ -100,20 +116,20 @@ invitation is printed.
 
   > **Interfaces**: implements `Endpoint.Probe(ctx context.Context, ref EndpointRef, session string) (ProbeResult, error)` from T006. Returns `ProbeResult{OK, FailedAt, Diagnostic, CheckedAt}` from T003. `CheckedAt` is always set; `FailedAt` is empty only when `OK` is true.
 
-- [ ] T021 [US1] Ensure no probe diagnostic built in `cc-deck/internal/share/probe.go` can contain a token, cookie value, or authorization header, per contract C-9
-- [ ] T021a [P] [US1] Add a test in `cc-deck/internal/share/probe_test.go` that fails every stage against a fake configured with a recognizable sentinel secret, then asserts the sentinel appears in no `ProbeResult.Diagnostic`, so T021 is verified rather than asserted
+- [ ] T021 [US1] Ensure no probe diagnostic built in `cc-deck/internal/share/probe.go` can contain a token, cookie value, or authorization header, per contract C-9, turning the T014a sentinel test green
 - [ ] T022 [US1] Make `Start` in `cc-deck/internal/share/service.go` run the probe as a blocking gate before building invitations, persisting `LastProbe` and `WebServerOwned` on the operation
 
   > **Interfaces**: consumes `Endpoint.Probe` from T020 and `Zellij.EnsureWebServer(ctx) (localURL string, started bool, err error)`, which already exists. `WebServerOwned` is set from `started`. `LastProbe` is `*ProbeResult`, left nil when verification is skipped.
+
 - [ ] T023 [US1] Add `--endpoint`, `--endpoint-name`, and `--no-verify` flags to `ws start --share` in `cc-deck/internal/cmd/ws_share.go`, making `--endpoint` and `--endpoint-name` mutually exclusive
 - [ ] T024 [US1] Make `ws invite` run the same blocking gate in `cc-deck/internal/cmd/ws_share.go` and `cc-deck/internal/share/service.go`, leaving no credential behind when verification fails
 - [ ] T025 [US1] Implement the `--no-verify` path in `cc-deck/internal/share/service.go` so the share is created with `LastProbe` left nil, which is what makes a listing show no verification age per FR-014
-- [ ] T026 [US1] Implement the failure message shape from `contracts/cli-contract.md`, naming the failing stage first and pointing at the sharing guide
+- [ ] T026 [US1] Implement the failure message shape from `contracts/cli-contract.md` in `cc-deck/internal/cmd/ws_share.go`, formatting a `ProbeResult` whose `OK` is false into the user-facing error with the failing stage named first and a pointer to the sharing guide; the stage-to-explanation text lives here, not in `probe.go`, so the probe stays free of presentation concerns
 - [ ] T027 [US1] Refuse to share with actionable guidance when no endpoint resolves, listing the configured endpoint names, in `cc-deck/internal/cmd/ws_share.go`
 - [ ] T028 [US1] Change the failed-share path in `cc-deck/internal/cmd/ws_share.go` so a workspace session created by the same command survives a verification failure, replacing the current `workspace.KillSession` call at `ws_share.go:110` per FR-031
-- [ ] T029 [P] [US1] Add a test in `cc-deck/internal/cmd/ws_share_test.go` asserting that a failed `start --share` leaves the workspace running and usable
-- [ ] T030 [P] [US1] Add a test in `cc-deck/internal/cmd/ws_share_test.go` asserting `--endpoint` overrides configuration for one command only and leaves the configured value unchanged
-- [ ] T031 [P] [US1] Add a test in `cc-deck/internal/cmd/ws_share_test.go` asserting a `--no-verify` share reports no verification age and does not introduce a third sharing state
+- [ ] T029 [US1] Add a test in `cc-deck/internal/cmd/ws_share_test.go` asserting that a failed `start --share` leaves the workspace running and usable
+- [ ] T030 [US1] Add a test in `cc-deck/internal/cmd/ws_share_test.go` asserting `--endpoint` overrides configuration for one command only and leaves the configured value unchanged
+- [ ] T031 [US1] Add a test in `cc-deck/internal/cmd/ws_share_test.go` asserting a `--no-verify` share reports no verification age and does not introduce a third sharing state
 - [ ] T032 [US1] Write the end to end acceptance test in `cc-deck/internal/share/e2e_test.go` that starts a real Zellij web server and background session, points a static endpoint at the local address, and runs the real five stage probe; it must skip when `zellij` is absent and must run every session-creating command under `env -u ZELLIJ -u ZELLIJ_SESSION_NAME -u ZELLIJ_PANE_ID` per research R8
 
 **Checkpoint**: Sharing works end to end and the blank-terminal failure is caught automatically.
@@ -129,9 +145,12 @@ distinct correctly attributed report with the share still intact afterwards.
 
 ### Tests for User Story 2
 
-- [ ] T033 [P] [US2] Write tests in `cc-deck/internal/share/service_test.go` asserting that a failing probe during `Status` revokes nothing, stops nothing, and deletes no state, covering every stage failure plus timeout
-- [ ] T034 [P] [US2] Write a test in `cc-deck/internal/share/service_test.go` asserting that a confirmed-absent session during `Status` still triggers teardown, so severing the endpoint path does not disable the one legitimate teardown trigger
-- [ ] T035 [P] [US2] Write a test in `cc-deck/internal/share/service_test.go` asserting an endpoint that recovers moves the reported state back to shared with no user intervention
+> **Note on `[P]`**: T033 through T035 all write `service_test.go`, so they are sequential with
+> respect to each other, as are T040 through T042 in Phase 5.
+
+- [ ] T033 [US2] Write tests in `cc-deck/internal/share/service_test.go` asserting that a failing probe during `Status` revokes nothing, stops nothing, and deletes no state, covering every stage failure plus timeout
+- [ ] T034 [US2] Write a test in `cc-deck/internal/share/service_test.go` asserting that a confirmed-absent session during `Status` still triggers teardown, so severing the endpoint path does not disable the one legitimate teardown trigger
+- [ ] T035 [US2] Write a test in `cc-deck/internal/share/service_test.go` asserting an endpoint that recovers moves the reported state back to shared with no user intervention
 
 ### Implementation for User Story 2
 
@@ -140,6 +159,7 @@ distinct correctly attributed report with the share still intact afterwards.
 - [ ] T038 [US2] Persist the completed probe result to `LastProbe` on every status check in `cc-deck/internal/share/service.go`, pass or fail, without moving `SharingOperation.State` and without triggering teardown, per FR-047 and FR-023
 
   > **Interfaces**: writes `SharingOperation.LastProbe *ProbeResult` from T005 and surfaces it on `SharingStatus.LastProbe` for the listing in T048. `SharingOperation.State` is untouched by this write.
+
 - [ ] T039 [US2] Narrow `StateDegraded` in `cc-deck/internal/share/service.go` so it is written only as a teardown residual marker and never because an endpoint probe failed, updating the doc comment on `reconcileLocked` to say so
 
 **Checkpoint**: A broken endpoint is diagnosable and non-destructive. This closes the worst observed defect.
@@ -155,15 +175,16 @@ server and the workspace both survive while every invitation is dead.
 
 ### Tests for User Story 3
 
-- [ ] T040 [P] [US3] Write a test in `cc-deck/internal/share/service_test.go` asserting that a web server cc-deck did not start survives teardown, and one asserting that a web server cc-deck did start is stopped
-- [ ] T041 [P] [US3] Write a test in `cc-deck/internal/share/service_test.go` asserting teardown never ends the workspace session and never touches the user's endpoint
-- [ ] T042 [P] [US3] Write a test in `cc-deck/internal/share/service_test.go` asserting an interrupted teardown resumes correctly on the next invocation and strands nothing
+- [ ] T040 [US3] Write a test in `cc-deck/internal/share/service_test.go` asserting that a web server cc-deck did not start survives teardown, and one asserting that a web server cc-deck did start is stopped
+- [ ] T041 [US3] Write a test in `cc-deck/internal/share/service_test.go` asserting teardown never ends the workspace session and never touches the user's endpoint
+- [ ] T042 [US3] Write a test in `cc-deck/internal/share/service_test.go` asserting an interrupted teardown resumes correctly on the next invocation and strands nothing
 
 ### Implementation for User Story 3
 
 - [ ] T043 [US3] Set `WebServerOwned` from the `started` return value of `Zellij.EnsureWebServer` when the operation begins in `cc-deck/internal/share/service.go`, recording ownership at the time cc-deck acts rather than inferring it later
 
   > **Interfaces**: `EnsureWebServer(ctx context.Context) (localURL string, started bool, err error)` already exists at `cc-deck/internal/share/zellij.go:153`. The `started` value is currently used for rollback at `service.go:127` and discarded; this task persists it to `SharingOperation.WebServerOwned` from T005.
+
 - [ ] T044 [US3] Gate the web server teardown step in `teardownLocked` on `WebServerOwned` in `cc-deck/internal/share/service.go:453`, fixing the unconditional stop
 - [ ] T045 [US3] Remove the endpoint stop step from `teardownLocked` in `cc-deck/internal/share/service.go:420` entirely, since cc-deck no longer owns any endpoint process
 
@@ -180,9 +201,9 @@ shows the stored result with its age.
 
 ### Tests for User Story 4
 
-- [ ] T046 [P] [US4] Write a test in `cc-deck/internal/cmd/ws_share_test.go` asserting that listing performs zero probes and resolves sharing state once for the whole listing rather than once per row
-- [ ] T046a [P] [US4] Add a benchmark or timed test in `cc-deck/internal/cmd/ws_share_test.go` that lists N shared and N unshared workspaces and asserts the shared listing takes no more than ten percent longer, which is the measurement method for SC-008; use a counting fake rather than wall-clock alone so the assertion is not flaky under load
-- [ ] T047 [P] [US4] Write tests covering the three listing output shapes from `contracts/cli-contract.md`: verified with age, failed with the stage named and its age, and no age at all
+- [ ] T046 [US4] Write a test in `cc-deck/internal/cmd/ws_share_test.go` asserting that listing performs zero probes and resolves sharing state once for the whole listing rather than once per row
+- [ ] T046a [US4] Add a benchmark or timed test in `cc-deck/internal/cmd/ws_share_test.go` that lists N shared and N unshared workspaces and asserts the shared listing takes no more than ten percent longer, which is the measurement method for SC-008; use a counting fake rather than wall-clock alone so the assertion is not flaky under load
+- [ ] T047 [US4] Write tests in `cc-deck/internal/cmd/ws_share_test.go` covering the three listing output shapes from `contracts/cli-contract.md`: verified with age, failed with the stage named and its age, and no age at all
 
 ### Implementation for User Story 4
 
@@ -204,8 +225,8 @@ another workspace naming the other endpoint explicitly.
 
 ### Tests for User Story 5
 
-- [ ] T050 [P] [US5] Write tests in `cc-deck/internal/share/endpoint_test.go` covering the full resolution precedence: explicit flag, then named selection, then declared default, then the single address
-- [ ] T051 [P] [US5] Write a test in `cc-deck/internal/share/endpoint_test.go` asserting an unknown endpoint name fails with a message listing the configured names
+- [ ] T050 [US5] Write tests in `cc-deck/internal/share/endpoint_test.go` covering the full resolution precedence: explicit flag, then named selection, then declared default, then the single address
+- [ ] T051 [US5] Write a test in `cc-deck/internal/share/endpoint_test.go` asserting an unknown endpoint name fails with a message listing the configured names
 
 ### Implementation for User Story 5
 
@@ -241,7 +262,7 @@ than one that states why none is needed.
 
 | Requirements | Tasks | Notes |
 |--------------|-------|-------|
-| FR-001, FR-002 | T006, T007, T008 | Satisfied by deletion. Once `Provider`, `Process`, and the Cloudflare implementation are gone, there is no code path that can start or stop a tunnel. |
+| FR-001, FR-002 | T006, T007, T008, T008a through T008d | Satisfied by deletion. Once `Provider`, `Process`, and the Cloudflare implementation are gone from production *and* test code, there is no code path that can start or stop a tunnel. |
 | FR-003, FR-004, FR-005 | T015, T023, T027, T052, T053 | Resolution precedence and the refusal path. |
 | FR-006, FR-007, FR-008 | T011, T012, T016 through T020 | The five stages and their attribution. |
 | FR-009 | T016 | The public-resolver second opinion. |
@@ -285,7 +306,7 @@ Every success criterion needs a way to be measured, not just a task that plausib
 | SC-010 cc-deck commands only | T062 | Quickstart is written entirely in `cc-deck` commands; walking it is the check. |
 | SC-011 no workspace lost | T029 | Failed share leaves the workspace running. |
 | SC-012 documentation shipped | T054 through T058, T061 | Five named artifacts plus the voice check. |
-| SC-013 no credential survives | T014, T021a | Lifecycle test plus the sentinel-secret leak test. |
+| SC-013 no credential survives | T014, T014a | Lifecycle test plus the sentinel-secret leak test. |
 
 | Other | Tasks | Notes |
 |-------|-------|-------|
@@ -298,7 +319,9 @@ Every success criterion needs a way to be measured, not just a task that plausib
 ### Phase Dependencies
 
 - **Setup (Phase 1)**: no dependencies
-- **Foundational (Phase 2)**: depends on Setup; blocks every user story
+- **Foundational (Phase 2)**: depends on Setup; blocks every user story. T005 through T008d are one
+  atomic non-compiling window covering production *and* test code; the phase is not done until the
+  package compiles again
 - **US1 (Phase 3)**: depends on Foundational; blocks US2 and US4 because both consume `LastProbe`
 - **US2 (Phase 4)**: depends on US1
 - **US3 (Phase 5)**: depends on Foundational only; genuinely parallel with US1 and US2
@@ -323,26 +346,43 @@ catches it is written.
 
 ### Parallel Opportunities
 
-- T003 and T004 in Foundational, different packages
-- T011 through T014 in US1, all test files
-- T029, T030, T031 in US1
-- T033, T034, T035 in US2
-- T040, T041, T042 in US3
-- T046, T047 in US4
-- T050, T051 in US5
-- T054, T055, T056 in Phase 8, three separate documentation files
+`[P]` means a different file **and** no dependency. Most of this feature's test tasks cluster into a
+handful of files, so genuine parallelism is narrower than the task count suggests. Honest list:
+
+| Tasks | Why parallel |
+|-------|--------------|
+| T003, T004 | Different packages: `internal/share` and `internal/config` |
+| T010 | `internal/config` tests, independent of the `share` window |
+| T013 | The only Phase 3 task touching `provider_contract_test.go` |
+| T054, T055, T056 | Three separate documentation files |
+| T060 | `internal/ws` tests, untouched by everything else |
+
+**Not parallel despite being conceptually independent**, because each cluster shares one file:
+T011/T012/T012a/T014/T014a in `probe_test.go`; T029/T030/T031 and T046/T046a/T047 in
+`ws_share_test.go`; T033/T034/T035 and T040/T041/T042 in `service_test.go`; T050/T051 in
+`endpoint_test.go`. Dispatching these to parallel agents produces edit conflicts, not speed.
+
+The real parallelism in this feature is at the story level, not the task level. See the note on US3
+above.
 
 ---
 
-## Parallel Example: User Story 1 Tests
+## Parallel Example: Story-Level Split
+
+Task-level parallelism is limited here, so the useful split is by story once Phase 2 lands:
 
 ```bash
-# Launch the US1 test tasks together, all separate files or separate concerns:
-Task: "Build the httptest endpoint fake with per-stage failure in cc-deck/internal/share/probe_test.go"
-Task: "Write the ten-case stage matrix in cc-deck/internal/share/probe_test.go"
-Task: "Rewrite provider_contract_test.go against the Endpoint interface"
-Task: "Write probe credential lifecycle tests"
+# Developer A: the probe and the sharing gate
+Phase 3 (US1), T011 through T032, sequential within probe_test.go
+
+# Developer B: teardown ownership, touches only teardownLocked
+Phase 5 (US3), T040 through T045
+
+# Developer C: documentation, three independent files
+Phase 8, T054 through T057
 ```
+
+US3 and the documentation work depend on Foundational only, so neither waits for the probe.
 
 ---
 
