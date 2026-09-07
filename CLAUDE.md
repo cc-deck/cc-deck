@@ -128,10 +128,12 @@ When implementing a new backend for an existing interface (e.g., new Environment
 
 ### Plugin debug logging
 
-- Enable: `touch ~/Library/Caches/org.Zellij-Contributors.Zellij/file:~/.config/zellij/plugins/cc_deck.wasm/plugin_cache/debug_enabled`
-- Log: `~/Library/Caches/org.Zellij-Contributors.Zellij/file:~/.config/zellij/plugins/cc_deck.wasm/plugin_cache/debug.log`
+- Enable: `touch ~/Library/Caches/org.Zellij-Contributors.Zellij/file:/Users/$USER/.config/zellij/plugins/cc_deck.wasm/plugin_cache/debug_enabled`
+- Log: `~/Library/Caches/org.Zellij-Contributors.Zellij/file:/Users/$USER/.config/zellij/plugins/cc_deck.wasm/plugin_cache/debug.log`
+- CAUTION: The path uses `file:/Users/$USER/...` (expanded), NOT `file:~/.config/...` (literal tilde). A literal tilde path is a different directory the plugin does not read.
 - Truncate before reproducing: `: > <log path>`
 - Flag checked once on plugin load; requires Zellij restart to take effect
+- The debug logger silently drops re-entrant log calls to avoid panics in WASI's single-threaded mutex.
 
 ### Claude Code command files are executable code
 
