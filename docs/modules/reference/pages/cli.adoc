@@ -1090,7 +1090,7 @@ cc-deck ws voice --list-devices
 | VAD sensitivity (0-100, logarithmic scale). Overrides the config file value.
 
 | `--verbose`
-| Enable detailed logging to `~/.local/state/cc-deck/voice.log`
+| Enable detailed logging to `~/.local/state/cc-deck/voice.log`, including whisper-server's own output
 
 | `--setup`
 | Check dependencies and download the whisper model
@@ -1098,6 +1098,11 @@ cc-deck ws voice --list-devices
 | `--list-devices`
 | List available audio input devices and exit
 |===
+
+The relay waits up to 60 seconds for whisper-server to answer its health check before giving up.
+A warm start takes about a second.
+The first start after a whisper.cpp upgrade is much slower, because it compiles Metal kernels and reads the model from a cold disk cache.
+When the wait does time out, run the command again with `--verbose` to see what whisper-server reported.
 
 ==== ws pipe
 
