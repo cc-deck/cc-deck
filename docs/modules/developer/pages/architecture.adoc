@@ -72,7 +72,7 @@ Incoming hook events from an agent (via the Go CLI).
 
 `cc-deck:navigate`, `cc-deck:attend`, `cc-deck:working`::
 Keybindings registered by the controller.
-They address the controller by plugin id, so a keypress reaches one plugin instance.
+They are broadcast to every plugin instance; sidebars drop them, and the controller acts on them.
 
 == Hook Integration
 

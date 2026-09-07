@@ -400,50 +400,51 @@ fn register_keybindings(state: &ControllerState) {
     let att_prev = shift_variant(&state.config.attend_key);
     let wrk_prev = shift_variant(&state.config.working_key);
 
-    // Target this controller by plugin id so a keypress is delivered to one
-    // plugin instance rather than broadcast to every sidebar.
-    let id = state.plugin_id;
+    // Broadcast with MessagePlugin. The targeted MessagePluginId form is
+    // undocumented upstream (Zellij's own serializer treats it as a
+    // "temporary keybinding" and has no tests for it) and did not deliver
+    // the keypress on 0.45.1. A broadcast reaches every sidebar too, but
+    // they drop these names without a payload, and keypresses are rare.
     let kdl = format!(
         r#"keybinds {{
     shared_except "locked" {{
         bind "{nav}" {{
-            MessagePluginId {id} {{
+            MessagePlugin {{
                 name "cc-deck:navigate"
             }}
         }}
         bind "{att}" {{
-            MessagePluginId {id} {{
+            MessagePlugin {{
                 name "cc-deck:attend"
             }}
         }}
         bind "{wrk}" {{
-            MessagePluginId {id} {{
+            MessagePlugin {{
                 name "cc-deck:working"
             }}
         }}
         bind "{nav_prev}" {{
-            MessagePluginId {id} {{
+            MessagePlugin {{
                 name "cc-deck:navigate-prev"
             }}
         }}
         bind "{att_prev}" {{
-            MessagePluginId {id} {{
+            MessagePlugin {{
                 name "cc-deck:attend-prev"
             }}
         }}
         bind "{wrk_prev}" {{
-            MessagePluginId {id} {{
+            MessagePlugin {{
                 name "cc-deck:working-prev"
             }}
         }}
         bind "{voice}" {{
-            MessagePluginId {id} {{
+            MessagePlugin {{
                 name "cc-deck:voice-mute-toggle"
             }}
         }}
     }}
 }}"#,
-        id = id,
         nav = state.config.navigate_key,
         att = state.config.attend_key,
         wrk = state.config.working_key,
@@ -453,8 +454,8 @@ fn register_keybindings(state: &ControllerState) {
         voice = state.config.voice_key,
     );
     crate::debug_log(&format!(
-        "CTRL KEYBINDS registering: navigate={} attend={} working={} (plugin_id={})",
-        state.config.navigate_key, state.config.attend_key, state.config.working_key, id
+        "CTRL KEYBINDS registering: navigate={} attend={} working={} (broadcast)",
+        state.config.navigate_key, state.config.attend_key, state.config.working_key
     ));
     zellij_tile::prelude::reconfigure(kdl, false);
 }
