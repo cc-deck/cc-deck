@@ -130,7 +130,7 @@ invitation is printed.
 - [X] T029 [US1] Add a test in `cc-deck/internal/cmd/ws_share_test.go` asserting that a failed `start --share` leaves the workspace running and usable
 - [X] T030 [US1] Add a test in `cc-deck/internal/cmd/ws_share_test.go` asserting `--endpoint` overrides configuration for one command only and leaves the configured value unchanged
 - [X] T031 [US1] Add a test in `cc-deck/internal/cmd/ws_share_test.go` asserting a `--no-verify` share reports no verification age and does not introduce a third sharing state
-- [ ] T032 [US1] Write the end to end acceptance test in `cc-deck/internal/share/e2e_test.go` that starts a real Zellij web server and background session, points a static endpoint at the local address, and runs the real five stage probe; it must skip when `zellij` is absent and must run every session-creating command under `env -u ZELLIJ -u ZELLIJ_SESSION_NAME -u ZELLIJ_PANE_ID` per research R8
+- [X] T032 [US1] Write the end to end acceptance test in `cc-deck/internal/share/e2e_test.go` that starts a real Zellij web server and background session, points a static endpoint at the local address, and runs the real five stage probe; it must skip when `zellij` is absent and must run every session-creating command under `env -u ZELLIJ -u ZELLIJ_SESSION_NAME -u ZELLIJ_PANE_ID` per research R8
 
 **Checkpoint**: Sharing works end to end and the blank-terminal failure is caught automatically.
 

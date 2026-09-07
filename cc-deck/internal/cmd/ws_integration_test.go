@@ -31,6 +31,14 @@ func buildRootCmd(gf *cmd.GlobalFlags) *cobra.Command {
 func setupTestWs(t *testing.T) (stateDir string) {
 	t.Helper()
 
+	// Detach from any Zellij session the suite is being run from. Creating a
+	// canonical session is refused inside one, because the command would add a
+	// tab to the caller's live session rather than create anything. These tests
+	// used to pass by doing exactly that to the developer's own session.
+	t.Setenv("ZELLIJ", "")
+	t.Setenv("ZELLIJ_SESSION_NAME", "")
+	t.Setenv("ZELLIJ_PANE_ID", "")
+
 	stateDir = t.TempDir()
 	stateFile := filepath.Join(stateDir, "state.yaml")
 	t.Setenv("CC_DECK_STATE_FILE", stateFile)

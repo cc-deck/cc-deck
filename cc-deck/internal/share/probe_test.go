@@ -26,6 +26,10 @@ import (
 // the probe's error paths is caught by name.
 const probeSentinelSecret = "SENTINEL-PROBE-SECRET-b6f2"
 
+// fakeWebClientID is the client id the fake issues from POST /session, mirroring
+// the uuid the real Zellij web server returns.
+const fakeWebClientID = "3f6d1c48-0e4a-4a4f-9d2b-0c5e6a7b8c90"
+
 // --- the endpoint fake -------------------------------------------------------
 
 // endpointBehaviour selects which single layer the fake endpoint breaks at.
@@ -46,6 +50,9 @@ type endpointBehaviour struct {
 	// refuseUpgrade serves every page correctly but never hijacks the
 	// connection, which is the reported blank-terminal defect.
 	refuseUpgrade bool
+	// refuseClientID serves the pages and the login but will not open a control
+	// channel, which is what a proxy that only forwards GET produces.
+	refuseClientID bool
 	// silent accepts connections and never answers.
 	silent bool
 	// echoCredential writes the presented credential into the response body, to
@@ -142,6 +149,25 @@ func newEndpointFake(t *testing.T, behaviour endpointBehaviour) *endpointFake {
 		_, _ = w.Write([]byte(`{"success":true,"message":"Login successful"}`))
 	})
 
+	// POST /session issues the client id that addresses the control channel.
+	// The real Zellij web server answers /ws/control with 400 without it, so a
+	// fake that did not require one would pass a probe the real server fails.
+	mux.HandleFunc("/session", func(w http.ResponseWriter, r *http.Request) {
+		if block(w, r) {
+			return
+		}
+		if _, err := r.Cookie("session_token"); err != nil {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if behaviour.refuseClientID {
+			http.Error(w, "no control channel here", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"web_client_id":"` + fakeWebClientID + `","is_read_only":true}`))
+	})
+
 	mux.HandleFunc("/ws/control", func(w http.ResponseWriter, r *http.Request) {
 		if block(w, r) {
 			return
@@ -150,6 +176,10 @@ func newEndpointFake(t *testing.T, behaviour endpointBehaviour) *endpointFake {
 		// Zellij web server has it.
 		if _, err := r.Cookie("session_token"); err != nil {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if r.URL.Query().Get("web_client_id") != fakeWebClientID {
+			http.Error(w, "missing field `web_client_id`", http.StatusBadRequest)
 			return
 		}
 		key := r.Header.Get("Sec-WebSocket-Key")
@@ -368,6 +398,14 @@ func TestProbeAttributesEachLayerToItsOwnStage(t *testing.T) {
 			behaviour:      &endpointBehaviour{refuseUpgrade: true},
 			wantFail:       StageWebSocket,
 			wantDiagnostic: "upgrade",
+		},
+		{
+			// A proxy that forwards GET but not POST beyond the login serves
+			// the page, logs in, and then cannot open a control channel.
+			name:           "control channel refused",
+			behaviour:      &endpointBehaviour{refuseClientID: true},
+			wantFail:       StageWebSocket,
+			wantDiagnostic: "control channel",
 		},
 		{
 			name:         "silent endpoint",

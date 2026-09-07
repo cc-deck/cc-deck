@@ -172,7 +172,16 @@ func (e *StaticEndpoint) Probe(ctx context.Context, ref EndpointRef, _ string) (
 
 	// Stage 5: WebSocket. The control channel only. A terminal socket is never
 	// opened, so the probe cannot disturb the session it is verifying.
-	if err := e.probeWebSocket(ctx, base, address, sessionCookie); err != nil {
+	//
+	// The control channel is addressed by a client id the server issues, so the
+	// probe asks for one exactly as the web client does. Skipping this and
+	// opening /ws/control bare answers 400, which would report a healthy
+	// endpoint as broken.
+	clientID, err := e.requestClientID(ctx, client, base, sessionCookie)
+	if err != nil {
+		return fail(StageWebSocket, "%s", err.Error())
+	}
+	if err := e.probeWebSocket(ctx, base, address, sessionCookie, clientID); err != nil {
 		return fail(StageWebSocket, "%s", err.Error())
 	}
 
@@ -239,10 +248,43 @@ func (e *StaticEndpoint) clientTLSConfig(host string) *tls.Config {
 	return config
 }
 
+// requestClientID asks the server for the client id that addresses the control
+// channel, which is the same call the web client makes before it connects. The
+// request is authenticated by the session cookie, so a proxy that mishandles
+// cookies on anything other than the login response is caught here too.
+func (e *StaticEndpoint) requestClientID(ctx context.Context, client *http.Client, base *url.URL, sessionCookie string) (string, error) {
+	sessionURL := base.JoinPath("session")
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, sessionURL.String(), nil)
+	if err != nil {
+		return "", fmt.Errorf("could not build the control channel request: %v", err)
+	}
+	request.AddCookie(&http.Cookie{Name: "session_token", Value: sessionCookie})
+	response, err := client.Do(request)
+	if err != nil {
+		return "", fmt.Errorf("the control channel could not be established: %v", err)
+	}
+	body, readErr := io.ReadAll(io.LimitReader(response.Body, maxDiagnosticBody))
+	_ = response.Body.Close()
+	if response.StatusCode/100 != 2 {
+		return "", fmt.Errorf("the endpoint serves the web client but refused to open a control channel, answering %d %s",
+			response.StatusCode, http.StatusText(response.StatusCode))
+	}
+	if readErr != nil {
+		return "", fmt.Errorf("the control channel response could not be read: %v", readErr)
+	}
+	var payload struct {
+		WebClientID string `json:"web_client_id"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil || payload.WebClientID == "" {
+		return "", fmt.Errorf("the endpoint answered the control channel request without a client id, so it is not serving the Zellij web server")
+	}
+	return payload.WebClientID, nil
+}
+
 // probeWebSocket performs the upgrade handshake by hand. It asserts exactly two
 // facts: that the endpoint answers 101, and that it echoes the key correctly.
 // No frame is ever sent or read, which is why this needs no WebSocket library.
-func (e *StaticEndpoint) probeWebSocket(ctx context.Context, base *url.URL, address, sessionCookie string) error {
+func (e *StaticEndpoint) probeWebSocket(ctx context.Context, base *url.URL, address, sessionCookie, clientID string) error {
 	key, err := websocketKey()
 	if err != nil {
 		return fmt.Errorf("could not build the upgrade request: %v", err)
@@ -260,7 +302,7 @@ func (e *StaticEndpoint) probeWebSocket(ctx context.Context, base *url.URL, addr
 	// Build the request target by hand rather than through JoinPath, which
 	// yields a path with no leading slash when the endpoint address carries no
 	// path of its own, and that is a malformed request line.
-	request := "GET " + controlChannelPath(base) + " HTTP/1.1\r\n" +
+	request := "GET " + controlChannelPath(base) + "?web_client_id=" + url.QueryEscape(clientID) + " HTTP/1.1\r\n" +
 		"Host: " + base.Host + "\r\n" +
 		"Upgrade: websocket\r\n" +
 		"Connection: Upgrade\r\n" +
