@@ -519,6 +519,13 @@ impl ControllerState {
         self.render_dirty = true;
     }
 
+    /// Whether the session on `pane_id` is currently waiting on the user.
+    pub fn session_is_waiting(&self, pane_id: u32) -> bool {
+        self.sessions
+            .get(&pane_id)
+            .is_some_and(|s| s.activity.is_waiting())
+    }
+
     pub fn own_focus(&self) -> Option<u32> {
         self.client_views
             .get(&self.client_id)

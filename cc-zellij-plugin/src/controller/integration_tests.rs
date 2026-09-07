@@ -413,6 +413,33 @@ fn test_controller_without_permissions_ignores_pipe() {
 // ---------------------------------------------------------------------------
 
 #[test]
+fn test_controller_flushes_render_immediately_on_waiting_transition() {
+    let mut plugin = setup_controller();
+    plugin.pipe(make_hook_pipe("SessionStart", 42));
+    plugin.pipe(make_hook_pipe("UserPromptSubmit", 42));
+    // Ordinary transitions wait for the timer.
+    assert!(plugin.test_state().render_dirty);
+
+    plugin.test_state_mut().render_dirty = false;
+    plugin.pipe(make_hook_pipe("PermissionRequest", 42));
+    assert!(
+        plugin.test_state().sessions[&42].activity.is_waiting(),
+        "sanity: the hook put the session into Waiting"
+    );
+    assert!(
+        !plugin.test_state().render_dirty,
+        "entering Waiting must flush at once, not on the next tick"
+    );
+
+    plugin.pipe(make_hook_pipe("PostToolUse", 42));
+    assert!(
+        !plugin.test_state().sessions[&42].activity.is_waiting()
+            && !plugin.test_state().render_dirty,
+        "leaving Waiting flushes at once too"
+    );
+}
+
+#[test]
 fn test_controller_processes_hooks_immediately_after_grant() {
     // No election, no dormant window: the first hook after the grant lands.
     let mut plugin = ControllerPlugin::default();

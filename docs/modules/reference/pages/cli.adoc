@@ -209,6 +209,11 @@ It also exits silently on malformed input or any other error, so that it never d
 
 Set the flag file `~/.local/state/cc-deck/hook-debug` to record why each invocation was forwarded or dropped to `~/.local/state/cc-deck/hook.log`.
 
+`cc-deck config plugin install` registers the command for the events that change a session's state: `SessionStart`, `UserPromptSubmit`, `PostToolUse`, `PostToolUseFailure`, `PermissionRequest`, `Notification`, `Stop`, `SubagentStart`, `SubagentStop`, and `SessionEnd`.
+`PreToolUse` is not registered.
+It fires once per tool call and would only repeat the Working state that `UserPromptSubmit` and `PostToolUse` already report, at the cost of one process per call.
+The command still accepts a `PreToolUse` event on its input.
+
 [source,bash]
 ----
 echo '{"hook_event_name":"PreToolUse","session_id":"abc"}' | cc-deck hook --agent claude --pane-id "$ZELLIJ_PANE_ID"

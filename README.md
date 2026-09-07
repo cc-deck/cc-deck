@@ -304,6 +304,7 @@ plugin location="file:~/.config/zellij/plugins/cc_deck.wasm" {
     auto_pause_secs "3600"    // auto-pause after idle for this many seconds (default: 3600, 0 to disable)
     attend_cycle_ms "2000"    // rapid-cycle window for attend/working in ms (default: 2000, 0 to disable)
     auto_sort "true"          // auto-sort paused sessions below active ones (default: true, "false" to disable)
+    voice_timeout_secs "15"   // clear the voice indicator after this many seconds without a relay poll (default: 15)
 }
 ```
 

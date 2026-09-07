@@ -319,7 +319,7 @@ func TestClaudeAgentInstallHooksPreservesExisting(t *testing.T) {
 		t.Error("obsidian sync hook was lost after InstallHooks()")
 	}
 
-	// Verify PreToolUse has the rtk hook + cc-deck hook (not just cc-deck)
+	// PreToolUse is not registered by cc-deck: only the rtk hook remains there.
 	preToolUse, _ := hooks["PreToolUse"].([]any)
 	ccDeckCount := 0
 	for _, entry := range preToolUse {
@@ -327,8 +327,11 @@ func TestClaudeAgentInstallHooksPreservesExisting(t *testing.T) {
 			ccDeckCount++
 		}
 	}
-	if ccDeckCount != 1 {
-		t.Errorf("PreToolUse has %d cc-deck entries, want 1", ccDeckCount)
+	if ccDeckCount != 0 {
+		t.Errorf("PreToolUse has %d cc-deck entries, want 0", ccDeckCount)
+	}
+	if len(preToolUse) != 0 {
+		t.Errorf("PreToolUse has %d entries, want none (nothing else was registered there)", len(preToolUse))
 	}
 
 	// Run again to verify idempotency with existing hooks
@@ -449,6 +452,44 @@ func TestClaudeAgentRequiredDomainGroups(t *testing.T) {
 	}
 	if groups[0] != "anthropic" {
 		t.Errorf("RequiredDomainGroups()[0] = %q, want %q", groups[0], "anthropic")
+	}
+}
+
+// An earlier release registered PreToolUse. Reinstalling must remove that
+// stale entry, or the upgrade keeps paying one process per tool call.
+func TestClaudeAgentInstallHooksRemovesStalePreToolUse(t *testing.T) {
+	tmpDir := t.TempDir()
+	settingsPath := filepath.Join(tmpDir, ".claude", "settings.json")
+	claudeSettingsPathFunc = func() string { return settingsPath }
+	defer func() { claudeSettingsPathFunc = defaultClaudeSettingsPath }()
+
+	stale := structToMap(claudeHookEntry("PreToolUse"))
+	initial := map[string]any{
+		"hooks": map[string]any{
+			"PreToolUse": []any{stale},
+		},
+	}
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := json.MarshalIndent(initial, "", "  ")
+	if err := os.WriteFile(settingsPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := (&ClaudeAgent{}).InstallHooks(); err != nil {
+		t.Fatalf("InstallHooks() error: %v", err)
+	}
+
+	result, _ := os.ReadFile(settingsPath)
+	var settings map[string]any
+	json.Unmarshal(result, &settings) //nolint:errcheck
+	hooks, _ := settings["hooks"].(map[string]any)
+	if _, present := hooks["PreToolUse"]; present {
+		t.Errorf("stale PreToolUse entry survived reinstall: %v", hooks["PreToolUse"])
+	}
+	if _, present := hooks["PostToolUse"]; !present {
+		t.Error("PostToolUse hook was not installed")
 	}
 }
 

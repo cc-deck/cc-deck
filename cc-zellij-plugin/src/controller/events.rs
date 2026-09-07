@@ -187,10 +187,12 @@ pub fn handle_timer(state: &mut ControllerState, _elapsed: f64) {
         state.mark_render_dirty();
     }
 
-    // Voice heartbeat timeout: if voice is enabled but no ping for 15 seconds, clear voice state
+    // Voice heartbeat timeout: the relay's state poll is the heartbeat, so
+    // silence longer than the configured timeout means the relay is gone.
     if state.voice_enabled
         && state.voice_last_ping_ms > 0
-        && now_ms.saturating_sub(state.voice_last_ping_ms) > 15000
+        && now_ms.saturating_sub(state.voice_last_ping_ms)
+            > state.config.voice_timeout_secs.saturating_mul(1000)
     {
         state.voice_enabled = false;
         state.voice_muted = false;
@@ -237,13 +239,18 @@ pub fn handle_timer(state: &mut ControllerState, _elapsed: f64) {
     crate::debug_flush();
 
     // Git branch polling and orphan cleanup: every 60s.
+    // Only sessions that have shown activity recently are polled. A branch
+    // changes because an agent ran git, and that agent's hooks refresh the
+    // branch anyway; an idle session pays a subprocess per minute for
+    // nothing.
     let now_ms = session::unix_now_ms();
     if now_ms.saturating_sub(state.last_git_poll_ms) >= 60_000 {
         state.last_git_poll_ms = now_ms;
         // T019: Clean up orphaned state files from dead Zellij sessions
         super::state::cleanup_orphaned_state_files();
+        let now_secs = session::unix_now();
         for s in state.sessions.values() {
-            if s.paused {
+            if s.paused || !git_poll_due(s, now_secs) {
                 continue;
             }
             if let Some(ref cwd) = s.working_dir {
@@ -269,6 +276,15 @@ pub fn handle_timer(state: &mut ControllerState, _elapsed: f64) {
 
     // Reschedule timer
     set_timer(state.config.timer_interval);
+}
+
+/// How long after its last hook event a session keeps being polled for its
+/// git branch.
+pub const GIT_POLL_ACTIVE_WINDOW_SECS: u64 = 600;
+
+/// Whether a session is recent enough to be worth a `git rev-parse` this tick.
+pub fn git_poll_due(session: &Session, now_secs: u64) -> bool {
+    now_secs.saturating_sub(session.last_event_ts) < GIT_POLL_ACTIVE_WINDOW_SECS
 }
 
 /// Handle RunCommandResult: git repo/branch detection results.
@@ -651,6 +667,30 @@ mod tests {
             state.render_dirty,
             "becoming visible must trigger a re-render"
         );
+    }
+
+    #[test]
+    fn test_git_poll_only_for_recently_active_sessions() {
+        let now = session::unix_now();
+        let mut fresh = Session::new(1, "s1".into());
+        fresh.last_event_ts = now.saturating_sub(60);
+        let mut stale = Session::new(2, "s2".into());
+        stale.last_event_ts = now.saturating_sub(GIT_POLL_ACTIVE_WINDOW_SECS + 1);
+
+        assert!(git_poll_due(&fresh, now));
+        assert!(!git_poll_due(&stale, now));
+    }
+
+    #[test]
+    fn test_voice_timeout_uses_configured_seconds() {
+        let mut state = ControllerState::default();
+        state.config.voice_timeout_secs = 5;
+        state.voice_enabled = true;
+        state.voice_last_ping_ms = session::unix_now_ms().saturating_sub(6_000);
+
+        handle_timer(&mut state, 1.0);
+
+        assert!(!state.voice_enabled, "silence past the timeout clears voice");
     }
 
     #[test]

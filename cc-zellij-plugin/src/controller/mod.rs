@@ -234,7 +234,14 @@ impl ZellijPlugin for ControllerPlugin {
 
         match action {
             PipeAction::HookEvent(hook) => {
+                // A change into or out of Waiting is the one transition a
+                // human is waiting on, so it does not wait for the timer.
+                let pane_id = hook.pane_id;
+                let was_waiting = self.state.session_is_waiting(pane_id);
                 hooks::process_hook(&mut self.state, hook);
+                if self.state.session_is_waiting(pane_id) != was_waiting {
+                    render_broadcast::flush_render(&mut self.state);
+                }
             }
             PipeAction::SyncState | PipeAction::RequestState => {
                 // Legacy sync messages: ignored in controller architecture.
@@ -588,15 +595,45 @@ impl ControllerPlugin {
     }
 
     /// Serialize session state and send it via CLI pipe output.
-    /// Also serves as the voice heartbeat: each poll refreshes voice_last_ping_ms,
-    /// so no separate [[voice:ping]] message is needed.
+    ///
+    /// The voice relay polls this as its heartbeat. Its request carries a
+    /// `voice` object with the relay's mute state, so one poll replaces the
+    /// separate `[[voice:on:*]]` message it used to send alongside, and a
+    /// `scope` of `"voice"` trims the reply to the sessions the relay can
+    /// address instead of every session in the workspace.
     fn dump_state(&mut self, pipe_message: &PipeMessage) {
+        let _state_json = self.dump_state_json(pipe_message.payload.as_deref());
+        #[cfg(target_family = "wasm")]
+        {
+            if let PipeSource::Cli(ref pipe_id) = pipe_message.source {
+                zellij_tile::prelude::cli_pipe_output(pipe_id, &_state_json);
+                zellij_tile::prelude::unblock_cli_pipe_input(pipe_id);
+            }
+        }
+    }
+
+    /// Apply a dump-state request to voice state and build the reply.
+    fn dump_state_json(&mut self, payload: Option<&str>) -> String {
+        let request = payload
+            .and_then(|p| serde_json::from_str::<DumpStateRequest>(p).ok())
+            .unwrap_or_default();
+
+        if let Some(voice) = request.voice {
+            if voice.on {
+                self.handle_voice_command(if voice.muted {
+                    "voice:on:muted"
+                } else {
+                    "voice:on:unmuted"
+                });
+            }
+        }
         if self.state.voice_enabled {
             self.state.voice_last_ping_ms = crate::session::unix_now_ms();
         }
+
         #[derive(serde::Serialize)]
         struct DumpStateResponse<'a> {
-            sessions: &'a std::collections::BTreeMap<u32, &'a crate::session::Session>,
+            sessions: std::collections::BTreeMap<u32, &'a crate::session::Session>,
             attended_pane_id: Option<u32>,
             #[serde(skip_serializing_if = "Option::is_none")]
             focused_pane_id: Option<u32>,
@@ -605,24 +642,40 @@ impl ControllerPlugin {
         }
         // Withhold sessions the manifest has not confirmed, so the Go CLI's
         // snapshots and status output never record a pane that does not exist.
-        let visible = self.state.visible_sessions();
+        let mut visible = self.state.visible_sessions();
+        let attended_pane_id = self.state.last_attended_pane_id;
+        let focused_pane_id = self.state.own_focus();
+        if request.scope.as_deref() == Some("voice") && visible.len() > 1 {
+            // The relay resolves a target from the focused or attended pane,
+            // or from the sole session. Anything else is dead weight on a
+            // poll that runs for as long as voice is on.
+            visible.retain(|id, _| Some(*id) == focused_pane_id || Some(*id) == attended_pane_id);
+        }
         let resp = DumpStateResponse {
-            sessions: &visible,
-            attended_pane_id: self.state.last_attended_pane_id,
-            focused_pane_id: self.state.own_focus(),
+            sessions: visible,
+            attended_pane_id,
+            focused_pane_id,
             voice_mute_requested: self.state.voice_mute_requested,
         };
-        let _state_json = serde_json::to_string(&resp).unwrap_or_else(|_| "{}".to_string());
-        #[cfg(target_family = "wasm")]
-        {
-            if let PipeSource::Cli(ref pipe_id) = pipe_message.source {
-                zellij_tile::prelude::cli_pipe_output(pipe_id, &_state_json);
-                zellij_tile::prelude::unblock_cli_pipe_input(pipe_id);
-            }
-        }
-        // Suppress unused variable warning in non-wasm builds
-        let _ = pipe_message;
+        serde_json::to_string(&resp).unwrap_or_else(|_| "{}".to_string())
     }
+}
+
+/// Optional request body of a `cc-deck:dump-state` pipe.
+#[derive(Default, serde::Deserialize)]
+struct DumpStateRequest {
+    #[serde(default)]
+    voice: Option<DumpStateVoice>,
+    #[serde(default)]
+    scope: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct DumpStateVoice {
+    #[serde(default)]
+    on: bool,
+    #[serde(default)]
+    muted: bool,
 }
 
 // --- WASM-gated helpers ---
@@ -903,6 +956,63 @@ mod tests {
         plugin.handle_voice_command("voice:on:garbage");
         assert!(plugin.state.voice_enabled);
         assert!(!plugin.state.voice_muted);
+    }
+
+    #[test]
+    fn test_dump_state_request_carries_voice_heartbeat_and_mute() {
+        let mut plugin = ControllerPlugin::default();
+        assert!(!plugin.state.voice_enabled);
+
+        plugin.dump_state_json(Some(r#"{"voice":{"on":true,"muted":true},"scope":"voice"}"#));
+        assert!(plugin.state.voice_enabled, "the poll is the heartbeat");
+        assert!(plugin.state.voice_muted);
+        assert!(plugin.state.voice_last_ping_ms > 0);
+
+        plugin.dump_state_json(Some(r#"{"voice":{"on":true,"muted":false}}"#));
+        assert!(!plugin.state.voice_muted);
+
+        // A poll without a voice object (snapshots, status) leaves voice alone.
+        plugin.state.voice_enabled = false;
+        plugin.dump_state_json(None);
+        assert!(!plugin.state.voice_enabled);
+    }
+
+    #[test]
+    fn test_dump_state_voice_scope_trims_to_addressable_sessions() {
+        let mut plugin = ControllerPlugin::default();
+        for id in [1, 2, 3] {
+            plugin
+                .state
+                .sessions
+                .insert(id, crate::session::Session::new(id, format!("s{id}")));
+        }
+        plugin.state.last_attended_pane_id = Some(2);
+
+        let full: serde_json::Value =
+            serde_json::from_str(&plugin.dump_state_json(None)).unwrap();
+        assert_eq!(full["sessions"].as_object().unwrap().len(), 3);
+
+        let voice: serde_json::Value =
+            serde_json::from_str(&plugin.dump_state_json(Some(r#"{"scope":"voice"}"#))).unwrap();
+        let sessions = voice["sessions"].as_object().unwrap();
+        assert_eq!(sessions.len(), 1, "only the attended session is returned");
+        assert!(sessions.contains_key("2"));
+        assert_eq!(voice["attended_pane_id"], 2);
+    }
+
+    #[test]
+    fn test_dump_state_voice_scope_keeps_a_sole_session() {
+        // With one session the relay falls back to it as the target, so it
+        // must still be in the reply even without focus or attend.
+        let mut plugin = ControllerPlugin::default();
+        plugin
+            .state
+            .sessions
+            .insert(7, crate::session::Session::new(7, "only".into()));
+
+        let voice: serde_json::Value =
+            serde_json::from_str(&plugin.dump_state_json(Some(r#"{"scope":"voice"}"#))).unwrap();
+        assert_eq!(voice["sessions"].as_object().unwrap().len(), 1);
     }
 
     #[test]

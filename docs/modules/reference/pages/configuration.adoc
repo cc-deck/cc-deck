@@ -262,6 +262,12 @@ plugin location="file:~/.config/zellij/plugins/cc_deck.wasm" {
 | `Alt m`
 | Global shortcut for voice mute toggle
 
+| `voice_timeout_secs`
+| `15`
+| Seconds without a poll from the voice relay before the sidebar clears the voice indicator.
+The relay polls every 5 seconds, so keep this above the poll interval.
+Values below 5 are ignored.
+
 | `auto_sort`
 | `true`
 | When enabled, the sidebar groups active sessions above a visual separator and paused sessions below it.

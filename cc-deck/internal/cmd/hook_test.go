@@ -243,3 +243,33 @@ func TestCurrentZellijSession(t *testing.T) {
 		}
 	})
 }
+
+// An unchanged mapping must not rewrite the cache: this path runs on every
+// hook event, and the file is only consulted when the pane id is missing.
+func TestRunHook_UnchangedPaneMappingDoesNotRewriteCache(t *testing.T) {
+	env := newHookTestEnv(t)
+	env.inZellij("cc-deck-local")
+
+	runHook(strings.NewReader(claudeEvent("PostToolUse", "sess-a")), "7", "claude")
+	first, err := os.Stat(paneMapFile)
+	if err != nil {
+		t.Fatalf("cache not written on first hook: %v", err)
+	}
+	before := env.readMap()["sess-a"]
+
+	time.Sleep(20 * time.Millisecond)
+	runHook(strings.NewReader(claudeEvent("PostToolUse", "sess-a")), "7", "claude")
+	second, _ := os.Stat(paneMapFile)
+	if !second.ModTime().Equal(first.ModTime()) {
+		t.Error("cache was rewritten although the mapping did not change")
+	}
+	if env.readMap()["sess-a"] != before {
+		t.Error("cache entry changed although the mapping did not")
+	}
+
+	// A different pane for the same session is a real change and is written.
+	runHook(strings.NewReader(claudeEvent("PostToolUse", "sess-a")), "9", "claude")
+	if got := env.readMap()["sess-a"].PaneID; got != 9 {
+		t.Errorf("pane id after change: got %d, want 9", got)
+	}
+}

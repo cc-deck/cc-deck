@@ -537,7 +537,10 @@ type mockPipeSendReceiver struct {
 	recvCalled   chan struct{}
 }
 
-func (m *mockPipeSendReceiver) SendReceive(_ context.Context, _ string, _ string) (string, error) {
+func (m *mockPipeSendReceiver) SendReceive(_ context.Context, pipeName string, payload string) (string, error) {
+	m.mockPipeSender.mu.Lock()
+	m.mockPipeSender.sent = append(m.mockPipeSender.sent, pipeSend{name: pipeName, payload: payload})
+	m.mockPipeSender.mu.Unlock()
 	m.mu.Lock()
 	resp := m.recvResponse
 	err := m.recvErr
@@ -690,13 +693,15 @@ func TestParseDumpStateResponse_WorkingDir(t *testing.T) {
 }
 
 func TestVoiceRelay_HeartbeatSendsMuteState(t *testing.T) {
+	// The state poll is the heartbeat: its request body carries the mute
+	// state, so no separate [[voice:on:*]] message is sent per tick.
 	tests := []struct {
 		name    string
 		muted   bool
 		wantMsg string
 	}{
-		{"unmuted sends voice:on:unmuted", false, "[[voice:on:unmuted]]"},
-		{"muted sends voice:on:muted", true, "[[voice:on:muted]]"},
+		{"unmuted polls with muted=false", false, `{"voice":{"on":true,"muted":false},"scope":"voice"}`},
+		{"muted polls with muted=true", true, `{"voice":{"on":true,"muted":true},"scope":"voice"}`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -740,9 +745,11 @@ func TestVoiceRelay_HeartbeatSendsMuteState(t *testing.T) {
 			sent := pipe.getSent()
 			var found bool
 			for _, s := range sent {
-				if s.payload == tt.wantMsg {
+				if s.name == "cc-deck:dump-state" && s.payload == tt.wantMsg {
 					found = true
-					break
+				}
+				if s.name == "cc-deck:voice" && strings.HasPrefix(s.payload, "[[voice:on:") {
+					t.Errorf("per-tick heartbeat %q must no longer be sent", s.payload)
 				}
 			}
 			if !found {

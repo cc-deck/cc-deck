@@ -51,6 +51,20 @@ func (c *ClaudeAgent) InstallHooks() error {
 		hooks = make(map[string]any)
 	}
 
+	// Clear cc-deck entries from every event first, so an event this
+	// version no longer registers does not keep a stale hook from an
+	// earlier install.
+	for event, val := range hooks {
+		if eventHooks, ok := val.([]any); ok {
+			filtered := removeCCDeckHooks(eventHooks)
+			if len(filtered) == 0 {
+				delete(hooks, event)
+			} else {
+				hooks[event] = filtered
+			}
+		}
+	}
+
 	for _, event := range claudeHookEvents {
 		entry := claudeHookEntry(event)
 		entryMap := structToMap(entry)
@@ -243,9 +257,12 @@ func (c *ClaudeAgent) HookEventCount() int {
 
 // --- Claude Code settings.json management ---
 
+// PreToolUse is deliberately absent. UserPromptSubmit, SubagentStart and
+// PostToolUse already carry the Working transition, and every registered
+// event costs a process spawn per occurrence; PreToolUse fires once per
+// tool call and added nothing but that cost.
 var claudeHookEvents = []string{
 	"SessionStart",
-	"PreToolUse",
 	"PostToolUse",
 	"PostToolUseFailure",
 	"UserPromptSubmit",
