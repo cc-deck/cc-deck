@@ -153,13 +153,13 @@ func TestResolveWorkspaceName_MultipleProjectDirNoRecency(t *testing.T) {
 	resolved, _ := filepath.EvalSymlinks(tmpDir)
 	defs := ws.NewDefinitionStore(defFile)
 	require.NoError(t, defs.Add(&ws.WorkspaceDefinition{
-		Name:          "ws-a",
-		Type:          ws.WorkspaceTypeLocal,
+		Name: "ws-a",
+		Type: ws.WorkspaceTypeLocal,
 		WorkspaceSpec: ws.WorkspaceSpec{ProjectDir: resolved},
 	}))
 	require.NoError(t, defs.Add(&ws.WorkspaceDefinition{
-		Name:          "ws-b",
-		Type:          ws.WorkspaceTypeContainer,
+		Name: "ws-b",
+		Type: ws.WorkspaceTypeContainer,
 		WorkspaceSpec: ws.WorkspaceSpec{ProjectDir: resolved},
 	}))
 
@@ -186,8 +186,8 @@ func TestResolveWorkspaceName_SubdirectoryMatch(t *testing.T) {
 	resolved, _ := filepath.EvalSymlinks(tmpDir)
 	defs := ws.NewDefinitionStore(defFile)
 	require.NoError(t, defs.Add(&ws.WorkspaceDefinition{
-		Name:          "proj-ws",
-		Type:          ws.WorkspaceTypeLocal,
+		Name: "proj-ws",
+		Type: ws.WorkspaceTypeLocal,
 		WorkspaceSpec: ws.WorkspaceSpec{ProjectDir: resolved},
 	}))
 

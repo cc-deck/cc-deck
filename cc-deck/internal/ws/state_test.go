@@ -478,3 +478,4 @@ func TestMigrateV2toV3_MultipleInstances(t *testing.T) {
 	assert.Equal(t, InfraStateError, *loaded.Instances[4].InfraState)
 	assert.Equal(t, SessionStateNone, loaded.Instances[4].SessionState)
 }
+

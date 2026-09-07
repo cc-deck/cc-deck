@@ -23,40 +23,40 @@ type WorkspaceSpec struct {
 	Auth                string            `yaml:"auth,omitempty"`
 	ExternalCredentials bool              `yaml:"external-credentials,omitempty"`
 	Storage             *StorageConfig    `yaml:"storage,omitempty"`
-	Ports               []string          `yaml:"ports,omitempty"`
-	Credentials         []string          `yaml:"credentials,omitempty"`
-	Mounts              []string          `yaml:"mounts,omitempty"`
-	AllowedDomains      []string          `yaml:"allowed-domains,omitempty"`
-	ProjectDir          string            `yaml:"project-dir,omitempty"`
-	Env                 map[string]string `yaml:"env,omitempty"`
-	Host                string            `yaml:"host,omitempty"`
-	Port                int               `yaml:"port,omitempty"`
-	IdentityFile        string            `yaml:"identity-file,omitempty"`
-	JumpHost            string            `yaml:"jump-host,omitempty"`
-	SSHConfig           string            `yaml:"ssh-config,omitempty"`
-	Workspace           string            `yaml:"workspace,omitempty"`
-	Repos               []RepoEntry       `yaml:"repos,omitempty"`
-	RemoteBG            string            `yaml:"remote-bg,omitempty"`
-	Namespace           string            `yaml:"namespace,omitempty"`
-	Kubeconfig          string            `yaml:"kubeconfig,omitempty"`
-	K8sContext          string            `yaml:"context,omitempty"`
-	StorageSize         string            `yaml:"storage-size,omitempty"`
-	StorageClass        string            `yaml:"storage-class,omitempty"`
-	Gateway             string            `yaml:"gateway,omitempty"`
-	GatewayTLS          *bool             `yaml:"gateway-tls,omitempty"`
-	TLSCertPath         string            `yaml:"tls-cert-path,omitempty"`
-	TLSKeyPath          string            `yaml:"tls-key-path,omitempty"`
-	TLSCAPath           string            `yaml:"tls-ca-path,omitempty"`
-	SandboxImage        string            `yaml:"sandbox-image,omitempty"`
-	SandboxCommand      string            `yaml:"sandbox-command,omitempty"`
-	Policy              string            `yaml:"policy,omitempty"`
-	Provider            string            `yaml:"provider,omitempty"`
+	Ports          []string          `yaml:"ports,omitempty"`
+	Credentials    []string          `yaml:"credentials,omitempty"`
+	Mounts         []string          `yaml:"mounts,omitempty"`
+	AllowedDomains []string          `yaml:"allowed-domains,omitempty"`
+	ProjectDir     string            `yaml:"project-dir,omitempty"`
+	Env            map[string]string `yaml:"env,omitempty"`
+	Host           string            `yaml:"host,omitempty"`
+	Port           int               `yaml:"port,omitempty"`
+	IdentityFile   string            `yaml:"identity-file,omitempty"`
+	JumpHost       string            `yaml:"jump-host,omitempty"`
+	SSHConfig      string            `yaml:"ssh-config,omitempty"`
+	Workspace      string            `yaml:"workspace,omitempty"`
+	Repos          []RepoEntry       `yaml:"repos,omitempty"`
+	RemoteBG       string            `yaml:"remote-bg,omitempty"`
+	Namespace      string            `yaml:"namespace,omitempty"`
+	Kubeconfig     string            `yaml:"kubeconfig,omitempty"`
+	K8sContext     string            `yaml:"context,omitempty"`
+	StorageSize    string            `yaml:"storage-size,omitempty"`
+	StorageClass   string            `yaml:"storage-class,omitempty"`
+	Gateway        string            `yaml:"gateway,omitempty"`
+	GatewayTLS     *bool             `yaml:"gateway-tls,omitempty"`
+	TLSCertPath    string            `yaml:"tls-cert-path,omitempty"`
+	TLSKeyPath     string            `yaml:"tls-key-path,omitempty"`
+	TLSCAPath      string            `yaml:"tls-ca-path,omitempty"`
+	SandboxImage   string            `yaml:"sandbox-image,omitempty"`
+	SandboxCommand string            `yaml:"sandbox-command,omitempty"`
+	Policy         string            `yaml:"policy,omitempty"`
+	Provider       string            `yaml:"provider,omitempty"`
 }
 
 // WorkspaceDefinition is the declarative, user-editable description of a workspace.
 type WorkspaceDefinition struct {
-	Name            string        `yaml:"name"`
-	Type            WorkspaceType `yaml:"type"`
+	Name            string            `yaml:"name"`
+	Type            WorkspaceType     `yaml:"type"`
 	WorkspaceSpec   `yaml:",inline"`
 	ExtraRemotes    map[string]string `yaml:"-"`
 	AutoDetectedURL string            `yaml:"-"`
@@ -64,7 +64,7 @@ type WorkspaceDefinition struct {
 
 // DefinitionFile is the top-level structure of the workspace definitions file.
 type DefinitionFile struct {
-	Version    int                   `yaml:"version"`
+	Version      int                     `yaml:"version"`
 	Workspaces []WorkspaceDefinition `yaml:"workspaces"`
 }
 
@@ -332,3 +332,4 @@ func (s *DefinitionStore) List(filter *ListFilter) ([]*WorkspaceDefinition, erro
 
 	return result, nil
 }
+

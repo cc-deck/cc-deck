@@ -73,7 +73,7 @@ func gitExecSilent(ctx context.Context, args ...string) error {
 
 // shellQuote wraps a string in single quotes with proper escaping for
 // safe use in sh -c commands. Single quotes within the string are
-// escaped as '\” (end quote, escaped quote, start quote).
+// escaped as '\'' (end quote, escaped quote, start quote).
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }

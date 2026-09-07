@@ -65,9 +65,9 @@ func (c *localPipeChannel) SendReceive(ctx context.Context, pipeName string, pay
 
 // execPipeChannel sends text to a remote zellij pipe via workspace Exec.
 type execPipeChannel struct {
-	name         string
-	execFn       func(ctx context.Context, cmd []string) error
-	execOutputFn func(ctx context.Context, cmd []string) (string, error)
+	name          string
+	execFn        func(ctx context.Context, cmd []string) error
+	execOutputFn  func(ctx context.Context, cmd []string) (string, error)
 }
 
 func (c *execPipeChannel) zellijSessionName() string {

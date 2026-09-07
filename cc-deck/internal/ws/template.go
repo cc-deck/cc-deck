@@ -26,8 +26,8 @@ type Placeholder struct {
 // Variant bodies use WorkspaceSpec fields (the same fields as WorkspaceDefinition
 // minus name and type, which are derived from the template structure).
 type WorkspaceTemplate struct {
-	Name     string                   `yaml:"name"`
-	Variants map[string]WorkspaceSpec `yaml:"variants"`
+	Name     string                     `yaml:"name"`
+	Variants map[string]WorkspaceSpec   `yaml:"variants"`
 }
 
 // LoadTemplate reads .cc-deck/workspace-template.yaml from the given project root.
@@ -60,10 +60,10 @@ func ValidateTemplate(tmpl *WorkspaceTemplate) error {
 	}
 
 	validTypes := map[string]bool{
-		string(WorkspaceTypeSSH):       true,
-		string(WorkspaceTypeContainer): true,
-		string(WorkspaceTypeCompose):   true,
-		string(WorkspaceTypeK8sDeploy): true,
+		string(WorkspaceTypeSSH):        true,
+		string(WorkspaceTypeContainer):  true,
+		string(WorkspaceTypeCompose):    true,
+		string(WorkspaceTypeK8sDeploy):  true,
 	}
 
 	for key := range tmpl.Variants {

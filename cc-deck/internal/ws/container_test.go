@@ -44,8 +44,8 @@ func TestSecretName(t *testing.T) {
 	t.Helper()
 	tests := []struct {
 		wsName string
-		key    string
-		want   string
+		key     string
+		want    string
 	}{
 		{"mydev", "ANTHROPIC_API_KEY", "cc-deck-mydev-anthropic-api-key"},
 		{"proj", "GOOGLE_APPLICATION_CREDENTIALS", "cc-deck-proj-google-application-credentials"},

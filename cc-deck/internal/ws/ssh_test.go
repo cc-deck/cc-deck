@@ -107,10 +107,10 @@ func TestSSHWorkspace_DeleteRemovesDefinition(t *testing.T) {
 		},
 	}))
 	require.NoError(t, store.AddInstance(&WorkspaceInstance{
-		Name:         "ssh-env",
-		Type:         WorkspaceTypeSSH,
+		Name:  "ssh-env",
+		Type:  WorkspaceTypeSSH,
 		SessionState: SessionStateNone,
-		SSH:          &SSHFields{Host: "user@host"},
+		SSH:   &SSHFields{Host: "user@host"},
 	}))
 
 	e := &SSHWorkspace{name: "ssh-env", store: store, defs: defs}
@@ -136,10 +136,10 @@ func TestSSHWorkspace_DeleteSucceedsWhenDefRemovalFails(t *testing.T) {
 
 	// Add instance but no definition (simulates already-removed definition).
 	require.NoError(t, store.AddInstance(&WorkspaceInstance{
-		Name:         "ssh-env",
-		Type:         WorkspaceTypeSSH,
+		Name:  "ssh-env",
+		Type:  WorkspaceTypeSSH,
 		SessionState: SessionStateNone,
-		SSH:          &SSHFields{Host: "user@host"},
+		SSH:   &SSHFields{Host: "user@host"},
 	}))
 
 	e := &SSHWorkspace{name: "ssh-env", store: store, defs: defs}
