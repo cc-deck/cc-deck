@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -1424,9 +1425,11 @@ func (s *sharingSnapshot) detailsWithProbe(name string, wsType ws.WorkspaceType)
 		}
 	}
 	residuals := append([]string(nil), status.Residuals...)
-	// A reported error is normally already spelled out in the residuals. Adding
-	// it again prints the same line twice.
-	if err != nil && len(residuals) == 0 {
+	// A reported error is normally already spelled out in the residuals, and
+	// adding it again prints the same line twice. Compare the text rather than
+	// assuming: an error that says something the residuals do not still needs
+	// to be shown, even when other residuals are present.
+	if err != nil && !slices.Contains(residuals, err.Error()) {
 		residuals = append(residuals, err.Error())
 	}
 	return state, status.EndpointURL, summaries, residuals, status.LastProbe

@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/cc-deck/cc-deck/internal/config"
 )
 
 type SharingService struct {
@@ -24,9 +26,10 @@ type SharingService struct {
 
 const rollbackTimeout = 5 * time.Second
 
-// DefaultVerifyTimeout matches config.DefaultVerifyTimeout and is used when a
-// caller does not supply one.
-const DefaultVerifyTimeout = 15 * time.Second
+// DefaultVerifyTimeout is used when a caller supplies no budget. It is an
+// alias rather than a copy, so the configuration default and this fallback
+// cannot drift apart.
+const DefaultVerifyTimeout = config.DefaultVerifyTimeout
 
 func NewService(store Store, zellij Zellij, endpoint Endpoint) *SharingService {
 	return NewServiceWithTimeout(store, zellij, endpoint, DefaultVerifyTimeout)
@@ -203,12 +206,22 @@ func (s *SharingService) verify(ctx context.Context, ref EndpointRef, session st
 	if skip {
 		return nil, nil
 	}
-	probeCtx := ctx
-	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
-		var cancel context.CancelFunc
-		probeCtx, cancel = context.WithTimeout(ctx, s.verifyTimeout)
-		defer cancel()
+	// The configured budget always applies. WithTimeout keeps whichever
+	// deadline is sooner, so a caller with a shorter one still wins, while a
+	// caller with a longer deadline, or none at all, is held to the bound the
+	// user configured. Applying it only when the caller had no deadline let a
+	// long-lived caller opt out of the bound entirely.
+	//
+	// Part of the budget is reserved for the credential revocation the probe
+	// runs on every exit path. Without the reservation the whole verification
+	// overruns the configured timeout by the revocation's own grace, and a
+	// bound that is quietly larger than it claims is not a bound.
+	budget := s.verifyTimeout - probeRevokeTimeout
+	if budget < s.verifyTimeout/2 {
+		budget = s.verifyTimeout / 2
 	}
+	probeCtx, cancel := context.WithTimeout(ctx, budget)
+	defer cancel()
 	result, err := s.endpoint.Probe(probeCtx, ref, session)
 	if err != nil {
 		return nil, err
@@ -266,11 +279,18 @@ func (s *SharingService) Invite(ctx context.Context, req InviteRequest) (Invitat
 		// nothing behind to clean up.
 		probe, err := s.verify(ctx, EndpointRef{Name: op.EndpointName, BaseURL: op.EndpointURL}, op.Session, req.NoVerify)
 		if err != nil {
+			// Every completed verification is recorded, including this one.
+			// Reporting a failure to the caller and then leaving a stale result
+			// on disk makes the next listing contradict what was just seen.
+			var failed *ProbeFailedError
+			if errors.As(err, &failed) {
+				s.recordProbe(op, &failed.Result)
+			}
 			return err
 		}
-		if probe != nil {
-			op.LastProbe = probe
-		}
+		// Recorded before the credential is minted, so a later failure in this
+		// command cannot discard an observation that was genuinely made.
+		s.recordProbe(op, probe)
 		credential, err := s.zellij.CreateToken(ctx, label, req.Role == RoleObserver)
 		if err != nil {
 			return err
@@ -406,17 +426,19 @@ func (s *SharingService) recordProbe(op *SharingOperation, probe *ProbeResult) {
 // Snapshot reports the stored sharing state without probing anything. A
 // listing uses this: it renders the last recorded result and its age, and
 // performs no network access at any cost.
-func (s *SharingService) Snapshot(ctx context.Context) (SharingStatus, error) {
-	var status SharingStatus
-	err := s.store.WithLock(ctx, func() error {
-		op, err := s.store.Load()
-		if err != nil {
-			return err
-		}
-		status = statusFromOperation(op)
-		return nil
-	})
-	return status, err
+//
+// It deliberately does not take the lifecycle lock. The state file is written
+// through a temporary file and renamed into place, so a reader always sees one
+// complete version, never a partial one. Taking the lock would make a listing
+// wait behind whatever a concurrent "ws status" is doing, which is a probe: a
+// listing that blocks for the length of a network verification is exactly the
+// cost this read exists to avoid.
+func (s *SharingService) Snapshot(_ context.Context) (SharingStatus, error) {
+	op, err := s.store.Load()
+	if err != nil {
+		return SharingStatus{}, err
+	}
+	return statusFromOperation(op), nil
 }
 
 func (s *SharingService) Stop(ctx context.Context, workspace string) (SharingStatus, error) {

@@ -435,6 +435,46 @@ func TestListingPerformsZeroProbesAndOneStatusLookup(t *testing.T) {
 	require.Zero(t, recorder.probeCalls, "a listing must never probe an endpoint")
 }
 
+// The counter above proves the listing chose the non-probing read. This proves
+// the stronger claim: the verifying read is never reachable from a listing at
+// all. The service fails the test the moment a listing calls Status, so a
+// future change that quietly routes a listing back through verification is
+// caught by the test rather than by a slow listing in the field.
+type probeForbiddenShareService struct {
+	recordingShareService
+	t *testing.T
+}
+
+func (s *probeForbiddenShareService) Status(context.Context) (sharing.SharingStatus, error) {
+	s.t.Helper()
+	s.t.Fatal("a listing called the verifying read; listings must never probe an endpoint")
+	return sharing.SharingStatus{}, nil
+}
+
+func TestListingNeverReachesTheVerifyingRead(t *testing.T) {
+	service := &probeForbiddenShareService{t: t}
+	service.status = sharing.SharingStatus{
+		State: sharing.StateActive, Workspace: "alpha",
+		LastProbe: &sharing.ProbeResult{OK: true, CheckedAt: time.Now().Add(-5 * time.Minute)},
+	}
+	installShareService(t, service)
+
+	instances := []*ws.WorkspaceInstance{
+		{Name: "alpha", Type: ws.WorkspaceTypeLocal},
+		{Name: "beta", Type: ws.WorkspaceTypeLocal},
+	}
+	names := map[string]bool{"alpha": true, "beta": true}
+
+	table := captureStdout(t, func() error {
+		return writeWsTableWithProjects(&GlobalFlags{}, instances, nil, names, "", map[string]string{}, false)
+	})
+	require.Contains(t, table, "shared (verified 5m ago)")
+
+	captureStdout(t, func() error {
+		return writeWsStructured(&GlobalFlags{}, "json", instances, nil, names, "", map[string]string{})
+	})
+}
+
 // A degraded share exits non-zero so scripts can detect it, while changing
 // nothing. The message names the failing layer and says the share is intact.
 func TestDegradedSharingExitsNonZeroAndSaysTheShareIsIntact(t *testing.T) {

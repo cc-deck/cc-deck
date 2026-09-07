@@ -55,6 +55,10 @@ type endpointBehaviour struct {
 	refuseClientID bool
 	// silent accepts connections and never answers.
 	silent bool
+	// stallControlChannel answers every earlier stage correctly and then never
+	// answers on /ws/control, so a deadline always strikes after the probe has
+	// minted its credential.
+	stallControlChannel bool
 	// echoCredential writes the presented credential into the response body, to
 	// prove diagnostics never carry one back out.
 	echoCredential bool
@@ -187,6 +191,10 @@ func newEndpointFake(t *testing.T, behaviour endpointBehaviour) *endpointFake {
 			http.Error(w, "missing Sec-WebSocket-Key", http.StatusBadRequest)
 			return
 		}
+		if behaviour.stallControlChannel {
+			<-r.Context().Done()
+			return
+		}
 		if behaviour.refuseUpgrade {
 			// Serves pages correctly, refuses to hijack. This is a proxy that
 			// forwards HTTP and drops Upgrade: the page loads, the terminal
@@ -309,39 +317,47 @@ func probeEndpoint(address string, zellij Zellij) *StaticEndpoint {
 
 // --- T012: the stage matrix --------------------------------------------------
 
-func TestProbeAttributesEachLayerToItsOwnStage(t *testing.T) {
-	resolvesNowhere := func(e *StaticEndpoint) {
-		e.systemLookup = func(context.Context, string) ([]net.IPAddr, error) {
-			return nil, errors.New("no such host")
-		}
-		e.publicLookup = e.systemLookup
-	}
-	filteredLocally := func(e *StaticEndpoint) {
-		e.systemLookup = func(context.Context, string) ([]net.IPAddr, error) {
-			return nil, errors.New("no such host")
-		}
-		e.publicLookup = func(context.Context, string) ([]net.IPAddr, error) {
-			return []net.IPAddr{{IP: net.IPv4(203, 0, 113, 7)}}, nil
-		}
-	}
+// probeStageCase is one row of the stage matrix. The type is named and the
+// matrix is built by a function so that the exhaustiveness check below reads
+// the same rows this test runs. A second, hand-maintained list would let the
+// two drift, and the drift would be invisible.
+type probeStageCase struct {
+	name string
+	// behaviour describes the fake endpoint, or nil when the case never
+	// reaches a server at all.
+	behaviour *endpointBehaviour
+	// address overrides the fake's address, for the cases about names.
+	address string
+	tune    func(*StaticEndpoint)
+	// trustTLS makes the probe trust the fake's self-signed certificate.
+	trustTLS bool
+	wantOK   bool
+	wantFail ProbeStage
+	// wantDiagnostic is a substring the diagnostic must contain.
+	wantDiagnostic string
+	// wantDeadline expects the probe to return because the budget ran out.
+	wantDeadline bool
+}
 
-	cases := []struct {
-		name string
-		// behaviour describes the fake endpoint, or nil when the case never
-		// reaches a server at all.
-		behaviour *endpointBehaviour
-		// address overrides the fake's address, for the cases about names.
-		address string
-		tune    func(*StaticEndpoint)
-		// trustTLS makes the probe trust the fake's self-signed certificate.
-		trustTLS bool
-		wantOK   bool
-		wantFail ProbeStage
-		// wantDiagnostic is a substring the diagnostic must contain.
-		wantDiagnostic string
-		// wantDeadline expects the probe to return because the budget ran out.
-		wantDeadline bool
-	}{
+func resolvesNowhere(e *StaticEndpoint) {
+	e.systemLookup = func(context.Context, string) ([]net.IPAddr, error) {
+		return nil, errors.New("no such host")
+	}
+	e.publicLookup = e.systemLookup
+}
+
+func filteredLocally(e *StaticEndpoint) {
+	e.systemLookup = func(context.Context, string) ([]net.IPAddr, error) {
+		return nil, errors.New("no such host")
+	}
+	e.publicLookup = func(context.Context, string) ([]net.IPAddr, error) {
+		return []net.IPAddr{{IP: net.IPv4(203, 0, 113, 7)}}, nil
+	}
+}
+
+// probeStageMatrix is every row from contracts/endpoint-contract.md.
+func probeStageMatrix() []probeStageCase {
+	return []probeStageCase{
 		{
 			name:      "healthy",
 			behaviour: &endpointBehaviour{},
@@ -419,8 +435,10 @@ func TestProbeAttributesEachLayerToItsOwnStage(t *testing.T) {
 			wantOK:    true,
 		},
 	}
+}
 
-	for _, tc := range cases {
+func TestProbeAttributesEachLayerToItsOwnStage(t *testing.T) {
+	for _, tc := range probeStageMatrix() {
 		t.Run(tc.name, func(t *testing.T) {
 			address := tc.address
 			var fake *endpointFake
@@ -479,16 +497,25 @@ func TestProbeAttributesEachLayerToItsOwnStage(t *testing.T) {
 
 // T012a: the measurement method for "the correct layer is named in 100% of
 // layer-specific cases". A stage added without a failure case fails the build.
+//
+// The coverage map is derived from the matrix the sibling test actually runs,
+// never from a second list. A hand-maintained list would keep passing after
+// someone deleted the row it claims to be guarding, which would make this
+// check assert nothing at exactly the moment it mattered.
 func TestProbeStageMatrixCoversEveryDeclaredStage(t *testing.T) {
 	covered := map[ProbeStage]bool{}
-	for _, stage := range []ProbeStage{StageDNS, StageDNS, StageTLS, StageHTTP, StageHTTP, StageAuth, StageAuth, StageWebSocket} {
-		covered[stage] = true
+	for _, tc := range probeStageMatrix() {
+		if tc.wantFail != "" {
+			covered[tc.wantFail] = true
+		}
 	}
 	for _, stage := range ProbeStages {
 		require.True(t, covered[stage],
-			"ProbeStage %q has no failure case in the stage matrix; add one to TestProbeAttributesEachLayerToItsOwnStage", stage)
+			"ProbeStage %q has no failure case in the stage matrix; add one to probeStageMatrix()", stage)
 	}
-	require.Len(t, covered, len(ProbeStages), "the matrix names a stage that is not declared")
+	for stage := range covered {
+		require.Contains(t, ProbeStages, stage, "the matrix names a stage that is not declared")
+	}
 }
 
 // --- T014: the probe credential lifecycle ------------------------------------
@@ -515,7 +542,10 @@ func TestProbeMintsAndRevokesItsOwnCredentialOnEveryPath(t *testing.T) {
 			minted, revoked, readOnly := zellij.snapshot()
 			if tc.name == "on deadline expiry" && len(minted) == 0 {
 				// The budget expired before the auth stage. Nothing was minted,
-				// so there is nothing to revoke, which is also correct.
+				// so there is nothing to revoke, which is also correct. The
+				// case that matters, a deadline struck AFTER minting, is
+				// covered deterministically by the test below rather than left
+				// to whether this budget happened to reach the auth stage.
 				return
 			}
 			require.Len(t, minted, 1, "exactly one credential per probe")
@@ -648,4 +678,67 @@ func TestEndpointFakeServesTheZellijWebClientContract(t *testing.T) {
 		found = found || cookie.Name == "session_token"
 	}
 	require.True(t, found, "the fake must set the session_token cookie the contract names")
+}
+
+// The revocation path that actually needs proving: a deadline that strikes
+// AFTER the credential was minted. The matrix case above can expire before the
+// auth stage is reached, which proves nothing about revoking under a deadline.
+// Here the endpoint answers every earlier stage and then stalls on the control
+// channel, so the credential always exists when the budget runs out.
+func TestProbeRevokesItsCredentialWhenTheDeadlineStrikesAfterMinting(t *testing.T) {
+	fake := newEndpointFake(t, endpointBehaviour{stallControlChannel: true})
+	zellij := &probeZellij{}
+	endpoint := probeEndpoint(fake.server.URL, zellij)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 700*time.Millisecond)
+	defer cancel()
+	result, err := endpoint.Probe(ctx, fake.ref(), "demo-session")
+
+	require.Error(t, err)
+	require.False(t, result.OK)
+
+	minted, revoked, readOnly := zellij.snapshot()
+	require.Len(t, minted, 1, "the credential was minted before the deadline struck")
+	require.Equal(t, []bool{true}, readOnly)
+	require.Equal(t, minted, revoked,
+		"a probe that times out after minting must still revoke what it minted")
+	require.NotContains(t, result.Diagnostic, probeSentinelSecret)
+}
+
+// C-9 across every stage, including the two that fail before a credential
+// exists. Those cannot leak one, and asserting that no credential was minted
+// is what makes that claim explicit rather than assumed.
+func TestProbeDiagnosticsCarryNoSecretsBeforeACredentialExists(t *testing.T) {
+	for _, tc := range []struct {
+		stage ProbeStage
+		tune  func(*StaticEndpoint)
+	}{
+		{StageDNS, resolvesNowhere},
+		{StageTLS, nil},
+	} {
+		t.Run(string(tc.stage), func(t *testing.T) {
+			zellij := &probeZellij{secret: probeSentinelSecret}
+			var endpoint *StaticEndpoint
+			var ref EndpointRef
+			if tc.stage == StageTLS {
+				fake := newEndpointFake(t, endpointBehaviour{serveTLS: true})
+				endpoint = probeEndpoint(fake.server.URL, zellij)
+				ref = fake.ref()
+			} else {
+				const address = "https://gone.example"
+				endpoint = probeEndpoint(address, zellij)
+				tc.tune(endpoint)
+				ref = EndpointRef{BaseURL: address}
+			}
+
+			result, err := endpoint.Probe(context.Background(), ref, "demo-session")
+			require.Error(t, err)
+			require.Equal(t, tc.stage, result.FailedAt)
+			require.NotContains(t, result.Diagnostic, probeSentinelSecret)
+
+			minted, _, _ := zellij.snapshot()
+			require.Empty(t, minted,
+				"no credential exists at the %s stage, so none can leak from it", tc.stage)
+		})
+	}
 }

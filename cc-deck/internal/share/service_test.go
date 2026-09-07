@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -744,17 +746,164 @@ func TestInviteSkipsTheGateWithNoVerify(t *testing.T) {
 }
 
 // The verification budget is configurable, which is what makes the fifteen
-// second default a default rather than a constant.
+// second default a default rather than a constant. The probe never receives
+// more than the configured budget, and receives less only by the grace
+// reserved for the revocation it must perform.
 func TestVerifyTimeoutIsConfigurable(t *testing.T) {
-	var seenDeadline time.Duration
+	for _, budget := range []time.Duration{2 * time.Second, 30 * time.Second, DefaultVerifyTimeout} {
+		t.Run(budget.String(), func(t *testing.T) {
+			var seenDeadline time.Duration
+			endpoint := &fakeEndpoint{probeFn: func(ctx context.Context) (ProbeResult, error) {
+				deadline, ok := ctx.Deadline()
+				require.True(t, ok, "the probe always runs under a deadline")
+				seenDeadline = time.Until(deadline)
+				return ProbeResult{OK: true, CheckedAt: time.Now().UTC()}, nil
+			}}
+			_, err := NewServiceWithTimeout(&startStore{}, &startZellij{}, endpoint, budget).
+				Start(context.Background(), StartRequest{Session: "selected"})
+			require.NoError(t, err)
+
+			require.LessOrEqual(t, seenDeadline, budget,
+				"the probe never gets more than the configured budget")
+			require.GreaterOrEqual(t, seenDeadline, budget/2-time.Second,
+				"the reservation must not starve the probe")
+		})
+	}
+}
+
+// SC-013 says no credential may be written to disk. Asserting that on a Go
+// struct proves the model is right but not that the serializer is: a stray
+// field or a custom marshaller would slip past it. This runs a real share
+// through the real FileStore and reads the bytes back off disk.
+func TestNoCredentialEverReachesTheStateFileOnDisk(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "share.yaml")
+	store := NewFileStore(path)
+	z := &startZellij{}
+
+	_, err := NewService(store, z, &fakeEndpoint{}).Start(context.Background(),
+		StartRequest{Workspace: "demo", Session: "selected"})
+	require.NoError(t, err)
+
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+	contents := string(raw)
+
+	// The labels and credential names are expected; the secrets never are.
+	require.Contains(t, contents, "credential_name")
+	require.NotContains(t, contents, "SECRET",
+		"a credential must never appear in the persisted state file")
+	require.NotContains(t, contents, "interactive-token-SECRET")
+	require.NotContains(t, contents, "observer-token-SECRET")
+
+	// The recorded observation is there, and carries no secret of its own.
+	require.Contains(t, contents, "last_probe")
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o600), info.Mode().Perm(),
+		"sharing state is readable only by its owner")
+}
+
+// A listing must not wait behind a concurrent status probe. Snapshot takes no
+// lifecycle lock, so a listing stays cheap even while another command is
+// holding the lock for the length of a network verification.
+func TestSnapshotDoesNotWaitOnTheLifecycleLock(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "share.yaml")
+	store := NewFileStore(path)
+	require.NoError(t, store.Save(activeOperation()))
+
+	held := make(chan struct{})
+	released := make(chan struct{})
+	go func() {
+		_ = store.WithLock(context.Background(), func() error {
+			close(held)
+			<-released
+			return nil
+		})
+	}()
+	<-held
+	defer close(released)
+
+	done := make(chan SharingStatus, 1)
+	go func() {
+		status, err := NewService(store, &startZellij{}, &fakeEndpoint{}).Snapshot(context.Background())
+		require.NoError(t, err)
+		done <- status
+	}()
+
+	select {
+	case status := <-done:
+		require.Equal(t, StateActive, status.State)
+	case <-time.After(2 * time.Second):
+		t.Fatal("a listing blocked on the lifecycle lock held by another command")
+	}
+}
+
+// The configured budget must bind whatever the caller's context says. Applying
+// it only when the caller had no deadline let a long-lived caller opt out of
+// the bound entirely, which is how a configurable timeout stops being one.
+func TestVerifyBudgetBindsEvenWhenTheCallerHasALongerDeadline(t *testing.T) {
+	var seen time.Duration
 	endpoint := &fakeEndpoint{probeFn: func(ctx context.Context) (ProbeResult, error) {
 		deadline, ok := ctx.Deadline()
-		require.True(t, ok, "the probe always runs under a deadline")
-		seenDeadline = time.Until(deadline)
+		require.True(t, ok)
+		seen = time.Until(deadline)
 		return ProbeResult{OK: true, CheckedAt: time.Now().UTC()}, nil
 	}}
-	_, err := NewServiceWithTimeout(&startStore{}, &startZellij{}, endpoint, 2*time.Second).
+
+	callerCtx, cancel := context.WithTimeout(context.Background(), time.Hour)
+	defer cancel()
+	_, err := NewServiceWithTimeout(&startStore{}, &startZellij{}, endpoint, 4*time.Second).
+		Start(callerCtx, StartRequest{Session: "selected"})
+	require.NoError(t, err)
+	require.Less(t, seen, 4*time.Second,
+		"the configured budget must apply even when the caller's deadline is longer")
+}
+
+// A caller with a shorter deadline than the configured budget keeps its own.
+func TestVerifyKeepsACallerDeadlineThatIsShorter(t *testing.T) {
+	var seen time.Duration
+	endpoint := &fakeEndpoint{probeFn: func(ctx context.Context) (ProbeResult, error) {
+		deadline, _ := ctx.Deadline()
+		seen = time.Until(deadline)
+		return ProbeResult{OK: true, CheckedAt: time.Now().UTC()}, nil
+	}}
+
+	callerCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	_, err := NewServiceWithTimeout(&startStore{}, &startZellij{}, endpoint, time.Minute).
+		Start(callerCtx, StartRequest{Session: "selected"})
+	require.NoError(t, err)
+	require.LessOrEqual(t, seen, 500*time.Millisecond,
+		"a caller's shorter deadline must not be replaced by the configured budget")
+}
+
+// The whole verification, including the credential revocation that runs on
+// every exit path, stays inside the configured budget. A bound that is quietly
+// larger than it claims is not a bound.
+func TestVerifyReservesBudgetForTheRevocationItMustPerform(t *testing.T) {
+	var seen time.Duration
+	endpoint := &fakeEndpoint{probeFn: func(ctx context.Context) (ProbeResult, error) {
+		deadline, _ := ctx.Deadline()
+		seen = time.Until(deadline)
+		return ProbeResult{OK: true, CheckedAt: time.Now().UTC()}, nil
+	}}
+	_, err := NewServiceWithTimeout(&startStore{}, &startZellij{}, endpoint, DefaultVerifyTimeout).
 		Start(context.Background(), StartRequest{Session: "selected"})
 	require.NoError(t, err)
-	require.InDelta(t, 2*time.Second, seenDeadline, float64(500*time.Millisecond))
+	require.LessOrEqual(t, seen+probeRevokeTimeout, DefaultVerifyTimeout+time.Second,
+		"probe budget plus revocation grace must fit inside the configured timeout")
+}
+
+// FR-047: an invitation that fails verification records what it saw, so the
+// next listing agrees with the failure the user was just shown.
+func TestInviteRecordsAFailedVerification(t *testing.T) {
+	store := &startStore{op: activeOperation()}
+	store.op.Workspace = "demo"
+	_, err := NewService(store, &startZellij{}, failingEndpoint(StageWebSocket)).
+		Invite(context.Background(), InviteRequest{Label: "alice", Role: RoleObserver})
+	require.Error(t, err)
+	require.NotNil(t, store.op.LastProbe, "the observation must be recorded, not discarded")
+	require.False(t, store.op.LastProbe.OK)
+	require.Equal(t, StageWebSocket, store.op.LastProbe.FailedAt)
+	require.Equal(t, StateActive, store.op.State, "recording an observation is not a state change")
 }

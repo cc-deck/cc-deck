@@ -113,6 +113,11 @@ type InvitationRecord struct {
 	CreatedAt      time.Time       `yaml:"created_at"`
 }
 
+// Transition guards the forward path a healthy operation takes. It governs the
+// start path only: teardown, rollback, and reconciliation assign State
+// directly, because they must be able to record a degraded or stopping
+// operation from any state including one this map would refuse. Read this as
+// the happy path, not as the complete set of transitions the type undergoes.
 func (o *SharingOperation) Transition(next LifecycleState, now time.Time) bool {
 	allowed := map[LifecycleState]map[LifecycleState]bool{
 		StateStarting: {StateActive: true, StateDegraded: true},

@@ -234,6 +234,13 @@ A name that resolves publicly but not locally is being filtered on your network,
 The second opinion is best effort.
 If it cannot be reached, a successful primary lookup still passes.
 
+[NOTE]
+====
+The second opinion queries Cloudflare's public resolver at `1.1.1.1`, which sends your endpoint hostname off this machine.
+It runs only after your system resolver has already failed, never on the healthy path.
+On a network where outbound DNS is audited or restricted, expect that query when, and only when, a name fails to resolve locally.
+====
+
 === What verification cannot tell you
 
 [IMPORTANT]

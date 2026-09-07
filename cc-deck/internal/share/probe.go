@@ -26,6 +26,11 @@ const websocketGUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 // resolver reports that a name does not exist. A local filter answering
 // NXDOMAIN for a name that resolves fine elsewhere is indistinguishable from a
 // typo without this, and that ambiguity once cost a full day of diagnosis.
+//
+// This is Cloudflare's public resolver, and consulting it sends the endpoint
+// hostname off this machine. It is queried only after the system resolver has
+// already failed, never on the healthy path. The sharing guide states this so
+// the outbound query is not a surprise on an audited network.
 const publicResolverAddress = "1.1.1.1:53"
 
 // probeRevokeTimeout bounds the credential revocation that runs on every exit
@@ -51,6 +56,14 @@ const maxDiagnosticBody = 2048
 func (e *StaticEndpoint) Probe(ctx context.Context, ref EndpointRef, _ string) (ProbeResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	// Bound the probe even when the caller forgot to. Every stage below blocks
+	// on the network, and the guarantee that no command hangs should not rest
+	// on every caller remembering to impose a deadline.
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, DefaultVerifyTimeout)
+		defer cancel()
 	}
 	// redact accumulates the values that must never appear in a diagnostic. The
 	// probe's own credential is added to it the moment it exists.
@@ -167,6 +180,15 @@ func (e *StaticEndpoint) Probe(ctx context.Context, ref EndpointRef, _ string) (
 	}
 	if sessionCookie == "" {
 		return fail(StageAuth, "login succeeded but no session_token cookie came back; a proxy that strips Set-Cookie produces exactly this")
+	}
+	// The cookie value is written into a hand-built request line below, and it
+	// came from the endpoint, which is not necessarily well behaved. Go's
+	// cookie parser already rejects control bytes, but the upgrade request is
+	// assembled by string concatenation, so the one place that could be
+	// injected checks for itself rather than trusting a parser three call
+	// frames away.
+	if strings.ContainsAny(sessionCookie, "\r\n\x00") {
+		return fail(StageAuth, "the session cookie the endpoint returned contains control characters and cannot be used")
 	}
 	secrets = append(secrets, sessionCookie)
 
@@ -316,8 +338,9 @@ func (e *StaticEndpoint) probeWebSocket(ctx context.Context, base *url.URL, addr
 		return fmt.Errorf("the upgrade request could not be sent: %v", err)
 	}
 
-	// A HEAD-shaped request object keeps ReadResponse from trying to read a
-	// body that a 101 does not have.
+	// A 101 is a protocol switch, so ReadResponse returns no body whatever the
+	// request method was. The request object is here only because ReadResponse
+	// requires one.
 	response, err := http.ReadResponse(bufio.NewReader(conn), &http.Request{Method: http.MethodGet})
 	if err != nil {
 		return fmt.Errorf("the endpoint gave no answer to the upgrade request: %v", err)

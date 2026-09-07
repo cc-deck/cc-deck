@@ -263,4 +263,3 @@ func runHook(stdin io.Reader, paneIDStr string, agentName string) {
 		savePaneMap(m)
 	}
 }
-
