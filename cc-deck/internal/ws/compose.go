@@ -143,6 +143,11 @@ func (e *ComposeWorkspace) Create(ctx context.Context, opts CreateOpts) error {
 	}
 
 	// Resolve credentials via detect-all model.
+	//
+	// Detected agent credentials are the base layer, and explicitly named
+	// ones are applied over them. These are not alternatives: a caller who
+	// passes --credential is naming something detection knows nothing about,
+	// so treating detection as a reason to drop it silently loses the value.
 	creds := make(map[string]string)
 	{
 		modes := credential.DetectAll()
@@ -157,18 +162,19 @@ func (e *ComposeWorkspace) Create(ctx context.Context, opts CreateOpts) error {
 			for _, fc := range merged.FileCredentials {
 				creds[fc.EnvVar] = fc.LocalPath
 			}
-		} else {
-			if e.Credentials != nil {
-				for k, v := range e.Credentials {
-					creds[k] = v
-				}
+		}
+
+		// Explicit credentials win: the caller named these by hand.
+		if e.Credentials != nil {
+			for k, v := range e.Credentials {
+				creds[k] = v
 			}
-			if def != nil {
-				for _, key := range def.Credentials {
-					if _, exists := creds[key]; !exists {
-						if val := os.Getenv(key); val != "" {
-							creds[key] = val
-						}
+		}
+		if def != nil {
+			for _, key := range def.Credentials {
+				if _, exists := creds[key]; !exists {
+					if val := os.Getenv(key); val != "" {
+						creds[key] = val
 					}
 				}
 			}

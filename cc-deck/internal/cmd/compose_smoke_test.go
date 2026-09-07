@@ -218,18 +218,22 @@ func TestComposeSmokeGitignore(t *testing.T) {
 	gitCmd.Dir = projectDir
 	require.NoError(t, gitCmd.Run())
 
-	// Create with --gitignore.
 	out, err := ccd(t, bin, envVars, "ws", "new", "smoke-gitignore",
 		"--type", "compose",
 		"--image", "fedora:latest",
-		"--path", projectDir,
-		"--gitignore")
+		"--path", projectDir)
 	require.NoError(t, err, "create failed: %s", out)
 
-	// Verify .gitignore contains .cc-deck/
-	gitignore, err := os.ReadFile(filepath.Join(projectDir, ".gitignore"))
+	// cc-deck ignores its own generated run artifacts from inside .cc-deck/
+	// rather than writing to the project's top-level .gitignore. That leaves
+	// the rest of .cc-deck/ trackable and the user's own .gitignore untouched.
+	gitignore, err := os.ReadFile(filepath.Join(projectDir, ".cc-deck", ".gitignore"))
 	require.NoError(t, err)
-	assert.Contains(t, string(gitignore), ".cc-deck/")
+	assert.Contains(t, string(gitignore), "run/")
+
+	// The project's own .gitignore must be left alone.
+	_, err = os.Stat(filepath.Join(projectDir, ".gitignore"))
+	assert.True(t, os.IsNotExist(err), "cc-deck must not create a top-level .gitignore")
 }
 
 func TestComposeSmokeDeleteRefusesRunning(t *testing.T) {
