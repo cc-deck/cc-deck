@@ -62,10 +62,17 @@ They behave identically to their `ws` subcommand counterparts.
 
 Sharing is integrated into local workspace lifecycle commands. Only one workspace may be shared per host, and raw invitation secrets print once.
 
+Sharing requires an endpoint that is already serving.
+cc-deck verifies it and never starts, stops, or supervises one.
+See the xref:using:sharing.adoc[sharing guide] for what an endpoint must satisfy and for recipes that produce a conforming one.
+
 [source,bash]
 ----
 cc-deck ws new demo --share
 cc-deck ws start demo --share
+cc-deck ws start demo --share --endpoint https://dev.example.com
+cc-deck ws start demo --share --endpoint-name work
+cc-deck ws start demo --share --no-verify
 cc-deck ws attach demo --share
 cc-deck ws invite demo --role interactive --name alice
 cc-deck ws invite demo --role observer
@@ -75,11 +82,75 @@ cc-deck ws unshare demo
 
 `ws new` is ready and private by default; `--no-start` leaves it stopped and cannot be combined with `--share`. The `--share` flag creates a missing canonical session with web sharing enabled but never replaces a running private session.
 
+=== Endpoint selection flags
+
+These flags apply to `ws start --share` and `ws invite`.
+They affect one command only and never modify your configuration.
+
+[cols="1,3"]
+|===
+| Flag | Description
+
+| `--endpoint URL`
+| Use this address instead of the configured one, for this command only. The address must be an absolute `http` or `https` URL.
+
+| `--endpoint-name NAME`
+| Select a configured endpoint by name. An unknown name fails with the configured names listed.
+
+| `--no-verify`
+| Skip the verification gate. The resulting share reports no verification age in listings.
+|===
+
+`--endpoint` and `--endpoint-name` are mutually exclusive.
+
+When neither flag is given, the address is resolved in this order: the configured default named in `sharing.default`, then the single `sharing.endpoint`.
+When nothing resolves, the command refuses and lists the endpoint names that are configured.
+
+=== The verification gate
+
+`ws start --share` and `ws invite` verify the endpoint before printing any invitation.
+The check runs five layers in order and stops at the first failure: `dns`, `tls`, `http`, `auth`, and `websocket`.
+A failure names the layer first, then explains what that layer means, and exits non-zero.
+
+No invitation is printed when verification fails, and no credential is left behind.
+The workspace itself keeps running: a sharing failure never ends a session you asked for.
+
+The whole check is bounded by `sharing.verify_timeout`, which defaults to fifteen seconds.
+
 `ws invite` creates an independently revocable interactive or observer credential. Omit `--name` for a random memorable label. Interactive invitations grant complete terminal control. Terminal invitations are experimental and print the `--insecure` interception warning before the secret.
 
-`ws list` displays `INFRA`, `SESSION`, and `SHARING`. `ws status` includes safe endpoint, invitation labels and roles, guard health, and residuals without tokens. Local state is `private`, `shared`, or `degraded`; non-local workspaces are `unsupported`.
+=== Which commands verify
 
-`ws unshare` revokes every active invitation and closes the endpoint while leaving the canonical session running. After Zellij `Ctrl+q` kills the shared session, the guard tears sharing down and a plain start or attach recreates a private session.
+[cols="1,1,3"]
+|===
+| Command | Verifies | On failure
+
+| `ws start --share`
+| yes, blocking
+| No invitation is printed, sharing resources are rolled back, and the workspace session survives. Exits non-zero.
+
+| `ws invite`
+| yes, blocking
+| No invitation is printed and no credential is left behind. Exits non-zero.
+
+| `ws status`
+| yes
+| Reports `degraded`, names the failing stage, and changes nothing. Exits non-zero.
+
+| `ws unshare`
+| never
+| Teardown does not depend on endpoint health.
+
+| `ws` (list)
+| never
+| Renders the stored result and its age.
+|===
+
+`ws list` displays `INFRA`, `SESSION`, and `SHARING`. `ws status` includes safe endpoint, invitation labels and roles, and residuals without tokens. Local state is `private`, `shared`, or `degraded`; non-local workspaces are `unsupported`.
+
+`ws unshare` revokes every active invitation while leaving the canonical session running.
+It stops nothing that cc-deck did not start: your endpoint is untouched, and a Zellij web server that was already running when you shared stays running.
+After Zellij `Ctrl+q` kills the shared session, the next command tears sharing down, and a plain start or attach recreates a private session.
 
 === attach
 
@@ -938,7 +1009,20 @@ List all workspaces with their current status.
 Shows both global and project-local workspaces in a unified view.
 Each entry includes a SOURCE column indicating the definition origin (`global`, `project`, or empty for orphan instances).
 The SHARING column reports `private`, `shared`, `degraded`, or `unsupported` for each workspace.
-The sharing state is looked up once per listing, not once per row, so long lists do not repeat the Zellij and provider checks.
+The sharing state is looked up once per listing, not once per row, so long lists do not repeat the lookup.
+
+A listing performs no network access.
+It renders the last recorded verification result and how old it is, which keeps listing a shared workspace as cheap as listing a private one.
+The column takes one of three shapes.
+
+[source]
+----
+shared (verified 12m ago)          # the last check passed
+degraded (websocket, 3m ago)       # the last check failed, naming the layer
+shared                             # created with --no-verify, so there is no age
+----
+
+Run `cc-deck ws status NAME` for a fresh check.
 
 [source,bash]
 ----

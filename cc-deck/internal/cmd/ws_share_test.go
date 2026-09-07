@@ -434,3 +434,44 @@ func TestListingPerformsZeroProbesAndOneStatusLookup(t *testing.T) {
 		"a listing of %d workspaces resolves sharing state once, not once per row", workspaces)
 	require.Zero(t, recorder.probeCalls, "a listing must never probe an endpoint")
 }
+
+// A degraded share exits non-zero so scripts can detect it, while changing
+// nothing. The message names the failing layer and says the share is intact.
+func TestDegradedSharingExitsNonZeroAndSaysTheShareIsIntact(t *testing.T) {
+	probe := &sharing.ProbeResult{OK: false, FailedAt: sharing.StageWebSocket, CheckedAt: time.Now()}
+	err := degradedSharingError(probe, nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "failed at the websocket stage")
+	require.Contains(t, err.Error(), "The share is intact")
+	require.Contains(t, err.Error(), "Upgrade and Connection headers")
+}
+
+func TestDegradedSharingWithoutAProbeReportsItsResiduals(t *testing.T) {
+	err := degradedSharingError(nil, []string{"sharing state could not be verified: zellij is not responding"})
+	require.ErrorContains(t, err, "sharing state could not be verified")
+
+	require.ErrorContains(t, degradedSharingError(nil, nil), "sharing is degraded")
+}
+
+// A share whose last recorded check failed reads as degraded, and one that was
+// never checked reads as shared. There is no third value.
+func TestSharingStateHasExactlyTwoValuesForASharedWorkspace(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		probe *sharing.ProbeResult
+		want  ws.WorkspaceSharingState
+	}{
+		{"never checked", nil, ws.SharingShared},
+		{"last check passed", &sharing.ProbeResult{OK: true, CheckedAt: time.Now()}, ws.SharingShared},
+		{"last check failed", &sharing.ProbeResult{OK: false, FailedAt: sharing.StageAuth, CheckedAt: time.Now()}, ws.SharingDegraded},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			installShareService(t, &recordingShareService{status: sharing.SharingStatus{
+				State: sharing.StateActive, Workspace: "alpha", LastProbe: tc.probe,
+			}})
+			state, _, _, _, probe := newSharingSnapshot(&GlobalFlags{}).detailsWithProbe("alpha", ws.WorkspaceTypeLocal)
+			require.Equal(t, tc.want, state)
+			require.Equal(t, tc.probe, probe)
+		})
+	}
+}

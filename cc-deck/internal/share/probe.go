@@ -203,13 +203,15 @@ func (e *StaticEndpoint) probeDNS(ctx context.Context, host string) error {
 	if net.ParseIP(host) != nil {
 		return nil
 	}
+	// Diagnostics read as a continuation of the endpoint address, which the
+	// caller prints first, so they do not repeat the host name.
 	if _, err := e.lookupSystem(ctx, host); err == nil {
 		return nil
 	} else {
 		if _, publicErr := e.lookupPublic(ctx, host); publicErr == nil {
-			return fmt.Errorf("%s resolves through an independent public resolver but not through this host's resolver, so the name is being filtered locally rather than missing", host)
+			return fmt.Errorf("resolves through an independent public resolver but not through this host's resolver, so the name is being filtered locally rather than missing")
 		}
-		return fmt.Errorf("%s does not resolve: %v", host, err)
+		return fmt.Errorf("does not resolve from this machine: %v", err)
 	}
 }
 

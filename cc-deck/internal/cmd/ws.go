@@ -1424,7 +1424,9 @@ func (s *sharingSnapshot) detailsWithProbe(name string, wsType ws.WorkspaceType)
 		}
 	}
 	residuals := append([]string(nil), status.Residuals...)
-	if err != nil {
+	// A reported error is normally already spelled out in the residuals. Adding
+	// it again prints the same line twice.
+	if err != nil && len(residuals) == 0 {
 		residuals = append(residuals, err.Error())
 	}
 	return state, status.EndpointURL, summaries, residuals, status.LastProbe
@@ -1493,7 +1495,7 @@ type wsStatusOutput struct {
 	SharingResiduals []string                 `json:"sharing_residuals,omitempty" yaml:"sharing_residuals,omitempty"`
 }
 
-func runWsStatus(gf *GlobalFlags, name string) error {
+func runWsStatus(gf *GlobalFlags, name string) (statusErr error) {
 	store := ws.NewStateStore("")
 	defs := ws.NewDefinitionStore("")
 
@@ -1508,7 +1510,15 @@ func runWsStatus(gf *GlobalFlags, name string) error {
 	}
 
 	wsType := e.Type()
-	sharingState, endpoint, invitations, residuals := workspaceSharingDetails(gf, name, wsType)
+	sharingState, endpoint, invitations, residuals, probe := newVerifyingSharingSnapshot(gf).detailsWithProbe(name, wsType)
+	// A degraded share exits non-zero so scripts can detect it, and changes
+	// nothing either way. The report is written first: the exit code says
+	// something is wrong, the output says what.
+	defer func() {
+		if statusErr == nil && sharingState == ws.SharingDegraded {
+			statusErr = degradedSharingError(probe, residuals)
+		}
+	}()
 	storage := "-"
 	lastAttached := "never"
 	image := ""

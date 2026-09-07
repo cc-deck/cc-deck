@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/cc-deck/cc-deck/internal/config"
 	sharing "github.com/cc-deck/cc-deck/internal/share"
@@ -130,6 +131,20 @@ func explainShareFailure(err error) error {
 		probeErr.Result.FailedAt, probeErr.Detail(), stageExplanation(probeErr.Result.FailedAt))
 }
 
+// degradedSharingError turns a degraded report into a non-zero exit. The share
+// itself is untouched: this says that something is wrong, not that anything was
+// done about it.
+func degradedSharingError(probe *sharing.ProbeResult, residuals []string) error {
+	if probe != nil && !probe.OK {
+		return fmt.Errorf("sharing is degraded: endpoint verification failed at the %s stage\n  %s\n  The share is intact. Repair the endpoint and run this command again",
+			probe.FailedAt, stageExplanation(probe.FailedAt))
+	}
+	if len(residuals) > 0 {
+		return fmt.Errorf("sharing is degraded: %s", strings.Join(residuals, "; "))
+	}
+	return fmt.Errorf("sharing is degraded")
+}
+
 // stageExplanation says what a failing layer means in terms of what the user
 // can change, because naming the layer alone does not tell anyone what to fix.
 func stageExplanation(stage sharing.ProbeStage) string {
@@ -139,7 +154,7 @@ func stageExplanation(stage sharing.ProbeStage) string {
 	case sharing.StageTLS:
 		return "The TLS handshake failed. Check the certificate the endpoint presents, including its name and its chain."
 	case sharing.StageHTTP:
-		return "The address answers but does not serve the Zellij web client. Check that the proxy forwards to the Zellij web server and does not rewrite paths."
+		return "The address did not serve the Zellij web client. It may not be answering at all, or the proxy may point somewhere other than the Zellij web server, or it may be rewriting paths."
 	case sharing.StageAuth:
 		return "Login did not return a session cookie. A proxy that drops POST bodies or strips Set-Cookie produces exactly this."
 	case sharing.StageWebSocket:

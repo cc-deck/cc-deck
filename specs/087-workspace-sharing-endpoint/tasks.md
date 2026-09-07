@@ -242,15 +242,15 @@ another workspace naming the other endpoint explicitly.
 **Purpose**: Constitution Principle I makes the documentation tasks completion conditions, not polish.
 This phase is mandatory before the feature is considered done.
 
-- [ ] T054 [P] Update `docs/modules/reference/pages/cli.adoc` to cover `--endpoint`, `--endpoint-name`, and `--no-verify`, per FR-038
-- [ ] T055 [P] Update `docs/modules/reference/pages/configuration.adoc` to cover the redefined sharing schema and to record that `sharing.provider` is removed, per FR-039
-- [ ] T056 [P] Update `README.md` to reflect that an endpoint must exist before a workspace can be shared, per FR-040
-- [ ] T057 Update `docs/modules/using/pages/sharing.adoc` with the endpoint requirements from `contracts/endpoint-contract.md`, recipes for producing a conforming endpoint with common external tools, and a plain statement that cc-deck verifies reachability only from its own host and cannot detect a filter on the guest's network, per FR-041, FR-034, FR-035, and FR-036
-- [ ] T058 Run `/prose:check` with the `cc-deck` voice profile over every documentation file changed in T054 through T057, per FR-042
+- [X] T054 [P] Update `docs/modules/reference/pages/cli.adoc` to cover `--endpoint`, `--endpoint-name`, and `--no-verify`, per FR-038
+- [X] T055 [P] Update `docs/modules/reference/pages/configuration.adoc` to cover the redefined sharing schema and to record that `sharing.provider` is removed, per FR-039
+- [X] T056 [P] Update `README.md` to reflect that an endpoint must exist before a workspace can be shared, per FR-040
+- [X] T057 Update `docs/modules/using/pages/sharing.adoc` with the endpoint requirements from `contracts/endpoint-contract.md`, recipes for producing a conforming endpoint with common external tools, and a plain statement that cc-deck verifies reachability only from its own host and cannot detect a filter on the guest's network, per FR-041, FR-034, FR-035, and FR-036
+- [X] T058 Run `/prose:check` with the `cc-deck` voice profile over every documentation file changed in T054 through T057, per FR-042
 - [X] T059 Add the missing `ZELLIJ` environment guard to `EnsureSession` in `cc-deck/internal/ws/local.go`, matching the check `Attach` already performs, so creating a workspace from inside a Zellij session no longer silently appends a tab and reports success
 - [X] T060 [P] Add a test asserting `EnsureSession` refuses when `ZELLIJ` is set in `cc-deck/internal/ws/local.go`'s test file
-- [ ] T061 Run `make verify` and confirm the only failures are the pre-existing ones recorded in T001
-- [ ] T062 Walk `specs/087-workspace-sharing-endpoint/quickstart.md` manually, steps 1 through 7, and confirm each expected outcome
+- [X] T061 Run `make verify` and confirm the only failures are the pre-existing ones recorded in T001
+- [X] T062 Walk `specs/087-workspace-sharing-endpoint/quickstart.md` manually, steps 1 through 7, and confirm each expected outcome
 
 ---
 
