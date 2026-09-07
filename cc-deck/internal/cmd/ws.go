@@ -573,7 +573,7 @@ func runWsNew(gf *GlobalFlags, name string, cf *newFlags, cmd *cobra.Command) er
 		}
 		return nil
 	}
-	invitations, _, readyErr := readyAndMaybeShare(cmd.Context(), gf, e, cf.share)
+	invitations, _, readyErr := readyAndMaybeShare(cmd.Context(), gf, e, cf.share, shareOptions{})
 	if readyErr != nil {
 		return readyErr
 	}
@@ -818,7 +818,7 @@ func runWsAttachWithShare(gf *GlobalFlags, name string, share bool, cmd *cobra.C
 	}
 
 	ctx := cmd_context()
-	invitations, ready, err := readyAndMaybeShare(ctx, gf, e, share)
+	invitations, ready, err := readyAndMaybeShare(ctx, gf, e, share, shareOptions{})
 	if err != nil {
 		return err
 	}
@@ -1343,7 +1343,7 @@ func (s *sharingSnapshot) load() {
 		return
 	}
 	s.loaded = true
-	service, err := makeWorkspaceShareService(s.gf)
+	service, err := makeWorkspaceShareService(s.gf, shareOptions{})
 	if err != nil {
 		s.status, s.err = sharing.SharingStatus{State: sharing.StateInactive}, err
 		return
@@ -1634,6 +1634,7 @@ func runWsKillSession(name string) error {
 
 func newStartCmdCore(gf *GlobalFlags) *cobra.Command {
 	var share bool
+	var opts shareOptions
 	cmd := &cobra.Command{
 		Use:   "start [name]",
 		Short: "Start a stopped workspace",
@@ -1646,10 +1647,11 @@ When no name is provided, auto-resolves from workspace definitions in the centra
 			if err != nil {
 				return err
 			}
-			return runWsStartWithShare(gf, name, share, cmd)
+			return runWsStartWithOptions(gf, name, share, opts, cmd)
 		},
 	}
 	cmd.Flags().BoolVar(&share, "share", false, "Create and share a missing canonical session")
+	addEndpointFlags(cmd, &opts)
 	return cmd
 }
 
@@ -1658,10 +1660,10 @@ func newWsStartCmd(gf *GlobalFlags) *cobra.Command {
 }
 
 func runWsStart(name string) error {
-	return runWsStartWithShare(&GlobalFlags{}, name, false, nil)
+	return runWsStartWithOptions(&GlobalFlags{}, name, false, shareOptions{}, nil)
 }
 
-func runWsStartWithShare(gf *GlobalFlags, name string, share bool, cmd *cobra.Command) error {
+func runWsStartWithOptions(gf *GlobalFlags, name string, share bool, opts shareOptions, cmd *cobra.Command) error {
 	store := ws.NewStateStore("")
 	defs := ws.NewDefinitionStore("")
 
@@ -1670,7 +1672,7 @@ func runWsStartWithShare(gf *GlobalFlags, name string, share bool, cmd *cobra.Co
 		return err
 	}
 
-	invitations, _, err := readyAndMaybeShare(cmd_context(), gf, e, share)
+	invitations, _, err := readyAndMaybeShare(cmd_context(), gf, e, share, opts)
 	if err != nil {
 		return err
 	}
@@ -1720,7 +1722,7 @@ func runWsStopWithFlags(gf *GlobalFlags, name string) error {
 
 	ctx := cmd_context()
 	var failures []string
-	if service, serviceErr := makeWorkspaceShareService(gf); serviceErr != nil {
+	if service, serviceErr := makeWorkspaceShareService(gf, shareOptions{}); serviceErr != nil {
 		failures = append(failures, "sharing teardown unavailable: "+serviceErr.Error())
 	} else if sharingStatus, statusErr := service.Status(ctx); statusErr != nil {
 		failures = append(failures, statusErr.Error())

@@ -41,7 +41,7 @@ func (s *recordingShareService) Status(context.Context) (sharing.SharingStatus, 
 func installShareService(t *testing.T, service sharing.Service) {
 	t.Helper()
 	originalFactory := makeWorkspaceShareService
-	makeWorkspaceShareService = func(*GlobalFlags) (sharing.Service, error) { return service, nil }
+	makeWorkspaceShareService = func(*GlobalFlags, shareOptions) (sharing.Service, error) { return service, nil }
 	t.Cleanup(func() { makeWorkspaceShareService = originalFactory })
 }
 
@@ -139,7 +139,7 @@ func TestStructuredListIncludesSafeSharingMetadata(t *testing.T) {
 		Residuals:   []string{"endpoint cleanup pending"},
 	}}
 	originalFactory := makeWorkspaceShareService
-	makeWorkspaceShareService = func(*GlobalFlags) (sharing.Service, error) { return recorder, nil }
+	makeWorkspaceShareService = func(*GlobalFlags, shareOptions) (sharing.Service, error) { return recorder, nil }
 	t.Cleanup(func() { makeWorkspaceShareService = originalFactory })
 
 	originalStdout := os.Stdout
@@ -177,7 +177,7 @@ func TestSharingCommandsPassResolvedWorkspaceToService(t *testing.T) {
 
 	recorder := &recordingShareService{}
 	originalFactory := makeWorkspaceShareService
-	makeWorkspaceShareService = func(*GlobalFlags) (sharing.Service, error) { return recorder, nil }
+	makeWorkspaceShareService = func(*GlobalFlags, shareOptions) (sharing.Service, error) { return recorder, nil }
 	t.Cleanup(func() { makeWorkspaceShareService = originalFactory })
 
 	for _, tc := range []struct {

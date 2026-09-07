@@ -29,10 +29,6 @@ func (r *deadlineRunner) Run(ctx context.Context, _ string, _ ...string) ([]byte
 	return []byte("ok"), nil
 }
 
-func (r *deadlineRunner) Start(context.Context, string, ...string) (Process, error) {
-	return nil, nil
-}
-
 func TestZellijCallsAreBoundedByATimeout(t *testing.T) {
 	runner := &deadlineRunner{}
 	_, err := NewZellij(runner).run(context.Background(), "list-sessions")

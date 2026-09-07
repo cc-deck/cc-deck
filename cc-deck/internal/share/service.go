@@ -13,15 +13,33 @@ import (
 type SharingService struct {
 	store    Store
 	zellij   Zellij
-	provider Provider
-	now      func() time.Time
-	labels   *LabelGenerator
+	endpoint Endpoint
+	// verifyTimeout bounds the whole probe, not each stage. A per stage budget
+	// multiplies to several times the intended ceiling, which is how a bound
+	// becomes a hang.
+	verifyTimeout time.Duration
+	now           func() time.Time
+	labels        *LabelGenerator
 }
 
 const rollbackTimeout = 5 * time.Second
 
-func NewService(store Store, zellij Zellij, provider Provider) *SharingService {
-	return &SharingService{store: store, zellij: zellij, provider: provider, now: time.Now, labels: NewLabelGenerator(nil)}
+// DefaultVerifyTimeout matches config.DefaultVerifyTimeout and is used when a
+// caller does not supply one.
+const DefaultVerifyTimeout = 15 * time.Second
+
+func NewService(store Store, zellij Zellij, endpoint Endpoint) *SharingService {
+	return NewServiceWithTimeout(store, zellij, endpoint, DefaultVerifyTimeout)
+}
+
+func NewServiceWithTimeout(store Store, zellij Zellij, endpoint Endpoint, verifyTimeout time.Duration) *SharingService {
+	if verifyTimeout <= 0 {
+		verifyTimeout = DefaultVerifyTimeout
+	}
+	return &SharingService{
+		store: store, zellij: zellij, endpoint: endpoint,
+		verifyTimeout: verifyTimeout, now: time.Now, labels: NewLabelGenerator(nil),
+	}
 }
 
 func (s *SharingService) Start(ctx context.Context, req StartRequest) ([]Invitation, error) {
@@ -32,27 +50,24 @@ func (s *SharingService) Start(ctx context.Context, req StartRequest) ([]Invitat
 			return err
 		}
 		if existing != nil {
-			providerStatus, statusErr := s.provider.Status(ctx, existing.ProviderHandle)
-			if existing.State == StateActive && statusErr == nil &&
-				(providerStatus.State == "ready" || providerStatus.State == "starting") {
+			if existing.State == StateActive {
 				if (req.Workspace == "" || req.Workspace == existing.Workspace) &&
-					(req.Session == "" || req.Session == existing.Session) &&
-					(req.Provider == "" || req.Provider == existing.Provider) {
+					(req.Session == "" || req.Session == existing.Session) {
 					invitations = nil
 					return nil
 				}
 				return fmt.Errorf("workspace %q is already shared; unshare it first", existing.Workspace)
 			}
-
+			// A non-active operation is residue from an interrupted run. Clear it
+			// before issuing new invitations. Endpoint health is deliberately not
+			// consulted here: an unreachable endpoint is not evidence that the
+			// shared session ended, so it must never trigger teardown.
 			var reconciled SharingStatus
-			if err := s.reconcileLocked(ctx, existing, &reconciled, statusErr, providerStatus); err != nil {
+			if err := s.reconcileLocked(ctx, existing, &reconciled, "previous sharing operation was "+string(existing.State)); err != nil {
 				return fmt.Errorf("cannot start while stale sharing resources remain: %w", err)
 			}
 		}
 		if err = s.zellij.ValidateCapabilities(ctx); err != nil {
-			return err
-		}
-		if err = s.provider.Validate(ctx); err != nil {
 			return err
 		}
 		if req.Session == "" {
@@ -67,16 +82,14 @@ func (s *SharingService) Start(ctx context.Context, req StartRequest) ([]Invitat
 		}
 		session := req.Session
 
-		id, err := operationID()
+		ref, err := s.endpoint.Resolve(ctx)
 		if err != nil {
 			return err
 		}
-		providerName := req.Provider
-		if providerName == "" {
-			providerName = s.provider.Name()
-		}
-		if providerName != s.provider.Name() {
-			return fmt.Errorf("provider %q is not available", providerName)
+
+		id, err := operationID()
+		if err != nil {
+			return err
 		}
 		now := s.now().UTC()
 		interactiveLabel, err := s.labels.Next(nil)
@@ -88,7 +101,8 @@ func (s *SharingService) Start(ctx context.Context, req StartRequest) ([]Invitat
 			return err
 		}
 		op := &SharingOperation{
-			ID: id, Workspace: req.Workspace, Session: session, Provider: providerName,
+			ID: id, Workspace: req.Workspace, Session: session,
+			EndpointName: ref.Name, EndpointURL: ref.BaseURL,
 			Invitations: []InvitationRecord{
 				{Label: interactiveLabel, Role: RoleInteractive, State: InvitationActive, CreatedAt: now},
 				{Label: observerLabel, Role: RoleObserver, State: InvitationActive, CreatedAt: now},
@@ -120,10 +134,13 @@ func (s *SharingService) Start(ctx context.Context, req StartRequest) ([]Invitat
 			return fmt.Errorf("%w; rollback residuals: %s", cause, strings.Join(residuals, "; "))
 		}
 
-		localURL, webStarted, err := s.zellij.EnsureWebServer(ctx)
+		_, webStarted, err := s.zellij.EnsureWebServer(ctx)
 		if err != nil {
 			return rollback(err)
 		}
+		// Ownership is recorded at the moment cc-deck acts, never inferred later.
+		// Teardown stops the web server only when this is true.
+		op.WebServerOwned = webStarted
 		if webStarted {
 			undo = append(undo, func(cleanupCtx context.Context) error { return s.zellij.StopWebServer(cleanupCtx) })
 		}
@@ -143,30 +160,13 @@ func (s *SharingService) Start(ctx context.Context, req StartRequest) ([]Invitat
 		undo = append(undo, func(cleanupCtx context.Context) error {
 			return s.zellij.RevokeToken(cleanupCtx, observerCredential.Name)
 		})
-		handle, err := s.provider.Start(ctx, localURL)
-		if err != nil {
-			return rollback(err)
-		}
-		op.ProviderHandle = handle
-		undo = append(undo, func(cleanupCtx context.Context) error { return s.provider.Stop(cleanupCtx, handle) })
-		ready, err := s.provider.Ready(ctx, handle)
-		if err != nil {
-			return rollback(err)
-		}
-		if ready.State != "ready" || ready.EndpointURL == "" {
-			return rollback(fmt.Errorf("provider did not return a ready public endpoint: %s", ready.Diagnostic))
-		}
-		op.EndpointURL = ready.EndpointURL
-		if op.ProviderHandle.Metadata == nil {
-			op.ProviderHandle.Metadata = map[string]string{}
-		}
-		op.ProviderHandle.Metadata["endpoint"] = ready.EndpointURL
+
 		op.Transition(StateActive, s.now())
-		interactive, err := BuildInvitation(ready.EndpointURL, session, interactiveLabel, interactiveCredential.Secret, RoleInteractive)
+		interactive, err := BuildInvitation(ref.BaseURL, session, interactiveLabel, interactiveCredential.Secret, RoleInteractive)
 		if err != nil {
 			return rollback(err)
 		}
-		observer, err := BuildInvitation(ready.EndpointURL, session, observerLabel, observerCredential.Secret, RoleObserver)
+		observer, err := BuildInvitation(ref.BaseURL, session, observerLabel, observerCredential.Secret, RoleObserver)
 		if err != nil {
 			return rollback(err)
 		}
@@ -303,32 +303,18 @@ func (s *SharingService) Status(ctx context.Context) (SharingStatus, error) {
 			return reportUnverified(op, &status, sessionErr)
 		}
 		if sessionErr != nil || !sessionExists {
+			// A session positively reported absent is the one legitimate teardown
+			// trigger. Nothing else reaches reconcileLocked from here.
 			diagnostic := "canonical session disappeared"
 			if sessionErr != nil {
 				diagnostic = sessionErr.Error()
 			}
-			return s.reconcileLocked(ctx, op, &status, fmt.Errorf("%s", diagnostic), ProviderStatus{})
+			return s.reconcileLocked(ctx, op, &status, diagnostic)
 		}
-		providerStatus, providerErr := s.provider.Status(ctx, op.ProviderHandle)
-		if providerStatus.State == "unknown" {
-			diagnostic := providerStatus.Diagnostic
-			if diagnostic == "" {
-				diagnostic = "provider state could not be determined"
-			}
-			return reportUnverified(op, &status, errors.New(diagnostic))
+		if op.State != StateActive {
+			return s.reconcileLocked(ctx, op, &status, "sharing operation is "+string(op.State))
 		}
-		if op.State == StateActive && providerErr == nil && (providerStatus.State == "ready" || providerStatus.State == "starting") {
-			if providerStatus.EndpointURL != "" {
-				status.EndpointURL = providerStatus.EndpointURL
-			}
-			return nil
-		}
-
-		// A persisted operation whose endpoint is no longer healthy is stale. Reconcile
-		// every resource before returning so status never reports a dead operation as
-		// active. Cleanup is intentionally performed while holding this command's one
-		// lifecycle lock; teardownLocked itself never reacquires it.
-		return s.reconcileLocked(ctx, op, &status, providerErr, providerStatus)
+		return nil
 	})
 	return status, err
 }
@@ -357,8 +343,10 @@ func statusFromOperation(op *SharingOperation) SharingStatus {
 		return SharingStatus{State: StateInactive}
 	}
 	status := SharingStatus{
-		State: op.State, Workspace: op.Workspace, Session: op.Session, Provider: op.Provider,
-		EndpointURL: op.EndpointURL, Residuals: append([]string(nil), op.Residuals...),
+		State: op.State, Workspace: op.Workspace, Session: op.Session,
+		EndpointName: op.EndpointName, EndpointURL: op.EndpointURL,
+		LastProbe:   op.LastProbe,
+		Residuals:   append([]string(nil), op.Residuals...),
 		Invitations: append([]InvitationRecord(nil), op.Invitations...),
 	}
 	if op.State == StateActive {
@@ -386,16 +374,18 @@ func reportUnverified(op *SharingOperation, status *SharingStatus, cause error) 
 	return fmt.Errorf("sharing state could not be verified, leaving resources untouched: %w", cause)
 }
 
-func (s *SharingService) reconcileLocked(ctx context.Context, op *SharingOperation, status *SharingStatus, providerErr error, providerStatus ProviderStatus) error {
-	diagnostic := providerStatus.Diagnostic
-	if providerErr != nil {
-		diagnostic = providerErr.Error()
-	}
+// reconcileLocked tears down an operation that is known to be over. It is
+// reached only when the canonical session is confirmed absent, or when a
+// non-active operation is found as residue from an interrupted run. An
+// endpoint that fails verification never reaches here: the endpoint being
+// unreachable is not evidence that the shared session ended, and tearing down
+// on it once destroyed live shares from an ordinary listing.
+func (s *SharingService) reconcileLocked(ctx context.Context, op *SharingOperation, status *SharingStatus, diagnostic string) error {
 	if diagnostic == "" {
-		diagnostic = "provider state is " + providerStatus.State
+		diagnostic = "sharing operation is no longer live"
 	}
 	op.State = StateDegraded
-	op.Residuals = []string{"provider endpoint unhealthy: " + diagnostic}
+	op.Residuals = []string{diagnostic}
 	op.UpdatedAt = s.now().UTC()
 	_ = s.store.Save(op)
 	return s.teardownLocked(ctx, op, status)
@@ -417,18 +407,8 @@ func (s *SharingService) teardownLocked(ctx context.Context, op *SharingOperatio
 		run      func() error
 	}
 	var steps []cleanupStep
-	if !op.EndpointStopped {
-		steps = append(steps, cleanupStep{"public endpoint may remain active", func() error {
-			if err := s.provider.Stop(ctx, op.ProviderHandle); err != nil {
-				return err
-			}
-			op.EndpointStopped, op.UpdatedAt = true, s.now().UTC()
-			if err := s.store.Save(op); err != nil {
-				return fmt.Errorf("endpoint stopped but cleanup progress could not be persisted: %w", err)
-			}
-			return nil
-		}})
-	}
+	// There is no endpoint stop step. cc-deck never started the endpoint, so it
+	// has nothing to stop and no right to stop it.
 	for i := len(op.Invitations) - 1; i >= 0; i-- {
 		invitationIndex := i
 		invitation := op.Invitations[invitationIndex]
@@ -450,7 +430,9 @@ func (s *SharingService) teardownLocked(ctx context.Context, op *SharingOperatio
 			},
 		})
 	}
-	if !op.WebServerStopped {
+	// Only a web server cc-deck started is cc-deck's to stop. A user who was
+	// already running "zellij web" keeps it.
+	if op.WebServerOwned && !op.WebServerStopped {
 		steps = append(steps, cleanupStep{"remote clients may remain connected", func() error {
 			if err := s.zellij.StopWebServer(ctx); err != nil {
 				return err

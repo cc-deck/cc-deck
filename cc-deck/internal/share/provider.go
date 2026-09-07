@@ -2,35 +2,35 @@ package share
 
 import (
 	"context"
-	"fmt"
-	"os"
-	"sort"
 )
 
-type Process interface {
-	PID() int
-	Wait() error
-	Signal(os.Signal) error
-	Kill() error
-}
+// CommandRunner runs a bounded external command and returns its output.
+// There is deliberately no Start: cc-deck owns no long-lived process for
+// sharing, so there is no process handle to hold and nothing to supervise.
 type CommandRunner interface {
 	Run(context.Context, string, ...string) ([]byte, error)
-	Start(context.Context, string, ...string) (Process, error)
 }
-type ProviderHandle struct {
-	PID      int               `yaml:"pid"`
-	Metadata map[string]string `yaml:"metadata,omitempty"`
-}
-type ProviderStatus struct{ State, EndpointURL, Diagnostic string }
+
 type TokenCredential struct{ Name, Secret string }
-type Provider interface {
+
+// EndpointRef is a resolved endpoint address. Name is the configured endpoint
+// name, and is empty when the address came from a flag rather than a named
+// configuration entry.
+type EndpointRef struct{ Name, BaseURL string }
+
+// Endpoint is a reverse proxy the user already runs in front of the Zellij web
+// server. cc-deck never starts, stops, signals, restarts, or supervises it.
+//
+// Resolve reads configuration only and performs no network access, so callers
+// that need an address never pay for a probe. Probe verifies reachability in
+// five ordered stages and stops at the first failure; it is an observation and
+// never mutates sharing state.
+type Endpoint interface {
 	Name() string
-	Validate(context.Context) error
-	Start(context.Context, string) (ProviderHandle, error)
-	Ready(context.Context, ProviderHandle) (ProviderStatus, error)
-	Status(context.Context, ProviderHandle) (ProviderStatus, error)
-	Stop(context.Context, ProviderHandle) error
+	Resolve(ctx context.Context) (EndpointRef, error)
+	Probe(ctx context.Context, ref EndpointRef, session string) (ProbeResult, error)
 }
+
 type Zellij interface {
 	ValidateCapabilities(context.Context) error
 	SessionExists(context.Context, string) (bool, error)
@@ -51,42 +51,4 @@ type Service interface {
 	Revoke(context.Context, string, string) (SharingStatus, error)
 	Status(context.Context) (SharingStatus, error)
 	Stop(context.Context, string) (SharingStatus, error)
-}
-
-type ProviderRegistry struct {
-	providers map[string]Provider
-}
-
-func NewProviderRegistry(providers ...Provider) (*ProviderRegistry, error) {
-	r := &ProviderRegistry{providers: make(map[string]Provider, len(providers))}
-	for _, provider := range providers {
-		if provider == nil || provider.Name() == "" {
-			return nil, fmt.Errorf("provider name must not be empty")
-		}
-		if _, exists := r.providers[provider.Name()]; exists {
-			return nil, fmt.Errorf("provider %q is registered more than once", provider.Name())
-		}
-		r.providers[provider.Name()] = provider
-	}
-	return r, nil
-}
-
-func (r *ProviderRegistry) Get(name string) (Provider, error) {
-	if r == nil {
-		return nil, fmt.Errorf("provider registry is not configured")
-	}
-	provider, ok := r.providers[name]
-	if !ok {
-		return nil, fmt.Errorf("provider %q is not available (available: %v)", name, r.Names())
-	}
-	return provider, nil
-}
-
-func (r *ProviderRegistry) Names() []string {
-	names := make([]string, 0, len(r.providers))
-	for name := range r.providers {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
 }

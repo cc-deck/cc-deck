@@ -45,8 +45,8 @@ Tasks below carry an **Interfaces** note wherever they consume a symbol defined 
 
 **Purpose**: Establish a trustworthy baseline before changing anything.
 
-- [ ] T001 Record the pre-existing test baseline by running `make test` and capturing which tests already fail on this branch, expected to be seven `TestVoiceRelay_*` tests in `cc-deck/internal/voice` and the compose smoke tests, so later failures are not misattributed to this feature
-- [ ] T002 [P] Verify the binary under test is this branch's build, not the stale `~/bin/cc-deck` symlink into the main checkout, by running `make install` and confirming with `ls -l "$(command -v cc-deck)"` as described in `specs/087-workspace-sharing-endpoint/quickstart.md`
+- [X] T001 Record the pre-existing test baseline by running `make test` and capturing which tests already fail on this branch, expected to be seven `TestVoiceRelay_*` tests in `cc-deck/internal/voice` and the compose smoke tests, so later failures are not misattributed to this feature
+- [X] T002 [P] Verify the binary under test is this branch's build, not the stale `~/bin/cc-deck` symlink into the main checkout, by running `make install` and confirming with `ls -l "$(command -v cc-deck)"` as described in `specs/087-workspace-sharing-endpoint/quickstart.md`
 
 ---
 
@@ -62,18 +62,18 @@ The test files matter as much as the production files here. `Provider`, `Provide
 `test_fakes_test.go`, and `zellij_test.go`. Leaving any of them for a later phase leaves the package
 uncompilable for the whole of Phase 3, which destroys the T001 baseline exactly when it is needed most.
 
-- [ ] T003 [P] Add `ProbeStage` constants and the `ProbeResult` struct with `OK`, `FailedAt`, `Diagnostic`, and `CheckedAt` fields to `cc-deck/internal/share/model.go` per `data-model.md`
-- [ ] T004 [P] Replace `SharingConfig` in `cc-deck/internal/config/config.go` with `Endpoint`, `Endpoints`, `Default`, and `VerifyTimeout` fields, deleting `Provider`, `DefaultSharingProvider`, and the `SharingProvider()` method
-- [ ] T005 Add `EndpointName`, `WebServerOwned`, and `LastProbe` to `SharingOperation` and remove `Provider`, `ProviderHandle`, and `EndpointStopped` in `cc-deck/internal/share/model.go`, and mirror the field changes on `SharingStatus`
-- [ ] T006 Replace `Provider`, `ProviderHandle`, `ProviderStatus`, and `ProviderRegistry` with the `Endpoint` interface and `EndpointRef` struct in `cc-deck/internal/share/provider.go`, and remove `Process` and the `Start` method from `CommandRunner`
-- [ ] T007 Delete `cc-deck/internal/share/cloudflare.go` and `cc-deck/internal/share/cloudflare_test.go`
-- [ ] T008 Update `cc-deck/internal/share/service.go` and `cc-deck/internal/cmd/ws_share.go` so they compile against the new types, removing the process launch and its rollback arm from `Start`, the `commandProcess` type, and the hardcoded `provider != "cloudflare"` rejection at `ws_share.go:96`
-- [ ] T008a Remove `fakeProcess` and the `Start` method on `fakeRunner` from `cc-deck/internal/share/test_fakes_test.go`, along with the Cloudflare-specific fake wiring, so the test build no longer references the deleted `Process` interface
-- [ ] T008b Remove the `Process` references from `cc-deck/internal/share/zellij_test.go`, keeping the token and web server coverage that this feature relies on unchanged
-- [ ] T008c Update `cc-deck/internal/share/service_test.go` so it compiles against `Endpoint`, replacing the provider fake with an endpoint fake; behavioural assertions are rewritten later in T033 through T035 and T040 through T042, so this task only restores compilation
-- [ ] T008d Replace the `Provider` scaffolding in `cc-deck/internal/share/provider_contract_test.go` with an `Endpoint` skeleton sufficient to compile; the real contract coverage lands in T013
-- [ ] T009 Replace the provider-name check in `cc-deck/internal/config/validate.go` with validation that each configured address parses as an absolute `http` or `https` URL, that `Default` names a key in `Endpoints`, and that `VerifyTimeout` is positive
-- [ ] T010 [P] Update `cc-deck/internal/config/config_test.go` and `cc-deck/internal/config/validate_test.go` to cover the new schema and drop `TestSharingProviderDefault`
+- [X] T003 [P] Add `ProbeStage` constants and the `ProbeResult` struct with `OK`, `FailedAt`, `Diagnostic`, and `CheckedAt` fields to `cc-deck/internal/share/model.go` per `data-model.md`
+- [X] T004 [P] Replace `SharingConfig` in `cc-deck/internal/config/config.go` with `Endpoint`, `Endpoints`, `Default`, and `VerifyTimeout` fields, deleting `Provider`, `DefaultSharingProvider`, and the `SharingProvider()` method
+- [X] T005 Add `EndpointName`, `WebServerOwned`, and `LastProbe` to `SharingOperation` and remove `Provider`, `ProviderHandle`, and `EndpointStopped` in `cc-deck/internal/share/model.go`, and mirror the field changes on `SharingStatus`
+- [X] T006 Replace `Provider`, `ProviderHandle`, `ProviderStatus`, and `ProviderRegistry` with the `Endpoint` interface and `EndpointRef` struct in `cc-deck/internal/share/provider.go`, and remove `Process` and the `Start` method from `CommandRunner`
+- [X] T007 Delete `cc-deck/internal/share/cloudflare.go` and `cc-deck/internal/share/cloudflare_test.go`
+- [X] T008 Update `cc-deck/internal/share/service.go` and `cc-deck/internal/cmd/ws_share.go` so they compile against the new types, removing the process launch and its rollback arm from `Start`, the `commandProcess` type, and the hardcoded `provider != "cloudflare"` rejection at `ws_share.go:96`
+- [X] T008a Remove `fakeProcess` and the `Start` method on `fakeRunner` from `cc-deck/internal/share/test_fakes_test.go`, along with the Cloudflare-specific fake wiring, so the test build no longer references the deleted `Process` interface
+- [X] T008b Remove the `Process` references from `cc-deck/internal/share/zellij_test.go`, keeping the token and web server coverage that this feature relies on unchanged
+- [X] T008c Update `cc-deck/internal/share/service_test.go` so it compiles against `Endpoint`, replacing the provider fake with an endpoint fake; behavioural assertions are rewritten later in T033 through T035 and T040 through T042, so this task only restores compilation
+- [X] T008d Replace the `Provider` scaffolding in `cc-deck/internal/share/provider_contract_test.go` with an `Endpoint` skeleton sufficient to compile; the real contract coverage lands in T013
+- [X] T009 Replace the provider-name check in `cc-deck/internal/config/validate.go` with validation that each configured address parses as an absolute `http` or `https` URL, that `Default` names a key in `Endpoints`, and that `VerifyTimeout` is positive
+- [X] T010 [P] Update `cc-deck/internal/config/config_test.go` and `cc-deck/internal/config/validate_test.go` to cover the new schema and drop `TestSharingProviderDefault`
 
 **Checkpoint**: `make test` compiles and every test that passed at the T001 baseline still passes, with
 the exception of sharing behaviour tests reduced to compilation stubs in T008c and T008d. Sharing is

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,29 +13,38 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func workspaceShareService(_ *GlobalFlags) (sharing.Service, error) {
+// shareOptions carries the per-command endpoint selection. It overrides
+// nothing in the user's configuration; it applies to one command only.
+type shareOptions struct {
+	endpoint     string
+	endpointName string
+	noVerify     bool
+}
+
+func workspaceShareService(gf *GlobalFlags, opts shareOptions) (sharing.Service, error) {
 	runner := osCommandRunner{}
 	store := sharing.NewFileStore("")
-	provider := sharing.NewCloudflareProvider(runner)
 	zellij := sharing.NewZellij(runner)
-	return sharing.NewService(store, zellij, provider), nil
+	cfg, err := loadSharingConfig(gf)
+	if err != nil {
+		return nil, err
+	}
+	endpoint := sharing.NewStaticEndpoint(cfg.Sharing, opts.endpoint, opts.endpointName, zellij)
+	return sharing.NewServiceWithTimeout(store, zellij, endpoint, cfg.VerifyTimeout()), nil
 }
 
 var makeWorkspaceShareService = workspaceShareService
 
-func configuredProvider(gf *GlobalFlags) (string, error) {
+func loadSharingConfig(gf *GlobalFlags) (*config.Config, error) {
 	configFile := ""
 	if gf != nil {
 		configFile = gf.ConfigFile
 	}
 	cfg, err := config.Load(configFile)
 	if err != nil {
-		return "", fmt.Errorf("load sharing configuration: %w", err)
+		return nil, fmt.Errorf("load sharing configuration: %w", err)
 	}
-	if provider := cfg.SharingProvider(); provider != "" {
-		return provider, nil
-	}
-	return "cloudflare", nil
+	return cfg, nil
 }
 
 type osCommandRunner struct{}
@@ -42,21 +52,6 @@ type osCommandRunner struct{}
 func (osCommandRunner) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
 	return exec.CommandContext(ctx, name, args...).CombinedOutput()
 }
-func (osCommandRunner) Start(ctx context.Context, name string, args ...string) (sharing.Process, error) {
-	command := exec.CommandContext(ctx, name, args...)
-	command.Stdout, command.Stderr = os.Stdout, os.Stderr
-	if err := command.Start(); err != nil {
-		return nil, err
-	}
-	return &commandProcess{command: command}, nil
-}
-
-type commandProcess struct{ command *exec.Cmd }
-
-func (p *commandProcess) PID() int                      { return p.command.Process.Pid }
-func (p *commandProcess) Wait() error                   { return p.command.Wait() }
-func (p *commandProcess) Signal(signal os.Signal) error { return p.command.Process.Signal(signal) }
-func (p *commandProcess) Kill() error                   { return p.command.Process.Kill() }
 
 func ensureWorkspaceReady(ctx context.Context, workspace ws.Workspace, share bool, current sharing.SharingStatus, run func(context.Context, ws.Workspace, ws.ReadyOptions) (ws.ReadyResult, error)) (ws.ReadyResult, error) {
 	status, err := workspace.Status(ctx)
@@ -72,13 +67,16 @@ func ensureWorkspaceReady(ctx context.Context, workspace ws.Workspace, share boo
 	return run(ctx, workspace, ws.ReadyOptions{Share: share})
 }
 
-func readyAndMaybeShare(ctx context.Context, gf *GlobalFlags, workspace ws.Workspace, share bool) ([]sharing.Invitation, ws.ReadyResult, error) {
+func readyAndMaybeShare(ctx context.Context, gf *GlobalFlags, workspace ws.Workspace, share bool, opts shareOptions) ([]sharing.Invitation, ws.ReadyResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if !share {
 		ready, err := ws.EnsureReady(ctx, workspace, ws.ReadyOptions{})
 		return nil, ready, err
+	}
+	if opts.endpoint != "" && opts.endpointName != "" {
+		return nil, ws.ReadyResult{}, fmt.Errorf("--endpoint and --endpoint-name cannot be used together")
 	}
 	configChanged, configErr := sharing.EnsureZellijWebSharing("")
 	if configErr != nil {
@@ -89,14 +87,7 @@ func readyAndMaybeShare(ctx context.Context, gf *GlobalFlags, workspace ws.Works
 		fmt.Fprintln(os.Stderr, "Run: cc-deck ws stop "+workspace.Name()+" && killall zellij && zellij --layout cc-deck")
 		return nil, ws.ReadyResult{}, fmt.Errorf("web_sharing was just enabled in Zellij config; restart Zellij to activate it")
 	}
-	providerName, err := configuredProvider(gf)
-	if err != nil {
-		return nil, ws.ReadyResult{}, err
-	}
-	if providerName != "cloudflare" {
-		return nil, ws.ReadyResult{}, fmt.Errorf("provider %q is not available", providerName)
-	}
-	service, err := makeWorkspaceShareService(gf)
+	service, err := makeWorkspaceShareService(gf, opts)
 	if err != nil {
 		return nil, ws.ReadyResult{}, err
 	}
@@ -105,11 +96,50 @@ func readyAndMaybeShare(ctx context.Context, gf *GlobalFlags, workspace ws.Works
 	if err != nil {
 		return nil, ready, err
 	}
-	invitations, err := service.Start(ctx, sharing.StartRequest{Workspace: workspace.Name(), Session: ws.ZellijSessionName(workspace.Name()), Provider: providerName})
-	if err != nil && ready.SessionCreated {
-		_ = workspace.KillSession(context.Background())
+	invitations, err := service.Start(ctx, sharing.StartRequest{
+		Workspace: workspace.Name(),
+		Session:   ws.ZellijSessionName(workspace.Name()),
+		NoVerify:  opts.noVerify,
+	})
+	// A workspace the user asked for stays. Sharing failing is not a reason to
+	// destroy a session that is running and usable locally, which is what
+	// killing it here used to do.
+	if err != nil {
+		err = explainShareFailure(err)
 	}
 	return invitations, ready, err
+}
+
+// explainShareFailure turns a verification failure into the message shape the
+// CLI contract fixes: the failing stage named first, then what that layer
+// means, then where to read more. Presentation lives here so the probe itself
+// stays free of it.
+func explainShareFailure(err error) error {
+	var probeErr *sharing.ProbeFailedError
+	if !errors.As(err, &probeErr) {
+		return err
+	}
+	return fmt.Errorf("endpoint verification failed at the %s stage\n  %s\n  %s\n  See: cc-deck docs, sharing guide, endpoint requirements",
+		probeErr.Result.FailedAt, probeErr.Detail(), stageExplanation(probeErr.Result.FailedAt))
+}
+
+// stageExplanation says what a failing layer means in terms of what the user
+// can change, because naming the layer alone does not tell anyone what to fix.
+func stageExplanation(stage sharing.ProbeStage) string {
+	switch stage {
+	case sharing.StageDNS:
+		return "The address does not resolve from this machine. Check the name, and check whether a local DNS filter is answering for it."
+	case sharing.StageTLS:
+		return "The TLS handshake failed. Check the certificate the endpoint presents, including its name and its chain."
+	case sharing.StageHTTP:
+		return "The address answers but does not serve the Zellij web client. Check that the proxy forwards to the Zellij web server and does not rewrite paths."
+	case sharing.StageAuth:
+		return "Login did not return a session cookie. A proxy that drops POST bodies or strips Set-Cookie produces exactly this."
+	case sharing.StageWebSocket:
+		return "A proxy that forwards HTTP but drops the Upgrade and Connection headers produces a page that loads and a terminal that never fills."
+	default:
+		return "The endpoint could not be verified."
+	}
 }
 
 func printInvitations(cmd *cobra.Command, invitations []sharing.Invitation) {
@@ -121,27 +151,40 @@ func printInvitations(cmd *cobra.Command, invitations []sharing.Invitation) {
 	}
 }
 
+// addEndpointFlags attaches the per-command endpoint selection shared by
+// "start --share" and "invite".
+func addEndpointFlags(cmd *cobra.Command, opts *shareOptions) {
+	cmd.Flags().StringVar(&opts.endpoint, "endpoint", "", "Endpoint address to use for this command only")
+	cmd.Flags().StringVar(&opts.endpointName, "endpoint-name", "", "Configured endpoint to select by name")
+	cmd.Flags().BoolVar(&opts.noVerify, "no-verify", false, "Skip endpoint verification; the share reports no verification age")
+	cmd.MarkFlagsMutuallyExclusive("endpoint", "endpoint-name")
+}
+
 func newWsSharingCommands(gf *GlobalFlags) []*cobra.Command {
 	var role, label string
+	var inviteOpts shareOptions
 	invite := &cobra.Command{Use: "invite [name]", Args: cobra.MaximumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		store := ws.NewStateStore("")
 		name, _, err := resolveWorkspaceName(args, store)
 		if err != nil {
 			return err
 		}
-		service, err := makeWorkspaceShareService(gf)
+		service, err := makeWorkspaceShareService(gf, inviteOpts)
 		if err != nil {
 			return err
 		}
-		invitation, err := service.Invite(cmd.Context(), sharing.InviteRequest{Workspace: name, Label: label, Role: sharing.InvitationRole(role)})
+		invitation, err := service.Invite(cmd.Context(), sharing.InviteRequest{
+			Workspace: name, Label: label, Role: sharing.InvitationRole(role), NoVerify: inviteOpts.noVerify,
+		})
 		if err != nil {
-			return err
+			return explainShareFailure(err)
 		}
 		printInvitations(cmd, []sharing.Invitation{invitation})
 		return nil
 	}}
 	invite.Flags().StringVar(&role, "role", "", "Invitation role: interactive or observer")
 	invite.Flags().StringVar(&label, "name", "", "Optional invitation label")
+	addEndpointFlags(invite, &inviteOpts)
 	_ = invite.MarkFlagRequired("role")
 
 	revoke := &cobra.Command{Use: "revoke [name] INVITATION_LABEL", Args: cobra.RangeArgs(1, 2), RunE: func(cmd *cobra.Command, args []string) error {
@@ -151,19 +194,21 @@ func newWsSharingCommands(gf *GlobalFlags) []*cobra.Command {
 		if err != nil {
 			return err
 		}
-		service, err := makeWorkspaceShareService(gf)
+		service, err := makeWorkspaceShareService(gf, shareOptions{})
 		if err != nil {
 			return err
 		}
 		_, err = service.Revoke(cmd.Context(), name, labelArg)
 		return err
 	}}
+	// Unshare never probes. Teardown must not depend on endpoint health, or an
+	// endpoint that is down becomes a reason the share cannot be removed.
 	unshare := &cobra.Command{Use: "unshare [name]", Args: cobra.MaximumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		name, _, err := resolveWorkspaceName(args, ws.NewStateStore(""))
 		if err != nil {
 			return err
 		}
-		service, err := makeWorkspaceShareService(gf)
+		service, err := makeWorkspaceShareService(gf, shareOptions{})
 		if err != nil {
 			return err
 		}

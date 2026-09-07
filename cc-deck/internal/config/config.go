@@ -25,17 +25,30 @@ type Config struct {
 	Sharing        SharingConfig      `yaml:"sharing,omitempty"`
 }
 
-const DefaultSharingProvider = "cloudflare"
+// DefaultVerifyTimeout bounds the whole endpoint verification. cc-deck no
+// longer starts an endpoint, so this is the budget for confirming that the
+// endpoint the user already runs actually reaches a live terminal.
+const DefaultVerifyTimeout = 15 * time.Second
 
+// SharingConfig describes the endpoints workspace sharing may use. cc-deck
+// never starts, stops, or supervises any of them.
 type SharingConfig struct {
-	Provider string `yaml:"provider,omitempty"`
+	// Endpoint is the single address used when no named endpoints are configured.
+	Endpoint string `yaml:"endpoint,omitempty"`
+	// Endpoints maps a name to an address, selected with --endpoint-name.
+	Endpoints map[string]string `yaml:"endpoints,omitempty"`
+	// Default names the entry in Endpoints to use when no name is given.
+	Default string `yaml:"default,omitempty"`
+	// VerifyTimeout bounds the whole probe. Zero means DefaultVerifyTimeout.
+	VerifyTimeout time.Duration `yaml:"verify_timeout,omitempty"`
 }
 
-func (c *Config) SharingProvider() string {
-	if c.Sharing.Provider == "" {
-		return DefaultSharingProvider
+// VerifyTimeout returns the configured probe budget, or the default when unset.
+func (c *Config) VerifyTimeout() time.Duration {
+	if c.Sharing.VerifyTimeout <= 0 {
+		return DefaultVerifyTimeout
 	}
-	return c.Sharing.Provider
+	return c.Sharing.VerifyTimeout
 }
 
 // BadgeRule defines a file-based badge indicator for the sidebar.

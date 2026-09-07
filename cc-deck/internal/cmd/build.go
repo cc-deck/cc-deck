@@ -1051,7 +1051,6 @@ func refreshOpenShellPolicy(dir string, m *build.Manifest, report *build.ProbeRe
 	return os.WriteFile(policyPath, data, 0o644)
 }
 
-
 func newBuildRecordCmd(_ *GlobalFlags) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "record [dir]",

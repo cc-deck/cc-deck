@@ -2,7 +2,9 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
+	"sort"
 	"strings"
 	"unicode/utf8"
 )
@@ -45,11 +47,76 @@ func (c *Config) Validate() []Finding {
 	return findings
 }
 
+// validateSharing checks the shape of every configured endpoint address. It
+// validates addresses rather than provider names, because cc-deck no longer
+// has providers: the user supplies an endpoint that is already serving.
 func validateSharing(c SharingConfig) []Finding {
-	if c.Provider == "" || c.Provider == DefaultSharingProvider {
+	var findings []Finding
+	if finding := validateEndpointAddress("sharing.endpoint", c.Endpoint); finding != nil {
+		findings = append(findings, *finding)
+	}
+	for _, name := range sortedKeys(c.Endpoints) {
+		if finding := validateEndpointAddress(fmt.Sprintf("sharing.endpoints[%q]", name), c.Endpoints[name]); finding != nil {
+			findings = append(findings, *finding)
+		}
+	}
+	if c.Default != "" {
+		if _, ok := c.Endpoints[c.Default]; !ok {
+			findings = append(findings, Finding{
+				Severity: SeverityError, Category: CategorySharing,
+				Message:    fmt.Sprintf("sharing.default %q does not name a configured endpoint", c.Default),
+				Suggestion: suggestConfiguredNames(c.Endpoints),
+			})
+		}
+	}
+	if c.VerifyTimeout < 0 {
+		findings = append(findings, Finding{
+			Severity: SeverityError, Category: CategorySharing,
+			Message:    fmt.Sprintf("sharing.verify_timeout must be positive (found %s)", c.VerifyTimeout),
+			Suggestion: "use a duration such as 15s",
+		})
+	}
+	return findings
+}
+
+// validateEndpointAddress reports an address that is not an absolute http or
+// https URL. An empty address is not configured, which is not an error.
+func validateEndpointAddress(key, address string) *Finding {
+	if address == "" {
 		return nil
 	}
-	return []Finding{{Severity: SeverityError, Category: CategorySharing, Message: fmt.Sprintf("unknown sharing provider %q", c.Provider), Suggestion: "use cloudflare"}}
+	parsed, err := url.Parse(address)
+	if err != nil {
+		return &Finding{Severity: SeverityError, Category: CategorySharing,
+			Message: fmt.Sprintf("%s is not a valid URL: %v", key, err), Suggestion: "use an address such as https://dev.example.com"}
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return &Finding{Severity: SeverityError, Category: CategorySharing,
+			Message: fmt.Sprintf("%s must use the http or https scheme (found %q)", key, parsed.Scheme), Suggestion: "use an address such as https://dev.example.com"}
+	}
+	if parsed.Host == "" {
+		return &Finding{Severity: SeverityError, Category: CategorySharing,
+			Message: fmt.Sprintf("%s must be an absolute URL with a host", key), Suggestion: "use an address such as https://dev.example.com"}
+	}
+	return nil
+}
+
+func sortedKeys(endpoints map[string]string) []string {
+	names := make([]string, 0, len(endpoints))
+	for name := range endpoints {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// suggestConfiguredNames lists what the user could have meant instead.
+func suggestConfiguredNames(endpoints map[string]string) string {
+	names := sortedKeys(endpoints)
+	if len(names) == 0 {
+		return "configure sharing.endpoints first"
+	}
+	return "configured endpoints: " + strings.Join(names, ", ")
 }
 
 // ValidateAndWarn runs Validate() and prints a one-line summary to stderr
@@ -240,17 +307,17 @@ func isEastAsianAmbiguous(r rune) bool {
 // similar narrow replacements. Keys are runes that may be flagged by
 // the icon width check; values are the suggestion text.
 var narrowAlternatives = map[rune]string{
-	'▶': "try › (U+203A SINGLE RIGHT ANGLE QUOTATION) or > (U+003E)",            // play/arrow
-	'◀': "try ‹ (U+2039 SINGLE LEFT ANGLE QUOTATION) or < (U+003C)",             // reverse
-	'◆': "try ♦ (U+2666 BLACK DIAMOND SUIT) or * (U+002A)",                       // diamond -> card suit (Narrow in most terminals)
-	'◇': "try ◇ is also Ambiguous; use • (U+2022 BULLET) instead",           // open diamond
-	'▦': "try ≡ (U+2261 IDENTICAL TO) or # (U+0023)",                             // grid/plan
-	'◉': "try ⊙ (U+2299 CIRCLED DOT OPERATOR) or @ (U+0040)",                     // target/dot
-	'■': "try ▪ (U+25AA BLACK SMALL SQUARE) or • (U+2022 BULLET)",           // solid square
-	'□': "try ▫ (U+25AB WHITE SMALL SQUARE) or - (U+002D)",                        // open square
-	'●': "try • (U+2022 BULLET)",                                                  // filled circle
-	'○': "try ◦ (U+25E6 WHITE BULLET) or · (U+00B7 MIDDLE DOT)",             // open circle
-	'☰': "try ⋮ (U+22EE VERTICAL ELLIPSIS) or = (U+003D)",                        // trigram/hamburger
+	'▶': "try › (U+203A SINGLE RIGHT ANGLE QUOTATION) or > (U+003E)", // play/arrow
+	'◀': "try ‹ (U+2039 SINGLE LEFT ANGLE QUOTATION) or < (U+003C)",  // reverse
+	'◆': "try ♦ (U+2666 BLACK DIAMOND SUIT) or * (U+002A)",           // diamond -> card suit (Narrow in most terminals)
+	'◇': "try ◇ is also Ambiguous; use • (U+2022 BULLET) instead",    // open diamond
+	'▦': "try ≡ (U+2261 IDENTICAL TO) or # (U+0023)",                 // grid/plan
+	'◉': "try ⊙ (U+2299 CIRCLED DOT OPERATOR) or @ (U+0040)",         // target/dot
+	'■': "try ▪ (U+25AA BLACK SMALL SQUARE) or • (U+2022 BULLET)",    // solid square
+	'□': "try ▫ (U+25AB WHITE SMALL SQUARE) or - (U+002D)",           // open square
+	'●': "try • (U+2022 BULLET)",                                     // filled circle
+	'○': "try ◦ (U+25E6 WHITE BULLET) or · (U+00B7 MIDDLE DOT)",      // open circle
+	'☰': "try ⋮ (U+22EE VERTICAL ELLIPSIS) or = (U+003D)",            // trigram/hamburger
 }
 
 // suggestedReplacement returns a narrow-width alternative icon for a wide or ambiguous character.
