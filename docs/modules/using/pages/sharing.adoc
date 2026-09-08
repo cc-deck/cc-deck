@@ -191,14 +191,12 @@ Passing an endpoint that differs from the live share is refused rather than appl
 [source]
 ----
 Error: workspace "demo" is already shared through http://127.0.0.1:8082, so https://other.example.com was not applied
-  An invitation carries the endpoint and a login token together, and the token is
-  never stored, so moving a share to another endpoint has to issue new invitations.
-  Every link already handed out stops working, which is why this is not silent.
   To move it:      cc-deck ws update demo --endpoint https://other.example.com
   To stop sharing: cc-deck ws unshare demo
 ----
 
 The move is a separate command because it is not free.
+An invitation pairs the endpoint with a login token, and the token is never stored, so moving a share has to issue new invitations and every link already handed out stops working.
 
 [source,bash]
 ----

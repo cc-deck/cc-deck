@@ -257,14 +257,12 @@ func requestedEndpointURL(gf *GlobalFlags, opts shareOptions) (string, bool, err
 	return ref.BaseURL, true, nil
 }
 
-// endpointConflictError explains why an endpoint flag was refused rather than
-// applied, and names the command that does apply it.
+// endpointConflictError reports the refusal and the two commands that resolve
+// it. Why a live share cannot be re-pointed belongs in the sharing guide, not
+// in the way of someone who already knows what they meant to type.
 func endpointConflictError(name string, current sharing.SharingStatus, requested string) error {
 	return fmt.Errorf(
 		"workspace %q is already shared through %s, so %s was not applied\n"+
-			"  An invitation carries the endpoint and a login token together, and the token is\n"+
-			"  never stored, so moving a share to another endpoint has to issue new invitations.\n"+
-			"  Every link already handed out stops working, which is why this is not silent.\n"+
 			"  To move it:      cc-deck ws update %s --endpoint %s\n"+
 			"  To stop sharing: cc-deck ws unshare %s",
 		name, current.EndpointURL, requested, name, requested, name)
