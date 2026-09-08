@@ -27,7 +27,7 @@ func TestInvitationsUseCorrectRoleTokensAndWarnings(t *testing.T) {
 		require.Contains(t, invitation, "WATCH_SECRET")
 		require.NotContains(t, invitation, "CONTROL_SECRET")
 	}
-	require.Equal(t, []string{TrustedControlWarning, TerminalTLSWarning}, got.Warnings)
+	require.Equal(t, []string{TrustedControlWarning}, got.Warnings)
 	require.Contains(t, got.ObserverTerminal, "/selected")
 }
 
@@ -41,10 +41,11 @@ func TestBuildInvitationUsesRoleSpecificWarnings(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "brave-otter", interactive.Label)
 	require.Equal(t, RoleInteractive, interactive.Role)
-	require.Equal(t, []string{TrustedControlWarning, TerminalTLSWarning}, interactive.Warnings)
+	require.Equal(t, []string{TrustedControlWarning}, interactive.Warnings)
 
 	observer, err := BuildInvitation("https://example.test", "selected", "calm-fox", "WATCH_SECRET", RoleObserver)
 	require.NoError(t, err)
-	require.Equal(t, []string{TerminalTLSWarning}, observer.Warnings)
+	// An observer link controls nothing, so it carries no warning at all.
+	require.Empty(t, observer.Warnings)
 	require.Contains(t, observer.Browser, "WATCH_SECRET")
 }

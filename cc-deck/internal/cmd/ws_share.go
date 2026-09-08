@@ -91,7 +91,8 @@ func readyAndMaybeShare(ctx context.Context, gf *GlobalFlags, workspace ws.Works
 	}
 	if configChanged {
 		fmt.Fprintln(os.Stderr, "Enabled web_sharing in Zellij config. A Zellij restart is required for this to take effect.")
-		fmt.Fprintln(os.Stderr, "Run: cc-deck ws stop "+workspace.Name()+" && killall zellij && zellij --layout cc-deck")
+		fmt.Fprintf(os.Stderr, "Run: cc-deck ws kill-session %s, then cc-deck ws attach %s\n",
+			workspace.Name(), workspace.Name())
 		return nil, ws.ReadyResult{}, fmt.Errorf("web_sharing was just enabled in Zellij config; restart Zellij to activate it")
 	}
 	service, err := makeWorkspaceShareService(gf, opts)
@@ -385,18 +386,17 @@ func printInvitations(cmd *cobra.Command, invitations []sharing.Invitation) {
 	if hasInteractive(invitations) {
 		fmt.Fprintln(out, "\nInteractive access gives control of the complete terminal session.")
 	}
-	fmt.Fprintln(out, "Run with --verbose for terminal attachment commands.")
 }
 
-// printInvitationsVerbose keeps the long form: every warning, the browser
-// invitation, and the experimental terminal command.
+// printInvitationsVerbose keeps the long form: the warnings and the browser
+// invitation spelled out per role.
 func printInvitationsVerbose(out io.Writer, invitations []sharing.Invitation) {
 	for _, invitation := range invitations {
 		for _, warning := range invitation.Warnings {
 			fmt.Fprintln(out, warning)
 		}
-		fmt.Fprintf(out, "%s invitation %q:\nBrowser:\n%s\nTerminal (experimental):\n%s\n",
-			invitation.Role, invitation.Label, invitation.Browser, invitation.Terminal)
+		fmt.Fprintf(out, "%s invitation %q:\n%s\n",
+			invitation.Role, invitation.Label, invitation.Browser)
 	}
 }
 

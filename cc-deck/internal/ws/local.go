@@ -82,8 +82,9 @@ func runBoundedZellij(ctx context.Context, bound time.Duration, name string, arg
 func unresponsiveZellijError(name string, args []string, bound time.Duration) error {
 	return fmt.Errorf("%s %s: %w after %s\n"+
 		"  The session may still be running while its server refuses new clients.\n"+
-		"  Find it with:  ps ax | grep 'zellij --server'\n"+
-		"  Then:          kill PID && zellij delete-session --force SESSION",
+		"  Try:  cc-deck ws kill-session NAME\n"+
+		"  If that times out too, the server process for that session has to be\n"+
+		"  ended before the session can be removed.",
 		name, strings.Join(args, " "), ErrZellijUnresponsive, bound)
 }
 

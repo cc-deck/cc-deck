@@ -121,10 +121,12 @@ within seconds instead of hanging, and the failure names the recovery.
 ----
 Error: zellij delete-session --force cc-deck-demo: zellij is not responding after 10s
   The session may still be running while its server refuses new clients.
-  Find it with:  ps ax | grep 'zellij --server'
-  Then:          kill PID && zellij delete-session --force SESSION
+  Try:  cc-deck ws kill-session NAME
+  If that times out too, the server process for that session has to be
+  ended before the session can be removed.
 ----
 
-Kill only the server for the session named in the error.
-Never use `zellij delete-all-sessions`, which takes every other session with it.
+If `cc-deck ws kill-session` also times out, end the server process for that one
+session only, then remove it with `cc-deck ws delete NAME --force`.
+Leave the servers for your other sessions alone.
 

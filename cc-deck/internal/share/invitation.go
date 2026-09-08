@@ -21,7 +21,7 @@ func BuildInvitations(endpoint, session, interactiveToken, observerToken string)
 		InteractiveTerminal: terminalInvitation(remote, interactiveToken),
 		ObserverBrowser:     browserInvitation(remote, observerToken),
 		ObserverTerminal:    terminalInvitation(remote, observerToken),
-		Warnings:            []string{TrustedControlWarning, TerminalTLSWarning},
+		Warnings:            []string{TrustedControlWarning},
 	}, nil
 }
 
@@ -30,9 +30,12 @@ func BuildInvitation(endpoint, session, label, token string, role InvitationRole
 	if err != nil {
 		return Invitation{}, err
 	}
-	warnings := []string{TerminalTLSWarning}
+	// Only the control warning is carried. The terminal attachment command is
+	// no longer surfaced by the CLI, so a warning about its use of --insecure
+	// would caution against something the reader was never shown.
+	var warnings []string
 	if role == RoleInteractive {
-		warnings = []string{TrustedControlWarning, TerminalTLSWarning}
+		warnings = []string{TrustedControlWarning}
 	}
 	return Invitation{
 		Label: label, Role: role,

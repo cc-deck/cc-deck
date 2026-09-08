@@ -629,11 +629,10 @@ func sampleInvitations() []sharing.Invitation {
 	const url = "https://pages-transformation-annual-mandate.trycloudflare.com/cc-deck-second"
 	return []sharing.Invitation{
 		{Label: "lively-otter", Role: sharing.RoleInteractive, URL: url, Token: "70a06a36",
-			Browser: url + "\nLogin token: 70a06a36", Terminal: "zellij attach '" + url + "' --token '70a06a36' --insecure",
-			Warnings: []string{sharing.TrustedControlWarning, sharing.TerminalTLSWarning}},
+			Browser:  url + "\nLogin token: 70a06a36",
+			Warnings: []string{sharing.TrustedControlWarning}},
 		{Label: "brave-wolf", Role: sharing.RoleObserver, URL: url, Token: "f1e3d3c2",
-			Browser: url + "\nLogin token: f1e3d3c2", Terminal: "zellij attach '" + url + "' --token 'f1e3d3c2' --insecure",
-			Warnings: []string{sharing.TerminalTLSWarning}},
+			Browser: url + "\nLogin token: f1e3d3c2"},
 	}
 }
 
@@ -666,15 +665,18 @@ func TestInvitationOutputIsConciseByDefault(t *testing.T) {
 		"a warning about a command that is not shown has nothing to warn about")
 	require.Contains(t, output, "Interactive access gives control of the complete terminal session.",
 		"the one warning that still applies is kept, once")
+	require.NotContains(t, output, "zellij", "the CLI never points at zellij directly")
 }
 
 func TestVerboseInvitationOutputKeepsTheLongForm(t *testing.T) {
 	output := renderInvitations(t, true, sampleInvitations())
 
-	require.Contains(t, output, "Browser:")
-	require.Contains(t, output, "Terminal (experimental):")
-	require.Contains(t, output, "--insecure")
 	require.Contains(t, output, sharing.TrustedControlWarning)
+	require.Contains(t, output, "lively-otter")
+	require.Contains(t, output, "brave-wolf")
+	// The CLI never instructs anyone to run zellij directly.
+	require.NotContains(t, output, "zellij")
+	require.NotContains(t, output, "--insecure")
 }
 
 // A lone invitation from `ws invite` uses the same concise shape.

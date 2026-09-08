@@ -230,8 +230,12 @@ func TestRunBoundedZellijFailsRatherThanHanging(t *testing.T) {
 	if elapsed > 5*time.Second {
 		t.Errorf("took %s; the bound was not applied", elapsed)
 	}
-	if !strings.Contains(err.Error(), "delete-session --force") {
+	if !strings.Contains(err.Error(), "cc-deck ws kill-session") {
 		t.Errorf("the error must name the recovery, got %q", err)
+	}
+	// Recovery is always expressed as a cc-deck command, never a raw zellij one.
+	if strings.Contains(err.Error(), "zellij delete-session") {
+		t.Errorf("the error must not instruct zellij directly, got %q", err)
 	}
 }
 

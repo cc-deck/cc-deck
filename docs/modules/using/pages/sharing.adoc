@@ -11,7 +11,7 @@ Think of it the way you think of a reverse proxy in front of any other local ser
 
 Install Zellij 0.44.3 or later, and have an endpoint serving before you share.
 Sharing is local-only, and only one workspace can be shared per host.
-Terminal invitations use `--insecure`; read the printed interception warning before distributing them.
+Invitations are browser links: a session address paired with a login token.
 
 The endpoint requirement is a deliberate cost.
 Earlier versions started a tunnel for you, which meant cc-deck owned a process it could not reliably supervise, and the failures that followed were worse than the convenience was worth.
@@ -191,10 +191,9 @@ https://dev.example.com/cc-deck-demo
   observer    brave-wolf     f1e3d3c2-b72e-4690-ba98-482dec3625af
 
 Interactive access gives control of the complete terminal session.
-Run with --verbose for terminal attachment commands.
 ----
 
-Add `--verbose` for the long form, which repeats the address for each role and includes the experimental `zellij attach` command together with the warning about its use of `--insecure`.
+Add `--verbose` for the long form, which spells the address out once per role alongside the warning.
 
 == Repeating the command, and moving a share
 
