@@ -105,6 +105,13 @@ func validateEndpointURL(address string) error {
 	if parsed.Host == "" {
 		return fmt.Errorf("endpoint address %q must be an absolute URL with a host", address)
 	}
+	// The session is selected by the URL path, and the invitation builder
+	// appends it. An endpoint that already carries one produces an address with
+	// the session named twice, which fails for the guest and nowhere else.
+	if path := strings.Trim(parsed.Path, "/"); path != "" {
+		return fmt.Errorf("endpoint address %q must not include a path; the session name is appended to it\n"+
+			"  Use: %s://%s", address, parsed.Scheme, parsed.Host)
+	}
 	return nil
 }
 

@@ -60,7 +60,7 @@ func (osCommandRunner) Run(ctx context.Context, name string, args ...string) ([]
 	return exec.CommandContext(ctx, name, args...).CombinedOutput()
 }
 
-func ensureWorkspaceReady(ctx context.Context, workspace ws.Workspace, share bool, current sharing.SharingStatus, run func(context.Context, ws.Workspace, ws.ReadyOptions) (ws.ReadyResult, error)) (ws.ReadyResult, error) {
+func ensureWorkspaceReady(ctx context.Context, workspace ws.Workspace, share bool, current sharing.SharingStatus, opts shareOptions, run func(context.Context, ws.Workspace, ws.ReadyOptions) (ws.ReadyResult, error)) (ws.ReadyResult, error) {
 	status, err := workspace.Status(ctx)
 	if err != nil {
 		return ws.ReadyResult{}, err
@@ -69,7 +69,11 @@ func ensureWorkspaceReady(ctx context.Context, workspace ws.Workspace, share boo
 		if current.State == sharing.StateActive && current.Workspace == workspace.Name() {
 			return ws.ReadyResult{SessionName: ws.ZellijSessionName(workspace.Name())}, nil
 		}
-		return ws.ReadyResult{}, fmt.Errorf("workspace %q already has a private session; restart it for sharing:\n  cc-deck ws kill-session %s\n  cc-deck ws start %s --share", workspace.Name(), workspace.Name(), workspace.Name())
+		return ws.ReadyResult{}, fmt.Errorf(
+			"workspace %q already has a private session; restart it for sharing:\n"+
+				"  cc-deck ws kill-session %s\n"+
+				"  cc-deck ws start %s --share%s",
+			workspace.Name(), workspace.Name(), workspace.Name(), endpointFlagSuffix(opts))
 	}
 	return run(ctx, workspace, ws.ReadyOptions{Share: share})
 }
@@ -84,6 +88,14 @@ func readyAndMaybeShare(ctx context.Context, gf *GlobalFlags, workspace ws.Works
 	}
 	if opts.endpoint != "" && opts.endpointName != "" {
 		return nil, ws.ReadyResult{}, fmt.Errorf("--endpoint and --endpoint-name cannot be used together")
+	}
+	// Resolve the requested endpoint first. An address that cannot work should
+	// be reported before the state of the workspace is brought into it,
+	// otherwise a malformed endpoint hides behind a complaint about the session
+	// and gets repeated back in the suggested command.
+	requested, endpointRequested, err := requestedEndpointURL(gf, opts)
+	if err != nil {
+		return nil, ws.ReadyResult{}, err
 	}
 	configChanged, configErr := sharing.EnsureZellijWebSharing("")
 	if configErr != nil {
@@ -110,16 +122,12 @@ func readyAndMaybeShare(ctx context.Context, gf *GlobalFlags, workspace ws.Works
 	// return success here without so much as resolving the address, which reads
 	// as though the new endpoint had been accepted.
 	if current.State == sharing.StateActive && current.Workspace == workspace.Name() {
-		requested, asked, resolveErr := requestedEndpointURL(gf, opts)
-		if resolveErr != nil {
-			return nil, ws.ReadyResult{}, resolveErr
-		}
-		if asked && requested != current.EndpointURL {
+		if endpointRequested && requested != current.EndpointURL {
 			return nil, ws.ReadyResult{}, endpointConflictError(workspace.Name(), current, requested)
 		}
 		printActiveShare(os.Stdout, current)
 	}
-	ready, err := ensureWorkspaceReady(ctx, workspace, share, current, ensureReady)
+	ready, err := ensureWorkspaceReady(ctx, workspace, share, current, opts, ensureReady)
 	if err != nil {
 		return nil, ready, err
 	}
@@ -241,6 +249,20 @@ func verifyEndpointBeforeMove(ctx context.Context, gf *GlobalFlags, opts shareOp
 			result.FailedAt, stageExplanation(result.FailedAt))
 	}
 	return nil
+}
+
+// endpointFlagSuffix repeats the endpoint selection back into a suggested
+// command, so that following the suggestion does not drop what was typed and
+// fail for a second, unrelated reason.
+func endpointFlagSuffix(opts shareOptions) string {
+	switch {
+	case opts.endpoint != "":
+		return " --endpoint " + opts.endpoint
+	case opts.endpointName != "":
+		return " --endpoint-name " + opts.endpointName
+	default:
+		return ""
+	}
 }
 
 // requestedEndpointURL resolves the endpoint asked for on this command line,

@@ -135,3 +135,20 @@ func TestResolveCarriesTheConfiguredNameOnTheReference(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, EndpointRef{Name: "work", BaseURL: "https://work.example"}, ref)
 }
+
+// The invitation builder appends the session name to the endpoint, so an
+// endpoint that already carries a path yields an address naming the session
+// twice. That fails for the guest and nowhere else, so it is rejected here.
+func TestValidateEndpointURLRejectsAPath(t *testing.T) {
+	err := validateEndpointURL("https://example.trycloudflare.com/cc-deck-second")
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "must not include a path")
+	require.Contains(t, err.Error(), "Use: https://example.trycloudflare.com",
+		"the error shows the address that would have worked")
+}
+
+func TestValidateEndpointURLAcceptsARootPath(t *testing.T) {
+	require.NoError(t, validateEndpointURL("https://example.trycloudflare.com"))
+	require.NoError(t, validateEndpointURL("https://example.trycloudflare.com/"))
+}
