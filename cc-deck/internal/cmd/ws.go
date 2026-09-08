@@ -154,8 +154,12 @@ func newWsNewCmd(gf *GlobalFlags) *cobra.Command {
 	var cf newFlags
 
 	cmd := &cobra.Command{
-		Use:   "new [name]",
-		Short: "Create a new workspace",
+		Use: "new [name]",
+		// "create" is the word most people reach for first, and without the
+		// alias it fails as an unknown flag rather than an unknown command,
+		// because flag parsing runs before the subcommand is resolved.
+		Aliases: []string{"create"},
+		Short:   "Create a new workspace",
 		Long: `Provision a new workspace for Claude Code sessions. Pick a --type to
 control where the workspace runs: locally in Zellij, inside a
 container, or as a multi-container compose stack.
