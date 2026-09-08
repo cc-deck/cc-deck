@@ -5,7 +5,9 @@ import (
 	"errors"
 	"os/exec"
 	"reflect"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -213,4 +215,60 @@ func TestNewWorkspace_K8sDeploy(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, WorkspaceTypeK8sDeploy, e.Type())
 	assert.Equal(t, "test", e.Name())
+}
+
+// A wedged Zellij server used to hang a cc-deck command indefinitely, which
+// reports nothing at all. It must fail instead, and say what to do about it.
+func TestRunBoundedZellijFailsRatherThanHanging(t *testing.T) {
+	start := time.Now()
+	_, err := runBoundedZellij(context.Background(), 150*time.Millisecond, "sleep", "30")
+	elapsed := time.Since(start)
+
+	if !errors.Is(err, ErrZellijUnresponsive) {
+		t.Fatalf("expected ErrZellijUnresponsive, got %v", err)
+	}
+	if elapsed > 5*time.Second {
+		t.Errorf("took %s; the bound was not applied", elapsed)
+	}
+	if !strings.Contains(err.Error(), "delete-session --force") {
+		t.Errorf("the error must name the recovery, got %q", err)
+	}
+}
+
+// A caller that has already set its own deadline keeps it.
+func TestRunBoundedZellijKeepsACallerDeadline(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	_, err := runBoundedZellij(ctx, time.Hour, "sleep", "30")
+
+	if !errors.Is(err, ErrZellijUnresponsive) {
+		t.Fatalf("expected ErrZellijUnresponsive, got %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Errorf("took %s; the caller's shorter deadline was ignored", elapsed)
+	}
+}
+
+// An ordinary command failure is not a hang, and must not be dressed up as one.
+func TestRunBoundedZellijPassesThroughRealErrors(t *testing.T) {
+	_, err := runBoundedZellij(context.Background(), 10*time.Second, "false")
+
+	if err == nil {
+		t.Fatal("expected the command's own failure")
+	}
+	if errors.Is(err, ErrZellijUnresponsive) {
+		t.Errorf("a non-timeout failure must not be reported as unresponsive: %v", err)
+	}
+}
+
+func TestRunBoundedZellijSucceedsNormally(t *testing.T) {
+	out, err := runBoundedZellij(context.Background(), 10*time.Second, "echo", "ok")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(string(out), "ok") {
+		t.Errorf("got %q", out)
+	}
 }

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -45,7 +46,45 @@ type localSessionCommandRunner interface {
 type osLocalSessionCommandRunner struct{}
 
 func (osLocalSessionCommandRunner) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
-	return exec.CommandContext(ctx, name, args...).CombinedOutput()
+	return runBoundedZellij(ctx, zellijSessionCreateTimeout, name, args...)
+}
+
+// runBoundedZellij runs a command that talks to a Zellij server, never waiting
+// on it indefinitely.
+//
+// A Zellij server can stop accepting new client connections while its session
+// carries on running. Every call made to it then blocks forever, and a command
+// that blocks forever reports nothing at all, which is the worst answer a CLI
+// can give. The bound is applied only when the caller has not set a deadline of
+// its own, so a caller with a shorter one keeps it.
+func runBoundedZellij(ctx context.Context, bound time.Duration, name string, args ...string) ([]byte, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, bound)
+		defer cancel()
+	}
+	out, err := exec.CommandContext(ctx, name, args...).CombinedOutput()
+	if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return out, unresponsiveZellijError(name, args, bound)
+	}
+	return out, err
+}
+
+// unresponsiveZellijError names the condition and the way out of it.
+//
+// "context deadline exceeded" tells a reader nothing they can act on, and the
+// recovery here is not guessable: the session looks alive in every listing, so
+// the server process has to be killed by hand before the session can be
+// deleted.
+func unresponsiveZellijError(name string, args []string, bound time.Duration) error {
+	return fmt.Errorf("%s %s: %w after %s\n"+
+		"  The session may still be running while its server refuses new clients.\n"+
+		"  Find it with:  ps ax | grep 'zellij --server'\n"+
+		"  Then:          kill PID && zellij delete-session --force SESSION",
+		name, strings.Join(args, " "), ErrZellijUnresponsive, bound)
 }
 
 func (e *LocalWorkspace) runner() localSessionCommandRunner {
@@ -253,9 +292,9 @@ func (e *LocalWorkspace) KillSession(_ context.Context) error {
 		return nil
 	}
 
-	cmd := exec.Command("zellij", "delete-session", "--force", sessionName)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("killing session: %s\n%s", err, string(out))
+	if out, err := runBoundedZellij(context.Background(), zellijCLITimeout,
+		"zellij", "delete-session", "--force", sessionName); err != nil {
+		return fmt.Errorf("killing session: %w\n%s", err, string(out))
 	}
 
 	if inst, findErr := e.store.FindInstanceByName(e.name); findErr == nil {
@@ -279,9 +318,9 @@ func DeleteZellijSession(sessionName string, force bool) error {
 	if force {
 		args = []string{"delete-session", "--force", sessionName}
 	}
-	cmd := exec.Command("zellij", args...)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("deleting session: %s\n%s", err, string(out))
+	if out, err := runBoundedZellij(context.Background(), zellijCLITimeout,
+		"zellij", args...); err != nil {
+		return fmt.Errorf("deleting session: %w\n%s", err, string(out))
 	}
 
 	return nil
@@ -361,7 +400,18 @@ func ZellijSessionName(name string) string {
 // zellijCLITimeout bounds direct "zellij" invocations from this package. A
 // wedged session server accepts the connection but never answers, and without
 // a bound every cc-deck command that inspects sessions would hang forever.
+// zellijCLITimeout bounds a question about session state, which a healthy
+// server answers immediately.
 const zellijCLITimeout = 10 * time.Second
+
+// zellijSessionCreateTimeout bounds creating or attaching a session, which does
+// real work: it reads a layout, loads plugins, and spawns a shell.
+const zellijSessionCreateTimeout = 30 * time.Second
+
+// ErrZellijUnresponsive marks a call that never got an answer, as opposed to
+// one that established a fact. It mirrors the sentinel the sharing package
+// already carries, for the same reason: silence is not evidence.
+var ErrZellijUnresponsive = errors.New("zellij is not responding")
 
 // runZellijListSessions runs "zellij list-sessions -n" under a timeout.
 func runZellijListSessions() ([]byte, error) {
