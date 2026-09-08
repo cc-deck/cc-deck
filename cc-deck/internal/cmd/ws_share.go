@@ -323,18 +323,23 @@ func degradedSharingError(probe *sharing.ProbeResult, residuals []string) error 
 
 // stageExplanation says what a failing layer means in terms of what the user
 // can change, because naming the layer alone does not tell anyone what to fix.
+// stageExplanation says what a failing layer means.
+//
+// Each explanation is pre-wrapped with the two-space continuation indent its
+// callers use, because a single unbroken sentence of nearly two hundred
+// characters is unreadable in the terminal where it lands.
 func stageExplanation(stage sharing.ProbeStage) string {
 	switch stage {
 	case sharing.StageDNS:
-		return "The address does not resolve from this machine. Check the name, and check whether a local DNS filter is answering for it."
+		return "The address does not resolve from this machine. Check the name, and check\n  whether a local DNS filter is answering for it."
 	case sharing.StageTLS:
-		return "The TLS handshake failed. Check the certificate the endpoint presents, including its name and its chain."
+		return "The TLS handshake failed. Check the certificate the endpoint presents,\n  including its name and its chain."
 	case sharing.StageHTTP:
-		return "The address did not serve the Zellij web client. It may not be answering at all, or the proxy may point somewhere other than the Zellij web server, or it may be rewriting paths."
+		return "The address did not serve the Zellij web client.\n  It may be down, the proxy may point elsewhere, or it may be rewriting paths."
 	case sharing.StageAuth:
-		return "Login did not return a session cookie. A proxy that drops POST bodies or strips Set-Cookie produces exactly this."
+		return "Login did not return a session cookie. A proxy that drops POST bodies\n  or strips Set-Cookie produces exactly this."
 	case sharing.StageWebSocket:
-		return "A proxy that forwards HTTP but drops the Upgrade and Connection headers produces a page that loads and a terminal that never fills."
+		return "A proxy that forwards HTTP but drops the Upgrade and Connection headers\n  produces a page that loads and a terminal that never fills."
 	default:
 		return "The endpoint could not be verified."
 	}
