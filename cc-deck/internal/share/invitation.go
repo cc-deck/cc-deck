@@ -36,6 +36,7 @@ func BuildInvitation(endpoint, session, label, token string, role InvitationRole
 	}
 	return Invitation{
 		Label: label, Role: role,
+		URL: remote, Token: token,
 		Browser: browserInvitation(remote, token), Terminal: terminalInvitation(remote, token),
 		Warnings: warnings,
 	}, nil

@@ -180,6 +180,22 @@ Follow the printed `kill-session` and restart instructions when that explicit tr
 `--endpoint` and `--endpoint-name` apply to one command and never change your configuration.
 They cannot be combined.
 
+== What the invitations look like
+
+Every invitation for a share addresses the same session URL, so the address is printed once and the tokens are listed beneath it.
+
+[source]
+----
+https://dev.example.com/cc-deck-demo
+  interactive lively-otter   70a06a36-0e63-46c6-a8f3-f82519c35712
+  observer    brave-wolf     f1e3d3c2-b72e-4690-ba98-482dec3625af
+
+Interactive access gives control of the complete terminal session.
+Run with --verbose for terminal attachment commands.
+----
+
+Add `--verbose` for the long form, which repeats the address for each role and includes the experimental `zellij attach` command together with the warning about its use of `--insecure`.
+
 == Repeating the command, and moving a share
 
 Running `ws start --share` again on a workspace that is already shared reports what the live share is and changes nothing.

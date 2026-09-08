@@ -151,7 +151,11 @@ type InvitationSet struct {
 }
 
 type Invitation struct {
-	Label    string
+	Label string
+	// URL and Token are the same facts the Browser line spells out, kept apart
+	// so a caller can lay them out without parsing a sentence.
+	URL      string
+	Token    string
 	Browser  string
 	Terminal string
 	Role     InvitationRole

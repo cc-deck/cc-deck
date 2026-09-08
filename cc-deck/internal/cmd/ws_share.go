@@ -195,14 +195,23 @@ func runWsRetargetShare(ctx context.Context, gf *GlobalFlags, name string, opts 
 			current.EndpointURL, requested, explainShareFailure(err), name, requested)
 	}
 
-	fmt.Fprintf(os.Stdout, "Moved the share for %q from %s to %s\n", name, current.EndpointURL, requested)
-	for _, previous := range current.Invitations {
-		fmt.Fprintf(os.Stdout, "  invitation %q no longer works\n", previous.Label)
+	fmt.Fprintf(os.Stdout, "Moved the share for %q to %s\n", name, requested)
+	if revoked := invitationLabels(current.Invitations); revoked != "" {
+		fmt.Fprintf(os.Stdout, "  revoked: %s\n", revoked)
 	}
 	if cmd != nil {
 		printInvitations(cmd, invitations)
 	}
 	return nil
+}
+
+// invitationLabels joins the labels of invitations that a move leaves behind.
+func invitationLabels(records []sharing.InvitationRecord) string {
+	labels := make([]string, 0, len(records))
+	for _, record := range records {
+		labels = append(labels, record.Label)
+	}
+	return strings.Join(labels, ", ")
 }
 
 // verifyEndpointBeforeMove runs the same five-layer gate the share path runs,
@@ -345,13 +354,84 @@ func stageExplanation(stage sharing.ProbeStage) string {
 	}
 }
 
+// printInvitations lays out what a person needs to hand a link to someone.
+//
+// Every invitation for a share addresses the same session URL, so printing it
+// once and listing the tokens beneath it is both shorter and easier to read
+// than repeating the address, the warnings, and an attachment command for each
+// role. The full form is still one --verbose away.
 func printInvitations(cmd *cobra.Command, invitations []sharing.Invitation) {
+	if len(invitations) == 0 {
+		return
+	}
+	out := cmd.OutOrStdout()
+	if verboseRequested(cmd) {
+		printInvitationsVerbose(out, invitations)
+		return
+	}
+
+	if url, uniform := sharedInvitationURL(invitations); uniform {
+		fmt.Fprintln(out, url)
+		for _, invitation := range invitations {
+			fmt.Fprintf(out, "  %-11s %-14s %s\n", invitation.Role, invitation.Label, invitation.Token)
+		}
+	} else {
+		for _, invitation := range invitations {
+			fmt.Fprintf(out, "%-11s %-14s %s\n", invitation.Role, invitation.Label, invitation.URL)
+			fmt.Fprintf(out, "  token %s\n", invitation.Token)
+		}
+	}
+
+	if hasInteractive(invitations) {
+		fmt.Fprintln(out, "\nInteractive access gives control of the complete terminal session.")
+	}
+	fmt.Fprintln(out, "Run with --verbose for terminal attachment commands.")
+}
+
+// printInvitationsVerbose keeps the long form: every warning, the browser
+// invitation, and the experimental terminal command.
+func printInvitationsVerbose(out io.Writer, invitations []sharing.Invitation) {
 	for _, invitation := range invitations {
 		for _, warning := range invitation.Warnings {
-			fmt.Fprintln(cmd.OutOrStdout(), warning)
+			fmt.Fprintln(out, warning)
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "%s invitation %q:\nBrowser:\n%s\nTerminal (experimental):\n%s\n", invitation.Role, invitation.Label, invitation.Browser, invitation.Terminal)
+		fmt.Fprintf(out, "%s invitation %q:\nBrowser:\n%s\nTerminal (experimental):\n%s\n",
+			invitation.Role, invitation.Label, invitation.Browser, invitation.Terminal)
 	}
+}
+
+// sharedInvitationURL reports the one address every invitation uses, when they
+// agree. They always do for a single share, but nothing here depends on that.
+func sharedInvitationURL(invitations []sharing.Invitation) (string, bool) {
+	url := invitations[0].URL
+	if url == "" {
+		return "", false
+	}
+	for _, invitation := range invitations[1:] {
+		if invitation.URL != url {
+			return "", false
+		}
+	}
+	return url, true
+}
+
+func hasInteractive(invitations []sharing.Invitation) bool {
+	for _, invitation := range invitations {
+		if invitation.Role == sharing.RoleInteractive {
+			return true
+		}
+	}
+	return false
+}
+
+// verboseRequested reads the global --verbose flag, tolerating a command that
+// was built without it.
+func verboseRequested(cmd *cobra.Command) bool {
+	if cmd == nil {
+		return false
+	}
+	verbose, err := cmd.Flags().GetBool("verbose")
+	return err == nil && verbose
 }
 
 // addEndpointFlags attaches the per-command endpoint selection shared by
