@@ -515,3 +515,111 @@ func TestSharingStateHasExactlyTwoValuesForASharedWorkspace(t *testing.T) {
 		})
 	}
 }
+
+// tempSharingConfig writes a minimal config so endpoint resolution in tests
+// never reads the developer's real configuration.
+func tempSharingConfig(t *testing.T, body string) *GlobalFlags {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(body), 0o600))
+	return &GlobalFlags{ConfigFile: path}
+}
+
+func activeShare(workspace, endpoint string) sharing.SharingStatus {
+	return sharing.SharingStatus{
+		State:       sharing.StateActive,
+		Workspace:   workspace,
+		Session:     ws.ZellijSessionName(workspace),
+		EndpointURL: endpoint,
+		Invitations: []sharing.InvitationRecord{
+			{Label: "proud-panda", Role: sharing.RoleInteractive, State: sharing.InvitationActive},
+		},
+		LastProbe: &sharing.ProbeResult{OK: true, CheckedAt: time.Now()},
+	}
+}
+
+// An endpoint flag that cannot be applied must be refused rather than ignored.
+// Reporting success while the share still runs through the previous endpoint is
+// what made this look like it had worked.
+func TestStartRefusesAnEndpointThatConflictsWithTheLiveShare(t *testing.T) {
+	useEnabledZellijConfig(t)
+	installEnsureReady(t, ws.ReadyResult{SessionName: "cc-deck-scratch"})
+	installShareService(t, &recordingShareService{status: activeShare("scratch", "http://127.0.0.1:8082")})
+
+	workspace := &stubWorkspace{name: "scratch", sessionState: ws.SessionStateExists}
+	_, _, err := readyAndMaybeShare(context.Background(), tempSharingConfig(t, "{}\n"), workspace, true,
+		shareOptions{endpoint: "https://other.example.com"})
+
+	require.Error(t, err, "a conflicting endpoint must not be silently dropped")
+	message := err.Error()
+	require.Contains(t, message, "already shared through http://127.0.0.1:8082")
+	require.Contains(t, message, "https://other.example.com was not applied")
+	require.Contains(t, message, "cc-deck ws update scratch --endpoint https://other.example.com",
+		"the error names the command that does apply it")
+}
+
+// Repeating the same request is not a conflict, so it stays a success.
+func TestStartWithTheSameEndpointStaysIdempotent(t *testing.T) {
+	useEnabledZellijConfig(t)
+	installEnsureReady(t, ws.ReadyResult{SessionName: "cc-deck-scratch"})
+	installShareService(t, &recordingShareService{status: activeShare("scratch", "http://127.0.0.1:8082")})
+
+	workspace := &stubWorkspace{name: "scratch", sessionState: ws.SessionStateExists}
+	output := captureStdout(t, func() error {
+		_, _, err := readyAndMaybeShare(context.Background(), tempSharingConfig(t, "{}\n"), workspace, true,
+			shareOptions{endpoint: "http://127.0.0.1:8082"})
+		return err
+	})
+
+	require.Contains(t, output, `already shared through http://127.0.0.1:8082`)
+	require.Contains(t, output, `invitation "proud-panda"`,
+		"a repeat says what the live share is instead of nothing")
+	require.Contains(t, output, "Login tokens are not stored",
+		"tokens are never persisted, so the reason they cannot be reprinted is stated")
+}
+
+// Passing no endpoint at all must not be treated as a conflict, even when the
+// configured default has drifted since the share started.
+func TestStartWithoutAnEndpointFlagIsNeverAConflict(t *testing.T) {
+	useEnabledZellijConfig(t)
+	installEnsureReady(t, ws.ReadyResult{SessionName: "cc-deck-scratch"})
+	installShareService(t, &recordingShareService{status: activeShare("scratch", "http://127.0.0.1:8082")})
+
+	workspace := &stubWorkspace{name: "scratch", sessionState: ws.SessionStateExists}
+	_, _, err := readyAndMaybeShare(context.Background(),
+		tempSharingConfig(t, "sharing:\n  endpoint: https://drifted.example.com\n"),
+		workspace, true, shareOptions{})
+
+	require.NoError(t, err, "a drifted config default is not a conflict the user raised here")
+}
+
+func TestRetargetRefusesWhenTheWorkspaceIsNotShared(t *testing.T) {
+	installShareService(t, &recordingShareService{status: sharing.SharingStatus{State: sharing.StateInactive}})
+
+	err := runWsRetargetShare(context.Background(), tempSharingConfig(t, "{}\n"), "scratch",
+		shareOptions{endpoint: "https://other.example.com"}, nil)
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "is not shared, so there is no endpoint to move")
+}
+
+func TestRetargetIsANoOpWhenTheEndpointAlreadyMatches(t *testing.T) {
+	recorder := &recordingShareService{status: activeShare("scratch", "http://127.0.0.1:8082")}
+	installShareService(t, recorder)
+
+	output := captureStdout(t, func() error {
+		return runWsRetargetShare(context.Background(), tempSharingConfig(t, "{}\n"), "scratch",
+			shareOptions{endpoint: "http://127.0.0.1:8082"}, nil)
+	})
+
+	require.Contains(t, output, "nothing to move")
+	require.Empty(t, recorder.stopWorkspace, "an unchanged endpoint must not tear the share down")
+}
+
+func TestRetargetRejectsBothEndpointFlagsTogether(t *testing.T) {
+	err := runWsRetargetShare(context.Background(), tempSharingConfig(t, "{}\n"), "scratch",
+		shareOptions{endpoint: "https://a.example.com", endpointName: "home"}, nil)
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "cannot be used together")
+}

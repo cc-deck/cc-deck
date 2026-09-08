@@ -837,19 +837,29 @@ func runWsAttachWithShare(gf *GlobalFlags, name string, share bool, cmd *cobra.C
 
 // --- update ---
 
-func newWsUpdateCmd(_ *GlobalFlags) *cobra.Command {
+func newWsUpdateCmd(gf *GlobalFlags) *cobra.Command {
 	var syncRepos bool
+	var opts shareOptions
 
 	cmd := &cobra.Command{
 		Use:   "update [name]",
-		Short: "Update workspace settings or sync repos",
+		Short: "Update workspace settings, move a share, or sync repos",
 		Long: `Update an existing workspace or sync repos from the workspace definition.
 
 When --sync-repos is set, reads repos from the workspace definition in the central store
 and clones any that don't exist on the remote. Already-cloned repos
-are skipped (idempotent).`,
+are skipped (idempotent).
+
+When --endpoint or --endpoint-name is set, moves an active share to that endpoint.
+The new endpoint is verified before anything is torn down, so an address that does
+not work leaves the current share exactly as it was. Invitations cannot survive the
+move: each one carries a login token that is never stored, so new invitations are
+issued and every link already handed out stops working.`,
 		Example: `  # Sync repos from workspace definition to the remote
   cc-deck ws update marovo --sync-repos
+
+  # Move an active share to a different endpoint
+  cc-deck ws update demo --endpoint https://other.example.com
 
   # Auto-resolve workspace name from project config
   cc-deck ws update --sync-repos`,
@@ -860,11 +870,16 @@ are skipped (idempotent).`,
 			if err != nil {
 				return err
 			}
+			if opts.endpoint != "" || opts.endpointName != "" {
+				return runWsRetargetShare(cmd_context(), gf, name, opts, cmd)
+			}
 			return runWsUpdate(name, syncRepos)
 		},
 	}
 
 	cmd.Flags().BoolVar(&syncRepos, "sync-repos", false, "Clone missing repos from workspace definition")
+	cmd.Flags().StringVar(&opts.endpoint, "endpoint", "", "Move the active share to this endpoint address")
+	cmd.Flags().StringVar(&opts.endpointName, "endpoint-name", "", "Move the active share to this configured endpoint")
 
 	return cmd
 }

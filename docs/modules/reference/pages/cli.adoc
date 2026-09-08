@@ -82,6 +82,9 @@ cc-deck ws unshare demo
 
 `ws new` is ready and private by default; `--no-start` leaves it stopped and cannot be combined with `--share`. The `--share` flag creates a missing canonical session with web sharing enabled but never replaces a running private session.
 
+An endpoint flag that names a different address than the live share is refused rather than ignored.
+Use `ws update NAME --endpoint URL` to move an active share, which is described under that command.
+
 === Endpoint selection flags
 
 These flags apply to `ws start --share` and `ws invite`.
@@ -923,12 +926,13 @@ If no policy file is found in the image, the command fails with a message sugges
 
 ==== ws update
 
-Update workspace settings.
+Update workspace settings, or move an active share to a different endpoint.
 
 [source,bash]
 ----
 cc-deck ws update mydev --auth-mode vertex
 cc-deck ws update --sync-repos
+cc-deck ws update demo --endpoint https://other.example.com
 ----
 
 .Flags
@@ -940,7 +944,18 @@ Validates that required credentials are available before persisting the change.
 
 | `--sync-repos`
 | Clone missing repos from the workspace definition to the remote.
+
+| `--endpoint URL`
+| Move the active share to this address.
+The new endpoint is verified first, so an address that does not work leaves the current share exactly as it was.
+
+| `--endpoint-name NAME`
+| Move the active share to a configured endpoint selected by name.
+Cannot be combined with `--endpoint`.
 |===
+
+Moving a share issues new invitations, and every link already distributed stops working.
+An invitation pairs the endpoint with a login token, and the token is never stored, so there is no way to carry one across to a different address.
 
 ==== ws attach
 

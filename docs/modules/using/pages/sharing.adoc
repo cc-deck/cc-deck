@@ -180,6 +180,35 @@ Follow the printed `kill-session` and restart instructions when that explicit tr
 `--endpoint` and `--endpoint-name` apply to one command and never change your configuration.
 They cannot be combined.
 
+== Repeating the command, and moving a share
+
+Running `ws start --share` again on a workspace that is already shared reports what the live share is and changes nothing.
+It cannot reprint the invitations, because a login token is never written to disk.
+Run `cc-deck ws invite NAME` when you need another link.
+
+Passing an endpoint that differs from the live share is refused rather than applied.
+
+[source]
+----
+Error: workspace "demo" is already shared through http://127.0.0.1:8082, so https://other.example.com was not applied
+  An invitation carries the endpoint and a login token together, and the token is
+  never stored, so moving a share to another endpoint has to issue new invitations.
+  Every link already handed out stops working, which is why this is not silent.
+  To move it:      cc-deck ws update demo --endpoint https://other.example.com
+  To stop sharing: cc-deck ws unshare demo
+----
+
+The move is a separate command because it is not free.
+
+[source,bash]
+----
+cc-deck ws update demo --endpoint https://other.example.com
+----
+
+`ws update` verifies the new endpoint through the same five layers before anything is torn down.
+An address that fails leaves the current share exactly as it was.
+Once the new endpoint passes, the old invitations are revoked and new ones are printed, and the output names each label that stopped working.
+
 == How verification works
 
 Before any invitation is printed, cc-deck checks the endpoint in five layers and stops at the first failure.

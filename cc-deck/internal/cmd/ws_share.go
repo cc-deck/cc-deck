@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/cc-deck/cc-deck/internal/config"
 	sharing "github.com/cc-deck/cc-deck/internal/share"
@@ -100,6 +102,22 @@ func readyAndMaybeShare(ctx context.Context, gf *GlobalFlags, workspace ws.Works
 	// Start runs the verification gate itself, so probing twice would only
 	// double the cost of every share.
 	current, _ := service.Snapshot(ctx)
+
+	// A live share cannot be re-pointed in place. An invitation embeds both the
+	// endpoint and a login token, and the token is never stored, so a different
+	// endpoint means new credentials and dead links. Start would otherwise
+	// return success here without so much as resolving the address, which reads
+	// as though the new endpoint had been accepted.
+	if current.State == sharing.StateActive && current.Workspace == workspace.Name() {
+		requested, asked, resolveErr := requestedEndpointURL(gf, opts)
+		if resolveErr != nil {
+			return nil, ws.ReadyResult{}, resolveErr
+		}
+		if asked && requested != current.EndpointURL {
+			return nil, ws.ReadyResult{}, endpointConflictError(workspace.Name(), current, requested)
+		}
+		printActiveShare(os.Stdout, current)
+	}
 	ready, err := ensureWorkspaceReady(ctx, workspace, share, current, ensureReady)
 	if err != nil {
 		return nil, ready, err
@@ -116,6 +134,166 @@ func readyAndMaybeShare(ctx context.Context, gf *GlobalFlags, workspace ws.Works
 		err = explainShareFailure(err)
 	}
 	return invitations, ready, err
+}
+
+// runWsRetargetShare moves an active share to a different endpoint.
+//
+// The order matters. The new endpoint is verified first, so an address that
+// does not work leaves the working share untouched rather than trading a
+// functioning share for a broken one. Only once it has passed is the old share
+// torn down and a new one issued.
+//
+// Invitations cannot be carried across. Each one pairs the endpoint with a
+// login token, and the token is never stored, so the move necessarily mints new
+// credentials and every link already distributed stops working.
+func runWsRetargetShare(ctx context.Context, gf *GlobalFlags, name string, opts shareOptions, cmd *cobra.Command) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if opts.endpoint != "" && opts.endpointName != "" {
+		return fmt.Errorf("--endpoint and --endpoint-name cannot be used together")
+	}
+
+	service, err := makeWorkspaceShareService(gf, opts)
+	if err != nil {
+		return err
+	}
+	current, err := service.Snapshot(ctx)
+	if err != nil {
+		return err
+	}
+	if current.State != sharing.StateActive || current.Workspace != name {
+		return fmt.Errorf("workspace %q is not shared, so there is no endpoint to move\n"+
+			"  Share it first: cc-deck ws start %s --share --endpoint ADDRESS", name, name)
+	}
+
+	requested, _, err := requestedEndpointURL(gf, opts)
+	if err != nil {
+		return err
+	}
+	if requested == current.EndpointURL {
+		fmt.Fprintf(os.Stdout, "Workspace %q is already shared through %s; nothing to move\n", name, requested)
+		return nil
+	}
+
+	if err = verifyEndpointBeforeMove(ctx, gf, opts, current.Session); err != nil {
+		return err
+	}
+
+	if _, err = service.Stop(ctx, name); err != nil {
+		return fmt.Errorf("could not stop the current share, so nothing was moved: %w", err)
+	}
+	invitations, err := service.Start(ctx, sharing.StartRequest{
+		Workspace: name,
+		Session:   current.Session,
+		NoVerify:  opts.noVerify,
+	})
+	if err != nil {
+		return fmt.Errorf("the share through %s was stopped, but the move to %s failed: %w\n"+
+			"  The workspace is still running and is no longer shared.\n"+
+			"  Retry with: cc-deck ws start %s --share --endpoint %s",
+			current.EndpointURL, requested, explainShareFailure(err), name, requested)
+	}
+
+	fmt.Fprintf(os.Stdout, "Moved the share for %q from %s to %s\n", name, current.EndpointURL, requested)
+	for _, previous := range current.Invitations {
+		fmt.Fprintf(os.Stdout, "  invitation %q no longer works\n", previous.Label)
+	}
+	if cmd != nil {
+		printInvitations(cmd, invitations)
+	}
+	return nil
+}
+
+// verifyEndpointBeforeMove runs the same five-layer gate the share path runs,
+// against the endpoint being moved to, before anything is torn down.
+func verifyEndpointBeforeMove(ctx context.Context, gf *GlobalFlags, opts shareOptions, session string) error {
+	cfg, err := loadSharingConfig(gf)
+	if err != nil {
+		return err
+	}
+	endpoint := sharing.NewStaticEndpoint(cfg.Sharing, opts.endpoint, opts.endpointName, sharing.NewZellij(osCommandRunner{}))
+	ref, err := endpoint.Resolve(ctx)
+	if err != nil {
+		return err
+	}
+	if opts.noVerify {
+		return nil
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, cfg.VerifyTimeout())
+	defer cancel()
+	result, err := endpoint.Probe(probeCtx, ref, session)
+	if err != nil {
+		return explainShareFailure(err)
+	}
+	if !result.OK {
+		return fmt.Errorf("endpoint verification failed at the %s stage, so nothing was moved\n  %s",
+			result.FailedAt, stageExplanation(result.FailedAt))
+	}
+	return nil
+}
+
+// requestedEndpointURL resolves the endpoint asked for on this command line,
+// and reports whether one was asked for at all.
+//
+// Only an explicit request is ever compared against a live share. A configured
+// default that drifted after the share started is not a conflict the user
+// raised here, and treating it as one would turn a harmless repeat of
+// `ws start --share` into an error.
+func requestedEndpointURL(gf *GlobalFlags, opts shareOptions) (string, bool, error) {
+	if opts.endpoint == "" && opts.endpointName == "" {
+		return "", false, nil
+	}
+	cfg, err := loadSharingConfig(gf)
+	if err != nil {
+		return "", false, err
+	}
+	// Resolve performs no network access, and reads no Zellij state, so the
+	// resolver needs no Zellij handle.
+	ref, err := sharing.NewStaticEndpoint(cfg.Sharing, opts.endpoint, opts.endpointName, nil).Resolve(context.Background())
+	if err != nil {
+		return "", false, err
+	}
+	return ref.BaseURL, true, nil
+}
+
+// endpointConflictError explains why an endpoint flag was refused rather than
+// applied, and names the command that does apply it.
+func endpointConflictError(name string, current sharing.SharingStatus, requested string) error {
+	return fmt.Errorf(
+		"workspace %q is already shared through %s, so %s was not applied\n"+
+			"  An invitation carries the endpoint and a login token together, and the token is\n"+
+			"  never stored, so moving a share to another endpoint has to issue new invitations.\n"+
+			"  Every link already handed out stops working, which is why this is not silent.\n"+
+			"  To move it:      cc-deck ws update %s --endpoint %s\n"+
+			"  To stop sharing: cc-deck ws unshare %s",
+		name, current.EndpointURL, requested, name, requested, name)
+}
+
+// printActiveShare reports what a repeated share found, so that the command
+// says something rather than nothing.
+//
+// Login tokens are deliberately absent from stored state, so the invitations
+// themselves cannot be reprinted. Labels and roles are what remain useful.
+func printActiveShare(w io.Writer, status sharing.SharingStatus) {
+	fmt.Fprintf(w, "Workspace %q is already shared through %s%s\n",
+		status.Workspace, status.EndpointURL, verificationSuffix(status.LastProbe))
+	for _, invitation := range status.Invitations {
+		fmt.Fprintf(w, "  invitation %q (%s, %s)\n", invitation.Label, invitation.Role, invitation.State)
+	}
+	fmt.Fprintf(w, "  Login tokens are not stored. Run \"cc-deck ws invite %s\" for a new link.\n", status.Workspace)
+}
+
+// verificationSuffix renders the stored probe result, never a fresh check.
+func verificationSuffix(probe *sharing.ProbeResult) string {
+	if probe == nil || probe.CheckedAt.IsZero() {
+		return ""
+	}
+	age := formatDuration(time.Since(probe.CheckedAt)) + " ago"
+	if probe.OK {
+		return fmt.Sprintf(" (verified %s)", age)
+	}
+	return fmt.Sprintf(" (verification failed at %s, %s)", probe.FailedAt, age)
 }
 
 // explainShareFailure turns a verification failure into the message shape the
