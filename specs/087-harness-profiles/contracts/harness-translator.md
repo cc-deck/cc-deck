@@ -12,7 +12,7 @@ Every adapter (`claude`, `codex`, `opencode`) MUST implement:
 | `InstallHooksAt(configDir string) error` | Installs or updates the cc-deck hooks for this harness rooted at `configDir` instead of the default directory. MUST be idempotent. MUST preserve foreign hooks in the same file. MUST NOT touch the default directory. When `configDir` equals the default directory it MUST behave exactly like `InstallHooks()`. If the target file is a symlink to the default directory's file (shared entry), it MUST write through the symlink and MUST NOT replace the link with a regular file. |
 | `ResumeArgs(sessionID string) []string` | Arguments that resume the given session for this harness: `claude` returns `["--resume", id]`, `codex` returns `["resume", id]`, `opencode` returns `["--session", id]`. An empty `sessionID` MUST return an empty slice. |
 
-`InstallHooks()` MUST remain equivalent to `InstallHooksAt(DetectConfigDefault())` so existing callers and tests are unaffected.
+`InstallHooks()` MUST remain equivalent to `InstallHooksAt(<default config dir>)`, where the default config dir is the directory `DetectConfig()` reports (or would report once created), so existing callers and tests are unaffected.
 
 ## 2. `profile.Translator` interface
 
