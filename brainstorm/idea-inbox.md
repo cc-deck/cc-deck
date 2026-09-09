@@ -54,11 +54,40 @@ Ideas captured from code reviews for future brainstorming.
 
 > The OCI extraction code in `internal/oci/` tries local podman first, then falls back to a remote registry. The remote fallback constructs a URL without a host when the image reference has no registry component, causing the `no Host in request URL` error.
 
-### multi-file-credential-support
+## ~~multi-file-credential-support~~ (resolved)
 
+- **Status**: Resolved 2026-09-09
+- **Resolution**: Harness profiles (087, PR #37) made `InjectSSH` and `InjectOpenShell` upload every entry of `FileCredentials` with per-file destinations (T041).
 - **Source**: deep-review
 - **Date**: 2026-07-08
 - **Reference**: 079-credential-transport
 - **Summary**: `MergeCredentials` collects multiple file credentials but `InjectSSH` only processes the first one. Current agents use at most one file credential, but multi-agent scenarios could surface this limitation.
 
 > Pre-existing design in the credential package. `FileCredentials` (plural) is collected during merge, but transport functions consume `FileCredential` (singular, `files[0]`). If a future agent declares multiple file credentials, only the first would be transported.
+
+### hook-profile-env-cache
+
+- **Source**: deep-review
+- **Date**: 2026-09-09
+- **Reference**: 087-harness-profiles (PR #37), `cc-deck/internal/cmd/hook.go`
+- **Summary**: `cc-deck hook` loads and parses `config.yaml` on every hook event when `CC_DECK_PROFILE` is set, only to resolve the profile color and icon. Hook events fire on every tool call, so this is disk I/O plus YAML parsing on the hot path. The wrapper already knows both values at generation time.
+
+> Two reviewers (architecture, production) suggested exporting `CC_DECK_PROFILE_COLOR` and `CC_DECK_PROFILE_ICON` from the generated wrapper and reading them in the hook, falling back to the config load only when they are absent. Zero cost per event, and the hook payload contract stays unchanged. Color edits would then take effect on the next `config profile sync` instead of the next hook event, which the guide should say.
+
+### pane-map-write-race
+
+- **Source**: deep-review
+- **Date**: 2026-09-09
+- **Reference**: pre-existing, surfaced during 087-harness-profiles review, `cc-deck/internal/cmd/hook.go` (`loadPaneMap`, `savePaneMap`)
+- **Summary**: The pane-map cache (`pane-map.json`) is read, pruned and rewritten on every hook event with no locking and a non-atomic `os.WriteFile`. Two concurrent hook processes (two sessions firing at once) can clobber each other's entries, and a reader can observe a partially written file.
+
+> The cache self-heals on the next event, so the impact is a brief pane-id miss and a dropped sidebar update. Fix options: write to a temp file in the same directory and `os.Rename` (removes partial reads), plus a lockfile or `flock` for full correctness. If the race is accepted as benign, document it in a comment.
+
+### openshell-policy-tempfile-cleanup
+
+- **Source**: deep-review
+- **Date**: 2026-09-09
+- **Reference**: pre-existing, surfaced during 087-harness-profiles review, `cc-deck/internal/ws/openshell.go` (`resolveSandboxConfig`, `Create`)
+- **Summary**: The temp policy file extracted from an OCI image (`cc-deck-policy-*.yaml`) is removed by a `defer` in `Create` that sits after other error checks. Any future early return between `resolveSandboxConfig` and that `defer`, or a new caller of `resolveSandboxConfig`, leaks the file.
+
+> Move the cleanup responsibility into `resolveSandboxConfig` (return bytes instead of a path, or register the removal immediately after creation) so the lifetime does not depend on the caller's control flow.
