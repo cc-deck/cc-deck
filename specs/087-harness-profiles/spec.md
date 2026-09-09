@@ -19,7 +19,7 @@ A developer often has more than one account for the same agent harness (for exam
 - Q: Should cc-deck transport an existing subscription (OAuth) login from the host to remote workspaces, or is a one-time in-workspace login per profile acceptable? → A: One-time in-workspace login per profile per workspace. cc-deck does not transport OAuth tokens.
 - Q: Does a per-profile harness config directory start empty, or does it share the user's existing non-auth configuration? → A: It shares non-auth configuration (settings, skills, commands, plugins, MCP config) with the default directory and isolates only login and credential state. The harness translator owns the per-harness list of what is shared and what is isolated.
 - Q: What are the semantics of the free-form `settings` map? → A: Renamed to `env`: a map of additional environment variables the wrapper exports before executing the harness.
-- Q: How do the wrappers become reachable on `PATH`? → A: They live in a cc-deck-managed bin directory that cc-deck adds to `PATH` through the shell rc snippet it already manages. `cc-deck profile sync` reports when a new shell is required.
+- Q: How do the wrappers become reachable on `PATH`? → A: They live in a cc-deck-managed bin directory that cc-deck adds to `PATH` through a managed shell rc block. `cc-deck config profile sync` reports when a new shell is required.
 - Q: How does a per-session profile influence the network access of an OpenShell workspace? → A: The workspace's provider list is the union of the endpoints required by all valid profiles whose harness is in the workspace's agent list, resolved at workspace creation. Adding a profile with a new auth backend requires re-creating the workspace.
 
 ## User Scenarios & Testing *(mandatory)*
@@ -100,19 +100,19 @@ The developer saves a snapshot of a workspace running `claude-work` in one tab a
 
 ### User Story 5 - Manage Profiles from the CLI (Priority: P3)
 
-The developer adds, lists, shows, and deletes profiles through `cc-deck profile ...` and triggers wrapper generation with a sync command. Existing profiles written for the Kubernetes deploy path keep working unchanged.
+The developer adds, lists, shows, and deletes profiles through `cc-deck config profile ...` and triggers wrapper generation with a sync command. Existing profiles written for the Kubernetes deploy path keep working unchanged.
 
 **Why this priority**: Editing YAML by hand is acceptable for early adopters; the CLI is convenience plus validation.
 
-**Independent Test**: Run `cc-deck profile add` for a Claude and a Codex profile, `cc-deck profile list`, `cc-deck profile show <name>`, `cc-deck profile delete <name>`, and `cc-deck profile sync`. Verify config changes and wrapper generation. Deploy a Kubernetes session with a pre-existing profile and verify it still works.
+**Independent Test**: Run `cc-deck config profile add` for a Claude and a Codex profile, `cc-deck config profile list`, `cc-deck config profile show <name>`, `cc-deck config profile delete <name>`, and `cc-deck config profile sync`. Verify config changes and wrapper generation. Deploy a Kubernetes session with a pre-existing profile and verify it still works.
 
 **Acceptance Scenarios**:
 
 1. **Given** a `config.yaml` written before this feature, **When** cc-deck loads it, **Then** every existing profile is treated as `harness: claude` and the Kubernetes deploy path uses it as before.
-2. **Given** the user runs `cc-deck profile add work`, **When** they answer the prompts (harness, auth source, model), **Then** a valid profile is written to `config.yaml`.
+2. **Given** the user runs `cc-deck config profile add work`, **When** they answer the prompts (harness, auth source, model), **Then** a valid profile is written to `config.yaml`.
 3. **Given** a profile with an unknown harness or an incomplete auth block, **When** cc-deck loads the config, **Then** it reports a validation error naming the profile and the field.
-4. **Given** the user runs `cc-deck profile sync`, **When** it completes, **Then** the local workspace bin directory contains exactly one wrapper per valid profile whose harness is installed, and stale wrappers for deleted profiles are removed.
-5. **Given** the user runs `cc-deck profile delete work`, **When** a session under `work` is running, **Then** the profile is removed from config, the wrapper is removed at the next sync, and the running session is unaffected.
+4. **Given** the user runs `cc-deck config profile sync`, **When** it completes, **Then** the local workspace bin directory contains exactly one wrapper per valid profile whose harness is installed, and stale wrappers for deleted profiles are removed.
+5. **Given** the user runs `cc-deck config profile delete work`, **When** a session under `work` is running, **Then** the profile is removed from config, the wrapper is removed at the next sync, and the running session is unaffected.
 
 ---
 
@@ -141,13 +141,13 @@ The developer adds, lists, shows, and deletes profiles through `cc-deck profile 
 
 **Wrapper generation**
 
-- **FR-006**: For every valid profile whose harness is installed in a target workspace, cc-deck MUST generate a wrapper command named `<harness-command>-<profile-name>` in a cc-deck-managed bin directory inside that workspace. cc-deck MUST add that directory to `PATH` through the shell rc snippet it already manages, and `cc-deck profile sync` MUST tell the user when a new shell is required for the change to take effect.
+- **FR-006**: For every valid profile whose harness is installed in a target workspace, cc-deck MUST generate a wrapper command named `<harness-command>-<profile-name>` in a cc-deck-managed bin directory inside that workspace. cc-deck MUST add that directory to `PATH` through a managed shell rc block (written at sync or provisioning time for local and SSH workspaces, and baked into images built by `cc-deck build` for container and OpenShell workspaces), and `cc-deck config profile sync` MUST tell the user when a new shell is required for the change to take effect.
 - **FR-007**: Each wrapper MUST export `CC_DECK_PROFILE=<profile-name>`, set the harness-specific environment for model and auth, point the harness at a per-profile config directory, and execute the real harness binary with all user-supplied arguments passed through unchanged.
 - **FR-008**: Wrappers MUST NOT contain credential values. Credential material MUST reach the workspace through the existing credential transport and be referenced by the wrapper (by environment variable name or file path).
 - **FR-009**: cc-deck MUST install or update its hooks in every per-profile harness config directory it creates, so sessions launched through a wrapper report to the sidebar exactly like unprofiled sessions.
 - **FR-009a**: A per-profile harness config directory MUST share the user's non-auth configuration (settings, skills, commands, plugins, MCP configuration) with the harness's default config directory, and MUST isolate only login and credential state. The harness translator defines, per harness, which entries are shared and which are isolated. A change to shared configuration in the default directory MUST be visible to profiled sessions without a re-sync. The plan MUST choose the sharing mechanism and verify, per harness, that it works with that harness's configuration loading and file-watching behavior.
 - **FR-010**: Wrapper generation MUST be idempotent: rerunning it updates changed wrappers, leaves unchanged ones alone, and removes wrappers for profiles that no longer exist.
-- **FR-011**: A `cc-deck profile sync` command MUST generate wrappers for the local workspace on demand. Workspace start for SSH and OpenShell MUST perform the same generation as part of provisioning.
+- **FR-011**: A `cc-deck config profile sync` command MUST generate wrappers for the local workspace on demand. Workspace start for SSH and OpenShell MUST perform the same generation as part of provisioning.
 - **FR-012**: The plain harness command (`claude`, `codex`, `opencode`) MUST remain untouched and MUST mean "no profile".
 - **FR-013**: When a wrapper is launched and a referenced credential is missing or empty, the wrapper MUST exit with a message naming the profile and the missing credential instead of starting the harness.
 
@@ -172,7 +172,7 @@ The developer adds, lists, shows, and deletes profiles through `cc-deck profile 
 
 **CLI**
 
-- **FR-024**: `cc-deck profile add`, `list` and `show` MUST cover the new fields (`list` shows harness and auth kind per profile, `show` prints every field with credential values masked). A `cc-deck profile delete <name>` command MUST be added. The existing `cc-deck profile use <name>` keeps its current meaning: it sets `default_profile`, which the Kubernetes deploy path consumes. It MUST NOT influence which wrapper a session runs under and MUST NOT change the behavior of the plain harness command.
+- **FR-024**: `cc-deck config profile add`, `list` and `show` MUST cover the new fields (`list` shows harness and auth kind per profile, `show` prints every field with credential values masked). A `cc-deck config profile delete <name>` command MUST be added. The existing `cc-deck config profile use <name>` keeps its current meaning: it sets `default_profile`, which the Kubernetes deploy path consumes. It MUST NOT influence which wrapper a session runs under and MUST NOT change the behavior of the plain harness command.
 - **FR-025**: The Kubernetes deploy path MUST continue to accept profiles as before; a profile with `{secret: ...}` sources is the equivalent of today's secret-name fields.
 
 **OpenShell network access**
@@ -191,7 +191,7 @@ The developer adds, lists, shows, and deletes profiles through `cc-deck profile 
 
 ### Measurable Outcomes
 
-- **SC-001**: A user can go from an empty `profiles` section to a running profiled session in under five minutes using `cc-deck profile add` and `cc-deck profile sync`.
+- **SC-001**: A user can go from an empty `profiles` section to a running profiled session in under five minutes using `cc-deck config profile add` and `cc-deck config profile sync`.
 - **SC-002**: Two sessions with different profiles for the same harness run side by side in one workspace, each using its own credential and model, verified through the sessions' own reported model and the `CC_DECK_PROFILE` value.
 - **SC-003**: The same wrapper commands work unchanged on local, SSH and OpenShell workspaces, with zero profile-specific configuration in the workspace definition.
 - **SC-004**: A snapshot of a workspace with mixed profiles restores 100% of its sessions under the correct profile.
@@ -202,7 +202,7 @@ The developer adds, lists, shows, and deletes profiles through `cc-deck profile 
 ## Documentation Requirements
 
 - The configuration reference (`docs/modules/reference/pages/configuration.adoc`) MUST document the extended profile schema: `harness`, `auth` sources, `model`, `env`, `color`, `icon`, and the backward-compatible defaults.
-- The CLI reference (`docs/modules/reference/pages/cli.adoc`) MUST document `cc-deck profile sync`, `cc-deck profile delete`, and the extended `add` and `show` output.
+- The CLI reference (`docs/modules/reference/pages/cli.adoc`) MUST document `cc-deck config profile sync`, `cc-deck config profile delete`, and the extended `add` and `show` output.
 - A guide page MUST explain the two-account use case end to end (define profiles, sync, launch, sidebar legend, snapshot behavior) including the one-time login step for subscription profiles in remote workspaces.
 - `README.md` MUST mention harness profiles as a user-facing capability.
 - All documentation MUST use the prose plugin with the `cc-deck` voice profile.
@@ -212,7 +212,7 @@ The developer adds, lists, shows, and deletes profiles through `cc-deck profile 
 - Each supported harness exposes a way to select a separate configuration directory (Claude Code: `CLAUDE_CONFIG_DIR`; Codex: `CODEX_HOME`; OpenCode: `OPENCODE_CONFIG`) and a way to select the model through environment or config. The translator relies on these first-party mechanisms.
 - Subscription (OAuth) login is bound to the harness config directory. For remote workspaces the user performs the harness login once per profile per workspace; cc-deck does not transport OAuth tokens (file-based on Linux, Keychain-based on macOS). The guide documents this one-time step.
 - The per-profile config directory for a harness lives under a cc-deck-managed path inside the workspace home. Users do not need to know this path. Its shared entries point at the harness's default config directory, so user customizations made there apply to every profile.
-- The cc-deck-managed bin directory for wrappers lives under the cc-deck data directory in the workspace home. The shell rc snippet cc-deck already manages (tool PATH restoration) is extended to include it.
+- The cc-deck-managed bin directory for wrappers lives under the cc-deck data directory in the workspace home. cc-deck writes an idempotent, marker-delimited block into `~/.bashrc` and `~/.zshrc` that prepends it to `PATH` (this block is new; the existing tool PATH restoration only exists as an image build step). Images built by `cc-deck build` prepend the directory at build time as well.
 - The existing credential transport (spec 079) can carry an arbitrary named environment variable and an arbitrary file; profile credential sources map onto those two primitives.
 - For OpenShell workspaces, the endpoint union from FR-026 feeds the provider list from spec 085 (profile delegation). Each auth backend (Anthropic direct, Vertex, OpenAI) maps to a known set of endpoints already used by the credential detection of the agent adapters.
 - `default_profile` in `config.yaml` keeps its current meaning for the Kubernetes deploy path and does not affect the plain harness command.
