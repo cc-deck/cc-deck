@@ -91,3 +91,21 @@ Ideas captured from code reviews for future brainstorming.
 - **Summary**: The temp policy file extracted from an OCI image (`cc-deck-policy-*.yaml`) is removed by a `defer` in `Create` that sits after other error checks. Any future early return between `resolveSandboxConfig` and that `defer`, or a new caller of `resolveSandboxConfig`, leaks the file.
 
 > Move the cleanup responsibility into `resolveSandboxConfig` (return bytes instead of a path, or register the removal immediately after creation) so the lifetime does not depend on the caller's control flow.
+
+### profile-wrappers-podman-backends
+
+- **Source**: manual
+- **Date**: 2026-09-09
+- **Reference**: 087-harness-profiles (PR #37), `cc-deck/internal/ws/container.go`, `cc-deck/internal/ws/compose.go`, `cc-deck/internal/profile/sync.go` (`Provision`, `Target`)
+- **Summary**: Profile wrappers are provisioned for local, SSH and OpenShell workspaces but not for the podman container and compose backends. Images built by `cc-deck build` already put `~/.local/share/cc-deck/bin` on `PATH` (`05-shell-finalize.tmpl`), so only the delivery step is missing.
+
+> Implement a `profile.Target` adapter over `podman cp` (Upload) and `podman exec` (Run, Home, Agents) and call `profile.Provision` from `ContainerWorkspace.Create` and `ComposeWorkspace.Create` after credential injection, mirroring `ws/profile_target.go` for SSH and OpenShell. Credential files land under `~/.config/cc-deck/profiles/<name>/` inside the container; env-sourced keys are already carried by `InjectContainer` via podman secrets, so the wrapper's `${NAME:?}` check works unchanged. Add `sync --workspace` support for container workspaces and a provision test with the in-memory target.
+
+### profile-wrappers-kubernetes-backend
+
+- **Source**: manual
+- **Date**: 2026-09-09
+- **Reference**: 087-harness-profiles (PR #37), `cc-deck/internal/ws/k8s_deploy.go`, `cc-deck/internal/profile/claude.go` (`Render` rejects `secret` sources)
+- **Summary**: The Kubernetes deploy backend gets no profile wrappers. Two gaps: no delivery step (`kubectl cp` and `kubectl exec` target), and profiles for this backend use `{secret: <k8s-secret>}` sources, which `Render` refuses because the value is not a host env var or file.
+
+> Map a `secret` source to the mounted path or env var the pod exposes (`InjectK8s` already produces Secret data and volume mounts), so the translator can render `${NAME:?}` or a file check against the in-pod location. Then add a `Target` over `kubectl cp`/`kubectl exec` and call `profile.Provision` from `K8sDeployWorkspace.Create`. Until then Kubernetes keeps the single workspace-level profile selected by `default_profile`.
