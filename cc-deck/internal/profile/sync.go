@@ -171,6 +171,277 @@ func Sync(cfg *config.Config, home string) (SyncResult, error) {
 	return result, nil
 }
 
+// Target abstracts a remote host for profile provisioning (SSH or OpenShell).
+type Target interface {
+	// Upload writes content to path on the remote host with the given mode.
+	Upload(path string, content []byte, mode os.FileMode) error
+	// Run executes a shell command on the remote host and returns stdout.
+	Run(cmd string) (string, error)
+	// Home returns the remote user's home directory (e.g. "/home/user").
+	Home() string
+	// Agents returns the names of agents (harnesses) available on the remote.
+	Agents() []string
+}
+
+// Provision renders wrappers for applicable profiles and deploys them to a
+// remote target. It uploads wrappers, generates a prepare.sh that creates
+// config dirs and symlinks, uploads credential files, and appends the rc
+// block through Run. Profiles whose harness is not in target.Agents() or
+// not present remotely (command -v) are skipped.
+func Provision(cfg *config.Config, t Target) (SyncResult, error) {
+	var result SyncResult
+	home := t.Home()
+	binDir := home + "/.local/share/cc-deck/bin"
+	availableAgents := make(map[string]bool)
+	for _, a := range t.Agents() {
+		availableAgents[a] = true
+	}
+
+	// Track which wrapper files we upload so we can detect stale ones.
+	uploaded := map[string]bool{}
+	// Collect prepare.sh commands for config dir setup.
+	var prepareLines []string
+	prepareLines = append(prepareLines, "#!/bin/sh", "set -e")
+	prepareLines = append(prepareLines, fmt.Sprintf("mkdir -p %s", shellQuote(binDir)))
+
+	for name, p := range cfg.Profiles {
+		harness := p.HarnessName()
+
+		// Check if the harness is in the target's agent list.
+		if !availableAgents[harness] {
+			result.Skipped = append(result.Skipped, Skip{
+				Profile: name,
+				Reason:  fmt.Sprintf("agent %q not in target agent list", harness),
+			})
+			continue
+		}
+
+		a := agent.Get(harness)
+		if a == nil {
+			result.Skipped = append(result.Skipped, Skip{
+				Profile: name,
+				Reason:  fmt.Sprintf("unknown agent %q", harness),
+			})
+			continue
+		}
+
+		tr, ok := Lookup(harness)
+		if !ok {
+			result.Skipped = append(result.Skipped, Skip{
+				Profile: name,
+				Reason:  fmt.Sprintf("no translator for harness %q", harness),
+			})
+			continue
+		}
+
+		// Check if the harness binary is present on the remote.
+		if _, err := t.Run(fmt.Sprintf("command -v %s", a.Binary())); err != nil {
+			result.Skipped = append(result.Skipped, Skip{
+				Profile: name,
+				Reason:  fmt.Sprintf("%s not found on remote", a.Binary()),
+			})
+			continue
+		}
+
+		// Check for secret-only sources.
+		auth := p.EffectiveAuth()
+		if isSecretOnly(auth) {
+			result.Skipped = append(result.Skipped, Skip{
+				Profile: name,
+				Reason:  "secret source is only available on Kubernetes",
+			})
+			continue
+		}
+
+		// Resolve the profile with remote paths.
+		rp, err := resolveRemote(name, p, a, home)
+		if err != nil {
+			result.Skipped = append(result.Skipped, Skip{
+				Profile: name,
+				Reason:  err.Error(),
+			})
+			continue
+		}
+
+		// Render the wrapper.
+		ws, err := tr.Render(rp)
+		if err != nil {
+			result.Skipped = append(result.Skipped, Skip{
+				Profile: name,
+				Reason:  err.Error(),
+			})
+			continue
+		}
+
+		// Guard FR-012: never upload a file named after a bare harness binary.
+		if ws.Name == a.Binary() {
+			result.Skipped = append(result.Skipped, Skip{
+				Profile: name,
+				Reason:  fmt.Sprintf("wrapper name %q equals the harness binary", ws.Name),
+			})
+			continue
+		}
+
+		// Upload the wrapper.
+		wrapperPath := binDir + "/" + ws.Name
+		if err := t.Upload(wrapperPath, ws.Content, os.FileMode(ws.Mode)); err != nil {
+			return result, fmt.Errorf("upload wrapper %s: %w", ws.Name, err)
+		}
+		uploaded[ws.Name] = true
+		result.Written = append(result.Written, ws.Name)
+
+		// Add config dir setup to prepare.sh.
+		configDir := rp.ConfigDir
+		defaultDir := home + "/" + defaultConfigSubdir(harness)
+		credDir := rp.CredDir
+
+		prepareLines = append(prepareLines, fmt.Sprintf("mkdir -p %s", shellQuote(configDir)))
+		prepareLines = append(prepareLines, fmt.Sprintf("mkdir -p %s", shellQuote(credDir)))
+
+		// Symlink non-isolated entries from the default config dir.
+		isolated := make(map[string]bool)
+		for _, entry := range tr.IsolatedEntries() {
+			isolated[entry] = true
+		}
+		// Use a remote ls to discover entries in the default dir.
+		prepareLines = append(prepareLines,
+			fmt.Sprintf("if [ -d %s ]; then", shellQuote(defaultDir)),
+			fmt.Sprintf("  for entry in %s/*; do", shellQuote(defaultDir)),
+			"    [ -e \"$entry\" ] || continue",
+			"    base=$(basename \"$entry\")",
+		)
+		// Build the isolated check.
+		if len(tr.IsolatedEntries()) > 0 {
+			var checks []string
+			for _, ie := range tr.IsolatedEntries() {
+				checks = append(checks, fmt.Sprintf("\"$base\" = %s", shellQuote(ie)))
+			}
+			prepareLines = append(prepareLines,
+				fmt.Sprintf("    case \"$base\" in %s) continue ;; esac",
+					strings.Join(func() []string {
+						var patterns []string
+						for _, ie := range tr.IsolatedEntries() {
+							patterns = append(patterns, ie)
+						}
+						return patterns
+					}(), "|")),
+			)
+		}
+		// Create relative symlink if target does not exist or is a symlink to wrong target.
+		prepareLines = append(prepareLines,
+			fmt.Sprintf("    target=%s/\"$base\"", shellQuote(configDir)),
+			"    if [ ! -e \"$target\" ] || [ -L \"$target\" ]; then",
+			"      ln -sfn \"$entry\" \"$target\"",
+			"    fi",
+			"  done",
+			"fi",
+		)
+
+		// Upload file credentials.
+		creds, credErr := credential.ResolveProfile(name, p)
+		if credErr != nil {
+			result.Warnings = append(result.Warnings,
+				fmt.Sprintf("profile %q: %s", name, credErr.Error()),
+			)
+		} else if creds != nil {
+			for _, fc := range creds.FileCredentials {
+				data, err := os.ReadFile(fc.LocalPath)
+				if err != nil {
+					result.Warnings = append(result.Warnings,
+						fmt.Sprintf("profile %q: cannot read credential file %s: %s", name, fc.LocalPath, err.Error()),
+					)
+					continue
+				}
+				remotePath := credDir + "/" + fc.EnvVar
+				if err := t.Upload(remotePath, data, 0600); err != nil {
+					result.Warnings = append(result.Warnings,
+						fmt.Sprintf("profile %q: upload credential %s: %s", name, fc.EnvVar, err.Error()),
+					)
+				}
+			}
+		}
+	}
+
+	// Run prepare.sh on the remote.
+	if len(prepareLines) > 2 { // more than just shebang + set -e + mkdir
+		prepareContent := strings.Join(prepareLines, "\n") + "\n"
+		preparePath := home + "/.local/share/cc-deck/prepare.sh"
+		if err := t.Upload(preparePath, []byte(prepareContent), 0755); err != nil {
+			return result, fmt.Errorf("upload prepare.sh: %w", err)
+		}
+		if _, err := t.Run(preparePath); err != nil {
+			return result, fmt.Errorf("run prepare.sh: %w", err)
+		}
+	}
+
+	// Append PATH block to shell rc files via Run.
+	rcBlock := fmt.Sprintf("%s\n%s\n%s",
+		"# >>> cc-deck >>>",
+		fmt.Sprintf("export PATH=\"%s:$PATH\"", binDir),
+		"# <<< cc-deck <<<",
+	)
+	for _, rcFile := range []string{".bashrc", ".zshrc"} {
+		rcPath := home + "/" + rcFile
+		// Only append if the marker is not already present.
+		checkCmd := fmt.Sprintf("grep -qF %s %s 2>/dev/null || echo %s >> %s",
+			shellQuote("# >>> cc-deck >>>"),
+			shellQuote(rcPath),
+			shellQuote(rcBlock),
+			shellQuote(rcPath),
+		)
+		if _, err := t.Run(checkCmd); err != nil {
+			result.Warnings = append(result.Warnings,
+				fmt.Sprintf("rc update %s: %s", rcFile, err.Error()),
+			)
+		} else {
+			result.RCChanged = true
+		}
+	}
+
+	return result, nil
+}
+
+// resolveRemote builds a ResolvedProfile with paths relative to the remote
+// home directory, for use with Provision.
+func resolveRemote(name string, p config.Profile, a agent.Agent, home string) (ResolvedProfile, error) {
+	harness := p.HarnessName()
+	auth := p.EffectiveAuth()
+	color := p.Color
+	if color == "" {
+		color = Derive(name)
+	}
+
+	rp := ResolvedProfile{
+		Name:      name,
+		Harness:   a,
+		Backend:   p.EffectiveBackend(),
+		Model:     p.Model,
+		Env:       p.Env,
+		Color:     color,
+		Icon:      p.Icon,
+		Login:     auth.Login,
+		Project:   p.Project,
+		Region:    p.Region,
+		ConfigDir: home + "/.local/share/cc-deck/profiles/" + name + "/" + harness,
+		CredDir:   home + "/.config/cc-deck/profiles/" + name,
+		BinDir:    home + "/.local/share/cc-deck/bin",
+	}
+
+	if auth.APIKey != nil {
+		rp.APIKey = auth.APIKey
+	}
+	if auth.Credentials != nil {
+		rp.Credentials = auth.Credentials
+	}
+
+	return rp, nil
+}
+
+// shellQuote wraps s in single quotes for safe embedding in shell commands.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
+}
+
 // EnsureLocal is a lightweight sync intended for LocalWorkspace.Attach.
 // It runs the full Sync but discards the output. Callers should log
 // warnings at debug level.

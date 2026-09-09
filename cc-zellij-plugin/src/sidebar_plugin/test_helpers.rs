@@ -23,6 +23,7 @@ pub fn make_payload(sessions: Vec<RenderSession>) -> RenderPayload {
         sort_active: false,
         client_views: std::collections::BTreeMap::new(),
         multiplayer_colors: None,
+        profile_legend: vec![],
     }
 }
 
@@ -40,6 +41,7 @@ pub fn make_session(pane_id: u32, name: &str, tab_index: usize) -> RenderSession
         badges: vec![],
         agent_indicator: None,
         in_worktree: false,
+        agent_color: None,
     }
 }
 
@@ -136,6 +138,40 @@ pub fn make_hook_pipe_with_agent_id(hook_event: &str, pane_id: u32, agent_id: &s
         "hook_event_name": hook_event,
         "agent_id": agent_id,
     });
+    PipeMessage {
+        source: PipeSource::Cli("test-pipe".to_string()),
+        name: "cc-deck:hook".to_string(),
+        payload: Some(payload.to_string()),
+        args: std::collections::BTreeMap::new(),
+        is_private: false,
+    }
+}
+
+/// Construct a hook event PipeMessage with profile and optional agent info.
+#[allow(dead_code)]
+pub fn make_hook_pipe_with_profile(
+    hook_event: &str,
+    pane_id: u32,
+    agent: Option<&str>,
+    agent_indicator: Option<&str>,
+    profile: &str,
+    profile_color: Option<&str>,
+) -> PipeMessage {
+    let mut payload = serde_json::json!({
+        "session_id": "test-session",
+        "pane_id": pane_id,
+        "hook_event_name": hook_event,
+        "profile": profile,
+    });
+    if let Some(a) = agent {
+        payload["agent"] = serde_json::json!(a);
+    }
+    if let Some(ai) = agent_indicator {
+        payload["agent_indicator"] = serde_json::json!(ai);
+    }
+    if let Some(pc) = profile_color {
+        payload["profile_color"] = serde_json::json!(pc);
+    }
     PipeMessage {
         source: PipeSource::Cli("test-pipe".to_string()),
         name: "cc-deck:hook".to_string(),

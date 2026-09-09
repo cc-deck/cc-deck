@@ -1,3 +1,10 @@
+
+# cc-deck profile wrapper PATH
+RUN for RC in {{.HomeDir}}/.bashrc {{.HomeDir}}/.zshrc; do \
+      if [ -f "$RC" ]; then \
+        sed -i '1i export PATH="{{.HomeDir}}/.local/share/cc-deck/bin:$PATH"' "$RC"; \
+      fi; \
+    done
 {{- if .ToolPaths}}
 
 # Tool PATH restoration (auto-generated from manifest tools)

@@ -82,16 +82,16 @@
 
 ### Implementation for User Story 2
 
-- [ ] T031 [US2] In `cc-deck/internal/cmd/hook.go` read `CC_DECK_PROFILE`; when set, load config, set `normalized.Profile`, `normalized.ProfileColor` (declared or `profile.Derive`), and replace `AgentIndicator` with the profile `icon` when declared; unknown profile still sends the name with a derived color (contracts/hook-payload.md section 1)
-- [ ] T032 [P] [US2] Add `cc-deck/internal/cmd/hook_profile_test.go` covering: no env var, known profile with color, known profile without color, unknown profile, icon override
-- [ ] T033 [P] [US2] Add `profile: Option<String>` and `profile_color: Option<String>` with `#[serde(default)]` to `HookPayload` in `cc-zellij-plugin/src/pipe_handler.rs`; update `make_hook()`-style test helpers and inline literals in `cc-zellij-plugin/src/controller/hooks.rs` tests and `cc-zellij-plugin/src/sidebar_plugin/test_helpers.rs`
-- [ ] T034 [P] [US2] Add `profile: Option<String>` and `profile_color: Option<(u8,u8,u8)>` with `#[serde(default)]` to `Session` in `cc-zellij-plugin/src/session.rs` and a serde round-trip test proving old JSON without the fields still loads
-- [ ] T035 [US2] In `cc-zellij-plugin/src/controller/hooks.rs` set `profile`/`profile_color` on the first hook carrying them (same guard as `agent_name`), update `profile_color` on change, and reset or overwrite them in both session-replacement branches; parse `#RRGGBB` into the tuple with a small helper
-- [ ] T036 [US2] Add `agent_color: Option<(u8,u8,u8)>` to `RenderSession` and `profile_legend: Vec<LegendEntry>` plus `LegendEntry` to `RenderPayload` in `cc-zellij-plugin/src/lib.rs`; update `test_helpers.rs` constructors
-- [ ] T037 [US2] Change the show rule in `cc-zellij-plugin/src/controller/render_broadcast.rs` to count distinct `(agent_name, profile)` pairs, populate `agent_color` from `profile_color`, and build `profile_legend` sorted by name (contracts/hook-payload.md section 2)
-- [ ] T038 [US2] In `cc-zellij-plugin/src/sidebar_plugin/render.rs` use `agent_color` when present in both the plain and highlighted line-1 branches, and append a dynamic `Profiles` section (indicator, color swatch, name) to the help overlay when `profile_legend` is non-empty
-- [ ] T039 [P] [US2] Add controller tests in `cc-zellij-plugin/src/controller/integration_tests.rs`: one harness two profiles shows indicators; two harnesses one profile each shows indicators; same harness same profile hides; unprofiled plus profiled shows; legend content and order; profile_color update on later hook
-- [ ] T040 [P] [US2] Add sidebar tests in `cc-zellij-plugin/src/sidebar_plugin/integration_tests.rs` asserting `agent_color` reaches the rendered session and the help overlay contains the legend names
+- [x] T031 [US2] In `cc-deck/internal/cmd/hook.go` read `CC_DECK_PROFILE`; when set, load config, set `normalized.Profile`, `normalized.ProfileColor` (declared or `profile.Derive`), and replace `AgentIndicator` with the profile `icon` when declared; unknown profile still sends the name with a derived color (contracts/hook-payload.md section 1)
+- [x] T032 [P] [US2] Add `cc-deck/internal/cmd/hook_profile_test.go` covering: no env var, known profile with color, known profile without color, unknown profile, icon override
+- [x] T033 [P] [US2] Add `profile: Option<String>` and `profile_color: Option<String>` with `#[serde(default)]` to `HookPayload` in `cc-zellij-plugin/src/pipe_handler.rs`; update `make_hook()`-style test helpers and inline literals in `cc-zellij-plugin/src/controller/hooks.rs` tests and `cc-zellij-plugin/src/sidebar_plugin/test_helpers.rs`
+- [x] T034 [P] [US2] Add `profile: Option<String>` and `profile_color: Option<(u8,u8,u8)>` with `#[serde(default)]` to `Session` in `cc-zellij-plugin/src/session.rs` and a serde round-trip test proving old JSON without the fields still loads
+- [x] T035 [US2] In `cc-zellij-plugin/src/controller/hooks.rs` set `profile`/`profile_color` on the first hook carrying them (same guard as `agent_name`), update `profile_color` on change, and reset or overwrite them in both session-replacement branches; parse `#RRGGBB` into the tuple with a small helper
+- [x] T036 [US2] Add `agent_color: Option<(u8,u8,u8)>` to `RenderSession` and `profile_legend: Vec<LegendEntry>` plus `LegendEntry` to `RenderPayload` in `cc-zellij-plugin/src/lib.rs`; update `test_helpers.rs` constructors
+- [x] T037 [US2] Change the show rule in `cc-zellij-plugin/src/controller/render_broadcast.rs` to count distinct `(agent_name, profile)` pairs, populate `agent_color` from `profile_color`, and build `profile_legend` sorted by name (contracts/hook-payload.md section 2)
+- [x] T038 [US2] In `cc-zellij-plugin/src/sidebar_plugin/render.rs` use `agent_color` when present in both the plain and highlighted line-1 branches, and append a dynamic `Profiles` section (indicator, color swatch, name) to the help overlay when `profile_legend` is non-empty
+- [x] T039 [P] [US2] Add controller tests in `cc-zellij-plugin/src/controller/integration_tests.rs`: one harness two profiles shows indicators; two harnesses one profile each shows indicators; same harness same profile hides; unprofiled plus profiled shows; legend content and order; profile_color update on later hook
+- [x] T040 [P] [US2] Add sidebar tests in `cc-zellij-plugin/src/sidebar_plugin/integration_tests.rs` asserting `agent_color` reaches the rendered session and the help overlay contains the legend names
 
 **Checkpoint**: `make install` then quickstart section 3 passes.
 
@@ -105,16 +105,16 @@
 
 ### Implementation for User Story 3
 
-- [ ] T041 [US3] Extend `cc-deck/internal/credential/transport.go` so `InjectSSH` and `InjectOpenShell` honor a per-file destination (`ResolvedFile.Dest`, relative to the remote home) and upload all entries of `FileCredentials`, not only `files[0]` (closes the multi-file limitation for profile files)
-- [ ] T042 [P] [US3] Add tests in `cc-deck/internal/credential/transport_test.go` for multi-file upload and custom destinations using the existing fake SSH client pattern
-- [ ] T043 [US3] Add `Provision(cfg *config.Config, t Target) (SyncResult, error)` to `cc-deck/internal/profile/sync.go` with a `Target` interface (`Upload(path string, content []byte, mode os.FileMode) error`, `Run(cmd string) (string, error)`, `Home() string`, `Agents() []string`): renders wrappers for profiles whose harness is in `Agents()` and present remotely (`command -v`), uploads them, generates and runs a `prepare.sh` that creates config dirs and symlinks remotely (same rules as `configdir.go`), uploads credential files, and appends the rc block through `Run`
-- [ ] T044 [P] [US3] Add `cc-deck/internal/profile/provision_test.go` with an in-memory `Target` recording uploads and commands: correct wrapper set, `prepare.sh` content, rc block appended once, missing harness skipped with reason
-- [ ] T045 [US3] Implement an SSH `Target` adapter over `ssh.Client` in `cc-deck/internal/ws/ssh.go` and call `profile.Provision` in `SSHWorkspace.Attach` right after `credential.InjectSSH`; surface `SyncResult` skips and warnings in the attach output
-- [ ] T046 [US3] Implement an OpenShell `Target` adapter over `openShellDataChannel.PushBytes` and `Exec` in `cc-deck/internal/ws/openshell.go` and call `profile.Provision` in `Create` after `credential.InjectOpenShell`
-- [ ] T047 [US3] In `OpenShellWorkspace.Create` (`cc-deck/internal/ws/openshell.go`) iterate valid profiles whose harness is in the workspace agent list, resolve each with `credential.ResolveProfile`, map through the translator's `ProviderType` and `mapToOpenShellProvider`, name providers `cc-deck-<ws>-<profile>`, and `Ensure` them alongside the existing providers (FR-026); record the provider set in workspace state
-- [ ] T048 [P] [US3] Add tests in `cc-deck/internal/ws/openshell_test.go` (fake SDK client) asserting one provider per applicable profile, deduplication with the existing single-spec provider, and no provider for profiles of other harnesses
-- [ ] T049 [P] [US3] Prepend `{{.HomeDir}}/.local/share/cc-deck/bin` to the `PATH` export in `cc-deck/internal/build/templates/containerfile/05-shell-finalize.tmpl` and update the corresponding golden test in `cc-deck/internal/build/`
-- [ ] T050 [US3] Implement `--workspace <name>` in the `sync` subcommand (`cc-deck/internal/cmd/profile.go`): look up the workspace, build the matching `Target`, call `Provision`, and for OpenShell compare the recorded provider set with the current profiles to print the re-create hint from FR-026
+- [x] T041 [US3] Extend `cc-deck/internal/credential/transport.go` so `InjectSSH` and `InjectOpenShell` honor a per-file destination (`ResolvedFile.Dest`, relative to the remote home) and upload all entries of `FileCredentials`, not only `files[0]` (closes the multi-file limitation for profile files)
+- [x] T042 [P] [US3] Add tests in `cc-deck/internal/credential/transport_test.go` for multi-file upload and custom destinations using the existing fake SSH client pattern
+- [x] T043 [US3] Add `Provision(cfg *config.Config, t Target) (SyncResult, error)` to `cc-deck/internal/profile/sync.go` with a `Target` interface (`Upload(path string, content []byte, mode os.FileMode) error`, `Run(cmd string) (string, error)`, `Home() string`, `Agents() []string`): renders wrappers for profiles whose harness is in `Agents()` and present remotely (`command -v`), uploads them, generates and runs a `prepare.sh` that creates config dirs and symlinks remotely (same rules as `configdir.go`), uploads credential files, and appends the rc block through `Run`
+- [x] T044 [P] [US3] Add `cc-deck/internal/profile/provision_test.go` with an in-memory `Target` recording uploads and commands: correct wrapper set, `prepare.sh` content, rc block appended once, missing harness skipped with reason
+- [x] T045 [US3] Implement an SSH `Target` adapter over `ssh.Client` in `cc-deck/internal/ws/ssh.go` and call `profile.Provision` in `SSHWorkspace.Attach` right after `credential.InjectSSH`; surface `SyncResult` skips and warnings in the attach output
+- [x] T046 [US3] Implement an OpenShell `Target` adapter over `openShellDataChannel.PushBytes` and `Exec` in `cc-deck/internal/ws/openshell.go` and call `profile.Provision` in `Create` after `credential.InjectOpenShell`
+- [x] T047 [US3] In `OpenShellWorkspace.Create` (`cc-deck/internal/ws/openshell.go`) iterate valid profiles whose harness is in the workspace agent list, resolve each with `credential.ResolveProfile`, map through the translator's `ProviderType` and `mapToOpenShellProvider`, name providers `cc-deck-<ws>-<profile>`, and `Ensure` them alongside the existing providers (FR-026); record the provider set in workspace state
+- [x] T048 [P] [US3] Add tests in `cc-deck/internal/ws/openshell_test.go` (fake SDK client) asserting one provider per applicable profile, deduplication with the existing single-spec provider, and no provider for profiles of other harnesses
+- [x] T049 [P] [US3] Prepend `{{.HomeDir}}/.local/share/cc-deck/bin` to the `PATH` export in `cc-deck/internal/build/templates/containerfile/05-shell-finalize.tmpl` and update the corresponding golden test in `cc-deck/internal/build/`
+- [x] T050 [US3] Implement `--workspace <name>` in the `sync` subcommand (`cc-deck/internal/cmd/profile.go`): look up the workspace, build the matching `Target`, call `Provision`, and for OpenShell compare the recorded provider set with the current profiles to print the re-create hint from FR-026
 
 **Checkpoint**: quickstart sections 5 and 6 pass against a real SSH host and an OpenShell gateway.
 
@@ -128,10 +128,10 @@
 
 ### Implementation for User Story 4
 
-- [ ] T051 [P] [US4] Add `Agent` and `Profile` (`json:"agent,omitempty"`, `json:"profile,omitempty"`) to `SessionEntry` in `cc-deck/internal/session/snapshot.go` and to `pluginSession` in `cc-deck/internal/session/save.go` (reading `agent_name` and `profile` from the dump-state JSON); map them in the conversion loop
-- [ ] T052 [US4] Replace the hardcoded `claude --resume` in `cc-deck/internal/session/restore.go` with a `launchCommand(entry SessionEntry, cfg *config.Config) (cmd string, warning string)` helper: binary from `agent.Get(entry.Agent)` (default claude), wrapper name when `Profile` is set and exists in config, plain binary plus a warning when it does not, `ResumeArgs(entry.SessionID)` appended; add `Profile` and `ProfileColor` to `PendingOverride` and send them on the restore-meta pipe
-- [ ] T053 [P] [US4] Add `cc-deck/internal/session/restore_test.go` covering the five rows of the table in contracts/hook-payload.md section 5 and the pre-feature snapshot fixture (no `agent`, no `profile`)
-- [ ] T054 [US4] In `cc-zellij-plugin/src/controller/mod.rs` (restore-meta handler) apply `profile` and `profile_color` from the override so the entry is colored before the first hook; add a controller test in `cc-zellij-plugin/src/controller/integration_tests.rs`
+- [x] T051 [P] [US4] Add `Agent` and `Profile` (`json:"agent,omitempty"`, `json:"profile,omitempty"`) to `SessionEntry` in `cc-deck/internal/session/snapshot.go` and to `pluginSession` in `cc-deck/internal/session/save.go` (reading `agent_name` and `profile` from the dump-state JSON); map them in the conversion loop
+- [x] T052 [US4] Replace the hardcoded `claude --resume` in `cc-deck/internal/session/restore.go` with a `launchCommand(entry SessionEntry, cfg *config.Config) (cmd string, warning string)` helper: binary from `agent.Get(entry.Agent)` (default claude), wrapper name when `Profile` is set and exists in config, plain binary plus a warning when it does not, `ResumeArgs(entry.SessionID)` appended; add `Profile` and `ProfileColor` to `PendingOverride` and send them on the restore-meta pipe
+- [x] T053 [P] [US4] Add `cc-deck/internal/session/restore_test.go` covering the five rows of the table in contracts/hook-payload.md section 5 and the pre-feature snapshot fixture (no `agent`, no `profile`)
+- [x] T054 [US4] In `cc-zellij-plugin/src/controller/mod.rs` (restore-meta handler) apply `profile` and `profile_color` from the override so the entry is colored before the first hook; add a controller test in `cc-zellij-plugin/src/controller/integration_tests.rs`
 
 **Checkpoint**: quickstart section 4 passes including the missing-profile and pre-feature-snapshot cases.
 
@@ -145,11 +145,11 @@
 
 ### Implementation for User Story 5
 
-- [ ] T055 [US5] Extend `add` in `cc-deck/internal/cmd/profile.go` with the flags from contracts/profile-schema.md (`--harness`, `--backend`, `--model`, `--api-key-env`, `--api-key-file`, `--credentials-file`, `--login`, `--project`, `--region`, `--env K=V`, `--color`, `--icon`); validate through `Config.Validate()` before saving; keep the interactive fallback and extend `PromptProfile` in `cc-deck/internal/config/profile.go` to ask for harness first
-- [ ] T056 [US5] Extend `list` (HARNESS, BACKEND, AUTH, MODEL, DEFAULT columns and the JSON/YAML entry struct) and `show` (all fields, source references only, resolved wrapper name and color) in `cc-deck/internal/cmd/profile.go`
-- [ ] T057 [US5] Add `delete <name>` to `cc-deck/internal/cmd/profile.go` using `Config.DeleteProfile`, printing the `sync` reminder; leave `use` unchanged and add a doc comment stating it does not affect wrappers (FR-024)
-- [ ] T058 [P] [US5] Add `cc-deck/internal/cmd/profile_test.go` (cobra command execution against a temp config path): add with flags writes the expected YAML, add rejects invalid color and icon, list output columns, show masks nothing but prints references, delete clears `default_profile`
-- [ ] T059 [P] [US5] Add a backward-compat integration test in `cc-deck/internal/ws/repos_test.go` (or the existing git credential test file) proving `loadActiveGitCredentials` still resolves a legacy profile with `git_credential_*` fields after the schema change
+- [x] T055 [US5] Extend `add` in `cc-deck/internal/cmd/profile.go` with the flags from contracts/profile-schema.md (`--harness`, `--backend`, `--model`, `--api-key-env`, `--api-key-file`, `--credentials-file`, `--login`, `--project`, `--region`, `--env K=V`, `--color`, `--icon`); validate through `Config.Validate()` before saving; keep the interactive fallback and extend `PromptProfile` in `cc-deck/internal/config/profile.go` to ask for harness first
+- [x] T056 [US5] Extend `list` (HARNESS, BACKEND, AUTH, MODEL, DEFAULT columns and the JSON/YAML entry struct) and `show` (all fields, source references only, resolved wrapper name and color) in `cc-deck/internal/cmd/profile.go`
+- [x] T057 [US5] Add `delete <name>` to `cc-deck/internal/cmd/profile.go` using `Config.DeleteProfile`, printing the `sync` reminder; leave `use` unchanged and add a doc comment stating it does not affect wrappers (FR-024)
+- [x] T058 [P] [US5] Add `cc-deck/internal/cmd/profile_test.go` (cobra command execution against a temp config path): add with flags writes the expected YAML, add rejects invalid color and icon, list output columns, show masks nothing but prints references, delete clears `default_profile`
+- [x] T059 [P] [US5] Add a backward-compat integration test in `cc-deck/internal/ws/repos_test.go` (or the existing git credential test file) proving `loadActiveGitCredentials` still resolves a legacy profile with `git_credential_*` fields after the schema change
 
 **Checkpoint**: All five stories independently verified; `make verify` passes.
 
@@ -159,13 +159,13 @@
 
 **Purpose**: Documentation required by constitution I, final validation.
 
-- [ ] T060 [P] Document the extended profile schema (`harness`, `auth` sources, `model`, `env`, `color`, `icon`, legacy defaults, file locations for wrappers and profile dirs) in `docs/modules/reference/pages/configuration.adoc` using the prose plugin with the `cc-deck` voice, one sentence per line
-- [ ] T061 [P] Document `cc-deck config profile sync`, `delete`, and the extended `add`, `list`, `show` in `docs/modules/reference/pages/cli.adoc`
-- [ ] T062 [P] Write the guide `docs/modules/guides/pages/harness-profiles.adoc`: the two-account use case end to end, sidebar legend, snapshot behavior, the one-time login step for `login` profiles in remote workspaces, and the OpenShell re-create hint
-- [ ] T063 [P] Add a "Harness profiles" paragraph to `README.md` under the features section
-- [ ] T064 Run `/prose:check` on the three AsciiDoc pages and README changes and fix findings
-- [ ] T065 Record the outcome of the three manual harness checks (quickstart section 8) in `specs/087-harness-profiles/contracts/harness-translator.md` section 2.4 and adjust the guide if macOS shares one login across profiles
-- [ ] T066 Run quickstart sections 1 to 7 and `make verify`; fix anything that fails
+- [x] T060 [P] Document the extended profile schema (`harness`, `auth` sources, `model`, `env`, `color`, `icon`, legacy defaults, file locations for wrappers and profile dirs) in `docs/modules/reference/pages/configuration.adoc` using the prose plugin with the `cc-deck` voice, one sentence per line
+- [x] T061 [P] Document `cc-deck config profile sync`, `delete`, and the extended `add`, `list`, `show` in `docs/modules/reference/pages/cli.adoc`
+- [x] T062 [P] Write the guide `docs/modules/guides/pages/harness-profiles.adoc`: the two-account use case end to end, sidebar legend, snapshot behavior, the one-time login step for `login` profiles in remote workspaces, and the OpenShell re-create hint
+- [x] T063 [P] Add a "Harness profiles" paragraph to `README.md` under the features section
+- [x] T064 Run `/prose:check` on the three AsciiDoc pages and README changes and fix findings
+- [x] T065 Record the outcome of the three manual harness checks (quickstart section 8) in `specs/087-harness-profiles/contracts/harness-translator.md` section 2.4 and adjust the guide if macOS shares one login across profiles
+- [x] T066 Run quickstart sections 1 to 7 and `make verify`; fix anything that fails
 
 ---
 

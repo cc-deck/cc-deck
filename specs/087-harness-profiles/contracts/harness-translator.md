@@ -67,6 +67,14 @@ type Translator interface {
 
 Credential export names per backend: `anthropic` and `openai` export `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`; `vertex` exports `CLAUDE_CODE_USE_VERTEX=1`, `ANTHROPIC_VERTEX_PROJECT_ID`, `CLOUD_ML_REGION`, and `GOOGLE_APPLICATION_CREDENTIALS` pointing at the transported credentials file when `Credentials` is set.
 
+**Manual harness verification status** (quickstart section 8):
+
+| Harness | Login isolation | Config dir isolation | Wrapper launch | Status |
+|---------|----------------|---------------------|----------------|--------|
+| claude | not verified in pipeline; manual check pending | not verified in pipeline; manual check pending | not verified in pipeline; manual check pending | pending |
+| codex | N/A (login not supported) | not verified in pipeline; manual check pending | not verified in pipeline; manual check pending | pending |
+| opencode | N/A (login not supported) | not verified in pipeline; manual check pending | not verified in pipeline; manual check pending | pending |
+
 ### 2.5 Behaviors verified by contract tests (one test file exercising every registered translator)
 
 1. `Render` output passes `sh -n` (syntax check) on the host.

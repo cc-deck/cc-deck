@@ -15,6 +15,7 @@ import (
 	"github.com/cc-deck/cc-deck/internal/agent"
 	"github.com/cc-deck/cc-deck/internal/badge"
 	"github.com/cc-deck/cc-deck/internal/config"
+	"github.com/cc-deck/cc-deck/internal/profile"
 	"github.com/cc-deck/cc-deck/internal/session"
 	"github.com/cc-deck/cc-deck/internal/xdg"
 )
@@ -191,6 +192,33 @@ func runHook(stdin io.Reader, paneIDStr string, agentName string) {
 	}
 
 	normalized.AgentIndicator = a.Indicator()
+
+	// Profile enrichment: when CC_DECK_PROFILE is set, attach profile name
+	// and color to the payload so the sidebar can distinguish sessions.
+	if profileName := os.Getenv("CC_DECK_PROFILE"); profileName != "" {
+		normalized.Profile = profileName
+		cfg, _ := config.Load("")
+		if cfg != nil {
+			if p, err := cfg.GetProfile(profileName); err == nil {
+				// Known profile: use declared color or derive from name.
+				if p.Color != "" {
+					normalized.ProfileColor = p.Color
+				} else {
+					normalized.ProfileColor = profile.Derive(profileName)
+				}
+				// Override the agent indicator with the profile icon when declared.
+				if p.Icon != "" {
+					normalized.AgentIndicator = p.Icon
+				}
+			} else {
+				// Unknown profile: still send the name with a derived color.
+				normalized.ProfileColor = profile.Derive(profileName)
+			}
+		} else {
+			// Config load failed: derive color from name.
+			normalized.ProfileColor = profile.Derive(profileName)
+		}
+	}
 
 	// An agent running outside Zellij has no pane and so no sidebar row to
 	// own. Stopping here is what keeps it out: `zellij pipe` succeeds from

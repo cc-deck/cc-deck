@@ -124,8 +124,9 @@ type SSHFields struct {
 
 // OpenShellFields holds fields for an OpenShell workspace.
 type OpenShellFields struct {
-	SandboxID  string `yaml:"sandbox_id,omitempty"`
-	GatewayAddr string `yaml:"gateway_addr,omitempty"`
+	SandboxID   string   `yaml:"sandbox_id,omitempty"`
+	GatewayAddr string   `yaml:"gateway_addr,omitempty"`
+	Providers   []string `yaml:"providers,omitempty"`
 }
 
 // SandboxFields holds fields for a K8sSandbox workspace.

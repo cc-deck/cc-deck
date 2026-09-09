@@ -121,6 +121,8 @@ pub fn process_hook(state: &mut ControllerState, hook: HookPayload) -> bool {
                 session.in_worktree = false;
                 session.agent_name = None;
                 session.agent_indicator = None;
+                session.profile = None;
+                session.profile_color = None;
             } else {
                 crate::debug_log(&format!(
                     "CTRL SESSION cross-agent pane={}: {} -> {} (no state reset)",
@@ -131,6 +133,10 @@ pub fn process_hook(state: &mut ControllerState, hook: HookPayload) -> bool {
                 // Update agent identity without resetting session state.
                 session.agent_name = hook.agent.clone();
                 session.agent_indicator = hook.agent_indicator.clone();
+                session.profile = hook.profile.clone();
+                if let Some(ref color_str) = hook.profile_color {
+                    session.profile_color = parse_hex_color(color_str);
+                }
             }
             // Always update session_id to prevent repeated replacement
             // detection on subsequent hooks from the same new session.
@@ -222,6 +228,20 @@ pub fn process_hook(state: &mut ControllerState, hook: HookPayload) -> bool {
             if s.agent_name.is_none() {
                 s.agent_name = hook.agent.clone();
                 s.agent_indicator = hook.agent_indicator.clone();
+            }
+        }
+    }
+
+    // Store profile name and color from the first hook carrying them.
+    // Update profile_color on subsequent hooks if the color changed.
+    if hook.profile.is_some() {
+        if let Some(s) = state.sessions.get_mut(&hook.pane_id) {
+            if s.profile.is_none() {
+                s.profile = hook.profile.clone();
+            }
+            // Always update color in case the config changed between hooks.
+            if let Some(ref color_str) = hook.profile_color {
+                s.profile_color = parse_hex_color(color_str);
             }
         }
     }
@@ -355,6 +375,12 @@ fn apply_override(state: &mut ControllerState, pane_id: u32, cwd: &str, ovr: &Pe
         s.display_name = session::deduplicate_name(&ovr.display_name, &name_refs);
         s.manually_renamed = true;
         s.paused = ovr.paused;
+        if let Some(ref p) = ovr.profile {
+            s.profile = Some(p.clone());
+        }
+        if let Some(ref pc) = ovr.profile_color {
+            s.profile_color = parse_hex_color(pc);
+        }
         let now = session::unix_now();
         s.last_event_ts = now;
         s.meta_ts = now;
@@ -379,6 +405,16 @@ pub fn process_restore_meta(state: &mut ControllerState, payload: &str) {
                     .get("paused")
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
+                let profile = val
+                    .get("profile")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string());
+                let profile_color = val
+                    .get("profile_color")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string());
                 if !name.is_empty() {
                     state
                         .pending_overrides
@@ -387,6 +423,8 @@ pub fn process_restore_meta(state: &mut ControllerState, payload: &str) {
                         .push(PendingOverride {
                             display_name: name,
                             paused,
+                            profile,
+                            profile_color,
                         });
                 }
             }
@@ -416,6 +454,19 @@ fn maybe_rename_tab(state: &mut ControllerState, pane_id: u32) {
     }
 }
 
+/// Parse a #RRGGBB color string into an (r, g, b) tuple.
+/// Returns None for malformed input.
+fn parse_hex_color(s: &str) -> Option<(u8, u8, u8)> {
+    let s = s.strip_prefix('#').unwrap_or(s);
+    if s.len() != 6 {
+        return None;
+    }
+    let r = u8::from_str_radix(&s[0..2], 16).ok()?;
+    let g = u8::from_str_radix(&s[2..4], 16).ok()?;
+    let b = u8::from_str_radix(&s[4..6], 16).ok()?;
+    Some((r, g, b))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -433,6 +484,8 @@ mod tests {
             cwd: None,
             agent_id: None,
             badges: vec![],
+            profile: None,
+            profile_color: None,
         }
     }
 
@@ -447,6 +500,8 @@ mod tests {
             cwd: None,
             agent_id: Some("sub-1".to_string()),
             badges: vec![],
+            profile: None,
+            profile_color: None,
         }
     }
 
@@ -720,6 +775,8 @@ mod tests {
             cwd: Some("/home/user/my-project".to_string()),
             agent_id: None,
             badges: vec![],
+            profile: None,
+            profile_color: None,
         };
         process_hook(&mut state, hook);
         assert_eq!(
@@ -747,6 +804,8 @@ mod tests {
             cwd: Some("/home/user/project/.claude/worktree".to_string()),
             agent_id: None,
             badges: vec![],
+            profile: None,
+            profile_color: None,
         };
         process_hook(&mut state, hook);
         // CWD should NOT change to the worktree path
@@ -775,6 +834,8 @@ mod tests {
             cwd: None,
             agent_id: None,
             badges: vec![],
+            profile: None,
+            profile_color: None,
         };
         process_hook(&mut state, hook);
 
@@ -796,6 +857,8 @@ mod tests {
             vec![PendingOverride {
                 display_name: "api-server".to_string(),
                 paused: true,
+                profile: None,
+                profile_color: None,
             }],
         );
 
@@ -809,6 +872,8 @@ mod tests {
             cwd: Some("/home/user/api".to_string()),
             agent_id: None,
             badges: vec![],
+            profile: None,
+            profile_color: None,
         };
         process_hook(&mut state, hook);
 
@@ -946,6 +1011,8 @@ mod tests {
             cwd: None,
             agent_id: Some("".to_string()),
             badges: vec![],
+            profile: None,
+            profile_color: None,
         };
         let changed = process_hook(&mut state, hook);
         assert!(!changed);
@@ -1172,6 +1239,8 @@ mod tests {
             cwd: Some("/home/user/project/.claude/worktrees/076-fix/".to_string()),
             agent_id: None,
             badges: vec![],
+            profile: None,
+            profile_color: None,
         };
         process_hook(&mut state, hook);
 
@@ -1201,6 +1270,8 @@ mod tests {
             cwd: Some("/home/user/project/.claude/settings.json".to_string()),
             agent_id: None,
             badges: vec![],
+            profile: None,
+            profile_color: None,
         };
         process_hook(&mut state, hook);
 
@@ -1231,6 +1302,8 @@ mod tests {
             cwd: Some("/home/user/project".to_string()),
             agent_id: None,
             badges: vec![],
+            profile: None,
+            profile_color: None,
         };
         process_hook(&mut state, hook);
 
@@ -1261,6 +1334,8 @@ mod tests {
             cwd: Some("/home/user/project/.claude/worktrees/077-other/".to_string()),
             agent_id: None,
             badges: vec![],
+            profile: None,
+            profile_color: None,
         };
         process_hook(&mut state, hook);
 

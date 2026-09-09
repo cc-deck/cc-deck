@@ -41,14 +41,37 @@ pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
     let done_timeout = state.config.done_timeout;
     let idle_fade_secs = state.config.idle_fade_secs;
 
-    // Count distinct agent types to decide whether to show indicators
-    let mut agent_types = std::collections::HashSet::new();
+    // Count distinct (agent_name, profile) pairs to decide whether to show indicators.
+    // When multiple profiles exist for the same harness, or multiple harnesses are
+    // running, indicators disambiguate the sidebar rows.
+    let mut identity_pairs = std::collections::HashSet::new();
     for s in &sessions {
-        if let Some(ref name) = s.agent_name {
-            agent_types.insert(name.clone());
+        let agent = s.agent_name.clone().unwrap_or_default();
+        let prof = s.profile.clone().unwrap_or_default();
+        identity_pairs.insert((agent, prof));
+    }
+    let show_agent_indicators = identity_pairs.len() > 1;
+
+    // Build profile legend from sessions that carry a profile.
+    let mut legend_map: std::collections::BTreeMap<String, cc_deck::LegendEntry> =
+        std::collections::BTreeMap::new();
+    for s in &sessions {
+        if let Some(ref prof) = s.profile {
+            legend_map.entry(prof.clone()).or_insert_with(|| {
+                let indicator = s
+                    .agent_indicator
+                    .clone()
+                    .unwrap_or_else(|| agent_name_to_indicator(s.agent_name.as_deref()));
+                let color = s.profile_color.unwrap_or((180, 175, 195));
+                cc_deck::LegendEntry {
+                    name: prof.clone(),
+                    indicator,
+                    color,
+                }
+            });
         }
     }
-    let show_agent_indicators = agent_types.len() > 1;
+    let profile_legend: Vec<cc_deck::LegendEntry> = legend_map.into_values().collect();
 
     let mut render_sessions: Vec<RenderSession> = sessions
         .iter()
@@ -90,6 +113,7 @@ pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
                 badges: s.badges.clone(),
                 agent_indicator,
                 in_worktree: s.in_worktree,
+                agent_color: s.profile_color,
             }
         })
         .collect();
@@ -155,6 +179,7 @@ pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
             .map(|(&client_id, view)| (client_id, view.snapshot()))
             .collect(),
         multiplayer_colors: state.multiplayer_colors.clone(),
+        profile_legend,
     }
 }
 

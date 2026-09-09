@@ -188,7 +188,10 @@ func TestRenderSnippets_Container(t *testing.T) {
 	// OpenShell-specific snippets are empty for container (no shim, no shell finalize).
 	assert.Equal(t, "\n", snippets["04-openshell-extras"])
 	assert.NotContains(t, snippets["04-openshell-extras"], "getifaddrs")
-	assert.Equal(t, "\n", snippets["05-shell-finalize"])
+	// Container target gets the cc-deck profile wrapper PATH but no starship/Zellij.
+	assert.Contains(t, snippets["05-shell-finalize"], "cc-deck profile wrapper PATH")
+	assert.Contains(t, snippets["05-shell-finalize"], "/home/dev/.local/share/cc-deck/bin")
+	assert.NotContains(t, snippets["05-shell-finalize"], "starship init")
 
 	// Footer has container CMD.
 	assert.Contains(t, snippets["06-footer"], `CMD ["sleep", "infinity"]`)
@@ -303,9 +306,11 @@ func TestRenderSnippets_WithoutToolPaths(t *testing.T) {
 	require.NoError(t, err)
 
 	shellFinalize := snippets["05-shell-finalize"]
-	// No PATH prepend block should be generated.
+	// No Tool PATH prepend block should be generated.
 	assert.NotContains(t, shellFinalize, "Tool PATH restoration")
-	assert.NotContains(t, shellFinalize, "export PATH=")
+	// But the cc-deck profile wrapper PATH is always present.
+	assert.Contains(t, shellFinalize, "cc-deck profile wrapper PATH")
+	assert.Contains(t, shellFinalize, "/sandbox/.local/share/cc-deck/bin")
 	// Starship and Zellij should still be present.
 	assert.Contains(t, shellFinalize, "starship init")
 }

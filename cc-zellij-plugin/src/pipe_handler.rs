@@ -18,12 +18,16 @@ pub struct HookPayload {
     pub agent_id: Option<String>,
     #[serde(default)]
     pub badges: Vec<String>,
+    #[serde(default)]
+    pub profile: Option<String>,
+    #[serde(default)]
+    pub profile_color: Option<String>,
 }
 
 /// Pipe message types that the plugin handles.
 pub enum PipeAction {
     /// Hook event from CLI (cc-deck:hook).
-    HookEvent(HookPayload),
+    HookEvent(Box<HookPayload>),
     /// Attend action (cc-deck:attend).
     Attend,
     /// New session action (cc-deck:new).
@@ -62,7 +66,7 @@ pub fn parse_pipe_message(name: &str, payload: Option<&str>) -> PipeAction {
         "cc-deck:hook" => {
             if let Some(payload_str) = payload {
                 match serde_json::from_str::<HookPayload>(payload_str) {
-                    Ok(hook) => PipeAction::HookEvent(hook),
+                    Ok(hook) => PipeAction::HookEvent(Box::new(hook)),
                     Err(_) => PipeAction::Unknown,
                 }
             } else {

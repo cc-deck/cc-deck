@@ -3,6 +3,7 @@ package ws
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -514,6 +515,128 @@ func TestResolveGitCredentials(t *testing.T) {
 			t.Error("expected nil credentials for unconfigured")
 		}
 	})
+}
+
+func TestLoadActiveGitCredentials_LegacyProfile(t *testing.T) {
+	// Verify that a legacy config (pre-087) with only git_credential_type and
+	// git_credential_secret fields still round-trips through config.Load and
+	// resolveGitCredentials without requiring new-style auth/harness fields.
+
+	t.Run("SSH legacy profile", func(t *testing.T) {
+		dir := t.TempDir()
+		cfgPath := dir + "/config.yaml"
+		cfgYAML := `default_profile: work
+profiles:
+  work:
+    backend: anthropic
+    api_key_secret: MY_API_KEY
+    git_credential_type: ssh
+    git_credential_secret: my-ssh-key
+`
+		if err := writeTestFile(cfgPath, cfgYAML); err != nil {
+			t.Fatalf("writing config: %v", err)
+		}
+		cfg, err := config.Load(cfgPath)
+		if err != nil {
+			t.Fatalf("config.Load: %v", err)
+		}
+		profileName := cfg.ResolveProfile("")
+		if profileName != "work" {
+			t.Fatalf("expected profile 'work', got %q", profileName)
+		}
+		p, err := cfg.GetProfile(profileName)
+		if err != nil {
+			t.Fatalf("GetProfile: %v", err)
+		}
+		if p.GitCredentialType != config.GitCredentialSSH {
+			t.Errorf("expected git_credential_type=ssh, got %q", p.GitCredentialType)
+		}
+		creds, err := resolveGitCredentials(p.GitCredentialType, p.GitCredentialSecret)
+		if err != nil {
+			t.Fatalf("resolveGitCredentials: %v", err)
+		}
+		if creds == nil || creds.Type != config.GitCredentialSSH {
+			t.Error("expected SSH credentials from legacy profile")
+		}
+	})
+
+	t.Run("token legacy profile", func(t *testing.T) {
+		t.Setenv("LEGACY_GIT_TOKEN", "ghp_legacy123")
+
+		dir := t.TempDir()
+		cfgPath := dir + "/config.yaml"
+		cfgYAML := `default_profile: ci
+profiles:
+  ci:
+    backend: anthropic
+    api_key_secret: MY_API_KEY
+    git_credential_type: token
+    git_credential_secret: LEGACY_GIT_TOKEN
+`
+		if err := writeTestFile(cfgPath, cfgYAML); err != nil {
+			t.Fatalf("writing config: %v", err)
+		}
+		cfg, err := config.Load(cfgPath)
+		if err != nil {
+			t.Fatalf("config.Load: %v", err)
+		}
+		p, err := cfg.GetProfile(cfg.ResolveProfile(""))
+		if err != nil {
+			t.Fatalf("GetProfile: %v", err)
+		}
+		if p.GitCredentialType != config.GitCredentialToken {
+			t.Errorf("expected git_credential_type=token, got %q", p.GitCredentialType)
+		}
+		if p.GitCredentialSecret != "LEGACY_GIT_TOKEN" {
+			t.Errorf("expected git_credential_secret=LEGACY_GIT_TOKEN, got %q", p.GitCredentialSecret)
+		}
+		creds, err := resolveGitCredentials(p.GitCredentialType, p.GitCredentialSecret)
+		if err != nil {
+			t.Fatalf("resolveGitCredentials: %v", err)
+		}
+		if creds == nil || creds.Token != "ghp_legacy123" {
+			t.Errorf("expected resolved token 'ghp_legacy123', got %v", creds)
+		}
+	})
+
+	t.Run("legacy profile with no new-style fields validates", func(t *testing.T) {
+		dir := t.TempDir()
+		cfgPath := dir + "/config.yaml"
+		cfgYAML := `default_profile: old
+profiles:
+  old:
+    backend: anthropic
+    api_key_secret: MY_KEY
+    model: claude-sonnet-4-20250514
+    git_credential_type: ssh
+`
+		if err := writeTestFile(cfgPath, cfgYAML); err != nil {
+			t.Fatalf("writing config: %v", err)
+		}
+		cfg, err := config.Load(cfgPath)
+		if err != nil {
+			t.Fatalf("config.Load: %v", err)
+		}
+		p, err := cfg.GetProfile("old")
+		if err != nil {
+			t.Fatalf("GetProfile: %v", err)
+		}
+		// Legacy profiles should pass Validate without auth/harness fields.
+		if err := p.Validate(); err != nil {
+			t.Errorf("legacy profile should validate, got: %v", err)
+		}
+		// New-style fields should be zero values.
+		if p.Harness != "" {
+			t.Errorf("expected empty harness, got %q", p.Harness)
+		}
+		if p.Auth != nil {
+			t.Errorf("expected nil auth, got %+v", p.Auth)
+		}
+	})
+}
+
+func writeTestFile(path, content string) error {
+	return os.WriteFile(path, []byte(content), 0o644)
 }
 
 func TestDefinitionRoundTrip_WithRepos(t *testing.T) {

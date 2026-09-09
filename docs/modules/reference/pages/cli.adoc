@@ -508,19 +508,73 @@ Validation categories:
 === profile
 
 Manage credential profiles for AI backends.
+Each profile binds a harness, authentication source, and optional model into a named wrapper command (for example `claude-work` or `codex-team`).
 
 ==== profile add
 
-Interactively create a new credential profile.
+Create a new credential profile.
+Without flags the command prompts interactively, starting with the harness selection.
+When any flag is provided, the command runs non-interactively and validates the profile before saving.
 
 [source,bash]
 ----
-cc-deck config profile add myprofile
+# Interactive
+cc-deck config profile add work
+
+# Non-interactive with flags
+cc-deck config profile add work \
+  --harness claude --backend vertex \
+  --credentials-file ~/.config/gcloud/acme-adc.json \
+  --project acme-ml --region us-east5 \
+  --model claude-sonnet-5 --color "#4FC1E9"
 ----
+
+[cols="1,3"]
+|===
+| Flag | Description
+
+| `--harness`
+| Agent harness: `claude` (default), `codex`, or `opencode`
+
+| `--backend`
+| Authentication backend. Allowed values depend on the harness (for example `anthropic`, `vertex`, `github`). Defaults to the harness's primary backend when omitted.
+
+| `--model`
+| Model identifier passed to the harness (for example `claude-sonnet-5`, `gpt-5`)
+
+| `--api-key-env`
+| Name of an environment variable that holds the API key
+
+| `--api-key-file`
+| Path to a file containing the API key
+
+| `--credentials-file`
+| Path to an ADC JSON file (Vertex backend only)
+
+| `--login`
+| Use the harness's own interactive login stored in a per-profile config directory. Mutually exclusive with `--api-key-env`, `--api-key-file`, and `--credentials-file`.
+
+| `--project`
+| GCP project identifier (Vertex backend only)
+
+| `--region`
+| GCP region (Vertex backend only)
+
+| `--env`
+| Extra environment variable in `KEY=VALUE` format. Repeatable.
+
+| `--color`
+| Sidebar color for this profile in `#RRGGBB` hex format
+
+| `--icon`
+| Single display glyph shown in the sidebar instead of the harness icon
+|===
+
+When this is the first profile in the configuration, `default_profile` is set to it automatically.
 
 ==== profile list
 
-List all credential profiles.
+List all credential profiles in a table.
 
 [source,bash]
 ----
@@ -528,23 +582,77 @@ cc-deck config profile list
 cc-deck config profile list -o json
 ----
 
+The table includes the following columns:
+
+[cols="1,3"]
+|===
+| Column | Description
+
+| NAME
+| Profile name
+
+| HARNESS
+| Agent harness (`claude`, `codex`, `opencode`)
+
+| BACKEND
+| Authentication backend
+
+| AUTH
+| Credential source summary (for example `env:ANTHROPIC_API_KEY`, `file`, `secret`, `login`)
+
+| MODEL
+| Configured model identifier, if any
+
+| DEFAULT
+| Shows `*` when the profile is the current `default_profile`
+|===
+
+==== profile show
+
+Display all fields of a single profile.
+The output includes the resolved wrapper command name (for example `claude-work`) and the display color, whether explicitly configured or derived from the profile name.
+Source references are shown (environment variable names, file paths) but credential values are never printed.
+
+[source,bash]
+----
+cc-deck config profile show work
+----
+
 ==== profile use
 
 Set the default credential profile.
+This affects which profile is used for Kubernetes deploy and git credential resolution.
+It does not affect wrapper commands or sidebar display.
 
 [source,bash]
 ----
 cc-deck config profile use myprofile
 ----
 
-==== profile show
+==== profile delete
 
-Show details of a credential profile.
+Remove a profile from `config.yaml`.
+When the deleted profile was the `default_profile`, the default is cleared.
+The command prints a reminder to run `sync` to remove the corresponding wrapper script.
 
 [source,bash]
 ----
-cc-deck config profile show myprofile
+cc-deck config profile delete work
 ----
+
+==== profile sync
+
+Generate wrapper scripts for all valid profiles in the local workspace.
+Wrappers are placed in `~/.local/share/cc-deck/bin/`.
+Stale wrappers for profiles that no longer exist are removed.
+The command reports when a new shell is required for `PATH` changes to take effect.
+
+[source,bash]
+----
+cc-deck config profile sync
+----
+
+For SSH and OpenShell workspaces, wrapper generation happens automatically during workspace provisioning.
 
 === domains
 

@@ -20,6 +20,8 @@ type pluginSession struct {
 	TabName         *string `json:"tab_name"`
 	WorkingDir      *string `json:"working_dir"`
 	GitBranch       *string `json:"git_branch"`
+	AgentName       *string `json:"agent_name"`
+	Profile         *string `json:"profile"`
 	ManuallyRenamed bool    `json:"manually_renamed"`
 	Paused          bool    `json:"paused"`
 }
@@ -65,6 +67,12 @@ func QueryPluginStateCtx(ctx context.Context, name string) (*Snapshot, error) {
 		}
 		if s.GitBranch != nil {
 			entry.GitBranch = *s.GitBranch
+		}
+		if s.AgentName != nil {
+			entry.Agent = *s.AgentName
+		}
+		if s.Profile != nil {
+			entry.Profile = *s.Profile
 		}
 		if s.TabIndex != nil {
 			entry.tabIndex = *s.TabIndex
