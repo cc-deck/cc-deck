@@ -70,16 +70,16 @@ type AuthConfig struct {
 // Profile represents a credential and configuration profile.
 type Profile struct {
 	// Existing fields
-	Backend           BackendType       `yaml:"backend,omitempty"`
-	APIKeySecret      string            `yaml:"api_key_secret,omitempty"`
-	Model             string            `yaml:"model,omitempty"`
-	Permissions       string            `yaml:"permissions,omitempty"`
-	Project           string            `yaml:"project,omitempty"`
-	Region            string            `yaml:"region,omitempty"`
-	CredentialsSecret string            `yaml:"credentials_secret,omitempty"`
-	AllowedEgress     []string          `yaml:"allowed_egress,omitempty"`
-	GitCredentialType GitCredentialType `yaml:"git_credential_type,omitempty"`
-	GitCredentialSecret string          `yaml:"git_credential_secret,omitempty"`
+	Backend             BackendType       `yaml:"backend,omitempty"`
+	APIKeySecret        string            `yaml:"api_key_secret,omitempty"`
+	Model               string            `yaml:"model,omitempty"`
+	Permissions         string            `yaml:"permissions,omitempty"`
+	Project             string            `yaml:"project,omitempty"`
+	Region              string            `yaml:"region,omitempty"`
+	CredentialsSecret   string            `yaml:"credentials_secret,omitempty"`
+	AllowedEgress       []string          `yaml:"allowed_egress,omitempty"`
+	GitCredentialType   GitCredentialType `yaml:"git_credential_type,omitempty"`
+	GitCredentialSecret string            `yaml:"git_credential_secret,omitempty"`
 
 	// New fields
 	Harness string            `yaml:"harness,omitempty"`
@@ -140,8 +140,10 @@ func (p *Profile) EffectiveAuth() AuthConfig {
 	return ac
 }
 
-// WrapperName returns the wrapper command name for the given harness binary.
-func (p *Profile) WrapperName(binary string, name string) string {
+// WrapperName returns the wrapper command name for a profile: the harness
+// binary followed by a hyphen and the profile name (for example claude-work).
+// Every place that derives a wrapper name from a profile uses this function.
+func WrapperName(binary, name string) string {
 	return binary + "-" + name
 }
 

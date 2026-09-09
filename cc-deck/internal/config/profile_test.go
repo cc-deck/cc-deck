@@ -166,9 +166,8 @@ func TestEffectiveBackend_Defaults(t *testing.T) {
 }
 
 func TestWrapperName(t *testing.T) {
-	p := Profile{Harness: "claude"}
-	assert.Equal(t, "claude-work", p.WrapperName("claude", "work"))
-	assert.Equal(t, "codex-team", p.WrapperName("codex", "team"))
+	assert.Equal(t, "claude-work", WrapperName("claude", "work"))
+	assert.Equal(t, "codex-team", WrapperName("codex", "team"))
 }
 
 func TestSaveOmitsUnsetNewFields(t *testing.T) {

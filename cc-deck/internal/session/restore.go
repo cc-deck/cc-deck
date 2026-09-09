@@ -138,7 +138,7 @@ func launchCommand(entry SessionEntry, cfg *config.Config) (cmd string, warning 
 	if entry.Profile != "" && cfg != nil {
 		if _, err := cfg.GetProfile(entry.Profile); err == nil {
 			// Profile exists: use the wrapper name (binary-profilename).
-			binary = a.Binary() + "-" + entry.Profile
+			binary = config.WrapperName(a.Binary(), entry.Profile)
 		} else {
 			// Profile referenced in snapshot no longer exists in config.
 			warning = fmt.Sprintf("profile %q not found in config, using plain %s", entry.Profile, a.Binary())

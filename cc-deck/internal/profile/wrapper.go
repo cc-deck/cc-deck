@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"text/template"
+
+	"github.com/cc-deck/cc-deck/internal/config"
 )
 
 //go:embed templates/wrapper.sh.tmpl
@@ -63,14 +65,14 @@ func renderWrapper(rp ResolvedProfile, lines wrapperLines) (WrapperScript, error
 		return WrapperScript{}, fmt.Errorf("rendering wrapper for profile %q: %w", rp.Name, err)
 	}
 	return WrapperScript{
-		Name:    rp.Harness.Binary() + "-" + rp.Name,
+		Name:    config.WrapperName(rp.Harness.Binary(), rp.Name),
 		Content: buf.Bytes(),
 		Mode:    0755,
 	}, nil
 }
 
 // shQuote returns s wrapped in POSIX single quotes with embedded single
-// quotes escaped as '\''. This is the standard POSIX sh quoting idiom:
+// quotes escaped as '\”. This is the standard POSIX sh quoting idiom:
 // end the current single-quoted string, add an escaped single quote, and
 // open a new single-quoted string.
 func shQuote(s string) string {
