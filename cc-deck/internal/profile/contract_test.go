@@ -36,6 +36,12 @@ func TestTranslatorContract(t *testing.T) {
 			rp.CredDir = filepath.Join(tmpDir, "cred")
 			rp.BinDir = filepath.Join(tmpDir, "bin")
 
+			// 2. Render output contains no credential value.
+			// Set the env var BEFORE rendering so the value is available in
+			// the process environment when the wrapper is generated.
+			testEnvVal := "TEST_SECRET_VALUE_12345"
+			t.Setenv("CONTRACT_TEST_KEY", testEnvVal)
+
 			// 1. Render output passes sh -n
 			ws, err := tr.Render(rp)
 			require.NoError(t, err)
@@ -47,9 +53,6 @@ func TestTranslatorContract(t *testing.T) {
 				assert.NoError(t, err, "sh -n failed: %s", string(out))
 			}
 
-			// 2. Render output contains no credential value
-			testEnvVal := "TEST_SECRET_VALUE_12345"
-			t.Setenv("CONTRACT_TEST_KEY", testEnvVal)
 			assert.NotContains(t, string(ws.Content), testEnvVal,
 				"wrapper must not contain credential values")
 
@@ -68,13 +71,19 @@ func TestTranslatorContract(t *testing.T) {
 				require.NoError(t, os.WriteFile(filepath.Join(defaultDir, iso), []byte("isolated"), 0644))
 			}
 
-			err = tr.PrepareConfigDir(rp, defaultDir)
+			_, err = tr.PrepareConfigDir(rp, defaultDir)
 			require.NoError(t, err)
 
-			// Non-isolated entries should be symlinked
-			link, err := os.Readlink(filepath.Join(rp.ConfigDir, "shared.json"))
-			if err == nil {
-				assert.Contains(t, link, "shared.json", "should link to shared entry")
+			// Non-isolated entries should be symlinked to the default dir.
+			// Symlinks may be relative and macOS resolves /var -> /private/var,
+			// so EvalSymlinks both sides for a stable comparison.
+			sharedLink := filepath.Join(rp.ConfigDir, "shared.json")
+			resolved, err := filepath.EvalSymlinks(sharedLink)
+			if assert.NoError(t, err, "shared.json should be a resolvable symlink") {
+				expectedRaw := filepath.Join(defaultDir, "shared.json")
+				expected, _ := filepath.EvalSymlinks(expectedRaw)
+				assert.Equal(t, expected, resolved,
+					"shared.json symlink must resolve to the default dir entry")
 			}
 
 			// Isolated entries should NOT be symlinked from default
@@ -87,7 +96,7 @@ func TestTranslatorContract(t *testing.T) {
 			}
 
 			// 5. PrepareConfigDir twice yields the same tree
-			err = tr.PrepareConfigDir(rp, defaultDir)
+			_, err = tr.PrepareConfigDir(rp, defaultDir)
 			require.NoError(t, err, "second PrepareConfigDir must succeed (idempotent)")
 
 			// 6. Lookup(a.Name()) succeeds for every agent
@@ -106,6 +115,33 @@ func TestAgentTranslatorPairing(t *testing.T) {
 	for _, a := range agent.All() {
 		_, ok := profile.Lookup(a.Name())
 		assert.True(t, ok, "agent %q has no translator", a.Name())
+	}
+}
+
+// TestLoginRejection verifies that translators which do not support login
+// return an error from Render when rp.Login is true (contract 2.2).
+func TestLoginRejection(t *testing.T) {
+	all := profile.All()
+	for harness, tr := range all {
+		if tr.SupportsLogin() {
+			continue // skip translators that support login
+		}
+		t.Run(harness, func(t *testing.T) {
+			a := agent.Get(harness)
+			require.NotNil(t, a, "agent.Get(%q) returned nil", harness)
+
+			p := testProfile(tr)
+			// Force login mode in the auth config.
+			p.Auth = &config.AuthConfig{Login: true}
+
+			rp, err := profile.Resolve("login-test", p, a)
+			require.NoError(t, err)
+
+			_, err = tr.Render(rp)
+			require.Error(t, err, "Render must fail for login on %s", harness)
+			assert.Contains(t, err.Error(), "login is not supported",
+				"error message must explain login is not supported")
+		})
 	}
 }
 

@@ -29,7 +29,12 @@ func (c *codexTranslator) Backends() []config.BackendType {
 	return []config.BackendType{config.BackendOpenAI}
 }
 
+func (c *codexTranslator) DefaultConfigSubdir() string { return ".codex" }
+
 func (c *codexTranslator) Render(rp ResolvedProfile) (WrapperScript, error) {
+	if rp.Login {
+		return WrapperScript{}, fmt.Errorf("profile %q: login is not supported for %s", rp.Name, c.Harness())
+	}
 	if rp.APIKey != nil && rp.APIKey.Kind() == config.SourceSecret {
 		return WrapperScript{}, fmt.Errorf("profile %q: secret source is not renderable outside Kubernetes", rp.Name)
 	}
@@ -73,23 +78,22 @@ func (c *codexTranslator) Render(rp ResolvedProfile) (WrapperScript, error) {
 	return renderWrapper(rp, lines)
 }
 
-func (c *codexTranslator) PrepareConfigDir(rp ResolvedProfile, defaultDir string) error {
+func (c *codexTranslator) PrepareConfigDir(rp ResolvedProfile, defaultDir string) ([]string, error) {
 	warnings, err := PrepareSharedDir(rp.ConfigDir, defaultDir, c.IsolatedEntries())
 	if err != nil {
-		return fmt.Errorf("profile %q: prepare config dir: %w", rp.Name, err)
+		return warnings, fmt.Errorf("profile %q: prepare config dir: %w", rp.Name, err)
 	}
-	_ = warnings // Warnings are collected by the caller via SyncResult.
 
 	// Write model into config.toml when specified.
 	if rp.Model != "" {
 		configPath := filepath.Join(rp.ConfigDir, "config.toml")
 		content := fmt.Sprintf("model = %q\n", rp.Model)
 		if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
-			return fmt.Errorf("profile %q: write config.toml: %w", rp.Name, err)
+			return warnings, fmt.Errorf("profile %q: write config.toml: %w", rp.Name, err)
 		}
 	}
 
-	return nil
+	return warnings, nil
 }
 
 func (c *codexTranslator) ProviderType(_ config.BackendType) string {

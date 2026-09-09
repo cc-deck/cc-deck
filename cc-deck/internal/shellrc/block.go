@@ -17,6 +17,32 @@ const (
 	pathContent = `export PATH="$HOME/.local/share/cc-deck/bin:$PATH"`
 )
 
+// atomicWriteFile writes data to path atomically: write to a temp file in
+// the same directory, then rename. This prevents partial writes from
+// corrupting shell rc files if the process is interrupted mid-write.
+func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".cc-deck-rc-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	if _, writeErr := tmp.Write(data); writeErr != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return writeErr
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	if err := os.Chmod(tmpName, perm); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	return os.Rename(tmpName, path)
+}
+
 // Ensure writes or replaces the cc-deck managed block in the file at path.
 // The block is delimited by marker lines:
 //
@@ -34,7 +60,7 @@ func Ensure(path, content string) (changed bool, err error) {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			return false, err
 		}
-		return true, os.WriteFile(path, []byte(block), 0o644)
+		return true, atomicWriteFile(path, []byte(block), 0o644)
 	}
 	if err != nil {
 		return false, err
@@ -56,7 +82,7 @@ func Ensure(path, content string) (changed bool, err error) {
 			return false, nil
 		}
 		result := raw[:startIdx] + block + raw[afterEnd:]
-		return true, os.WriteFile(path, []byte(result), 0o644)
+		return true, atomicWriteFile(path, []byte(result), 0o644)
 	}
 
 	// No markers: append the block.
@@ -69,7 +95,7 @@ func Ensure(path, content string) (changed bool, err error) {
 	if bytes.Equal(existing, buf.Bytes()) {
 		return false, nil
 	}
-	return true, os.WriteFile(path, buf.Bytes(), 0o644)
+	return true, atomicWriteFile(path, buf.Bytes(), 0o644)
 }
 
 // EnsureAll writes the managed PATH block to ~/.bashrc and ~/.zshrc under

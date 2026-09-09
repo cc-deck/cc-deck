@@ -26,11 +26,17 @@ type Translator interface {
 	SupportsLogin() bool
 	// Backends returns the allowed backends; the first is the default.
 	Backends() []config.BackendType
+	// DefaultConfigSubdir returns the conventional config subdirectory
+	// relative to $HOME for this harness (e.g. ".claude", ".codex",
+	// ".config/opencode"). Used by Sync and Provision to locate the
+	// default config directory when DetectConfig returns empty.
+	DefaultConfigSubdir() string
 	// Render produces a wrapper script from a resolved profile.
 	Render(rp ResolvedProfile) (WrapperScript, error)
 	// PrepareConfigDir creates the per-profile config directory with shared
-	// symlinks and isolated entries.
-	PrepareConfigDir(rp ResolvedProfile, defaultDir string) error
+	// symlinks and isolated entries. Returns any non-fatal warnings (e.g.
+	// entries that could not be symlinked because a real file exists).
+	PrepareConfigDir(rp ResolvedProfile, defaultDir string) (warnings []string, err error)
 	// ProviderType maps a backend to an OpenShell provider type.
 	// Returns "" if the backend has no provider mapping.
 	ProviderType(backend config.BackendType) string
@@ -121,17 +127,22 @@ func ResetRegistry() {
 	translators = map[string]Translator{}
 }
 
-// Resolve builds a ResolvedProfile from config fields.
+// Resolve builds a ResolvedProfile from config fields using the local
+// XDG directories.
 func Resolve(name string, p config.Profile, a agent.Agent) (ResolvedProfile, error) {
+	return resolve(name, p, a, xdg.DataHome, xdg.ConfigHome)
+}
+
+// resolve is the shared implementation for both local (Resolve) and
+// remote (resolveRemote) profile resolution. The only difference is
+// the base directories for data and config.
+func resolve(name string, p config.Profile, a agent.Agent, dataHome, configHome string) (ResolvedProfile, error) {
 	harness := p.HarnessName()
 	auth := p.EffectiveAuth()
 	color := p.Color
 	if color == "" {
 		color = Derive(name)
 	}
-
-	dataHome := xdg.DataHome
-	configHome := xdg.ConfigHome
 
 	rp := ResolvedProfile{
 		Name:    name,

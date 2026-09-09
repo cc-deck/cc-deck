@@ -30,7 +30,12 @@ func (c *opencodeTranslator) Backends() []config.BackendType {
 	return []config.BackendType{config.BackendOpenAI, config.BackendAnthropic}
 }
 
+func (c *opencodeTranslator) DefaultConfigSubdir() string { return ".config/opencode" }
+
 func (c *opencodeTranslator) Render(rp ResolvedProfile) (WrapperScript, error) {
+	if rp.Login {
+		return WrapperScript{}, fmt.Errorf("profile %q: login is not supported for %s", rp.Name, c.Harness())
+	}
 	if rp.APIKey != nil && rp.APIKey.Kind() == config.SourceSecret {
 		return WrapperScript{}, fmt.Errorf("profile %q: secret source is not renderable outside Kubernetes", rp.Name)
 	}
@@ -76,12 +81,11 @@ func (c *opencodeTranslator) Render(rp ResolvedProfile) (WrapperScript, error) {
 	return renderWrapper(rp, lines)
 }
 
-func (c *opencodeTranslator) PrepareConfigDir(rp ResolvedProfile, defaultDir string) error {
+func (c *opencodeTranslator) PrepareConfigDir(rp ResolvedProfile, defaultDir string) ([]string, error) {
 	warnings, err := PrepareSharedDir(rp.ConfigDir, defaultDir, c.IsolatedEntries())
 	if err != nil {
-		return fmt.Errorf("profile %q: prepare config dir: %w", rp.Name, err)
+		return warnings, fmt.Errorf("profile %q: prepare config dir: %w", rp.Name, err)
 	}
-	_ = warnings // Warnings are collected by the caller via SyncResult.
 
 	// Build the opencode.json config. Start from the default if it exists,
 	// then overlay the model field.
@@ -105,16 +109,16 @@ func (c *opencodeTranslator) PrepareConfigDir(rp ResolvedProfile, defaultDir str
 
 	encoded, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
-		return fmt.Errorf("profile %q: marshal opencode.json: %w", rp.Name, err)
+		return warnings, fmt.Errorf("profile %q: marshal opencode.json: %w", rp.Name, err)
 	}
 	encoded = append(encoded, '\n')
 
 	configPath := filepath.Join(rp.ConfigDir, "opencode.json")
 	if err := os.WriteFile(configPath, encoded, 0644); err != nil {
-		return fmt.Errorf("profile %q: write opencode.json: %w", rp.Name, err)
+		return warnings, fmt.Errorf("profile %q: write opencode.json: %w", rp.Name, err)
 	}
 
-	return nil
+	return warnings, nil
 }
 
 func (c *opencodeTranslator) ProviderType(backend config.BackendType) string {

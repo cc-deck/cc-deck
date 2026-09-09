@@ -110,13 +110,14 @@ func (c *claudeTranslator) Render(rp ResolvedProfile) (WrapperScript, error) {
 	return renderWrapper(rp, lines)
 }
 
-func (c *claudeTranslator) PrepareConfigDir(rp ResolvedProfile, defaultDir string) error {
+func (c *claudeTranslator) DefaultConfigSubdir() string { return ".claude" }
+
+func (c *claudeTranslator) PrepareConfigDir(rp ResolvedProfile, defaultDir string) ([]string, error) {
 	warnings, err := PrepareSharedDir(rp.ConfigDir, defaultDir, c.IsolatedEntries())
 	if err != nil {
-		return fmt.Errorf("profile %q: prepare config dir: %w", rp.Name, err)
+		return warnings, fmt.Errorf("profile %q: prepare config dir: %w", rp.Name, err)
 	}
-	_ = warnings // Warnings are collected by the caller via SyncResult.
-	return nil
+	return warnings, nil
 }
 
 func (c *claudeTranslator) ProviderType(backend config.BackendType) string {

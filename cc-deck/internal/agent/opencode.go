@@ -155,28 +155,6 @@ func (o *OpenCodeAgent) ResumeArgs(sessionID string) []string {
 
 const pluginEntry = "~/.config/opencode/plugins/cc-deck.ts"
 
-// registerPluginInConfig adds the cc-deck plugin to the "plugin" array
-// in opencode.json if not already present.
-func registerPluginInConfig(pluginPath string) error {
-	configPath := opencodeConfigPath()
-	config, err := readOpencodeConfig(configPath)
-	if err != nil {
-		return err
-	}
-
-	plugins, _ := config["plugin"].([]any)
-
-	for _, p := range plugins {
-		if s, ok := p.(string); ok && (s == pluginEntry || s == pluginPath) {
-			return nil
-		}
-	}
-
-	plugins = append(plugins, pluginEntry)
-	config["plugin"] = plugins
-	return writeOpencodeConfig(configPath, config)
-}
-
 // unregisterPluginFromConfig removes the cc-deck plugin entry from
 // the "plugin" array in opencode.json.
 func unregisterPluginFromConfig(pluginPath string) error {
