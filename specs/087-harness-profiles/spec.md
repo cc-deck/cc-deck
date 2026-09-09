@@ -36,6 +36,7 @@ A developer has two ways to reach Anthropic models: company access through Verte
 
 1. **Given** a profile `work` with `harness: claude`, `auth: {api_key: {env: ANTHROPIC_API_KEY_WORK}}` and `model: <model-id>`, **When** the user runs `claude-work`, **Then** Claude Code starts, uses the key from `ANTHROPIC_API_KEY_WORK`, uses the configured model, and the process environment contains `CC_DECK_PROFILE=work`.
 2. **Given** a profile whose harness is `codex`, **When** the user runs `codex-<name>`, **Then** Codex starts with the profile's credential and model, and `CC_DECK_PROFILE` is set.
+2a. **Given** a profile whose harness is `opencode`, **When** the user runs `opencode-<name>`, **Then** OpenCode starts with the profile's credential and model, and `CC_DECK_PROFILE` is set.
 3. **Given** profiles are defined, **When** the user runs plain `claude`, **Then** the session starts exactly as it did before this feature, with no profile and no `CC_DECK_PROFILE` variable.
 4. **Given** a profile references an environment variable that is not set on the host, **When** the user runs the profile sync, **Then** the sync reports which profile and which variable is missing, still generates the wrapper, and the wrapper prints a clear error naming the missing credential when launched.
 5. **Given** the user edits a profile in `config.yaml`, **When** the profile sync runs again, **Then** the wrapper reflects the new settings and no duplicate wrappers or stale files remain.
@@ -136,7 +137,7 @@ The developer adds, lists, shows, and deletes profiles through `cc-deck profile 
 - **FR-002**: A profile MUST accept an `auth` block. The block MUST support an `api_key` credential with exactly one source: `{env: <name>}`, `{file: <path>}`, or `{secret: <k8s-secret-name>}`. The block MUST also support `login: true`, meaning the harness's own interactive login stored in a per-profile config directory.
 - **FR-003**: A profile MUST accept the harness-agnostic fields `model` (optional), `env` (optional map of additional environment variables the wrapper exports before executing the harness), `color` (optional, `#RRGGBB`) and `icon` (optional, a single display glyph).
 - **FR-004**: The existing Vertex fields (`project`, `region`, `credentials_secret`) and git credential fields MUST remain supported and MUST be expressible as sources under the `auth` block for the Claude harness.
-- **FR-005**: cc-deck MUST validate profiles at load time: known harness, at most one `api_key` source, `login` and `api_key` mutually exclusive, valid `color` syntax, and profile names limited to lowercase letters, digits and hyphens. Validation errors MUST name the profile and the offending field.
+- **FR-005**: cc-deck MUST validate profiles at load time: known harness, at most one `api_key` source, `login` and `api_key` mutually exclusive, valid `color` syntax, `icon` limited to a single grapheme cluster with a terminal display width of 1 or 2, and profile names limited to lowercase letters, digits and hyphens. Validation errors MUST name the profile and the offending field.
 
 **Wrapper generation**
 
