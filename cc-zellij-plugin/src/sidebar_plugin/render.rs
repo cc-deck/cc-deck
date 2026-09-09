@@ -489,9 +489,9 @@ fn render_session_entry(
     rename_state: Option<&super::modes::RenameState>,
     presence: &[LocalPresence],
 ) -> Option<ClickRegion> {
-    // Use profile-specific agent_color for the indicator when present,
-    // falling back to the activity-derived color.
-    let (r, g, b) = session.agent_color.unwrap_or(session.color);
+    // The activity indicator always carries the status color (working, idle,
+    // fading). A profile colors the harness glyph instead, see agent_part.
+    let (r, g, b) = session.color;
     let indicator = if session.paused {
         "\u{23f8}"
     } else {
@@ -545,7 +545,10 @@ fn render_session_entry(
         let agent_part = if agent_prefix.is_empty() {
             String::new()
         } else {
-            let (ar, ag, ab) = agent_indicator_color(&agent_prefix);
+            // Profile color wins over the harness brand color (FR-017).
+            let (ar, ag, ab) = session
+                .agent_color
+                .unwrap_or_else(|| agent_indicator_color(&agent_prefix));
             format!("\x1b[38;2;{ar};{ag};{ab}m{agent_prefix}\x1b[0m ")
         };
 
@@ -579,7 +582,9 @@ fn render_session_entry(
         let agent_part = if agent_prefix.is_empty() {
             String::new()
         } else {
-            let (ar, ag, ab) = agent_indicator_color(&agent_prefix);
+            let (ar, ag, ab) = session
+                .agent_color
+                .unwrap_or_else(|| agent_indicator_color(&agent_prefix));
             format!("\x1b[38;2;{ar};{ag};{ab}m{agent_prefix}{bg}{fg} ")
         };
         let bold_or_dim = if session.paused { "\x1b[2m" } else { "\x1b[1m" };
