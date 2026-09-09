@@ -620,9 +620,9 @@ cc-deck config profile show work
 
 ==== profile use
 
-Set `default_profile`, which git credential resolution and the Kubernetes deploy path read. It does not affect profile wrappers.
-This affects which profile is used for Kubernetes deploy and git credential resolution.
-It does not affect wrapper commands or sidebar display.
+Set `default_profile` in `config.yaml`.
+Git credential resolution and the Kubernetes deploy path read this value.
+It does not affect wrapper commands or the sidebar.
 
 [source,bash]
 ----
