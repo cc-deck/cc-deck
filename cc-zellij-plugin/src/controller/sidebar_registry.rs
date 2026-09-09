@@ -13,13 +13,6 @@ use zellij_tile::prelude::*;
 /// Handle a sidebar-hello registration message.
 /// Cross-reference the plugin_id with the PaneManifest to find the tab.
 pub fn handle_sidebar_hello(state: &mut ControllerState, hello: SidebarHello) {
-    if !state.client_views.is_empty() && !state.client_views.contains_key(&hello.client_id) {
-        crate::debug_log(&format!(
-            "CTRL SIDEBAR ignoring hello from disconnected/unobserved client_id={}",
-            hello.client_id
-        ));
-        return;
-    }
     let tab_index = find_tab_for_plugin(state, hello.plugin_id);
 
     if let Some(idx) = tab_index {
@@ -332,5 +325,57 @@ mod tests {
 
         assert!(state.sidebar_registry.contains_key(&10));
         assert!(!state.sidebar_registry.contains_key(&20));
+    }
+
+    #[test]
+    fn test_hello_accepted_from_unknown_client_when_views_nonempty() {
+        let mut state = ControllerState::default();
+        state.plugin_id = 1;
+
+        let mut panes = std::collections::HashMap::new();
+        panes.insert(0, vec![make_plugin_pane(1), make_plugin_pane(50)]);
+        state.pane_manifest = Some(PaneManifest { panes });
+
+        // Populate client_views with client 1 only
+        state.client_views.insert(1, Default::default());
+
+        // Hello from client 3 (not in client_views) should still register
+        let hello = SidebarHello {
+            plugin_id: 50,
+            client_id: 3,
+        };
+        handle_sidebar_hello(&mut state, hello);
+
+        assert!(state.sidebar_registry.contains_key(&50));
+        assert_eq!(state.sidebar_registry[&50], (0, 3));
+    }
+
+    #[test]
+    fn test_sidebar_survives_client_views_flap() {
+        let mut state = ControllerState::default();
+        state.plugin_id = 1;
+
+        let mut panes = std::collections::HashMap::new();
+        panes.insert(0, vec![make_plugin_pane(1), make_plugin_pane(50)]);
+        state.pane_manifest = Some(PaneManifest { panes });
+
+        // Register sidebar for client 2
+        state.sidebar_registry.insert(50, (0, 2));
+        state.client_views.insert(1, Default::default());
+        state.client_views.insert(2, Default::default());
+
+        // Simulate flap: client 2 disappears from client_views
+        state.client_views.remove(&2);
+
+        // Sidebar should still be in the registry (no purge on flap)
+        assert!(state.sidebar_registry.contains_key(&50));
+
+        // And a re-hello should still be accepted
+        let hello = SidebarHello {
+            plugin_id: 50,
+            client_id: 2,
+        };
+        handle_sidebar_hello(&mut state, hello);
+        assert!(state.sidebar_registry.contains_key(&50));
     }
 }

@@ -47,6 +47,10 @@ pub struct RenderSession {
     /// Whether this session is operating inside a `.claude/worktrees/` directory.
     #[serde(default)]
     pub in_worktree: bool,
+    /// Profile-specific color override for the activity indicator.
+    /// When set, the sidebar uses this instead of the activity-derived color.
+    #[serde(default)]
+    pub agent_color: Option<(u8, u8, u8)>,
 }
 
 /// Complete render payload broadcast by the controller to all sidebars.
@@ -75,6 +79,17 @@ pub struct RenderPayload {
     pub client_views: BTreeMap<u16, ClientViewSnapshot>,
     #[serde(default)]
     pub multiplayer_colors: Option<Vec<(u8, u8, u8)>>,
+    /// Profile legend entries for the help overlay, sorted by name.
+    #[serde(default)]
+    pub profile_legend: Vec<LegendEntry>,
+}
+
+/// A single entry in the profile legend shown in the help overlay.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LegendEntry {
+    pub name: String,
+    pub indicator: String,
+    pub color: (u8, u8, u8),
 }
 
 /// Render-safe projection of a connected client's state.
@@ -186,6 +201,7 @@ mod protocol_tests {
                 badges: vec![],
                 agent_indicator: None,
                 in_worktree: false,
+                agent_color: None,
             }],
             notification: None,
             notification_expiry: None,
@@ -200,6 +216,7 @@ mod protocol_tests {
             sort_active: false,
             client_views: BTreeMap::new(),
             multiplayer_colors: None,
+            profile_legend: vec![],
         };
         let json = serde_json::to_string(&payload).unwrap();
         let restored: RenderPayload = serde_json::from_str(&json).unwrap();
@@ -289,6 +306,7 @@ mod protocol_tests {
             sort_active: false,
             client_views: BTreeMap::new(),
             multiplayer_colors: None,
+            profile_legend: vec![],
         };
         let json = serde_json::to_string(&payload).unwrap();
         let restored: RenderPayload = serde_json::from_str(&json).unwrap();
@@ -322,6 +340,7 @@ mod protocol_tests {
             sort_active: false,
             client_views: BTreeMap::new(),
             multiplayer_colors: None,
+            profile_legend: vec![],
         };
         let json = serde_json::to_string(&payload).unwrap();
         let restored: RenderPayload = serde_json::from_str(&json).unwrap();
@@ -402,6 +421,7 @@ mod protocol_tests {
                 },
             )]),
             multiplayer_colors: None,
+            profile_legend: vec![],
         };
         let json = serde_json::to_string(&payload).unwrap();
         let restored: RenderPayload = serde_json::from_str(&json).unwrap();

@@ -435,6 +435,9 @@ func (s *testStubAgent) HooksInstalled() bool                                 { 
 func (s *testStubAgent) TranslateEvent(_ []byte) (*agent.NormalizedPayload, error) { return nil, nil }
 func (s *testStubAgent) CredentialSpecs() []agent.CredentialSpec              { return s.specs }
 func (s *testStubAgent) RequiredDomainGroups() []string                      { return nil }
+func (s *testStubAgent) Binary() string                                       { return s.name }
+func (s *testStubAgent) InstallHooksAt(_ string) error                        { return nil }
+func (s *testStubAgent) ResumeArgs(_ string) []string                         { return nil }
 
 func TestWsPrune_IsNoOp(t *testing.T) {
 	cmd := newWsPruneCmd()

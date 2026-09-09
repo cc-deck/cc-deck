@@ -208,6 +208,37 @@ cc-deck ws update my-project --auth-mode bedrock
 
 For K8s workspaces where credentials come from Secrets or external providers, mark the workspace as externally provided to skip host-side validation.
 
+### Harness profiles
+
+Define named profiles in `config.yaml` to run different accounts or credentials for the same AI agent side by side. Each profile generates a wrapper command (for example `claude-work`, `codex-team`) that sets credentials, model, and config directory before launching the real harness binary.
+
+```yaml
+profiles:
+  work:
+    harness: claude
+    backend: vertex
+    project: acme-ml
+    region: us-east5
+    model: claude-sonnet-5
+    auth:
+      credentials: {file: ~/.config/gcloud/acme-adc.json}
+    color: "#4FC1E9"
+  private:
+    harness: claude
+    model: claude-opus-5
+    auth:
+      login: true
+    color: "#EC87C0"
+```
+
+After editing profiles, run the sync command to generate or update the wrapper scripts:
+
+```bash
+cc-deck config profile sync
+```
+
+When sessions from different profiles run in the same workspace, the sidebar shows a harness glyph colored per profile so you can tell them apart at a glance. Profiles travel to SSH and OpenShell workspaces through the existing credential transport, and snapshots preserve which profile each session was running under so that restore brings every session back with the correct account.
+
 ### Multi-platform
 
 Run cc-deck locally with Zellij, in Podman containers, or on Kubernetes clusters with persistent StatefulSet-backed workspaces. OpenShift is detected automatically. The sidebar works the same everywhere.
@@ -734,3 +765,4 @@ cc-deck follows [Spec-Driven Development](CONTRIBUTING.md#spec-driven-developmen
 | [056](specs/056-openshell-build-target/) | OpenShell Build Target | In Progress |
 | [058](specs/058-openshell-credential-injection/) | OpenShell Credential Injection | In Progress |
 | [075](specs/075-openshell-sdk-migration/) | OpenShell SDK Migration | In Progress |
+| [087](specs/087-harness-profiles/) | Harness Profiles | In Progress |

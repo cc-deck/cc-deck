@@ -548,3 +548,194 @@ fn test_controller_still_queues_non_timer_events_while_unpermissioned() {
     assert_eq!(plugin.test_state().pending_events.len(), 1);
     assert_eq!(plugin.test_state().permission_retries, 0);
 }
+
+// ---------------------------------------------------------------------------
+// US2: Profile Indicators and Legend (T039)
+// ---------------------------------------------------------------------------
+
+use crate::controller::render_broadcast::build_render_payload;
+use crate::controller::state::ControllerState;
+use crate::session::Session;
+
+fn profiled_session(
+    pane_id: u32,
+    name: &str,
+    agent: &str,
+    indicator: &str,
+    profile: &str,
+    color: (u8, u8, u8),
+) -> Session {
+    let mut s = Session::new(pane_id, format!("session-{pane_id}"));
+    s.display_name = name.to_string();
+    s.activity = Activity::Working;
+    s.tab_index = Some(pane_id as usize);
+    s.agent_name = Some(agent.to_string());
+    s.agent_indicator = Some(indicator.to_string());
+    s.profile = Some(profile.to_string());
+    s.profile_color = Some(color);
+    s
+}
+
+fn agent_session(pane_id: u32, name: &str, agent: &str, indicator: &str) -> Session {
+    let mut s = Session::new(pane_id, format!("session-{pane_id}"));
+    s.display_name = name.to_string();
+    s.activity = Activity::Working;
+    s.tab_index = Some(pane_id as usize);
+    s.agent_name = Some(agent.to_string());
+    s.agent_indicator = Some(indicator.to_string());
+    s
+}
+
+#[test]
+fn test_profile_one_harness_two_profiles_shows_indicators() {
+    let mut state = ControllerState::default();
+    state.sessions.insert(1, profiled_session(1, "work-api", "claude-code", "\u{2733}", "work", (255, 0, 0)));
+    state.sessions.insert(2, profiled_session(2, "personal-blog", "claude-code", "\u{2733}", "personal", (0, 255, 0)));
+
+    let payload = build_render_payload(&state);
+    assert!(payload.show_agent_indicators);
+    assert!(payload.sessions.iter().all(|s| s.agent_indicator.is_some()));
+    assert_eq!(payload.profile_legend.len(), 2);
+    let legend_names: Vec<&str> = payload.profile_legend.iter().map(|e| e.name.as_str()).collect();
+    assert!(legend_names.contains(&"work"));
+    assert!(legend_names.contains(&"personal"));
+}
+
+#[test]
+fn test_profile_two_harnesses_shows_indicators() {
+    let mut state = ControllerState::default();
+    state.sessions.insert(1, agent_session(1, "claude-project", "claude-code", "\u{2733}"));
+    state.sessions.insert(2, agent_session(2, "codex-project", "codex", "C"));
+
+    let payload = build_render_payload(&state);
+    assert!(payload.show_agent_indicators);
+}
+
+#[test]
+fn test_profile_same_harness_same_profile_hides() {
+    let mut state = ControllerState::default();
+    state.sessions.insert(1, profiled_session(1, "api-1", "claude-code", "\u{2733}", "work", (255, 0, 0)));
+    state.sessions.insert(2, profiled_session(2, "api-2", "claude-code", "\u{2733}", "work", (255, 0, 0)));
+
+    let payload = build_render_payload(&state);
+    assert!(!payload.show_agent_indicators);
+    assert!(payload.sessions.iter().all(|s| s.agent_indicator.is_none()));
+}
+
+#[test]
+fn test_profile_unprofiled_plus_profiled_shows() {
+    let mut state = ControllerState::default();
+    state.sessions.insert(1, agent_session(1, "bare-claude", "claude-code", "\u{2733}"));
+    state.sessions.insert(2, profiled_session(2, "work-claude", "claude-code", "\u{2733}", "work", (255, 0, 0)));
+
+    let payload = build_render_payload(&state);
+    assert!(payload.show_agent_indicators);
+    assert_eq!(payload.profile_legend.len(), 1);
+    assert_eq!(payload.profile_legend[0].name, "work");
+}
+
+#[test]
+fn test_profile_legend_content_and_order() {
+    let mut state = ControllerState::default();
+    state.sessions.insert(1, profiled_session(1, "s-alpha", "claude-code", "\u{2733}", "alpha", (170, 170, 170)));
+    state.sessions.insert(2, profiled_session(2, "s-charlie", "claude-code", "\u{2733}", "charlie", (204, 204, 204)));
+    state.sessions.insert(3, profiled_session(3, "s-bravo", "claude-code", "\u{2733}", "bravo", (187, 187, 187)));
+
+    let payload = build_render_payload(&state);
+    assert_eq!(payload.profile_legend.len(), 3);
+    assert_eq!(payload.profile_legend[0].name, "alpha");
+    assert_eq!(payload.profile_legend[1].name, "bravo");
+    assert_eq!(payload.profile_legend[2].name, "charlie");
+    assert_eq!(payload.profile_legend[0].color, (170, 170, 170));
+    assert_eq!(payload.profile_legend[1].color, (187, 187, 187));
+    assert_eq!(payload.profile_legend[2].color, (204, 204, 204));
+}
+
+#[test]
+fn test_profile_color_update_on_later_hook() {
+    let mut state = ControllerState::default();
+    let mut s = profiled_session(1, "api", "claude-code", "\u{2733}", "work", (255, 0, 0));
+    s.profile_color = Some((0, 255, 0));
+    state.sessions.insert(1, s);
+
+    let payload = build_render_payload(&state);
+    assert_eq!(payload.sessions[0].agent_color, Some((0, 255, 0)));
+    assert_eq!(payload.profile_legend[0].color, (0, 255, 0));
+}
+
+// ---------------------------------------------------------------------------
+// User Story 4: Restore-meta applies profile and profile_color (T054)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_restore_meta_applies_profile_and_color() {
+    use crate::controller::hooks::{process_hook, process_restore_meta};
+    use crate::pipe_handler::HookPayload;
+
+    let mut state = ControllerState::default();
+
+    // Load restore-meta with profile and profile_color.
+    let meta = r##"{"/home/user/api":[{"display_name":"api-server","paused":false,"profile":"work","profile_color":"#aa00ff"}]}"##;
+    process_restore_meta(&mut state, meta);
+
+    // Create a session and trigger a hook with a CWD that matches the override.
+    let mut s = Session::new(42, "test".into());
+    s.display_name = "session-42".to_string();
+    state.sessions.insert(42, s);
+
+    let hook = HookPayload {
+        agent: None,
+        agent_indicator: None,
+        session_id: Some("test".to_string()),
+        pane_id: 42,
+        hook_event_name: "PreToolUse".to_string(),
+        tool_name: None,
+        cwd: Some("/home/user/api".to_string()),
+        agent_id: None,
+        badges: vec![],
+        profile: None,
+        profile_color: None,
+    };
+    process_hook(&mut state, hook);
+
+    let session = &state.sessions[&42];
+    assert_eq!(session.display_name, "api-server");
+    assert_eq!(session.profile, Some("work".to_string()));
+    assert_eq!(session.profile_color, Some((170, 0, 255)));
+}
+
+#[test]
+fn test_restore_meta_without_profile_leaves_none() {
+    use crate::controller::hooks::{process_hook, process_restore_meta};
+    use crate::pipe_handler::HookPayload;
+
+    let mut state = ControllerState::default();
+
+    // Pre-feature snapshot: no profile or profile_color fields.
+    let meta = r#"{"/home/user/old":[{"display_name":"legacy","paused":false}]}"#;
+    process_restore_meta(&mut state, meta);
+
+    let mut s = Session::new(10, "old-session".into());
+    s.display_name = "session-10".to_string();
+    state.sessions.insert(10, s);
+
+    let hook = HookPayload {
+        agent: None,
+        agent_indicator: None,
+        session_id: Some("old-session".to_string()),
+        pane_id: 10,
+        hook_event_name: "PreToolUse".to_string(),
+        tool_name: None,
+        cwd: Some("/home/user/old".to_string()),
+        agent_id: None,
+        badges: vec![],
+        profile: None,
+        profile_color: None,
+    };
+    process_hook(&mut state, hook);
+
+    let session = &state.sessions[&10];
+    assert_eq!(session.display_name, "legacy");
+    assert_eq!(session.profile, None);
+    assert_eq!(session.profile_color, None);
+}

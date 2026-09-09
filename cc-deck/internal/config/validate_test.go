@@ -615,3 +615,231 @@ func TestValidateAndWarn_WarningsOnly_Silent(t *testing.T) {
 		t.Errorf("expected no stderr for warnings-only, got %q", buf.String())
 	}
 }
+
+// --- Profile Validation Tests (T009) ---
+
+func TestValidateProfiles_NamePattern(t *testing.T) {
+	profiles := map[string]Profile{
+		"UPPERCASE": {Backend: BackendAnthropic, APIKeySecret: "s"},
+	}
+	findings := validateProfiles(profiles, "")
+	if f := findFinding(findings, SeverityError, "name must be lowercase"); f == nil {
+		t.Error("expected error for uppercase profile name")
+	}
+}
+
+func TestValidateProfiles_NameWithSpaces(t *testing.T) {
+	profiles := map[string]Profile{
+		"bad name": {Backend: BackendAnthropic, APIKeySecret: "s"},
+	}
+	findings := validateProfiles(profiles, "")
+	if f := findFinding(findings, SeverityError, "name must be lowercase"); f == nil {
+		t.Error("expected error for profile name with spaces")
+	}
+}
+
+func TestValidateProfiles_ValidName(t *testing.T) {
+	profiles := map[string]Profile{
+		"work-1": {Backend: BackendAnthropic, APIKeySecret: "s"},
+	}
+	findings := validateProfiles(profiles, "")
+	if f := findFinding(findings, SeverityError, "name must be lowercase"); f != nil {
+		t.Errorf("unexpected error for valid name: %s", f.Message)
+	}
+}
+
+func TestValidateProfiles_UnknownHarness(t *testing.T) {
+	profiles := map[string]Profile{
+		"test": {Harness: "unknown", Auth: &AuthConfig{APIKey: &CredentialSource{Env: "K"}}},
+	}
+	findings := validateProfiles(profiles, "")
+	if f := findFinding(findings, SeverityError, "unknown harness"); f == nil {
+		t.Error("expected error for unknown harness")
+	}
+}
+
+func TestValidateProfiles_BackendNotValidForHarness(t *testing.T) {
+	profiles := map[string]Profile{
+		"test": {
+			Harness: "codex",
+			Backend: BackendVertex,
+			Auth:    &AuthConfig{APIKey: &CredentialSource{Env: "K"}},
+		},
+	}
+	findings := validateProfiles(profiles, "")
+	if f := findFinding(findings, SeverityError, "not valid for harness"); f == nil {
+		t.Error("expected error for vertex backend on codex harness")
+	}
+}
+
+func TestValidateProfiles_CredentialSourceExactlyOne(t *testing.T) {
+	profiles := map[string]Profile{
+		"test": {
+			Harness: "claude",
+			Auth: &AuthConfig{
+				APIKey: &CredentialSource{Env: "K", File: "/f"},
+			},
+		},
+	}
+	findings := validateProfiles(profiles, "")
+	if f := findFinding(findings, SeverityError, "must set exactly one"); f == nil {
+		t.Error("expected error for credential source with two fields set")
+	}
+}
+
+func TestValidateProfiles_CredentialSourceEmpty(t *testing.T) {
+	profiles := map[string]Profile{
+		"test": {
+			Harness: "claude",
+			Auth: &AuthConfig{
+				APIKey: &CredentialSource{},
+			},
+		},
+	}
+	findings := validateProfiles(profiles, "")
+	if f := findFinding(findings, SeverityError, "must set exactly one"); f == nil {
+		t.Error("expected error for empty credential source")
+	}
+}
+
+func TestValidateProfiles_LoginAndAPIKeyExclusive(t *testing.T) {
+	profiles := map[string]Profile{
+		"test": {
+			Harness: "claude",
+			Auth: &AuthConfig{
+				Login:  true,
+				APIKey: &CredentialSource{Env: "K"},
+			},
+		},
+	}
+	findings := validateProfiles(profiles, "")
+	if f := findFinding(findings, SeverityError, "mutually exclusive"); f == nil {
+		t.Error("expected error for login + api_key")
+	}
+}
+
+func TestValidateProfiles_LoginOnlyForClaude(t *testing.T) {
+	profiles := map[string]Profile{
+		"test": {
+			Harness: "codex",
+			Auth:    &AuthConfig{Login: true},
+		},
+	}
+	findings := validateProfiles(profiles, "")
+	if f := findFinding(findings, SeverityError, "auth.login is not supported"); f == nil {
+		t.Error("expected error for login on codex")
+	}
+}
+
+func TestValidateProfiles_InvalidColor(t *testing.T) {
+	profiles := map[string]Profile{
+		"test": {
+			Harness: "claude",
+			Auth:    &AuthConfig{APIKey: &CredentialSource{Env: "K"}},
+			Color:   "red",
+		},
+	}
+	findings := validateProfiles(profiles, "")
+	if f := findFinding(findings, SeverityError, "color must be #RRGGBB"); f == nil {
+		t.Error("expected error for invalid color")
+	}
+}
+
+func TestValidateProfiles_ValidColor(t *testing.T) {
+	profiles := map[string]Profile{
+		"test": {
+			Harness: "claude",
+			Auth:    &AuthConfig{APIKey: &CredentialSource{Env: "K"}},
+			Color:   "#4FC1E9",
+		},
+	}
+	findings := validateProfiles(profiles, "")
+	if f := findFinding(findings, SeverityError, "color must be #RRGGBB"); f != nil {
+		t.Errorf("unexpected color error: %s", f.Message)
+	}
+}
+
+func TestValidateProfiles_IconMultiChar(t *testing.T) {
+	profiles := map[string]Profile{
+		"test": {
+			Harness: "claude",
+			Auth:    &AuthConfig{APIKey: &CredentialSource{Env: "K"}},
+			Icon:    "AB",
+		},
+	}
+	findings := validateProfiles(profiles, "")
+	if f := findFinding(findings, SeverityError, "icon must be a single glyph"); f == nil {
+		t.Error("expected error for multi-char icon")
+	}
+}
+
+func TestValidateProfiles_IconSingleChar(t *testing.T) {
+	profiles := map[string]Profile{
+		"test": {
+			Harness: "claude",
+			Auth:    &AuthConfig{APIKey: &CredentialSource{Env: "K"}},
+			Icon:    "W",
+		},
+	}
+	findings := validateProfiles(profiles, "")
+	if f := findFinding(findings, SeverityError, "icon must be a single glyph"); f != nil {
+		t.Errorf("unexpected icon error: %s", f.Message)
+	}
+}
+
+func TestValidateProfiles_InvalidEnvKey(t *testing.T) {
+	profiles := map[string]Profile{
+		"test": {
+			Harness: "claude",
+			Auth:    &AuthConfig{APIKey: &CredentialSource{Env: "K"}},
+			Env:     map[string]string{"bad-key": "val"},
+		},
+	}
+	findings := validateProfiles(profiles, "")
+	if f := findFinding(findings, SeverityError, "not a valid variable name"); f == nil {
+		t.Error("expected error for invalid env key")
+	}
+}
+
+func TestValidateProfiles_ValidEnvKey(t *testing.T) {
+	profiles := map[string]Profile{
+		"test": {
+			Harness: "claude",
+			Auth:    &AuthConfig{APIKey: &CredentialSource{Env: "K"}},
+			Env:     map[string]string{"MY_VAR": "val"},
+		},
+	}
+	findings := validateProfiles(profiles, "")
+	if f := findFinding(findings, SeverityError, "not a valid variable name"); f != nil {
+		t.Errorf("unexpected env key error: %s", f.Message)
+	}
+}
+
+func TestValidateProfiles_LegacyProfileNoErrors(t *testing.T) {
+	profiles := map[string]Profile{
+		"prod": {Backend: BackendAnthropic, APIKeySecret: "s"},
+	}
+	findings := validateProfiles(profiles, "prod")
+	for _, f := range findings {
+		if f.Severity == SeverityError {
+			t.Errorf("unexpected error for legacy profile: %s", f.Message)
+		}
+	}
+}
+
+func TestValidateProfiles_InvalidCredentialEnvName(t *testing.T) {
+	profiles := map[string]Profile{
+		"test": {
+			Harness: "claude",
+			Auth:    &AuthConfig{APIKey: &CredentialSource{Env: `X"; echo pwned; #`}},
+		},
+	}
+	findings := validateProfiles(profiles, "")
+	f := findFinding(findings, SeverityError, "auth.api_key.env")
+	if f == nil {
+		t.Fatal("expected error for credential env name that is not a shell identifier")
+	}
+	if !strings.Contains(f.Message, "not a valid variable name") {
+		t.Errorf("unexpected message: %s", f.Message)
+	}
+}

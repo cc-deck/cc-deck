@@ -183,6 +183,14 @@ pub struct Session {
     /// directory. Set from CWD changes; persisted for reattach.
     #[serde(default)]
     pub in_worktree: bool,
+    /// Profile name from CC_DECK_PROFILE (e.g., "work", "private").
+    /// Set from the first hook event carrying a profile field.
+    #[serde(default)]
+    pub profile: Option<String>,
+    /// Profile color as #RRGGBB string. Set alongside the profile name,
+    /// parsed into an RGB tuple for rendering by the controller.
+    #[serde(default)]
+    pub profile_color: Option<(u8, u8, u8)>,
 }
 
 impl Session {
@@ -207,6 +215,8 @@ impl Session {
             agent_indicator: None,
             pending_permissions: 0,
             in_worktree: false,
+            profile: None,
+            profile_color: None,
         }
     }
 

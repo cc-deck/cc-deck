@@ -29,8 +29,13 @@ pub struct RenderResult {
 /// Returns click regions and viewport metadata for mouse/scroll handling.
 pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> RenderResult {
     if state.mode.is_help() {
+        let legend = state
+            .cached_payload
+            .as_ref()
+            .map(|p| p.profile_legend.as_slice())
+            .unwrap_or(&[]);
         return RenderResult {
-            click_regions: render_help_overlay(rows, cols),
+            click_regions: render_help_overlay(rows, cols, legend),
             viewport_start: 0,
             max_visible: 0,
         };
@@ -484,6 +489,8 @@ fn render_session_entry(
     rename_state: Option<&super::modes::RenameState>,
     presence: &[LocalPresence],
 ) -> Option<ClickRegion> {
+    // The activity indicator always carries the status color (working, idle,
+    // fading). A profile colors the harness glyph instead, see agent_part.
     let (r, g, b) = session.color;
     let indicator = if session.paused {
         "\u{23f8}"
@@ -538,7 +545,10 @@ fn render_session_entry(
         let agent_part = if agent_prefix.is_empty() {
             String::new()
         } else {
-            let (ar, ag, ab) = agent_indicator_color(&agent_prefix);
+            // Profile color wins over the harness brand color (FR-017).
+            let (ar, ag, ab) = session
+                .agent_color
+                .unwrap_or_else(|| agent_indicator_color(&agent_prefix));
             format!("\x1b[38;2;{ar};{ag};{ab}m{agent_prefix}\x1b[0m ")
         };
 
@@ -572,7 +582,9 @@ fn render_session_entry(
         let agent_part = if agent_prefix.is_empty() {
             String::new()
         } else {
-            let (ar, ag, ab) = agent_indicator_color(&agent_prefix);
+            let (ar, ag, ab) = session
+                .agent_color
+                .unwrap_or_else(|| agent_indicator_color(&agent_prefix));
             format!("\x1b[38;2;{ar};{ag};{ab}m{agent_prefix}{bg}{fg} ")
         };
         let bold_or_dim = if session.paused { "\x1b[2m" } else { "\x1b[1m" };
@@ -756,16 +768,48 @@ const HELP_LINES: &[&str] = &[
     " \x1b[1m?\x1b[0m      This help",
 ];
 
-/// Render a help overlay listing all keyboard shortcuts.
-fn render_help_overlay(rows: usize, cols: usize) -> Vec<ClickRegion> {
+/// Render a help overlay listing all keyboard shortcuts and an optional
+/// profile legend section when profiles are active.
+fn render_help_overlay(rows: usize, cols: usize, legend: &[cc_deck::LegendEntry]) -> Vec<ClickRegion> {
     let help_lines = HELP_LINES;
-    for (i, line) in help_lines.iter().enumerate() {
-        if i >= rows {
+    let mut row = 0;
+    for line in help_lines.iter() {
+        if row >= rows {
             break;
         }
-        print!("\x1b[{};1H{}", i + 1, pad(line, cols));
+        print!("\x1b[{};1H{}", row + 1, pad(line, cols));
+        row += 1;
     }
-    for i in help_lines.len()..rows {
+
+    // Append a dynamic Profiles section when legend entries exist.
+    if !legend.is_empty() && row < rows {
+        // Blank separator
+        print!("\x1b[{};1H{}", row + 1, " ".repeat(cols));
+        row += 1;
+        if row < rows {
+            print!(
+                "\x1b[{};1H{}",
+                row + 1,
+                pad(" \x1b[2mProfiles:\x1b[0m", cols)
+            );
+            row += 1;
+        }
+        for entry in legend {
+            if row >= rows {
+                break;
+            }
+            let (cr, cg, cb) = entry.color;
+            // Format: " <indicator> <color swatch> <name>"
+            let line = format!(
+                " {} \x1b[48;2;{cr};{cg};{cb}m \x1b[0m {}",
+                entry.indicator, entry.name
+            );
+            print!("\x1b[{};1H{}", row + 1, pad(&line, cols));
+            row += 1;
+        }
+    }
+
+    for i in row..rows {
         print!("\x1b[{};1H{}", i + 1, " ".repeat(cols));
     }
 
@@ -1128,6 +1172,7 @@ mod tests {
             badges: vec![],
             agent_indicator: None,
             in_worktree: false,
+            agent_color: None,
         };
         let s2 = cc_deck::RenderSession {
             pane_id: 2,
@@ -1142,6 +1187,7 @@ mod tests {
             badges: vec![],
             agent_indicator: None,
             in_worktree: false,
+            agent_color: None,
         };
         let sessions: Vec<&RenderSession> = vec![&s1, &s2];
         let (start, end, above, below) = visible_range(2, 5, 0, None, false, &sessions, None);
@@ -1164,6 +1210,7 @@ mod tests {
                 badges: vec![],
                 agent_indicator: None,
                 in_worktree: false,
+                agent_color: None,
             })
             .collect();
         let refs: Vec<&RenderSession> = sessions_owned.iter().collect();
@@ -1189,6 +1236,7 @@ mod tests {
                 badges: vec![],
                 agent_indicator: None,
                 in_worktree: false,
+                agent_color: None,
             })
             .collect();
         let refs: Vec<&RenderSession> = sessions_owned.iter().collect();
@@ -1217,6 +1265,7 @@ mod tests {
                 badges: vec![],
                 agent_indicator: None,
                 in_worktree: false,
+                agent_color: None,
             })
             .collect();
         let refs: Vec<&RenderSession> = sessions_owned.iter().collect();

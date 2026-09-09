@@ -35,15 +35,6 @@ pub fn handle_tab_update(state: &mut ControllerState, tabs: Vec<TabInfo>) {
     }
     state.last_tab_count = current_tab_count;
 
-    let active_clients = state
-        .client_views
-        .keys()
-        .copied()
-        .collect::<std::collections::HashSet<_>>();
-    state
-        .sidebar_registry
-        .retain(|_, (_, client_id)| active_clients.contains(client_id));
-
     // If tab count changed, notify sidebars to reindex and update virtual sort
     if tab_count_changed {
         if let Some(ref mut order) = state.sort_order {
@@ -1005,5 +996,38 @@ mod tests {
         handle_tab_update(&mut state, tabs);
 
         assert!(!state.render_dirty, "no render dirty when nothing to clean");
+    }
+
+    #[test]
+    fn test_tab_update_does_not_purge_sidebars_from_missing_clients() {
+        let mut state = ControllerState::default();
+        state.permissions_granted = true;
+        state.keybindings_registered = true;
+        state.last_tab_count = 1;
+
+        // Client 1 is active, client 2 is not in client_views
+        state
+            .client_views
+            .entry(1)
+            .or_default()
+            .active_tab_index = Some(0);
+
+        // Sidebars from both clients
+        state.sidebar_registry.insert(50, (0, 1));
+        state.sidebar_registry.insert(60, (0, 2));
+
+        let tabs = vec![make_tab_info(0, true)];
+        handle_tab_update(&mut state, tabs);
+
+        // Both sidebars should survive (cleanup_dead_sidebars handles removal,
+        // not the TabUpdate client_views reconciliation)
+        assert!(
+            state.sidebar_registry.contains_key(&50),
+            "client 1's sidebar should remain"
+        );
+        assert!(
+            state.sidebar_registry.contains_key(&60),
+            "client 2's sidebar should survive even without client_views entry"
+        );
     }
 }

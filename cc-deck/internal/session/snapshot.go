@@ -22,6 +22,8 @@ type SessionEntry struct {
 	DisplayName string `json:"display_name"`
 	Paused      bool   `json:"paused"`
 	GitBranch   string `json:"git_branch,omitempty"`
+	Agent       string `json:"agent,omitempty"`
+	Profile     string `json:"profile,omitempty"`
 	tabIndex    int    // internal, for sorting during save
 }
 

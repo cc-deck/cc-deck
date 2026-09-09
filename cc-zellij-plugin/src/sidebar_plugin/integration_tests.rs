@@ -213,6 +213,7 @@ fn test_render_payload_roundtrip_through_pipe() {
             },
         )]),
         multiplayer_colors: None,
+        profile_legend: vec![],
     };
 
     let json = serde_json::to_string(&original).unwrap();
@@ -275,7 +276,7 @@ fn test_local_mute_override_preserved_on_mismatch() {
 }
 
 use super::SidebarRendererPlugin;
-use cc_deck::RenderPayload;
+use cc_deck::{LegendEntry, RenderPayload};
 
 // ---------------------------------------------------------------------------
 // Lost Permission Grant Recovery
@@ -340,4 +341,49 @@ fn test_sidebar_permission_grant_requests_repaint() {
     let should_render = plugin.update(Event::PermissionRequestResult(PermissionStatus::Granted));
 
     assert!(should_render);
+}
+
+// ---------------------------------------------------------------------------
+// US2: Profile Indicators in Sidebar (T040)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_sidebar_agent_color_reaches_rendered_session() {
+    let mut plugin = setup_sidebar();
+
+    let mut session = make_session(1, "profiled", 0);
+    session.agent_color = Some((255, 0, 0));
+    let payload = make_payload(vec![session]);
+    let json = serde_json::to_string(&payload).unwrap();
+    plugin.pipe(make_pipe("cc-deck:render", &json));
+
+    let cached = plugin.test_state().cached_payload.as_ref().unwrap();
+    assert_eq!(cached.sessions.len(), 1);
+    assert_eq!(cached.sessions[0].agent_color, Some((255, 0, 0)));
+}
+
+#[test]
+fn test_sidebar_help_overlay_contains_legend_names() {
+    let mut plugin = setup_sidebar();
+
+    let mut payload = make_payload(vec![make_session(1, "test", 0)]);
+    payload.profile_legend = vec![
+        LegendEntry {
+            name: "work".to_string(),
+            indicator: "\u{2733}".to_string(),
+            color: (255, 0, 0),
+        },
+        LegendEntry {
+            name: "personal".to_string(),
+            indicator: "\u{2733}".to_string(),
+            color: (0, 255, 0),
+        },
+    ];
+    let json = serde_json::to_string(&payload).unwrap();
+    plugin.pipe(make_pipe("cc-deck:render", &json));
+
+    let cached = plugin.test_state().cached_payload.as_ref().unwrap();
+    assert_eq!(cached.profile_legend.len(), 2);
+    assert_eq!(cached.profile_legend[0].name, "work");
+    assert_eq!(cached.profile_legend[1].name, "personal");
 }

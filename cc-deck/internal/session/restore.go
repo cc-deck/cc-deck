@@ -7,7 +7,12 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
+
+	"github.com/cc-deck/cc-deck/internal/agent"
+	"github.com/cc-deck/cc-deck/internal/config"
+	"github.com/cc-deck/cc-deck/internal/profile"
 )
 
 // Restore recreates tabs and starts Claude sessions from a saved snapshot.
@@ -30,10 +35,13 @@ func Restore(name string, w io.Writer) error {
 		return nil
 	}
 
+	// Load config for profile-aware launch commands.
+	cfg, _ := config.Load("")
+
 	// Send pending metadata overrides to the plugin before creating tabs.
 	// Keyed by resolved working directory so the plugin can match when
 	// sessions start and report their CWD via hook events.
-	sendPendingOverrides(snap.Sessions)
+	sendPendingOverrides(snap.Sessions, cfg)
 
 	// Track which directories have already had a session started so we
 	// can add extra delay between sessions sharing the same directory.
@@ -78,12 +86,13 @@ func Restore(name string, w io.Writer) error {
 			}
 		}
 
-		// Start Claude with --resume, fall back to fresh start
-		if entry.SessionID != "" {
-			writeChars(fmt.Sprintf("claude --resume %s\n", entry.SessionID))
-		} else {
-			writeChars("claude\n")
+		// Build the launch command for this entry, respecting agent and
+		// profile fields when present.
+		cmd, warning := launchCommand(entry, cfg)
+		if warning != "" {
+			fmt.Fprintf(w, "  Warning: %s\n", warning)
 		}
+		writeChars(cmd + "\n")
 
 		if entry.WorkingDir != "" {
 			startedDirs[entry.WorkingDir] = true
@@ -98,6 +107,50 @@ func Restore(name string, w io.Writer) error {
 
 	fmt.Fprintf(w, "Restored %d session(s) from snapshot %q\n", total, snap.Name)
 	return nil
+}
+
+// launchCommand builds the shell command string for restoring a session entry.
+// It resolves the correct binary or wrapper based on the entry's Agent and
+// Profile fields, appends ResumeArgs when a session ID is available, and
+// returns a warning when a profile referenced in the snapshot no longer exists.
+func launchCommand(entry SessionEntry, cfg *config.Config) (cmd string, warning string) {
+	agentName := entry.Agent
+	if agentName == "" {
+		agentName = "claude"
+	}
+	a := agent.Get(agentName)
+	if a == nil {
+		// Unknown agent, fall back to claude.
+		a = agent.Get("claude")
+		if a == nil {
+			// Absolute fallback: bare command.
+			if entry.SessionID != "" {
+				return "claude --resume " + entry.SessionID, fmt.Sprintf("unknown agent %q, falling back to claude", agentName)
+			}
+			return "claude", fmt.Sprintf("unknown agent %q, falling back to claude", agentName)
+		}
+		warning = fmt.Sprintf("unknown agent %q, falling back to %s", agentName, a.Binary())
+	}
+
+	binary := a.Binary()
+
+	// When a profile is set, try to use the wrapper command.
+	if entry.Profile != "" && cfg != nil {
+		if _, err := cfg.GetProfile(entry.Profile); err == nil {
+			// Profile exists: use the wrapper name (binary-profilename).
+			binary = config.WrapperName(a.Binary(), entry.Profile)
+		} else {
+			// Profile referenced in snapshot no longer exists in config.
+			warning = fmt.Sprintf("profile %q not found in config, using plain %s", entry.Profile, a.Binary())
+		}
+	}
+
+	// Build the full command with resume args.
+	args := a.ResumeArgs(entry.SessionID)
+	if len(args) > 0 {
+		return binary + " " + strings.Join(args, " "), warning
+	}
+	return binary, warning
 }
 
 // waitForPluginReady polls the plugin using dump-state until it responds,
@@ -135,23 +188,38 @@ func writeChars(text string) {
 
 // pendingOverride is the JSON structure sent to the plugin for restore metadata.
 type pendingOverride struct {
-	DisplayName string `json:"display_name"`
-	Paused      bool   `json:"paused"`
+	DisplayName  string `json:"display_name"`
+	Paused       bool   `json:"paused"`
+	Profile      string `json:"profile,omitempty"`
+	ProfileColor string `json:"profile_color,omitempty"`
 }
 
-// sendPendingOverrides pipes session metadata to the plugin so custom names
-// and paused state survive restore. Keyed by resolved working directory,
-// with a list per directory to support multiple sessions sharing the same dir.
-func sendPendingOverrides(sessions []SessionEntry) {
+// sendPendingOverrides pipes session metadata to the plugin so custom names,
+// paused state, and profile information survive restore. Keyed by resolved
+// working directory, with a list per directory to support multiple sessions
+// sharing the same dir.
+func sendPendingOverrides(sessions []SessionEntry, cfg *config.Config) {
 	overrides := make(map[string][]pendingOverride)
 	for _, entry := range sessions {
 		if entry.WorkingDir == "" {
 			continue
 		}
-		overrides[entry.WorkingDir] = append(overrides[entry.WorkingDir], pendingOverride{
+		po := pendingOverride{
 			DisplayName: entry.DisplayName,
 			Paused:      entry.Paused,
-		})
+			Profile:     entry.Profile,
+		}
+		// Resolve the profile color from config if the profile still exists.
+		if entry.Profile != "" && cfg != nil {
+			if p, err := cfg.GetProfile(entry.Profile); err == nil {
+				color := p.Color
+				if color == "" {
+					color = profile.Derive(entry.Profile)
+				}
+				po.ProfileColor = color
+			}
+		}
+		overrides[entry.WorkingDir] = append(overrides[entry.WorkingDir], po)
 	}
 	if len(overrides) == 0 {
 		return

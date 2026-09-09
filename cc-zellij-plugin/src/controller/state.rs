@@ -55,6 +55,8 @@ pub struct Quarantine {
 pub struct PendingOverride {
     pub display_name: String,
     pub paused: bool,
+    pub profile: Option<String>,
+    pub profile_color: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
