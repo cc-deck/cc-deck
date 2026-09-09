@@ -20,7 +20,7 @@ pub struct PluginConfig {
     pub done_timeout: u64,
     /// Duration over which idle session indicators fade to dark grey (default 3600).
     pub idle_fade_secs: u64,
-    /// Auto-pause idle sessions after this many seconds (default 3600 = 1h).
+    /// Auto-pause idle sessions after this many seconds (default 18000 = 5h).
     pub auto_pause_secs: u64,
     /// Rapid-cycle window for attend in milliseconds (default 2000).
     /// Within this window, repeated Alt+a presses skip already-visited sessions.
@@ -55,7 +55,7 @@ impl Default for PluginConfig {
             sidebar_width: 22,
             done_timeout: 300,
             idle_fade_secs: 3600,
-            auto_pause_secs: 3600,
+            auto_pause_secs: 18000,
             attend_cycle_ms: 2000,
             timer_interval: 1.0,
             new_session_mode: NewSessionMode::Tab,
