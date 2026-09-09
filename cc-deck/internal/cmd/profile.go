@@ -10,6 +10,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/cc-deck/cc-deck/internal/config"
+	"github.com/cc-deck/cc-deck/internal/profile"
 )
 
 // NewProfileCmd creates the profile cobra command with subcommands.
@@ -25,6 +26,7 @@ func NewProfileCmd(globalFlags *GlobalFlags) *cobra.Command {
 		newProfileListCmd(globalFlags),
 		newProfileUseCmd(globalFlags),
 		newProfileShowCmd(globalFlags),
+		newProfileSyncCmd(globalFlags),
 	)
 
 	return profileCmd
@@ -189,6 +191,70 @@ func runProfileUse(name string, gf *GlobalFlags) error {
 	}
 
 	fmt.Fprintf(os.Stdout, "Default profile set to %q.\n", name)
+	return nil
+}
+
+func newProfileSyncCmd(gf *GlobalFlags) *cobra.Command {
+	var workspace string
+	cmd := &cobra.Command{
+		Use:   "sync",
+		Short: "Render profile wrappers and update shell PATH",
+		Long: `Render one wrapper script per valid profile into ~/.local/share/cc-deck/bin,
+prepare per-profile config directories with hooks, and ensure the bin
+directory is on PATH via managed blocks in .bashrc and .zshrc.
+
+Profiles that cannot be rendered (harness not installed, secret-only
+sources) are skipped with reasons.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if workspace != "" {
+				return fmt.Errorf("--workspace is not yet supported (planned for remote provisioning)")
+			}
+			return runProfileSync(gf)
+		},
+	}
+	cmd.Flags().StringVar(&workspace, "workspace", "", "target workspace (not yet supported)")
+	return cmd
+}
+
+func runProfileSync(gf *GlobalFlags) error {
+	cfg, err := config.Load(gf.ConfigFile)
+	if err != nil {
+		return fmt.Errorf("loading config: %w", err)
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("detecting home directory: %w", err)
+	}
+
+	result, err := profile.Sync(cfg, home)
+	if err != nil {
+		return fmt.Errorf("sync: %w", err)
+	}
+
+	for _, name := range result.Written {
+		fmt.Fprintf(os.Stdout, "  written: %s\n", name)
+	}
+	for _, name := range result.Removed {
+		fmt.Fprintf(os.Stdout, "  removed: %s\n", name)
+	}
+	for _, s := range result.Skipped {
+		fmt.Fprintf(os.Stderr, "  skipped: %s (%s)\n", s.Profile, s.Reason)
+	}
+	for _, w := range result.Warnings {
+		fmt.Fprintf(os.Stderr, "  warning: %s\n", w)
+	}
+
+	if result.RCChanged {
+		fmt.Fprintln(os.Stderr, "\nShell rc files updated. Open a new terminal or run:")
+		fmt.Fprintln(os.Stderr, "  source ~/.bashrc  # or source ~/.zshrc")
+	}
+
+	if len(result.Written) == 0 && len(result.Removed) == 0 {
+		fmt.Fprintln(os.Stdout, "Already up to date.")
+	}
+
 	return nil
 }
 

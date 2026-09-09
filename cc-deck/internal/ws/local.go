@@ -14,7 +14,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/cc-deck/cc-deck/internal/config"
 	"github.com/cc-deck/cc-deck/internal/plugin"
+	"github.com/cc-deck/cc-deck/internal/profile"
 )
 
 const (
@@ -90,6 +92,19 @@ func (e *LocalWorkspace) Attach(_ context.Context) error {
 		inst.LastAttached = &now
 		inst.SessionState = SessionStateExists
 		_ = e.store.UpdateInstance(inst)
+	}
+
+	// Ensure profile wrappers exist before starting the session so the
+	// user can launch profiled harnesses immediately. Failures are logged
+	// at debug level and never block the attach.
+	if home, homeErr := os.UserHomeDir(); homeErr == nil {
+		if cfg, cfgErr := config.Load(""); cfgErr == nil {
+			if warnings := profile.EnsureLocal(cfg, home); len(warnings) > 0 {
+				for _, w := range warnings {
+					log.Printf("DEBUG: profile sync: %s", w)
+				}
+			}
+		}
 	}
 
 	// Inside Zellij: cannot attach from within another session.
