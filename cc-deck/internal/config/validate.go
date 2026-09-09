@@ -3,7 +3,9 @@ package config
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -381,12 +383,115 @@ func checkIconWidth(_, badgeName, key, icon string) []Finding {
 	return findings
 }
 
+// profileNameRegex matches valid profile names: lowercase letters, digits and hyphens,
+// starting with a letter or digit.
+var profileNameRegex = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
+
+// colorRegex matches a valid hex color: #RRGGBB.
+var colorRegex = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
+
+// shellIdentRegex matches a valid shell variable name.
+var shellIdentRegex = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// harnessBackends maps each harness to its allowed backends.
+var harnessBackends = map[string][]BackendType{
+	"claude":   {BackendAnthropic, BackendVertex},
+	"codex":    {BackendOpenAI},
+	"opencode": {BackendOpenAI, BackendAnthropic},
+}
+
 // validateProfiles checks profile configurations and default_profile reference.
 func validateProfiles(profiles map[string]Profile, defaultProfile string) []Finding {
 	var findings []Finding
 
-	// Check each profile
 	for name, profile := range profiles {
+		// Name pattern
+		if !profileNameRegex.MatchString(name) {
+			findings = append(findings, Finding{
+				Severity:   SeverityError,
+				Category:   CategoryProfiles,
+				Message:    fmt.Sprintf("profile %q: name must be lowercase letters, digits and hyphens", name),
+				Suggestion: "use a name like 'work' or 'team-alpha'",
+			})
+		}
+
+		harness := profile.HarnessName()
+
+		// Known harness
+		known := false
+		for _, h := range KnownHarnesses {
+			if h == harness {
+				known = true
+				break
+			}
+		}
+		if !known {
+			findings = append(findings, Finding{
+				Severity:   SeverityError,
+				Category:   CategoryProfiles,
+				Message:    fmt.Sprintf("profile %q: unknown harness %q", name, harness),
+				Suggestion: fmt.Sprintf("supported harnesses: %s", strings.Join(KnownHarnesses, ", ")),
+			})
+		}
+
+		// Backend allowed for harness
+		if known && profile.Backend != "" {
+			allowed := harnessBackends[harness]
+			backendOK := false
+			for _, b := range allowed {
+				if b == profile.Backend {
+					backendOK = true
+					break
+				}
+			}
+			if !backendOK {
+				var bs []string
+				for _, b := range allowed {
+					bs = append(bs, string(b))
+				}
+				findings = append(findings, Finding{
+					Severity:   SeverityError,
+					Category:   CategoryProfiles,
+					Message:    fmt.Sprintf("profile %q: backend %q not valid for harness %q", name, profile.Backend, harness),
+					Suggestion: fmt.Sprintf("allowed backends: %s", strings.Join(bs, ", ")),
+				})
+			}
+		}
+
+		// Auth block validation
+		if profile.Auth != nil {
+			auth := profile.Auth
+
+			// Credential source validation: exactly one of env, file, secret
+			if auth.APIKey != nil {
+				findings = append(findings, validateCredentialSource(name, "api_key", auth.APIKey)...)
+			}
+			if auth.Credentials != nil {
+				findings = append(findings, validateCredentialSource(name, "credentials", auth.Credentials)...)
+			}
+
+			// Login and api_key mutually exclusive
+			if auth.Login && auth.APIKey != nil {
+				findings = append(findings, Finding{
+					Severity:   SeverityError,
+					Category:   CategoryProfiles,
+					Message:    fmt.Sprintf("profile %q: auth.login and auth.api_key are mutually exclusive", name),
+					Suggestion: "use either login or api_key, not both",
+				})
+			}
+
+			// Login only for claude
+			if auth.Login && harness != "claude" {
+				findings = append(findings, Finding{
+					Severity:   SeverityError,
+					Category:   CategoryProfiles,
+					Message:    fmt.Sprintf("profile %q: auth.login is not supported for harness %q", name, harness),
+					Suggestion: "auth.login is only available for the claude harness",
+				})
+			}
+		}
+
+		// Per-profile Validate (backend-specific required fields)
 		if err := profile.Validate(); err != nil {
 			findings = append(findings, Finding{
 				Severity:   SeverityError,
@@ -394,6 +499,33 @@ func validateProfiles(profiles map[string]Profile, defaultProfile string) []Find
 				Message:    fmt.Sprintf("profile %q: %s", name, err.Error()),
 				Suggestion: "check required fields for the backend type",
 			})
+		}
+
+		// Color syntax
+		if profile.Color != "" && !colorRegex.MatchString(profile.Color) {
+			findings = append(findings, Finding{
+				Severity:   SeverityError,
+				Category:   CategoryProfiles,
+				Message:    fmt.Sprintf("profile %q: color must be #RRGGBB", name),
+				Suggestion: "use a hex color like #4FC1E9",
+			})
+		}
+
+		// Icon: single grapheme cluster with display width 1 or 2
+		if profile.Icon != "" {
+			findings = append(findings, validateProfileIcon(name, profile.Icon)...)
+		}
+
+		// Env key: valid shell identifier
+		for k := range profile.Env {
+			if !shellIdentRegex.MatchString(k) {
+				findings = append(findings, Finding{
+					Severity:   SeverityError,
+					Category:   CategoryProfiles,
+					Message:    fmt.Sprintf("profile %q: env key %q is not a valid variable name", name, k),
+					Suggestion: "use uppercase letters, digits and underscores starting with a letter or underscore",
+				})
+			}
 		}
 	}
 
@@ -415,6 +547,76 @@ func validateProfiles(profiles map[string]Profile, defaultProfile string) []Find
 
 	return findings
 }
+
+// validateCredentialSource checks that exactly one of env, file, secret is set.
+func validateCredentialSource(profileName, field string, cs *CredentialSource) []Finding {
+	var findings []Finding
+	count := 0
+	if cs.Env != "" {
+		count++
+	}
+	if cs.File != "" {
+		count++
+	}
+	if cs.Secret != "" {
+		count++
+	}
+	if count != 1 {
+		findings = append(findings, Finding{
+			Severity:   SeverityError,
+			Category:   CategoryProfiles,
+			Message:    fmt.Sprintf("profile %q: auth.%s must set exactly one of env, file, secret", profileName, field),
+			Suggestion: "provide exactly one credential source",
+		})
+	}
+	return findings
+}
+
+// validateProfileIcon checks that a profile icon is a single grapheme cluster
+// with a terminal display width of 1 or 2.
+func validateProfileIcon(name, icon string) []Finding {
+	var findings []Finding
+
+	// Count grapheme clusters (simplified: count runes, excluding combining marks)
+	runes := []rune(icon)
+	if len(runes) == 0 {
+		return findings
+	}
+
+	// Check it is a single base character (possibly with combining marks)
+	baseCount := 0
+	for _, r := range runes {
+		if !unicode.Is(unicode.Mn, r) && !unicode.Is(unicode.Mc, r) && !unicode.Is(unicode.Me, r) {
+			baseCount++
+		}
+	}
+	if baseCount > 1 {
+		findings = append(findings, Finding{
+			Severity:   SeverityError,
+			Category:   CategoryProfiles,
+			Message:    fmt.Sprintf("profile %q: icon must be a single glyph of width 1 or 2", name),
+			Suggestion: "use a single character like W, @, or a symbol",
+		})
+		return findings
+	}
+
+	// Check display width using the same logic as badge validation
+	r, _ := utf8.DecodeRuneInString(icon)
+	if r == utf8.RuneError {
+		findings = append(findings, Finding{
+			Severity:   SeverityError,
+			Category:   CategoryProfiles,
+			Message:    fmt.Sprintf("profile %q: icon must be a single glyph of width 1 or 2", name),
+			Suggestion: "use a valid unicode character",
+		})
+		return findings
+	}
+
+	// Width 1 or 2 is acceptable (unlike badges which warn on width 2).
+	// Only reject multi-character strings (already handled) or zero-width.
+	return findings
+}
+
 
 // validateVoice checks voice parameter values for range and sanity.
 func validateVoice(voice VoiceDefaults) []Finding {

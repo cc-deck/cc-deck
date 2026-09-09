@@ -21,6 +21,7 @@ func init() {
 func (c *ClaudeAgent) Name() string        { return "claude" }
 func (c *ClaudeAgent) DisplayName() string { return "Claude Code" }
 func (c *ClaudeAgent) Indicator() string   { return "✳" } // ✳
+func (c *ClaudeAgent) Binary() string      { return "claude" }
 
 func (c *ClaudeAgent) IsInstalled() bool {
 	_, err := exec.LookPath("claude")
@@ -40,7 +41,20 @@ func (c *ClaudeAgent) DetectConfig() string {
 }
 
 func (c *ClaudeAgent) InstallHooks() error {
-	settingsPath := claudeSettingsPath()
+	dir := c.DetectConfig()
+	if dir == "" {
+		dir = filepath.Dir(defaultClaudeSettingsPath())
+	}
+	return c.InstallHooksAt(dir)
+}
+
+func (c *ClaudeAgent) InstallHooksAt(configDir string) error {
+	settingsPath := filepath.Join(configDir, "settings.json")
+	// Resolve symlinks so AtomicWrite does not replace a link with a regular file.
+	if resolved, err := filepath.EvalSymlinks(settingsPath); err == nil {
+		settingsPath = resolved
+	}
+
 	settings, err := readClaudeSettings(settingsPath)
 	if err != nil {
 		return err
@@ -229,6 +243,13 @@ func (c *ClaudeAgent) CredentialSpecs() []CredentialSpec {
 
 func (c *ClaudeAgent) RequiredDomainGroups() []string {
 	return []string{"anthropic"}
+}
+
+func (c *ClaudeAgent) ResumeArgs(sessionID string) []string {
+	if sessionID == "" {
+		return nil
+	}
+	return []string{"--resume", sessionID}
 }
 
 // HookEventCount returns how many hook events are registered for cc-deck.

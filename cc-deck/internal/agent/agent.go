@@ -35,6 +35,20 @@ type Agent interface {
 	// Sets the agent field to Name(). Returns an error for malformed input.
 	TranslateEvent(input []byte) (*NormalizedPayload, error)
 
+	// Binary returns the executable name this agent is invoked as on PATH.
+	// Must equal the string passed to exec.LookPath in IsInstalled.
+	Binary() string
+
+	// InstallHooksAt installs or updates cc-deck hooks rooted at configDir.
+	// Must be idempotent. Must preserve foreign hooks. Must not touch the
+	// default config directory. When configDir is a symlink that points at the
+	// default directory's file, it writes through without replacing the link.
+	InstallHooksAt(configDir string) error
+
+	// ResumeArgs returns the command-line arguments for resuming a session.
+	// An empty sessionID returns an empty slice.
+	ResumeArgs(sessionID string) []string
+
 	// CredentialSpecs returns the auth modes this agent supports.
 	CredentialSpecs() []CredentialSpec
 
@@ -58,6 +72,8 @@ type NormalizedPayload struct {
 	Cwd            string   `json:"cwd,omitempty"`
 	AgentID        string   `json:"agent_id,omitempty"`
 	Badges         []string `json:"badges,omitempty"`
+	Profile        string   `json:"profile,omitempty"`
+	ProfileColor   string   `json:"profile_color,omitempty"`
 }
 
 var (
