@@ -507,12 +507,12 @@ Validation categories:
 
 === profile
 
-Manage credential profiles for AI backends.
+Manage harness profiles: how one agent session authenticates and which model it uses.
 Each profile binds a harness, authentication source, and optional model into a named wrapper command (for example `claude-work` or `codex-team`).
 
 ==== profile add
 
-Create a new credential profile.
+Create a new harness profile.
 Without flags the command prompts interactively, starting with the harness selection.
 When any flag is provided, the command runs non-interactively and validates the profile before saving.
 
@@ -574,7 +574,7 @@ When this is the first profile in the configuration, `default_profile` is set to
 
 ==== profile list
 
-List all credential profiles in a table.
+List all harness profiles in a table.
 
 [source,bash]
 ----
@@ -620,7 +620,7 @@ cc-deck config profile show work
 
 ==== profile use
 
-Set the default credential profile.
+Set `default_profile`, which git credential resolution and the Kubernetes deploy path read. It does not affect profile wrappers.
 This affects which profile is used for Kubernetes deploy and git credential resolution.
 It does not affect wrapper commands or sidebar display.
 

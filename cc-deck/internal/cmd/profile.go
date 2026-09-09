@@ -21,8 +21,14 @@ import (
 func NewProfileCmd(globalFlags *GlobalFlags) *cobra.Command {
 	profileCmd := &cobra.Command{
 		Use:   "profile",
-		Short: "Manage credential profiles",
-		Long:  "Create, list, switch, and inspect credential profiles for AI backends.",
+		Short: "Manage harness profiles",
+		Long: `Create, list, inspect, and render harness profiles.
+
+A profile describes how one agent session (Claude Code, Codex, OpenCode)
+authenticates and which model it uses. Each profile becomes a wrapper
+command such as claude-work on PATH, so sessions with different accounts
+run side by side in one workspace. Profiles written for the Kubernetes
+deploy path (backend, api_key_secret, git credentials) keep working.`,
 	}
 
 	profileCmd.AddCommand(
@@ -57,8 +63,8 @@ func newProfileAddCmd(gf *GlobalFlags) *cobra.Command {
 	var flags profileAddFlags
 	cmd := &cobra.Command{
 		Use:   "add <name>",
-		Short: "Add a credential profile",
-		Long: `Create a new credential profile.
+		Short: "Add a harness profile",
+		Long: `Create a new harness profile.
 
 When flags are provided, the profile is created non-interactively.
 Without flags, prompts interactively for each setting.`,
@@ -85,7 +91,7 @@ Without flags, prompts interactively for each setting.`,
 func newProfileListCmd(gf *GlobalFlags) *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
-		Short: "List all credential profiles",
+		Short: "List all harness profiles",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runProfileList(gf)
@@ -100,8 +106,8 @@ func newProfileListCmd(gf *GlobalFlags) *cobra.Command {
 func newProfileUseCmd(gf *GlobalFlags) *cobra.Command {
 	return &cobra.Command{
 		Use:   "use <name>",
-		Short: "Set the default credential profile",
-		Long: `Set the default credential profile in config.yaml.
+		Short: "Set the default profile for git credentials and Kubernetes deploy",
+		Long: `Set default_profile in config.yaml.
 
 This controls which profile is used for Kubernetes deploy default selection
 and git credential resolution. It does not affect profile wrappers; each
@@ -116,8 +122,8 @@ wrapper is a standalone script that uses its own credentials.`,
 func newProfileDeleteCmd(gf *GlobalFlags) *cobra.Command {
 	return &cobra.Command{
 		Use:   "delete <name>",
-		Short: "Delete a credential profile",
-		Long: `Delete a credential profile from config.yaml.
+		Short: "Delete a harness profile",
+		Long: `Delete a harness profile from config.yaml.
 
 If the deleted profile is the default, default_profile is cleared.
 Run 'cc-deck config profile sync' afterward to remove the wrapper script.`,
@@ -131,7 +137,7 @@ Run 'cc-deck config profile sync' afterward to remove the wrapper script.`,
 func newProfileShowCmd(gf *GlobalFlags) *cobra.Command {
 	return &cobra.Command{
 		Use:   "show <name>",
-		Short: "Show details of a credential profile",
+		Short: "Show details of a harness profile",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runProfileShow(args[0], gf)
