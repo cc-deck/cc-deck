@@ -8,6 +8,10 @@
 
 **Input**: Brainstorm 093 - Harness Profiles (`brainstorm/093-harness-profiles.md`)
 
+## Purpose
+
+A developer often has more than one account for the same agent harness (for example company Vertex access and a personal subscription for Claude Code), with different credentials, login methods and model availability. cc-deck has no way to run sessions under different accounts side by side in one workspace, and shell aliases neither travel to remote workspaces nor survive snapshot restore. This feature introduces named, agent-specific profiles in `config.yaml` and generates one wrapper command per profile (`claude-work`, `codex-team`) inside every workspace, so that each session picks its account and model by the command it was started with, the sidebar shows which profile each session runs under, and a restored snapshot brings every session back under the same profile.
+
 ## Clarifications
 
 ### Session 2026-09-09
@@ -140,7 +144,7 @@ The developer adds, lists, shows, and deletes profiles through `cc-deck profile 
 - **FR-007**: Each wrapper MUST export `CC_DECK_PROFILE=<profile-name>`, set the harness-specific environment for model and auth, point the harness at a per-profile config directory, and execute the real harness binary with all user-supplied arguments passed through unchanged.
 - **FR-008**: Wrappers MUST NOT contain credential values. Credential material MUST reach the workspace through the existing credential transport and be referenced by the wrapper (by environment variable name or file path).
 - **FR-009**: cc-deck MUST install or update its hooks in every per-profile harness config directory it creates, so sessions launched through a wrapper report to the sidebar exactly like unprofiled sessions.
-- **FR-009a**: A per-profile harness config directory MUST share the user's non-auth configuration (settings, skills, commands, plugins, MCP configuration) with the harness's default config directory, and MUST isolate only login and credential state. The harness translator defines, per harness, which entries are shared and which are isolated. A change to shared configuration in the default directory MUST be visible to profiled sessions without a re-sync.
+- **FR-009a**: A per-profile harness config directory MUST share the user's non-auth configuration (settings, skills, commands, plugins, MCP configuration) with the harness's default config directory, and MUST isolate only login and credential state. The harness translator defines, per harness, which entries are shared and which are isolated. A change to shared configuration in the default directory MUST be visible to profiled sessions without a re-sync. The plan MUST choose the sharing mechanism and verify, per harness, that it works with that harness's configuration loading and file-watching behavior.
 - **FR-010**: Wrapper generation MUST be idempotent: rerunning it updates changed wrappers, leaves unchanged ones alone, and removes wrappers for profiles that no longer exist.
 - **FR-011**: A `cc-deck profile sync` command MUST generate wrappers for the local workspace on demand. Workspace start for SSH and OpenShell MUST perform the same generation as part of provisioning.
 - **FR-012**: The plain harness command (`claude`, `codex`, `opencode`) MUST remain untouched and MUST mean "no profile".
@@ -167,7 +171,7 @@ The developer adds, lists, shows, and deletes profiles through `cc-deck profile 
 
 **CLI**
 
-- **FR-024**: `cc-deck profile add`, `list`, `show`, `use` MUST cover the new fields. A `cc-deck profile delete <name>` command MUST be added.
+- **FR-024**: `cc-deck profile add`, `list` and `show` MUST cover the new fields (`list` shows harness and auth kind per profile, `show` prints every field with credential values masked). A `cc-deck profile delete <name>` command MUST be added. The existing `cc-deck profile use <name>` keeps its current meaning: it sets `default_profile`, which the Kubernetes deploy path consumes. It MUST NOT influence which wrapper a session runs under and MUST NOT change the behavior of the plain harness command.
 - **FR-025**: The Kubernetes deploy path MUST continue to accept profiles as before; a profile with `{secret: ...}` sources is the equivalent of today's secret-name fields.
 
 **OpenShell network access**
@@ -179,7 +183,7 @@ The developer adds, lists, shows, and deletes profiles through `cc-deck profile 
 - **Profile**: A named, declarative description of how one agent session authenticates and which model it uses. Attributes: name, harness, auth (source variants), model, env, color, icon, plus the existing Vertex and git credential fields. Stored in the `profiles` map of `config.yaml`.
 - **Credential Source**: Where a credential value comes from: host environment variable, host file, Kubernetes Secret, or the harness's own login. Exactly one per credential.
 - **Wrapper**: A generated command named `<harness-command>-<profile-name>` living in a workspace bin directory. It is the only launch path for a profile and the identity the snapshot records.
-- **Harness Translator**: The per-harness knowledge that turns a profile into wrapper content, per-profile config directory layout (including which entries are shared with the default directory and which are isolated), and hook installation. One translator per supported harness.
+- **Harness Translator**: The per-harness knowledge that turns a profile into wrapper content, per-profile config directory layout (including which entries are shared with the default directory and which are isolated), and hook installation. One translator per supported harness. Its behavioral contract MUST be written down (as a contracts document in the feature directory) before the second translator is implemented, per constitution principle II.
 - **Snapshot Session Entry**: Extended with harness and profile name.
 
 ## Success Criteria *(mandatory)*
@@ -211,6 +215,6 @@ The developer adds, lists, shows, and deletes profiles through `cc-deck profile 
 - The existing credential transport (spec 079) can carry an arbitrary named environment variable and an arbitrary file; profile credential sources map onto those two primitives.
 - For OpenShell workspaces, the endpoint union from FR-026 feeds the provider list from spec 085 (profile delegation). Each auth backend (Anthropic direct, Vertex, OpenAI) maps to a known set of endpoints already used by the credential detection of the agent adapters.
 - `default_profile` in `config.yaml` keeps its current meaning for the Kubernetes deploy path and does not affect the plain harness command.
-- The palette for auto-derived colors has at least eight distinguishable hues that read well on both the plain and the highlighted sidebar row.
+- The palette for auto-derived colors has at least eight distinguishable hues, each with a contrast ratio of at least 3:1 (WCAG AA for graphical objects) against both the plain sidebar background and the active-row highlight background.
 - The Kubernetes deploy and compose backends are out of scope for wrapper generation in this feature; they continue to apply a single workspace-level profile.
 - Out of scope: per-backend override sections inside a profile, profile inheritance, a `cc-deck run --profile` launch command, and switching a running session's profile.
