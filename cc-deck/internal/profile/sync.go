@@ -34,7 +34,13 @@ func Sync(cfg *config.Config, home string) (SyncResult, error) {
 	// Track which wrapper files we wrote so we can detect stale ones.
 	written := map[string]bool{}
 
-	for name, p := range cfg.Profiles {
+	invalid := invalidProfiles(cfg)
+	for _, name := range cfg.ListProfiles() {
+		p := cfg.Profiles[name]
+		if reason, bad := invalid[name]; bad {
+			result.Skipped = append(result.Skipped, Skip{Profile: name, Reason: reason})
+			continue
+		}
 		harness := p.HarnessName()
 
 		// Look up the agent and translator.
@@ -207,9 +213,15 @@ func Provision(cfg *config.Config, t Target) (SyncResult, error) {
 	// Collect prepare.sh commands for config dir setup.
 	var prepareLines []string
 	prepareLines = append(prepareLines, "#!/bin/sh", "set -e")
-	prepareLines = append(prepareLines, fmt.Sprintf("mkdir -p %s", shellQuote(binDir)))
+	prepareLines = append(prepareLines, fmt.Sprintf("mkdir -p %s", shQuote(binDir)))
 
-	for name, p := range cfg.Profiles {
+	invalid := invalidProfiles(cfg)
+	for _, name := range cfg.ListProfiles() {
+		p := cfg.Profiles[name]
+		if reason, bad := invalid[name]; bad {
+			result.Skipped = append(result.Skipped, Skip{Profile: name, Reason: reason})
+			continue
+		}
 		harness := p.HarnessName()
 
 		// Check if the harness is in the target's agent list.
@@ -300,13 +312,13 @@ func Provision(cfg *config.Config, t Target) (SyncResult, error) {
 		defaultDir := home + "/" + tr.DefaultConfigSubdir()
 		credDir := rp.CredDir
 
-		prepareLines = append(prepareLines, fmt.Sprintf("mkdir -p %s", shellQuote(configDir)))
-		prepareLines = append(prepareLines, fmt.Sprintf("mkdir -p %s", shellQuote(credDir)))
+		prepareLines = append(prepareLines, fmt.Sprintf("mkdir -p %s", shQuote(configDir)))
+		prepareLines = append(prepareLines, fmt.Sprintf("mkdir -p %s", shQuote(credDir)))
 
 		// Symlink non-isolated entries from the default config dir.
 		prepareLines = append(prepareLines,
-			fmt.Sprintf("if [ -d %s ]; then", shellQuote(defaultDir)),
-			fmt.Sprintf("  for entry in %s/*; do", shellQuote(defaultDir)),
+			fmt.Sprintf("if [ -d %s ]; then", shQuote(defaultDir)),
+			fmt.Sprintf("  for entry in %s/*; do", shQuote(defaultDir)),
 			"    [ -e \"$entry\" ] || continue",
 			"    base=$(basename \"$entry\")",
 		)
@@ -319,7 +331,7 @@ func Provision(cfg *config.Config, t Target) (SyncResult, error) {
 		}
 		// Create relative symlink if target does not exist or is a symlink to wrong target.
 		prepareLines = append(prepareLines,
-			fmt.Sprintf("    target=%s/\"$base\"", shellQuote(configDir)),
+			fmt.Sprintf("    target=%s/\"$base\"", shQuote(configDir)),
 			"    if [ ! -e \"$target\" ] || [ -L \"$target\" ]; then",
 			"      ln -sfn \"$entry\" \"$target\"",
 			"    fi",
@@ -355,7 +367,7 @@ func Provision(cfg *config.Config, t Target) (SyncResult, error) {
 	// Remove stale cc-deck wrappers on the remote (FR-010).
 	if len(uploaded) > 0 {
 		prepareLines = append(prepareLines, "# Remove stale cc-deck wrappers")
-		prepareLines = append(prepareLines, fmt.Sprintf("for _f in %s/*; do", shellQuote(binDir)))
+		prepareLines = append(prepareLines, fmt.Sprintf("for _f in %s/*; do", shQuote(binDir)))
 		prepareLines = append(prepareLines, "  [ -f \"$_f\" ] || continue")
 		prepareLines = append(prepareLines, "  _base=$(basename \"$_f\")")
 		// Skip wrappers we just uploaded.
@@ -397,10 +409,10 @@ func Provision(cfg *config.Config, t Target) (SyncResult, error) {
 		rcPath := home + "/" + rcFile
 		// Only append if the marker is not already present.
 		checkCmd := fmt.Sprintf("grep -qF %s %s 2>/dev/null || echo %s >> %s",
-			shellQuote("# >>> cc-deck >>>"),
-			shellQuote(rcPath),
-			shellQuote(rcBlock),
-			shellQuote(rcPath),
+			shQuote("# >>> cc-deck >>>"),
+			shQuote(rcPath),
+			shQuote(rcBlock),
+			shQuote(rcPath),
 		)
 		if _, err := t.Run(checkCmd); err != nil {
 			result.Warnings = append(result.Warnings,
@@ -412,11 +424,6 @@ func Provision(cfg *config.Config, t Target) (SyncResult, error) {
 	}
 
 	return result, nil
-}
-
-// shellQuote wraps s in single quotes for safe embedding in shell commands.
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
 
 // EnsureLocal is a lightweight sync intended for LocalWorkspace.Attach.
@@ -545,4 +552,40 @@ func isCCDeckWrapper(path string) bool {
 		return false
 	}
 	return strings.HasPrefix(scanner.Text(), markerPrefix)
+}
+
+// invalidProfiles runs the config validation and returns, per profile name,
+// the first error-level finding about that profile. Sync and Provision skip
+// these profiles so that a hand-edited config.yaml with a malformed name or
+// credential reference never reaches the shell generator.
+func invalidProfiles(cfg *config.Config) map[string]string {
+	invalid := map[string]string{}
+	for _, f := range cfg.Validate() {
+		if f.Severity != config.SeverityError || f.Category != config.CategoryProfiles {
+			continue
+		}
+		name, ok := profileNameFromFinding(f.Message)
+		if !ok {
+			continue
+		}
+		if _, seen := invalid[name]; !seen {
+			invalid[name] = "config validation: " + f.Message
+		}
+	}
+	return invalid
+}
+
+// profileNameFromFinding extracts the quoted profile name from a validation
+// message of the form `profile "name": ...`.
+func profileNameFromFinding(msg string) (string, bool) {
+	const prefix = `profile "`
+	if !strings.HasPrefix(msg, prefix) {
+		return "", false
+	}
+	rest := msg[len(prefix):]
+	end := strings.Index(rest, `"`)
+	if end <= 0 {
+		return "", false
+	}
+	return rest[:end], true
 }

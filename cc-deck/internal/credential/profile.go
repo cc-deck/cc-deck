@@ -3,6 +3,8 @@ package credential
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/cc-deck/cc-deck/internal/config"
 )
@@ -69,12 +71,17 @@ func resolveSource(profile, envVar string, cs *config.CredentialSource, result *
 		result.EnvVars[cs.Env] = val
 
 	case config.SourceFile:
-		if _, err := os.ReadFile(cs.File); err != nil {
+		// Config values use "~/" for the home directory (see the profile
+		// schema contract); Go treats a tilde literally, so expand it first.
+		// A stat is enough to prove the file is reachable; the content is
+		// read only when it is copied for transport.
+		path := expandHome(cs.File)
+		if _, err := os.Stat(path); err != nil {
 			return ErrCredentialUnavailable{Profile: profile, Reference: cs.File}
 		}
 		result.FileCredentials = append(result.FileCredentials, &ResolvedFile{
 			EnvVar:    envVar,
-			LocalPath: cs.File,
+			LocalPath: path,
 		})
 
 	case config.SourceSecret:
@@ -85,4 +92,15 @@ func resolveSource(profile, envVar string, cs *config.CredentialSource, result *
 	}
 
 	return nil
+}
+
+// expandHome replaces a leading "~/" with the current user's home directory.
+// Any other path is returned unchanged.
+func expandHome(path string) string {
+	if strings.HasPrefix(path, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, path[2:])
+		}
+	}
+	return path
 }

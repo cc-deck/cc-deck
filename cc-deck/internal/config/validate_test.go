@@ -826,3 +826,20 @@ func TestValidateProfiles_LegacyProfileNoErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateProfiles_InvalidCredentialEnvName(t *testing.T) {
+	profiles := map[string]Profile{
+		"test": {
+			Harness: "claude",
+			Auth:    &AuthConfig{APIKey: &CredentialSource{Env: `X"; echo pwned; #`}},
+		},
+	}
+	findings := validateProfiles(profiles, "")
+	f := findFinding(findings, SeverityError, "auth.api_key.env")
+	if f == nil {
+		t.Fatal("expected error for credential env name that is not a shell identifier")
+	}
+	if !strings.Contains(f.Message, "not a valid variable name") {
+		t.Errorf("unexpected message: %s", f.Message)
+	}
+}

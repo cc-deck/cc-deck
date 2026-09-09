@@ -14,7 +14,7 @@ func init() {
 	Register(&claudeTranslator{})
 }
 
-func (c *claudeTranslator) Harness() string     { return "claude" }
+func (c *claudeTranslator) Harness() string      { return "claude" }
 func (c *claudeTranslator) ConfigDirEnv() string { return "CLAUDE_CONFIG_DIR" }
 
 func (c *claudeTranslator) IsolatedEntries() []string {
@@ -83,12 +83,15 @@ func (c *claudeTranslator) Render(rp ResolvedProfile) (WrapperScript, error) {
 			lines.CredentialChecks = append(lines.CredentialChecks, envCheckBlock(rp.Name, rp.APIKey.Env))
 			lines.CredentialExports = append(lines.CredentialExports, fmt.Sprintf("export ANTHROPIC_API_KEY=\"$%s\"", rp.APIKey.Env))
 		case config.SourceFile:
+			// Distinct variable per credential: all checks render before all
+			// exports, so a shared name would be clobbered by the credentials
+			// block below when both use file sources.
 			varRef := fmt.Sprintf("$HOME/.config/cc-deck/profiles/%s/api_key", rp.Name)
 			lines.CredentialChecks = append(lines.CredentialChecks,
-				fmt.Sprintf("_f=\"%s\"", varRef),
+				fmt.Sprintf("_f_apikey=\"%s\"", varRef),
 			)
-			lines.CredentialChecks = append(lines.CredentialChecks, fileCheckBlock(rp.Name, "$_f"))
-			lines.CredentialExports = append(lines.CredentialExports, "export ANTHROPIC_API_KEY=\"$(cat \"$_f\")\"")
+			lines.CredentialChecks = append(lines.CredentialChecks, fileCheckBlock(rp.Name, "$_f_apikey"))
+			lines.CredentialExports = append(lines.CredentialExports, "export ANTHROPIC_API_KEY=\"$(cat \"$_f_apikey\")\"")
 		}
 	}
 
@@ -100,10 +103,10 @@ func (c *claudeTranslator) Render(rp ResolvedProfile) (WrapperScript, error) {
 		case config.SourceFile:
 			varRef := fmt.Sprintf("$HOME/.config/cc-deck/profiles/%s/credentials", rp.Name)
 			lines.CredentialChecks = append(lines.CredentialChecks,
-				fmt.Sprintf("_f=\"%s\"", varRef),
+				fmt.Sprintf("_f_creds=\"%s\"", varRef),
 			)
-			lines.CredentialChecks = append(lines.CredentialChecks, fileCheckBlock(rp.Name, "$_f"))
-			lines.CredentialExports = append(lines.CredentialExports, "export GOOGLE_APPLICATION_CREDENTIALS=\"$_f\"")
+			lines.CredentialChecks = append(lines.CredentialChecks, fileCheckBlock(rp.Name, "$_f_creds"))
+			lines.CredentialExports = append(lines.CredentialExports, "export GOOGLE_APPLICATION_CREDENTIALS=\"$_f_creds\"")
 		}
 	}
 

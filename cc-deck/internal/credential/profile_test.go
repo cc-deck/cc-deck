@@ -223,3 +223,36 @@ func TestResolveProfile_LegacySecretFields(t *testing.T) {
 		t.Fatalf("expected ErrSecretSourceUnsupported, got %T: %v", err, err)
 	}
 }
+
+// The profile schema documents "~/" paths for file sources; they must resolve
+// against the home directory rather than being treated literally.
+func TestResolveProfile_FileSourceExpandsTilde(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	secrets := filepath.Join(home, ".secrets")
+	if err := os.MkdirAll(secrets, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	keyFile := filepath.Join(secrets, "key")
+	if err := os.WriteFile(keyFile, []byte("file-secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	p := config.Profile{
+		Harness: "claude",
+		Auth: &config.AuthConfig{
+			APIKey: &config.CredentialSource{File: "~/.secrets/key"},
+		},
+	}
+
+	got, err := ResolveProfile("tilde", p)
+	if err != nil {
+		t.Fatalf("expected tilde path to resolve, got %v", err)
+	}
+	if len(got.FileCredentials) != 1 {
+		t.Fatalf("expected one file credential, got %d", len(got.FileCredentials))
+	}
+	if got.FileCredentials[0].LocalPath != keyFile {
+		t.Errorf("local path: got %q, want expanded %q", got.FileCredentials[0].LocalPath, keyFile)
+	}
+}

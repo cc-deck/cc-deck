@@ -243,6 +243,11 @@ pub fn process_hook(state: &mut ControllerState, hook: HookPayload) -> bool {
             if let Some(ref color_str) = hook.profile_color {
                 s.profile_color = parse_hex_color(color_str);
             }
+            // The indicator carries the profile icon override, so it follows
+            // config changes the same way the color does.
+            if hook.agent_indicator.is_some() {
+                s.agent_indicator = hook.agent_indicator.clone();
+            }
         }
     }
 

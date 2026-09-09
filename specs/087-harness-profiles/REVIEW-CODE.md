@@ -118,3 +118,19 @@ All tests pass, all linters clean:
 ### Gate Outcome
 
 **PASS**: All Critical and Important findings fixed. 3 Notable findings deferred (none blocking). 100% spec compliance. `make verify` green.
+
+## Orchestrator fix round (after Deep Review Report)
+
+The pipeline orchestrator verified the deep-review findings against the code and found these still open after the first hardening round. All are fixed in the commit following this note; `make verify` passes.
+
+| Severity | Finding | Fix |
+|----------|---------|-----|
+| Critical | Vertex wrapper reused the `_f` shell variable for both file sources, so `ANTHROPIC_API_KEY` read the ADC file | Distinct `_f_apikey` and `_f_creds` variables in the Claude translator; golden and regression tests |
+| Important | `ResolveProfile` did not expand `~/` in `file:` sources, so documented paths failed before the copy step | `expandHome` plus a stat check instead of a full read; test |
+| Important (security) | Credential `env` names were not validated as shell identifiers before being interpolated into generated shell | `validateCredentialSource` applies `shellIdentRegex`; test |
+| Important (security) | `Sync` and `Provision` rendered profiles from a hand-edited config without validation; profile name unquoted in the template | Both loops skip profiles with error-level validation findings (`invalidProfiles`), iterate in sorted order, and the template single-quotes `CC_DECK_PROFILE`; test |
+| Important | Codex `config.toml` was written model-only and only when a model was set, dropping user settings and keeping stale models | `overlayCodexModel` carries the default file over, replaces the top-level model, and always rewrites; test |
+| Minor | Duplicate `shellQuote` next to `shQuote` | Single `shQuote` |
+| Minor | Profile icon changes did not propagate to a running session while color did | Indicator follows the hook like the color |
+
+Deferred (recorded as Notable, not addressed here): loading `config.yaml` on every hook event to resolve profile color and icon (could move to `CC_DECK_PROFILE_COLOR` and `CC_DECK_PROFILE_ICON` exported by the wrapper); the pane-map write race and the OpenShell temp-file cleanup, both pre-existing outside this feature; `WrapperName()` helper unused while three call sites inline the pattern.
