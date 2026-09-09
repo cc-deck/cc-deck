@@ -13,7 +13,7 @@
 
 ## Requirement Completeness
 
-- [ ] No [NEEDS CLARIFICATION] markers remain
+- [x] No [NEEDS CLARIFICATION] markers remain
 - [x] Requirements are testable and unambiguous
 - [x] Success criteria are measurable
 - [x] Success criteria are technology-agnostic (no implementation details)
@@ -31,6 +31,6 @@
 
 ## Notes
 
-- One [NEEDS CLARIFICATION] marker remains in Assumptions (transport of subscription login to remote workspaces). It is left for the clarify stage of the ship pipeline, which resolves it.
+- The [NEEDS CLARIFICATION] marker on subscription login transport was resolved in the 2026-09-09 clarification session (one-time in-workspace login, no token transport).
 - Environment variable names (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `CC_DECK_PROFILE`) appear because they are the user-visible contract of the harnesses and of the wrapper, not implementation choices.
 - Items marked incomplete require spec updates before `/speckit-clarify` or `/speckit-plan`

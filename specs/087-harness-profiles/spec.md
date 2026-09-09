@@ -8,6 +8,16 @@
 
 **Input**: Brainstorm 093 - Harness Profiles (`brainstorm/093-harness-profiles.md`)
 
+## Clarifications
+
+### Session 2026-09-09
+
+- Q: Should cc-deck transport an existing subscription (OAuth) login from the host to remote workspaces, or is a one-time in-workspace login per profile acceptable? → A: One-time in-workspace login per profile per workspace. cc-deck does not transport OAuth tokens.
+- Q: Does a per-profile harness config directory start empty, or does it share the user's existing non-auth configuration? → A: It shares non-auth configuration (settings, skills, commands, plugins, MCP config) with the default directory and isolates only login and credential state. The harness translator owns the per-harness list of what is shared and what is isolated.
+- Q: What are the semantics of the free-form `settings` map? → A: Renamed to `env`: a map of additional environment variables the wrapper exports before executing the harness.
+- Q: How do the wrappers become reachable on `PATH`? → A: They live in a cc-deck-managed bin directory that cc-deck adds to `PATH` through the shell rc snippet it already manages. `cc-deck profile sync` reports when a new shell is required.
+- Q: How does a per-session profile influence the network access of an OpenShell workspace? → A: The workspace's provider list is the union of the endpoints required by all valid profiles whose harness is in the workspace's agent list, resolved at workspace creation. Adding a profile with a new auth backend requires re-creating the workspace.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Launch a Session Under a Named Profile (Priority: P1)
@@ -120,16 +130,17 @@ The developer adds, lists, shows, and deletes profiles through `cc-deck profile 
 
 - **FR-001**: A profile in `config.yaml` MUST accept a `harness` field naming a supported agent (`claude`, `codex`, `opencode`). When absent, `harness` defaults to `claude`, so profiles written before this feature remain valid.
 - **FR-002**: A profile MUST accept an `auth` block. The block MUST support an `api_key` credential with exactly one source: `{env: <name>}`, `{file: <path>}`, or `{secret: <k8s-secret-name>}`. The block MUST also support `login: true`, meaning the harness's own interactive login stored in a per-profile config directory.
-- **FR-003**: A profile MUST accept the harness-agnostic fields `model` (optional), `settings` (optional map of harness-specific values passed through to the translator), `color` (optional, `#RRGGBB`) and `icon` (optional, a single display glyph).
+- **FR-003**: A profile MUST accept the harness-agnostic fields `model` (optional), `env` (optional map of additional environment variables the wrapper exports before executing the harness), `color` (optional, `#RRGGBB`) and `icon` (optional, a single display glyph).
 - **FR-004**: The existing Vertex fields (`project`, `region`, `credentials_secret`) and git credential fields MUST remain supported and MUST be expressible as sources under the `auth` block for the Claude harness.
 - **FR-005**: cc-deck MUST validate profiles at load time: known harness, at most one `api_key` source, `login` and `api_key` mutually exclusive, valid `color` syntax, and profile names limited to lowercase letters, digits and hyphens. Validation errors MUST name the profile and the offending field.
 
 **Wrapper generation**
 
-- **FR-006**: For every valid profile whose harness is installed in a target workspace, cc-deck MUST generate a wrapper command named `<harness-command>-<profile-name>` in a cc-deck-managed bin directory that is on `PATH` inside that workspace.
+- **FR-006**: For every valid profile whose harness is installed in a target workspace, cc-deck MUST generate a wrapper command named `<harness-command>-<profile-name>` in a cc-deck-managed bin directory inside that workspace. cc-deck MUST add that directory to `PATH` through the shell rc snippet it already manages, and `cc-deck profile sync` MUST tell the user when a new shell is required for the change to take effect.
 - **FR-007**: Each wrapper MUST export `CC_DECK_PROFILE=<profile-name>`, set the harness-specific environment for model and auth, point the harness at a per-profile config directory, and execute the real harness binary with all user-supplied arguments passed through unchanged.
 - **FR-008**: Wrappers MUST NOT contain credential values. Credential material MUST reach the workspace through the existing credential transport and be referenced by the wrapper (by environment variable name or file path).
 - **FR-009**: cc-deck MUST install or update its hooks in every per-profile harness config directory it creates, so sessions launched through a wrapper report to the sidebar exactly like unprofiled sessions.
+- **FR-009a**: A per-profile harness config directory MUST share the user's non-auth configuration (settings, skills, commands, plugins, MCP configuration) with the harness's default config directory, and MUST isolate only login and credential state. The harness translator defines, per harness, which entries are shared and which are isolated. A change to shared configuration in the default directory MUST be visible to profiled sessions without a re-sync.
 - **FR-010**: Wrapper generation MUST be idempotent: rerunning it updates changed wrappers, leaves unchanged ones alone, and removes wrappers for profiles that no longer exist.
 - **FR-011**: A `cc-deck profile sync` command MUST generate wrappers for the local workspace on demand. Workspace start for SSH and OpenShell MUST perform the same generation as part of provisioning.
 - **FR-012**: The plain harness command (`claude`, `codex`, `opencode`) MUST remain untouched and MUST mean "no profile".
@@ -159,12 +170,16 @@ The developer adds, lists, shows, and deletes profiles through `cc-deck profile 
 - **FR-024**: `cc-deck profile add`, `list`, `show`, `use` MUST cover the new fields. A `cc-deck profile delete <name>` command MUST be added.
 - **FR-025**: The Kubernetes deploy path MUST continue to accept profiles as before; a profile with `{secret: ...}` sources is the equivalent of today's secret-name fields.
 
+**OpenShell network access**
+
+- **FR-026**: When an OpenShell workspace is created, cc-deck MUST include in the workspace's provider list the network endpoints required by every valid profile whose harness is in the workspace's agent list (the union across profiles), so that any of those profiles can be launched inside the sandbox. A profile added after workspace creation whose auth backend needs endpoints the workspace does not have MUST be reported at sync time with a hint to re-create the workspace.
+
 ### Key Entities
 
-- **Profile**: A named, declarative description of how one agent session authenticates and which model it uses. Attributes: name, harness, auth (source variants), model, settings, color, icon, plus the existing Vertex and git credential fields. Stored in the `profiles` map of `config.yaml`.
+- **Profile**: A named, declarative description of how one agent session authenticates and which model it uses. Attributes: name, harness, auth (source variants), model, env, color, icon, plus the existing Vertex and git credential fields. Stored in the `profiles` map of `config.yaml`.
 - **Credential Source**: Where a credential value comes from: host environment variable, host file, Kubernetes Secret, or the harness's own login. Exactly one per credential.
 - **Wrapper**: A generated command named `<harness-command>-<profile-name>` living in a workspace bin directory. It is the only launch path for a profile and the identity the snapshot records.
-- **Harness Translator**: The per-harness knowledge that turns a profile into wrapper content, per-profile config directory layout, and hook installation. One translator per supported harness.
+- **Harness Translator**: The per-harness knowledge that turns a profile into wrapper content, per-profile config directory layout (including which entries are shared with the default directory and which are isolated), and hook installation. One translator per supported harness.
 - **Snapshot Session Entry**: Extended with harness and profile name.
 
 ## Success Criteria *(mandatory)*
@@ -181,7 +196,7 @@ The developer adds, lists, shows, and deletes profiles through `cc-deck profile 
 
 ## Documentation Requirements
 
-- The configuration reference (`docs/modules/reference/pages/configuration.adoc`) MUST document the extended profile schema: `harness`, `auth` sources, `model`, `settings`, `color`, `icon`, and the backward-compatible defaults.
+- The configuration reference (`docs/modules/reference/pages/configuration.adoc`) MUST document the extended profile schema: `harness`, `auth` sources, `model`, `env`, `color`, `icon`, and the backward-compatible defaults.
 - The CLI reference (`docs/modules/reference/pages/cli.adoc`) MUST document `cc-deck profile sync`, `cc-deck profile delete`, and the extended `add` and `show` output.
 - A guide page MUST explain the two-account use case end to end (define profiles, sync, launch, sidebar legend, snapshot behavior) including the one-time login step for subscription profiles in remote workspaces.
 - `README.md` MUST mention harness profiles as a user-facing capability.
@@ -190,10 +205,11 @@ The developer adds, lists, shows, and deletes profiles through `cc-deck profile 
 ## Assumptions
 
 - Each supported harness exposes a way to select a separate configuration directory (Claude Code: `CLAUDE_CONFIG_DIR`; Codex: `CODEX_HOME`; OpenCode: `OPENCODE_CONFIG`) and a way to select the model through environment or config. The translator relies on these first-party mechanisms.
-- Subscription (OAuth) login is bound to the harness config directory. For remote workspaces the user performs the harness login once per profile per workspace; cc-deck does not transport OAuth tokens. [NEEDS CLARIFICATION: Should cc-deck attempt to transport an existing subscription login from the host (file-based on Linux, Keychain on macOS) to remote workspaces, or is a one-time in-workspace login per profile acceptable for this feature?]
-- The per-profile config directory for a harness lives under a cc-deck-managed path inside the workspace home (for example `~/.cc-deck/profiles/<profile>/<harness>/`). Users do not need to know this path.
+- Subscription (OAuth) login is bound to the harness config directory. For remote workspaces the user performs the harness login once per profile per workspace; cc-deck does not transport OAuth tokens (file-based on Linux, Keychain-based on macOS). The guide documents this one-time step.
+- The per-profile config directory for a harness lives under a cc-deck-managed path inside the workspace home. Users do not need to know this path. Its shared entries point at the harness's default config directory, so user customizations made there apply to every profile.
+- The cc-deck-managed bin directory for wrappers lives under the cc-deck data directory in the workspace home. The shell rc snippet cc-deck already manages (tool PATH restoration) is extended to include it.
 - The existing credential transport (spec 079) can carry an arbitrary named environment variable and an arbitrary file; profile credential sources map onto those two primitives.
-- For OpenShell workspaces, the network endpoints a profile needs (Anthropic, Vertex, OpenAI) are the union of what all configured profiles for the workspace's harnesses need. This feeds the provider list from spec 085 (profile delegation) and is resolved at workspace creation.
+- For OpenShell workspaces, the endpoint union from FR-026 feeds the provider list from spec 085 (profile delegation). Each auth backend (Anthropic direct, Vertex, OpenAI) maps to a known set of endpoints already used by the credential detection of the agent adapters.
 - `default_profile` in `config.yaml` keeps its current meaning for the Kubernetes deploy path and does not affect the plain harness command.
 - The palette for auto-derived colors has at least eight distinguishable hues that read well on both the plain and the highlighted sidebar row.
 - The Kubernetes deploy and compose backends are out of scope for wrapper generation in this feature; they continue to apply a single workspace-level profile.
