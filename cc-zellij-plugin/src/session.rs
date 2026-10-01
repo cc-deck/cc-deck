@@ -257,6 +257,66 @@ impl Session {
     pub fn elapsed_secs(&self) -> u64 {
         unix_now().saturating_sub(self.last_event_ts)
     }
+
+    /// Apply a hook event that maps to `activity` to this session.
+    ///
+    /// This owns the permission bookkeeping around `transition`:
+    ///
+    /// - `PermissionRequest` counts an outstanding prompt and enters Waiting.
+    /// - `PermissionReply` answers one prompt. While prompts remain, the
+    ///   event is absorbed: the session stays Waiting.
+    /// - A `PostToolUse` from the main agent (`from_subagent == false`) is an
+    ///   implicit reply, because Claude Code does not send `PermissionReply`.
+    ///   Any other Working event while prompts are outstanding is absorbed.
+    /// - `Stop` (Done) clears the counter: the turn is over either way.
+    ///
+    /// Every absorbed event still refreshes `last_event_ts`.
+    pub fn apply_hook(&mut self, event: &str, activity: Activity, from_subagent: bool) -> HookOutcome {
+        if matches!(activity, Activity::Waiting(WaitReason::Permission)) {
+            self.pending_permissions = self.pending_permissions.saturating_add(1);
+        }
+
+        if event == "PermissionReply" {
+            self.pending_permissions = self.pending_permissions.saturating_sub(1);
+            if self.pending_permissions > 0 {
+                self.last_event_ts = unix_now();
+                return HookOutcome::Absorbed;
+            }
+        }
+
+        if matches!(activity, Activity::Working) && self.pending_permissions > 0 {
+            let implicit_reply = event == "PostToolUse" && !from_subagent;
+            if implicit_reply {
+                self.pending_permissions = self.pending_permissions.saturating_sub(1);
+            }
+            if !implicit_reply || self.pending_permissions > 0 {
+                self.last_event_ts = unix_now();
+                return HookOutcome::Absorbed;
+            }
+        }
+
+        if matches!(activity, Activity::Done) {
+            self.pending_permissions = 0;
+        }
+
+        if self.transition(activity) {
+            HookOutcome::Changed
+        } else {
+            HookOutcome::Unchanged
+        }
+    }
+}
+
+/// What applying a hook event did to a session's activity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HookOutcome {
+    /// The activity changed.
+    Changed,
+    /// The event was applied but the activity is the same (or the transition
+    /// was rejected by the Waiting guard).
+    Unchanged,
+    /// The event was swallowed by the permission bookkeeping.
+    Absorbed,
 }
 
 /// Generate a unique display name by appending a numeric suffix if needed.
@@ -472,5 +532,99 @@ mod tests {
         assert!(mid.0 < start.0 && mid.0 > end.0);
         assert!(mid.1 < start.1 && mid.1 > end.1);
         assert!(mid.2 < start.2 && mid.2 > end.2);
+    }
+}
+
+#[cfg(test)]
+mod hook_fuzz {
+    //! Random hook sequences against a single session. The controller
+    //! forwards every hook through `apply_hook`, so these invariants are the
+    //! ones the sidebar's attention indicator depends on.
+    use super::*;
+    use crate::pipe_handler::hook_event_to_activity;
+    use proptest::prelude::*;
+
+    const EVENTS: [&str; 11] = [
+        "SessionStart",
+        "PreToolUse",
+        "PostToolUse",
+        "PostToolUseFailure",
+        "UserPromptSubmit",
+        "PermissionRequest",
+        "PermissionReply",
+        "Stop",
+        "SubagentStart",
+        "SubagentStop",
+        "Notification",
+    ];
+
+    fn apply(session: &mut Session, event: &str, from_subagent: bool) {
+        if let Some(activity) = hook_event_to_activity(event, None) {
+            session.apply_hook(event, activity, from_subagent);
+        }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(2000))]
+
+        #[test]
+        fn permission_counter_and_waiting_agree(
+            steps in prop::collection::vec((0usize..EVENTS.len(), any::<bool>()), 1..40)
+        ) {
+            let mut session = Session::new(1, "s".into());
+            for (idx, from_subagent) in steps {
+                apply(&mut session, EVENTS[idx], from_subagent);
+                let waiting_on_permission =
+                    session.activity == Activity::Waiting(WaitReason::Permission);
+                prop_assert_eq!(
+                    session.pending_permissions > 0,
+                    waiting_on_permission,
+                    "pending={} activity={:?} after {}",
+                    session.pending_permissions,
+                    session.activity,
+                    EVENTS[idx]
+                );
+            }
+        }
+
+        #[test]
+        fn stop_always_ends_waiting(
+            steps in prop::collection::vec((0usize..EVENTS.len(), any::<bool>()), 0..40)
+        ) {
+            let mut session = Session::new(1, "s".into());
+            for (idx, from_subagent) in steps {
+                apply(&mut session, EVENTS[idx], from_subagent);
+            }
+            apply(&mut session, "Stop", false);
+            prop_assert_eq!(session.activity, Activity::Done);
+            prop_assert_eq!(session.pending_permissions, 0);
+        }
+
+        #[test]
+        fn subagent_events_never_answer_a_prompt(
+            n in 1u32..4,
+            steps in prop::collection::vec(0usize..EVENTS.len(), 0..20)
+        ) {
+            let mut session = Session::new(1, "s".into());
+            for _ in 0..n {
+                apply(&mut session, "PermissionRequest", false);
+            }
+            let mut expected = n;
+            for idx in steps {
+                let event = EVENTS[idx];
+                // Only main-agent replies may answer; everything else here
+                // comes from a subagent and must leave the prompt standing.
+                // A subagent's own PermissionRequest adds a prompt.
+                if event == "PermissionReply" || event == "Stop" {
+                    continue;
+                }
+                if event == "PermissionRequest" {
+                    expected += 1;
+                }
+                apply(&mut session, event, true);
+            }
+            prop_assert_eq!(session.pending_permissions, expected);
+            prop_assert_eq!(session.activity, Activity::Waiting(WaitReason::Permission));
+        }
     }
 }
