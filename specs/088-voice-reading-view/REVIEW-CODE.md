@@ -127,8 +127,8 @@ Not fixed. Process exit handles cleanup. Adding explicit cancellation would be d
 - **File**: cc-deck/internal/voice/turns.go (Segment struct)
 - **Category**: architecture
 - **Source**: architecture-agent
-- **Description**: The `Speaker` field on the `Segment` struct is populated only in tdrz mode and unused in basic mode.
-- **Rationale**: This is by spec design (FR-013, FR-014). The Speaker field is part of the tdrz data model and will be used for speaker-labeled rendering. It is not dead code.
+- **Description**: The `Speaker` field on the `Segment` struct is never populated in either turn mode (verified: no assignment outside tests).
+- **Rationale**: This is by spec design (FR-023): the field is reserved, empty in this feature, for a later speaker-labeling feature. It is not dead code.
 
 ### False Positives
 
