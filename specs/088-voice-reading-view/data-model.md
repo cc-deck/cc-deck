@@ -8,6 +8,8 @@
 | SampleRate | `int` | existing |
 | Start | `time.Duration` | NEW. Offset of the first emitted sample (including pre-roll) from audio stream start |
 | End | `time.Duration` | NEW. `Start` plus the emitted audio length (after hangover trim) |
+| SpeechStart | `time.Duration` | NEW. Offset of the first loud frame (onset), without pre-roll |
+| SpeechEnd | `time.Duration` | NEW. Offset just after the last loud frame, without hangover |
 
 Invariant: `End >= Start`; for consecutive utterances `next.Start >= prev.End`.
 
@@ -48,7 +50,7 @@ Rules:
 | Threshold | `float64` (RMS) | `PercentToThreshold(20)` | `defaults.voice.recording.threshold` (percent) |
 | SilenceDuration | `float64` seconds | `1.0` | `defaults.voice.recording.silence` |
 | MaxUtteranceDuration | `float64` seconds | `12` | `defaults.voice.recording.max_chunk` |
-| PauseBreak | `time.Duration` | `3s` | `defaults.voice.recording.pause_break` (seconds) |
+| PauseBreak | `time.Duration` | `2s` | `defaults.voice.recording.pause_break` (seconds); compared with `next.SpeechStart - prev.SpeechEnd` |
 
 Validation: threshold 0 to 100; silence greater than 0 and at most 10; max_chunk at least 2 and at most 30; pause_break greater than silence. Invalid values produce config findings and fall back to defaults.
 

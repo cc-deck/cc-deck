@@ -778,7 +778,7 @@ defaults:
       threshold: 20
       silence: 1.0
       max_chunk: 12.0
-      pause_break: 3.0
+      pause_break: 2.0
 ----
 
 === `defaults.voice.speaker_split`
@@ -821,9 +821,10 @@ Shorter values produce faster updates in the reading view.
 Continuous speech is split into passages of this length.
 
 | `pause_break`
-| `3.0`
+| `2.0`
 | greater than the effective `silence`
-| Seconds of silence between passages that start a new speaker turn in the reading view and in the transcript file.
+| Seconds of silence between two passages that start a new block in the reading view and in the transcript file.
+The silence is measured from the last loud audio of one passage to the first loud audio of the next, so `--pre-roll` and the hangover do not change it.
 |===
 
 Values outside these ranges produce a configuration warning in category `voice`, and the relay uses the default for that field.

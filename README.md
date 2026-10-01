@@ -176,7 +176,7 @@ defaults:
       threshold: 20
       silence: 1.0
       max_chunk: 12.0
-      pause_break: 3.0
+      pause_break: 2.0
 ```
 
 Transcript files separate contributions with a blank line.

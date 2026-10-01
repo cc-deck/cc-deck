@@ -39,6 +39,13 @@ type Utterance struct {
 	SampleRate int
 	Start      time.Duration // offset of first emitted sample (including pre-roll) from audio stream start
 	End        time.Duration // Start plus emitted audio length (after hangover trim)
+
+	// SpeechStart and SpeechEnd bound the loud audio of the utterance
+	// (first loud frame to the end of the last loud frame), excluding the
+	// pre-roll and hangover padding. The pause between two passages is
+	// next.SpeechStart - prev.SpeechEnd.
+	SpeechStart time.Duration
+	SpeechEnd   time.Duration
 }
 
 // RecordingConfig holds VAD parameters used while recording, separate from
@@ -54,13 +61,14 @@ type RecordingConfig struct {
 
 // DefaultRecordingConfig returns recording defaults: sensitivity 20% (on the
 // 0-100 logarithmic scale), 1.0 second silence, 12 second maximum chunk, and
-// a 3 second pause-break threshold.
+// a 2 second pause-break threshold (measured as real silence between the
+// speech of two passages, see Utterance.SpeechStart).
 func DefaultRecordingConfig() RecordingConfig {
 	return RecordingConfig{
 		Threshold:            PercentToThreshold(20),
 		SilenceDuration:      1.0,
 		MaxUtteranceDuration: 12,
-		PauseBreak:           3 * time.Second,
+		PauseBreak:           2 * time.Second,
 	}
 }
 

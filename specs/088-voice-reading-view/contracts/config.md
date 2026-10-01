@@ -10,7 +10,7 @@ defaults:
       threshold: 20           # 0-100, logarithmic like defaults.voice.threshold
       silence: 1.0            # seconds of silence that end a recording passage
       max_chunk: 12           # maximum seconds per recording passage
-      pause_break: 3.0        # seconds of silence that start a new turn
+      pause_break: 2.0        # seconds of real silence (speech to speech) that start a new block
 ```
 
 All keys are optional. Missing keys use the defaults shown.

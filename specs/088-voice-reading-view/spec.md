@@ -32,6 +32,7 @@ The turn data carries an empty speaker slot so a later feature can add labels wi
 ### Session 2026-10-01 (post-implementation UX review)
 
 - Q: "Turns", `basic`, and `tdrz` are jargon; how should the mode be presented to users? → A: As speaker separation. The header shows `Speakers: by pause` (`basic`) or `Speakers: by voice` (`tdrz`), the key is `s` (hint `s: speaker split`), the config key is `speaker_split: pause | voice`, and each switch shows a short explanation in the status line for a few seconds. `basic` and `tdrz` remain internal mode identifiers in this spec.
+- Q: The pause break measured between padded audio bounds, so with a 2 s pre-roll a new block needed about 5.3 s of real silence. How should it be measured, and what default? → A: As real silence between the speech of two passages (FR-037), default lowered from 3 s to 2 s.
 - Q: How does the user tune sensitivity while reading? → A: The reading view header keeps the level meter and threshold, `+`/`-` adjust the threshold there, and `v` closes the view again (toggle).
 
 ## User Scenarios & Testing *(mandatory)*
@@ -177,8 +178,9 @@ Turns are separated by blank lines, so the structure of the conversation survive
 **Recording chunking**
 
 - **FR-025**: While recording, the relay MUST keep silence detection active, using recording-specific settings for sensitivity, silence duration, and maximum chunk length instead of forcing the minimum sensitivity (0%), which sits below typical room noise and prevents silence from ever ending a chunk.
-- **FR-026**: The recording settings MUST default to sensitivity 20% (on the existing 0 to 100 logarithmic scale), 1.0 second of silence to end a chunk, a 12 second maximum chunk, and a 3 second pause-break threshold. These defaults are intended to capture quiet remote voices played through laptop speakers.
+- **FR-026**: The recording settings MUST default to sensitivity 20% (on the existing 0 to 100 logarithmic scale), 1.0 second of silence to end a chunk, a 12 second maximum chunk, and a 2 second pause-break threshold. These defaults are intended to capture quiet remote voices played through laptop speakers.
 - **FR-027**: The recording settings and the pause-break threshold MUST be configurable in the voice section of the configuration file.
+- **FR-037**: The pause before a passage MUST be measured as real silence, from the end of the last loud audio of the previous passage to the first loud audio of the passage, excluding the pre-roll and hangover padding of the recorded audio.
 - **FR-028**: `+`/`-` during a recording MUST adjust the recording sensitivity for that recording; stopping the recording MUST restore the dictation sensitivity, silence duration, maximum chunk length, and mute state that were active before.
 
 **Transcript file**
@@ -219,7 +221,7 @@ Turns are separated by blank lines, so the structure of the conversation survive
 - A single microphone captures all participants; remote voices come through the laptop speakers.
 - The turn-aware model is the community tinydiarize model (`ggml-small.en-tdrz.bin`, about 488 MB) from the Hugging Face repository `akashmjn/tinydiarize-whisper.cpp`, transcribed through `whisper-cli` with its turn detection option, because `whisper-server` does not expose speaker changes in its responses.
 - `whisper-cli` is installed alongside `whisper-server` (both ship in the same whisper.cpp package).
-- The recording defaults (sensitivity 20%, 1.0 second silence, 12 second maximum chunk, 3 second pause-break threshold) are fixed in FR-026.
+- The recording defaults (sensitivity 20%, 1.0 second silence, 12 second maximum chunk, 2 second pause-break threshold) are fixed in FR-026.
 - The turn mode toggle is session-scoped; the configuration provides the initial value.
 - Speaker labels, non-English turn detection, reopening older transcript files, and search inside the reading view are out of scope.
 - The recording defaults are starting points that need tuning on a real call; the configuration makes tuning possible without a new release.

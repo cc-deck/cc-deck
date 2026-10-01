@@ -307,12 +307,13 @@ defaults:
       threshold: 20
       silence: 0.8
       max_chunk: 10.0
-      pause_break: 2.5
+      pause_break: 1.5
 ----
 
 Lower `threshold` values capture softer speech.
 Shorter `silence` values produce faster updates but may split mid-sentence pauses into separate passages.
-The `pause_break` value sets how many seconds of silence between passages start a new block.
+The `pause_break` value (2 seconds by default) sets how many seconds of real silence between two passages start a new block.
+The relay measures this silence from the last loud audio of one passage to the first loud audio of the next, so the `--pre-roll` setting does not affect it.
 
 See xref:reference:configuration.adoc[Configuration Reference] for the full list of recording parameters and their ranges.
 

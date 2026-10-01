@@ -111,7 +111,7 @@ type VoiceRelay struct {
 	recStartWall    time.Time     // wall-clock time when recording started
 	recStartOffset  time.Duration // set from the first recording passage's Start
 	firstRecPassage bool          // true until the first passage sets recStartOffset
-	lastRecEnd      time.Duration // End of the most recent recording passage
+	lastRecSpeechEnd time.Duration // SpeechEnd of the most recent recording passage
 	turnTranscriber TurnTranscriber
 	tdrzStatusFunc  func() error  // reports tdrz readiness; nil means no check
 
@@ -226,7 +226,7 @@ func (r *VoiceRelay) StartRecording(mode TurnMode) (TurnMode, error) {
 		r.recStartWall = time.Now()
 		r.recStartOffset = 0
 		r.firstRecPassage = true
-		r.lastRecEnd = 0
+		r.lastRecSpeechEnd = 0
 	}
 	nowMuted = r.muted
 	r.recording = true
@@ -877,11 +877,13 @@ func (r *VoiceRelay) handleRecordingPassage(ctx context.Context, u Utterance, ra
 		r.recStartOffset = u.Start
 		r.firstRecPassage = false
 	}
-	gap := u.Start - r.lastRecEnd
+	// Measure the real silence between the speech of the two passages,
+	// not between their padded audio bounds (pre-roll and hangover).
+	gap := u.SpeechStart - r.lastRecSpeechEnd
 	pauseBreak := r.config.Recording.PauseBreak
 	recStartWall := r.recStartWall
 	recStartOffset := r.recStartOffset
-	r.lastRecEnd = u.End
+	r.lastRecSpeechEnd = u.SpeechEnd
 	r.mu.Unlock()
 
 	ApplyPauseBreak(segs, gap, pauseBreak, first)

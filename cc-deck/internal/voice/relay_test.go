@@ -1233,21 +1233,25 @@ func TestVoiceRelay_RecordingPauseBreakForcesTurnStart(t *testing.T) {
 
 	ctx := context.Background()
 
-	// First utterance: Start=0, End=1s
+	// First utterance: speech 0-1s
 	u1 := Utterance{
-		Audio:      make([]int16, 16000),
-		SampleRate: 16000,
-		Start:      0,
-		End:        time.Second,
+		Audio:       make([]int16, 16000),
+		SampleRate:  16000,
+		Start:       0,
+		End:         time.Second,
+		SpeechStart: 0,
+		SpeechEnd:   time.Second,
 	}
 	relay.handleUtterance(ctx, u1)
 
-	// Second utterance: Start=5s, End=6s -> gap = 5s - 1s = 4s > 3s PauseBreak
+	// Second utterance: speech 5-6s -> real pause = 5s - 1s = 4s > 3s PauseBreak
 	u2 := Utterance{
-		Audio:      make([]int16, 16000),
-		SampleRate: 16000,
-		Start:      5 * time.Second,
-		End:        6 * time.Second,
+		Audio:       make([]int16, 16000),
+		SampleRate:  16000,
+		Start:       5 * time.Second,
+		End:         6 * time.Second,
+		SpeechStart: 5 * time.Second,
+		SpeechEnd:   6 * time.Second,
 	}
 	relay.handleUtterance(ctx, u2)
 
@@ -1282,21 +1286,25 @@ func TestVoiceRelay_RecordingGapBelowPauseBreakNoTurnStart(t *testing.T) {
 
 	ctx := context.Background()
 
-	// First utterance: Start=0, End=1s
+	// First utterance: speech 0-1s
 	u1 := Utterance{
-		Audio:      make([]int16, 16000),
-		SampleRate: 16000,
-		Start:      0,
-		End:        time.Second,
+		Audio:       make([]int16, 16000),
+		SampleRate:  16000,
+		Start:       0,
+		End:         time.Second,
+		SpeechStart: 0,
+		SpeechEnd:   time.Second,
 	}
 	relay.handleUtterance(ctx, u1)
 
-	// Second utterance: Start=2s, End=3s -> gap = 2s - 1s = 1s < 3s PauseBreak
+	// Second utterance: speech 2-3s -> real pause = 2s - 1s = 1s < 3s PauseBreak
 	u2 := Utterance{
-		Audio:      make([]int16, 16000),
-		SampleRate: 16000,
-		Start:      2 * time.Second,
-		End:        3 * time.Second,
+		Audio:       make([]int16, 16000),
+		SampleRate:  16000,
+		Start:       2 * time.Second,
+		End:         3 * time.Second,
+		SpeechStart: 2 * time.Second,
+		SpeechEnd:   3 * time.Second,
 	}
 	relay.handleUtterance(ctx, u2)
 
@@ -1648,19 +1656,23 @@ func TestVoiceRelay_TdrzPauseBreakStillApplies(t *testing.T) {
 
 	// First utterance
 	u1 := Utterance{
-		Audio:      make([]int16, 16000),
-		SampleRate: 16000,
-		Start:      0,
-		End:        time.Second,
+		Audio:       make([]int16, 16000),
+		SampleRate:  16000,
+		Start:       0,
+		End:         time.Second,
+		SpeechStart: 0,
+		SpeechEnd:   time.Second,
 	}
 	relay.handleUtterance(ctx, u1)
 
-	// Second utterance with gap > PauseBreak
+	// Second utterance with a real pause > PauseBreak
 	u2 := Utterance{
-		Audio:      make([]int16, 16000),
-		SampleRate: 16000,
-		Start:      5 * time.Second,
-		End:        6 * time.Second,
+		Audio:       make([]int16, 16000),
+		SampleRate:  16000,
+		Start:       5 * time.Second,
+		End:         6 * time.Second,
+		SpeechStart: 5 * time.Second,
+		SpeechEnd:   6 * time.Second,
 	}
 	relay.handleUtterance(ctx, u2)
 
@@ -1948,5 +1960,58 @@ func TestVoiceRelay_TdrzSegmentOffsetsShifted(t *testing.T) {
 	// Offset: passage Start (10s) - recStartOffset (0) = 10s, plus segment Start (0) = 10s
 	if segs2[0].Start != 10*time.Second {
 		t.Errorf("seg[0].Start = %v, want 10s (shifted by passage offset)", segs2[0].Start)
+	}
+}
+
+// TestVoiceRelay_PauseBreakMeasuresRealSilence verifies that the pause-break
+// rule measures the silence between the speech of two passages and ignores
+// the pre-roll and hangover padding on the audio bounds.
+func TestVoiceRelay_PauseBreakMeasuresRealSilence(t *testing.T) {
+	newRelay := func() *VoiceRelay {
+		config := DefaultRelayConfig()
+		config.MinTranscriptionLatency = 0
+		config.Recording.PauseBreak = 2 * time.Second
+		transcriber := &mockTranscriber{results: []string{"first part", "second part"}}
+		r := NewVoiceRelay(config, newMockAudioSource(), transcriber, &mockPipeSender{}, nil)
+		r.StartRecording(TurnModeBasic)
+		return r
+	}
+	second := func(r *VoiceRelay, u1, u2 Utterance) Segment {
+		t.Helper()
+		ctx := context.Background()
+		r.handleUtterance(ctx, u1)
+		r.handleUtterance(ctx, u2)
+		tr := findTranscriptionEvents(drainBufferedEvents(r.events))
+		if len(tr) != 2 {
+			t.Fatalf("expected 2 transcription events, got %d", len(tr))
+		}
+		return tr[1].Segments[0]
+	}
+	audio := make([]int16, 16000)
+
+	// Padding makes the audio bounds 4.4s apart, but the real silence is
+	// only 1.5s (2s pre-roll, 0.3s hangover on each side of the pause).
+	u1 := Utterance{Audio: audio, SampleRate: 16000, Start: 0, End: 1300 * time.Millisecond,
+		SpeechStart: 0, SpeechEnd: 1000 * time.Millisecond}
+	u2 := Utterance{Audio: audio, SampleRate: 16000, Start: 500 * time.Millisecond, End: 5700 * time.Millisecond,
+		SpeechStart: 2500 * time.Millisecond, SpeechEnd: 5400 * time.Millisecond}
+	if seg := second(newRelay(), u1, u2); seg.TurnStart {
+		t.Error("1.5s of real silence must not start a new block with a 2s pause break")
+	}
+
+	// Real silence of 2.5s exceeds the 2s pause break, even though the
+	// padded audio bounds overlap.
+	u1 = Utterance{Audio: audio, SampleRate: 16000, Start: 0, End: 1300 * time.Millisecond,
+		SpeechStart: 0, SpeechEnd: 1000 * time.Millisecond}
+	u2 = Utterance{Audio: audio, SampleRate: 16000, Start: 1200 * time.Millisecond, End: 6000 * time.Millisecond,
+		SpeechStart: 3500 * time.Millisecond, SpeechEnd: 5700 * time.Millisecond}
+	if seg := second(newRelay(), u1, u2); !seg.TurnStart {
+		t.Error("2.5s of real silence must start a new block with a 2s pause break")
+	}
+}
+
+func TestDefaultRecordingConfig_PauseBreakIsTwoSeconds(t *testing.T) {
+	if got := DefaultRecordingConfig().PauseBreak; got != 2*time.Second {
+		t.Errorf("default PauseBreak = %v, want 2s", got)
 	}
 }

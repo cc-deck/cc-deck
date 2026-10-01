@@ -49,6 +49,8 @@ func (v *VAD) Process(frames <-chan []int16) <-chan Utterance {
 			speechSmpCnt   int
 			totalSamples   int // total samples processed since stream start
 			uttStartSample int // sample index where the utterance starts (onset - pre-roll)
+			speechStart    int // sample index of the first loud frame (onset)
+			lastLoudEnd    int // sample index just after the most recent loud frame
 		)
 
 		for frame := range frames {
@@ -80,6 +82,8 @@ func (v *VAD) Process(frames <-chan []int16) <-chan Utterance {
 					if uttStartSample < 0 {
 						uttStartSample = 0
 					}
+					speechStart = totalSamples
+					lastLoudEnd = totalSamples + len(frame)
 					utterance = make([]int16, 0, v.sampleRate*2)
 					utterance = append(utterance, ringBuf...)
 					utterance = append(utterance, frame...)
@@ -93,6 +97,7 @@ func (v *VAD) Process(frames <-chan []int16) <-chan Utterance {
 				} else {
 					silenceSmpCnt = 0
 					speechSmpCnt += len(frame)
+					lastLoudEnd = totalSamples + len(frame)
 				}
 
 				if silenceSmpCnt >= silenceSamples || len(utterance) >= maxSamples {
@@ -112,6 +117,9 @@ func (v *VAD) Process(frames <-chan []int16) <-chan Utterance {
 							SampleRate: v.sampleRate,
 							Start:      uStart,
 							End:        uEnd,
+
+							SpeechStart: samplesToDuration(speechStart, v.sampleRate),
+							SpeechEnd:   samplesToDuration(lastLoudEnd, v.sampleRate),
 						}
 					}
 
@@ -136,6 +144,9 @@ func (v *VAD) Process(frames <-chan []int16) <-chan Utterance {
 					SampleRate: v.sampleRate,
 					Start:      uStart,
 					End:        uEnd,
+
+					SpeechStart: samplesToDuration(speechStart, v.sampleRate),
+					SpeechEnd:   samplesToDuration(lastLoudEnd, v.sampleRate),
 				}
 			}
 		}

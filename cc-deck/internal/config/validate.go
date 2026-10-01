@@ -569,7 +569,7 @@ func validateVoiceRecording(rec *VoiceRecordingDefaults, dictationSilence *float
 				Severity:   SeverityWarning,
 				Category:   CategoryVoice,
 				Message:    fmt.Sprintf("voice.recording.pause_break %g must be greater than the effective silence duration (%g)", pb, effectiveSilence),
-				Suggestion: "pause_break must exceed silence to distinguish turn breaks from passage breaks; default (3.0) will be used",
+				Suggestion: "pause_break must exceed silence to distinguish turn breaks from passage breaks; default (2.0) will be used",
 			})
 		}
 	}

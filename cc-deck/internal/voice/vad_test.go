@@ -3,6 +3,7 @@ package voice
 import (
 	"sync"
 	"testing"
+	"time"
 )
 
 func makeSilence(n int) []int16 {
@@ -533,5 +534,61 @@ func TestVAD_TimingFlushAtClose(t *testing.T) {
 	u0Dur := samplesToDuration(len(utterances[0].Audio), 1000)
 	if utterances[0].End-utterances[0].Start != u0Dur {
 		t.Errorf("End-Start = %v, want %v", utterances[0].End-utterances[0].Start, u0Dur)
+	}
+}
+
+// TestVAD_SpeechBoundsExcludePadding verifies that SpeechStart and SpeechEnd
+// mark the first and last loud audio of an utterance, independent of the
+// pre-roll and hangover padding included in Start and End. The relay measures
+// the pause between passages with these bounds.
+func TestVAD_SpeechBoundsExcludePadding(t *testing.T) {
+	cfg := VADConfig{
+		Threshold:            0.01,
+		PreRollDuration:      0.1,  // 100 samples at 1000 Hz
+		SilenceDuration:      0.1,  // 100 samples
+		HangoverDuration:     0.05, // 50 samples
+		MaxUtteranceDuration: 5,
+	}
+	vad := NewVAD(&cfg, 1000)
+
+	var input [][]int16
+	add := func(n int, frame func() []int16) {
+		for i := 0; i < n; i++ {
+			input = append(input, frame())
+		}
+	}
+	silence := func() []int16 { return makeSilence(50) }
+	speech := func() []int16 { return makeSpeech(50, 5000) }
+	add(4, silence) // 0-200 ms
+	add(4, speech)  // 200-400 ms
+	add(6, silence) // 400-700 ms (real pause: 300 ms)
+	add(4, speech)  // 700-900 ms
+	add(6, silence) // 900-1200 ms
+
+	frames := make(chan []int16, len(input))
+	go feedFrames(frames, input...)
+
+	utterances := collectUtterances(vad.Process(frames))
+	if len(utterances) != 2 {
+		t.Fatalf("got %d utterances, want 2", len(utterances))
+	}
+	u0, u1 := utterances[0], utterances[1]
+
+	ms := func(n int) time.Duration { return time.Duration(n) * time.Millisecond }
+	if u0.SpeechStart != ms(200) || u0.SpeechEnd != ms(400) {
+		t.Errorf("u0 speech bounds = [%v, %v], want [200ms, 400ms]", u0.SpeechStart, u0.SpeechEnd)
+	}
+	if u1.SpeechStart != ms(700) || u1.SpeechEnd != ms(900) {
+		t.Errorf("u1 speech bounds = [%v, %v], want [700ms, 900ms]", u1.SpeechStart, u1.SpeechEnd)
+	}
+	if got := u1.SpeechStart - u0.SpeechEnd; got != ms(300) {
+		t.Errorf("real pause = %v, want 300ms", got)
+	}
+	// Padding still exists on the audio bounds.
+	if u0.Start >= u0.SpeechStart {
+		t.Errorf("u0.Start %v should include pre-roll before SpeechStart %v", u0.Start, u0.SpeechStart)
+	}
+	if u0.End <= u0.SpeechEnd {
+		t.Errorf("u0.End %v should include hangover after SpeechEnd %v", u0.End, u0.SpeechEnd)
 	}
 }
