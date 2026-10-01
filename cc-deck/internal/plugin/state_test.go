@@ -99,8 +99,11 @@ func TestDetectInstallState_FullyInstalled(t *testing.T) {
 		t.Fatalf("failed to write default layout: %v", err)
 	}
 
-	zInfo := ZellijInfo{Installed: true, Version: "0.43.0", PluginsDir: pluginsDir, LayoutsDir: layoutsDir}
-	pInfo := PluginInfo{SDKVersion: "0.44"}
+	// Compatibility is derived from MinZellijVersion/MaxTested (not
+	// SDKVersion), so the zellij version must fall within [min, maxTested]
+	// for DetectInstallState to report "compatible".
+	zInfo := ZellijInfo{Installed: true, Version: MinZellijVersion + ".0", PluginsDir: pluginsDir, LayoutsDir: layoutsDir}
+	pInfo := PluginInfo{SDKVersion: "0.44", MaxTested: MaxTestedZellijVersion}
 
 	state := DetectInstallState(zInfo, pInfo)
 
