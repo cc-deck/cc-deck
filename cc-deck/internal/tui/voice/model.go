@@ -109,9 +109,26 @@ func New(relay *voicepkg.VoiceRelay, target string, logPath string, turnMode voi
 
 // Init starts the relay and subscribes to events.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(
-		waitForEvent(m.relay),
-	)
+	cmds := []tea.Cmd{waitForEvent(m.relay)}
+	if m.notice != "" {
+		seq := m.noticeSeq
+		cmds = append(cmds, tea.Tick(startupNoticeDuration, func(time.Time) tea.Msg {
+			return clearNoticeMsg{seq: seq}
+		}))
+	}
+	return tea.Batch(cmds...)
+}
+
+// startupNoticeDuration is how long a notice passed to WithStartupNotice
+// stays visible; longer than a toggle notice because it asks for an action.
+const startupNoticeDuration = 15 * time.Second
+
+// WithStartupNotice returns the model with a notice shown in the status line
+// for the first seconds after start, for example a missing speech filter.
+func (m Model) WithStartupNotice(text string) Model {
+	m.noticeSeq++
+	m.notice = text
+	return m
 }
 
 func waitForEvent(relay *voicepkg.VoiceRelay) tea.Cmd {

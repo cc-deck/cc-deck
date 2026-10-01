@@ -462,3 +462,21 @@ func TestTruncateToWidth(t *testing.T) {
 		t.Errorf("width 0 should not truncate, got %q", got)
 	}
 }
+
+func TestStartupNotice_ShownAndClearedByInitTimer(t *testing.T) {
+	m := newTestModelWithTurnMode(voicepkg.TurnModeBasic)
+	m = m.WithStartupNotice("Speech filter not installed")
+
+	if !strings.Contains(m.renderFooter(), "Speech filter not installed") {
+		t.Error("startup notice should be visible in the footer")
+	}
+	if m.Init() == nil {
+		t.Fatal("Init should return commands")
+	}
+
+	result, _ := m.Update(clearNoticeMsg{seq: m.noticeSeq})
+	m = result.(Model)
+	if m.notice != "" {
+		t.Errorf("startup notice should clear when its timer fires, notice = %q", m.notice)
+	}
+}

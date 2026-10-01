@@ -33,6 +33,7 @@ The turn data carries an empty speaker slot so a later feature can add labels wi
 
 - Q: "Turns", `basic`, and `tdrz` are jargon; how should the mode be presented to users? → A: As speaker separation. The header shows `Speakers: by pause` (`basic`) or `Speakers: by voice` (`tdrz`), the key is `s` (hint `s: speaker split`), the config key is `speaker_split: pause | voice`, and each switch shows a short explanation in the status line for a few seconds. `basic` and `tdrz` remain internal mode identifiers in this spec.
 - Q: The pause break measured between padded audio bounds, so with a 2 s pre-roll a new block needed about 5.3 s of real silence. How should it be measured, and what default? → A: As real silence between the speech of two passages (FR-037), default lowered from 3 s to 2 s.
+- Q: With `large-v3-turbo`, keyboard and room noise turned into delivered phantom words ("Thank you.", "Okay."), which the latency and bracket filters do not catch. What is the fix? → A: A speech filter (Silero VAD through `--vad` on `whisper-server` and `whisper-cli`), installed by `--setup`, on by default, switchable with `defaults.voice.speech_filter` (FR-038).
 - Q: How does the user tune sensitivity while reading? → A: The reading view header keeps the level meter and threshold, `+`/`-` adjust the threshold there, and `v` closes the view again (toggle).
 
 ## User Scenarios & Testing *(mandatory)*
@@ -180,6 +181,7 @@ Turns are separated by blank lines, so the structure of the conversation survive
 - **FR-025**: While recording, the relay MUST keep silence detection active, using recording-specific settings for sensitivity, silence duration, and maximum chunk length instead of forcing the minimum sensitivity (0%), which sits below typical room noise and prevents silence from ever ending a chunk.
 - **FR-026**: The recording settings MUST default to sensitivity 20% (on the existing 0 to 100 logarithmic scale), 1.0 second of silence to end a chunk, a 12 second maximum chunk, and a 2 second pause-break threshold. These defaults are intended to capture quiet remote voices played through laptop speakers.
 - **FR-027**: The recording settings and the pause-break threshold MUST be configurable in the voice section of the configuration file.
+- **FR-038**: The relay MUST skip non-speech audio before transcription with a speech filter (Silero VAD) for dictation, recordings, and voice-based speaker separation. `--setup` MUST install the filter model, the filter MUST be on by default when installed, `defaults.voice.speech_filter: false` MUST turn it off, and a missing model MUST produce a startup reminder in the TUI instead of an error.
 - **FR-037**: The pause before a passage MUST be measured as real silence, from the end of the last loud audio of the previous passage to the first loud audio of the passage, excluding the pre-roll and hangover padding of the recorded audio.
 - **FR-028**: `+`/`-` during a recording MUST adjust the recording sensitivity for that recording; stopping the recording MUST restore the dictation sensitivity, silence duration, maximum chunk length, and mute state that were active before.
 

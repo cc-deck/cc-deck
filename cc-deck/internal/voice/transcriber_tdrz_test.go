@@ -290,3 +290,33 @@ func TestTdrzTranscriber_NoPrompt(t *testing.T) {
 		}
 	}
 }
+
+func TestTdrzTranscriber_SpeechFilterArgs(t *testing.T) {
+	run := func(vadModel string) string {
+		var captured []string
+		tr := &tdrzTranscriber{
+			modelPath:    "/models/ggml-small.en-tdrz.bin",
+			vadModelPath: vadModel,
+			runCmd: func(ctx context.Context, name string, args ...string) error {
+				captured = args
+				for i, a := range args {
+					if a == "-of" {
+						return os.WriteFile(args[i+1]+".json", []byte(`{"transcription":[]}`), 0o644)
+					}
+				}
+				return nil
+			},
+		}
+		if _, err := tr.TranscribeTurns(context.Background(), make([]int16, 1600), 16000); err != nil {
+			t.Fatalf("TranscribeTurns: %v", err)
+		}
+		return strings.Join(captured, " ")
+	}
+
+	if args := run("/models/ggml-silero-v6.2.0.bin"); !strings.Contains(args, "--vad --vad-model /models/ggml-silero-v6.2.0.bin") {
+		t.Errorf("speech filter should add --vad, got %q", args)
+	}
+	if args := run(""); strings.Contains(args, "--vad") {
+		t.Errorf("no speech filter model should mean no --vad, got %q", args)
+	}
+}

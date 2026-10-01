@@ -12,7 +12,8 @@ import (
 // tdrzTranscriber implements TurnTranscriber by shelling out to whisper-cli
 // with the -tdrz flag and parsing the JSON output.
 type tdrzTranscriber struct {
-	modelPath string
+	modelPath    string
+	vadModelPath string // speech filter model; empty disables --vad
 
 	mu     sync.Mutex
 	prompt string
@@ -23,10 +24,12 @@ type tdrzTranscriber struct {
 }
 
 // NewTdrzTranscriber creates a TurnTranscriber that uses whisper-cli -tdrz.
-func NewTdrzTranscriber(modelPath string) TurnTranscriber {
+// vadModelPath enables the speech filter (--vad); pass "" to disable it.
+func NewTdrzTranscriber(modelPath, vadModelPath string) TurnTranscriber {
 	return &tdrzTranscriber{
-		modelPath: modelPath,
-		runCmd:    defaultRunCmd,
+		modelPath:    modelPath,
+		vadModelPath: vadModelPath,
+		runCmd:       defaultRunCmd,
 	}
 }
 
@@ -80,6 +83,9 @@ func (t *tdrzTranscriber) TranscribeTurns(ctx context.Context, audio []int16, sa
 	t.mu.Unlock()
 	if prompt != "" {
 		args = append(args, "--prompt", prompt)
+	}
+	if t.vadModelPath != "" {
+		args = append(args, "--vad", "--vad-model", t.vadModelPath)
 	}
 
 	if err := t.runCmd(ctx, "whisper-cli", args...); err != nil {

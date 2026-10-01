@@ -132,7 +132,27 @@ func runVoiceRelay(wsName, modelName string, verbose bool, port int, flags vadOv
 		log.Printf("[voice] pipe channel type: %T", ch)
 	}
 
+	// Speech filter: skip non-speech audio so large models do not turn noise
+	// into phantom words. On by default; defaults.voice.speech_filter: false
+	// turns it off.
+	speechFilterEnabled := true
+	if cfg, err := ccconfig.Load(""); err == nil && cfg.Defaults.Voice.SpeechFilter != nil {
+		speechFilterEnabled = *cfg.Defaults.Voice.SpeechFilter
+	}
+	vadModelPath, speechFilterMissing := voice.ResolveSpeechFilter(speechFilterEnabled)
+	if verbose {
+		switch {
+		case vadModelPath != "":
+			log.Printf("[voice] speech filter: on (%s)", vadModelPath)
+		case speechFilterMissing:
+			log.Printf("[voice] speech filter: enabled but not installed (%s); run cc-deck ws voice --setup", voice.SpeechFilterModelPath())
+		default:
+			log.Printf("[voice] speech filter: off (config)")
+		}
+	}
+
 	server := voice.NewWhisperServer(modelPath, port)
+	server.SetVADModel(vadModelPath)
 	if verbose {
 		server.SetLogWriter(log.Writer())
 	}
@@ -252,7 +272,7 @@ func runVoiceRelay(wsName, modelName string, verbose bool, port int, flags vadOv
 
 	// Build tdrz turn transcriber and set it on the relay.
 	tdrzModelPath := voice.ModelPath(voice.TdrzModelName)
-	tdrzTranscriber := voice.NewTdrzTranscriber(tdrzModelPath)
+	tdrzTranscriber := voice.NewTdrzTranscriber(tdrzModelPath, vadModelPath)
 	if len(glossaryTerms) > 0 {
 		tdrzTranscriber.SetPrompt(strings.Join(glossaryTerms, ", "))
 	}
@@ -291,6 +311,9 @@ func runVoiceRelay(wsName, modelName string, verbose bool, port int, flags vadOv
 	}()
 
 	model := voicetui.New(relay, wsName, logPath, initialTurnMode)
+	if speechFilterMissing {
+		model = model.WithStartupNotice("Speech filter not installed, phantom words possible. Install: cc-deck ws voice --setup")
+	}
 	p := tea.NewProgram(model, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("TUI error: %w", err)

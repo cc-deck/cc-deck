@@ -390,3 +390,31 @@ func TestModelNames_SortedAndComplete(t *testing.T) {
 		}
 	}
 }
+
+func TestResolveSpeechFilter(t *testing.T) {
+	dir := t.TempDir()
+	present := filepath.Join(dir, "ggml-silero-v6.2.0.bin")
+	if err := os.WriteFile(present, []byte("model"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	absent := filepath.Join(dir, "missing.bin")
+
+	if path, missing := resolveSpeechFilter(false, present); path != "" || missing {
+		t.Errorf("disabled: got (%q, %v), want (\"\", false)", path, missing)
+	}
+	if path, missing := resolveSpeechFilter(true, present); path != present || missing {
+		t.Errorf("enabled and installed: got (%q, %v), want (%q, false)", path, missing, present)
+	}
+	if path, missing := resolveSpeechFilter(true, absent); path != "" || !missing {
+		t.Errorf("enabled but missing: got (%q, %v), want (\"\", true)", path, missing)
+	}
+}
+
+func TestSpeechFilterModel_NotSelectableAsTranscriptionModel(t *testing.T) {
+	if _, ok := models[speechFilterModel.Name]; ok {
+		t.Error("the speech filter model must not be in the transcription model registry")
+	}
+	if filepath.Base(SpeechFilterModelPath()) != "ggml-silero-v6.2.0.bin" {
+		t.Errorf("SpeechFilterModelPath = %q", SpeechFilterModelPath())
+	}
+}

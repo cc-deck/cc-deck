@@ -61,6 +61,7 @@ type VoiceDefaults struct {
 	Glossary  []string                 `yaml:"glossary,omitempty"`
 	Recording *VoiceRecordingDefaults  `yaml:"recording,omitempty"`
 	SpeakerSplit *string               `yaml:"speaker_split,omitempty"` // "pause" or "voice"
+	SpeechFilter *bool                 `yaml:"speech_filter,omitempty"` // skip non-speech audio (default true)
 }
 
 // VoiceRecordingDefaults holds VAD parameters used while recording.

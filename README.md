@@ -120,7 +120,7 @@ Containerized sessions can restrict outbound network access to specific domains,
 
 ### Voice relay
 
-Voice relay lets you dictate into any workspace session using local speech-to-text via whisper.cpp. Audio stays on your machine. A note indicator in the sidebar shows connection status. Toggle mute from the sidebar (`Alt+v`) or the voice TUI (`m`). Say "send" to submit a prompt.
+Voice relay lets you dictate into any workspace session using local speech-to-text via whisper.cpp. Audio stays on your machine. A speech filter (installed by `--setup`) skips non-speech audio, so keyboard noise does not turn into phantom words like "Thank you.". A note indicator in the sidebar shows connection status. Toggle mute from the sidebar (`Alt+v`) or the voice TUI (`m`). Say "send" to submit a prompt.
 
 ```bash
 brew install whisper-cpp

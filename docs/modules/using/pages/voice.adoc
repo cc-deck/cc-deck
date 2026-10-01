@@ -149,6 +149,21 @@ The `.en` models are English-optimized; `medium` and `large-v3-turbo` also handl
 | Multilingual support. The most accurate model; a pruned large model that transcribes about as fast as `medium`.
 |===
 
+=== Speech Filter
+
+Whisper models sometimes turn non-speech audio into words.
+Keyboard clicks, breathing, or room noise can come out as "Thank you.", "Okay.", or "Bye.", and the relay would deliver those phantom words to the attended session.
+The large models are more prone to this than the small ones.
+
+To prevent it, the relay runs a speech filter before transcription.
+It uses the Silero voice activity model (`ggml-silero-v6.2.0.bin`, under 1 MB), which `cc-deck ws voice --setup` installs together with the Whisper model.
+Audio without speech is skipped instead of transcribed, so it costs almost no time and produces no text.
+The filter applies to dictation, to recordings, and to separating speakers by voice.
+
+The filter is on by default.
+If it is not installed yet, the voice TUI shows a reminder at startup.
+To turn it off, set `defaults.voice.speech_filter: false` in `~/.config/cc-deck/config.yaml`.
+
 TIP: On an Apple Silicon Mac, `small.en` is the recommended upgrade from the default.
 It runs comfortably in real time and handles code-related vocabulary (function names, library names, technical jargon) much better than `base.en`.
 
@@ -448,6 +463,10 @@ Timed out waiting for whisper-server::
 The server takes a few seconds to load the model into memory.
 Larger models (especially `medium` at 1.5 GB and `large-v3-turbo` at 1.6 GB) need more time.
 If this persists, check whether another process is using port 8234 and try a different port with `--port`.
+
+Phantom words such as "Thank you." appear without anyone speaking::
+Run `cc-deck ws voice --setup` to install the speech filter, and check that `defaults.voice.speech_filter` is not set to `false`.
+With `--verbose`, the log shows `speech filter: on` at startup when the filter is active.
 
 Transcription misses quiet speech::
 Lower the VAD threshold with the `-` key in the TUI, or set a lower value in the config file.

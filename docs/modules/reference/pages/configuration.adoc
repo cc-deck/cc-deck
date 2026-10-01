@@ -790,6 +790,20 @@ With `voice`, the tinydiarize model detects a change of voice through `whisper-c
 Pressing `s` in the idle voice TUI switches the mode for the current session.
 Any other value produces a configuration error in category `voice`, and the relay starts with `pause`.
 
+=== `defaults.voice.speech_filter`
+
+Whether the relay skips non-speech audio before transcription (default `true`).
+When enabled and installed, `whisper-server` and `whisper-cli` run with the Silero voice activity model (`ggml-silero-v6.2.0.bin` in the model directory), which keeps keyboard noise or breathing from turning into phantom words such as "Thank you.".
+`cc-deck ws voice --setup` installs the model.
+Set the value to `false` to transcribe all audio that passes the VAD threshold, as earlier versions did.
+
+[source,yaml]
+----
+defaults:
+  voice:
+    speech_filter: true
+----
+
 === `defaults.voice.recording`
 
 VAD parameters applied while a transcript recording is active.

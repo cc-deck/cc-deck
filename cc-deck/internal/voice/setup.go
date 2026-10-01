@@ -65,6 +65,40 @@ var models = map[string]ModelInfo{
 
 const hfTreeAPI = "https://huggingface.co/api/models/ggerganov/whisper.cpp/tree/main"
 
+// speechFilterModel is the Silero voice activity model that whisper-server
+// and whisper-cli use (--vad) to skip non-speech audio before transcribing.
+// Without it, large models turn keyboard noise or breathing into phantom
+// words such as "Thank you." It is not a transcription model, so it is kept
+// out of the models map and cannot be selected with --model.
+var speechFilterModel = ModelInfo{
+	Name:     "silero-vad",
+	FileName: "ggml-silero-v6.2.0.bin",
+	URL:      "https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v6.2.0.bin",
+	TreeAPI:  "https://huggingface.co/api/models/ggml-org/whisper-vad/tree/main",
+}
+
+// SpeechFilterModelPath returns where the speech filter model is installed.
+func SpeechFilterModelPath() string {
+	return filepath.Join(ModelDir(), speechFilterModel.FileName)
+}
+
+// ResolveSpeechFilter returns the speech filter model path to pass to the
+// whisper tools, or "" when the filter is disabled or not installed.
+// missing reports that the filter is enabled but its model is absent.
+func ResolveSpeechFilter(enabled bool) (modelPath string, missing bool) {
+	return resolveSpeechFilter(enabled, SpeechFilterModelPath())
+}
+
+func resolveSpeechFilter(enabled bool, path string) (string, bool) {
+	if !enabled {
+		return "", false
+	}
+	if _, err := os.Stat(path); err != nil {
+		return "", true
+	}
+	return path, false
+}
+
 // ModelNames returns the names of all downloadable models, sorted.
 func ModelNames() []string {
 	names := make([]string, 0, len(models))
@@ -108,12 +142,28 @@ func RunSetupWithContext(ctx context.Context, modelName string) error {
 		return fmt.Errorf("unknown model %q; available: %s", modelName, strings.Join(ModelNames(), ", "))
 	}
 
+	if err := installModel(ctx, info); err != nil {
+		return err
+	}
+	// The speech filter is small and shared by all models, so setup always
+	// installs it. The relay uses it to skip non-speech audio.
+	if err := installModel(ctx, speechFilterModel); err != nil {
+		return fmt.Errorf("installing speech filter: %w", err)
+	}
+
+	fmt.Println("\nSetup complete. Ready for voice relay.")
+	return nil
+}
+
+// installModel downloads a model into ModelDir unless an up-to-date copy is
+// already present, printing progress for the --setup command.
+func installModel(ctx context.Context, info ModelInfo) error {
 	modelPath := filepath.Join(ModelDir(), info.FileName)
 	shaPath := modelPath + ".sha256"
 
 	remoteSHA, remoteSize, err := fetchRemoteSHA(ctx, info)
 	if err != nil {
-		fmt.Printf("  [!] Could not fetch checksum from Hugging Face: %v\n", err)
+		fmt.Printf("  [!] Could not fetch checksum for %s from Hugging Face: %v\n", info.Name, err)
 		fmt.Println("      Falling back to download without verification.")
 		remoteSHA = ""
 	}
@@ -121,29 +171,25 @@ func RunSetupWithContext(ctx context.Context, modelName string) error {
 	if _, err := os.Stat(modelPath); err == nil {
 		if remoteSHA != "" {
 			if localSHA, err := readSHAFile(shaPath); err == nil && localSHA == remoteSHA {
-				fmt.Printf("Model %s is up to date (%s)\n", modelName, modelPath)
-				fmt.Println("\nSetup complete. Ready for voice relay.")
+				fmt.Printf("Model %s is up to date (%s)\n", info.Name, modelPath)
 				return nil
 			}
 		} else {
-			fmt.Printf("Model %s already downloaded (%s)\n", modelName, modelPath)
-			fmt.Println("\nSetup complete. Ready for voice relay.")
+			fmt.Printf("Model %s already downloaded (%s)\n", info.Name, modelPath)
 			return nil
 		}
-		fmt.Printf("Model %s has a newer version available. Re-downloading.\n", modelName)
+		fmt.Printf("Model %s has a newer version available. Re-downloading.\n", info.Name)
 	}
 
-	if remoteSize > 0 {
+	if remoteSize >= 1_000_000 {
 		fmt.Printf("Downloading %s (%d MB)...\n", info.Name, remoteSize/1_000_000)
 	} else {
 		fmt.Printf("Downloading %s...\n", info.Name)
 	}
 	if err := downloadModel(ctx, info, modelPath, remoteSHA, remoteSize, nil); err != nil {
-		return fmt.Errorf("downloading model: %w", err)
+		return fmt.Errorf("downloading model %s: %w", info.Name, err)
 	}
 	fmt.Printf("Model saved to %s\n", modelPath)
-
-	fmt.Println("\nSetup complete. Ready for voice relay.")
 	return nil
 }
 

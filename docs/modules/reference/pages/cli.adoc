@@ -1094,7 +1094,7 @@ cc-deck ws voice --list-devices
 | Enable detailed logging to `~/.local/state/cc-deck/voice.log`, including whisper-server's own output
 
 | `--setup`
-| Check dependencies and download the whisper model
+| Check dependencies, download the whisper model, and install the speech filter model (Silero VAD) that skips non-speech audio
 
 | `--list-devices`
 | List available audio input devices and exit
