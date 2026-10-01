@@ -1706,7 +1706,7 @@ func TestVoiceRelay_TdrzErrorFallsBackWithErrorEvent(t *testing.T) {
 	// Should have an error event for the tdrz failure.
 	var hasError bool
 	for _, ev := range events {
-		if ev.Type == "error" && ev.Err != nil && strings.Contains(ev.Err.Error(), "tdrz transcription failed") {
+		if ev.Type == "error" && ev.Err != nil && strings.Contains(ev.Err.Error(), "voice-based speaker detection failed") {
 			hasError = true
 		}
 	}

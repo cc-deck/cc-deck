@@ -154,32 +154,32 @@ Ingress
 
 When a session switches, the relay automatically loads the project glossary from the attended session's working directory and merges it with the global glossary. Project terms take priority when the combined list exceeds Whisper's 224-token window (roughly 50 terms or 800 characters). The glossary file is cached per directory for the lifetime of the relay process; changes require a relay restart.
 
-#### Reading view and turn detection
+#### Reading view and speaker separation
 
-Press `v` during a recording to open a live, scrollable chat-block view that groups speech into speaker turns. Scroll with `j`/`k`, page with `PgUp`/`PgDn`, jump to the end with `G`, and press `esc` to return to the normal view.
+Press `v` during a recording to open a live, scrollable view of the conversation, with one block for each contribution. Scroll with `j`/`k`, page with `PgUp`/`PgDn`, jump to the end with `G`, and press `esc` to return to the normal view.
 
-Two turn detection modes are available. **Basic** (the default) splits turns on dash markers in the transcript and silence gaps longer than a configurable pause break. **Tdrz** uses the tinydiarize model with `whisper-cli -tdrz` for model-based speaker turn detection. Tdrz is English only.
+The relay separates speakers in one of two ways, shown in the header after `Speakers:`. **By pause** (the default) starts a new block after a longer silence or where Whisper marks a speaker change. **By voice** uses the tinydiarize speech model to detect a change of voice, even without a pause, and recognizes English only.
 
-Press `g` in the idle TUI to toggle between basic and tdrz. If the tdrz model is not yet downloaded, the TUI prompts for confirmation and downloads it inline. You can also install it ahead of time:
+Press `s` in the idle TUI to switch modes. The first switch to **by voice** offers to download the model (488 MB). You can also install it ahead of time:
 
 ```bash
 cc-deck ws voice --setup --model small.en-tdrz
 ```
 
-Recording passages arrive faster than dictation utterances because the recording VAD uses a shorter silence window. Fine-tune recording sensitivity in the config file:
+Recording passages arrive faster than dictation utterances because the recording VAD uses a shorter silence window. Set the default mode and tune recording sensitivity in the config file:
 
 ```yaml
 defaults:
   voice:
-    turn_mode: basic
+    speaker_split: pause
     recording:
-      threshold: 25
+      threshold: 20
       silence: 1.0
       max_chunk: 12.0
       pause_break: 3.0
 ```
 
-Transcript files separate speaker turns with a blank line between them.
+Transcript files separate contributions with a blank line.
 
 ### Multi-agent support
 

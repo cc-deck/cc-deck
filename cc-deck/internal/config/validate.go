@@ -493,15 +493,15 @@ func validateVoice(voice VoiceDefaults) []Finding {
 		}
 	}
 
-	// Turn mode: basic or tdrz (case-insensitive)
-	if voice.TurnMode != nil {
-		mode := strings.ToLower(*voice.TurnMode)
-		if mode != "basic" && mode != "tdrz" {
+	// Speaker split: pause or voice (case-insensitive)
+	if voice.SpeakerSplit != nil {
+		mode := strings.ToLower(*voice.SpeakerSplit)
+		if mode != "pause" && mode != "voice" {
 			findings = append(findings, Finding{
 				Severity:   SeverityError,
 				Category:   CategoryVoice,
-				Message:    fmt.Sprintf("voice.turn_mode %q is invalid", *voice.TurnMode),
-				Suggestion: "turn_mode must be \"basic\" or \"tdrz\"",
+				Message:    fmt.Sprintf("voice.speaker_split %q is invalid", *voice.SpeakerSplit),
+				Suggestion: "speaker_split must be \"pause\" or \"voice\"",
 			})
 		}
 	}

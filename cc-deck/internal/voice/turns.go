@@ -20,17 +20,27 @@ const (
 	TurnModeTdrz TurnMode = "tdrz"
 )
 
-// ParseTurnMode parses a turn mode string (case-insensitive).
-// It accepts "basic" and "tdrz"; any other value returns an error.
-func ParseTurnMode(s string) (TurnMode, error) {
+// ParseSpeakerSplit parses the user-facing speaker split setting
+// (case-insensitive): "pause" selects TurnModeBasic and "voice" selects
+// TurnModeTdrz. Any other value returns an error.
+func ParseSpeakerSplit(s string) (TurnMode, error) {
 	switch strings.ToLower(s) {
-	case "basic":
+	case "pause":
 		return TurnModeBasic, nil
-	case "tdrz":
+	case "voice":
 		return TurnModeTdrz, nil
 	default:
-		return "", fmt.Errorf("unknown turn mode %q (valid: basic, tdrz)", s)
+		return "", fmt.Errorf("unknown speaker split %q (valid: pause, voice)", s)
 	}
+}
+
+// Label returns the user-facing description of the mode, as shown after
+// "Speakers:" in the TUI.
+func (m TurnMode) Label() string {
+	if m == TurnModeTdrz {
+		return "by voice"
+	}
+	return "by pause"
 }
 
 // Segment is a piece of transcribed text with timing and turn information.

@@ -1082,7 +1082,7 @@ cc-deck ws voice --list-devices
 | Flag | Description
 
 | `--model`
-| Whisper model name: `tiny.en`, `base.en` (default), `small.en`, `medium`, `small.en-tdrz` (tinydiarize turn detection)
+| Whisper model name: `tiny.en`, `base.en` (default), `small.en`, `medium`, `small.en-tdrz` (tinydiarize, for separating speakers by voice)
 
 | `--port`
 | Whisper-server port (default: `8234`)
@@ -1127,8 +1127,8 @@ cc-deck ws voice --list-devices
 | `v`
 | Open the reading view (only while recording or paused).
 
-| `g`
-| Toggle turn detection mode between basic and tdrz (only when idle).
+| `s`
+| Choose how the next recording separates speakers: by pause or by voice (only when idle).
 
 | `PgUp` / `PgDn`
 | Scroll through transcript history.
@@ -1159,7 +1159,7 @@ cc-deck ws voice --list-devices
 | Close the reading view and return to the normal view.
 |===
 
-The `tdrz` turn detection mode requires `whisper-cli`, which is included in the `whisper-cpp` package (`brew install whisper-cpp`).
+Separating speakers by voice requires `whisper-cli`, which is included in the `whisper-cpp` package (`brew install whisper-cpp`), and the `small.en-tdrz` model.
 
 The relay waits up to 60 seconds for whisper-server to answer its health check before giving up.
 A warm start takes about a second.

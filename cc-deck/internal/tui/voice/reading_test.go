@@ -411,7 +411,7 @@ func TestReadingView_IgnoredKeysInReadingView(t *testing.T) {
 	}
 
 	// These keys should be ignored in the reading view.
-	for _, key := range []rune{'+', '-', 'd', 'm', 'g', 'v'} {
+	for _, key := range []rune{'+', '-', 'd', 'm', 's', 'v'} {
 		result, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{key}})
 		m = result.(Model)
 
@@ -436,8 +436,8 @@ func TestReadingView_RenderReadingHeader(t *testing.T) {
 	if !strings.Contains(header, "2026-10-01-standup.txt") {
 		t.Error("header should contain the transcript filename")
 	}
-	if !strings.Contains(header, "Turns: basic") {
-		t.Error("header should contain 'Turns: basic'")
+	if !strings.Contains(header, "Speakers: by pause") {
+		t.Error("header should contain 'Speakers: by pause'")
 	}
 }
 

@@ -9,7 +9,7 @@
 
 ## Scenario 1: Reading view during a recording (US1)
 
-1. `cc-deck ws voice <workspace>`; footer shows `g: turns` and no `v` hint.
+1. `cc-deck ws voice <workspace>`; footer shows `s: speaker split` and no `v` hint.
 2. Press `v`: nothing happens.
 3. Press `r`, accept the filename. Footer now shows `v: read`.
 4. Speak three sentences with pauses of about 4 seconds between them.
@@ -30,12 +30,12 @@ Expected: no 200-entry truncation for long recordings; `+`/`-`/`d`/`m` do nothin
 
 ## Scenario 3: tdrz mode (US3)
 
-1. With `whisper-cli` absent from `PATH` (temporarily rename it or use a shell with a reduced `PATH`): press `g`, expect an error naming `whisper-cli`, mode stays `basic`.
-2. With the model missing: press `g`, expect the download prompt; press `n`, mode stays `basic`.
-3. Press `g`, then `y`: progress appears in the footer; dictation keeps working; on completion the header shows `Turns: tdrz`.
+1. With `whisper-cli` absent from `PATH` (temporarily rename it or use a shell with a reduced `PATH`): press `s`, expect an error naming `whisper-cli`, mode stays `basic`.
+2. With the model missing: press `s`, expect the download prompt; press `n`, mode stays `basic`.
+3. Press `s`, then `y`: progress appears in the footer; dictation keeps working; on completion the header shows `Speakers: by voice`.
 4. Alternatively install up front: `cc-deck ws voice --setup --model small.en-tdrz`.
 5. Start a recording and play a two-voice English exchange without pauses between speakers: each speaker change starts a new block (SC-003: at least 7 of 10).
-6. Press `g` during the recording: mode does not change.
+6. Press `s` during the recording: mode does not change.
 7. Stop the recording and dictate: delivery uses the configured model with no delay.
 8. With `--verbose`, `~/.local/state/cc-deck/voice.log` shows the turn mode at recording start, each tdrz call with duration and turn count, and any fallback.
 
@@ -46,6 +46,6 @@ Expected: no 200-entry truncation for long recordings; `+`/`-`/`d`/`m` do nothin
 
 ## Scenario 5: Configuration
 
-1. Add `defaults.voice.turn_mode: tdrz` and a `recording` block (see `contracts/config.md`).
-2. Start the relay: header shows `Turns: tdrz`.
+1. Add `defaults.voice.speaker_split: voice` and a `recording` block (see `contracts/config.md`).
+2. Start the relay: header shows `Speakers: by voice`.
 3. Set `recording.max_chunk: 99`: startup prints a config warning and the default 12 is used.

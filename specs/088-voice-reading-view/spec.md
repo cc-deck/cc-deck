@@ -29,6 +29,10 @@ The turn data carries an empty speaker slot so a later feature can add labels wi
 - Q: How long may one turn-aware transcription take before it counts as failed? → A: 30 seconds per passage; on timeout the passage falls back to the configured model as in any other failure.
 - Q: What should verbose logging record for this feature? → A: Turn mode at recording start, each turn-aware invocation with duration and detected turn count, every fallback with its reason, and model download start, end, and failure.
 
+### Session 2026-10-01 (post-implementation UX review)
+
+- Q: "Turns", `basic`, and `tdrz` are jargon; how should the mode be presented to users? → A: As speaker separation. The header shows `Speakers: by pause` (`basic`) or `Speakers: by voice` (`tdrz`), the key is `s` (hint `s: speaker split`), the config key is `speaker_split: pause | voice`, and each switch shows a short explanation in the status line for a few seconds. `basic` and `tdrz` remain internal mode identifiers in this spec.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Read back the ongoing conversation (Priority: P1)
@@ -76,7 +80,7 @@ Instead of receiving text in fixed 30 second batches, each spoken passage appear
 ### User Story 3 - Opt into model-based turn detection (Priority: P2)
 
 For English conversations, the user wants more reliable turn breaks than pauses and Whisper's occasional dash markers provide.
-Before starting a recording, they press `g` to switch the turn mode from `basic` to `tdrz`.
+Before starting a recording, they press `s` to switch the speaker separation from `by pause` (`basic`) to `by voice` (`tdrz`).
 The header always shows the current turn mode.
 When the recording starts in `tdrz` mode, transcription switches to the turn-aware speech model for the duration of the recording and switches back afterwards.
 
@@ -86,8 +90,8 @@ When the recording starts in `tdrz` mode, transcription switches to the turn-awa
 
 **Acceptance Scenarios**:
 
-1. **Given** the normal view and no recording, **When** the user presses `g`, **Then** the turn mode toggles between `basic` and `tdrz` and the header shows the new mode.
-2. **Given** a recording is active, **When** the user presses `g`, **Then** the turn mode does not change.
+1. **Given** the normal view and no recording, **When** the user presses `s`, **Then** the turn mode toggles between `basic` and `tdrz`, the header shows `Speakers: by pause` or `Speakers: by voice`, and the status line briefly explains the effect on the next recording.
+2. **Given** a recording is active, **When** the user presses `s`, **Then** the turn mode does not change.
 3. **Given** the turn-aware model is not installed, **When** the user toggles to `tdrz`, **Then** an error explains that the model is missing and asks whether to download it now (y/n); nothing downloads without confirmation.
 4. **Given** the download prompt, **When** the user confirms, **Then** the model downloads with visible progress and the mode switches to `tdrz` on success; on failure an error is shown and the mode stays `basic`.
 5. **Given** the download prompt, **When** the user declines, **Then** the mode stays `basic`.
@@ -119,7 +123,7 @@ Turns are separated by blank lines, so the structure of the conversation survive
 
 - **Empty recording**: The reading view opened before any text arrives shows a waiting placeholder instead of an empty pane.
 - **Paused recording**: `v` stays available while the recording is paused. Text transcribed during the pause is not written to the transcript file and does not appear in the reading view. The reading view header shows the paused state.
-- **Filename prompt**: While the transcript filename prompt is open, `v` and `g` are not interpreted as commands (they are typed into the filename).
+- **Filename prompt**: While the transcript filename prompt is open, `v` and `s` are not interpreted as commands (they are typed into the filename).
 - **Long recordings**: The reading view shows the complete current recording, regardless of the 200-entry limit of the normal history pane.
 - **New recording**: Starting a new recording begins a fresh reading view; text from earlier recordings or from dictation does not appear.
 - **Mid-text dash markers**: A dash counts as a turn marker only at the start of a passage or after sentence-ending punctuation (`.`, `?`, `!`) followed by optional whitespace, as in `"Sure. - What about Friday?"`. A dash inside a sentence ("well - you know") does not start a turn.
@@ -130,7 +134,7 @@ Turns are separated by blank lines, so the structure of the conversation survive
 - **Turn-aware transcription hangs**: A passage that takes longer than 30 seconds counts as failed and falls back to the configured model.
 - **Turn-aware model removed after toggling**: If the model is missing when the recording starts, the recording starts in `basic` mode, the header shows `basic`, and an error explains why.
 - **Non-English speech in `tdrz` mode**: The turn-aware model only supports English. Other languages produce degraded text. This limitation is documented, not detected.
-- **Keys inside the reading view**: `r` (pause/resume), `R` (stop), and `q` (quit) keep working. `+`/`-`, `d`, `m`, and `g` do nothing in the reading view. `↑`/`↓` scroll instead of adjusting the threshold.
+- **Keys inside the reading view**: `r` (pause/resume), `R` (stop), and `q` (quit) keep working. `+`/`-`, `d`, `m`, and `s` do nothing in the reading view. `↑`/`↓` scroll instead of adjusting the threshold.
 - **Threshold adjustment during recording**: `+`/`-` in the normal view during a recording adjust the recording sensitivity for the rest of that recording; the dictation sensitivity is restored when the recording stops.
 
 ## Requirements *(mandatory)*
@@ -147,15 +151,15 @@ Turns are separated by blank lines, so the structure of the conversation survive
 - **FR-006**: The reading view MUST support scrolling by line (`↑`/`↓`, `j`/`k`), by page (`PgUp`/`PgDn`), and jumping to the last line (`G`, `End`).
 - **FR-007**: The reading view MUST follow new text while scrolled to the bottom, MUST keep the visible position when the user has scrolled up, and MUST show a count of new blocks that arrived below the visible area until the user returns to the bottom.
 - **FR-008**: The reading view MUST return to the normal view on `esc`, and automatically when the recording stops.
-- **FR-009**: Inside the reading view, `r`, `R`, and `q` MUST behave as in the normal view; `+`, `-`, `d`, `m`, and `g` MUST have no effect.
+- **FR-009**: Inside the reading view, `r`, `R`, and `q` MUST behave as in the normal view; `+`, `-`, `d`, `m`, and `s` MUST have no effect.
 - **FR-010**: The reading view MUST show a placeholder when the recording has no text yet.
 - **FR-011**: The reading view footer MUST list its key bindings and the follow state.
 
 **Turn detection**
 
-- **FR-012**: The TUI MUST offer two turn modes, `basic` and `tdrz`, and MUST show the current mode permanently in the header of the normal view and in the reading view header.
-- **FR-013**: The `g` key in the normal view MUST toggle the turn mode when no recording is active or paused, and MUST be ignored otherwise. The new mode applies to the next recording.
-- **FR-014**: The initial turn mode MUST come from configuration (default `basic`). Toggling MUST only affect the current relay session.
+- **FR-012**: The TUI MUST offer two turn modes, `basic` and `tdrz`, and MUST show the current mode permanently in the header of the normal view and in the reading view header, labeled `Speakers: by pause` (`basic`) and `Speakers: by voice` (`tdrz`). The internal identifiers `basic` and `tdrz` MUST NOT appear in the TUI.
+- **FR-013**: The `s` key in the normal view (footer hint `s: speaker split`) MUST toggle the turn mode when no recording is active or paused, and MUST be ignored otherwise. The new mode applies to the next recording.
+- **FR-014**: The initial turn mode MUST come from the configuration key `defaults.voice.speaker_split` (`pause` for `basic`, `voice` for `tdrz`; default `pause`). Toggling MUST only affect the current relay session.
 - **FR-015**: In `basic` mode, a new turn MUST start at a Whisper dash marker (a dash at the start of a passage, or a dash that follows `.`, `?`, or `!` with only whitespace in between) and when the silence before a passage exceeds the pause-break threshold.
 - **FR-016**: In `tdrz` mode, recording audio MUST be transcribed with the turn-aware model, and a new turn MUST start at every speaker change the model reports and when the silence before a passage exceeds the pause-break threshold.
 - **FR-017**: The configured transcription model MUST remain in use for dictation at all times; selecting `tdrz` MUST NOT restart or reconfigure the dictation transcription service.
@@ -185,7 +189,8 @@ Turns are separated by blank lines, so the structure of the conversation survive
 **Documentation and tests (constitution)**
 
 - **FR-032**: README, CLI reference, configuration reference, and the voice guide MUST document the reading view keys, the turn modes, the turn-aware model installation, the English-only limitation, and the recording settings.
-- **FR-035**: Unit tests MUST cover basic turn detection (dash markers and pause breaks), turn-aware output parsing and fallback, reading view block grouping, wrapping and follow behavior, key gating (`v` and `g`), recording settings save and restore, and transcript turn separation.
+- **FR-035**: Unit tests MUST cover basic turn detection (dash markers and pause breaks), turn-aware output parsing and fallback, reading view block grouping, wrapping and follow behavior, key gating (`v` and `s`), the transient toggle notice, recording settings save and restore, and transcript turn separation.
+- **FR-036**: After each turn mode switch (and after a successful model download), the status line MUST show a one-line explanation of the effect on the next recording for about five seconds, without changing the footer height; an error message takes precedence over it.
 
 ### Key Entities
 

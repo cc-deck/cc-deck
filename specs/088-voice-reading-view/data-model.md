@@ -68,7 +68,7 @@ State transitions: `idle -> recording` via `StartRecording(mode)`; `recording ->
 
 | Entity | Fields | Notes |
 |--------|--------|-------|
-| turnMode | `voice.TurnMode` | Session value, initialized from config; `g` toggles while `recState == recIdle` |
+| turnMode | `voice.TurnMode` | Session value, initialized from `defaults.voice.speaker_split`; `s` toggles while `recState == recIdle` |
 | reading | `bool` | Reading view open; forced false by `closeTranscript` |
 | turnBlock | `at time.Time`, `parts []string`, `speaker string` | One rendered block; text is `strings.Join(parts, " ")` |
 | recBuffer | `[]turnBlock` | Reset at recording start; appended only while `recState == recRecording` |

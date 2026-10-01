@@ -178,9 +178,9 @@ func runVoiceRelay(wsName, modelName string, verbose bool, port int, flags vadOv
 		}
 		glossaryTerms = cfg.Defaults.Voice.Glossary
 
-		// Turn mode
-		if cfg.Defaults.Voice.TurnMode != nil {
-			if parsed, err := voice.ParseTurnMode(*cfg.Defaults.Voice.TurnMode); err == nil {
+		// Speaker split (pause or voice)
+		if cfg.Defaults.Voice.SpeakerSplit != nil {
+			if parsed, err := voice.ParseSpeakerSplit(*cfg.Defaults.Voice.SpeakerSplit); err == nil {
 				initialTurnMode = parsed
 			}
 		}

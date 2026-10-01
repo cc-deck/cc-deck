@@ -66,6 +66,10 @@ type Model struct {
 	dlCancel  context.CancelFunc // cancels the running download
 	dlCh      <-chan tea.Msg   // channel for download progress/completion
 
+	// Transient status-line notice (e.g. after toggling the speaker split)
+	notice    string // shown in the status line when there is no error
+	noticeSeq int    // incremented per notice; stale clear timers are ignored
+
 	width         int
 	height        int
 	viewport      viewport.Model

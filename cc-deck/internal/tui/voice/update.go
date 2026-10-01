@@ -78,6 +78,14 @@ func (m *Model) handleRelayEvent(msg relayEventMsg) {
 
 // Update handles incoming messages.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Clear an expired notice regardless of the active mode, so a notice
+	// never sticks because its timer fired while another view was open.
+	if cm, ok := msg.(clearNoticeMsg); ok {
+		if cm.seq == m.noticeSeq {
+			m.notice = ""
+		}
+		return m, nil
+	}
 	if m.reading {
 		return m.updateReading(msg)
 	}
@@ -135,8 +143,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case downloadMsg:
-		m.handleDownloadComplete(msg)
-		return m, nil
+		cmd := m.handleDownloadComplete(msg)
+		return m, cmd
 
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -179,7 +187,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.devicePick = true
 			m.deviceIdx = 0
 			return m, nil
-		case "g":
+		case "s":
 			if m.recState == recIdle && !m.dlRunning {
 				cmd := m.toggleTurnMode()
 				return m, cmd

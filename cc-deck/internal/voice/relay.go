@@ -184,11 +184,11 @@ func (r *VoiceRelay) StartRecording(mode TurnMode) (TurnMode, error) {
 	if mode == TurnModeTdrz {
 		if r.turnTranscriber == nil {
 			effective = TurnModeBasic
-			fallbackErr = fmt.Errorf("tdrz mode unavailable: no turn transcriber configured, falling back to basic")
+			fallbackErr = fmt.Errorf("speaker split by voice unavailable (no voice transcriber configured), separating speakers by pauses")
 		} else if r.tdrzStatusFunc != nil {
 			if err := r.tdrzStatusFunc(); err != nil {
 				effective = TurnModeBasic
-				fallbackErr = fmt.Errorf("tdrz mode unavailable: %w, falling back to basic", err)
+				fallbackErr = fmt.Errorf("speaker split by voice unavailable (%w), separating speakers by pauses", err)
 			}
 		}
 	}
@@ -851,7 +851,7 @@ func (r *VoiceRelay) handleRecordingPassage(ctx context.Context, u Utterance, ra
 			}
 			r.sendEvent(RelayEvent{
 				Type: "error",
-				Err:  fmt.Errorf("tdrz transcription failed: %s, using basic fallback", reason),
+				Err:  fmt.Errorf("voice-based speaker detection failed (%s), using pauses for this passage", reason),
 			})
 		}
 	}

@@ -753,17 +753,18 @@ func TestValidateAndWarn_WarningsOnly_Silent(t *testing.T) {
 	}
 }
 
-func TestValidateVoice_TurnMode(t *testing.T) {
+func TestValidateVoice_SpeakerSplit(t *testing.T) {
 	tests := []struct {
-		name     string
-		mode     string
-		wantErr  bool
+		name    string
+		mode    string
+		wantErr bool
 	}{
-		{"basic lowercase", "basic", false},
-		{"tdrz lowercase", "tdrz", false},
-		{"Basic mixed case", "Basic", false},
-		{"TDRZ uppercase", "TDRZ", false},
-		{"invalid mode", "advanced", true},
+		{"pause lowercase", "pause", false},
+		{"voice lowercase", "voice", false},
+		{"Pause mixed case", "Pause", false},
+		{"VOICE uppercase", "VOICE", false},
+		{"old basic value", "basic", true},
+		{"old tdrz value", "tdrz", true},
 		{"empty string", "", true},
 	}
 
@@ -772,29 +773,29 @@ func TestValidateVoice_TurnMode(t *testing.T) {
 			cfg := &Config{
 				Defaults: Defaults{
 					Voice: VoiceDefaults{
-						TurnMode: stringPtr(tt.mode),
+						SpeakerSplit: stringPtr(tt.mode),
 					},
 				},
 			}
 			findings := cfg.Validate()
-			hasErr := findFinding(findings, SeverityError, "turn_mode") != nil
+			hasErr := findFinding(findings, SeverityError, "speaker_split") != nil
 			if hasErr != tt.wantErr {
-				t.Errorf("turn_mode %q: hasErr=%v, wantErr=%v; findings=%v", tt.mode, hasErr, tt.wantErr, findings)
+				t.Errorf("speaker_split %q: hasErr=%v, wantErr=%v; findings=%v", tt.mode, hasErr, tt.wantErr, findings)
 			}
 		})
 	}
 }
 
-func TestValidateVoice_TurnModeNilIsValid(t *testing.T) {
+func TestValidateVoice_SpeakerSplitNilIsValid(t *testing.T) {
 	cfg := &Config{
 		Defaults: Defaults{
 			Voice: VoiceDefaults{
-				TurnMode: nil,
+				SpeakerSplit: nil,
 			},
 		},
 	}
 	findings := cfg.Validate()
-	if f := findFinding(findings, SeverityError, "turn_mode"); f != nil {
-		t.Errorf("nil turn_mode should not produce error, got: %s", f.Message)
+	if f := findFinding(findings, SeverityError, "speaker_split"); f != nil {
+		t.Errorf("nil speaker_split should not produce error, got: %s", f.Message)
 	}
 }

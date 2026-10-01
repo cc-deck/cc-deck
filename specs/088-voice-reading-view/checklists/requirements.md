@@ -32,5 +32,5 @@
 ## Notes
 
 - External tool and model names (`whisper-cli`, `whisper-server`, `ggml-small.en-tdrz.bin`) appear only in the Assumptions section as dependencies. They are the outcome of the brainstorm research (the turn signal is only exposed by `whisper-cli`) and constrain the plan, so they are recorded rather than hidden.
-- Key bindings (`v`, `g`, `G`, `esc`) and the `--setup` flag are user-facing interface decisions, not implementation details.
+- Key bindings (`v`, `s`, `G`, `esc`) and the `--setup` flag are user-facing interface decisions, not implementation details.
 - Open questions from the brainstorm resolved with defaults: pause breaks apply in both modes (FR-015, FR-016), turn mode is session-scoped with a config default (FR-014), failed turn-aware transcription falls back to the configured model (FR-021).

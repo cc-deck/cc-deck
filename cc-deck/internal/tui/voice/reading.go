@@ -205,7 +205,7 @@ func (m Model) renderReadingHeader() string {
 		b.WriteString(labelStyle.Render(base))
 	}
 	b.WriteString("  ")
-	b.WriteString(labelStyle.Render("Turns: " + string(m.turnMode)))
+	b.WriteString(labelStyle.Render("Speakers: " + m.turnMode.Label()))
 	b.WriteString("\n")
 	return b.String()
 }

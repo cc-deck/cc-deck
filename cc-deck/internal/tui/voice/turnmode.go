@@ -3,6 +3,7 @@ package voice
 import (
 	"context"
 	"fmt"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	voicepkg "github.com/cc-deck/cc-deck/internal/voice"
@@ -11,6 +12,34 @@ import (
 // downloadMsg carries the result of a background model download.
 type downloadMsg struct {
 	err error
+}
+
+// noticeDuration is how long a transient notice stays in the status line.
+const noticeDuration = 5 * time.Second
+
+// clearNoticeMsg clears the notice it was scheduled for. The sequence number
+// prevents an older timer from clearing a newer notice.
+type clearNoticeMsg struct {
+	seq int
+}
+
+// setNotice shows a transient explanation in the status line and returns
+// the command that clears it after noticeDuration.
+func (m *Model) setNotice(text string) tea.Cmd {
+	m.noticeSeq++
+	seq := m.noticeSeq
+	m.notice = text
+	return tea.Tick(noticeDuration, func(time.Time) tea.Msg {
+		return clearNoticeMsg{seq: seq}
+	})
+}
+
+// speakerSplitNotice explains what the selected mode does to the next recording.
+func speakerSplitNotice(mode voicepkg.TurnMode) string {
+	if mode == voicepkg.TurnModeTdrz {
+		return "Next recording separates speakers by voice (English only)"
+	}
+	return "Next recording separates speakers by pauses"
 }
 
 // downloadProgressMsg carries progress from a background download.
@@ -26,26 +55,26 @@ type downloadProgressMsg struct {
 func (m *Model) toggleTurnMode() tea.Cmd {
 	if m.turnMode == voicepkg.TurnModeTdrz {
 		m.turnMode = voicepkg.TurnModeBasic
-		return nil
+		return m.setNotice(speakerSplitNotice(m.turnMode))
 	}
 
 	// Check tdrz availability.
 	toolErr, modelErr := m.tdrzStatus()
 
 	if toolErr != nil {
-		m.err = fmt.Errorf("turn mode tdrz needs whisper-cli (install whisper-cpp, e.g. brew install whisper-cpp)")
+		m.err = fmt.Errorf("separating speakers by voice needs whisper-cli (install whisper-cpp, e.g. brew install whisper-cpp)")
 		return nil
 	}
 
 	if modelErr != nil {
 		m.dlPrompt = true
-		m.err = fmt.Errorf("tdrz model not installed (488 MB). Download now? [y/n]")
+		m.err = fmt.Errorf("telling speakers apart by voice needs an extra model (488 MB, English only). Download now? [y/n]")
 		return nil
 	}
 
 	// Both tool and model present.
 	m.turnMode = voicepkg.TurnModeTdrz
-	return nil
+	return m.setNotice(speakerSplitNotice(m.turnMode))
 }
 
 // startDownload begins a background download of the tdrz model. It spawns a
@@ -101,19 +130,20 @@ func (m *Model) handleDownloadProgress(msg downloadProgressMsg) tea.Cmd {
 }
 
 // handleDownloadComplete handles download completion (success or failure).
-func (m *Model) handleDownloadComplete(msg downloadMsg) {
+func (m *Model) handleDownloadComplete(msg downloadMsg) tea.Cmd {
 	m.dlRunning = false
 	m.dlCancel = nil
 	m.dlCh = nil
 
 	if msg.err != nil {
-		m.err = fmt.Errorf("tdrz model download failed: %w", msg.err)
+		m.err = fmt.Errorf("voice model download failed: %w", msg.err)
 		// Mode stays basic on failure.
-		return
+		return nil
 	}
 
 	m.turnMode = voicepkg.TurnModeTdrz
 	m.err = nil
+	return m.setNotice("Voice model installed. " + speakerSplitNotice(m.turnMode))
 }
 
 // cancelDownload cancels a running download.

@@ -765,29 +765,30 @@ Run `make test-images` after updating to validate that the build pipeline works 
 
 Location: `~/.config/cc-deck/config.yaml` under `defaults.voice`
 
-These settings control the voice relay's turn detection mode and recording-specific VAD parameters.
-The `turn_mode` setting determines which turn detection algorithm is active when the voice TUI starts.
-The `recording` block adjusts VAD behavior during transcript recording, where faster passage segmentation improves the reading view's responsiveness.
+These settings control how the voice relay separates speakers in a recording and which VAD parameters apply while recording.
+The `speaker_split` setting selects the separation mode that is active when the voice TUI starts.
+The `recording` block adjusts VAD behavior during transcript recording, where shorter passages make the reading view more responsive.
 
 [source,yaml]
 ----
 defaults:
   voice:
-    turn_mode: basic
+    speaker_split: pause
     recording:
-      threshold: 25
+      threshold: 20
       silence: 1.0
       max_chunk: 12.0
       pause_break: 3.0
 ----
 
-=== `defaults.voice.turn_mode`
+=== `defaults.voice.speaker_split`
 
-Initial turn detection mode for the voice TUI.
-Accepted values are `basic` (default) and `tdrz` (case-insensitive).
-The `basic` mode splits turns on dash markers in the transcript and silence gaps exceeding the pause break threshold.
-The `tdrz` mode uses the tinydiarize model with `whisper-cli -tdrz` for model-based speaker detection (English only).
-The mode can be toggled at runtime by pressing `g` in the idle TUI.
+How a recording decides where one speaker stops and the next one starts.
+Accepted values are `pause` (default) and `voice` (case-insensitive).
+With `pause`, a new block starts after a silence longer than `recording.pause_break`, or where Whisper marks a speaker change with a leading dash.
+With `voice`, the tinydiarize model detects a change of voice through `whisper-cli`, even without a pause; this mode recognizes English only and needs the `small.en-tdrz` model.
+Pressing `s` in the idle voice TUI switches the mode for the current session.
+Any other value produces a configuration error in category `voice`, and the relay starts with `pause`.
 
 === `defaults.voice.recording`
 

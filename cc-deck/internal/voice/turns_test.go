@@ -5,33 +5,42 @@ import (
 	"time"
 )
 
-func TestParseTurnMode(t *testing.T) {
+func TestParseSpeakerSplit(t *testing.T) {
 	tests := []struct {
 		input   string
 		want    TurnMode
 		wantErr bool
 	}{
-		{"basic", TurnModeBasic, false},
-		{"Basic", TurnModeBasic, false},
-		{"BASIC", TurnModeBasic, false},
-		{"tdrz", TurnModeTdrz, false},
-		{"Tdrz", TurnModeTdrz, false},
-		{"TDRZ", TurnModeTdrz, false},
+		{"pause", TurnModeBasic, false},
+		{"Pause", TurnModeBasic, false},
+		{"PAUSE", TurnModeBasic, false},
+		{"voice", TurnModeTdrz, false},
+		{"Voice", TurnModeTdrz, false},
+		{"VOICE", TurnModeTdrz, false},
 		{"", "", true},
-		{"auto", "", true},
-		{"whisper", "", true},
+		{"basic", "", true},
+		{"tdrz", "", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			got, err := ParseTurnMode(tt.input)
+			got, err := ParseSpeakerSplit(tt.input)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("ParseTurnMode(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
+				t.Errorf("ParseSpeakerSplit(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
 				return
 			}
 			if got != tt.want {
-				t.Errorf("ParseTurnMode(%q) = %q, want %q", tt.input, got, tt.want)
+				t.Errorf("ParseSpeakerSplit(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestTurnModeLabel(t *testing.T) {
+	if got := TurnModeBasic.Label(); got != "by pause" {
+		t.Errorf("TurnModeBasic.Label() = %q, want %q", got, "by pause")
+	}
+	if got := TurnModeTdrz.Label(); got != "by voice" {
+		t.Errorf("TurnModeTdrz.Label() = %q, want %q", got, "by voice")
 	}
 }
 
