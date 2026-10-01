@@ -26,7 +26,7 @@ description: "Task list for 088-voice-reading-view"
 
 **Purpose**: Establish a clean baseline before changing behavior
 
-- [ ] T001 Run `make test` and `make lint` on the unchanged branch and note any pre-existing failures at the bottom of specs/088-voice-reading-view/tasks.md under "Baseline notes" (no code changes)
+- [x] T001 Run `make test` and `make lint` on the unchanged branch and note any pre-existing failures at the bottom of specs/088-voice-reading-view/tasks.md under "Baseline notes" (no code changes)
 
 ---
 
@@ -186,4 +186,8 @@ Task: "T026 tdrz transcriber tests in cc-deck/internal/voice/transcriber_tdrz_te
 
 ## Baseline notes
 
-(filled by T001)
+T001: `make test` and `make lint` both pass with zero failures on the unchanged branch (2026-10-01).
+- Go tests: all pass
+- Rust tests: 426 passed, 0 failed
+- Lint: clean (Go vet + Cargo clippy)
+- WASM binary copied from main repo checkout (not tracked in worktree)

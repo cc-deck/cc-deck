@@ -341,3 +341,123 @@ func TestUtteranceDuration(t *testing.T) {
 		t.Errorf("duration = %v, want ~1s", d)
 	}
 }
+
+func TestVAD_TimingTwoUtterances(t *testing.T) {
+	cfg := VADConfig{
+		Threshold:            0.01,
+		PreRollDuration:      0,
+		SilenceDuration:      0.1,
+		MaxUtteranceDuration: 5,
+	}
+	vad := NewVAD(&cfg, 1000)
+
+	frames := make(chan []int16, 20)
+	go feedFrames(frames,
+		makeSpeech(200, 5000),  // 0-200ms speech
+		makeSilence(200),       // 200-400ms silence (triggers end at 300ms = 200+100)
+		makeSpeech(200, 5000),  // 400-600ms speech
+		makeSilence(200),       // 600-800ms silence
+	)
+
+	utterances := collectUtterances(vad.Process(frames))
+	if len(utterances) != 2 {
+		t.Fatalf("got %d utterances, want 2", len(utterances))
+	}
+
+	// First utterance starts at 0 (no pre-roll, first speech).
+	if utterances[0].Start != 0 {
+		t.Errorf("u0.Start = %v, want 0", utterances[0].Start)
+	}
+	// End - Start equals the emitted audio duration.
+	u0Dur := samplesToDuration(len(utterances[0].Audio), 1000)
+	if utterances[0].End-utterances[0].Start != u0Dur {
+		t.Errorf("u0 End-Start = %v, want %v", utterances[0].End-utterances[0].Start, u0Dur)
+	}
+
+	// Second utterance starts after the first. Non-overlapping.
+	if utterances[1].Start < utterances[0].End {
+		t.Errorf("u1.Start %v should be >= u0.End %v (non-overlapping)", utterances[1].Start, utterances[0].End)
+	}
+	// Increasing.
+	if utterances[1].Start <= utterances[0].Start {
+		t.Errorf("u1.Start %v should be > u0.Start %v (increasing)", utterances[1].Start, utterances[0].Start)
+	}
+	// End - Start equals the emitted audio duration.
+	u1Dur := samplesToDuration(len(utterances[1].Audio), 1000)
+	if utterances[1].End-utterances[1].Start != u1Dur {
+		t.Errorf("u1 End-Start = %v, want %v", utterances[1].End-utterances[1].Start, u1Dur)
+	}
+}
+
+func TestVAD_TimingPreRollIncluded(t *testing.T) {
+	cfg := VADConfig{
+		Threshold:            0.01,
+		PreRollDuration:      0.1, // 100 samples at 1000 Hz
+		SilenceDuration:      0.1,
+		MaxUtteranceDuration: 5,
+	}
+	vad := NewVAD(&cfg, 1000)
+
+	frames := make(chan []int16, 10)
+	go feedFrames(frames,
+		makeSilence(200),       // 200 samples silence (pre-roll captures last 100)
+		makeSpeech(200, 5000),  // 200 samples speech
+		makeSilence(200),       // 200 samples silence (ends utterance)
+	)
+
+	utterances := collectUtterances(vad.Process(frames))
+	if len(utterances) != 1 {
+		t.Fatalf("got %d utterances, want 1", len(utterances))
+	}
+
+	// With pre-roll of 100 samples, Start should be at 100ms (200ms - 100ms pre-roll).
+	// The onset is at sample 200 (after 200 samples of silence), pre-roll captures
+	// 100 samples before that, so Start should be at sample 100 = 100ms.
+	wantStart := samplesToDuration(100, 1000)
+	if utterances[0].Start != wantStart {
+		t.Errorf("Start = %v, want %v (pre-roll should move Start back)", utterances[0].Start, wantStart)
+	}
+
+	// End - Start should equal the emitted audio duration.
+	u0Dur := samplesToDuration(len(utterances[0].Audio), 1000)
+	if utterances[0].End-utterances[0].Start != u0Dur {
+		t.Errorf("End-Start = %v, want %v (should equal len(Audio)/SampleRate)", utterances[0].End-utterances[0].Start, u0Dur)
+	}
+
+	// The utterance includes pre-roll, so it has more samples than just the speech.
+	if len(utterances[0].Audio) <= 200 {
+		t.Errorf("Audio has %d samples, expected >200 (should include pre-roll)", len(utterances[0].Audio))
+	}
+}
+
+func TestVAD_TimingFlushAtClose(t *testing.T) {
+	cfg := VADConfig{
+		Threshold:            0.01,
+		PreRollDuration:      0,
+		SilenceDuration:      1.0,
+		MaxUtteranceDuration: 5,
+	}
+	vad := NewVAD(&cfg, 1000)
+
+	frames := make(chan []int16, 5)
+	go feedFrames(frames,
+		makeSilence(100),       // 100 samples silence
+		makeSpeech(300, 5000),  // 300 samples speech, then channel closes
+	)
+
+	utterances := collectUtterances(vad.Process(frames))
+	if len(utterances) != 1 {
+		t.Fatalf("got %d utterances, want 1 (flush at close)", len(utterances))
+	}
+
+	// Start should be at sample 100 (after 100 silence samples, no pre-roll).
+	wantStart := samplesToDuration(100, 1000)
+	if utterances[0].Start != wantStart {
+		t.Errorf("Start = %v, want %v", utterances[0].Start, wantStart)
+	}
+
+	u0Dur := samplesToDuration(len(utterances[0].Audio), 1000)
+	if utterances[0].End-utterances[0].Start != u0Dur {
+		t.Errorf("End-Start = %v, want %v", utterances[0].End-utterances[0].Start, u0Dur)
+	}
+}

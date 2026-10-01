@@ -34,12 +34,27 @@ func (v *VAD) Process(frames <-chan []int16) <-chan Utterance {
 		defer close(out)
 
 		var (
-			ringBuf       = make([]int16, 0, preRollSamples)
-			utterance     []int16
-			speaking      bool
-			silenceSmpCnt int
-			speechSmpCnt  int
+			ringBuf        = make([]int16, 0, preRollSamples)
+			utterance      []int16
+			speaking       bool
+			silenceSmpCnt  int
+			speechSmpCnt   int
+			totalSamples   int // total samples processed since stream start
+			uttStartSample int // sample index where the utterance starts (onset - pre-roll)
 		)
+
+		emitUtterance := func() {
+			if speechSmpCnt >= minSpeechSamples {
+				uStart := samplesToDuration(uttStartSample, v.sampleRate)
+				uEnd := uStart + samplesToDuration(len(utterance), v.sampleRate)
+				out <- Utterance{
+					Audio:      utterance,
+					SampleRate: v.sampleRate,
+					Start:      uStart,
+					End:        uEnd,
+				}
+			}
+		}
 
 		for frame := range frames {
 			frameRMS := rmsLevel(frame)
@@ -55,6 +70,13 @@ func (v *VAD) Process(frames <-chan []int16) <-chan Utterance {
 					speaking = true
 					silenceSmpCnt = 0
 					speechSmpCnt = len(frame)
+					// The utterance starts at (onset - pre-roll). The onset
+					// is at totalSamples (current position before adding this
+					// frame). Pre-roll is len(ringBuf) samples before that.
+					uttStartSample = totalSamples - len(ringBuf)
+					if uttStartSample < 0 {
+						uttStartSample = 0
+					}
 					utterance = make([]int16, 0, v.sampleRate*2)
 					utterance = append(utterance, ringBuf...)
 					utterance = append(utterance, frame...)
@@ -71,10 +93,6 @@ func (v *VAD) Process(frames <-chan []int16) <-chan Utterance {
 				}
 
 				if silenceSmpCnt >= silenceSamples || len(utterance) >= maxSamples {
-					// Keep hangover audio after the last loud frame
-					// instead of trimming all trailing silence. This
-					// preserves low-energy trailing speech that fell
-					// below the VAD threshold.
 					trimSamples := silenceSmpCnt - hangoverSamples
 					if trimSamples > 0 && trimSamples < len(utterance) {
 						trimmed := utterance[:len(utterance)-trimSamples]
@@ -83,12 +101,7 @@ func (v *VAD) Process(frames <-chan []int16) <-chan Utterance {
 						}
 					}
 
-					if speechSmpCnt >= minSpeechSamples {
-						out <- Utterance{
-							Audio:      utterance,
-							SampleRate: v.sampleRate,
-						}
-					}
+					emitUtterance()
 
 					utterance = nil
 					speaking = false
@@ -96,13 +109,12 @@ func (v *VAD) Process(frames <-chan []int16) <-chan Utterance {
 					speechSmpCnt = 0
 				}
 			}
+
+			totalSamples += len(frame)
 		}
 
-		if speaking && len(utterance) > 0 && speechSmpCnt >= minSpeechSamples {
-			out <- Utterance{
-				Audio:      utterance,
-				SampleRate: v.sampleRate,
-			}
+		if speaking && len(utterance) > 0 {
+			emitUtterance()
 		}
 	}()
 
@@ -127,4 +139,12 @@ func UtteranceDuration(u Utterance) time.Duration {
 		return 0
 	}
 	return time.Duration(float64(len(u.Audio)) / float64(u.SampleRate) * float64(time.Second))
+}
+
+// samplesToDuration converts a sample count to a time.Duration.
+func samplesToDuration(samples, sampleRate int) time.Duration {
+	if sampleRate == 0 {
+		return 0
+	}
+	return time.Duration(float64(samples) / float64(sampleRate) * float64(time.Second))
 }

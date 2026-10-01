@@ -3,6 +3,7 @@ package voice
 import (
 	"context"
 	"math"
+	"time"
 )
 
 // AudioSource captures PCM audio from a local input device.
@@ -36,6 +37,31 @@ type DeviceInfo struct {
 type Utterance struct {
 	Audio      []int16
 	SampleRate int
+	Start      time.Duration // offset of first emitted sample (including pre-roll) from audio stream start
+	End        time.Duration // Start plus emitted audio length (after hangover trim)
+}
+
+// RecordingConfig holds VAD parameters used while recording, separate from
+// the dictation settings. These values keep silence detection active during
+// recording so passages end after short pauses instead of running to the
+// maximum chunk length.
+type RecordingConfig struct {
+	Threshold            float64       // RMS energy threshold (recording sensitivity)
+	SilenceDuration      float64       // seconds of silence to end a recording passage
+	MaxUtteranceDuration float64       // maximum seconds per recording passage
+	PauseBreak           time.Duration // silence gap that starts a new turn
+}
+
+// DefaultRecordingConfig returns recording defaults: sensitivity 20% (on the
+// 0-100 logarithmic scale), 1.0 second silence, 12 second maximum chunk, and
+// a 3 second pause-break threshold.
+func DefaultRecordingConfig() RecordingConfig {
+	return RecordingConfig{
+		Threshold:            PercentToThreshold(20),
+		SilenceDuration:      1.0,
+		MaxUtteranceDuration: 12,
+		PauseBreak:           3 * time.Second,
+	}
 }
 
 // VADConfig controls voice activity detection parameters.

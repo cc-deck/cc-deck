@@ -26,6 +26,7 @@ type PipeSendReceiver interface {
 type RelayConfig struct {
 	SampleRate int
 	VADConfig  VADConfig
+	Recording  RecordingConfig
 	Verbose    bool
 	Commands   map[string]string // word -> action lookup (built by BuildCommandMap)
 
@@ -59,6 +60,7 @@ func DefaultRelayConfig() RelayConfig {
 	return RelayConfig{
 		SampleRate:              16000,
 		VADConfig:               DefaultVADConfig(),
+		Recording:               DefaultRecordingConfig(),
 		Commands:                BuildCommandMap(DefaultCommands),
 		MinTranscriptionLatency: DefaultTranscriptionLatency,
 		StatePollInterval:       DefaultStatePollInterval,
@@ -67,11 +69,12 @@ func DefaultRelayConfig() RelayConfig {
 
 // RelayEvent represents an event from the relay pipeline to the TUI.
 type RelayEvent struct {
-	Type    string // "level", "transcription", "delivery", "error", "paused"
-	Text    string
-	Level   float64
-	Latency time.Duration
-	Err     error
+	Type     string // "level", "transcription", "delivery", "error", "paused"
+	Text     string
+	Level    float64
+	Latency  time.Duration
+	Err      error
+	Segments []Segment // non-nil only for recording transcription events
 }
 
 // VoiceRelay orchestrates the audio -> VAD -> transcription -> pipe delivery pipeline.
@@ -92,6 +95,15 @@ type VoiceRelay struct {
 	lastWorkingDir  string
 	lastText        string
 	repeatCount     int
+
+	// Recording state
+	recTurnMode     TurnMode
+	recStartWall    time.Time     // wall-clock time when recording started
+	recStartOffset  time.Duration // set from the first recording passage's Start
+	firstRecPassage bool          // true until the first passage sets recStartOffset
+	lastRecEnd      time.Duration // End of the most recent recording passage
+	turnTranscriber TurnTranscriber
+
 	parentCtx   context.Context
 	ctx         context.Context
 	cancel      context.CancelFunc
@@ -133,18 +145,32 @@ func (r *VoiceRelay) IsRecording() bool {
 	return r.recording
 }
 
-// SetRecording sets the transcript recording state.
-// When recording starts, the VAD threshold is saved and set to 0
-// so all audio is captured without filtering, and the relay is
-// automatically muted so transcriptions are recorded but not
-// delivered to the pipe. When recording stops, both threshold
-// and mute state are restored.
-func (r *VoiceRelay) SetRecording(on bool) {
+// StartRecording begins transcript recording with the given turn mode.
+// The VAD threshold is saved and set to 0 so all audio is captured
+// without filtering, and the relay is automatically muted so
+// transcriptions are recorded but not delivered to the pipe.
+//
+// When TurnModeTdrz is requested but no turn transcriber is configured,
+// the effective mode falls back to TurnModeBasic and the returned error
+// explains why.
+//
+// Returns the effective turn mode and any fallback error.
+func (r *VoiceRelay) StartRecording(mode TurnMode) (TurnMode, error) {
+	effective := mode
+	var fallbackErr error
+
+	r.mu.Lock()
+	if mode == TurnModeTdrz && r.turnTranscriber == nil {
+		effective = TurnModeBasic
+		fallbackErr = fmt.Errorf("tdrz mode unavailable: no turn transcriber configured, falling back to basic")
+	}
+	r.mu.Unlock()
+
 	var muteChanged bool
 	var nowMuted bool
 
 	r.mu.Lock()
-	if on && !r.recording {
+	if !r.recording {
 		r.savedThreshold = r.config.VADConfig.Threshold
 		r.config.VADConfig.Threshold = PercentToThreshold(0)
 		r.savedMuted = r.muted
@@ -152,7 +178,35 @@ func (r *VoiceRelay) SetRecording(on bool) {
 			r.muted = true
 			muteChanged = true
 		}
-	} else if !on && r.recording {
+		r.recTurnMode = effective
+		r.recStartWall = time.Now()
+		r.recStartOffset = 0
+		r.firstRecPassage = true
+		r.lastRecEnd = 0
+	}
+	nowMuted = r.muted
+	r.recording = true
+	r.mu.Unlock()
+
+	if muteChanged {
+		if nowMuted {
+			r.sendEvent(RelayEvent{Type: "muted"})
+		} else {
+			r.sendEvent(RelayEvent{Type: "unmuted"})
+		}
+	}
+
+	return effective, fallbackErr
+}
+
+// StopRecording ends transcript recording. The VAD threshold and mute
+// state are restored to their pre-recording values.
+func (r *VoiceRelay) StopRecording() {
+	var muteChanged bool
+	var nowMuted bool
+
+	r.mu.Lock()
+	if r.recording {
 		r.config.VADConfig.Threshold = r.savedThreshold
 		if r.muted != r.savedMuted {
 			r.muted = r.savedMuted
@@ -160,7 +214,7 @@ func (r *VoiceRelay) SetRecording(on bool) {
 		}
 	}
 	nowMuted = r.muted
-	r.recording = on
+	r.recording = false
 	r.mu.Unlock()
 
 	if muteChanged {
@@ -567,6 +621,15 @@ func (r *VoiceRelay) handleUtterance(ctx context.Context, u Utterance) {
 		return
 	}
 
+	// Recording branch: split into segments with turn detection,
+	// apply pause-break, and emit with Segments. Sanitization happens
+	// inside SplitDashTurns; the stripping helpers are not run again.
+	if recording {
+		r.handleRecordingPassage(u, text, start)
+		return
+	}
+
+	// Dictation path: sanitize and deliver to the pipe.
 	text = strings.Join(strings.Fields(text), " ")
 	text = sanitizeTerminalText(text)
 	text = stripBracketedAnnotations(text)
@@ -610,17 +673,6 @@ func (r *VoiceRelay) handleUtterance(ctx context.Context, u Utterance) {
 		if r.config.Verbose {
 			log.Printf("[voice] suspiciously fast transcription (%s), likely hallucination: %q", latency, text)
 		}
-		return
-	}
-
-	// When muted but recording, emit the transcription event for the TUI
-	// and transcript file, but skip stopword processing and pipe delivery.
-	if muted && recording {
-		r.sendEvent(RelayEvent{
-			Type:    "transcription",
-			Text:    text,
-			Latency: latency,
-		})
 		return
 	}
 
@@ -673,6 +725,98 @@ func (r *VoiceRelay) handleUtterance(ctx context.Context, u Utterance) {
 		log.Printf("[voice] delivered successfully")
 	}
 	r.sendEvent(RelayEvent{Type: "delivery", Text: payload})
+}
+
+// handleRecordingPassage processes a transcribed utterance during recording.
+// It splits the text into segments using SplitDashTurns (which handles
+// sanitization), applies the pause-break rule, sets timing on each segment,
+// and emits a transcription event with the Segments field populated.
+func (r *VoiceRelay) handleRecordingPassage(u Utterance, rawText string, transcribeStart time.Time) {
+	// Normalize whitespace before splitting.
+	rawText = strings.Join(strings.Fields(rawText), " ")
+
+	segs := SplitDashTurns(rawText)
+	if len(segs) == 0 {
+		if r.config.Verbose {
+			log.Printf("[voice] recording: empty after split, skipping")
+		}
+		return
+	}
+
+	// Pause-break and timing under the lock.
+	r.mu.Lock()
+	first := r.firstRecPassage
+	if first {
+		r.recStartOffset = u.Start
+		r.firstRecPassage = false
+	}
+	gap := u.Start - r.lastRecEnd
+	pauseBreak := r.config.Recording.PauseBreak
+	recStartWall := r.recStartWall
+	recStartOffset := r.recStartOffset
+	r.lastRecEnd = u.End
+	r.mu.Unlock()
+
+	ApplyPauseBreak(segs, gap, pauseBreak, first)
+
+	// Set segment timing relative to recording start.
+	relStart := u.Start - recStartOffset
+	relEnd := u.End - recStartOffset
+	for i := range segs {
+		segs[i].Start = relStart
+		segs[i].End = relEnd
+		segs[i].At = recStartWall.Add(relStart)
+	}
+
+	// Join segment texts for artifact, repeat, and latency filters.
+	var parts []string
+	for _, seg := range segs {
+		parts = append(parts, seg.Text)
+	}
+	joined := strings.Join(parts, " ")
+
+	if r.config.Verbose {
+		log.Printf("[voice] recording transcribed: %q (%d segments)", joined, len(segs))
+	}
+
+	if IsWhisperArtifact(joined) {
+		if r.config.Verbose {
+			log.Printf("[voice] filtered whisper artifact: %q", joined)
+		}
+		return
+	}
+
+	r.mu.Lock()
+	if joined == r.lastText {
+		r.repeatCount++
+	} else {
+		r.lastText = joined
+		r.repeatCount = 1
+	}
+	repeats := r.repeatCount
+	r.mu.Unlock()
+	if repeats >= 3 {
+		if r.config.Verbose {
+			log.Printf("[voice] suppressed cross-utterance repeat (%dx): %q", repeats, joined)
+		}
+		return
+	}
+
+	latency := time.Since(transcribeStart)
+
+	if r.config.MinTranscriptionLatency > 0 && latency < r.config.MinTranscriptionLatency {
+		if r.config.Verbose {
+			log.Printf("[voice] suspiciously fast transcription (%s), likely hallucination: %q", latency, joined)
+		}
+		return
+	}
+
+	r.sendEvent(RelayEvent{
+		Type:     "transcription",
+		Text:     joined,
+		Latency:  latency,
+		Segments: segs,
+	})
 }
 
 var termEscapeRe = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)

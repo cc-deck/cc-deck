@@ -805,6 +805,29 @@ func TestVoiceRelay_SendsVoiceOnAtStart(t *testing.T) {
 	}
 }
 
+func TestVoiceRelay_StartRecordingTdrzFallsBackWithoutTranscriber(t *testing.T) {
+	audio := newMockAudioSource()
+	transcriber := &mockTranscriber{}
+	pipe := &mockPipeSender{}
+
+	config := DefaultRelayConfig()
+	config.MinTranscriptionLatency = 0
+	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
+
+	// No turn transcriber set, so tdrz should fall back to basic
+	mode, err := relay.StartRecording(TurnModeTdrz)
+	if mode != TurnModeBasic {
+		t.Errorf("mode = %q, want %q", mode, TurnModeBasic)
+	}
+	if err == nil {
+		t.Error("expected fallback error, got nil")
+	}
+	if !relay.IsRecording() {
+		t.Error("recording should still start even on fallback")
+	}
+	relay.StopRecording()
+}
+
 func TestVoiceRelay_TranscribesWhileMutedAndRecording(t *testing.T) {
 	audio := newMockAudioSource(makeSpeech(500, 5000), makeSilence(500))
 	transcriber := &mockTranscriber{results: []string{"notes to self"}}
@@ -903,7 +926,7 @@ func TestVoiceRelay_DiscardsWhileMutedNotRecording(t *testing.T) {
 	}
 }
 
-func TestVoiceRelay_SetRecordingAutoMutes(t *testing.T) {
+func TestVoiceRelay_StartRecordingAutoMutes(t *testing.T) {
 	audio := newMockAudioSource()
 	transcriber := &mockTranscriber{}
 	pipe := &mockPipeSender{}
@@ -920,25 +943,31 @@ func TestVoiceRelay_SetRecordingAutoMutes(t *testing.T) {
 	}
 
 	// Recording should auto-mute
-	relay.SetRecording(true)
+	mode, err := relay.StartRecording(TurnModeBasic)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if mode != TurnModeBasic {
+		t.Errorf("mode = %q, want %q", mode, TurnModeBasic)
+	}
 	if !relay.IsMuted() {
-		t.Error("expected muted after SetRecording(true)")
+		t.Error("expected muted after StartRecording")
 	}
 	if !relay.IsRecording() {
-		t.Error("expected recording after SetRecording(true)")
+		t.Error("expected recording after StartRecording")
 	}
 
 	// Stop recording should restore unmuted
-	relay.SetRecording(false)
+	relay.StopRecording()
 	if relay.IsMuted() {
-		t.Error("expected unmuted after SetRecording(false)")
+		t.Error("expected unmuted after StopRecording")
 	}
 	if relay.IsRecording() {
-		t.Error("expected not recording after SetRecording(false)")
+		t.Error("expected not recording after StopRecording")
 	}
 }
 
-func TestVoiceRelay_SetRecordingPreservesMuted(t *testing.T) {
+func TestVoiceRelay_StartRecordingPreservesMuted(t *testing.T) {
 	audio := newMockAudioSource()
 	transcriber := &mockTranscriber{}
 	pipe := &mockPipeSender{}
@@ -955,19 +984,19 @@ func TestVoiceRelay_SetRecordingPreservesMuted(t *testing.T) {
 	relay.mu.Unlock()
 
 	// Recording should keep muted
-	relay.SetRecording(true)
+	relay.StartRecording(TurnModeBasic)
 	if !relay.IsMuted() {
-		t.Error("expected muted after SetRecording(true) when already muted")
+		t.Error("expected muted after StartRecording when already muted")
 	}
 
 	// Stop recording should stay muted (was muted before)
-	relay.SetRecording(false)
+	relay.StopRecording()
 	if !relay.IsMuted() {
-		t.Error("expected still muted after SetRecording(false) when was muted before")
+		t.Error("expected still muted after StopRecording when was muted before")
 	}
 }
 
-func TestVoiceRelay_SetRecordingEmitsMuteEvent(t *testing.T) {
+func TestVoiceRelay_StartRecordingEmitsMuteEvent(t *testing.T) {
 	audio := newMockAudioSource()
 	transcriber := &mockTranscriber{}
 	pipe := &mockPipeSender{}
@@ -978,7 +1007,7 @@ func TestVoiceRelay_SetRecordingEmitsMuteEvent(t *testing.T) {
 	config.MinTranscriptionLatency = 0
 	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
 
-	relay.SetRecording(true)
+	relay.StartRecording(TurnModeBasic)
 
 	// Drain the muted event
 	var gotMuted bool
@@ -990,11 +1019,11 @@ func TestVoiceRelay_SetRecordingEmitsMuteEvent(t *testing.T) {
 				gotMuted = true
 			}
 		case <-timeout:
-			t.Fatal("expected muted event after SetRecording(true)")
+			t.Fatal("expected muted event after StartRecording")
 		}
 	}
 
-	relay.SetRecording(false)
+	relay.StopRecording()
 
 	// Drain the unmuted event
 	var gotUnmuted bool
@@ -1006,7 +1035,7 @@ func TestVoiceRelay_SetRecordingEmitsMuteEvent(t *testing.T) {
 				gotUnmuted = true
 			}
 		case <-timeout:
-			t.Fatal("expected unmuted event after SetRecording(false)")
+			t.Fatal("expected unmuted event after StopRecording")
 		}
 	}
 }
@@ -1079,4 +1108,295 @@ func searchString(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+// drainBufferedEvents reads all events currently buffered in the channel
+// without blocking. Used for tests that call handleUtterance directly.
+func drainBufferedEvents(ch chan RelayEvent) []RelayEvent {
+	var events []RelayEvent
+	for {
+		select {
+		case ev := <-ch:
+			events = append(events, ev)
+		default:
+			return events
+		}
+	}
+}
+
+func findTranscriptionEvents(events []RelayEvent) []RelayEvent {
+	var result []RelayEvent
+	for _, ev := range events {
+		if ev.Type == "transcription" {
+			result = append(result, ev)
+		}
+	}
+	return result
+}
+
+func TestVoiceRelay_RecordingFirstPassageHasTurnStart(t *testing.T) {
+	audio := newMockAudioSource()
+	transcriber := &mockTranscriber{results: []string{"Hello there"}}
+	pipe := &mockPipeSender{}
+
+	config := DefaultRelayConfig()
+	config.MinTranscriptionLatency = 0
+
+	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
+	relay.StartRecording(TurnModeBasic)
+
+	u := Utterance{
+		Audio:      make([]int16, 16000),
+		SampleRate: 16000,
+		Start:      0,
+		End:        time.Second,
+	}
+	relay.handleUtterance(context.Background(), u)
+
+	events := drainBufferedEvents(relay.events)
+	transcriptions := findTranscriptionEvents(events)
+	if len(transcriptions) == 0 {
+		t.Fatal("expected transcription event")
+	}
+
+	ev := transcriptions[0]
+	if ev.Segments == nil {
+		t.Fatal("expected non-nil Segments for recording event")
+	}
+	if len(ev.Segments) != 1 {
+		t.Fatalf("expected 1 segment, got %d", len(ev.Segments))
+	}
+	if !ev.Segments[0].TurnStart {
+		t.Error("first passage segment should have TurnStart = true")
+	}
+	if ev.Segments[0].Text != "Hello there" {
+		t.Errorf("segment text = %q, want %q", ev.Segments[0].Text, "Hello there")
+	}
+}
+
+func TestVoiceRelay_RecordingDashMarkerSplitsSegments(t *testing.T) {
+	audio := newMockAudioSource()
+	transcriber := &mockTranscriber{results: []string{"Sure. - What about Friday?"}}
+	pipe := &mockPipeSender{}
+
+	config := DefaultRelayConfig()
+	config.MinTranscriptionLatency = 0
+
+	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
+	relay.StartRecording(TurnModeBasic)
+
+	u := Utterance{
+		Audio:      make([]int16, 16000),
+		SampleRate: 16000,
+		Start:      0,
+		End:        time.Second,
+	}
+	relay.handleUtterance(context.Background(), u)
+
+	events := drainBufferedEvents(relay.events)
+	transcriptions := findTranscriptionEvents(events)
+	if len(transcriptions) == 0 {
+		t.Fatal("expected transcription event")
+	}
+
+	ev := transcriptions[0]
+	if len(ev.Segments) != 2 {
+		t.Fatalf("expected 2 segments, got %d", len(ev.Segments))
+	}
+	// First piece: "Sure." with TurnStart (first passage)
+	if ev.Segments[0].Text != "Sure." {
+		t.Errorf("seg[0].Text = %q, want %q", ev.Segments[0].Text, "Sure.")
+	}
+	if !ev.Segments[0].TurnStart {
+		t.Error("seg[0].TurnStart should be true (first passage)")
+	}
+	// Second piece: "What about Friday?" with TurnStart (dash marker)
+	if ev.Segments[1].Text != "What about Friday?" {
+		t.Errorf("seg[1].Text = %q, want %q", ev.Segments[1].Text, "What about Friday?")
+	}
+	if !ev.Segments[1].TurnStart {
+		t.Error("seg[1].TurnStart should be true (dash marker)")
+	}
+}
+
+func TestVoiceRelay_RecordingPauseBreakForcesTurnStart(t *testing.T) {
+	audio := newMockAudioSource()
+	transcriber := &mockTranscriber{results: []string{"first passage", "second passage"}}
+	pipe := &mockPipeSender{}
+
+	config := DefaultRelayConfig()
+	config.MinTranscriptionLatency = 0
+	config.Recording.PauseBreak = 3 * time.Second
+
+	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
+	relay.StartRecording(TurnModeBasic)
+
+	ctx := context.Background()
+
+	// First utterance: Start=0, End=1s
+	u1 := Utterance{
+		Audio:      make([]int16, 16000),
+		SampleRate: 16000,
+		Start:      0,
+		End:        time.Second,
+	}
+	relay.handleUtterance(ctx, u1)
+
+	// Second utterance: Start=5s, End=6s -> gap = 5s - 1s = 4s > 3s PauseBreak
+	u2 := Utterance{
+		Audio:      make([]int16, 16000),
+		SampleRate: 16000,
+		Start:      5 * time.Second,
+		End:        6 * time.Second,
+	}
+	relay.handleUtterance(ctx, u2)
+
+	events := drainBufferedEvents(relay.events)
+	transcriptions := findTranscriptionEvents(events)
+	if len(transcriptions) != 2 {
+		t.Fatalf("expected 2 transcription events, got %d", len(transcriptions))
+	}
+
+	// First passage: TurnStart forced because it is the first passage
+	if !transcriptions[0].Segments[0].TurnStart {
+		t.Error("first passage should have TurnStart (first passage rule)")
+	}
+
+	// Second passage: TurnStart forced because gap > PauseBreak
+	if !transcriptions[1].Segments[0].TurnStart {
+		t.Error("second passage should have TurnStart (gap > PauseBreak)")
+	}
+}
+
+func TestVoiceRelay_RecordingGapBelowPauseBreakNoTurnStart(t *testing.T) {
+	audio := newMockAudioSource()
+	transcriber := &mockTranscriber{results: []string{"first passage", "second passage"}}
+	pipe := &mockPipeSender{}
+
+	config := DefaultRelayConfig()
+	config.MinTranscriptionLatency = 0
+	config.Recording.PauseBreak = 3 * time.Second
+
+	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
+	relay.StartRecording(TurnModeBasic)
+
+	ctx := context.Background()
+
+	// First utterance: Start=0, End=1s
+	u1 := Utterance{
+		Audio:      make([]int16, 16000),
+		SampleRate: 16000,
+		Start:      0,
+		End:        time.Second,
+	}
+	relay.handleUtterance(ctx, u1)
+
+	// Second utterance: Start=2s, End=3s -> gap = 2s - 1s = 1s < 3s PauseBreak
+	u2 := Utterance{
+		Audio:      make([]int16, 16000),
+		SampleRate: 16000,
+		Start:      2 * time.Second,
+		End:        3 * time.Second,
+	}
+	relay.handleUtterance(ctx, u2)
+
+	events := drainBufferedEvents(relay.events)
+	transcriptions := findTranscriptionEvents(events)
+	if len(transcriptions) != 2 {
+		t.Fatalf("expected 2 transcription events, got %d", len(transcriptions))
+	}
+
+	// Second passage: no TurnStart because gap < PauseBreak and no dash marker
+	if transcriptions[1].Segments[0].TurnStart {
+		t.Error("second passage should NOT have TurnStart (gap < PauseBreak)")
+	}
+}
+
+func TestVoiceRelay_DictationEventHasNilSegments(t *testing.T) {
+	audio := newMockAudioSource()
+	transcriber := &mockTranscriber{results: []string{"hello world"}}
+	pipe := &mockPipeSender{}
+
+	config := DefaultRelayConfig()
+	config.MinTranscriptionLatency = 0
+
+	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
+	// Do NOT call StartRecording: this is a dictation utterance.
+
+	u := Utterance{
+		Audio:      make([]int16, 16000),
+		SampleRate: 16000,
+		Start:      0,
+		End:        time.Second,
+	}
+	relay.handleUtterance(context.Background(), u)
+
+	events := drainBufferedEvents(relay.events)
+	transcriptions := findTranscriptionEvents(events)
+	if len(transcriptions) == 0 {
+		t.Fatal("expected transcription event")
+	}
+
+	if transcriptions[0].Segments != nil {
+		t.Errorf("dictation event should have nil Segments, got %d segments", len(transcriptions[0].Segments))
+	}
+}
+
+func TestVoiceRelay_RecordingSegmentTimingRelativeToStart(t *testing.T) {
+	audio := newMockAudioSource()
+	transcriber := &mockTranscriber{results: []string{"hello", "world"}}
+	pipe := &mockPipeSender{}
+
+	config := DefaultRelayConfig()
+	config.MinTranscriptionLatency = 0
+
+	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
+	relay.StartRecording(TurnModeBasic)
+
+	ctx := context.Background()
+
+	// First utterance starts at 2s (simulating audio captured before recording)
+	u1 := Utterance{
+		Audio:      make([]int16, 16000),
+		SampleRate: 16000,
+		Start:      2 * time.Second,
+		End:        3 * time.Second,
+	}
+	relay.handleUtterance(ctx, u1)
+
+	// Second utterance at 8s -> relative Start should be 6s (8s - 2s offset)
+	u2 := Utterance{
+		Audio:      make([]int16, 16000),
+		SampleRate: 16000,
+		Start:      8 * time.Second,
+		End:        9 * time.Second,
+	}
+	relay.handleUtterance(ctx, u2)
+
+	events := drainBufferedEvents(relay.events)
+	transcriptions := findTranscriptionEvents(events)
+	if len(transcriptions) != 2 {
+		t.Fatalf("expected 2 transcription events, got %d", len(transcriptions))
+	}
+
+	// First passage: Start should be 0 (relative to recStartOffset = 2s)
+	if transcriptions[0].Segments[0].Start != 0 {
+		t.Errorf("first segment Start = %v, want 0", transcriptions[0].Segments[0].Start)
+	}
+	if transcriptions[0].Segments[0].End != time.Second {
+		t.Errorf("first segment End = %v, want 1s", transcriptions[0].Segments[0].End)
+	}
+
+	// Second passage: Start should be 6s (8s - 2s offset)
+	if transcriptions[1].Segments[0].Start != 6*time.Second {
+		t.Errorf("second segment Start = %v, want 6s", transcriptions[1].Segments[0].Start)
+	}
+	if transcriptions[1].Segments[0].End != 7*time.Second {
+		t.Errorf("second segment End = %v, want 7s", transcriptions[1].Segments[0].End)
+	}
+
+	// At should be set (non-zero)
+	if transcriptions[0].Segments[0].At.IsZero() {
+		t.Error("first segment At should be non-zero")
+	}
 }

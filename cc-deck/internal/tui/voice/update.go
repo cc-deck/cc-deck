@@ -12,6 +12,53 @@ const (
 	headerLines = 6 // title, title-separator, workspace, device+mode, level bar, separator
 )
 
+// handleRelayEvent processes a single relay event, updating model state.
+// It is the single handler used by Update, updateFilenamePrompt, and
+// updateDevicePicker so relay event processing is not duplicated.
+func (m *Model) handleRelayEvent(msg relayEventMsg) {
+	switch msg.Type {
+	case "level":
+		m.audioLevel = msg.Level
+	case "transcription":
+		m.err = nil
+		m.history = append(m.history, historyEntry{
+			text:    msg.Text,
+			latency: msg.Latency,
+			status:  "transcribed",
+			at:      time.Now(),
+		})
+		if len(m.history) > maxHistoryLen {
+			m.history = m.history[len(m.history)-maxHistoryLen:]
+		}
+		if m.recState == recRecording && m.recFile != nil {
+			if err := writeTranscriptLine(m.recFile, msg.Text, m.recTimestamps); err != nil {
+				m.err = err
+				m.closeTranscript()
+			} else {
+				m.recCount++
+			}
+		}
+		m.resizeViewport()
+		m.syncViewport()
+	case "delivery":
+		m.err = nil
+		if len(m.history) > 0 {
+			m.history[len(m.history)-1].status = "delivered"
+		}
+		m.resizeViewport()
+		m.syncViewport()
+	case "error":
+		m.err = msg.Err
+		m.resizeViewport()
+	case "muted":
+		m.muted = true
+	case "unmuted":
+		m.muted = false
+	case "target_changed":
+		m.session = msg.Text
+	}
+}
+
 // Update handles incoming messages.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.devicePick {
@@ -109,47 +156,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case relayEventMsg:
-		switch msg.Type {
-		case "level":
-			m.audioLevel = msg.Level
-		case "transcription":
-			m.err = nil
-			m.history = append(m.history, historyEntry{
-				text:    msg.Text,
-				latency: msg.Latency,
-				status:  "transcribed",
-				at:      time.Now(),
-			})
-			if len(m.history) > maxHistoryLen {
-				m.history = m.history[len(m.history)-maxHistoryLen:]
-			}
-			if m.recState == recRecording && m.recFile != nil {
-				if err := writeTranscriptLine(m.recFile, msg.Text, m.recTimestamps); err != nil {
-					m.err = err
-					m.closeTranscript()
-				} else {
-					m.recCount++
-				}
-			}
-			m.resizeViewport()
-			m.syncViewport()
-		case "delivery":
-			m.err = nil
-			if len(m.history) > 0 {
-				m.history[len(m.history)-1].status = "delivered"
-			}
-			m.resizeViewport()
-			m.syncViewport()
-		case "error":
-			m.err = msg.Err
-			m.resizeViewport()
-		case "muted":
-			m.muted = true
-		case "unmuted":
-			m.muted = false
-		case "target_changed":
-			m.session = msg.Text
-		}
+		m.handleRelayEvent(msg)
 		return m, waitForEvent(m.relay)
 	}
 
@@ -204,7 +211,7 @@ func (m Model) updateFilenamePrompt(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.recPath = path
 			m.recCount = 0
 			m.recState = recRecording
-			m.relay.SetRecording(true)
+			m.relay.StartRecording(voicepkg.TurnModeBasic)
 			m.recInput.Blur()
 			m.resizeViewport()
 			return m, nil
@@ -227,28 +234,7 @@ func (m Model) updateFilenamePrompt(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.resizeViewport()
 		return m, nil
 	case relayEventMsg:
-		// Continue consuming relay events while prompting.
-		switch msg.Type {
-		case "level":
-			m.audioLevel = msg.Level
-		case "transcription":
-			m.err = nil
-			m.history = append(m.history, historyEntry{
-				text:    msg.Text,
-				latency: msg.Latency,
-				status:  "transcribed",
-				at:      time.Now(),
-			})
-			if len(m.history) > maxHistoryLen {
-				m.history = m.history[len(m.history)-maxHistoryLen:]
-			}
-			m.resizeViewport()
-			m.syncViewport()
-		case "muted":
-			m.muted = true
-		case "unmuted":
-			m.muted = false
-		}
+		m.handleRelayEvent(msg)
 		return m, waitForEvent(m.relay)
 	}
 	return m, nil
@@ -277,10 +263,7 @@ func (m Model) updateDevicePicker(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 	case relayEventMsg:
-		switch msg.Type {
-		case "level":
-			m.audioLevel = msg.Level
-		}
+		m.handleRelayEvent(msg)
 		return m, waitForEvent(m.relay)
 	}
 	return m, nil
