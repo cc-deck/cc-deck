@@ -7,34 +7,72 @@ cc-deck consists of two components that work together: a Rust WASM plugin for th
 Rust WASM Plugin (`cc-zellij-plugin/`)::
 The sidebar that runs inside Zellij.
 Compiled to WebAssembly (wasm32-wasip1) and loaded by Zellij as a plugin.
-Handles rendering, navigation, smart attend, and session tracking.
-Communicates with other instances via the Zellij pipe system.
+One binary serves two roles, selected by the `mode` key in the plugin configuration.
+The controller runs once per Zellij session as a background plugin from `load_plugins` and owns all session state.
+A sidebar runs in every tab, renders what the controller sends it, and forwards user actions back.
+The two roles communicate over the Zellij pipe system.
 
 Go CLI (`cc-deck/`)::
 The command-line tool that users interact with directly.
 Handles plugin installation, hook registration, snapshots, and the container image build pipeline.
 Embeds the WASM binary so a single `cc-deck` binary installs everything.
 
-== Sync Protocol
+== Plugin Permissions
 
-The WASM plugin runs as a separate instance on every tab (via the layout template).
-These instances synchronize session state through Zellij's pipe messaging system:
+Both roles run from the same WASM binary and request the same seven Zellij permissions on load.
+The list lives in one place in the plugin (`REQUIRED_PERMISSIONS` in `lib.rs`), and the Go CLI seeds the identical list into Zellij's `permissions.kdl` cache.
+A test in the CLI keeps the two lists the same.
 
-`cc-deck:sync`::
-Broadcast session state to all instances.
-Used when a session's activity changes.
+Zellij caches grants by plugin URL, so the dialog the sidebar shows is what grants the background controller.
+The controller itself never sees a dialog.
+It runs from `load_plugins`, and Zellij cannot show a permission prompt for a plugin that has no pane (zellij-org/zellij#4982).
+A grant given to the sidebar also does not reach a controller that is already waiting (zellij-org/zellij#4990 is open).
+A cached grant is therefore the only way the controller starts on a first run.
 
-`cc-deck:request`::
-Request the latest state from other instances.
+`cc-deck config plugin install` seeds the cache and fails if it cannot.
+Every workspace launch runs the same check again before Zellij creates the session, so a cache that was cleared in between is repaired instead of stranding the controller until the next restart.
+The check is idempotent and writes nothing when the entry is already correct.
+
+Seeding alone is not sufficient.
+Zellij addresses the `PermissionRequestResult` event to a specific client, and a plugin started during the initial layout load can be handed that result before any client is ready to receive it.
+The grant is then dropped in transit.
+Both roles therefore recover from a timer: a plugin that is still unpermissioned when a timer fires asks again and re-arms the timer.
+The retry is bounded by `PERMISSION_RETRY_LIMIT`, and a denied result stops it at once, so a request that is genuinely waiting on a human answer is never re-raised on a loop.
+On a healthy start the grant has already arrived, the first tick returns early, and the recovery costs a single timer tick.
+
+== Controller and Sidebars
+
+Zellij places one plugin pane in every tab, so there is one sidebar instance per tab and the number of instances grows with the number of tabs.
+The design keeps those instances thin.
+The controller is the single writer of session state.
+It processes hook events, pane and tab updates, and the timer, and it persists state to a per-session file in the plugin cache.
+Sidebars hold no session state of their own.
+They receive a pre-computed render payload, draw it, and send user actions back to the controller.
+
+cc-deck requires Zellij 0.45.0 or later.
+Earlier releases could instantiate a `load_plugins` background plugin twice on startup (zellij-org/zellij#5178), and the plugin relies on there being exactly one controller per session.
+
+The pipe messages between the two roles:
+
+`cc-deck:sidebar-hello` and `cc-deck:sidebar-init`::
+A sidebar announces itself after its permission grant.
+The controller finds the sidebar's tab in the pane manifest and answers with the tab index.
+The sidebar repeats the hello once a second until the answer arrives.
+
+`cc-deck:render`::
+The controller sends the full render payload to each registered sidebar.
+Renders are coalesced: state changes mark the payload dirty, and the one-second timer flushes it.
+User actions flush immediately.
+
+`cc-deck:action` and `cc-deck:focus-report`::
+A sidebar forwards a user action (attend, rename, pause, sort) or a focus change to the controller.
 
 `cc-deck:hook`::
-Incoming hook events from Claude Code (via the Go CLI).
+Incoming hook events from an agent (via the Go CLI).
 
-`cc-deck:navigate`::
-Navigation commands (switch tab, attend).
-
-`cc-deck:attend`::
-Smart attend requests.
+`cc-deck:navigate`, `cc-deck:attend`, `cc-deck:working`::
+Keybindings registered by the controller.
+They are broadcast to every plugin instance; sidebars drop them, and the controller acts on them.
 
 == Hook Integration
 
@@ -45,8 +83,18 @@ The flow:
 
 1. Claude Code fires a hook event (e.g., session starts, permission request)
 2. `cc-deck hook --pane-id "$ZELLIJ_PANE_ID"` runs
-3. The CLI maps the pane ID to a plugin instance
-4. The plugin updates the session's state in the sidebar
+3. The CLI exits immediately when it is not running inside a Zellij session
+4. The CLI maps the pane ID to a plugin instance
+5. The plugin updates the session's state in the sidebar
+
+Step 3 matters because `zellij pipe` succeeds when it is run from outside a Zellij session and delivers to whichever session is running.
+Without that check, an agent started in a plain terminal would appear in the sidebar of an unrelated session.
+
+A pane ID arriving on a hook event is a claim that the controller has not yet verified.
+The controller therefore holds a newly created session back until the Zellij pane manifest confirms that the pane exists, and removes the session if that confirmation does not arrive.
+This matters because pane IDs restart from zero in every Zellij run.
+An ID carried over from an earlier run does not simply fail to match.
+It addresses a different pane that is genuinely in use.
 
 == Directory Structure
 
