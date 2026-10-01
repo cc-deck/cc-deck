@@ -1073,6 +1073,7 @@ Mute can be toggled from the sidebar (`Alt+m`, `m` in navigation mode, or clicki
 cc-deck ws voice mydev
 cc-deck ws voice mydev --model small.en --verbose
 cc-deck ws voice --setup
+cc-deck ws voice --setup --model small.en-tdrz
 cc-deck ws voice --list-devices
 ----
 
@@ -1081,7 +1082,7 @@ cc-deck ws voice --list-devices
 | Flag | Description
 
 | `--model`
-| Whisper model name: `tiny.en`, `base.en` (default), `small.en`, `medium`
+| Whisper model name: `tiny.en`, `base.en` (default), `small.en`, `medium`, `small.en-tdrz` (tinydiarize turn detection)
 
 | `--port`
 | Whisper-server port (default: `8234`)
@@ -1098,6 +1099,67 @@ cc-deck ws voice --list-devices
 | `--list-devices`
 | List available audio input devices and exit
 |===
+
+===== Normal View Keys
+
+[cols="1,3"]
+|===
+| Key | Action
+
+| `q`
+| Quit voice relay and stop the whisper server.
+
+| `m`
+| Toggle mute/unmute.
+
+| `+` / `-`
+| Increase or decrease VAD sensitivity.
+
+| `d`
+| Open the audio device picker.
+
+| `r`
+| Start recording, pause, or resume transcript recording.
+
+| `R`
+| Stop transcript recording and close the file.
+
+| `v`
+| Open the reading view (only while recording or paused).
+
+| `g`
+| Toggle turn detection mode between basic and tdrz (only when idle).
+
+| `PgUp` / `PgDn`
+| Scroll through transcript history.
+|===
+
+===== Reading View Keys
+
+[cols="1,3"]
+|===
+| Key | Action
+
+| `j` / `k`
+| Scroll one line down or up.
+
+| `PgUp` / `PgDn`
+| Scroll half a page up or down.
+
+| `G` / `End`
+| Jump to the bottom and resume auto-follow.
+
+| `r`
+| Pause or resume recording.
+
+| `R`
+| Stop recording and close the reading view.
+
+| `esc`
+| Close the reading view and return to the normal view.
+|===
+
+The `tdrz` turn detection mode requires `whisper-cli`, which is included in the `whisper-cpp` package (`brew install whisper-cpp`).
 
 The relay waits up to 60 seconds for whisper-server to answer its health check before giving up.
 A warm start takes about a second.

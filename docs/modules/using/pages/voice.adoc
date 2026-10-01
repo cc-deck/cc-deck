@@ -198,6 +198,12 @@ The footer shows available keyboard shortcuts.
 | `R` (Shift+R)
 | Stop transcript recording and close the file.
 
+| `v`
+| Open the reading view (only while recording or paused).
+
+| `g`
+| Toggle turn detection mode between basic and tdrz (only when idle).
+
 | `PgUp` / `PgDn`
 | Scroll through transcript history.
 |===
@@ -234,6 +240,103 @@ The transcribed text is not sent to the attended pane.
 This lets you capture notes or commentary that you do not want delivered to the active session.
 
 When no recording is active and the relay is muted, audio is discarded without transcription, preserving the existing mute behavior.
+
+== Reading View and Turn Detection
+
+While recording a transcript, press `v` to open the reading view.
+This view displays the ongoing conversation as a sequence of turn blocks, grouped by speaker.
+Each block shows a timestamp and the spoken text, with alternating gutter colors to distinguish consecutive turns.
+The view auto-scrolls to the latest content as new speech arrives.
+
+=== Navigating the Reading View
+
+Scroll with `j`/`k` (one line) or `PgUp`/`PgDn` (half page).
+When you scroll up, auto-follow pauses and the footer shows how many new blocks have arrived below.
+Press `G` or `End` to jump back to the bottom and resume following.
+Press `esc` to close the reading view and return to the normal TUI.
+
+=== Turn Detection Modes
+
+Two modes determine where one speaker turn ends and another begins.
+
+**Basic** (the default) uses two signals: dash markers in the transcript (a common Whisper convention for speaker changes) and silence gaps longer than the configured pause break.
+This mode works with any Whisper model and requires no additional setup.
+
+**Tdrz** uses the tinydiarize model (`small.en-tdrz`) with `whisper-cli -tdrz` for model-based speaker turn detection.
+Tinydiarize embeds turn-change tokens directly into the transcription output, producing more accurate boundaries than silence-based heuristics.
+This mode is English only and requires `whisper-cli` (included in `whisper-cpp`).
+
+Press `g` in the idle TUI to toggle between modes.
+If `tdrz` is selected but the tinydiarize model has not been downloaded, the TUI prompts for confirmation and downloads it inline.
+If `whisper-cli` is not installed, the TUI shows an error and stays on basic mode.
+
+=== Installing the Tdrz Model
+
+You can install the tinydiarize model ahead of time with the setup command:
+
+[source,bash]
+----
+cc-deck ws voice --setup --model small.en-tdrz
+----
+
+Alternatively, press `g` in the voice TUI when idle.
+If the model is missing, the TUI asks whether to download it and shows progress during the transfer.
+You can cancel the download with `q`.
+
+=== Tuning Recording Sensitivity
+
+Recording passages arrive faster than dictation utterances because the recording VAD uses a shorter silence window (1 second by default, compared to 1.5 seconds for dictation).
+This means the reading view updates more frequently during recording.
+
+For quiet remote voices or noisy environments, adjust the recording-specific VAD parameters in the config file:
+
+[source,yaml]
+----
+defaults:
+  voice:
+    recording:
+      threshold: 20
+      silence: 0.8
+      max_chunk: 10.0
+      pause_break: 2.5
+----
+
+Lower `threshold` values capture softer speech.
+Shorter `silence` values produce faster updates but may split mid-sentence pauses into separate passages.
+The `pause_break` value controls how many seconds of silence between passages trigger a new turn block in the reading view.
+
+See xref:reference:configuration.adoc[Configuration Reference] for the full list of recording parameters and their ranges.
+
+=== Transcript File Turn Separators
+
+When turn detection is active, the transcript file separates speaker turns with a single blank line.
+Each segment is written as its own line, and a blank line appears before any segment that starts a new turn.
+The first segment of the recording never gets a leading blank line.
+
+This formatting applies to both basic and tdrz modes.
+Without turn changes (all segments from the same speaker), the file contains no blank lines between entries.
+
+=== Troubleshooting Turn Detection
+
+whisper-cli not found::
+The `tdrz` mode requires `whisper-cli`, which is part of the `whisper-cpp` package.
+Install it with `brew install whisper-cpp`.
+If the tool is missing, pressing `g` to switch to tdrz shows an error and stays on basic mode.
+
+Tdrz model download failed::
+Network errors during the model download are reported in the TUI footer.
+Press `g` again to retry.
+You can also download the model manually with `cc-deck ws voice --setup --model small.en-tdrz`.
+
+Fallback to basic during recording::
+If a tdrz transcription call fails or times out while recording, the relay falls back to basic turn detection for that passage and emits an error event.
+The reading view continues to update with basic-mode turn breaks.
+Check `--verbose` logs for details on the failure.
+
+Tdrz produces no turn breaks::
+Tinydiarize detects speaker changes, not pauses.
+If only one person is speaking, tdrz may not insert any turn-change tokens.
+Silence-based pause breaks still apply in tdrz mode for gap-based separation.
 
 == Configuration
 

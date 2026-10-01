@@ -760,3 +760,68 @@ Exactly one entry per target type should be marked as default.
 
 The `/cc-deck.base-images` command checks upstream registries for new or updated images and helps maintain this file.
 Run `make test-images` after updating to validate that the build pipeline works with all listed base images.
+
+== Voice Defaults
+
+Location: `~/.config/cc-deck/config.yaml` under `defaults.voice`
+
+These settings control the voice relay's turn detection mode and recording-specific VAD parameters.
+The `turn_mode` setting determines which turn detection algorithm is active when the voice TUI starts.
+The `recording` block adjusts VAD behavior during transcript recording, where faster passage segmentation improves the reading view's responsiveness.
+
+[source,yaml]
+----
+defaults:
+  voice:
+    turn_mode: basic
+    recording:
+      threshold: 25
+      silence: 1.0
+      max_chunk: 12.0
+      pause_break: 3.0
+----
+
+=== `defaults.voice.turn_mode`
+
+Initial turn detection mode for the voice TUI.
+Accepted values are `basic` (default) and `tdrz` (case-insensitive).
+The `basic` mode splits turns on dash markers in the transcript and silence gaps exceeding the pause break threshold.
+The `tdrz` mode uses the tinydiarize model with `whisper-cli -tdrz` for model-based speaker detection (English only).
+The mode can be toggled at runtime by pressing `g` in the idle TUI.
+
+=== `defaults.voice.recording`
+
+VAD parameters applied while a transcript recording is active.
+These override the main dictation VAD settings for the duration of the recording and are restored when recording stops.
+All fields are optional; omitted fields keep the dictation defaults.
+
+[cols="2,1,1,4"]
+|===
+| Field | Default | Range | Description
+
+| `threshold`
+| (main threshold)
+| 0-100
+| Logarithmic VAD sensitivity during recording.
+Lower values capture quieter speech.
+
+| `silence`
+| `1.0`
+| 0.1-10.0
+| Seconds of silence that end a recording passage.
+Shorter values produce faster updates in the reading view.
+
+| `max_chunk`
+| `12.0`
+| 1.0-60.0
+| Maximum seconds per recording passage.
+Capped at 30 seconds (Whisper's processing window).
+
+| `pause_break`
+| `3.0`
+| 0.5-30.0
+| Seconds of silence between passages that start a new speaker turn in the reading view.
+|===
+
+Validation reports an error for values outside the documented ranges.
+Invalid entries are listed with severity `error` and category `voice`.
