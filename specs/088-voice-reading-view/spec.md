@@ -19,6 +19,16 @@ It also makes recordings deliver text within seconds instead of in 30 second bat
 Speaker identity (labels such as "Me" or "S2") is explicitly out of scope.
 The turn data carries an empty speaker slot so a later feature can add labels without changing the reading view.
 
+## Clarifications
+
+### Session 2026-10-01
+
+- Q: What are the concrete recording defaults? → A: Sensitivity 20% on the existing 0 to 100 logarithmic scale (dictation default is about 44%), 1.0 second silence, 12 second maximum chunk, 3 second pause-break threshold.
+- Q: Does the turn-aware model download block the TUI? → A: No. It runs in the background with progress in the footer; dictation and recording keep working; quitting the relay cancels it and removes the partial file; on success the mode becomes `tdrz` for the next recording.
+- Q: What happens when the turn-aware transcription tool itself is missing? → A: Toggling to `tdrz` shows an error that names the missing tool and how to install it, offers no download, and the mode stays `basic`.
+- Q: How long may one turn-aware transcription take before it counts as failed? → A: 30 seconds per passage; on timeout the passage falls back to the configured model as in any other failure.
+- Q: What should verbose logging record for this feature? → A: Turn mode at recording start, each turn-aware invocation with duration and detected turn count, every fallback with its reason, and model download start, end, and failure.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Read back the ongoing conversation (Priority: P1)
@@ -114,6 +124,9 @@ Turns are separated by blank lines, so the structure of the conversation survive
 - **Mid-text dash markers**: A dash counts as a turn marker only at the start of a passage or directly after sentence-ending punctuation (`.`, `?`, `!`). A dash inside a sentence ("well - you know") does not start a turn.
 - **Turns across chunk boundaries**: A new passage continues the previous block unless it carries a turn marker or the silence before it exceeds the pause-break threshold. This rule applies in both modes, because the turn-aware model only sees one passage at a time.
 - **Turn-aware transcription fails for a passage**: The passage is transcribed with the configured model instead, an error is shown in the footer, and the passage is treated as having no turn markers. The recording continues.
+- **Turn-aware transcription tool missing**: Toggling to `tdrz` shows an error naming the missing tool and how to install it; no model download is offered and the mode stays `basic`.
+- **Download in progress**: Dictation, recording, and all keys keep working while the model downloads. Quitting the relay cancels the download and removes the partial file.
+- **Turn-aware transcription hangs**: A passage that takes longer than 30 seconds counts as failed and falls back to the configured model.
 - **Turn-aware model removed after toggling**: If the model is missing when the recording starts, the recording starts in `basic` mode, the header shows `basic`, and an error explains why.
 - **Non-English speech in `tdrz` mode**: The turn-aware model only supports English. Other languages produce degraded text. This limitation is documented, not detected.
 - **Keys inside the reading view**: `r` (pause/resume), `R` (stop), and `q` (quit) keep working. `+`/`-`, `d`, `m`, and `g` do nothing in the reading view. `↑`/`↓` scroll instead of adjusting the threshold.
@@ -146,17 +159,19 @@ Turns are separated by blank lines, so the structure of the conversation survive
 - **FR-016**: In `tdrz` mode, recording audio MUST be transcribed with the turn-aware model, and a new turn MUST start at every speaker change the model reports and when the silence before a passage exceeds the pause-break threshold.
 - **FR-017**: The configured transcription model MUST remain in use for dictation at all times; selecting `tdrz` MUST NOT restart or reconfigure the dictation transcription service.
 - **FR-018**: When the user toggles to `tdrz` and the turn-aware model is not installed, the TUI MUST show an error and offer a y/n download prompt. The model MUST NOT download without explicit confirmation.
-- **FR-019**: A confirmed download MUST show progress, MUST verify integrity before the model is used, MUST NOT leave a partial file that later passes as installed, and MUST switch the mode to `tdrz` only on success.
+- **FR-019**: A confirmed download MUST run in the background without blocking dictation, recording, or other keys, MUST show progress in the footer, MUST verify integrity before the model is used, MUST NOT leave a partial file that later passes as installed (quitting the relay cancels the download and removes the partial file), and MUST switch the mode to `tdrz` only on success. The new mode applies to the next recording.
+- **FR-033**: When the user toggles to `tdrz` and the turn-aware transcription tool is not installed, the TUI MUST show an error naming the missing tool and how to install it, MUST NOT offer a model download, and the mode MUST stay `basic`.
 - **FR-020**: The existing setup flow (`cc-deck ws voice --setup`) MUST be able to install the turn-aware model on request.
-- **FR-021**: If turn-aware transcription fails for a passage, the system MUST transcribe that passage with the configured model, MUST report the error in the footer, and MUST continue the recording.
+- **FR-021**: If turn-aware transcription fails for a passage, or does not finish within 30 seconds, the system MUST transcribe that passage with the configured model, MUST report the error in the footer, and MUST continue the recording.
+- **FR-034**: When verbose logging is enabled, the relay MUST log the turn mode at recording start, each turn-aware invocation with its duration and detected turn count, every fallback with its reason, and the start, end, and failure of model downloads.
 - **FR-022**: If the turn-aware model is missing when a `tdrz` recording starts, the recording MUST start in `basic` mode with an error explaining the fallback.
 - **FR-023**: Each transcription event MUST carry structured segments with the segment text, timing relative to the recording, a turn-start flag, and an empty speaker field reserved for future speaker labels.
 - **FR-024**: Text delivered to agent panes (dictation) MUST remain sanitized exactly as today; turn markers MUST NOT leak into delivered text.
 
 **Recording chunking**
 
-- **FR-025**: While recording, the relay MUST keep silence detection active, using recording-specific settings for sensitivity, silence duration, and maximum chunk length instead of disabling the sensitivity threshold.
-- **FR-026**: The recording settings MUST default to values that capture quiet remote voices played through laptop speakers, end a chunk after roughly one second of silence, and cap a chunk at roughly 10 to 15 seconds.
+- **FR-025**: While recording, the relay MUST keep silence detection active, using recording-specific settings for sensitivity, silence duration, and maximum chunk length instead of forcing the minimum sensitivity (0%), which sits below typical room noise and prevents silence from ever ending a chunk.
+- **FR-026**: The recording settings MUST default to sensitivity 20% (on the existing 0 to 100 logarithmic scale), 1.0 second of silence to end a chunk, a 12 second maximum chunk, and a 3 second pause-break threshold. These defaults are intended to capture quiet remote voices played through laptop speakers.
 - **FR-027**: The recording settings and the pause-break threshold MUST be configurable in the voice section of the configuration file.
 - **FR-028**: `+`/`-` during a recording MUST adjust the recording sensitivity for that recording; stopping the recording MUST restore the dictation sensitivity, silence duration, maximum chunk length, and mute state that were active before.
 
@@ -195,7 +210,7 @@ Turns are separated by blank lines, so the structure of the conversation survive
 - A single microphone captures all participants; remote voices come through the laptop speakers.
 - The turn-aware model is the community tinydiarize model (`ggml-small.en-tdrz.bin`, about 488 MB) from the Hugging Face repository `akashmjn/tinydiarize-whisper.cpp`, transcribed through `whisper-cli` with its turn detection option, because `whisper-server` does not expose speaker changes in its responses.
 - `whisper-cli` is installed alongside `whisper-server` (both ship in the same whisper.cpp package).
-- The pause-break threshold defaults to 3 seconds.
+- The recording defaults (sensitivity 20%, 1.0 second silence, 12 second maximum chunk, 3 second pause-break threshold) are fixed in FR-026.
 - The turn mode toggle is session-scoped; the configuration provides the initial value.
 - Speaker labels, non-English turn detection, reopening older transcript files, and search inside the reading view are out of scope.
-- The recording defaults (low sensitivity, about 1 second silence, 10 to 15 second maximum chunk) are starting points that need tuning on a real call; the configuration makes tuning possible without a new release.
+- The recording defaults are starting points that need tuning on a real call; the configuration makes tuning possible without a new release.
