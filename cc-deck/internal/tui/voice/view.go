@@ -164,8 +164,9 @@ func (m Model) renderFooter() string {
 
 	if m.dlRunning {
 		pct := 0
-		doneMB := m.dlDone / (1024 * 1024)
-		totalMB := m.dlTotal / (1024 * 1024)
+		// Decimal MB, matching the "488 MB" in the download prompt.
+		doneMB := m.dlDone / 1_000_000
+		totalMB := m.dlTotal / 1_000_000
 		if m.dlTotal > 0 {
 			pct = int(m.dlDone * 100 / m.dlTotal)
 		}

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -315,5 +316,37 @@ func TestDownloadModel_SuccessWithMatchingSHA(t *testing.T) {
 	}
 	if string(shaData) != correctSHA {
 		t.Errorf("SHA file content = %q, want %q", string(shaData), correctSHA)
+	}
+}
+
+// TestDownloadModel_WritesNothingToStdout guards the TUI: the voice TUI runs
+// downloadModel in the background while bubbletea owns the alternate screen,
+// so any stdout write scrolls the screen and leaves ghost lines behind.
+func TestDownloadModel_WritesNothingToStdout(t *testing.T) {
+	content := []byte("quiet model content")
+	correctSHA := computeSHA256(content)
+
+	ms := newModelServer(t, content)
+	defer ms.Close()
+
+	destPath := filepath.Join(t.TempDir(), "ggml-quiet.bin")
+	info := ModelInfo{Name: "quiet-test", FileName: "ggml-quiet.bin", URL: ms.URL}
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	origStdout := os.Stdout
+	os.Stdout = w
+	dlErr := downloadModel(context.Background(), info, destPath, correctSHA, int64(len(content)), func(int64, int64) {})
+	os.Stdout = origStdout
+	w.Close()
+	out, _ := io.ReadAll(r)
+
+	if dlErr != nil {
+		t.Fatalf("downloadModel: %v", dlErr)
+	}
+	if len(out) > 0 {
+		t.Errorf("downloadModel wrote to stdout: %q", out)
 	}
 }

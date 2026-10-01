@@ -116,9 +116,15 @@ func RunSetupWithContext(ctx context.Context, modelName string) error {
 		fmt.Printf("Model %s has a newer version available. Re-downloading.\n", modelName)
 	}
 
+	if remoteSize > 0 {
+		fmt.Printf("Downloading %s (%d MB)...\n", info.Name, remoteSize/1_000_000)
+	} else {
+		fmt.Printf("Downloading %s...\n", info.Name)
+	}
 	if err := downloadModel(ctx, info, modelPath, remoteSHA, remoteSize, nil); err != nil {
 		return fmt.Errorf("downloading model: %w", err)
 	}
+	fmt.Printf("Model saved to %s\n", modelPath)
 
 	fmt.Println("\nSetup complete. Ready for voice relay.")
 	return nil
@@ -263,12 +269,6 @@ func downloadModel(ctx context.Context, info ModelInfo, destPath, expectedSHA st
 		return fmt.Errorf("creating model directory: %w", err)
 	}
 
-	if expectedSize > 0 {
-		fmt.Printf("Downloading %s (%d MB)...\n", info.Name, expectedSize/1024/1024)
-	} else {
-		fmt.Printf("Downloading %s...\n", info.Name)
-	}
-
 	client := &http.Client{
 		Transport: &http.Transport{
 			TLSHandshakeTimeout:   10 * time.Second,
@@ -333,6 +333,7 @@ func downloadModel(ctx context.Context, info ModelInfo, destPath, expectedSHA st
 		writeSHAFile(shaPath, expectedSHA)
 	}
 
-	fmt.Printf("Model saved to %s\n", destPath)
+	// No stdout output here: the voice TUI calls this while bubbletea owns
+	// the alternate screen. Callers report progress and results themselves.
 	return nil
 }
