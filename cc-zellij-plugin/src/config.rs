@@ -44,6 +44,9 @@ pub struct PluginConfig {
     pub perf_interval: u64,
     /// Automatically sort paused sessions below active ones (default: true).
     pub auto_sort: bool,
+    /// Seconds without a voice relay poll before the voice indicator is
+    /// cleared (default 15). Must exceed the relay's poll interval.
+    pub voice_timeout_secs: u64,
 }
 
 impl Default for PluginConfig {
@@ -63,6 +66,7 @@ impl Default for PluginConfig {
             perf_enabled: false,
             perf_interval: 30,
             auto_sort: true,
+            voice_timeout_secs: 15,
         }
     }
 }
@@ -156,6 +160,14 @@ impl PluginConfig {
             result.auto_sort = v != "false";
         }
 
+        if let Some(v) = config.get("voice_timeout_secs") {
+            if let Ok(t) = v.parse::<u64>() {
+                if t >= 5 {
+                    result.voice_timeout_secs = t;
+                }
+            }
+        }
+
         result
     }
 }
@@ -210,6 +222,20 @@ mod tests {
         let map = BTreeMap::new();
         let config = PluginConfig::from_configuration(&map);
         assert!(config.auto_sort);
+    }
+
+    #[test]
+    fn test_voice_timeout_secs_default_and_floor() {
+        assert_eq!(PluginConfig::default().voice_timeout_secs, 15);
+
+        let mut map = BTreeMap::new();
+        map.insert("voice_timeout_secs".into(), "30".into());
+        assert_eq!(PluginConfig::from_configuration(&map).voice_timeout_secs, 30);
+
+        // Below the floor the default stands: a timeout shorter than one poll
+        // interval would flap the indicator on every tick.
+        map.insert("voice_timeout_secs".into(), "1".into());
+        assert_eq!(PluginConfig::from_configuration(&map).voice_timeout_secs, 15);
     }
 
     #[test]
