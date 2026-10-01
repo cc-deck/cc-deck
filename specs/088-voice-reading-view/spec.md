@@ -91,9 +91,10 @@ When the recording starts in `tdrz` mode, transcription switches to the turn-awa
 3. **Given** the turn-aware model is not installed, **When** the user toggles to `tdrz`, **Then** an error explains that the model is missing and asks whether to download it now (y/n); nothing downloads without confirmation.
 4. **Given** the download prompt, **When** the user confirms, **Then** the model downloads with visible progress and the mode switches to `tdrz` on success; on failure an error is shown and the mode stays `basic`.
 5. **Given** the download prompt, **When** the user declines, **Then** the mode stays `basic`.
-6. **Given** `tdrz` mode is selected, **When** a recording starts, **Then** recording audio is transcribed with the turn-aware model and every detected speaker change starts a new block.
-7. **Given** a `tdrz` recording stops, **When** the user dictates again, **Then** dictation uses the configured model as before, with no restart delay.
-8. **Given** `tdrz` mode is selected, **When** the user dictates without recording, **Then** dictation uses the configured model.
+6. **Given** the turn-aware transcription tool is not installed, **When** the user toggles to `tdrz`, **Then** an error names the missing tool and how to install it, no download is offered, and the mode stays `basic`.
+7. **Given** `tdrz` mode is selected, **When** a recording starts, **Then** recording audio is transcribed with the turn-aware model and every detected speaker change starts a new block.
+8. **Given** a `tdrz` recording stops, **When** the user dictates again, **Then** dictation uses the configured model as before, with no restart delay.
+9. **Given** `tdrz` mode is selected, **When** the user dictates without recording, **Then** dictation uses the configured model.
 
 ---
 
@@ -121,7 +122,7 @@ Turns are separated by blank lines, so the structure of the conversation survive
 - **Filename prompt**: While the transcript filename prompt is open, `v` and `g` are not interpreted as commands (they are typed into the filename).
 - **Long recordings**: The reading view shows the complete current recording, regardless of the 200-entry limit of the normal history pane.
 - **New recording**: Starting a new recording begins a fresh reading view; text from earlier recordings or from dictation does not appear.
-- **Mid-text dash markers**: A dash counts as a turn marker only at the start of a passage or directly after sentence-ending punctuation (`.`, `?`, `!`). A dash inside a sentence ("well - you know") does not start a turn.
+- **Mid-text dash markers**: A dash counts as a turn marker only at the start of a passage or after sentence-ending punctuation (`.`, `?`, `!`) followed by optional whitespace, as in `"Sure. - What about Friday?"`. A dash inside a sentence ("well - you know") does not start a turn.
 - **Turns across chunk boundaries**: A new passage continues the previous block unless it carries a turn marker or the silence before it exceeds the pause-break threshold. This rule applies in both modes, because the turn-aware model only sees one passage at a time.
 - **Turn-aware transcription fails for a passage**: The passage is transcribed with the configured model instead, an error is shown in the footer, and the passage is treated as having no turn markers. The recording continues.
 - **Turn-aware transcription tool missing**: Toggling to `tdrz` shows an error naming the missing tool and how to install it; no model download is offered and the mode stays `basic`.
@@ -140,8 +141,8 @@ Turns are separated by blank lines, so the structure of the conversation survive
 
 - **FR-001**: The TUI MUST open a reading view when the user presses `v` while a recording is active or paused, and MUST ignore `v` otherwise.
 - **FR-002**: The footer MUST show the `v` hint only while a recording is active or paused.
-- **FR-003**: The reading view MUST show exactly the text written to the transcript file for the current recording, and MUST retain the full recording without the history pane's entry limit.
-- **FR-004**: The reading view MUST group text into turn blocks. Each block MUST show the start time of the turn (`HH:MM:SS`) on its own line, followed by the turn's text merged into one paragraph and wrapped to the pane width, prefixed by a gutter bar whose style alternates between consecutive blocks. Blocks MUST be separated by one blank line.
+- **FR-003**: The reading view MUST show all text that was written to the transcript file for the current recording, formatted according to FR-004, and MUST retain the full recording without the history pane's entry limit.
+- **FR-004**: The reading view MUST group text into turn blocks. Each block MUST show the start time of the turn (`HH:MM:SS`) on its own line, followed by the turn's text merged into one paragraph and wrapped to the pane width. Every text line MUST be prefixed by a gutter bar; consecutive blocks alternate between two visually distinct bars (`▌` and `┃`, in two distinct colors) so adjacent turns are easy to tell apart. Blocks MUST be separated by one blank line.
 - **FR-005**: The reading view MUST replace the multi-line header with a single line showing the reading mode, the recording state (recording or paused), the transcript file name, and the turn mode.
 - **FR-006**: The reading view MUST support scrolling by line (`↑`/`↓`, `j`/`k`), by page (`PgUp`/`PgDn`), and jumping to the last line (`G`, `End`).
 - **FR-007**: The reading view MUST follow new text while scrolled to the bottom, MUST keep the visible position when the user has scrolled up, and MUST show a count of new blocks that arrived below the visible area until the user returns to the bottom.
@@ -155,10 +156,10 @@ Turns are separated by blank lines, so the structure of the conversation survive
 - **FR-012**: The TUI MUST offer two turn modes, `basic` and `tdrz`, and MUST show the current mode permanently in the header of the normal view and in the reading view header.
 - **FR-013**: The `g` key in the normal view MUST toggle the turn mode when no recording is active or paused, and MUST be ignored otherwise. The new mode applies to the next recording.
 - **FR-014**: The initial turn mode MUST come from configuration (default `basic`). Toggling MUST only affect the current relay session.
-- **FR-015**: In `basic` mode, a new turn MUST start at a Whisper dash marker (a dash at the start of a passage or directly after `.`, `?`, or `!`) and when the silence before a passage exceeds the pause-break threshold.
+- **FR-015**: In `basic` mode, a new turn MUST start at a Whisper dash marker (a dash at the start of a passage, or a dash that follows `.`, `?`, or `!` with only whitespace in between) and when the silence before a passage exceeds the pause-break threshold.
 - **FR-016**: In `tdrz` mode, recording audio MUST be transcribed with the turn-aware model, and a new turn MUST start at every speaker change the model reports and when the silence before a passage exceeds the pause-break threshold.
 - **FR-017**: The configured transcription model MUST remain in use for dictation at all times; selecting `tdrz` MUST NOT restart or reconfigure the dictation transcription service.
-- **FR-018**: When the user toggles to `tdrz` and the turn-aware model is not installed, the TUI MUST show an error and offer a y/n download prompt. The model MUST NOT download without explicit confirmation.
+- **FR-018**: When the user toggles to `tdrz`, the turn-aware transcription tool is installed, and the turn-aware model is not installed, the TUI MUST show an error and offer a y/n download prompt. The model MUST NOT download without explicit confirmation. FR-033 covers the case where the tool itself is missing.
 - **FR-019**: A confirmed download MUST run in the background without blocking dictation, recording, or other keys, MUST show progress in the footer, MUST verify integrity before the model is used, MUST NOT leave a partial file that later passes as installed (quitting the relay cancels the download and removes the partial file), and MUST switch the mode to `tdrz` only on success. The new mode applies to the next recording.
 - **FR-033**: When the user toggles to `tdrz` and the turn-aware transcription tool is not installed, the TUI MUST show an error naming the missing tool and how to install it, MUST NOT offer a model download, and the mode MUST stay `basic`.
 - **FR-020**: The existing setup flow (`cc-deck ws voice --setup`) MUST be able to install the turn-aware model on request.
@@ -184,9 +185,11 @@ Turns are separated by blank lines, so the structure of the conversation survive
 **Documentation and tests (constitution)**
 
 - **FR-032**: README, CLI reference, configuration reference, and the voice guide MUST document the reading view keys, the turn modes, the turn-aware model installation, the English-only limitation, and the recording settings.
+- **FR-035**: Unit tests MUST cover basic turn detection (dash markers and pause breaks), turn-aware output parsing and fallback, reading view block grouping, wrapping and follow behavior, key gating (`v` and `g`), recording settings save and restore, and transcript turn separation.
 
 ### Key Entities
 
+- **Passage**: One piece of audio that silence detection (or the maximum chunk length) cuts off and sends to transcription as a single unit, together with its transcribed text. A passage yields one or more segments; it yields more than one when it contains a turn change.
 - **Segment**: A piece of transcribed text with its start and end time relative to the recording, a flag marking whether it starts a new turn, and an empty speaker field reserved for later labeling.
 - **Turn**: A sequence of consecutive segments attributed to one speaker change interval, rendered as one block. It has a start time and merged text.
 - **Turn mode**: The selected detection strategy for the next recording, `basic` or `tdrz`. Session-scoped, initialized from configuration.
