@@ -1,6 +1,9 @@
 package voice
 
-import "testing"
+import (
+	"sync"
+	"testing"
+)
 
 func makeSilence(n int) []int16 {
 	return make([]int16, n)
@@ -427,6 +430,77 @@ func TestVAD_TimingPreRollIncluded(t *testing.T) {
 	// The utterance includes pre-roll, so it has more samples than just the speech.
 	if len(utterances[0].Audio) <= 200 {
 		t.Errorf("Audio has %d samples, expected >200 (should include pre-roll)", len(utterances[0].Audio))
+	}
+}
+
+func TestVAD_DynamicSilenceDurationChange(t *testing.T) {
+	// Use a frame counter in the config function to change the silence
+	// duration at a deterministic point. The first 3 frames use a long
+	// silence (1s) so the 500-sample gap does not split them; from
+	// frame 4 onward, silence drops to 0.1s so 200 samples of silence
+	// ends the utterance.
+	var mu sync.Mutex
+	frameCount := 0
+	vad := NewVADFunc(func() VADConfig {
+		mu.Lock()
+		frameCount++
+		n := frameCount
+		mu.Unlock()
+		silDur := 1.0
+		if n > 3 {
+			silDur = 0.1
+		}
+		return VADConfig{
+			Threshold:            0.01,
+			PreRollDuration:      0,
+			SilenceDuration:      silDur,
+			MaxUtteranceDuration: 5,
+		}
+	}, 1000)
+
+	frames := make(chan []int16, 30)
+	go func() {
+		frames <- makeSpeech(200, 5000)  // frame 1: speech
+		frames <- makeSilence(500)       // frame 2: 500ms silence (< 1s, no split)
+		frames <- makeSpeech(200, 5000)  // frame 3: more speech
+		frames <- makeSilence(200)       // frame 4+: silence dur now 0.1s, 200ms >= 100ms
+		close(frames)
+	}()
+
+	utterances := collectUtterances(vad.Process(frames))
+	if len(utterances) != 1 {
+		t.Fatalf("got %d utterances, want 1 (dynamic silence change)", len(utterances))
+	}
+}
+
+func TestVAD_DynamicMaxSplitsContinuousSpeech(t *testing.T) {
+	// A 12-second maximum (at 100 Hz for speed) should split continuous speech.
+	vad := NewVADFunc(func() VADConfig {
+		return VADConfig{
+			Threshold:            0.01,
+			PreRollDuration:      0,
+			SilenceDuration:      100, // very long so only max triggers
+			MaxUtteranceDuration: 12,
+		}
+	}, 100) // 100 Hz: 1 sample = 10ms, 12s = 1200 samples
+
+	frames := make(chan []int16, 50)
+	go func() {
+		// Send 30 seconds of speech in 100-sample frames (1s each at 100 Hz).
+		for i := 0; i < 30; i++ {
+			frames <- makeSpeech(100, 5000)
+		}
+		// Silence to flush the final utterance.
+		for i := 0; i < 200; i++ {
+			frames <- makeSilence(100)
+		}
+		close(frames)
+	}()
+
+	utterances := collectUtterances(vad.Process(frames))
+	// 30s of speech with 12s max should produce at least 2 utterances.
+	if len(utterances) < 2 {
+		t.Fatalf("got %d utterances from 30s speech with 12s max, want >= 2", len(utterances))
 	}
 }
 

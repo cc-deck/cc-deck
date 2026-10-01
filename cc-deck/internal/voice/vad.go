@@ -8,14 +8,24 @@ import (
 // VAD segments continuous audio into discrete utterances using
 // energy-based speech detection.
 type VAD struct {
-	config     *VADConfig
+	configFunc func() VADConfig
 	sampleRate int
 }
 
 // NewVAD creates a voice activity detector with the given config.
 // The config pointer is retained so threshold changes take effect immediately.
 func NewVAD(config *VADConfig, sampleRate int) *VAD {
-	return &VAD{config: config, sampleRate: sampleRate}
+	return NewVADFunc(func() VADConfig { return *config }, sampleRate)
+}
+
+// NewVADFunc creates a VAD that takes a fresh config snapshot on every
+// frame. This lets the caller change threshold, silence duration, and
+// maximum utterance length while the stream is running (for example,
+// when switching from dictation to recording settings). Pre-roll is
+// captured once at creation time because the ring buffer size must
+// not change mid-stream.
+func NewVADFunc(params func() VADConfig, sampleRate int) *VAD {
+	return &VAD{configFunc: params, sampleRate: sampleRate}
 }
 
 // Process reads PCM frames from the input channel and produces
@@ -24,11 +34,9 @@ func NewVAD(config *VADConfig, sampleRate int) *VAD {
 func (v *VAD) Process(frames <-chan []int16) <-chan Utterance {
 	out := make(chan Utterance, 4)
 
-	preRollSamples := int(v.config.PreRollDuration * float64(v.sampleRate))
-	silenceSamples := int(v.config.SilenceDuration * float64(v.sampleRate))
-	hangoverSamples := int(v.config.HangoverDuration * float64(v.sampleRate))
-	maxSamples := int(v.config.MaxUtteranceDuration * float64(v.sampleRate))
-	minSpeechSamples := int(v.config.MinSpeechDuration * float64(v.sampleRate))
+	// Pre-roll is captured once: the ring buffer size must not change.
+	initCfg := v.configFunc()
+	preRollSamples := int(initCfg.PreRollDuration * float64(v.sampleRate))
 
 	go func() {
 		defer close(out)
@@ -43,22 +51,17 @@ func (v *VAD) Process(frames <-chan []int16) <-chan Utterance {
 			uttStartSample int // sample index where the utterance starts (onset - pre-roll)
 		)
 
-		emitUtterance := func() {
-			if speechSmpCnt >= minSpeechSamples {
-				uStart := samplesToDuration(uttStartSample, v.sampleRate)
-				uEnd := uStart + samplesToDuration(len(utterance), v.sampleRate)
-				out <- Utterance{
-					Audio:      utterance,
-					SampleRate: v.sampleRate,
-					Start:      uStart,
-					End:        uEnd,
-				}
-			}
-		}
-
 		for frame := range frames {
+			// Take a fresh config snapshot each frame so threshold,
+			// silence duration, and maximum can change at runtime.
+			cfg := v.configFunc()
+			silenceSamples := int(cfg.SilenceDuration * float64(v.sampleRate))
+			hangoverSamples := int(cfg.HangoverDuration * float64(v.sampleRate))
+			maxSamples := int(cfg.MaxUtteranceDuration * float64(v.sampleRate))
+			minSpeechSamples := int(cfg.MinSpeechDuration * float64(v.sampleRate))
+
 			frameRMS := rmsLevel(frame)
-			frameSilent := frameRMS < v.config.Threshold
+			frameSilent := frameRMS < cfg.Threshold
 
 			if !speaking {
 				ringBuf = append(ringBuf, frame...)
@@ -101,7 +104,16 @@ func (v *VAD) Process(frames <-chan []int16) <-chan Utterance {
 						}
 					}
 
-					emitUtterance()
+					if speechSmpCnt >= minSpeechSamples {
+						uStart := samplesToDuration(uttStartSample, v.sampleRate)
+						uEnd := uStart + samplesToDuration(len(utterance), v.sampleRate)
+						out <- Utterance{
+							Audio:      utterance,
+							SampleRate: v.sampleRate,
+							Start:      uStart,
+							End:        uEnd,
+						}
+					}
 
 					utterance = nil
 					speaking = false
@@ -114,7 +126,18 @@ func (v *VAD) Process(frames <-chan []int16) <-chan Utterance {
 		}
 
 		if speaking && len(utterance) > 0 {
-			emitUtterance()
+			cfg := v.configFunc()
+			minSpeechSamples := int(cfg.MinSpeechDuration * float64(v.sampleRate))
+			if speechSmpCnt >= minSpeechSamples {
+				uStart := samplesToDuration(uttStartSample, v.sampleRate)
+				uEnd := uStart + samplesToDuration(len(utterance), v.sampleRate)
+				out <- Utterance{
+					Audio:      utterance,
+					SampleRate: v.sampleRate,
+					Start:      uStart,
+					End:        uEnd,
+				}
+			}
 		}
 	}()
 

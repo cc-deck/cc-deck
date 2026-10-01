@@ -175,6 +175,35 @@ func runVoiceRelay(wsName, modelName string, verbose bool, port int, flags vadOv
 			config.Commands = voice.BuildCommandMap(merged)
 		}
 		glossaryTerms = cfg.Defaults.Voice.Glossary
+
+		// Recording defaults
+		if rec := cfg.Defaults.Voice.Recording; rec != nil {
+			if rec.Threshold != nil {
+				t := *rec.Threshold
+				if t >= 0 && t <= 100 {
+					config.Recording.Threshold = voice.PercentToThreshold(t)
+				}
+			}
+			if rec.Silence != nil {
+				s := *rec.Silence
+				if s > 0 && s <= 10 {
+					config.Recording.SilenceDuration = s
+				}
+			}
+			if rec.MaxChunk != nil {
+				m := *rec.MaxChunk
+				if m >= 2 && m <= 30 {
+					config.Recording.MaxUtteranceDuration = m
+				}
+			}
+			if rec.PauseBreak != nil {
+				pb := *rec.PauseBreak
+				effectiveSilence := config.Recording.SilenceDuration
+				if pb > effectiveSilence {
+					config.Recording.PauseBreak = time.Duration(pb * float64(time.Second))
+				}
+			}
+		}
 	}
 
 	// Apply CLI flags (highest priority)
@@ -201,6 +230,11 @@ func runVoiceRelay(wsName, modelName string, verbose bool, port int, flags vadOv
 			config.VADConfig.SilenceDuration,
 			config.VADConfig.PreRollDuration,
 			config.VADConfig.HangoverDuration)
+		log.Printf("[voice] recording config: threshold=%d%% silence=%.1fs max_chunk=%.0fs pause_break=%.1fs",
+			voice.ThresholdToPercent(config.Recording.Threshold),
+			config.Recording.SilenceDuration,
+			config.Recording.MaxUtteranceDuration,
+			config.Recording.PauseBreak.Seconds())
 	}
 
 	relay := voice.NewVoiceRelay(config, audio, transcriber, &pipeAdapter{

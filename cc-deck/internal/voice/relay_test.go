@@ -1400,3 +1400,119 @@ func TestVoiceRelay_RecordingSegmentTimingRelativeToStart(t *testing.T) {
 		t.Error("first segment At should be non-zero")
 	}
 }
+
+func TestVoiceRelay_StartRecordingAppliesRecordingVADSettings(t *testing.T) {
+	audio := newMockAudioSource()
+	transcriber := &mockTranscriber{}
+	pipe := &mockPipeSender{}
+
+	config := DefaultRelayConfig()
+	config.MinTranscriptionLatency = 0
+
+	// Set distinct dictation values so we can detect the switch.
+	config.VADConfig.Threshold = 0.05
+	config.VADConfig.SilenceDuration = 2.5
+	config.VADConfig.MaxUtteranceDuration = 30
+
+	// Set distinct recording values.
+	config.Recording.Threshold = 0.02
+	config.Recording.SilenceDuration = 1.0
+	config.Recording.MaxUtteranceDuration = 12
+
+	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
+
+	relay.StartRecording(TurnModeBasic)
+
+	relay.mu.Lock()
+	gotThreshold := relay.config.VADConfig.Threshold
+	gotSilence := relay.config.VADConfig.SilenceDuration
+	gotMax := relay.config.VADConfig.MaxUtteranceDuration
+	relay.mu.Unlock()
+
+	if gotThreshold != 0.02 {
+		t.Errorf("recording threshold = %v, want 0.02", gotThreshold)
+	}
+	if gotSilence != 1.0 {
+		t.Errorf("recording silence = %v, want 1.0", gotSilence)
+	}
+	if gotMax != 12 {
+		t.Errorf("recording max = %v, want 12", gotMax)
+	}
+
+	relay.StopRecording()
+}
+
+func TestVoiceRelay_StopRecordingRestoresAllDictationValues(t *testing.T) {
+	audio := newMockAudioSource()
+	transcriber := &mockTranscriber{}
+	pipe := &mockPipeSender{}
+
+	config := DefaultRelayConfig()
+	config.MinTranscriptionLatency = 0
+	config.VADConfig.Threshold = 0.05
+	config.VADConfig.SilenceDuration = 2.5
+	config.VADConfig.MaxUtteranceDuration = 30
+	config.Recording.Threshold = 0.02
+	config.Recording.SilenceDuration = 1.0
+	config.Recording.MaxUtteranceDuration = 12
+
+	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
+
+	relay.StartRecording(TurnModeBasic)
+	relay.StopRecording()
+
+	relay.mu.Lock()
+	gotThreshold := relay.config.VADConfig.Threshold
+	gotSilence := relay.config.VADConfig.SilenceDuration
+	gotMax := relay.config.VADConfig.MaxUtteranceDuration
+	relay.mu.Unlock()
+
+	if gotThreshold != 0.05 {
+		t.Errorf("restored threshold = %v, want 0.05", gotThreshold)
+	}
+	if gotSilence != 2.5 {
+		t.Errorf("restored silence = %v, want 2.5", gotSilence)
+	}
+	if gotMax != 30 {
+		t.Errorf("restored max = %v, want 30", gotMax)
+	}
+}
+
+func TestVoiceRelay_ThresholdChangeDuringRecordingNotSurvived(t *testing.T) {
+	audio := newMockAudioSource()
+	transcriber := &mockTranscriber{}
+	pipe := &mockPipeSender{}
+
+	config := DefaultRelayConfig()
+	config.MinTranscriptionLatency = 0
+	config.VADConfig.Threshold = 0.05
+	config.Recording.Threshold = 0.02
+
+	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
+
+	relay.StartRecording(TurnModeBasic)
+
+	// Simulate user pressing +/- during recording.
+	relay.SetVADThreshold(80)
+
+	relay.mu.Lock()
+	midRecThreshold := relay.config.VADConfig.Threshold
+	relay.mu.Unlock()
+
+	// The threshold should have changed during recording.
+	if midRecThreshold == 0.02 {
+		t.Error("SetVADThreshold should change the live threshold during recording")
+	}
+
+	relay.StopRecording()
+
+	// After stopping, the original dictation threshold should be restored,
+	// NOT the mid-recording value from SetVADThreshold.
+	relay.mu.Lock()
+	restoredThreshold := relay.config.VADConfig.Threshold
+	relay.mu.Unlock()
+
+	if restoredThreshold != 0.05 {
+		t.Errorf("restored threshold = %v, want 0.05 (original dictation value)", restoredThreshold)
+	}
+}

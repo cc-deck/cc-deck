@@ -91,6 +91,8 @@ type VoiceRelay struct {
 	muted           bool
 	recording       bool
 	savedThreshold  float64
+	savedSilence    float64
+	savedMaxUtt     float64
 	savedMuted      bool
 	lastWorkingDir  string
 	lastText        string
@@ -171,8 +173,17 @@ func (r *VoiceRelay) StartRecording(mode TurnMode) (TurnMode, error) {
 
 	r.mu.Lock()
 	if !r.recording {
+		// Save dictation VAD settings.
 		r.savedThreshold = r.config.VADConfig.Threshold
-		r.config.VADConfig.Threshold = PercentToThreshold(0)
+		r.savedSilence = r.config.VADConfig.SilenceDuration
+		r.savedMaxUtt = r.config.VADConfig.MaxUtteranceDuration
+
+		// Apply recording-specific VAD settings so passages end after
+		// short pauses instead of running to the dictation maximum.
+		r.config.VADConfig.Threshold = r.config.Recording.Threshold
+		r.config.VADConfig.SilenceDuration = r.config.Recording.SilenceDuration
+		r.config.VADConfig.MaxUtteranceDuration = r.config.Recording.MaxUtteranceDuration
+
 		r.savedMuted = r.muted
 		if !r.muted {
 			r.muted = true
@@ -207,7 +218,11 @@ func (r *VoiceRelay) StopRecording() {
 
 	r.mu.Lock()
 	if r.recording {
+		// Restore all dictation VAD settings.
 		r.config.VADConfig.Threshold = r.savedThreshold
+		r.config.VADConfig.SilenceDuration = r.savedSilence
+		r.config.VADConfig.MaxUtteranceDuration = r.savedMaxUtt
+
 		if r.muted != r.savedMuted {
 			r.muted = r.savedMuted
 			muteChanged = true
@@ -311,6 +326,15 @@ func (r *VoiceRelay) Start(ctx context.Context) error {
 	return nil
 }
 
+// vadSnapshot returns a copy of the current VADConfig under the mutex.
+// It is passed to NewVADFunc so the VAD picks up threshold, silence, and
+// maximum changes made by StartRecording / StopRecording / SetVADThreshold.
+func (r *VoiceRelay) vadSnapshot() VADConfig {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.config.VADConfig
+}
+
 func (r *VoiceRelay) startVAD(ctx context.Context) error {
 	frames, err := r.audio.Start(ctx, r.config.SampleRate)
 	if err != nil {
@@ -321,7 +345,7 @@ func (r *VoiceRelay) startVAD(ctx context.Context) error {
 		return fmt.Errorf("starting audio capture: %w", err)
 	}
 
-	vad := NewVAD(&r.config.VADConfig, r.config.SampleRate)
+	vad := NewVADFunc(r.vadSnapshot, r.config.SampleRate)
 	utterances := vad.Process(frames)
 
 	r.wg.Add(2)
