@@ -196,8 +196,15 @@ The hex portion must be exactly 6 valid hexadecimal characters.
 | `<project>/.cc-deck/voice-glossary.txt`
 | Project-specific voice glossary (one term per line)
 
-| `/tmp/cc-deck-pane-map.json`
-| Hook pane ID cache (ephemeral)
+| `~/.local/state/cc-deck/pane-map.json`
+| Hook pane ID cache.
+Entries are scoped to the Zellij session that recorded them and expire after 12 hours.
+
+| `~/.local/state/cc-deck/hook-debug`
+| Flag file. When it exists, the hook command records diagnostics.
+
+| `~/.local/state/cc-deck/hook.log`
+| Hook diagnostic log, written only while the flag file above exists.
 |===
 
 == Workspace Definition Fields
@@ -254,6 +261,12 @@ plugin location="file:~/.config/zellij/plugins/cc_deck.wasm" {
 | `voice_key`
 | `Alt m`
 | Global shortcut for voice mute toggle
+
+| `voice_timeout_secs`
+| `15`
+| Seconds without a poll from the voice relay before the sidebar clears the voice indicator.
+The relay polls every five seconds, so keep this above the poll interval.
+Values below five are ignored.
 
 | `auto_sort`
 | `true`
@@ -640,7 +653,8 @@ Snippet files:
 |===
 
 The Zellij binary installed by `--install-zellij` defaults to the latest GitHub release.
-Pin a specific version with `cc-deck config plugin install --install-zellij --zellij-version 0.44.3`.
+Pin a specific version with `cc-deck config plugin install --install-zellij --zellij-version 0.45.1`.
+Zellij 0.45.0 is the minimum: earlier releases could load the background controller plugin twice on startup.
 
 == Domain Groups Configuration
 

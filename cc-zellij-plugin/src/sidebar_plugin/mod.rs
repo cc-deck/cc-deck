@@ -22,6 +22,10 @@ use cc_deck::{RenderPayload, SidebarHello, SidebarInit};
 use std::collections::BTreeMap;
 use zellij_tile::prelude::*;
 
+/// How many times each plugin re-asks for a permission grant that never
+/// arrived before giving up and leaving the request to the user.
+pub(crate) const PERMISSION_RETRY_LIMIT: u8 = 5;
+
 /// The sidebar renderer plugin: one per tab, thin display + local interaction.
 #[derive(Default)]
 pub struct SidebarRendererPlugin {
@@ -43,19 +47,27 @@ impl ZellijPlugin for SidebarRendererPlugin {
             EventType::PermissionRequestResult,
         ]);
 
-        // Request the full permission set (including RunCommands and Reconfigure
-        // needed by the controller). Since both controller and sidebar share the
-        // same WASM URL, the sidebar's permission dialog must cover all permissions
-        // the controller needs. Background plugins (controller) cannot show dialogs.
-        crate::wasm_compat::request_permission_wasm(&[
-            PermissionType::ReadApplicationState,
-            PermissionType::ChangeApplicationState,
-            PermissionType::RunCommands,
-            PermissionType::ReadCliPipes,
-            PermissionType::MessageAndLaunchOtherPlugins,
-            PermissionType::Reconfigure,
-            PermissionType::WriteToStdin,
-        ]);
+        // Request the full permission set, including what only the controller
+        // uses. Both roles share one WASM URL, and Zellij caches grants by URL,
+        // so this dialog is the one that grants the background controller.
+        crate::wasm_compat::request_permission_wasm(&cc_deck::REQUIRED_PERMISSIONS);
+
+        // Drive our own retry rather than waiting to be spoken to.
+        //
+        // Zellij addresses the permission result to a specific client. A pane
+        // created during the initial layout load can be handed that result
+        // before any client is ready to receive it, and the grant is then
+        // simply lost. The pane sits on the permission prompt indefinitely.
+        //
+        // The recovery that already existed, re-requesting when a render pipe
+        // arrives, cannot fire in that state: the controller only broadcasts to
+        // sidebars that registered, registration needs the hello, and the hello
+        // is only sent once the grant arrives. A closed loop with no way in.
+        //
+        // A timer sits outside that loop. On a healthy start the grant has
+        // already arrived and the first tick returns early, so this costs one
+        // tick and nothing more.
+        crate::wasm_compat::set_timeout_wasm(1.0);
 
         crate::debug_log_immediate("SIDEBAR LOAD complete");
     }
@@ -63,6 +75,7 @@ impl ZellijPlugin for SidebarRendererPlugin {
     fn update(&mut self, event: Event) -> bool {
         match event {
             Event::PermissionRequestResult(status) => {
+                crate::debug_log(&format!("SIDEBAR PERMISSION result={:?}", status));
                 if status == PermissionStatus::Granted {
                     self.state.permissions_granted = true;
                     crate::wasm_compat::set_selectable_wasm(false);
@@ -76,12 +89,40 @@ impl ZellijPlugin for SidebarRendererPlugin {
 
                     self.send_hello();
                     // Retry registration until sidebar-init arrives. This is
-                    // resilient to controller election and manifest startup races.
+                    // resilient to controller and manifest startup races.
                     crate::wasm_compat::set_timeout_wasm(1.0);
+
+                    // Repaint now: render() draws the permission prompt while
+                    // permissions_granted is false, and set_selectable(false)
+                    // above has already made this pane impossible to focus.
+                    return true;
                 }
+                // Denied: stop asking. The prompt stays on screen so the user
+                // can see why the sidebar is empty, but it is never re-raised.
+                self.state.permission_retries = PERMISSION_RETRY_LIMIT;
+                crate::debug_log("SIDEBAR PERMISSION denied; not retrying");
                 false
             }
             Event::Timer(_) => {
+                // Still unpermissioned means the grant was lost in transit, not
+                // that the user has yet to answer: a cached grant is delivered
+                // without any prompt. Ask again from here, where nothing depends
+                // on the controller having heard of us.
+                if !self.state.permissions_granted {
+                    // Bounded: a grant that was merely lost arrives on the next
+                    // ask, so a handful of attempts is plenty. A request that is
+                    // genuinely waiting on the user must not be re-raised
+                    // forever, or we would redraw their prompt every second.
+                    if self.state.permission_retries >= PERMISSION_RETRY_LIMIT {
+                        return false;
+                    }
+                    self.state.permission_retries += 1;
+                    crate::debug_log("SIDEBAR TIMER re-requesting lost permission grant");
+                    crate::wasm_compat::request_permission_wasm(&cc_deck::REQUIRED_PERMISSIONS);
+                    crate::wasm_compat::set_timeout_wasm(1.0);
+                    return false;
+                }
+
                 if self.state.my_tab_index.is_some() && self.state.initialized {
                     return false;
                 }
@@ -121,20 +162,9 @@ impl ZellijPlugin for SidebarRendererPlugin {
 
         match name.as_str() {
             "cc-deck:render" => {
-                // Re-request permissions if not yet granted (initial layout load
-                // can suppress the dialog before Zellij's UI is ready)
-                if !self.state.permissions_granted {
-                    crate::wasm_compat::request_permission_wasm(&[
-                        PermissionType::ReadApplicationState,
-                        PermissionType::ChangeApplicationState,
-                        PermissionType::RunCommands,
-                        PermissionType::ReadCliPipes,
-                        PermissionType::MessageAndLaunchOtherPlugins,
-                        PermissionType::Reconfigure,
-                        PermissionType::WriteToStdin,
-                    ]);
-                }
-
+                // A lost grant is recovered by the bounded timer retry above;
+                // this path deliberately does not ask again, so a user who is
+                // still reading the prompt is never nagged by a render.
                 if let Some(json) = payload {
                     if let Ok(render_payload) = serde_json::from_str::<RenderPayload>(json) {
                         // Update controller_plugin_id from payload

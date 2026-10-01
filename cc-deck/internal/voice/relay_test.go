@@ -117,6 +117,9 @@ func TestVoiceRelay_TextFlowsToSender(t *testing.T) {
 	pipe := &mockPipeSender{}
 
 	config := DefaultRelayConfig()
+	// The mock transcriber answers instantly, so its speed says nothing
+	// about whether the text is a hallucination.
+	config.MinTranscriptionLatency = 0
 	config.VADConfig.Threshold = 0.01
 	config.VADConfig.SilenceDuration = 0.1
 	config.VADConfig.PreRollDuration = 0
@@ -171,6 +174,9 @@ func TestVoiceRelay_CommandWordSendsEnter(t *testing.T) {
 	pipe := &mockPipeSender{}
 
 	config := DefaultRelayConfig()
+	// The mock transcriber answers instantly, so its speed says nothing
+	// about whether the text is a hallucination.
+	config.MinTranscriptionLatency = 0
 	config.VADConfig.Threshold = 0.01
 	config.VADConfig.SilenceDuration = 0.1
 	config.VADConfig.PreRollDuration = 0
@@ -202,6 +208,9 @@ func TestVoiceRelay_NonCommandRelaysFullText(t *testing.T) {
 	pipe := &mockPipeSender{}
 
 	config := DefaultRelayConfig()
+	// The mock transcriber answers instantly, so its speed says nothing
+	// about whether the text is a hallucination.
+	config.MinTranscriptionLatency = 0
 	config.VADConfig.Threshold = 0.01
 	config.VADConfig.SilenceDuration = 0.1
 	config.VADConfig.PreRollDuration = 0
@@ -236,6 +245,9 @@ func TestVoiceRelay_WhisperArtifactDiscarded(t *testing.T) {
 	pipe := &mockPipeSender{}
 
 	config := DefaultRelayConfig()
+	// The mock transcriber answers instantly, so its speed says nothing
+	// about whether the text is a hallucination.
+	config.MinTranscriptionLatency = 0
 	config.VADConfig.Threshold = 0.01
 	config.VADConfig.SilenceDuration = 0.1
 	config.VADConfig.PreRollDuration = 0
@@ -255,12 +267,45 @@ func TestVoiceRelay_WhisperArtifactDiscarded(t *testing.T) {
 	}
 }
 
+// The other relay tests disable MinTranscriptionLatency, because a mock that
+// answers instantly would otherwise be filtered as a hallucination. This one
+// keeps the guard on to prove it still discards a too-fast transcription.
+func TestVoiceRelay_FastTranscriptionDiscarded(t *testing.T) {
+	audio := newMockAudioSource(makeSpeech(500, 5000), makeSilence(500))
+	transcriber := &mockTranscriber{results: []string{"add error handling"}}
+	pipe := &mockPipeSender{}
+
+	config := DefaultRelayConfig()
+	// No real transcriber can beat this, so every answer looks suspicious.
+	config.MinTranscriptionLatency = time.Hour
+	config.VADConfig.Threshold = 0.01
+	config.VADConfig.SilenceDuration = 0.1
+	config.VADConfig.PreRollDuration = 0
+	config.VADConfig.MinSpeechDuration = 0
+
+	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
+	if err := relay.Start(context.Background()); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+
+	collectEvents(relay.Events(), 2*time.Second)
+	relay.Stop()
+
+	sent := filterNonProtocol(pipe.getSent())
+	if len(sent) != 0 {
+		t.Errorf("expected no text sends for a suspiciously fast transcription, got %d", len(sent))
+	}
+}
+
 func TestVoiceRelay_EmptyTranscriptionDiscarded(t *testing.T) {
 	audio := newMockAudioSource(makeSpeech(500, 5000), makeSilence(500))
 	transcriber := &mockTranscriber{results: []string{"  "}}
 	pipe := &mockPipeSender{}
 
 	config := DefaultRelayConfig()
+	// The mock transcriber answers instantly, so its speed says nothing
+	// about whether the text is a hallucination.
+	config.MinTranscriptionLatency = 0
 	config.VADConfig.Threshold = 0.01
 	config.VADConfig.SilenceDuration = 0.1
 	config.VADConfig.PreRollDuration = 0
@@ -286,6 +331,9 @@ func TestVoiceRelay_TranscriptionErrorProducesEvent(t *testing.T) {
 	pipe := &mockPipeSender{}
 
 	config := DefaultRelayConfig()
+	// The mock transcriber answers instantly, so its speed says nothing
+	// about whether the text is a hallucination.
+	config.MinTranscriptionLatency = 0
 	config.VADConfig.Threshold = 0.01
 	config.VADConfig.SilenceDuration = 0.1
 	config.VADConfig.PreRollDuration = 0
@@ -321,6 +369,9 @@ func TestVoiceRelay_DeliveryErrorProducesEvent(t *testing.T) {
 	pipe := &mockPipeSender{sendErr: fmt.Errorf("workspace disconnected")}
 
 	config := DefaultRelayConfig()
+	// The mock transcriber answers instantly, so its speed says nothing
+	// about whether the text is a hallucination.
+	config.MinTranscriptionLatency = 0
 	config.VADConfig.Threshold = 0.01
 	config.VADConfig.SilenceDuration = 0.1
 	config.VADConfig.PreRollDuration = 0
@@ -486,7 +537,10 @@ type mockPipeSendReceiver struct {
 	recvCalled   chan struct{}
 }
 
-func (m *mockPipeSendReceiver) SendReceive(_ context.Context, _ string, _ string) (string, error) {
+func (m *mockPipeSendReceiver) SendReceive(_ context.Context, pipeName string, payload string) (string, error) {
+	m.mockPipeSender.mu.Lock()
+	m.mockPipeSender.sent = append(m.mockPipeSender.sent, pipeSend{name: pipeName, payload: payload})
+	m.mockPipeSender.mu.Unlock()
 	m.mu.Lock()
 	resp := m.recvResponse
 	err := m.recvErr
@@ -510,6 +564,9 @@ func TestVoiceRelay_ContextCancelGracefulShutdown(t *testing.T) {
 	}
 
 	config := DefaultRelayConfig()
+	// The mock transcriber answers instantly, so its speed says nothing
+	// about whether the text is a hallucination.
+	config.MinTranscriptionLatency = 0
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -530,6 +587,9 @@ func TestVoiceRelay_AttendCommandSendsAttend(t *testing.T) {
 	pipe := &mockPipeSender{}
 
 	config := DefaultRelayConfig()
+	// The mock transcriber answers instantly, so its speed says nothing
+	// about whether the text is a hallucination.
+	config.MinTranscriptionLatency = 0
 	config.VADConfig.Threshold = 0.01
 	config.VADConfig.SilenceDuration = 0.1
 	config.VADConfig.PreRollDuration = 0
@@ -633,13 +693,15 @@ func TestParseDumpStateResponse_WorkingDir(t *testing.T) {
 }
 
 func TestVoiceRelay_HeartbeatSendsMuteState(t *testing.T) {
+	// The state poll is the heartbeat: its request body carries the mute
+	// state, so no separate [[voice:on:*]] message is sent per tick.
 	tests := []struct {
 		name    string
 		muted   bool
 		wantMsg string
 	}{
-		{"unmuted sends voice:on:unmuted", false, "[[voice:on:unmuted]]"},
-		{"muted sends voice:on:muted", true, "[[voice:on:muted]]"},
+		{"unmuted polls with muted=false", false, `{"voice":{"on":true,"muted":false},"scope":"voice"}`},
+		{"muted polls with muted=true", true, `{"voice":{"on":true,"muted":true},"scope":"voice"}`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -652,6 +714,13 @@ func TestVoiceRelay_HeartbeatSendsMuteState(t *testing.T) {
 			}
 
 			config := DefaultRelayConfig()
+			// The mock transcriber answers instantly, so its speed says nothing
+			// about whether the text is a hallucination.
+			config.MinTranscriptionLatency = 0
+			// Poll fast: the assertion below needs only that one tick has
+			// happened, and at the production interval the first tick and this
+			// test's own deadline are a dead heat that the ticker loses.
+			config.StatePollInterval = 20 * time.Millisecond
 			relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
 			relay.mu.Lock()
 			relay.muted = tt.muted
@@ -676,9 +745,11 @@ func TestVoiceRelay_HeartbeatSendsMuteState(t *testing.T) {
 			sent := pipe.getSent()
 			var found bool
 			for _, s := range sent {
-				if s.payload == tt.wantMsg {
+				if s.name == "cc-deck:dump-state" && s.payload == tt.wantMsg {
 					found = true
-					break
+				}
+				if s.name == "cc-deck:voice" && strings.HasPrefix(s.payload, "[[voice:on:") {
+					t.Errorf("per-tick heartbeat %q must no longer be sent", s.payload)
 				}
 			}
 			if !found {
@@ -740,6 +811,9 @@ func TestVoiceRelay_TranscribesWhileMutedAndRecording(t *testing.T) {
 	pipe := &mockPipeSender{}
 
 	config := DefaultRelayConfig()
+	// The mock transcriber answers instantly, so its speed says nothing
+	// about whether the text is a hallucination.
+	config.MinTranscriptionLatency = 0
 	config.VADConfig.Threshold = 0.01
 	config.VADConfig.SilenceDuration = 0.1
 	config.VADConfig.PreRollDuration = 0
@@ -792,6 +866,9 @@ func TestVoiceRelay_DiscardsWhileMutedNotRecording(t *testing.T) {
 	pipe := &mockPipeSender{}
 
 	config := DefaultRelayConfig()
+	// The mock transcriber answers instantly, so its speed says nothing
+	// about whether the text is a hallucination.
+	config.MinTranscriptionLatency = 0
 	config.VADConfig.Threshold = 0.01
 	config.VADConfig.SilenceDuration = 0.1
 	config.VADConfig.PreRollDuration = 0
@@ -832,6 +909,9 @@ func TestVoiceRelay_SetRecordingAutoMutes(t *testing.T) {
 	pipe := &mockPipeSender{}
 
 	config := DefaultRelayConfig()
+	// The mock transcriber answers instantly, so its speed says nothing
+	// about whether the text is a hallucination.
+	config.MinTranscriptionLatency = 0
 	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
 
 	// Start unmuted
@@ -864,6 +944,9 @@ func TestVoiceRelay_SetRecordingPreservesMuted(t *testing.T) {
 	pipe := &mockPipeSender{}
 
 	config := DefaultRelayConfig()
+	// The mock transcriber answers instantly, so its speed says nothing
+	// about whether the text is a hallucination.
+	config.MinTranscriptionLatency = 0
 	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
 
 	// Start already muted
@@ -890,6 +973,9 @@ func TestVoiceRelay_SetRecordingEmitsMuteEvent(t *testing.T) {
 	pipe := &mockPipeSender{}
 
 	config := DefaultRelayConfig()
+	// The mock transcriber answers instantly, so its speed says nothing
+	// about whether the text is a hallucination.
+	config.MinTranscriptionLatency = 0
 	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
 
 	relay.SetRecording(true)
@@ -957,6 +1043,9 @@ func TestVoiceRelay_BracketAnnotationStripped(t *testing.T) {
 	pipe := &mockPipeSender{}
 
 	config := DefaultRelayConfig()
+	// The mock transcriber answers instantly, so its speed says nothing
+	// about whether the text is a hallucination.
+	config.MinTranscriptionLatency = 0
 	config.VADConfig.Threshold = 0.01
 	config.VADConfig.SilenceDuration = 0.1
 	config.VADConfig.PreRollDuration = 0
