@@ -5,7 +5,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
+	"testing"
 	"time"
 )
 
@@ -44,7 +46,23 @@ func AutoSave() {
 	if err != nil {
 		return
 	}
-	cmd := exec.Command(binPath, "snapshot", "save", "--auto")
+
+	// Never re-execute a test binary. A Go test binary silently ignores the
+	// positional arguments below and re-runs its whole suite instead, so every
+	// test that reaches AutoSave would spawn another full suite run, which
+	// spawns another, and so on. The children are detached and never reaped.
+	if isTestBinary(binPath) {
+		return
+	}
+
+	startDetached(binPath, "snapshot", "save", "--auto")
+}
+
+// startDetached runs binPath with args as a background process that outlives
+// the caller. It is a variable so tests can observe the call without spawning
+// a real process.
+var startDetached = func(binPath string, args ...string) {
+	cmd := exec.Command(binPath, args...)
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 	cmd.Stdin = nil
@@ -53,6 +71,20 @@ func AutoSave() {
 	if cmd.Process != nil {
 		_ = cmd.Process.Release()
 	}
+}
+
+// isTestBinary reports whether re-executing binPath would run a Go test
+// binary rather than the cc-deck CLI.
+func isTestBinary(binPath string) bool {
+	return testing.Testing() || isTestBinaryPath(binPath)
+}
+
+// isTestBinaryPath reports whether binPath names a compiled Go test binary.
+// This covers the case of a test binary built with "go test -c" and run
+// directly, where testing.Testing() is false until the suite starts.
+func isTestBinaryPath(binPath string) bool {
+	base := filepath.Base(binPath)
+	return strings.HasSuffix(base, ".test") || strings.HasSuffix(base, ".test.exe")
 }
 
 // RunAutoSave performs the actual auto-save: queries plugin state and

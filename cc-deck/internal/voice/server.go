@@ -3,11 +3,19 @@ package voice
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"os/exec"
 	"sync"
 	"time"
 )
+
+// StartupTimeout bounds how long Start waits for whisper-server to answer
+// its health check. A warm start takes about a second, but the first start
+// after a whisper-cpp upgrade compiles Metal kernels and reads the model
+// from a cold disk cache, which has been observed to exceed 15 seconds
+// with the medium model.
+const StartupTimeout = 60 * time.Second
 
 // WhisperServer manages a local whisper-server process.
 type WhisperServer struct {
@@ -18,6 +26,16 @@ type WhisperServer struct {
 	mu         sync.Mutex
 	maxRetries int
 	retries    int
+	// logWriter receives whisper-server's own stderr when set, so a start
+	// that fails leaves a reason behind instead of a bare timeout.
+	logWriter io.Writer
+}
+
+// SetLogWriter forwards whisper-server's stderr to w.
+func (s *WhisperServer) SetLogWriter(w io.Writer) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.logWriter = w
 }
 
 // NewWhisperServer creates a lifecycle manager for whisper-server.
@@ -59,6 +77,9 @@ func (s *WhisperServer) Start(ctx context.Context) error {
 		"--host", "127.0.0.1",
 		"--port", fmt.Sprintf("%d", s.port),
 	)
+	if s.logWriter != nil {
+		cmd.Stderr = s.logWriter
+	}
 
 	if err := cmd.Start(); err != nil {
 		cancel()
@@ -152,7 +173,7 @@ func (s *WhisperServer) Healthy(ctx context.Context) bool {
 }
 
 func (s *WhisperServer) waitReady(ctx context.Context) error {
-	deadline := time.After(15 * time.Second)
+	deadline := time.After(StartupTimeout)
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -161,7 +182,7 @@ func (s *WhisperServer) waitReady(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-deadline:
-			return fmt.Errorf("timed out waiting for whisper-server")
+			return fmt.Errorf("timed out after %s waiting for whisper-server on port %d (run with --verbose to see the server's output)", StartupTimeout, s.port)
 		case <-ticker.C:
 			if s.Healthy(ctx) {
 				return nil
