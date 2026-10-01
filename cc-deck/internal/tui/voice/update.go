@@ -38,6 +38,13 @@ func (m *Model) handleRelayEvent(msg relayEventMsg) {
 				m.recCount++
 			}
 		}
+		// Append segments to the reading buffer while recording.
+		if m.recState == recRecording && msg.Segments != nil {
+			added := m.appendSegments(msg.Segments)
+			if m.reading {
+				m.syncReading(added)
+			}
+		}
 		m.resizeViewport()
 		m.syncViewport()
 	case "delivery":
@@ -61,6 +68,9 @@ func (m *Model) handleRelayEvent(msg relayEventMsg) {
 
 // Update handles incoming messages.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.reading {
+		return m.updateReading(msg)
+	}
 	if m.devicePick {
 		return m.updateDevicePicker(msg)
 	}
@@ -149,6 +159,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.resizeViewport()
 			}
 			return m, nil
+		case "v":
+			if m.recState == recRecording || m.recState == recPaused {
+				m.reading = true
+				m.follow = true
+				m.newBlocks = 0
+				m.resizeReadingViewport()
+				m.readView.GotoBottom()
+			}
+			return m, nil
 		case "pgup", "pgdown":
 			var cmd tea.Cmd
 			m.viewport, cmd = m.viewport.Update(msg)
@@ -210,6 +229,9 @@ func (m Model) updateFilenamePrompt(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.recFile = f
 			m.recPath = path
 			m.recCount = 0
+			m.recBuffer = nil
+			m.newBlocks = 0
+			m.follow = true
 			m.recState = recRecording
 			m.relay.StartRecording(voicepkg.TurnModeBasic)
 			m.recInput.Blur()
@@ -233,6 +255,79 @@ func (m Model) updateFilenamePrompt(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.resizeViewport()
 		return m, nil
+	case relayEventMsg:
+		m.handleRelayEvent(msg)
+		return m, waitForEvent(m.relay)
+	}
+	return m, nil
+}
+
+func (m Model) updateReading(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		m.resizeReadingViewport()
+		m.resizeViewport()
+		return m, nil
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "esc":
+			m.reading = false
+			return m, nil
+		case "q", "ctrl+c":
+			m.closeTranscript()
+			m.quitting = true
+			return m, tea.Quit
+		case "r":
+			switch m.recState {
+			case recRecording:
+				m.recState = recPaused
+			case recPaused:
+				m.recState = recRecording
+			}
+			return m, nil
+		case "R":
+			if m.recState == recRecording || m.recState == recPaused {
+				m.closeTranscript()
+				m.resizeViewport()
+			}
+			return m, nil
+		case "up", "k":
+			m.readView.LineUp(1)
+			if !m.readView.AtBottom() {
+				m.follow = false
+			}
+			return m, nil
+		case "down", "j":
+			m.readView.LineDown(1)
+			if m.readView.AtBottom() {
+				m.follow = true
+				m.newBlocks = 0
+			}
+			return m, nil
+		case "pgup":
+			m.readView.HalfViewUp()
+			if !m.readView.AtBottom() {
+				m.follow = false
+			}
+			return m, nil
+		case "pgdown":
+			m.readView.HalfViewDown()
+			if m.readView.AtBottom() {
+				m.follow = true
+				m.newBlocks = 0
+			}
+			return m, nil
+		case "G", "end":
+			m.readView.GotoBottom()
+			m.follow = true
+			m.newBlocks = 0
+			return m, nil
+		default:
+			// +, -, d, m, g, v and all other keys are ignored
+			return m, nil
+		}
 	case relayEventMsg:
 		m.handleRelayEvent(msg)
 		return m, waitForEvent(m.relay)

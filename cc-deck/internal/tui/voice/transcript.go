@@ -69,6 +69,7 @@ func (m *Model) closeTranscript() {
 	m.recState = recIdle
 	m.recPath = ""
 	m.recCount = 0
+	m.reading = false
 	if m.relay != nil {
 		m.relay.StopRecording()
 	}

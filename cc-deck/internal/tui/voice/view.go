@@ -59,6 +59,10 @@ func (m Model) View() string {
 		return m.viewDevicePicker()
 	}
 
+	if m.reading {
+		return m.viewReading()
+	}
+
 	if !m.viewportReady {
 		return "Initializing...\n"
 	}
@@ -179,7 +183,11 @@ func (m Model) renderFooter() string {
 	case recPaused:
 		recHint = "  r: resume  R: stop"
 	}
-	b.WriteString(hintStyle.Render("  q: quit  " + muteHint + recHint + "  +/-: threshold  d: device"))
+	var readHint string
+	if m.recState == recRecording || m.recState == recPaused {
+		readHint = "  v: read"
+	}
+	b.WriteString(hintStyle.Render("  q: quit  " + muteHint + recHint + readHint + "  +/-: threshold  d: device"))
 
 	return b.String()
 }
@@ -276,6 +284,18 @@ func (m Model) renderHistory() string {
 		lat := tsStyle.Render(fmt.Sprintf("(%s)", entry.latency.Round(time.Millisecond)))
 		fmt.Fprintf(&b, " %s %s %s %s", icon, ts, lat, text)
 	}
+
+	return b.String()
+}
+
+func (m Model) viewReading() string {
+	var b strings.Builder
+
+	b.WriteString(m.renderReadingHeader())
+	b.WriteString(m.renderSeparator())
+	b.WriteString(m.readingViewportWithScrollbar())
+	b.WriteString(m.renderSeparator())
+	b.WriteString(m.renderReadingFooter())
 
 	return b.String()
 }

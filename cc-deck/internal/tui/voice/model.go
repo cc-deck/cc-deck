@@ -12,6 +12,15 @@ import (
 
 const maxHistoryLen = 200
 
+// turnBlock is a contiguous block of text from one speaker turn in
+// the reading view. Each block starts when a segment has TurnStart
+// set to true (a new dash marker, a pause break, or the first passage).
+type turnBlock struct {
+	at      time.Time // wall-clock time of the first segment in the block
+	parts   []string  // text fragments joined into the block
+	speaker string    // reserved for future speaker labels
+}
+
 // Model is the Bubbletea model for the voice relay TUI.
 type Model struct {
 	relay       *voicepkg.VoiceRelay
@@ -33,6 +42,14 @@ type Model struct {
 	recCount      int
 	recInput      textinput.Model
 	recTimestamps bool
+
+	// Reading view state
+	recBuffer []turnBlock     // turn blocks accumulated during recording
+	reading   bool            // true when the reading view is open
+	readView  viewport.Model  // viewport for the reading view
+	readReady bool            // true after the reading viewport is initialized
+	follow    bool            // auto-scroll to bottom on new content
+	newBlocks int             // count of new blocks since the user scrolled up
 
 	width         int
 	height        int
