@@ -5,29 +5,29 @@
 // create new sessions, transition activity states, track CWD changes,
 // and trigger git detection.
 
-use super::state::{ControllerState, PendingOverride};
+use super::state::{ControllerState, PendingOverride, QuarantineKind};
 use crate::git;
 use crate::pipe_handler::{hook_event_to_activity, is_session_end, HookPayload};
-use crate::session::{self, Activity, Session};
+use crate::session::{self, Activity, HookOutcome, Session};
 
 /// Process a hook event from the CLI. Returns true if state changed visibly.
 pub fn process_hook(state: &mut ControllerState, hook: HookPayload) -> bool {
-    state.unconfirmed_pane_ids.remove(&hook.pane_id);
+    // A hook is evidence of a claim, never proof of it. Only the pane manifest
+    // confirms that a pane exists, so a hook may release a pane from quarantine
+    // solely when the manifest agrees. Clearing unconditionally let a phantom
+    // session promote itself simply by continuing to fire events.
+    if state.pane_is_live(hook.pane_id) == Some(true) {
+        state.confirm_pane(hook.pane_id);
+    }
 
     // SessionEnd: remove the session only if the pane is actually gone.
     // Claude Code may fire SessionEnd transiently (e.g., during plugin
     // reinstall via `claude plugin install`) while the pane is still alive.
     // Check the manifest before removing to avoid false disappearances.
     if is_session_end(&hook.hook_event_name) {
-        let pane_alive = state
-            .pane_manifest
-            .as_ref()
-            .map(|m| {
-                m.panes.values().flatten().any(|p| {
-                    !p.is_plugin && p.id == hook.pane_id && !p.exited
-                })
-            })
-            .unwrap_or(false);
+        // An unknown manifest still counts as "not alive" here, preserving the
+        // established bias toward removal on SessionEnd.
+        let pane_alive = state.pane_is_live(hook.pane_id).unwrap_or(false);
 
         if pane_alive {
             // Pane still exists: transition to Idle instead of removing.
@@ -42,12 +42,8 @@ pub fn process_hook(state: &mut ControllerState, hook: HookPayload) -> bool {
             return false;
         }
 
-        let removed = state.sessions.remove(&hook.pane_id).is_some();
+        let removed = state.evict_session(hook.pane_id);
         if removed {
-            state.pending_git_branch.remove(&hook.pane_id);
-            if let Some(ref mut order) = state.sort_order {
-                order.retain(|&p| p != hook.pane_id);
-            }
             state.save_sessions();
             state.mark_render_dirty();
         }
@@ -78,6 +74,16 @@ pub fn process_hook(state: &mut ControllerState, hook: HookPayload) -> bool {
                 hook.session_id.clone().unwrap_or_default(),
             ),
         );
+        // Hold the new session back until the manifest vouches for its pane.
+        // Both "the manifest says absent" and "there is no manifest" quarantine,
+        // because a pane racing its own PaneUpdate is indistinguishable from a
+        // pane that never existed at this instant. `sweep_quarantine` settles it.
+        //
+        // The session is still created and still runs the full state machine.
+        // Quarantine gates visibility and persistence, not participation.
+        if state.pane_is_live(hook.pane_id) != Some(true) {
+            state.quarantine(hook.pane_id, QuarantineKind::Hook);
+        }
     }
 
     // Detect session replacement: new Claude Code instance in same pane
@@ -151,104 +157,42 @@ pub fn process_hook(state: &mut ControllerState, hook: HookPayload) -> bool {
         }
     }
 
-    // Permission counter management:
-    // - PermissionRequest: increment pending_permissions, transition to Waiting
-    // - PermissionReply: decrement pending_permissions, transition to Working only when 0
-    // - Working (PreToolUse/PostToolUse): suppress while pending_permissions > 0
-    // - Done/Stop: reset counter, allow transition
-    if matches!(activity, Activity::Waiting(session::WaitReason::Permission)) {
-        if let Some(s) = state.sessions.get_mut(&hook.pane_id) {
-            s.pending_permissions = s.pending_permissions.saturating_add(1);
-            crate::debug_log(&format!(
-                "CTRL HOOK: pane={} PermissionRequest, pending_permissions={}",
-                hook.pane_id, s.pending_permissions,
-            ));
-        }
-    }
-
-    // PermissionReply: decrement counter. Only clear Waiting when all
-    // permission prompts have been answered (counter reaches 0).
-    if hook.hook_event_name == "PermissionReply" {
-        if let Some(s) = state.sessions.get_mut(&hook.pane_id) {
-            s.pending_permissions = s.pending_permissions.saturating_sub(1);
-            crate::debug_log(&format!(
-                "CTRL HOOK: pane={} PermissionReply, pending_permissions={}",
-                hook.pane_id, s.pending_permissions,
-            ));
-            if s.pending_permissions > 0 {
-                // More prompts outstanding; stay in Waiting.
-                s.last_event_ts = session::unix_now();
-                return false;
-            }
-            // Counter reached 0: fall through to transition to Working.
-        }
-    }
-
-    // Suppress Working transitions while permission prompts are outstanding.
-    // For PostToolUse from main agent (no agent_id): treat as implicit
-    // PermissionReply for backward compatibility with Claude Code, which
-    // doesn't send explicit PermissionReply events.
-    // For PreToolUse or subagent events: always suppress while waiting.
-    if matches!(activity, Activity::Working) {
-        if let Some(s) = state.sessions.get(&hook.pane_id) {
-            if s.pending_permissions > 0 {
-                let is_main_agent_post = hook.hook_event_name == "PostToolUse"
-                    && hook.agent_id.is_none();
-                if is_main_agent_post {
-                    // Backward compat: PostToolUse from main agent acts as
-                    // implicit PermissionReply (Claude Code flow).
-                    if let Some(s) = state.sessions.get_mut(&hook.pane_id) {
-                        s.pending_permissions = s.pending_permissions.saturating_sub(1);
-                        crate::debug_log(&format!(
-                            "CTRL HOOK: pane={} PostToolUse as implicit PermissionReply, pending_permissions={}",
-                            hook.pane_id, s.pending_permissions,
-                        ));
-                        if s.pending_permissions > 0 {
-                            s.last_event_ts = session::unix_now();
-                            return false;
-                        }
-                        // Counter reached 0: fall through to transition to Working.
-                    }
-                } else {
-                    crate::debug_log(&format!(
-                        "CTRL HOOK: pane={} suppressing Working while {} permissions pending (event={})",
-                        hook.pane_id, s.pending_permissions, hook.hook_event_name,
-                    ));
-                    if let Some(s) = state.sessions.get_mut(&hook.pane_id) {
-                        s.last_event_ts = session::unix_now();
-                    }
-                    return false;
-                }
-            }
-        }
-    }
-
-    // Reset permission counter on session-ending events.
-    if matches!(activity, Activity::Done) {
-        if let Some(s) = state.sessions.get_mut(&hook.pane_id) {
-            s.pending_permissions = 0;
-        }
-    }
-
-    // Transition activity
-    let prev_activity = state
-        .sessions
-        .get(&hook.pane_id)
-        .map(|s| format!("{:?}", s.activity));
-    let was_waiting = state
-        .sessions
-        .get(&hook.pane_id)
-        .map(|s| s.activity.is_waiting())
-        .unwrap_or(false);
-    let changed = match state.sessions.get_mut(&hook.pane_id) {
-        Some(s) => s.transition(activity),
+    // Apply the event to the session's activity. The permission counter,
+    // the implicit PermissionReply carried by a main-agent PostToolUse, and
+    // the Waiting guard all live in Session::apply_hook so they can be
+    // tested and fuzzed without a controller.
+    let from_subagent = hook.agent_id.is_some();
+    let (prev_activity, was_waiting) = match state.sessions.get(&hook.pane_id) {
+        Some(s) => (format!("{:?}", s.activity), s.activity.is_waiting()),
         None => return false,
+    };
+    let outcome = match state.sessions.get_mut(&hook.pane_id) {
+        Some(s) => s.apply_hook(&hook.hook_event_name, activity, from_subagent),
+        None => return false,
+    };
+    let changed = match outcome {
+        HookOutcome::Changed => true,
+        HookOutcome::Unchanged => false,
+        HookOutcome::Absorbed => {
+            crate::debug_log(&format!(
+                "CTRL HOOK: pane={} {} absorbed while {} permissions pending",
+                hook.pane_id,
+                hook.hook_event_name,
+                state
+                    .sessions
+                    .get(&hook.pane_id)
+                    .map(|s| s.pending_permissions)
+                    .unwrap_or(0),
+            ));
+            return false;
+        }
     };
     if changed {
         crate::debug_log(&format!(
-            "CTRL HOOK: pane={} {} {:?}->{:?}",
-            hook.pane_id, hook.hook_event_name,
-            prev_activity.as_deref().unwrap_or("?"),
+            "CTRL HOOK: pane={} {} {}->{:?}",
+            hook.pane_id,
+            hook.hook_event_name,
+            prev_activity,
             state.sessions.get(&hook.pane_id).map(|s| format!("{:?}", s.activity)).unwrap_or_default()
         ));
     }
@@ -564,6 +508,121 @@ mod tests {
         let mut map = std::collections::HashMap::new();
         map.insert(0, panes_list);
         PaneManifest { panes: map }
+    }
+
+    // ---------------------------------------------------------------------
+    // Quarantine: a hook names a pane, only the manifest confirms it exists.
+    // ---------------------------------------------------------------------
+
+    /// The live bug. An agent running outside Zellij reached the sidebar with a
+    /// pane id from an earlier run. The manifest is populated and does not
+    /// contain that pane, so the session must not survive.
+    #[test]
+    fn test_hook_for_pane_absent_from_manifest_is_evicted() {
+        let mut state = ControllerState::default();
+        state.pane_manifest = Some(make_manifest(vec![make_pane_info(10, false, false)]));
+
+        process_hook(&mut state, make_hook(99, "SessionStart"));
+
+        assert!(state.sessions.contains_key(&99), "session is created first");
+        assert_eq!(
+            state.unconfirmed_panes.get(&99).map(|q| q.kind),
+            Some(QuarantineKind::Hook),
+            "a pane the manifest does not show must be quarantined"
+        );
+        assert!(state.is_hidden(99), "quarantined sessions are withheld");
+
+        // Let the deadline pass.
+        state.unconfirmed_panes.get_mut(&99).unwrap().deadline_ms = 0;
+        assert!(state.sweep_quarantine());
+
+        assert!(!state.sessions.contains_key(&99), "the phantom must be gone");
+        assert!(state.unconfirmed_panes.is_empty());
+    }
+
+    #[test]
+    fn test_hook_for_live_pane_is_not_quarantined() {
+        let mut state = ControllerState::default();
+        state.pane_manifest = Some(make_manifest(vec![make_pane_info(42, false, false)]));
+
+        process_hook(&mut state, make_hook(42, "SessionStart"));
+
+        assert!(state.sessions.contains_key(&42));
+        assert!(
+            state.unconfirmed_panes.is_empty(),
+            "the happy path must not be delayed"
+        );
+        assert!(!state.is_hidden(42));
+    }
+
+    #[test]
+    fn test_hook_for_exited_pane_is_quarantined() {
+        let mut state = ControllerState::default();
+        state.pane_manifest = Some(make_manifest(vec![make_pane_info(42, false, true)]));
+
+        process_hook(&mut state, make_hook(42, "SessionStart"));
+
+        assert_eq!(
+            state.unconfirmed_panes.get(&42).map(|q| q.kind),
+            Some(QuarantineKind::Hook)
+        );
+    }
+
+    /// No manifest means unknown, never rejected. The session is still created
+    /// and still runs its state machine; only its visibility is deferred.
+    #[test]
+    fn test_hook_without_manifest_is_quarantined_not_rejected() {
+        let mut state = ControllerState::default();
+        assert!(state.pane_manifest.is_none());
+
+        process_hook(&mut state, make_hook(42, "SessionStart"));
+
+        assert!(state.sessions.contains_key(&42), "unknown must not reject");
+        assert!(state.unconfirmed_panes.contains_key(&42));
+    }
+
+    /// A hook is evidence of a claim, not proof of it. Without a manifest to
+    /// agree, a phantom must not be able to promote itself by firing events.
+    #[test]
+    fn test_hook_does_not_self_confirm_without_manifest() {
+        let mut state = ControllerState::default();
+        state.sessions.insert(42, Session::new(42, "restored".into()));
+        state.quarantine(42, QuarantineKind::Restored);
+
+        process_hook(&mut state, make_hook(42, "PreToolUse"));
+
+        assert!(
+            state.unconfirmed_panes.contains_key(&42),
+            "only the manifest may confirm a pane"
+        );
+    }
+
+    #[test]
+    fn test_hook_confirms_when_manifest_agrees() {
+        let mut state = ControllerState::default();
+        state.sessions.insert(42, Session::new(42, "restored".into()));
+        state.quarantine(42, QuarantineKind::Restored);
+        state.pane_manifest = Some(make_manifest(vec![make_pane_info(42, false, false)]));
+
+        process_hook(&mut state, make_hook(42, "PreToolUse"));
+
+        assert!(state.unconfirmed_panes.is_empty());
+    }
+
+    #[test]
+    fn test_session_end_clears_quarantine_entry() {
+        let mut state = ControllerState::default();
+        state.pane_manifest = Some(make_manifest(vec![make_pane_info(10, false, false)]));
+        process_hook(&mut state, make_hook(99, "SessionStart"));
+        assert!(state.unconfirmed_panes.contains_key(&99));
+
+        process_hook(&mut state, make_hook(99, "SessionEnd"));
+
+        assert!(!state.sessions.contains_key(&99));
+        assert!(
+            state.unconfirmed_panes.is_empty(),
+            "a removed session must not leave an orphan quarantine entry"
+        );
     }
 
     #[test]
