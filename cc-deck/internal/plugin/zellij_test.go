@@ -40,32 +40,6 @@ func TestParseVersion(t *testing.T) {
 	}
 }
 
-func TestCheckCompatibility(t *testing.T) {
-	tests := []struct {
-		name          string
-		zellijVersion string
-		sdkVersion    string
-		want          string
-	}{
-		{"below minimum supported", "0.39.0", "0.44", "incompatible"},
-		{"exactly minimum supported", "0.40.0", "0.44", "compatible"},
-		{"equal to sdk version", "0.44.0", "0.44", "compatible"},
-		{"below sdk version", "0.42.0", "0.44", "compatible"},
-		{"above sdk version", "0.45.0", "0.44", "untested"},
-		{"unparsable zellij version", "not-a-version", "0.44", "untested"},
-		{"unparsable sdk version", "0.44.0", "not-a-version", "untested"},
-		{"lower major than sdk", "0.44.0", "1.0", "compatible"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := CheckCompatibility(tt.zellijVersion, tt.sdkVersion)
-			if got != tt.want {
-				t.Errorf("CheckCompatibility(%q, %q) = %q, want %q", tt.zellijVersion, tt.sdkVersion, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestPluginLocation(t *testing.T) {
 	got := PluginLocation("/home/user/.config/zellij/plugins")
 	want := "file:/home/user/.config/zellij/plugins/cc_deck.wasm"
@@ -118,75 +92,128 @@ func TestDetectZellij_NotInstalled(t *testing.T) {
 	}
 }
 
-func TestEnsurePluginPermissions_CreatesNewFile(t *testing.T) {
-	dir := t.TempDir()
-	pluginsDir := filepath.Join(dir, "plugins")
-
-	if err := EnsurePluginPermissions(dir, pluginsDir); err != nil {
-		t.Fatalf("unexpected error: %v", err)
+func TestCheckCompatibility(t *testing.T) {
+	cases := []struct {
+		version string
+		want    string
+	}{
+		{"0.44.3", "incompatible"}, // below the minimum: could load the controller twice
+		{"0.40.0", "incompatible"},
+		{"0.45.0", "compatible"},
+		{"0.45.1", "compatible"},
+		{"0.46.0", "untested"}, // newer than anything verified
+		{"1.0.0", "untested"},
+		{"garbage", "untested"},
+		{"", "untested"},
 	}
-
-	content, err := os.ReadFile(filepath.Join(dir, "permissions.kdl"))
-	if err != nil {
-		t.Fatalf("expected permissions.kdl to be created: %v", err)
-	}
-	pluginPath := filepath.Join(pluginsDir, "cc_deck.wasm")
-	if !strings.Contains(string(content), pluginPath) {
-		t.Errorf("expected permissions content to reference %q, got %q", pluginPath, content)
-	}
-}
-
-func TestEnsurePluginPermissions_ReplacesStaleEntry(t *testing.T) {
-	dir := t.TempDir()
-	pluginsDir := filepath.Join(dir, "plugins")
-	permPath := filepath.Join(dir, "permissions.kdl")
-	pluginPath := filepath.Join(pluginsDir, "cc_deck.wasm")
-
-	stale := "\"" + pluginPath + "\" {\n    OldPermission\n}\n"
-	if err := os.WriteFile(permPath, []byte(stale), 0644); err != nil {
-		t.Fatalf("failed to seed permissions.kdl: %v", err)
-	}
-
-	if err := EnsurePluginPermissions(dir, pluginsDir); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	content, err := os.ReadFile(permPath)
-	if err != nil {
-		t.Fatalf("failed to read updated permissions.kdl: %v", err)
-	}
-	if strings.Contains(string(content), "OldPermission") {
-		t.Errorf("expected stale entry to be removed, got %q", content)
-	}
-	if !strings.Contains(string(content), "MessageAndLaunchOtherPlugins") {
-		t.Errorf("expected new entry to be present, got %q", content)
+	for _, c := range cases {
+		if got := CheckCompatibility(c.version, MaxTestedZellijVersion); got != c.want {
+			t.Errorf("CheckCompatibility(%q) = %q, want %q", c.version, got, c.want)
+		}
 	}
 }
 
-func TestEnsurePluginPermissions_AppendsToExistingContent(t *testing.T) {
-	dir := t.TempDir()
-	pluginsDir := filepath.Join(dir, "plugins")
-	permPath := filepath.Join(dir, "permissions.kdl")
-
-	existing := "\"file:/some/other.wasm\" {\n    ReadApplicationState\n}"
-	if err := os.WriteFile(permPath, []byte(existing), 0644); err != nil {
-		t.Fatalf("failed to seed permissions.kdl: %v", err)
+func TestEmbeddedPluginVersionBounds(t *testing.T) {
+	info := EmbeddedPlugin()
+	if info.MinZellij != MinZellijVersion {
+		t.Errorf("MinZellij = %q, want %q", info.MinZellij, MinZellijVersion)
 	}
-
-	if err := EnsurePluginPermissions(dir, pluginsDir); err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if info.MaxTested != MaxTestedZellijVersion {
+		t.Errorf("MaxTested = %q, want %q", info.MaxTested, MaxTestedZellijVersion)
 	}
-
-	content, err := os.ReadFile(permPath)
-	if err != nil {
-		t.Fatalf("failed to read updated permissions.kdl: %v", err)
-	}
-	if !strings.Contains(string(content), "/some/other.wasm") {
-		t.Errorf("expected existing entry to be preserved, got %q", content)
-	}
-	pluginPath := filepath.Join(pluginsDir, "cc_deck.wasm")
-	if !strings.Contains(string(content), pluginPath) {
-		t.Errorf("expected new entry to be appended, got %q", content)
+	if CheckCompatibility(info.MinZellij+".0", info.MaxTested) != "compatible" {
+		t.Errorf("the minimum version must itself be compatible")
 	}
 }
 
+func readPermissions(t *testing.T, dir string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(dir, "permissions.kdl"))
+	if err != nil {
+		t.Fatalf("reading permissions.kdl: %v", err)
+	}
+	return string(data)
+}
+
+func TestEnsurePluginPermissionsCreatesAndIsIdempotent(t *testing.T) {
+	cache := filepath.Join(t.TempDir(), "zellij-cache") // does not exist yet
+	plugins := "/home/u/.config/zellij/plugins"
+
+	changed, err := EnsurePluginPermissions(cache, plugins)
+	if err != nil || !changed {
+		t.Fatalf("first call: changed=%v err=%v, want true, nil", changed, err)
+	}
+	got := readPermissions(t, cache)
+	for _, p := range RequiredPermissions {
+		if !strings.Contains(got, "    "+p+"\n") {
+			t.Errorf("missing permission %s in:\n%s", p, got)
+		}
+	}
+	if !strings.Contains(got, `"/home/u/.config/zellij/plugins/cc_deck.wasm" {`) {
+		t.Errorf("missing plugin entry in:\n%s", got)
+	}
+
+	changed, err = EnsurePluginPermissions(cache, plugins)
+	if err != nil || changed {
+		t.Fatalf("second call: changed=%v err=%v, want false, nil (nothing to repair)", changed, err)
+	}
+	if readPermissions(t, cache) != got {
+		t.Errorf("idempotent call rewrote the file")
+	}
+}
+
+func TestEnsurePluginPermissionsRepairsStaleEntryAndKeepsOthers(t *testing.T) {
+	cache := t.TempDir()
+	plugins := "/p"
+	stale := `"file:/other/plugin.wasm" {
+    ReadApplicationState
+}
+"/p/cc_deck.wasm" {
+    ReadApplicationState
+}
+`
+	if err := os.WriteFile(filepath.Join(cache, "permissions.kdl"), []byte(stale), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	changed, err := EnsurePluginPermissions(cache, plugins)
+	if err != nil || !changed {
+		t.Fatalf("changed=%v err=%v, want true, nil", changed, err)
+	}
+	got := readPermissions(t, cache)
+	if !strings.Contains(got, `"file:/other/plugin.wasm" {`) {
+		t.Errorf("foreign plugin entry was dropped:\n%s", got)
+	}
+	if strings.Count(got, "/p/cc_deck.wasm") != 1 {
+		t.Errorf("expected exactly one cc-deck entry:\n%s", got)
+	}
+	if !strings.Contains(got, "    WriteToStdin\n") {
+		t.Errorf("stale entry was not upgraded:\n%s", got)
+	}
+}
+
+// The plugin asks for exactly the permissions the CLI seeds. If the two
+// drift, the controller blocks on a grant that never comes.
+func TestRequiredPermissionsMatchPluginSource(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join("..", "..", "..", "cc-zellij-plugin", "src", "lib.rs"))
+	if err != nil {
+		t.Skipf("plugin source not available: %v", err)
+	}
+	text := string(src)
+	start := strings.Index(text, "pub const REQUIRED_PERMISSIONS")
+	if start < 0 {
+		t.Fatal("REQUIRED_PERMISSIONS not found in lib.rs")
+	}
+	end := strings.Index(text[start:], "];")
+	block := text[start : start+end]
+	var fromRust []string
+	for _, line := range strings.Split(block, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "PermissionType::") {
+			fromRust = append(fromRust, strings.TrimSuffix(strings.TrimPrefix(line, "PermissionType::"), ","))
+		}
+	}
+	if !sameStringSet(fromRust, RequiredPermissions) {
+		t.Errorf("permission sets differ:\n rust: %v\n go:   %v", fromRust, RequiredPermissions)
+	}
+}

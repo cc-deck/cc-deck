@@ -34,18 +34,20 @@ The Zellij plugin uses opt-in debug logging via a WASI filesystem flag.
 
 **Enabling debug**:
 The `debug_enabled` marker file must exist in the plugin's WASI `/cache/` directory.
-On macOS the host path is:
+On macOS the host path is (note: tilde is expanded, not literal):
 ```
-~/Library/Caches/org.Zellij-Contributors.Zellij/file:~/.config/zellij/plugins/cc_deck.wasm/plugin_cache/debug_enabled
+~/Library/Caches/org.Zellij-Contributors.Zellij/file:/Users/$USER/.config/zellij/plugins/cc_deck.wasm/plugin_cache/debug_enabled
 ```
 To enable: `touch` the file at the host path above (it already exists if debug was enabled before).
 To disable: remove the file. The flag is checked once on plugin load.
+
+**CAUTION**: A path with a literal tilde (`file:~/.config/...`) is a DIFFERENT directory that the plugin does NOT read. Always use the expanded path (`file:/Users/$USER/.config/...`).
 
 **Log location**:
 Debug output is written to `/cache/debug.log` inside the WASI sandbox.
 On macOS the host path is:
 ```
-~/Library/Caches/org.Zellij-Contributors.Zellij/file:~/.config/zellij/plugins/cc_deck.wasm/plugin_cache/debug.log
+~/Library/Caches/org.Zellij-Contributors.Zellij/file:/Users/$USER/.config/zellij/plugins/cc_deck.wasm/plugin_cache/debug.log
 ```
 
 **Usage notes**:
@@ -53,6 +55,7 @@ On macOS the host path is:
 - Multiple plugin instances (controller + sidebars) share the same log file
 - Truncate with `: >` before reproducing an issue to keep output focused
 - The log can grow large quickly; disable when not actively debugging
+- The debug logger silently drops re-entrant log calls to avoid panics in WASI's single-threaded mutex.
 
 ### V. Claude Code command files are executable code
 

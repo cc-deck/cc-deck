@@ -24,7 +24,7 @@ ls
 
 [source,bash]
 ----
-cc-deck ws new dev --type compose --gitignore
+cc-deck ws new dev --type compose
 ----
 
 You will see output similar to:
@@ -34,18 +34,19 @@ WARNING: no image specified, using default quay.io/cc-deck/cc-deck-demo:latest
 Environment "dev" created (type: compose)
 ----
 
-The `--gitignore` flag automatically adds `.cc-deck/` to your `.gitignore` so the generated files stay out of version control.
+The generated files are kept out of version control automatically.
+cc-deck writes `.cc-deck/.gitignore` with an entry for `run/`, and leaves your own `.gitignore` alone.
 
 Take a look at what was generated:
 
 [source,bash]
 ----
-ls -la .cc-deck/
-# compose.yaml   .env
+ls -la .cc-deck/run/
+# compose.yaml   env
 ----
 
 The `compose.yaml` defines the session container with your project directory mounted at `/workspace`.
-The `.env` file contains any auto-detected credentials from your host.
+The `env` file contains any auto-detected credentials from your host.
 
 === Step 3: Attach to the session
 
@@ -75,8 +76,7 @@ If you want to restrict which domains the session container can access, delete a
 # Detach from Zellij first (Ctrl+o d)
 cc-deck ws delete dev --force
 cc-deck ws new dev --type compose \
-  --allowed-domains anthropic,github \
-  --gitignore
+  --allowed-domains anthropic,github
 ----
 
 Now the environment includes a tinyproxy sidecar.
@@ -130,12 +130,14 @@ Your project files are untouched.
 [source,text]
 ----
 ~/projects/my-api/              <-- your project (untouched)
-  .cc-deck/                     <-- generated, gitignored
-    compose.yaml                <-- container orchestration
-    .env                        <-- credentials
-    proxy/                      <-- only with --allowed-domains
-      tinyproxy.conf
-      whitelist
+  .cc-deck/
+    .gitignore                  <-- ignores run/ below
+    run/                        <-- generated, not tracked
+      compose.yaml              <-- container orchestration
+      env                       <-- credentials
+      proxy/                    <-- only with --allowed-domains
+        tinyproxy.conf
+        whitelist
 ----
 
 The session container runs your project at `/workspace` with full Claude Code tooling.
@@ -154,8 +156,8 @@ cc-deck ws new mydev --type compose
 This command performs several steps automatically:
 
 1. Detects the compose runtime (`podman-compose` or `docker compose`).
-2. Generates orchestration files in `.cc-deck/` (compose.yaml, .env, optional proxy config).
-3. Detects host credentials and writes them to `.cc-deck/.env`.
+2. Generates orchestration files in `.cc-deck/run/` (compose.yaml, env, optional proxy config).
+3. Detects host credentials and writes them to `.cc-deck/run/env`.
 4. Starts the compose project with `podman-compose up -d`.
 5. Records the environment in both the definition and state stores.
 
@@ -214,8 +216,11 @@ Supported credential sources:
 * Amazon Bedrock credentials (access keys, session token, profile)
 * Explicit credentials via `--credential KEY=VALUE`
 
-Environment variable credentials are written to `.cc-deck/.env`.
-File-based credentials (like the Google ADC file) are copied to `.cc-deck/secrets/` and mounted at `/run/secrets/` inside the container.
+Detection and `--credential` are not alternatives.
+Detected credentials form the base set, and anything named with `--credential` is applied over them, so an explicit value wins where the two name the same variable.
+
+Environment variable credentials are written to `.cc-deck/run/env`.
+File-based credentials (like the Google ADC file) stay on the host and are bind mounted read-only at `/run/secrets/` inside the container, which keeps the host file the single source of truth after a re-authentication.
 
 == Lifecycle Management
 
@@ -242,16 +247,11 @@ Deleting an environment removes all containers, cleans up secrets, and removes t
 
 == Project Hygiene
 
-When creating a compose environment in a git-tracked project, the system warns if `.cc-deck/` is not in `.gitignore`.
-Use the `--gitignore` flag to add it automatically.
+Creating a compose environment writes `.cc-deck/.gitignore` with an entry for `run/`.
+This happens on every create, and needs no flag.
 
-[source,bash]
-----
-cc-deck ws new mydev --type compose --gitignore
-----
-
-The `.cc-deck/` directory contains only generated artifacts.
-It should not be committed to version control.
+The generated artifacts under `.cc-deck/run/` are therefore ignored without any change to the project's own `.gitignore`, which cc-deck never writes to.
+The rest of `.cc-deck/` stays trackable, so anything you choose to keep there can be committed normally.
 
 == Command Reference
 
@@ -264,8 +264,7 @@ cc-deck ws new mydev --type compose \
   --port 8080:8080 \
   --path /path/to/project \
   --credential KEY=VALUE \
-  --auth auto \
-  --gitignore
+  --auth auto
 
 # Attach to the environment
 cc-deck ws attach mydev
