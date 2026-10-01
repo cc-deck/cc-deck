@@ -11,8 +11,8 @@ import (
 
 	"github.com/cc-deck/cc-deck/internal/agent"
 	"github.com/cc-deck/cc-deck/internal/credential"
-	"github.com/rhuss/openshell-sdk-go/openshell/v1/fake"
 	v1 "github.com/rhuss/openshell-sdk-go/openshell/v1"
+	"github.com/rhuss/openshell-sdk-go/openshell/v1/fake"
 	"github.com/rhuss/openshell-sdk-go/openshell/v1/types"
 )
 
@@ -213,13 +213,13 @@ func (c *phaseOverrideClient) Sandboxes() v1.SandboxInterface {
 func (c *phaseOverrideClient) Providers() v1.ProviderInterface { return c.inner.Providers() }
 func (c *phaseOverrideClient) Services() v1.ServiceInterface   { return c.inner.Services() }
 func (c *phaseOverrideClient) Exec() v1.ExecInterface          { return c.inner.Exec() }
-func (c *phaseOverrideClient) Files() v1.FileInterface          { return c.inner.Files() }
-func (c *phaseOverrideClient) Health() v1.HealthInterface       { return c.inner.Health() }
-func (c *phaseOverrideClient) SSH() v1.SSHInterface             { return c.inner.SSH() }
-func (c *phaseOverrideClient) TCP() v1.TCPInterface             { return c.inner.TCP() }
-func (c *phaseOverrideClient) Config() v1.ConfigInterface       { return c.inner.Config() }
-func (c *phaseOverrideClient) Policy() v1.PolicyInterface       { return c.inner.Policy() }
-func (c *phaseOverrideClient) Close() error                     { return c.inner.Close() }
+func (c *phaseOverrideClient) Files() v1.FileInterface         { return c.inner.Files() }
+func (c *phaseOverrideClient) Health() v1.HealthInterface      { return c.inner.Health() }
+func (c *phaseOverrideClient) SSH() v1.SSHInterface            { return c.inner.SSH() }
+func (c *phaseOverrideClient) TCP() v1.TCPInterface            { return c.inner.TCP() }
+func (c *phaseOverrideClient) Config() v1.ConfigInterface      { return c.inner.Config() }
+func (c *phaseOverrideClient) Policy() v1.PolicyInterface      { return c.inner.Policy() }
+func (c *phaseOverrideClient) Close() error                    { return c.inner.Close() }
 
 type phaseOverrideSandboxClient struct {
 	inner v1.SandboxInterface
@@ -377,7 +377,16 @@ func TestClearLocalState(t *testing.T) {
 }
 
 func TestSelectCredentialMode_EmptyAvailable(t *testing.T) {
-	_, found := selectCredentialMode(nil, "")
+	_, found, err := selectCredentialMode(nil, "")
+	assert.NoError(t, err, "no credentials and no explicit request is not an error")
+	assert.False(t, found)
+}
+
+// Asking for a specific mode that cannot be satisfied is an error, not a
+// silent miss: the caller asked for something precise and did not get it.
+func TestSelectCredentialMode_EmptyAvailableWithExplicitRequest(t *testing.T) {
+	_, found, err := selectCredentialMode(nil, "vertex")
+	assert.Error(t, err)
 	assert.False(t, found)
 }
 
@@ -386,7 +395,8 @@ func TestSelectCredentialMode_AutoSelect(t *testing.T) {
 		{Spec: agent.CredentialSpec{Name: "api"}},
 		{Spec: agent.CredentialSpec{Name: "vertex"}},
 	}
-	spec, found := selectCredentialMode(available, "")
+	spec, found, err := selectCredentialMode(available, "")
+	assert.NoError(t, err)
 	assert.True(t, found)
 	assert.Equal(t, "api", spec.Name)
 }
@@ -396,7 +406,8 @@ func TestSelectCredentialMode_AutoExplicit(t *testing.T) {
 		{Spec: agent.CredentialSpec{Name: "api"}},
 		{Spec: agent.CredentialSpec{Name: "vertex"}},
 	}
-	spec, found := selectCredentialMode(available, "auto")
+	spec, found, err := selectCredentialMode(available, "auto")
+	assert.NoError(t, err)
 	assert.True(t, found)
 	assert.Equal(t, "api", spec.Name)
 }
@@ -406,7 +417,8 @@ func TestSelectCredentialMode_ExplicitMatch(t *testing.T) {
 		{Spec: agent.CredentialSpec{Name: "api"}},
 		{Spec: agent.CredentialSpec{Name: "vertex"}},
 	}
-	spec, found := selectCredentialMode(available, "vertex")
+	spec, found, err := selectCredentialMode(available, "vertex")
+	assert.NoError(t, err)
 	assert.True(t, found)
 	assert.Equal(t, "vertex", spec.Name)
 }
@@ -415,7 +427,8 @@ func TestSelectCredentialMode_ExplicitNoMatch(t *testing.T) {
 	available := []credential.AvailableMode{
 		{Spec: agent.CredentialSpec{Name: "api"}},
 	}
-	_, found := selectCredentialMode(available, "vertex")
+	_, found, err := selectCredentialMode(available, "vertex")
+	assert.Error(t, err, "an explicit mode with no match must report why")
 	assert.False(t, found)
 }
 
@@ -423,7 +436,8 @@ func TestSelectCredentialMode_NoneAuth(t *testing.T) {
 	available := []credential.AvailableMode{
 		{Spec: agent.CredentialSpec{Name: "api"}},
 	}
-	_, found := selectCredentialMode(available, "none")
+	_, found, err := selectCredentialMode(available, "none")
+	assert.NoError(t, err, "explicitly asking for none is a valid choice")
 	assert.False(t, found)
 }
 
@@ -443,7 +457,7 @@ func TestMapToOpenShellProvider_Vertex(t *testing.T) {
 	resolved := credential.ResolvedCredentials{
 		EnvVars: map[string]string{
 			"ANTHROPIC_VERTEX_PROJECT_ID": "my-project",
-			"CLOUD_ML_REGION":            "us-east5",
+			"CLOUD_ML_REGION":             "us-east5",
 		},
 	}
 	name, pType, creds := mapToOpenShellProvider("ws1", spec, resolved)
