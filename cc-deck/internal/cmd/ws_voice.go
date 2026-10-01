@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -151,6 +152,7 @@ func runVoiceRelay(wsName, modelName string, verbose bool, port int, flags vadOv
 	// Apply config file values (lowest priority)
 	thresholdPct := voice.ThresholdToPercent(config.VADConfig.Threshold)
 	var glossaryTerms []string
+	initialTurnMode := voice.TurnModeBasic
 	if cfg, err := ccconfig.Load(""); err == nil {
 		if cfg.Defaults.Voice.Threshold != nil {
 			thresholdPct = *cfg.Defaults.Voice.Threshold
@@ -175,6 +177,13 @@ func runVoiceRelay(wsName, modelName string, verbose bool, port int, flags vadOv
 			config.Commands = voice.BuildCommandMap(merged)
 		}
 		glossaryTerms = cfg.Defaults.Voice.Glossary
+
+		// Turn mode
+		if cfg.Defaults.Voice.TurnMode != nil {
+			if parsed, err := voice.ParseTurnMode(*cfg.Defaults.Voice.TurnMode); err == nil {
+				initialTurnMode = parsed
+			}
+		}
 
 		// Recording defaults
 		if rec := cfg.Defaults.Voice.Recording; rec != nil {
@@ -241,6 +250,27 @@ func runVoiceRelay(wsName, modelName string, verbose bool, port int, flags vadOv
 		ch: ch, verbose: verbose,
 	}, glossaryTerms)
 
+	// Build tdrz turn transcriber and set it on the relay.
+	tdrzModelPath := voice.ModelPath(voice.TdrzModelName)
+	tdrzTranscriber := voice.NewTdrzTranscriber(tdrzModelPath)
+	if len(glossaryTerms) > 0 {
+		tdrzTranscriber.SetPrompt(strings.Join(glossaryTerms, ", "))
+	}
+	relay.SetTurnTranscriber(tdrzTranscriber, func() error {
+		toolErr, modelErr := voice.TdrzStatus()
+		if toolErr != nil {
+			return toolErr
+		}
+		if modelErr != nil {
+			return modelErr
+		}
+		return nil
+	})
+
+	if verbose && initialTurnMode != voice.TurnModeBasic {
+		log.Printf("[voice] initial turn mode from config: %s", initialTurnMode)
+	}
+
 	if err := relay.Start(ctx); err != nil {
 		return fmt.Errorf("starting voice relay: %w", err)
 	}
@@ -260,7 +290,7 @@ func runVoiceRelay(wsName, modelName string, verbose bool, port int, flags vadOv
 		}
 	}()
 
-	model := voicetui.New(relay, wsName, logPath)
+	model := voicetui.New(relay, wsName, logPath, initialTurnMode)
 	p := tea.NewProgram(model, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("TUI error: %w", err)

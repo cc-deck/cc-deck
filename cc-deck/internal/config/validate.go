@@ -493,6 +493,19 @@ func validateVoice(voice VoiceDefaults) []Finding {
 		}
 	}
 
+	// Turn mode: basic or tdrz (case-insensitive)
+	if voice.TurnMode != nil {
+		mode := strings.ToLower(*voice.TurnMode)
+		if mode != "basic" && mode != "tdrz" {
+			findings = append(findings, Finding{
+				Severity:   SeverityError,
+				Category:   CategoryVoice,
+				Message:    fmt.Sprintf("voice.turn_mode %q is invalid", *voice.TurnMode),
+				Suggestion: "turn_mode must be \"basic\" or \"tdrz\"",
+			})
+		}
+	}
+
 	// Recording defaults
 	if voice.Recording != nil {
 		findings = append(findings, validateVoiceRecording(voice.Recording, voice.Silence)...)

@@ -111,6 +111,9 @@ func (m Model) renderHeader() string {
 	} else {
 		b.WriteString("VAD (auto)")
 	}
+	b.WriteString("  ")
+	b.WriteString(labelStyle.Render("Turns: "))
+	b.WriteString(string(m.turnMode))
 	switch m.recState {
 	case recRecording:
 		b.WriteString("  ")
@@ -159,6 +162,19 @@ func (m Model) renderFooter() string {
 		return b.String()
 	}
 
+	if m.dlRunning {
+		pct := 0
+		doneMB := m.dlDone / (1024 * 1024)
+		totalMB := m.dlTotal / (1024 * 1024)
+		if m.dlTotal > 0 {
+			pct = int(m.dlDone * 100 / m.dlTotal)
+		}
+		b.WriteString(fmt.Sprintf("  Downloading tdrz model: %d%% (%d/%d MB)", pct, doneMB, totalMB))
+		b.WriteString("\n")
+		b.WriteString(hintStyle.Render("  q: cancel"))
+		return b.String()
+	}
+
 	if m.err != nil {
 		errText := fmt.Sprintf("Error: %v", m.err)
 		w := m.width - 4
@@ -187,7 +203,11 @@ func (m Model) renderFooter() string {
 	if m.recState == recRecording || m.recState == recPaused {
 		readHint = "  v: read"
 	}
-	b.WriteString(hintStyle.Render("  q: quit  " + muteHint + recHint + readHint + "  +/-: threshold  d: device"))
+	var turnHint string
+	if m.recState == recIdle && !m.dlRunning {
+		turnHint = "  g: turns"
+	}
+	b.WriteString(hintStyle.Render("  q: quit  " + muteHint + recHint + readHint + turnHint + "  +/-: threshold  d: device"))
 
 	return b.String()
 }

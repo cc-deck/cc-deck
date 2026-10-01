@@ -2,6 +2,7 @@ package voice
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -163,6 +164,86 @@ type TurnTranscriber interface {
 	TranscribeTurns(ctx context.Context, audio []int16, sampleRate int) ([]Segment, error)
 	SetPrompt(prompt string)
 	Close() error
+}
+
+// tdrzJSON mirrors the JSON output of `whisper-cli -tdrz -oj`.
+type tdrzJSON struct {
+	Transcription []tdrzSegment `json:"transcription"`
+}
+
+type tdrzSegment struct {
+	Offsets struct {
+		From int64 `json:"from"`
+		To   int64 `json:"to"`
+	} `json:"offsets"`
+	Text            string `json:"text"`
+	SpeakerTurnNext *bool  `json:"speaker_turn_next,omitempty"`
+}
+
+// ParseTdrzJSON parses the JSON output of `whisper-cli -tdrz -oj` into
+// segments. The `speaker_turn_next` flag on segment i sets TurnStart on
+// segment i+1. A missing field is treated as false. Text is sanitized
+// and empty texts are dropped, with TurnStart carrying over to the next
+// non-empty segment.
+func ParseTdrzJSON(data []byte) ([]Segment, error) {
+	var doc tdrzJSON
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return nil, fmt.Errorf("parsing tdrz JSON: %w", err)
+	}
+
+	if len(doc.Transcription) == 0 {
+		return nil, nil
+	}
+
+	// First pass: build raw segments and track turn-next flags.
+	type raw struct {
+		text      string
+		start     time.Duration
+		end       time.Duration
+		turnStart bool
+	}
+	raws := make([]raw, 0, len(doc.Transcription))
+	pendingTurn := false
+
+	for _, ts := range doc.Transcription {
+		text := cleanSegmentText(ts.Text)
+
+		isTurn := pendingTurn
+		if text == "" {
+			// Carry TurnStart to next non-empty segment.
+			if isTurn {
+				pendingTurn = true
+			}
+			// Propagate speaker_turn_next even for empty segments.
+			if ts.SpeakerTurnNext != nil && *ts.SpeakerTurnNext {
+				pendingTurn = true
+			}
+			continue
+		}
+
+		pendingTurn = false
+		raws = append(raws, raw{
+			text:      text,
+			start:     time.Duration(ts.Offsets.From) * time.Millisecond,
+			end:       time.Duration(ts.Offsets.To) * time.Millisecond,
+			turnStart: isTurn,
+		})
+
+		if ts.SpeakerTurnNext != nil && *ts.SpeakerTurnNext {
+			pendingTurn = true
+		}
+	}
+
+	segs := make([]Segment, len(raws))
+	for i, r := range raws {
+		segs[i] = Segment{
+			Text:      r.text,
+			Start:     r.start,
+			End:       r.end,
+			TurnStart: r.turnStart,
+		}
+	}
+	return segs, nil
 }
 
 // ApplyPauseBreak sets segs[0].TurnStart to true when the gap before the

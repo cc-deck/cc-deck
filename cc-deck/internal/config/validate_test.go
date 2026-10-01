@@ -14,6 +14,9 @@ func intPtr(v int) *int { return &v }
 // Helper to create a pointer to a float64.
 func float64Ptr(v float64) *float64 { return &v }
 
+// Helper to create a pointer to a string.
+func stringPtr(v string) *string { return &v }
+
 // findFinding searches findings for one matching the given severity and message substring.
 func findFinding(findings []Finding, sev Severity, msgSubstr string) *Finding {
 	for i := range findings {
@@ -747,5 +750,51 @@ func TestValidateAndWarn_WarningsOnly_Silent(t *testing.T) {
 	}
 	if buf.Len() != 0 {
 		t.Errorf("expected no stderr for warnings-only, got %q", buf.String())
+	}
+}
+
+func TestValidateVoice_TurnMode(t *testing.T) {
+	tests := []struct {
+		name     string
+		mode     string
+		wantErr  bool
+	}{
+		{"basic lowercase", "basic", false},
+		{"tdrz lowercase", "tdrz", false},
+		{"Basic mixed case", "Basic", false},
+		{"TDRZ uppercase", "TDRZ", false},
+		{"invalid mode", "advanced", true},
+		{"empty string", "", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{
+				Defaults: Defaults{
+					Voice: VoiceDefaults{
+						TurnMode: stringPtr(tt.mode),
+					},
+				},
+			}
+			findings := cfg.Validate()
+			hasErr := findFinding(findings, SeverityError, "turn_mode") != nil
+			if hasErr != tt.wantErr {
+				t.Errorf("turn_mode %q: hasErr=%v, wantErr=%v; findings=%v", tt.mode, hasErr, tt.wantErr, findings)
+			}
+		})
+	}
+}
+
+func TestValidateVoice_TurnModeNilIsValid(t *testing.T) {
+	cfg := &Config{
+		Defaults: Defaults{
+			Voice: VoiceDefaults{
+				TurnMode: nil,
+			},
+		},
+	}
+	findings := cfg.Validate()
+	if f := findFinding(findings, SeverityError, "turn_mode"); f != nil {
+		t.Errorf("nil turn_mode should not produce error, got: %s", f.Message)
 	}
 }

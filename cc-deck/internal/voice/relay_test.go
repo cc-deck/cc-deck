@@ -1516,3 +1516,437 @@ func TestVoiceRelay_ThresholdChangeDuringRecordingNotSurvived(t *testing.T) {
 		t.Errorf("restored threshold = %v, want 0.05 (original dictation value)", restoredThreshold)
 	}
 }
+
+// --- T028: tdrz relay tests ---
+
+// mockTurnTranscriber is a stub TurnTranscriber for testing the tdrz
+// recording path in the relay.
+type mockTurnTranscriber struct {
+	mu       sync.Mutex
+	segments []Segment
+	err      error
+	prompt   string
+	closed   bool
+	// blockCtx, when true, causes TranscribeTurns to block until ctx is done.
+	blockCtx bool
+}
+
+func (m *mockTurnTranscriber) TranscribeTurns(ctx context.Context, _ []int16, _ int) ([]Segment, error) {
+	m.mu.Lock()
+	block := m.blockCtx
+	segs := m.segments
+	err := m.err
+	m.mu.Unlock()
+
+	if block {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	return segs, err
+}
+
+func (m *mockTurnTranscriber) SetPrompt(prompt string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.prompt = prompt
+}
+
+func (m *mockTurnTranscriber) Close() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.closed = true
+	return nil
+}
+
+func (m *mockTurnTranscriber) getPrompt() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.prompt
+}
+
+func (m *mockTurnTranscriber) isClosed() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.closed
+}
+
+func TestVoiceRelay_TdrzTurnFlagsPropagate(t *testing.T) {
+	audio := newMockAudioSource()
+	transcriber := &mockTranscriber{results: []string{"fallback text"}}
+	pipe := &mockPipeSender{}
+
+	config := DefaultRelayConfig()
+	config.MinTranscriptionLatency = 0
+
+	tt := &mockTurnTranscriber{
+		segments: []Segment{
+			{Text: "Hello there", TurnStart: false},
+			{Text: "Hi back", TurnStart: true, Start: 2 * time.Second, End: 3 * time.Second},
+		},
+	}
+
+	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
+	relay.SetTurnTranscriber(tt, func() error { return nil })
+
+	mode, err := relay.StartRecording(TurnModeTdrz)
+	if mode != TurnModeTdrz {
+		t.Errorf("mode = %q, want %q", mode, TurnModeTdrz)
+	}
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+
+	u := Utterance{
+		Audio:      make([]int16, 16000),
+		SampleRate: 16000,
+		Start:      0,
+		End:        4 * time.Second,
+	}
+	relay.handleUtterance(context.Background(), u)
+
+	events := drainBufferedEvents(relay.events)
+	transcriptions := findTranscriptionEvents(events)
+	if len(transcriptions) == 0 {
+		t.Fatal("expected transcription event")
+	}
+
+	ev := transcriptions[0]
+	if len(ev.Segments) != 2 {
+		t.Fatalf("expected 2 segments, got %d", len(ev.Segments))
+	}
+	// First segment: TurnStart should be true (first passage rule via ApplyPauseBreak).
+	if !ev.Segments[0].TurnStart {
+		t.Error("seg[0].TurnStart should be true (first passage)")
+	}
+	// Second segment: TurnStart from tdrz.
+	if !ev.Segments[1].TurnStart {
+		t.Error("seg[1].TurnStart should be true (tdrz turn flag)")
+	}
+}
+
+func TestVoiceRelay_TdrzPauseBreakStillApplies(t *testing.T) {
+	audio := newMockAudioSource()
+	transcriber := &mockTranscriber{results: []string{"fallback", "fallback2"}}
+	pipe := &mockPipeSender{}
+
+	config := DefaultRelayConfig()
+	config.MinTranscriptionLatency = 0
+	config.Recording.PauseBreak = 2 * time.Second
+
+	tt := &mockTurnTranscriber{
+		segments: []Segment{
+			{Text: "continued speech"},
+		},
+	}
+
+	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
+	relay.SetTurnTranscriber(tt, func() error { return nil })
+
+	relay.StartRecording(TurnModeTdrz)
+
+	ctx := context.Background()
+
+	// First utterance
+	u1 := Utterance{
+		Audio:      make([]int16, 16000),
+		SampleRate: 16000,
+		Start:      0,
+		End:        time.Second,
+	}
+	relay.handleUtterance(ctx, u1)
+
+	// Second utterance with gap > PauseBreak
+	u2 := Utterance{
+		Audio:      make([]int16, 16000),
+		SampleRate: 16000,
+		Start:      5 * time.Second,
+		End:        6 * time.Second,
+	}
+	relay.handleUtterance(ctx, u2)
+
+	events := drainBufferedEvents(relay.events)
+	transcriptions := findTranscriptionEvents(events)
+	if len(transcriptions) != 2 {
+		t.Fatalf("expected 2 transcription events, got %d", len(transcriptions))
+	}
+
+	// Second passage should have TurnStart from pause-break.
+	if !transcriptions[1].Segments[0].TurnStart {
+		t.Error("second passage should have TurnStart from pause-break gap")
+	}
+}
+
+func TestVoiceRelay_TdrzErrorFallsBackWithErrorEvent(t *testing.T) {
+	audio := newMockAudioSource()
+	transcriber := &mockTranscriber{results: []string{"basic fallback text"}}
+	pipe := &mockPipeSender{}
+
+	config := DefaultRelayConfig()
+	config.MinTranscriptionLatency = 0
+
+	tt := &mockTurnTranscriber{
+		err: fmt.Errorf("model crashed"),
+	}
+
+	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
+	relay.SetTurnTranscriber(tt, func() error { return nil })
+
+	relay.StartRecording(TurnModeTdrz)
+
+	u := Utterance{
+		Audio:      make([]int16, 16000),
+		SampleRate: 16000,
+		Start:      0,
+		End:        time.Second,
+	}
+	relay.handleUtterance(context.Background(), u)
+
+	events := drainBufferedEvents(relay.events)
+
+	// Should have an error event for the tdrz failure.
+	var hasError bool
+	for _, ev := range events {
+		if ev.Type == "error" && ev.Err != nil && strings.Contains(ev.Err.Error(), "tdrz transcription failed") {
+			hasError = true
+		}
+	}
+	if !hasError {
+		t.Error("expected error event for tdrz failure")
+	}
+
+	// Should still have a transcription event from basic fallback.
+	transcriptions := findTranscriptionEvents(events)
+	if len(transcriptions) == 0 {
+		t.Fatal("expected transcription event from basic fallback")
+	}
+	if transcriptions[0].Text != "basic fallback text" {
+		t.Errorf("fallback text = %q, want %q", transcriptions[0].Text, "basic fallback text")
+	}
+}
+
+func TestVoiceRelay_TdrzTimeoutFallsBack(t *testing.T) {
+	audio := newMockAudioSource()
+	transcriber := &mockTranscriber{results: []string{"basic timeout fallback"}}
+	pipe := &mockPipeSender{}
+
+	config := DefaultRelayConfig()
+	config.MinTranscriptionLatency = 0
+	config.TurnTimeout = 50 * time.Millisecond // Very short timeout for test
+
+	tt := &mockTurnTranscriber{
+		blockCtx: true, // Block until context is cancelled
+	}
+
+	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
+	relay.SetTurnTranscriber(tt, func() error { return nil })
+
+	relay.StartRecording(TurnModeTdrz)
+
+	u := Utterance{
+		Audio:      make([]int16, 16000),
+		SampleRate: 16000,
+		Start:      0,
+		End:        time.Second,
+	}
+	relay.handleUtterance(context.Background(), u)
+
+	events := drainBufferedEvents(relay.events)
+
+	// Should have an error event for the timeout.
+	var hasError bool
+	for _, ev := range events {
+		if ev.Type == "error" && ev.Err != nil {
+			hasError = true
+		}
+	}
+	if !hasError {
+		t.Error("expected error event for tdrz timeout")
+	}
+
+	// Should still have a transcription event from basic fallback.
+	transcriptions := findTranscriptionEvents(events)
+	if len(transcriptions) == 0 {
+		t.Fatal("expected transcription event from basic fallback after timeout")
+	}
+	if transcriptions[0].Text != "basic timeout fallback" {
+		t.Errorf("fallback text = %q, want %q", transcriptions[0].Text, "basic timeout fallback")
+	}
+}
+
+func TestVoiceRelay_TdrzStatusErrorYieldsBasic(t *testing.T) {
+	audio := newMockAudioSource()
+	transcriber := &mockTranscriber{}
+	pipe := &mockPipeSender{}
+
+	config := DefaultRelayConfig()
+	config.MinTranscriptionLatency = 0
+
+	tt := &mockTurnTranscriber{
+		segments: []Segment{{Text: "should not be used"}},
+	}
+
+	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
+	relay.SetTurnTranscriber(tt, func() error {
+		return fmt.Errorf("tdrz model not found")
+	})
+
+	mode, err := relay.StartRecording(TurnModeTdrz)
+	if mode != TurnModeBasic {
+		t.Errorf("mode = %q, want %q (status error should force basic)", mode, TurnModeBasic)
+	}
+	if err == nil {
+		t.Error("expected fallback error, got nil")
+	}
+	if !strings.Contains(err.Error(), "tdrz model not found") {
+		t.Errorf("error = %q, should contain status reason", err.Error())
+	}
+
+	relay.StopRecording()
+}
+
+func TestVoiceRelay_DictationWhileTdrzUsesConfiguredTranscriber(t *testing.T) {
+	audio := newMockAudioSource()
+	transcriber := &mockTranscriber{results: []string{"dictated text"}}
+	pipe := &mockPipeSender{}
+
+	config := DefaultRelayConfig()
+	config.MinTranscriptionLatency = 0
+
+	tt := &mockTurnTranscriber{
+		segments: []Segment{{Text: "tdrz should not appear"}},
+	}
+
+	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
+	relay.SetTurnTranscriber(tt, func() error { return nil })
+
+	// Do NOT call StartRecording: this is a dictation utterance.
+	// The turn transcriber is configured but should not be used for dictation.
+
+	u := Utterance{
+		Audio:      make([]int16, 16000),
+		SampleRate: 16000,
+		Start:      0,
+		End:        time.Second,
+	}
+	relay.handleUtterance(context.Background(), u)
+
+	events := drainBufferedEvents(relay.events)
+	transcriptions := findTranscriptionEvents(events)
+	if len(transcriptions) == 0 {
+		t.Fatal("expected transcription event")
+	}
+
+	// Should use the configured transcriber, not the turn transcriber.
+	if transcriptions[0].Text != "dictated text" {
+		t.Errorf("text = %q, want %q (should use configured transcriber)", transcriptions[0].Text, "dictated text")
+	}
+	if transcriptions[0].Segments != nil {
+		t.Error("dictation event should have nil Segments")
+	}
+}
+
+func TestVoiceRelay_StopClosesTurnTranscriber(t *testing.T) {
+	audio := newMockAudioSource()
+	transcriber := &mockTranscriber{}
+	pipe := &mockPipeSender{}
+
+	config := DefaultRelayConfig()
+	tt := &mockTurnTranscriber{}
+
+	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
+	relay.SetTurnTranscriber(tt, func() error { return nil })
+
+	if err := relay.Start(context.Background()); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+
+	relay.Stop()
+
+	if !tt.isClosed() {
+		t.Error("turn transcriber should be closed after relay.Stop()")
+	}
+}
+
+func TestVoiceRelay_TdrzSegmentOffsetsShifted(t *testing.T) {
+	audio := newMockAudioSource()
+	transcriber := &mockTranscriber{results: []string{"fallback"}}
+	pipe := &mockPipeSender{}
+
+	config := DefaultRelayConfig()
+	config.MinTranscriptionLatency = 0
+
+	// Tdrz segments have offsets relative to the passage audio.
+	// The relay should shift them by the passage start relative to recording start.
+	tt := &mockTurnTranscriber{
+		segments: []Segment{
+			{Text: "first part", Start: 0, End: time.Second},
+			{Text: "second part", TurnStart: true, Start: 2 * time.Second, End: 3 * time.Second},
+		},
+	}
+
+	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
+	relay.SetTurnTranscriber(tt, func() error { return nil })
+
+	relay.StartRecording(TurnModeTdrz)
+
+	ctx := context.Background()
+
+	// First passage starts at offset 0.
+	u1 := Utterance{
+		Audio:      make([]int16, 16000),
+		SampleRate: 16000,
+		Start:      0,
+		End:        4 * time.Second,
+	}
+	relay.handleUtterance(ctx, u1)
+
+	events := drainBufferedEvents(relay.events)
+	transcriptions := findTranscriptionEvents(events)
+	if len(transcriptions) == 0 {
+		t.Fatal("expected transcription event")
+	}
+
+	segs := transcriptions[0].Segments
+	if len(segs) != 2 {
+		t.Fatalf("expected 2 segments, got %d", len(segs))
+	}
+
+	// Passage start is 0, recStartOffset is 0. So offsets remain as-is.
+	if segs[0].Start != 0 {
+		t.Errorf("seg[0].Start = %v, want 0", segs[0].Start)
+	}
+	if segs[1].Start != 2*time.Second {
+		t.Errorf("seg[1].Start = %v, want 2s", segs[1].Start)
+	}
+	if segs[1].End != 3*time.Second {
+		t.Errorf("seg[1].End = %v, want 3s", segs[1].End)
+	}
+
+	// Now test a second passage at offset 10s. The tdrz segments should be
+	// shifted by 10s (passage start) relative to recording start (0).
+	tt.mu.Lock()
+	tt.segments = []Segment{
+		{Text: "later part", Start: 0, End: time.Second},
+	}
+	tt.mu.Unlock()
+
+	u2 := Utterance{
+		Audio:      make([]int16, 16000),
+		SampleRate: 16000,
+		Start:      10 * time.Second,
+		End:        12 * time.Second,
+	}
+	relay.handleUtterance(ctx, u2)
+
+	events2 := drainBufferedEvents(relay.events)
+	transcriptions2 := findTranscriptionEvents(events2)
+	if len(transcriptions2) == 0 {
+		t.Fatal("expected second transcription event")
+	}
+
+	segs2 := transcriptions2[0].Segments
+	// Offset: passage Start (10s) - recStartOffset (0) = 10s, plus segment Start (0) = 10s
+	if segs2[0].Start != 10*time.Second {
+		t.Errorf("seg[0].Start = %v, want 10s (shifted by passage offset)", segs2[0].Start)
+	}
+}

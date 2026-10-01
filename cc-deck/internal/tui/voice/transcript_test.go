@@ -150,7 +150,7 @@ func TestWriteTranscriptLine(t *testing.T) {
 
 func TestRecordingStateMachine(t *testing.T) {
 	relay := testRelay()
-	m := New(relay, "test-ws", "")
+	m := New(relay, "test-ws", "", voicepkg.TurnModeBasic)
 
 	// Initial state is idle.
 	if m.recState != recIdle {
@@ -196,7 +196,7 @@ func TestRecordingStateMachine(t *testing.T) {
 
 func TestRecordingStateMachine_EscCancels(t *testing.T) {
 	relay := testRelay()
-	m := New(relay, "test-ws", "")
+	m := New(relay, "test-ws", "", voicepkg.TurnModeBasic)
 
 	// Press 'r' then Esc to cancel.
 	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
@@ -214,7 +214,7 @@ func TestRecordingStateMachine_EscCancels(t *testing.T) {
 
 func TestTranscriptionCapturedDuringRecording(t *testing.T) {
 	relay := testRelay()
-	m := New(relay, "test-ws", "")
+	m := New(relay, "test-ws", "", voicepkg.TurnModeBasic)
 
 	// Start recording to a temp file.
 	tmpDir := t.TempDir()
@@ -252,7 +252,7 @@ func TestTranscriptionCapturedDuringRecording(t *testing.T) {
 
 func TestQuitClosesTranscript(t *testing.T) {
 	relay := testRelay()
-	m := New(relay, "test-ws", "")
+	m := New(relay, "test-ws", "", voicepkg.TurnModeBasic)
 
 	// Start recording.
 	tmpDir := t.TempDir()
@@ -291,7 +291,7 @@ func TestQuitClosesTranscript(t *testing.T) {
 
 func TestTranscriptionSkippedWhilePaused(t *testing.T) {
 	relay := testRelay()
-	m := New(relay, "test-ws", "")
+	m := New(relay, "test-ws", "", voicepkg.TurnModeBasic)
 
 	// Start recording.
 	tmpDir := t.TempDir()

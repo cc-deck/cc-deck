@@ -1,6 +1,7 @@
 package voice
 
 import (
+	"context"
 	"os"
 	"time"
 
@@ -51,6 +52,19 @@ type Model struct {
 	follow    bool            // auto-scroll to bottom on new content
 	newBlocks int             // count of new blocks since the user scrolled up
 
+	// Turn mode state
+	turnMode   voicepkg.TurnMode                               // current turn detection mode
+	tdrzStatus func() (toolErr, modelErr error)                // checks tdrz readiness
+	download   func(ctx context.Context, progress func(done, total int64)) error // downloads tdrz model
+
+	// Download state
+	dlPrompt  bool             // true when prompting for download confirmation
+	dlRunning bool             // true while a download is in progress
+	dlDone    int64            // bytes downloaded so far
+	dlTotal   int64            // total bytes expected
+	dlCancel  context.CancelFunc // cancels the running download
+	dlCh      <-chan tea.Msg   // channel for download progress/completion
+
 	width         int
 	height        int
 	viewport      viewport.Model
@@ -66,8 +80,10 @@ type historyEntry struct {
 
 type relayEventMsg voicepkg.RelayEvent
 
-// New creates a new voice TUI model.
-func New(relay *voicepkg.VoiceRelay, target string, logPath string) Model {
+// New creates a new voice TUI model. The turnMode sets the initial turn
+// detection mode (basic or tdrz). Pass voicepkg.TurnModeBasic when no
+// preference is configured.
+func New(relay *voicepkg.VoiceRelay, target string, logPath string, turnMode voicepkg.TurnMode) Model {
 	ti := textinput.New()
 	ti.Placeholder = "transcript.txt"
 	ti.CharLimit = 256
@@ -76,6 +92,13 @@ func New(relay *voicepkg.VoiceRelay, target string, logPath string) Model {
 		target:   target,
 		logPath:  logPath,
 		recInput: ti,
+		turnMode: turnMode,
+		tdrzStatus: func() (error, error) {
+			return voicepkg.TdrzStatus()
+		},
+		download: func(ctx context.Context, progress func(done, total int64)) error {
+			return voicepkg.DownloadModel(ctx, voicepkg.TdrzModelName, progress)
+		},
 	}
 }
 

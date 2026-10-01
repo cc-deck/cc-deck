@@ -60,6 +60,7 @@ type VoiceDefaults struct {
 	Commands  map[string][]string      `yaml:"commands,omitempty"`
 	Glossary  []string                 `yaml:"glossary,omitempty"`
 	Recording *VoiceRecordingDefaults  `yaml:"recording,omitempty"`
+	TurnMode  *string                  `yaml:"turn_mode,omitempty"`
 }
 
 // VoiceRecordingDefaults holds VAD parameters used while recording.

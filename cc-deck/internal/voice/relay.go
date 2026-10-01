@@ -47,6 +47,10 @@ type RelayConfig struct {
 	// spawns one `zellij pipe` process, so shortening it is not free, and
 	// the plugin's `voice_timeout_secs` (default 15) must stay above it.
 	StatePollInterval time.Duration
+
+	// TurnTimeout is the maximum time a tdrz TranscribeTurns call may take
+	// before falling back to the basic transcriber. Defaults to 30 seconds.
+	TurnTimeout time.Duration
 }
 
 // DefaultTranscriptionLatency is the default MinTranscriptionLatency.
@@ -54,6 +58,9 @@ const DefaultTranscriptionLatency = 300 * time.Millisecond
 
 // DefaultStatePollInterval is the default StatePollInterval.
 const DefaultStatePollInterval = 5 * time.Second
+
+// DefaultTurnTimeout is the default TurnTimeout for tdrz transcription.
+const DefaultTurnTimeout = 30 * time.Second
 
 // DefaultRelayConfig returns sensible defaults for the relay.
 func DefaultRelayConfig() RelayConfig {
@@ -64,6 +71,7 @@ func DefaultRelayConfig() RelayConfig {
 		Commands:                BuildCommandMap(DefaultCommands),
 		MinTranscriptionLatency: DefaultTranscriptionLatency,
 		StatePollInterval:       DefaultStatePollInterval,
+		TurnTimeout:             DefaultTurnTimeout,
 	}
 }
 
@@ -105,6 +113,7 @@ type VoiceRelay struct {
 	firstRecPassage bool          // true until the first passage sets recStartOffset
 	lastRecEnd      time.Duration // End of the most recent recording passage
 	turnTranscriber TurnTranscriber
+	tdrzStatusFunc  func() error  // reports tdrz readiness; nil means no check
 
 	parentCtx   context.Context
 	ctx         context.Context
@@ -131,6 +140,16 @@ func NewVoiceRelay(config RelayConfig, audio AudioSource, transcriber Transcribe
 		}
 	}
 	return r
+}
+
+// SetTurnTranscriber configures the turn transcriber used for tdrz mode.
+// The status function is called at recording start to check readiness; a
+// non-nil return falls back to basic mode with the error as explanation.
+func (r *VoiceRelay) SetTurnTranscriber(tt TurnTranscriber, status func() error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.turnTranscriber = tt
+	r.tdrzStatusFunc = status
 }
 
 // IsMuted returns whether the relay is currently muted.
@@ -162,11 +181,25 @@ func (r *VoiceRelay) StartRecording(mode TurnMode) (TurnMode, error) {
 	var fallbackErr error
 
 	r.mu.Lock()
-	if mode == TurnModeTdrz && r.turnTranscriber == nil {
-		effective = TurnModeBasic
-		fallbackErr = fmt.Errorf("tdrz mode unavailable: no turn transcriber configured, falling back to basic")
+	if mode == TurnModeTdrz {
+		if r.turnTranscriber == nil {
+			effective = TurnModeBasic
+			fallbackErr = fmt.Errorf("tdrz mode unavailable: no turn transcriber configured, falling back to basic")
+		} else if r.tdrzStatusFunc != nil {
+			if err := r.tdrzStatusFunc(); err != nil {
+				effective = TurnModeBasic
+				fallbackErr = fmt.Errorf("tdrz mode unavailable: %w, falling back to basic", err)
+			}
+		}
 	}
 	r.mu.Unlock()
+
+	if r.config.Verbose {
+		log.Printf("[voice] recording start: requested=%s effective=%s", mode, effective)
+		if fallbackErr != nil {
+			log.Printf("[voice] tdrz fallback reason: %v", fallbackErr)
+		}
+	}
 
 	var muteChanged bool
 	var nowMuted bool
@@ -390,6 +423,14 @@ func (r *VoiceRelay) Stop() {
 
 	r.stopInternal()
 	_ = r.transcriber.Close()
+
+	r.mu.Lock()
+	tt := r.turnTranscriber
+	r.mu.Unlock()
+	if tt != nil {
+		_ = tt.Close()
+	}
+
 	r.closeOnce.Do(func() { close(r.events) })
 }
 
@@ -465,10 +506,14 @@ func (r *VoiceRelay) statePoll(ctx context.Context, sr PipeSendReceiver) {
 			if state.workingDir != "" && state.workingDir != prevDir {
 				r.mu.Lock()
 				r.lastWorkingDir = state.workingDir
+				tt := r.turnTranscriber
 				r.mu.Unlock()
 				prompt := r.glossary.ResolvePrompt(state.workingDir)
 				if ht, ok := r.transcriber.(*httpTranscriber); ok {
 					ht.SetPrompt(prompt)
+				}
+				if tt != nil {
+					tt.SetPrompt(prompt)
 				}
 				if r.config.Verbose {
 					if prompt != "" {
@@ -649,7 +694,7 @@ func (r *VoiceRelay) handleUtterance(ctx context.Context, u Utterance) {
 	// apply pause-break, and emit with Segments. Sanitization happens
 	// inside SplitDashTurns; the stripping helpers are not run again.
 	if recording {
-		r.handleRecordingPassage(u, text, start)
+		r.handleRecordingPassage(ctx, u, text, start)
 		return
 	}
 
@@ -755,11 +800,69 @@ func (r *VoiceRelay) handleUtterance(ctx context.Context, u Utterance) {
 // It splits the text into segments using SplitDashTurns (which handles
 // sanitization), applies the pause-break rule, sets timing on each segment,
 // and emits a transcription event with the Segments field populated.
-func (r *VoiceRelay) handleRecordingPassage(u Utterance, rawText string, transcribeStart time.Time) {
-	// Normalize whitespace before splitting.
-	rawText = strings.Join(strings.Fields(rawText), " ")
+//
+// In tdrz mode, the audio is first sent to TranscribeTurns (with a timeout);
+// on error the same audio falls back to the configured transcriber with
+// SplitDashTurns and an error event is emitted.
+func (r *VoiceRelay) handleRecordingPassage(ctx context.Context, u Utterance, rawText string, transcribeStart time.Time) {
+	r.mu.Lock()
+	turnMode := r.recTurnMode
+	tt := r.turnTranscriber
+	turnTimeout := r.config.TurnTimeout
+	r.mu.Unlock()
 
-	segs := SplitDashTurns(rawText)
+	if turnTimeout <= 0 {
+		turnTimeout = DefaultTurnTimeout
+	}
+
+	var segs []Segment
+	var usedTdrz bool
+
+	if turnMode == TurnModeTdrz && tt != nil {
+		tdrzStart := time.Now()
+		tdrzCtx, tdrzCancel := context.WithTimeout(ctx, turnTimeout)
+		tdrzSegs, tdrzErr := tt.TranscribeTurns(tdrzCtx, u.Audio, u.SampleRate)
+		tdrzCancel()
+
+		if tdrzErr == nil && len(tdrzSegs) > 0 {
+			segs = tdrzSegs
+			usedTdrz = true
+			if r.config.Verbose {
+				turnCount := 0
+				for _, s := range segs {
+					if s.TurnStart {
+						turnCount++
+					}
+				}
+				log.Printf("[voice] tdrz transcription: %d segments, %d turns, took %s",
+					len(segs), turnCount, time.Since(tdrzStart))
+			}
+		} else {
+			// Fallback to basic: use the already-transcribed text.
+			reason := "unknown error"
+			if tdrzErr != nil {
+				reason = tdrzErr.Error()
+			} else {
+				reason = "empty result"
+			}
+			if r.config.Verbose {
+				log.Printf("[voice] tdrz fallback: %s (took %s), using basic transcriber result",
+					reason, time.Since(tdrzStart))
+			}
+			r.sendEvent(RelayEvent{
+				Type: "error",
+				Err:  fmt.Errorf("tdrz transcription failed: %s, using basic fallback", reason),
+			})
+		}
+	}
+
+	// Basic path: either tdrz was not selected, or it failed and we fall back.
+	if !usedTdrz {
+		// Normalize whitespace before splitting.
+		rawText = strings.Join(strings.Fields(rawText), " ")
+		segs = SplitDashTurns(rawText)
+	}
+
 	if len(segs) == 0 {
 		if r.config.Verbose {
 			log.Printf("[voice] recording: empty after split, skipping")
@@ -783,13 +886,22 @@ func (r *VoiceRelay) handleRecordingPassage(u Utterance, rawText string, transcr
 
 	ApplyPauseBreak(segs, gap, pauseBreak, first)
 
-	// Set segment timing relative to recording start.
+	// Set segment timing relative to recording start. For tdrz segments,
+	// shift the model-provided offsets by the passage start so they are
+	// relative to the recording start rather than the passage start.
 	relStart := u.Start - recStartOffset
 	relEnd := u.End - recStartOffset
 	for i := range segs {
-		segs[i].Start = relStart
-		segs[i].End = relEnd
-		segs[i].At = recStartWall.Add(relStart)
+		if usedTdrz {
+			// Tdrz segments have offsets relative to the passage audio.
+			// Shift them to be relative to recording start.
+			segs[i].Start += relStart
+			segs[i].End += relStart
+		} else {
+			segs[i].Start = relStart
+			segs[i].End = relEnd
+		}
+		segs[i].At = recStartWall.Add(segs[i].Start)
 	}
 
 	// Join segment texts for artifact, repeat, and latency filters.

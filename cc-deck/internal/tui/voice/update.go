@@ -78,6 +78,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateFilenamePrompt(msg)
 	}
 
+	// Download prompt: only y/n/esc are handled.
+	if m.dlPrompt {
+		if km, ok := msg.(tea.KeyMsg); ok {
+			switch km.String() {
+			case "y":
+				cmd := m.startDownload()
+				return m, cmd
+			case "n", "esc":
+				m.dlPrompt = false
+				m.err = nil
+				return m, nil
+			}
+		}
+		if rm, ok := msg.(relayEventMsg); ok {
+			m.handleRelayEvent(rm)
+			return m, waitForEvent(m.relay)
+		}
+		return m, nil
+	}
+
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -100,9 +120,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncViewport()
 		return m, nil
 
+	case downloadProgressMsg:
+		cmd := m.handleDownloadProgress(msg)
+		return m, cmd
+
+	case downloadMsg:
+		m.handleDownloadComplete(msg)
+		return m, nil
+
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "q", "ctrl+c":
+			if m.dlRunning {
+				m.cancelDownload()
+			}
 			m.closeTranscript()
 			m.quitting = true
 			return m, tea.Quit
@@ -137,6 +168,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.devices = devices
 			m.devicePick = true
 			m.deviceIdx = 0
+			return m, nil
+		case "g":
+			if m.recState == recIdle && !m.dlRunning {
+				cmd := m.toggleTurnMode()
+				return m, cmd
+			}
 			return m, nil
 		case "r":
 			switch m.recState {
@@ -233,7 +270,11 @@ func (m Model) updateFilenamePrompt(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.newBlocks = 0
 			m.follow = true
 			m.recState = recRecording
-			m.relay.StartRecording(voicepkg.TurnModeBasic)
+			effective, fallbackErr := m.relay.StartRecording(m.turnMode)
+			if fallbackErr != nil {
+				m.turnMode = effective
+				m.err = fallbackErr
+			}
 			m.recInput.Blur()
 			m.resizeViewport()
 			return m, nil

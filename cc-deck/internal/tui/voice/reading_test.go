@@ -28,7 +28,7 @@ func makeSegments(texts []string, turnStarts []bool) []voicepkg.Segment {
 func startRecordingModel(t *testing.T) Model {
 	t.Helper()
 	relay := testRelay()
-	m := New(relay, "test-ws", "")
+	m := New(relay, "test-ws", "", voicepkg.TurnModeBasic)
 
 	// Go through the recording setup flow.
 	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
@@ -132,7 +132,7 @@ func TestRenderBlocks_PlaceholderWhenEmpty(t *testing.T) {
 
 func TestReadingView_VIgnoredWhenIdle(t *testing.T) {
 	relay := testRelay()
-	m := New(relay, "test-ws", "")
+	m := New(relay, "test-ws", "", voicepkg.TurnModeBasic)
 
 	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
 	m = result.(Model)
@@ -144,7 +144,7 @@ func TestReadingView_VIgnoredWhenIdle(t *testing.T) {
 
 func TestReadingView_VIgnoredDuringFilenamePrompt(t *testing.T) {
 	relay := testRelay()
-	m := New(relay, "test-ws", "")
+	m := New(relay, "test-ws", "", voicepkg.TurnModeBasic)
 
 	// Enter filename prompt.
 	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})

@@ -21,7 +21,11 @@ type ModelInfo struct {
 	Name     string
 	FileName string
 	URL      string
+	TreeAPI  string // HF tree API endpoint for SHA lookup; empty means hfTreeAPI
 }
+
+// TdrzModelName is the model name for tinydiarize turn detection.
+const TdrzModelName = "small.en-tdrz"
 
 var models = map[string]ModelInfo{
 	"tiny.en": {
@@ -43,6 +47,12 @@ var models = map[string]ModelInfo{
 		Name:     "medium",
 		FileName: "ggml-medium.bin",
 		URL:      "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin",
+	},
+	TdrzModelName: {
+		Name:     TdrzModelName,
+		FileName: "ggml-small.en-tdrz.bin",
+		URL:      "https://huggingface.co/akashmjn/tinydiarize-whisper.cpp/resolve/main/ggml-small.en-tdrz.bin",
+		TreeAPI:  "https://huggingface.co/api/models/akashmjn/tinydiarize-whisper.cpp/tree/main",
 	},
 }
 
@@ -78,13 +88,13 @@ func RunSetupWithContext(ctx context.Context, modelName string) error {
 
 	info, ok := models[modelName]
 	if !ok {
-		return fmt.Errorf("unknown model %q; available: tiny.en, base.en, small.en, medium", modelName)
+		return fmt.Errorf("unknown model %q; available: tiny.en, base.en, small.en, medium, small.en-tdrz", modelName)
 	}
 
 	modelPath := filepath.Join(ModelDir(), info.FileName)
 	shaPath := modelPath + ".sha256"
 
-	remoteSHA, remoteSize, err := fetchRemoteSHA(ctx, info.FileName)
+	remoteSHA, remoteSize, err := fetchRemoteSHA(ctx, info)
 	if err != nil {
 		fmt.Printf("  [!] Could not fetch checksum from Hugging Face: %v\n", err)
 		fmt.Println("      Falling back to download without verification.")
@@ -106,7 +116,7 @@ func RunSetupWithContext(ctx context.Context, modelName string) error {
 		fmt.Printf("Model %s has a newer version available. Re-downloading.\n", modelName)
 	}
 
-	if err := downloadModel(ctx, info, modelPath, remoteSHA, remoteSize); err != nil {
+	if err := downloadModel(ctx, info, modelPath, remoteSHA, remoteSize, nil); err != nil {
 		return fmt.Errorf("downloading model: %w", err)
 	}
 
@@ -149,9 +159,14 @@ type hfTreeEntry struct {
 }
 
 // fetchRemoteSHA queries the Hugging Face API for the LFS SHA256 and size of a model file.
-func fetchRemoteSHA(ctx context.Context, fileName string) (sha string, size int64, err error) {
+// It uses the model's own TreeAPI endpoint when set, falling back to hfTreeAPI.
+func fetchRemoteSHA(ctx context.Context, info ModelInfo) (sha string, size int64, err error) {
+	treeURL := info.TreeAPI
+	if treeURL == "" {
+		treeURL = hfTreeAPI
+	}
 	client := &http.Client{Timeout: 15 * time.Second}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, hfTreeAPI, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, treeURL, nil)
 	if err != nil {
 		return "", 0, err
 	}
@@ -171,11 +186,11 @@ func fetchRemoteSHA(ctx context.Context, fileName string) (sha string, size int6
 	}
 
 	for _, e := range entries {
-		if e.Path == fileName && e.LFS != nil {
+		if e.Path == info.FileName && e.LFS != nil {
 			return e.LFS.OID, e.LFS.Size, nil
 		}
 	}
-	return "", 0, fmt.Errorf("file %q not found in repository listing", fileName)
+	return "", 0, fmt.Errorf("file %q not found in repository listing", info.FileName)
 }
 
 func readSHAFile(path string) (string, error) {
@@ -190,7 +205,60 @@ func writeSHAFile(path, sha string) error {
 	return os.WriteFile(path, []byte(sha), 0o644)
 }
 
-func downloadModel(ctx context.Context, info ModelInfo, destPath, expectedSHA string, expectedSize int64) error {
+// TdrzStatus checks whether the prerequisites for tdrz turn detection are met.
+// Returns toolErr if whisper-cli is not on PATH, and modelErr if the tdrz model
+// file is missing.
+func TdrzStatus() (toolErr, modelErr error) {
+	if _, err := exec.LookPath("whisper-cli"); err != nil {
+		toolErr = fmt.Errorf("whisper-cli not found; install whisper-cpp (brew install whisper-cpp)")
+	}
+	modelPath := ModelPath(TdrzModelName)
+	if _, err := os.Stat(modelPath); os.IsNotExist(err) {
+		modelErr = fmt.Errorf("tdrz model not found at %s", modelPath)
+	} else if err != nil {
+		modelErr = fmt.Errorf("checking tdrz model: %w", err)
+	}
+	return toolErr, modelErr
+}
+
+// countingWriter wraps an io.Writer and reports bytes written through a
+// progress callback.
+type countingWriter struct {
+	written  int64
+	total    int64
+	progress func(done, total int64)
+	inner    io.Writer
+}
+
+func (cw *countingWriter) Write(p []byte) (int, error) {
+	n, err := cw.inner.Write(p)
+	cw.written += int64(n)
+	if cw.progress != nil {
+		cw.progress(cw.written, cw.total)
+	}
+	return n, err
+}
+
+// DownloadModel downloads a named model with SHA-256 verification.
+// The progress callback, if non-nil, is called with bytes written and total.
+func DownloadModel(ctx context.Context, name string, progress func(done, total int64)) error {
+	info, ok := models[name]
+	if !ok {
+		return fmt.Errorf("unknown model %q", name)
+	}
+
+	destPath := filepath.Join(ModelDir(), info.FileName)
+
+	remoteSHA, remoteSize, err := fetchRemoteSHA(ctx, info)
+	if err != nil {
+		remoteSHA = ""
+		remoteSize = 0
+	}
+
+	return downloadModel(ctx, info, destPath, remoteSHA, remoteSize, progress)
+}
+
+func downloadModel(ctx context.Context, info ModelInfo, destPath, expectedSHA string, expectedSize int64, progress func(done, total int64)) error {
 	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
 		return fmt.Errorf("creating model directory: %w", err)
 	}
@@ -228,7 +296,13 @@ func downloadModel(ctx context.Context, info ModelInfo, destPath, expectedSHA st
 	tmpPath := f.Name()
 
 	hasher := sha256.New()
-	writer := io.MultiWriter(f, hasher)
+	var writer io.Writer
+	if progress != nil {
+		cw := &countingWriter{inner: io.MultiWriter(f, hasher), total: expectedSize, progress: progress}
+		writer = cw
+	} else {
+		writer = io.MultiWriter(f, hasher)
+	}
 
 	_, copyErr := io.Copy(writer, resp.Body)
 	closeErr := f.Close()
