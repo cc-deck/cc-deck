@@ -1082,7 +1082,7 @@ cc-deck ws voice --list-devices
 | Flag | Description
 
 | `--model`
-| Whisper model name: `tiny.en`, `base.en` (default), `small.en`, `medium`, `small.en-tdrz` (tinydiarize, for separating speakers by voice)
+| Whisper model name: `tiny.en`, `base.en` (default), `small.en`, `medium`, `large-v3-turbo`, `small.en-tdrz` (tinydiarize, for separating speakers by voice)
 
 | `--port`
 | Whisper-server port (default: `8234`)

@@ -11,6 +11,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/cc-deck/cc-deck/internal/xdg"
@@ -48,6 +50,11 @@ var models = map[string]ModelInfo{
 		FileName: "ggml-medium.bin",
 		URL:      "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin",
 	},
+	"large-v3-turbo": {
+		Name:     "large-v3-turbo",
+		FileName: "ggml-large-v3-turbo.bin",
+		URL:      "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin",
+	},
 	TdrzModelName: {
 		Name:     TdrzModelName,
 		FileName: "ggml-small.en-tdrz.bin",
@@ -57,6 +64,16 @@ var models = map[string]ModelInfo{
 }
 
 const hfTreeAPI = "https://huggingface.co/api/models/ggerganov/whisper.cpp/tree/main"
+
+// ModelNames returns the names of all downloadable models, sorted.
+func ModelNames() []string {
+	names := make([]string, 0, len(models))
+	for name := range models {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
 
 // ModelDir returns the path where whisper models are cached.
 func ModelDir() string {
@@ -88,7 +105,7 @@ func RunSetupWithContext(ctx context.Context, modelName string) error {
 
 	info, ok := models[modelName]
 	if !ok {
-		return fmt.Errorf("unknown model %q; available: tiny.en, base.en, small.en, medium, small.en-tdrz", modelName)
+		return fmt.Errorf("unknown model %q; available: %s", modelName, strings.Join(ModelNames(), ", "))
 	}
 
 	modelPath := filepath.Join(ModelDir(), info.FileName)

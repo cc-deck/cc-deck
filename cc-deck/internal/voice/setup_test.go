@@ -350,3 +350,43 @@ func TestDownloadModel_WritesNothingToStdout(t *testing.T) {
 		t.Errorf("downloadModel wrote to stdout: %q", out)
 	}
 }
+
+func TestModelRegistry_IncludesLargeV3Turbo(t *testing.T) {
+	info, ok := models["large-v3-turbo"]
+	if !ok {
+		t.Fatal("large-v3-turbo should be a registered model")
+	}
+	if info.FileName != "ggml-large-v3-turbo.bin" {
+		t.Errorf("FileName = %q", info.FileName)
+	}
+	want := "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin"
+	if info.URL != want {
+		t.Errorf("URL = %q, want %q", info.URL, want)
+	}
+	if got := ModelPath("large-v3-turbo"); filepath.Base(got) != "ggml-large-v3-turbo.bin" {
+		t.Errorf("ModelPath = %q", got)
+	}
+}
+
+func TestModelNames_SortedAndComplete(t *testing.T) {
+	names := ModelNames()
+	if len(names) != len(models) {
+		t.Fatalf("ModelNames returned %d names, registry has %d", len(names), len(models))
+	}
+	for i := 1; i < len(names); i++ {
+		if names[i-1] >= names[i] {
+			t.Errorf("names not sorted: %q before %q", names[i-1], names[i])
+		}
+	}
+	for _, want := range []string{"tiny.en", "base.en", "small.en", "medium", "large-v3-turbo", TdrzModelName} {
+		found := false
+		for _, n := range names {
+			if n == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("ModelNames missing %q", want)
+		}
+	}
+}

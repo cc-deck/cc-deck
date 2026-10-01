@@ -111,8 +111,8 @@ When you mute from the TUI, the sidebar updates immediately.
 [[models]]
 == Whisper Models
 
-cc-deck supports four Whisper model sizes.
-All are English-optimized except `medium`, which also handles other languages.
+cc-deck supports five Whisper models for dictation and recording.
+The `.en` models are English-optimized; `medium` and `large-v3-turbo` also handle other languages.
 
 [cols="1,1,1,1,3"]
 |===
@@ -140,7 +140,13 @@ All are English-optimized except `medium`, which also handles other languages.
 | 1.5 GB
 | Slower
 | High
-| Multilingual support. Most accurate, but higher latency per utterance.
+| Multilingual support. Accurate, but higher latency per utterance.
+
+| `large-v3-turbo`
+| 1.6 GB
+| Like `medium` on Apple Silicon
+| Highest
+| Multilingual support. The most accurate model; a pruned large model that transcribes about as fast as `medium`.
 |===
 
 TIP: On an Apple Silicon Mac, `small.en` is the recommended upgrade from the default.
@@ -440,7 +446,7 @@ Then run `cc-deck ws voice --setup` to verify the installation.
 
 Timed out waiting for whisper-server::
 The server takes a few seconds to load the model into memory.
-Larger models (especially `medium` at 1.5 GB) need more time.
+Larger models (especially `medium` at 1.5 GB and `large-v3-turbo` at 1.6 GB) need more time.
 If this persists, check whether another process is using port 8234 and try a different port with `--port`.
 
 Transcription misses quiet speech::
