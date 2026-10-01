@@ -1,6 +1,6 @@
 # Brainstorm Overview
 
-Last updated: 2026-09-10
+Last updated: 2026-10-01
 
 ## Sessions
 
@@ -68,6 +68,7 @@ Last updated: 2026-09-10
 | 090 | 2026-07-31 | openshell-profile-delegation | active | - | - |
 | 093 | 2026-09-09 | harness-profiles | active | 087 | [#36](https://github.com/cc-deck/cc-deck/issues/36) |
 | 094 | 2026-09-10 | openshell-profile-masking | active | - | [#38](https://github.com/cc-deck/cc-deck/issues/38) |
+| 095 | 2026-10-01 | voice-reading-view | active | - | [#43](https://github.com/cc-deck/cc-deck/issues/43) |
 | - | 2026-05-14 | zellij-load-plugins-duplicate-instance | draft | - | - |
 
 ## Open Threads
@@ -110,6 +111,7 @@ Last updated: 2026-09-10
 - OpenShell profile delegation: profile name mapping granularity, auto-detection vs manifest declaration interaction, missing gateway profile handling, ephemeral profile lifecycle, AllowedDomains override migration (from #090)
 - Harness profiles: macOS Keychain OAuth transport to remote workspaces, Codex native profiles vs separate CODEX_HOME, wrapper bin dir and PATH per backend, snapshot command verbatim (spec 015), default_profile vs plain binary, per-session profile feeding OpenShell provider list (spec 085), pre-launch credentials check (from #093)
 - OpenShell profile masking: gateway acceptance of imported profiles with renamed env vars, SDK profile import and delete surface, multiple Vertex service accounts per sandbox, anthropic-oauth capability detection, re-import on sync, Codex subscription variables as login vs env credentials, env file as home for profile color and icon (from #094)
+- Voice reading view: recording VAD values for quiet remote voices, end-to-end tdrz verification, turn continuity across chunk boundaries, pause breaks in tdrz mode, `g` key naming, tdrz model storage and download, turn mode persistence, whisper-cli failure fallback, speaker labels via embeddings as follow-up (from #095)
 - Git workflow: auto-stash on harvest, merge conflict handling, SSH key support for private repos, ext:: vs tar performance, reset scope (git only vs conversation), sync.go integration, sidebar dual sync status (from #23)
 - Security model: credential watchdog default, re-injection after removal, YOLO mode enforcement vs warning, agent action auditing, external secret management, security scoring, secret vs passthrough typing, env var sync configurability (from #25)
 - Sidebar badges: badge evaluation caching, max badge count, YAML format support, dot-path array handling (from #26)
