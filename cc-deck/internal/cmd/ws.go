@@ -370,8 +370,21 @@ func runWsNew(gf *GlobalFlags, name string, cf *newFlags, cmd *cobra.Command) er
 		return resolveErr
 	}
 
-	// Set project-dir for all workspace types.
-	activeDef.ProjectDir = project.CanonicalPath(cwd)
+	// Set project-dir for all workspace types. --path names the project
+	// directory explicitly, so it wins; the current directory is only the
+	// fallback for when the caller did not say.
+	//
+	// These must not diverge. A compose workspace bind-mounts its project
+	// with a path relative to the generated compose file ("./../.."), and
+	// that file is written under <project-dir>/.cc-deck/run. Taking the
+	// project dir from the current directory while mounting --path would
+	// generate a compose file that mounts whichever directory the command
+	// happened to be run from.
+	projectDir := cwd
+	if cf.path != "" {
+		projectDir = cf.path
+	}
+	activeDef.ProjectDir = project.CanonicalPath(projectDir)
 
 	// Store definition centrally with collision handling.
 	finalName, addErr := defs.AddWithCollisionHandling(activeDef)
