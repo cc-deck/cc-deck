@@ -254,7 +254,11 @@ The view follows new speech as it arrives.
 Scroll with `↑`/`↓` or `j`/`k` (one line) and `PgUp`/`PgDn` (one page).
 When you scroll up, auto-follow pauses and the footer shows how many new blocks have arrived below.
 Press `G` or `End` to jump back to the bottom and resume following.
-Press `esc` to close the reading view and return to the normal TUI.
+Press `esc` or `v` again to close the reading view and return to the normal TUI.
+
+The header line keeps the audio level meter and the threshold (`T:`) visible.
+Press `+` or `-` to adjust the threshold while you read, for example when quiet speakers are missing from the transcript.
+During a pause in the conversation, the level bar should drop below the threshold marker; otherwise silence is never detected and passages only end at the maximum chunk length.
 
 === Separating Speakers
 

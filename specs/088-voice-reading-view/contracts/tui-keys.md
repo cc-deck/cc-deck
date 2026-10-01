@@ -29,11 +29,12 @@ While the filename prompt is open, all keys go to the prompt (existing behavior)
 | `↓` / `j` | Scroll down one line; resumes following when the bottom is reached |
 | `PgUp` / `PgDn` | Scroll by one page (same follow rule) |
 | `G` / `End` | Jump to last line, resume following, reset the new-block counter |
-| `esc` | Return to normal view |
+| `esc` / `v` | Return to normal view (`v` toggles) |
 | `r` | Pause or resume recording (as in normal view) |
 | `R` | Stop recording; the view closes automatically |
 | `q` / `ctrl+c` | Quit the relay (as in normal view) |
-| `+`, `-`, `d`, `m`, `s`, `v` | No effect |
+| `+` / `-` | Raise or lower the VAD threshold (as in normal view) |
+| `d`, `m`, `s` | No effect |
 
 ## Header
 
@@ -46,8 +47,9 @@ Device:     (default)  Mode: VAD (auto)  Speakers: by pause  ● REC
 Reading view, single line:
 
 ```text
- Reading  ● REC  2026-10-01-standup.txt  Speakers: by voice
- Reading  ⏸ PAUSED  2026-10-01-standup.txt  Speakers: by pause
+ Reading  ● REC  ⣿⣿⣿⣶⠀⠀⠿⠀  T:20%  Speakers: by voice  2026-10-01-standup.txt
+ Reading  ⏸ PAUSED  ⣤⠀⠀⠀⠀⠀⠿⠀  T:20%  Speakers: by pause  2026-10-01-standup.txt
+(the file name is dropped first when the pane is too narrow for one line)
 ```
 
 ## Footer
@@ -60,8 +62,8 @@ Normal view hint line (appended to the existing hints):
 Reading view hint line:
 
 ```text
- ↑↓/jk scroll  PgUp/PgDn page  G end  esc back    ● following
- ↑↓/jk scroll  PgUp/PgDn page  G end  esc back    3 new ↓
+ ↑↓/jk scroll  PgUp/PgDn page  G end  +/- threshold  v/esc back    ● following
+ ↑↓/jk scroll  PgUp/PgDn page  G end  +/- threshold  v/esc back    3 new ↓
 ```
 
 ## Reading view body

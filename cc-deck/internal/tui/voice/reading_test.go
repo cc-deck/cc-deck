@@ -1,6 +1,7 @@
 package voice
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -411,13 +412,91 @@ func TestReadingView_IgnoredKeysInReadingView(t *testing.T) {
 	}
 
 	// These keys should be ignored in the reading view.
-	for _, key := range []rune{'+', '-', 'd', 'm', 's', 'v'} {
+	for _, key := range []rune{'d', 'm', 's'} {
 		result, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{key}})
 		m = result.(Model)
 
 		if !m.reading {
 			t.Errorf("key %q should not close reading view", string(key))
 		}
+	}
+}
+
+func TestReadingView_VTogglesViewClosed(t *testing.T) {
+	m := startRecordingModel(t)
+	result, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = result.(Model)
+
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
+	m = result.(Model)
+	if !m.reading {
+		t.Fatal("first v should open the reading view")
+	}
+
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
+	m = result.(Model)
+	if m.reading {
+		t.Error("second v should close the reading view, like esc")
+	}
+	if m.recState != recRecording {
+		t.Errorf("closing the view must not affect the recording, recState = %v", m.recState)
+	}
+}
+
+func TestReadingView_PlusMinusAdjustThreshold(t *testing.T) {
+	m := startRecordingModel(t)
+	result, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = result.(Model)
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
+	m = result.(Model)
+
+	before := m.relay.VADThreshold()
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'+'}})
+	m = result.(Model)
+	if got := m.relay.VADThreshold(); got <= before {
+		t.Errorf("+ should raise the threshold: before %d, after %d", before, got)
+	}
+
+	raised := m.relay.VADThreshold()
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'-'}})
+	m = result.(Model)
+	if got := m.relay.VADThreshold(); got >= raised {
+		t.Errorf("- should lower the threshold: before %d, after %d", raised, got)
+	}
+	if !m.reading {
+		t.Error("+/- must not close the reading view")
+	}
+}
+
+func TestReadingView_HeaderShowsLevelAndThreshold(t *testing.T) {
+	m := startRecordingModel(t)
+	m.width = 200
+	m.recPath = "/tmp/2026-10-01-standup.txt"
+
+	header := m.renderReadingHeader()
+	want := fmt.Sprintf("T:%d%%", m.relay.VADThreshold())
+	if !strings.Contains(header, want) {
+		t.Errorf("header should show the threshold %q, got: %s", want, header)
+	}
+	if !strings.Contains(header, "2026-10-01-standup.txt") {
+		t.Error("wide header should include the transcript file name")
+	}
+}
+
+func TestReadingView_HeaderStaysOneLineWhenNarrow(t *testing.T) {
+	m := startRecordingModel(t)
+	m.width = 70
+	m.recPath = "/tmp/2026-10-01-a-rather-long-transcript-name.txt"
+
+	header := m.renderReadingHeader()
+	if strings.Count(header, "\n") != 1 {
+		t.Errorf("header must be exactly one line, got %q", header)
+	}
+	if strings.Contains(header, "a-rather-long-transcript-name") {
+		t.Error("narrow header should drop the file name")
+	}
+	if !strings.Contains(header, "T:") {
+		t.Error("narrow header should still show the threshold")
 	}
 }
 

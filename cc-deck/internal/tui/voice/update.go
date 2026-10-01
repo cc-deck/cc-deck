@@ -332,10 +332,19 @@ func (m Model) updateReading(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "esc":
+		case "esc", "v":
 			m.reading = false
 			return m, nil
+		case "+":
+			m.relay.SetVADThreshold(m.relay.VADThreshold() + 2)
+			return m, nil
+		case "-":
+			m.relay.SetVADThreshold(m.relay.VADThreshold() - 2)
+			return m, nil
 		case "q", "ctrl+c":
+			if m.dlRunning {
+				m.cancelDownload()
+			}
 			m.closeTranscript()
 			m.quitting = true
 			return m, tea.Quit

@@ -1149,13 +1149,16 @@ cc-deck ws voice --list-devices
 | `G` / `End`
 | Jump to the bottom and resume auto-follow.
 
+| `+` / `-`
+| Raise or lower the VAD sensitivity threshold.
+
 | `r`
 | Pause or resume recording.
 
 | `R`
 | Stop recording and close the reading view.
 
-| `esc`
+| `esc` / `v`
 | Close the reading view and return to the normal view.
 |===
 

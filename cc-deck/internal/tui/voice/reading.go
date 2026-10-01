@@ -186,34 +186,43 @@ func (m Model) readingViewportWithScrollbar() string {
 
 // renderReadingHeader produces the single header line for the reading view.
 func (m Model) renderReadingHeader() string {
-	var b strings.Builder
-	b.WriteString(" ")
-	b.WriteString(headerStyle.Render("Reading"))
-	b.WriteString("  ")
+	sep := "  "
+	parts := []string{" " + headerStyle.Render("Reading")}
 	switch m.recState {
 	case recRecording:
-		b.WriteString(recStyle.Render("● REC"))
+		parts = append(parts, recStyle.Render("● REC"))
 	case recPaused:
-		b.WriteString(pauseStyle.Render("⏸ PAUSED"))
+		parts = append(parts, pauseStyle.Render("⏸ PAUSED"))
 	}
+	// Level meter and threshold stay visible so the sensitivity can be
+	// adjusted with +/- while reading.
+	if m.relay != nil {
+		threshPct := m.relay.VADThreshold()
+		levelLog := voicepkg.RMSToLogScale(m.audioLevel)
+		parts = append(parts,
+			renderBrailleBar(levelLog, float64(threshPct)/100.0)+" "+threshStyle.Render(fmt.Sprintf("T:%d%%", threshPct)))
+	}
+	parts = append(parts, labelStyle.Render("Speakers: "+m.turnMode.Label()))
+
+	line := strings.Join(parts, sep)
 	if m.recPath != "" {
-		b.WriteString("  ")
 		base := m.recPath
 		if idx := strings.LastIndex(base, "/"); idx >= 0 {
 			base = base[idx+1:]
 		}
-		b.WriteString(labelStyle.Render(base))
+		withFile := line + sep + labelStyle.Render(base)
+		// The header must stay a single line; drop the file name first
+		// when the pane is too narrow.
+		if m.width <= 0 || lipgloss.Width(withFile) <= m.width {
+			line = withFile
+		}
 	}
-	b.WriteString("  ")
-	b.WriteString(labelStyle.Render("Speakers: " + m.turnMode.Label()))
-	b.WriteString("\n")
-	return b.String()
+	return line + "\n"
 }
 
-// renderReadingFooter produces the footer line for the reading view.
 func (m Model) renderReadingFooter() string {
 	var b strings.Builder
-	b.WriteString(hintStyle.Render(" ↑↓/jk scroll  PgUp/PgDn page  G end  esc back"))
+	b.WriteString(hintStyle.Render(" ↑↓/jk scroll  PgUp/PgDn page  G end  +/- threshold  v/esc back"))
 	b.WriteString("    ")
 	if m.follow {
 		b.WriteString(recStyle.Render("● following"))

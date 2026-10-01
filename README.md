@@ -156,7 +156,7 @@ When a session switches, the relay automatically loads the project glossary from
 
 #### Reading view and speaker separation
 
-Press `v` during a recording to open a live, scrollable view of the conversation, with one block for each contribution. Scroll with `j`/`k`, page with `PgUp`/`PgDn`, jump to the end with `G`, and press `esc` to return to the normal view.
+Press `v` during a recording to open a live, scrollable view of the conversation, with one block for each contribution. Scroll with `j`/`k`, page with `PgUp`/`PgDn`, jump to the end with `G`, and press `v` or `esc` to return to the normal view. The header keeps the level meter and threshold visible, so `+`/`-` can tune sensitivity while you read.
 
 The relay separates speakers in one of two ways, shown in the header after `Speakers:`. **By pause** (the default) starts a new block after a longer silence or where Whisper marks a speaker change. **By voice** uses the tinydiarize speech model to detect a change of voice, even without a pause, and recognizes English only.
 

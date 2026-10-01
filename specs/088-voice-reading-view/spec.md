@@ -32,6 +32,7 @@ The turn data carries an empty speaker slot so a later feature can add labels wi
 ### Session 2026-10-01 (post-implementation UX review)
 
 - Q: "Turns", `basic`, and `tdrz` are jargon; how should the mode be presented to users? → A: As speaker separation. The header shows `Speakers: by pause` (`basic`) or `Speakers: by voice` (`tdrz`), the key is `s` (hint `s: speaker split`), the config key is `speaker_split: pause | voice`, and each switch shows a short explanation in the status line for a few seconds. `basic` and `tdrz` remain internal mode identifiers in this spec.
+- Q: How does the user tune sensitivity while reading? → A: The reading view header keeps the level meter and threshold, `+`/`-` adjust the threshold there, and `v` closes the view again (toggle).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -134,7 +135,7 @@ Turns are separated by blank lines, so the structure of the conversation survive
 - **Turn-aware transcription hangs**: A passage that takes longer than 30 seconds counts as failed and falls back to the configured model.
 - **Turn-aware model removed after toggling**: If the model is missing when the recording starts, the recording starts in `basic` mode, the header shows `basic`, and an error explains why.
 - **Non-English speech in `tdrz` mode**: The turn-aware model only supports English. Other languages produce degraded text. This limitation is documented, not detected.
-- **Keys inside the reading view**: `r` (pause/resume), `R` (stop), and `q` (quit) keep working. `+`/`-`, `d`, `m`, and `s` do nothing in the reading view. `↑`/`↓` scroll instead of adjusting the threshold.
+- **Keys inside the reading view**: `r` (pause/resume), `R` (stop), `q` (quit), and `+`/`-` (threshold) keep working. `v` closes the view like `esc`. `d`, `m`, and `s` do nothing in the reading view. `↑`/`↓` scroll instead of adjusting the threshold.
 - **Threshold adjustment during recording**: `+`/`-` in the normal view during a recording adjust the recording sensitivity for the rest of that recording; the dictation sensitivity is restored when the recording stops.
 
 ## Requirements *(mandatory)*
@@ -147,11 +148,11 @@ Turns are separated by blank lines, so the structure of the conversation survive
 - **FR-002**: The footer MUST show the `v` hint only while a recording is active or paused.
 - **FR-003**: The reading view MUST show all text that was written to the transcript file for the current recording, formatted according to FR-004, and MUST retain the full recording without the history pane's entry limit.
 - **FR-004**: The reading view MUST group text into turn blocks. Each block MUST show the start time of the turn (`HH:MM:SS`) on its own line, followed by the turn's text merged into one paragraph and wrapped to the pane width. Every text line MUST be prefixed by a gutter bar; consecutive blocks alternate between two visually distinct bars (`▌` and `┃`, in two distinct colors) so adjacent turns are easy to tell apart. Blocks MUST be separated by one blank line.
-- **FR-005**: The reading view MUST replace the multi-line header with a single line showing the reading mode, the recording state (recording or paused), the transcript file name, and the turn mode.
+- **FR-005**: The reading view MUST replace the multi-line header with a single line showing the reading mode, the recording state (recording or paused), the live audio level meter with the current threshold, the turn mode, and the transcript file name. When the pane is too narrow for one line, the file name MUST be dropped first.
 - **FR-006**: The reading view MUST support scrolling by line (`↑`/`↓`, `j`/`k`), by page (`PgUp`/`PgDn`), and jumping to the last line (`G`, `End`).
 - **FR-007**: The reading view MUST follow new text while scrolled to the bottom, MUST keep the visible position when the user has scrolled up, and MUST show a count of new blocks that arrived below the visible area until the user returns to the bottom.
-- **FR-008**: The reading view MUST return to the normal view on `esc`, and automatically when the recording stops.
-- **FR-009**: Inside the reading view, `r`, `R`, and `q` MUST behave as in the normal view; `+`, `-`, `d`, `m`, and `s` MUST have no effect.
+- **FR-008**: The reading view MUST return to the normal view on `esc` or `v` (so `v` toggles the view), and automatically when the recording stops.
+- **FR-009**: Inside the reading view, `r`, `R`, `q`, `+`, and `-` MUST behave as in the normal view; `d`, `m`, and `s` MUST have no effect.
 - **FR-010**: The reading view MUST show a placeholder when the recording has no text yet.
 - **FR-011**: The reading view footer MUST list its key bindings and the follow state.
 
