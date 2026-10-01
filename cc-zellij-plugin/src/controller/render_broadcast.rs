@@ -12,7 +12,15 @@ use cc_deck::{RenderPayload, RenderSession};
 /// Build a RenderPayload from the current controller state.
 pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
     let sessions: Vec<&crate::session::Session> = {
-        let mut s: Vec<_> = state.sessions.values().collect();
+        // Sessions awaiting confirmation from the pane manifest are withheld.
+        // A row that vanishes seconds later is more confusing than one that
+        // arrives seconds late, and while shown it would inflate the header
+        // counts below and be clickable through to a pane that does not exist.
+        let mut s: Vec<_> = state
+            .sessions
+            .values()
+            .filter(|sess| !state.is_hidden(sess.pane_id))
+            .collect();
         if let Some(ref order) = state.sort_order {
             s.sort_by_key(|sess| {
                 order
@@ -190,14 +198,6 @@ pub fn broadcast_render(state: &ControllerState) {
         send_count += 1;
     }
 
-    // Untargeted broadcast as fallback for sidebars not yet in the registry.
-    // Only fire when the registry is empty (no known sidebars). Once sidebars
-    // register, targeted sends above handle delivery. This prevents the
-    // untargeted broadcast from bypassing the client_id filter (FR-005).
-    if state.sidebar_registry.is_empty() {
-        broadcast_render_all(&json);
-    }
-
     if state.perf.enabled {
         crate::debug_log(&format!(
             "CTRL RENDER broadcast: sidebars={} serialization_us={}",
@@ -246,19 +246,6 @@ fn activity_label(activity: &Activity) -> String {
 
 // --- Wasm-gated host function wrappers ---
 
-/// Broadcast an untargeted render payload to all sidebar instances.
-/// Provides a fallback for sidebars not yet in the registry.
-#[cfg(target_family = "wasm")]
-fn broadcast_render_all(json: &str) {
-    use zellij_tile::prelude::*;
-    let mut msg = MessageToPlugin::new("cc-deck:render");
-    msg.message_payload = Some(json.to_string());
-    pipe_message_to_plugin(msg);
-}
-
-#[cfg(not(target_family = "wasm"))]
-fn broadcast_render_all(_json: &str) {}
-
 /// Send a render payload to a specific sidebar plugin by ID.
 #[cfg(target_family = "wasm")]
 fn send_render_to_plugin(plugin_id: u32, json: &str) {
@@ -298,6 +285,41 @@ mod tests {
         s.activity = activity;
         s.tab_index = Some(pane_id as usize);
         s
+    }
+
+    #[test]
+    fn test_render_payload_omits_hook_quarantined_sessions() {
+        let mut state = ControllerState::default();
+        state
+            .sessions
+            .insert(1, make_session(1, "real", Activity::Working));
+        state
+            .sessions
+            .insert(2, make_session(2, "phantom", Activity::Working));
+        state.quarantine(2, crate::controller::state::QuarantineKind::Hook);
+
+        let payload = build_render_payload(&state);
+
+        assert_eq!(payload.sessions.len(), 1, "the phantom row must not render");
+        assert_eq!(payload.sessions[0].display_name, "real");
+        assert_eq!(payload.total, 1, "header count must exclude it too");
+        assert_eq!(payload.working, 1, "activity counters must exclude it too");
+    }
+
+    /// Sessions restored from disk stay visible through their grace window,
+    /// otherwise the sidebar would blank on every reattach.
+    #[test]
+    fn test_render_payload_includes_restored_quarantined_sessions() {
+        let mut state = ControllerState::default();
+        state
+            .sessions
+            .insert(1, make_session(1, "restored", Activity::Idle));
+        state.quarantine(1, crate::controller::state::QuarantineKind::Restored);
+
+        let payload = build_render_payload(&state);
+
+        assert_eq!(payload.sessions.len(), 1);
+        assert_eq!(payload.total, 1);
     }
 
     #[test]
@@ -414,7 +436,7 @@ mod tests {
     }
 
     #[test]
-    fn test_broadcast_render_calls_both_targeted_and_untargeted() {
+    fn test_broadcast_render_iterates_registry_without_panic() {
         let mut state = ControllerState::default();
         state
             .sessions
@@ -422,9 +444,8 @@ mod tests {
         state.sidebar_registry.insert(42, (0, 0));
         state.sidebar_registry.insert(43, (1, 0));
 
-        // In non-WASM test mode, both send_render_to_plugin and
-        // broadcast_render_all are no-ops. This test verifies broadcast_render
-        // completes without panic and processes the registry.
+        // In non-WASM test mode send_render_to_plugin is a no-op. This test
+        // verifies broadcast_render completes and processes the registry.
         broadcast_render(&state);
     }
 
@@ -851,23 +872,6 @@ mod tests {
 
         // Registry unchanged (broadcast is read-only)
         assert_eq!(state.sidebar_registry.len(), 3);
-    }
-
-    #[test]
-    fn test_broadcast_render_all_skipped_when_registry_nonempty() {
-        // When the sidebar registry has entries, broadcast_render_all
-        // (untargeted fallback) should NOT be called. In non-WASM mode
-        // both paths are no-ops, but we verify the function completes
-        // and the guard condition is correct.
-        let mut state = ControllerState::default();
-        state.client_id = 1;
-        state
-            .sessions
-            .insert(1, make_session(1, "test", Activity::Working));
-        state.sidebar_registry.insert(42, (0, 1));
-
-        // With a non-empty registry, broadcast_render_all is skipped.
-        broadcast_render(&state);
     }
 
     // --- Multiplayer client views in payload tests ---
