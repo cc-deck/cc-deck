@@ -28,14 +28,40 @@ type RelayConfig struct {
 	VADConfig  VADConfig
 	Verbose    bool
 	Commands   map[string]string // word -> action lookup (built by BuildCommandMap)
+
+	// MinTranscriptionLatency is the wall-clock time below which a
+	// transcription is treated as a hallucination and discarded. Whisper
+	// returns its canned phrases far faster than it does real work, so an
+	// implausibly quick answer is a useful tell.
+	//
+	// This is a proxy, and it measures the transcriber's speed rather than
+	// the quality of its output. Set it to zero to disable the check, which
+	// is what a caller with a transcriber that is legitimately fast (an
+	// in-process stub, a warm local model on a GPU) should do.
+	MinTranscriptionLatency time.Duration
+
+	// StatePollInterval is how often the relay polls the plugin for session
+	// state. The poll doubles as the voice heartbeat and carries the mute
+	// state, so it is the only periodic message the relay sends. Each tick
+	// spawns one `zellij pipe` process, so shortening it is not free, and
+	// the plugin's `voice_timeout_secs` (default 15) must stay above it.
+	StatePollInterval time.Duration
 }
+
+// DefaultTranscriptionLatency is the default MinTranscriptionLatency.
+const DefaultTranscriptionLatency = 300 * time.Millisecond
+
+// DefaultStatePollInterval is the default StatePollInterval.
+const DefaultStatePollInterval = 5 * time.Second
 
 // DefaultRelayConfig returns sensible defaults for the relay.
 func DefaultRelayConfig() RelayConfig {
 	return RelayConfig{
-		SampleRate: 16000,
-		VADConfig:  DefaultVADConfig(),
-		Commands:   BuildCommandMap(DefaultCommands),
+		SampleRate:              16000,
+		VADConfig:               DefaultVADConfig(),
+		Commands:                BuildCommandMap(DefaultCommands),
+		MinTranscriptionLatency: DefaultTranscriptionLatency,
+		StatePollInterval:       DefaultStatePollInterval,
 	}
 }
 
@@ -219,9 +245,9 @@ func (r *VoiceRelay) Start(ctx context.Context) error {
 	}
 	onCancel()
 
-	// No dedicated heartbeat goroutine needed: the dump-state poll (every 3s)
-	// serves as the heartbeat. The plugin refreshes voice_last_ping_ms on each
-	// dump-state request when voice is enabled.
+	// No dedicated heartbeat goroutine needed: the dump-state poll serves as
+	// the heartbeat. The plugin refreshes voice_last_ping_ms on each
+	// dump-state request that carries the voice object.
 
 	if sr, ok := r.pipe.(PipeSendReceiver); ok {
 		r.wg.Add(1)
@@ -310,7 +336,11 @@ func (r *VoiceRelay) levelPoll(ctx context.Context) {
 
 func (r *VoiceRelay) statePoll(ctx context.Context, sr PipeSendReceiver) {
 	defer r.wg.Done()
-	ticker := time.NewTicker(3 * time.Second)
+	interval := r.config.StatePollInterval
+	if interval <= 0 {
+		interval = DefaultStatePollInterval
+	}
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	var lastTarget string
@@ -321,17 +351,13 @@ func (r *VoiceRelay) statePoll(ctx context.Context, sr PipeSendReceiver) {
 			return
 		case <-ticker.C:
 			r.mu.Lock()
-			muteState := "unmuted"
-			if r.muted {
-				muteState = "muted"
-			}
+			muted := r.muted
 			r.mu.Unlock()
-			hbCtx, hbCancel := context.WithTimeout(ctx, 3*time.Second)
-			_ = r.pipe.Send(hbCtx, "cc-deck:voice", fmt.Sprintf("[[voice:on:%s]]", muteState))
-			hbCancel()
 
+			// One round trip per tick: the request carries the heartbeat and
+			// mute state, and the reply is trimmed to what the relay reads.
 			pollCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-			resp, err := sr.SendReceive(pollCtx, "cc-deck:dump-state", "")
+			resp, err := sr.SendReceive(pollCtx, "cc-deck:dump-state", dumpStateRequest(muted))
 			cancel()
 			if err != nil {
 				if ctx.Err() != nil {
@@ -397,6 +423,24 @@ func (r *VoiceRelay) statePoll(ctx context.Context, sr PipeSendReceiver) {
 			}
 		}
 	}
+}
+
+// dumpStateRequest builds the body of the relay's state poll.
+func dumpStateRequest(muted bool) string {
+	body, _ := json.Marshal(struct {
+		Voice struct {
+			On    bool `json:"on"`
+			Muted bool `json:"muted"`
+		} `json:"voice"`
+		Scope string `json:"scope"`
+	}{
+		Voice: struct {
+			On    bool `json:"on"`
+			Muted bool `json:"muted"`
+		}{On: true, Muted: muted},
+		Scope: "voice",
+	})
+	return string(body)
 }
 
 type dumpStateResult struct {
@@ -562,7 +606,7 @@ func (r *VoiceRelay) handleUtterance(ctx context.Context, u Utterance) {
 
 	latency := time.Since(start)
 
-	if latency < 300*time.Millisecond {
+	if r.config.MinTranscriptionLatency > 0 && latency < r.config.MinTranscriptionLatency {
 		if r.config.Verbose {
 			log.Printf("[voice] suspiciously fast transcription (%s), likely hallucination: %q", latency, text)
 		}
