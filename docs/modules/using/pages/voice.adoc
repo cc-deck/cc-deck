@@ -79,7 +79,7 @@ The threshold setting controls how much ambient noise is tolerated before speech
 Lower values make detection more sensitive (quieter speech is captured), while higher values require louder input.
 Use the `+` and `-` keys in the TUI to adjust the threshold in real time.
 
-Silence of 1.5 seconds ends an utterance and triggers transcription.
+Silence of 2.5 seconds ends an utterance and triggers transcription (configurable with `--silence` or `defaults.voice.silence`).
 Utterances are capped at 30 seconds, which is the maximum window Whisper can process in a single pass.
 
 == Sidebar Integration
@@ -250,7 +250,7 @@ The view auto-scrolls to the latest content as new speech arrives.
 
 === Navigating the Reading View
 
-Scroll with `j`/`k` (one line) or `PgUp`/`PgDn` (half page).
+Scroll with `↑`/`↓` or `j`/`k` (one line) and `PgUp`/`PgDn` (one page).
 When you scroll up, auto-follow pauses and the footer shows how many new blocks have arrived below.
 Press `G` or `End` to jump back to the bottom and resume following.
 Press `esc` to close the reading view and return to the normal TUI.
@@ -285,7 +285,7 @@ You can cancel the download with `q`.
 
 === Tuning Recording Sensitivity
 
-Recording passages arrive faster than dictation utterances because the recording VAD uses a shorter silence window (1 second by default, compared to 1.5 seconds for dictation).
+Recording passages arrive faster than dictation utterances because the recording VAD uses a shorter silence window (1 second by default, compared to 2.5 seconds for dictation).
 This means the reading view updates more frequently during recording.
 
 For quiet remote voices or noisy environments, adjust the recording-specific VAD parameters in the config file:

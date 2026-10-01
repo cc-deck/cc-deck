@@ -346,26 +346,26 @@ func (m Model) updateReading(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case "up", "k":
-			m.readView.LineUp(1)
+			m.readView.ScrollUp(1)
 			if !m.readView.AtBottom() {
 				m.follow = false
 			}
 			return m, nil
 		case "down", "j":
-			m.readView.LineDown(1)
+			m.readView.ScrollDown(1)
 			if m.readView.AtBottom() {
 				m.follow = true
 				m.newBlocks = 0
 			}
 			return m, nil
 		case "pgup":
-			m.readView.HalfViewUp()
+			m.readView.PageUp()
 			if !m.readView.AtBottom() {
 				m.follow = false
 			}
 			return m, nil
 		case "pgdown":
-			m.readView.HalfViewDown()
+			m.readView.PageDown()
 			if m.readView.AtBottom() {
 				m.follow = true
 				m.newBlocks = 0

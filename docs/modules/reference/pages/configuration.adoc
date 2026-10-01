@@ -793,35 +793,36 @@ The mode can be toggled at runtime by pressing `g` in the idle TUI.
 
 VAD parameters applied while a transcript recording is active.
 These override the main dictation VAD settings for the duration of the recording and are restored when recording stops.
-All fields are optional; omitted fields keep the dictation defaults.
+All fields are optional.
+An omitted field uses the recording default from the table below, not the dictation setting.
 
-[cols="2,1,1,4"]
+[cols="2,1,2,4"]
 |===
-| Field | Default | Range | Description
+| Field | Default | Valid values | Description
 
 | `threshold`
-| (main threshold)
-| 0-100
-| Logarithmic VAD sensitivity during recording.
-Lower values capture quieter speech.
+| `20`
+| 0 to 100
+| Logarithmic VAD sensitivity during recording, on the same scale as `defaults.voice.threshold`.
+Lower values capture quieter speech, such as remote voices played through laptop speakers.
+The dictation default corresponds to about 44.
 
 | `silence`
 | `1.0`
-| 0.1-10.0
+| greater than 0, at most 10
 | Seconds of silence that end a recording passage.
 Shorter values produce faster updates in the reading view.
 
 | `max_chunk`
 | `12.0`
-| 1.0-60.0
+| 2 to 30
 | Maximum seconds per recording passage.
-Capped at 30 seconds (Whisper's processing window).
+Continuous speech is split into passages of this length.
 
 | `pause_break`
 | `3.0`
-| 0.5-30.0
-| Seconds of silence between passages that start a new speaker turn in the reading view.
+| greater than the effective `silence`
+| Seconds of silence between passages that start a new speaker turn in the reading view and in the transcript file.
 |===
 
-Validation reports an error for values outside the documented ranges.
-Invalid entries are listed with severity `error` and category `voice`.
+Values outside these ranges produce a configuration warning in category `voice`, and the relay uses the default for that field.

@@ -1140,11 +1140,11 @@ cc-deck ws voice --list-devices
 |===
 | Key | Action
 
-| `j` / `k`
-| Scroll one line down or up.
+| `↑` / `k`, `↓` / `j`
+| Scroll one line up or down.
 
 | `PgUp` / `PgDn`
-| Scroll half a page up or down.
+| Scroll one page up or down.
 
 | `G` / `End`
 | Jump to the bottom and resume auto-follow.
