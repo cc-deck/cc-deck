@@ -10,6 +10,9 @@ type TurnTranscriber interface {
     // the model reported a speaker change after segment i. The first
     // segment's TurnStart is false; the relay applies the pause-break rule.
     TranscribeTurns(ctx context.Context, audio []int16, sampleRate int) ([]Segment, error)
+    // SetPrompt sets the glossary prompt passed as --prompt; the relay updates
+    // it together with the HTTP transcriber prompt when the session changes.
+    SetPrompt(prompt string)
     Close() error
 }
 ```

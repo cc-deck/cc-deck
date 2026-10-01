@@ -40,7 +40,7 @@ All decisions below were verified against the installed whisper.cpp 1.9.2 source
 
 ## R7: Dash-marker detection
 
-- **Decision**: A marker is `-` (optionally preceded by whitespace) at the start of the raw text, or `-` preceded by `.`, `?`, or `!` plus optional whitespace and followed by whitespace. Regex for split points: `(^|[.?!])\s*-\s+`. Each split piece is sanitized with the existing helpers (`sanitizeTerminalText`, `stripBracketedAnnotations`, `stripLeadingDash`) after splitting.
+- **Decision**: A marker is `-` (optionally preceded by whitespace) at the start of the raw text, or `-` preceded by `.`, `?`, or `!` plus optional whitespace and followed by whitespace. Regex for split points: `(^|[.?!])\s*-\s+`, applied with `FindAllStringSubmatchIndex` so the punctuation in the first group stays with the preceding piece (`regexp.Split` would drop it). Each split piece is sanitized with the existing helpers (`sanitizeTerminalText`, `stripBracketedAnnotations`, `stripLeadingDash`) after splitting.
 - **Rationale**: Whisper emits speaker changes as `- Text. - Other text`. Requiring sentence punctuation before mid-text dashes avoids false turns for parenthetical dashes ("well - you know").
 - **Alternatives considered**: Treating every ` - ` as a turn (too many false positives).
 
