@@ -31,11 +31,21 @@ func (m *Model) handleRelayEvent(msg relayEventMsg) {
 			m.history = m.history[len(m.history)-maxHistoryLen:]
 		}
 		if m.recState == recRecording && m.recFile != nil {
-			if err := writeTranscriptLine(m.recFile, msg.Text, m.recTimestamps); err != nil {
-				m.err = err
-				m.closeTranscript()
+			if msg.Segments != nil {
+				n, err := writeSegments(m.recFile, msg.Segments, m.recTimestamps, &m.recHasText)
+				if err != nil {
+					m.err = err
+					m.closeTranscript()
+				} else {
+					m.recCount += n
+				}
 			} else {
-				m.recCount++
+				if err := writeTranscriptLine(m.recFile, msg.Text, m.recTimestamps); err != nil {
+					m.err = err
+					m.closeTranscript()
+				} else {
+					m.recCount++
+				}
 			}
 		}
 		// Append segments to the reading buffer while recording.
@@ -266,6 +276,7 @@ func (m Model) updateFilenamePrompt(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.recFile = f
 			m.recPath = path
 			m.recCount = 0
+			m.recHasText = false
 			m.recBuffer = nil
 			m.newBlocks = 0
 			m.follow = true

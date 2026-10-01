@@ -289,6 +289,263 @@ func TestQuitClosesTranscript(t *testing.T) {
 	}
 }
 
+func TestWriteSegments_TwoTurnsProduceOneBlankLine(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "turn-*.txt")
+	if err != nil {
+		t.Fatalf("CreateTemp: %v", err)
+	}
+	defer f.Close()
+
+	hasText := false
+	segs := []voicepkg.Segment{
+		{Text: "Hello from speaker one.", TurnStart: true},
+		{Text: "Hi there, speaker two.", TurnStart: true},
+	}
+
+	n, err := writeSegments(f, segs, false, &hasText)
+	if err != nil {
+		t.Fatalf("writeSegments: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("lines = %d, want 2", n)
+	}
+
+	data, err := os.ReadFile(f.Name())
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	want := "Hello from speaker one.\n\nHi there, speaker two.\n"
+	if string(data) != want {
+		t.Errorf("file content = %q, want %q", string(data), want)
+	}
+}
+
+func TestWriteSegments_NoLeadingBlankLine(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "nolead-*.txt")
+	if err != nil {
+		t.Fatalf("CreateTemp: %v", err)
+	}
+	defer f.Close()
+
+	hasText := false
+	segs := []voicepkg.Segment{
+		{Text: "First segment.", TurnStart: true},
+	}
+
+	_, err = writeSegments(f, segs, false, &hasText)
+	if err != nil {
+		t.Fatalf("writeSegments: %v", err)
+	}
+
+	data, err := os.ReadFile(f.Name())
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	// No blank line at the beginning because hasText was false.
+	want := "First segment.\n"
+	if string(data) != want {
+		t.Errorf("file content = %q, want %q", string(data), want)
+	}
+}
+
+func TestWriteSegments_InternalTurnSplitsWithBlankLine(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "internal-*.txt")
+	if err != nil {
+		t.Fatalf("CreateTemp: %v", err)
+	}
+	defer f.Close()
+
+	hasText := false
+	// A passage with an internal turn change: two segments, first is
+	// the start (TurnStart true by convention for first), second is a
+	// mid-passage turn change.
+	segs := []voicepkg.Segment{
+		{Text: "Sounds good.", TurnStart: true},
+		{Text: "What about Friday?", TurnStart: true},
+	}
+
+	_, err = writeSegments(f, segs, false, &hasText)
+	if err != nil {
+		t.Fatalf("writeSegments: %v", err)
+	}
+
+	data, err := os.ReadFile(f.Name())
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	// First segment has no leading blank (hasText was false), second
+	// gets a blank line because hasText became true after the first.
+	want := "Sounds good.\n\nWhat about Friday?\n"
+	if string(data) != want {
+		t.Errorf("file content = %q, want %q", string(data), want)
+	}
+}
+
+func TestWriteSegments_ConsecutiveNonTurnNoBlankLines(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "noturn-*.txt")
+	if err != nil {
+		t.Fatalf("CreateTemp: %v", err)
+	}
+	defer f.Close()
+
+	hasText := false
+	segs := []voicepkg.Segment{
+		{Text: "First sentence.", TurnStart: true},
+		{Text: "Second sentence.", TurnStart: false},
+		{Text: "Third sentence.", TurnStart: false},
+	}
+
+	_, err = writeSegments(f, segs, false, &hasText)
+	if err != nil {
+		t.Fatalf("writeSegments: %v", err)
+	}
+
+	data, err := os.ReadFile(f.Name())
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	want := "First sentence.\nSecond sentence.\nThird sentence.\n"
+	if string(data) != want {
+		t.Errorf("file content = %q, want %q", string(data), want)
+	}
+}
+
+func TestWriteSegments_TimestampPrefixFormat(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "ts-*.txt")
+	if err != nil {
+		t.Fatalf("CreateTemp: %v", err)
+	}
+	defer f.Close()
+
+	hasText := false
+	segs := []voicepkg.Segment{
+		{Text: "Hello.", TurnStart: true},
+	}
+
+	_, err = writeSegments(f, segs, true, &hasText)
+	if err != nil {
+		t.Fatalf("writeSegments: %v", err)
+	}
+
+	data, err := os.ReadFile(f.Name())
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	line := string(data)
+	// Should match [HH:MM:SS] Hello.\n
+	if len(line) < 12 {
+		t.Fatalf("line too short: %q", line)
+	}
+	if line[0] != '[' || line[9] != ']' || line[10] != ' ' {
+		t.Errorf("timestamp format wrong: %q", line)
+	}
+	if !strings.HasSuffix(line, "Hello.\n") {
+		t.Errorf("line should end with 'Hello.\\n', got: %q", line)
+	}
+}
+
+func TestWriteSegments_MultiPassageTurnSeparation(t *testing.T) {
+	// Simulate two passages arriving sequentially. The first passage
+	// writes a segment, then the second passage arrives with TurnStart.
+	// The blank line should appear between them.
+	f, err := os.CreateTemp(t.TempDir(), "multi-*.txt")
+	if err != nil {
+		t.Fatalf("CreateTemp: %v", err)
+	}
+	defer f.Close()
+
+	hasText := false
+
+	// First passage.
+	segs1 := []voicepkg.Segment{
+		{Text: "Release timeline discussion.", TurnStart: true},
+	}
+	_, err = writeSegments(f, segs1, false, &hasText)
+	if err != nil {
+		t.Fatalf("writeSegments (1): %v", err)
+	}
+
+	// Second passage with a turn change.
+	segs2 := []voicepkg.Segment{
+		{Text: "Right, two blockers remain.", TurnStart: true},
+	}
+	_, err = writeSegments(f, segs2, false, &hasText)
+	if err != nil {
+		t.Fatalf("writeSegments (2): %v", err)
+	}
+
+	data, err := os.ReadFile(f.Name())
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	want := "Release timeline discussion.\n\nRight, two blockers remain.\n"
+	if string(data) != want {
+		t.Errorf("file content = %q, want %q", string(data), want)
+	}
+}
+
+func TestWriteSegments_PausedSegmentsNotWritten(t *testing.T) {
+	relay := testRelay()
+	m := New(relay, "test-ws", "", voicepkg.TurnModeBasic)
+
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "pause-seg-test.txt")
+
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	m = result.(Model)
+	m.recInput.SetValue(tmpFile)
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = result.(Model)
+
+	// Write a segment while recording.
+	result, _ = m.Update(relayEventMsg(voicepkg.RelayEvent{
+		Type:     "transcription",
+		Text:     "before pause",
+		Segments: []voicepkg.Segment{{Text: "before pause", TurnStart: true}},
+	}))
+	m = result.(Model)
+
+	// Pause.
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	m = result.(Model)
+	if m.recState != recPaused {
+		t.Fatalf("expected recPaused, got %d", m.recState)
+	}
+
+	// Send a transcription while paused: should not be written.
+	result, _ = m.Update(relayEventMsg(voicepkg.RelayEvent{
+		Type:     "transcription",
+		Text:     "during pause",
+		Segments: []voicepkg.Segment{{Text: "during pause", TurnStart: true}},
+	}))
+	m = result.(Model)
+
+	// Resume and write another.
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	m = result.(Model)
+	result, _ = m.Update(relayEventMsg(voicepkg.RelayEvent{
+		Type:     "transcription",
+		Text:     "after resume",
+		Segments: []voicepkg.Segment{{Text: "after resume", TurnStart: true}},
+	}))
+	m = result.(Model)
+
+	// Stop and verify.
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'R'}})
+	m = result.(Model)
+
+	data, err := os.ReadFile(tmpFile)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	// "during pause" should not appear. "after resume" gets a blank line
+	// because it has TurnStart and hasText is true from "before pause".
+	want := "before pause\n\nafter resume\n"
+	if string(data) != want {
+		t.Errorf("file content = %q, want %q", string(data), want)
+	}
+}
+
 func TestTranscriptionSkippedWhilePaused(t *testing.T) {
 	relay := testRelay()
 	m := New(relay, "test-ws", "", voicepkg.TurnModeBasic)

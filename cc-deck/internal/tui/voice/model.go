@@ -43,6 +43,7 @@ type Model struct {
 	recCount      int
 	recInput      textinput.Model
 	recTimestamps bool
+	recHasText    bool // true after at least one segment has been written to the file
 
 	// Reading view state
 	recBuffer []turnBlock     // turn blocks accumulated during recording
