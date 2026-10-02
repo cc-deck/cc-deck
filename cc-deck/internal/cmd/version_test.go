@@ -79,7 +79,7 @@ func TestPrintVersion_YAMLFormat(t *testing.T) {
 	var info versionInfo
 	require.NoError(t, yaml.Unmarshal(buf.Bytes(), &info))
 	assert.Equal(t, "2.0.0", info.Version)
-	assert.Equal(t, "012345678901", info.Commit)
+	assert.Equal(t, "0123456789ab", info.Commit)
 	assert.Equal(t, "2024-07-08", info.Date)
 }
 
