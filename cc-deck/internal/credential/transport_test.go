@@ -228,3 +228,186 @@ func TestInjectK8s_UnsetVars(t *testing.T) {
 func testSpec() agent.CredentialSpec {
 	return agent.CredentialSpec{Name: "test"}
 }
+
+func TestContainerSecretName(t *testing.T) {
+	tests := []struct {
+		name     string
+		wsName   string
+		key      string
+		expected string
+	}{
+		{"simple key", "myws", "API_KEY", "cc-deck-myws-api-key"},
+		{"underscore replaced", "ws1", "GOOGLE_APPLICATION_CREDENTIALS", "cc-deck-ws1-google-application-credentials"},
+		{"no underscores", "ws2", "TOKEN", "cc-deck-ws2-token"},
+		{"multiple underscores", "ws3", "A_B_C", "cc-deck-ws3-a-b-c"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := containerSecretName(tt.wsName, tt.key)
+			assert.Equal(t, tt.expected, got)
+		})
+	}
+}
+
+// TestInjectContainer_SecretCreateError verifies InjectContainer surfaces an
+// error when the underlying podman secret creation fails (e.g. podman is not
+// installed or reachable in the test environment), rather than silently
+// swallowing it.
+func TestInjectContainer_SecretCreateError_EnvVar(t *testing.T) {
+	resolved := ResolvedCredentials{
+		EnvVars: map[string]string{
+			"API_KEY": "secret-value",
+		},
+	}
+
+	envs, secrets, keys, err := InjectContainer(context.Background(), "myws", agent.CredentialSpec{}, resolved)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "creating secret")
+	assert.Nil(t, envs)
+	assert.Nil(t, secrets)
+	assert.Nil(t, keys)
+}
+
+func TestInjectContainer_SecretCreateError_FileEnvVar(t *testing.T) {
+	dir := t.TempDir()
+	credFile := filepath.Join(dir, "creds.json")
+	require.NoError(t, os.WriteFile(credFile, []byte(`{}`), 0o600))
+
+	resolved := ResolvedCredentials{
+		EnvVars: map[string]string{
+			"GOOGLE_APPLICATION_CREDENTIALS": credFile,
+		},
+	}
+
+	_, _, _, err := InjectContainer(context.Background(), "myws", agent.CredentialSpec{}, resolved)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "creating secret")
+}
+
+func TestInjectContainer_SecretCreateError_FileCredential(t *testing.T) {
+	dir := t.TempDir()
+	credFile := filepath.Join(dir, "creds.json")
+	require.NoError(t, os.WriteFile(credFile, []byte(`{}`), 0o600))
+
+	resolved := ResolvedCredentials{
+		EnvVars: map[string]string{},
+		FileCredential: &ResolvedFile{
+			EnvVar:    "GOOGLE_APPLICATION_CREDENTIALS",
+			LocalPath: credFile,
+		},
+	}
+
+	_, _, _, err := InjectContainer(context.Background(), "myws", agent.CredentialSpec{}, resolved)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "creating file secret")
+}
+
+func TestInjectContainer_FileCredential_ReadError(t *testing.T) {
+	resolved := ResolvedCredentials{
+		EnvVars: map[string]string{},
+		FileCredential: &ResolvedFile{
+			EnvVar:    "GOOGLE_APPLICATION_CREDENTIALS",
+			LocalPath: filepath.Join(t.TempDir(), "does-not-exist.json"),
+		},
+	}
+
+	_, _, _, err := InjectContainer(context.Background(), "myws", agent.CredentialSpec{}, resolved)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "reading credential file")
+}
+
+func TestInjectContainer_EnvVarFile_ReadError(t *testing.T) {
+	// Create then remove a file so os.Stat still races... instead simulate a
+	// path that is a file but becomes unreadable is hard to arrange
+	// deterministically; use a directory-looking path with no read perms.
+	dir := t.TempDir()
+	unreadable := filepath.Join(dir, "unreadable.json")
+	require.NoError(t, os.WriteFile(unreadable, []byte("{}"), 0o000))
+	t.Cleanup(func() { _ = os.Chmod(unreadable, 0o600) })
+
+	resolved := ResolvedCredentials{
+		EnvVars: map[string]string{
+			"GOOGLE_APPLICATION_CREDENTIALS": unreadable,
+		},
+	}
+
+	_, _, _, err := InjectContainer(context.Background(), "myws", agent.CredentialSpec{}, resolved)
+	require.Error(t, err)
+}
+
+func TestInjectSSH_EnvVarFile(t *testing.T) {
+	dir := t.TempDir()
+	credFile := filepath.Join(dir, "extra.json")
+	require.NoError(t, os.WriteFile(credFile, []byte(`{}`), 0o600))
+
+	client := &mockSSHClient{}
+	resolved := ResolvedCredentials{
+		EnvVars: map[string]string{
+			"EXTRA_CRED": credFile,
+		},
+	}
+
+	err := InjectSSH(context.Background(), client, resolved)
+	require.NoError(t, err)
+
+	require.Len(t, client.uploads, 1)
+	assert.Equal(t, credFile, client.uploads[0].localPath)
+	assert.Contains(t, client.uploads[0].remotePath, "EXTRA_CRED")
+
+	lastCmd := client.commands[len(client.commands)-1]
+	assert.Contains(t, lastCmd, "base64 -d")
+}
+
+func TestInjectOpenShell_FileCredential(t *testing.T) {
+	dir := t.TempDir()
+	credFile := filepath.Join(dir, "creds.json")
+	require.NoError(t, os.WriteFile(credFile, []byte(`{}`), 0o600))
+
+	client := &mockOpenShellClient{}
+	resolved := ResolvedCredentials{
+		EnvVars: map[string]string{},
+		FileCredential: &ResolvedFile{
+			EnvVar:    "GOOGLE_APPLICATION_CREDENTIALS",
+			LocalPath: credFile,
+		},
+	}
+
+	err := InjectOpenShell(context.Background(), client, "sandbox-1", resolved)
+	require.NoError(t, err)
+
+	require.Len(t, client.uploads, 1)
+	assert.Equal(t, "sandbox-1", client.uploads[0].sandboxID)
+	assert.Equal(t, credFile, client.uploads[0].localPath)
+	assert.Contains(t, client.uploads[0].remotePath, "GOOGLE_APPLICATION_CREDENTIALS")
+
+	require.Len(t, client.execCmds, 2) // export in .bashrc + .zshrc
+	for _, cmd := range client.execCmds {
+		assert.Contains(t, cmd[2], "GOOGLE_APPLICATION_CREDENTIALS")
+	}
+}
+
+func TestInjectOpenShell_EnvVarFile(t *testing.T) {
+	dir := t.TempDir()
+	credFile := filepath.Join(dir, "extra.json")
+	require.NoError(t, os.WriteFile(credFile, []byte(`{}`), 0o600))
+
+	client := &mockOpenShellClient{}
+	resolved := ResolvedCredentials{
+		EnvVars: map[string]string{
+			"EXTRA_CRED": credFile,
+		},
+	}
+
+	err := InjectOpenShell(context.Background(), client, "sandbox-1", resolved)
+	require.NoError(t, err)
+
+	require.Len(t, client.uploads, 1)
+	assert.Equal(t, credFile, client.uploads[0].localPath)
+	assert.Contains(t, client.uploads[0].remotePath, "EXTRA_CRED")
+
+	require.Len(t, client.execCmds, 2)
+	for _, cmd := range client.execCmds {
+		assert.Contains(t, cmd[2], "EXTRA_CRED")
+	}
+}
