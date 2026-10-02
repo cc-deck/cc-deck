@@ -507,8 +507,8 @@ impl ControllerPlugin {
                 let target = self
                     .state
                     .last_attended_pane_id
-                    .filter(&is_session)
-                    .or(self.state.own_focus().filter(&is_session))
+                    .filter(is_session)
+                    .or(self.state.own_focus().filter(is_session))
                     .or_else(|| sessions.keys().next().copied());
                 if let Some(pane_id) = target {
                     write_chars_to_pane(pane_id, "\r");
@@ -665,8 +665,8 @@ impl ControllerPlugin {
         let target = self
             .state
             .own_focus()
-            .filter(&is_session)
-            .or(self.state.last_attended_pane_id.filter(&is_session))
+            .filter(is_session)
+            .or(self.state.last_attended_pane_id.filter(is_session))
             .or_else(|| sessions.keys().next().copied());
         if let Some(pane_id) = target {
             write_chars_to_pane(pane_id, &sanitized);
