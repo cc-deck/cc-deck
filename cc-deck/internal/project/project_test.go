@@ -120,6 +120,38 @@ func TestFindWorkspaceRoot_NotFound(t *testing.T) {
 	assert.ErrorIs(t, err, ErrNoWorkspaceRoot)
 }
 
+func TestFindWorkspaceRoot_SkipsFileNamedCCDeck(t *testing.T) {
+	dir := t.TempDir()
+	// A regular file named ".cc-deck" (not a directory) must be skipped,
+	// and the search should continue upward past it.
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".cc-deck"), []byte("not a dir"), 0o644))
+
+	sub := filepath.Join(dir, "sub")
+	require.NoError(t, os.MkdirAll(sub, 0o755))
+
+	_, err := FindWorkspaceRoot(sub)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrNoWorkspaceRoot)
+}
+
+func TestFindWorkspaceRoot_SkipsFileThenFindsRealDirAbove(t *testing.T) {
+	dir := t.TempDir()
+	createCCDeckDir(t, dir)
+
+	nested := filepath.Join(dir, "nested")
+	require.NoError(t, os.MkdirAll(nested, 0o755))
+	// A regular file named ".cc-deck" here must be skipped in favor of the
+	// real directory found further up the tree.
+	require.NoError(t, os.WriteFile(filepath.Join(nested, ".cc-deck"), []byte("not a dir"), 0o644))
+
+	sub := filepath.Join(nested, "src")
+	require.NoError(t, os.MkdirAll(sub, 0o755))
+
+	root, err := FindWorkspaceRoot(sub)
+	require.NoError(t, err)
+	assert.Equal(t, CanonicalPath(dir), root)
+}
+
 func TestFindProjectRoot_WorkspaceWithoutGit(t *testing.T) {
 	dir := t.TempDir()
 	createCCDeckDir(t, dir)

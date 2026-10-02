@@ -163,6 +163,32 @@ func TestEvaluateEmptyFile(t *testing.T) {
 	}
 }
 
+func TestEvaluateUnmappedValueNoDefaultReturnsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "a.json"), []byte(`{"mode":"unknown-mode"}`), 0o644)
+
+	rules := []config.BadgeRule{
+		{Name: "x", File: "a.json", Format: "json", Extract: ".mode", Values: map[string]string{"ship": "S"}},
+	}
+	badges := Evaluate(rules, dir)
+	if badges != nil {
+		t.Errorf("expected nil when extracted value has no mapping and no Default is set, got %v", badges)
+	}
+}
+
+func TestEvaluateUnmappedValueFallsBackToDefault(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "a.json"), []byte(`{"mode":"unknown-mode"}`), 0o644)
+
+	rules := []config.BadgeRule{
+		{Name: "x", File: "a.json", Format: "json", Extract: ".mode", Values: map[string]string{"ship": "S"}, Default: "D"},
+	}
+	badges := Evaluate(rules, dir)
+	if len(badges) != 1 || badges[0] != "D" {
+		t.Errorf("expected [D] when value has no mapping but Default is set, got %v", badges)
+	}
+}
+
 func TestEvaluatePartialMatch(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "a.json"), []byte(`{"mode":"ship"}`), 0o644)
