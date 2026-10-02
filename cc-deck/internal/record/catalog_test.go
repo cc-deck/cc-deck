@@ -1,6 +1,9 @@
 package record
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -8,6 +11,21 @@ import (
 
 	"github.com/cc-deck/cc-deck/internal/build"
 )
+
+const testComponentYAMLTmpl = `key: %s
+name: %s
+match:
+  always: true
+endpoints:
+  - host: %s
+    port: 443
+`
+
+func writeComponentFile(t *testing.T, dir, filename, key, name, host string) {
+	t.Helper()
+	content := fmt.Sprintf(testComponentYAMLTmpl, key, name, host)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, filename), []byte(content), 0o644))
+}
 
 func TestBuildDomainIndex_EmbeddedComponents(t *testing.T) {
 	index := BuildDomainIndex(nil, "", nil, "")
@@ -127,4 +145,75 @@ func TestMatchAgainstCatalog_CaseInsensitive(t *testing.T) {
 	matched := MatchAgainstCatalog(result, manifest, "", "")
 	assert.Len(t, matched.CoveredDomains, 1)
 	assert.Empty(t, matched.NewDomains)
+}
+
+func TestBuildDomainIndex_CatalogFSOverlay(t *testing.T) {
+	dir := t.TempDir()
+	writeComponentFile(t, dir, "custom.yaml", "custom_component", "custom component", "custom.example.com")
+
+	index := BuildDomainIndex(os.DirFS(dir), ".", nil, "")
+
+	assert.Equal(t, "custom component", index["custom.example.com"])
+}
+
+func TestBuildDomainIndex_UserLocalFSOverlay(t *testing.T) {
+	dir := t.TempDir()
+	writeComponentFile(t, dir, "userlocal.yaml", "userlocal_component", "user local component", "userlocal.example.com")
+
+	index := BuildDomainIndex(nil, "", os.DirFS(dir), ".")
+
+	assert.Equal(t, "user local component", index["userlocal.example.com"])
+}
+
+func TestBuildDomainIndex_UserLocalOverridesCatalog(t *testing.T) {
+	catalogDir := t.TempDir()
+	writeComponentFile(t, catalogDir, "shared.yaml", "shared_component", "catalog version", "shared.example.com")
+
+	userLocalDir := t.TempDir()
+	writeComponentFile(t, userLocalDir, "shared.yaml", "shared_component", "user-local version", "shared.example.com")
+
+	index := BuildDomainIndex(os.DirFS(catalogDir), ".", os.DirFS(userLocalDir), ".")
+
+	assert.Equal(t, "user-local version", index["shared.example.com"],
+		"user-local tier should be applied after (and override) catalog tier")
+}
+
+func TestBuildDomainIndex_CaseInsensitiveHost(t *testing.T) {
+	dir := t.TempDir()
+	writeComponentFile(t, dir, "mixed.yaml", "mixed_component", "mixed case component", "Mixed.Example.COM")
+
+	index := BuildDomainIndex(os.DirFS(dir), ".", nil, "")
+
+	assert.Equal(t, "mixed case component", index["mixed.example.com"])
+}
+
+func TestMatchAgainstCatalog_UsesCatalogDirAndUserLocalDir(t *testing.T) {
+	catalogDir := t.TempDir()
+	writeComponentFile(t, catalogDir, "catalog.yaml", "catalog_component", "catalog comp", "catalog-domain.com")
+
+	userLocalDir := t.TempDir()
+	writeComponentFile(t, userLocalDir, "userlocal.yaml", "userlocal_component", "userlocal comp", "userlocal-domain.com")
+
+	result := &RecordingResult{
+		ObservedDomains: []string{"catalog-domain.com", "userlocal-domain.com", "totally-new.com"},
+	}
+	manifest := &build.Manifest{Version: 3}
+
+	matched := MatchAgainstCatalog(result, manifest, catalogDir, userLocalDir)
+
+	require.Len(t, matched.CoveredDomains, 2)
+	require.Len(t, matched.NewDomains, 1)
+	assert.Equal(t, "totally-new.com", matched.NewDomains[0])
+}
+
+func TestMatchAgainstCatalog_NonexistentCatalogDirIgnored(t *testing.T) {
+	result := &RecordingResult{
+		ObservedDomains: []string{"example.com"},
+	}
+	manifest := &build.Manifest{Version: 3}
+
+	matched := MatchAgainstCatalog(result, manifest, "/nonexistent/catalog/dir", "/nonexistent/userlocal/dir")
+
+	require.Len(t, matched.NewDomains, 1)
+	assert.Equal(t, "example.com", matched.NewDomains[0])
 }
