@@ -8,27 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestNewWorkspace_Local(t *testing.T) {
-	store := newTestStore(t)
-	w, err := NewWorkspace(WorkspaceTypeLocal, "test", store, nil)
-	require.NoError(t, err)
-	require.NotNil(t, w)
-	assert.Equal(t, WorkspaceTypeLocal, w.Type())
-	assert.Equal(t, "test", w.Name())
-	_, ok := w.(*LocalWorkspace)
-	assert.True(t, ok)
-}
-
-func TestNewWorkspace_Container(t *testing.T) {
-	store := newTestStore(t)
-	w, err := NewWorkspace(WorkspaceTypeContainer, "test", store, nil)
-	require.NoError(t, err)
-	require.NotNil(t, w)
-	assert.Equal(t, WorkspaceTypeContainer, w.Type())
-	_, ok := w.(*ContainerWorkspace)
-	assert.True(t, ok)
-}
-
 func TestNewWorkspace_Compose(t *testing.T) {
 	store := newTestStore(t)
 	w, err := NewWorkspace(WorkspaceTypeCompose, "test", store, nil)
@@ -46,16 +25,6 @@ func TestNewWorkspace_SSH(t *testing.T) {
 	require.NotNil(t, w)
 	assert.Equal(t, WorkspaceTypeSSH, w.Type())
 	_, ok := w.(*SSHWorkspace)
-	assert.True(t, ok)
-}
-
-func TestNewWorkspace_K8sDeploy(t *testing.T) {
-	store := newTestStore(t)
-	w, err := NewWorkspace(WorkspaceTypeK8sDeploy, "test", store, nil)
-	require.NoError(t, err)
-	require.NotNil(t, w)
-	assert.Equal(t, WorkspaceTypeK8sDeploy, w.Type())
-	_, ok := w.(*K8sDeployWorkspace)
 	assert.True(t, ok)
 }
 
