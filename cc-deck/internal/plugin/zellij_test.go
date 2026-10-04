@@ -7,6 +7,91 @@ import (
 	"testing"
 )
 
+func TestParseVersion(t *testing.T) {
+	tests := []struct {
+		name      string
+		version   string
+		wantMajor int
+		wantMinor int
+		wantOk    bool
+	}{
+		{"standard version", "0.43.1", 0, 43, true},
+		{"major only, no minor", "0", 0, 0, false},
+		{"empty string", "", 0, 0, false},
+		{"two-part version", "1.2", 1, 2, true},
+		{"whitespace padded", "  0.40.0  ", 0, 40, true},
+		{"non-numeric major", "a.40", 0, 0, false},
+		{"non-numeric minor", "0.b", 0, 0, false},
+		{"large numbers", "12.34.56", 12, 34, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			major, minor, ok := parseVersion(tt.version)
+			if ok != tt.wantOk {
+				t.Fatalf("parseVersion(%q) ok = %v, want %v", tt.version, ok, tt.wantOk)
+			}
+			if !tt.wantOk {
+				return
+			}
+			if major != tt.wantMajor || minor != tt.wantMinor {
+				t.Errorf("parseVersion(%q) = (%d, %d), want (%d, %d)", tt.version, major, minor, tt.wantMajor, tt.wantMinor)
+			}
+		})
+	}
+}
+
+func TestPluginLocation(t *testing.T) {
+	got := PluginLocation("/home/user/.config/zellij/plugins")
+	want := "file:/home/user/.config/zellij/plugins/cc_deck.wasm"
+	if got != want {
+		t.Errorf("PluginLocation() = %q, want %q", got, want)
+	}
+}
+
+func TestResolveZellijConfigDir_EnvOverride(t *testing.T) {
+	t.Setenv("ZELLIJ_CONFIG_DIR", "/custom/zellij/config")
+	got := resolveZellijConfigDir()
+	if got != "/custom/zellij/config" {
+		t.Errorf("resolveZellijConfigDir() = %q, want %q", got, "/custom/zellij/config")
+	}
+}
+
+func TestResolveZellijConfigDir_DefaultsToHomeConfig(t *testing.T) {
+	t.Setenv("ZELLIJ_CONFIG_DIR", "")
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("cannot determine home directory in this environment")
+	}
+	got := resolveZellijConfigDir()
+	want := filepath.Join(home, ".config", "zellij")
+	if got != want {
+		t.Errorf("resolveZellijConfigDir() = %q, want %q", got, want)
+	}
+}
+
+func TestResolveZellijCacheDir_XDGOverride(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", "/custom/cache")
+	got := resolveZellijCacheDir()
+	want := filepath.Join("/custom/cache", "zellij")
+	if got != want {
+		t.Errorf("resolveZellijCacheDir() = %q, want %q", got, want)
+	}
+}
+
+func TestDetectZellij_NotInstalled(t *testing.T) {
+	t.Setenv("PATH", "")
+	info := DetectZellij()
+	if info.Installed {
+		t.Error("expected Installed to be false when zellij is not on PATH")
+	}
+	if info.Version != "" {
+		t.Errorf("expected empty Version, got %q", info.Version)
+	}
+	if info.BinaryPath != "" {
+		t.Errorf("expected empty BinaryPath, got %q", info.BinaryPath)
+	}
+}
+
 func TestCheckCompatibility(t *testing.T) {
 	cases := []struct {
 		version string
