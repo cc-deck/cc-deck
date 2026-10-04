@@ -760,3 +760,85 @@ Exactly one entry per target type should be marked as default.
 
 The `/cc-deck.base-images` command checks upstream registries for new or updated images and helps maintain this file.
 Run `make test-images` after updating to validate that the build pipeline works with all listed base images.
+
+== Voice Defaults
+
+Location: `~/.config/cc-deck/config.yaml` under `defaults.voice`
+
+These settings control how the voice relay separates speakers in a recording and which VAD parameters apply while recording.
+The `speaker_split` setting selects the separation mode that is active when the voice TUI starts.
+The `recording` block adjusts VAD behavior during transcript recording, where shorter passages make the reading view more responsive.
+
+[source,yaml]
+----
+defaults:
+  voice:
+    speaker_split: pause
+    recording:
+      threshold: 20
+      silence: 1.0
+      max_chunk: 12.0
+      pause_break: 2.0
+----
+
+=== `defaults.voice.speaker_split`
+
+How a recording decides where one speaker stops and the next one starts.
+Accepted values are `pause` (default) and `voice` (case-insensitive).
+With `pause`, a new block starts after a silence longer than `recording.pause_break`, or where Whisper marks a speaker change with a leading dash.
+With `voice`, the tinydiarize model detects a change of voice through `whisper-cli`, even without a pause; this mode recognizes English only and needs the `small.en-tdrz` model.
+Pressing `s` in the idle voice TUI switches the mode for the current session.
+Any other value produces a configuration error in category `voice`, and the relay starts with `pause`.
+
+=== `defaults.voice.speech_filter`
+
+Whether the relay skips non-speech audio before transcription (default `true`).
+When enabled and installed, `whisper-server` and `whisper-cli` run with the Silero voice activity model (`ggml-silero-v6.2.0.bin` in the model directory), which keeps keyboard noise or breathing from turning into phantom words such as "Thank you.".
+`cc-deck ws voice --setup` installs the model.
+Set the value to `false` to transcribe all audio that passes the VAD threshold, as earlier versions did.
+
+[source,yaml]
+----
+defaults:
+  voice:
+    speech_filter: true
+----
+
+=== `defaults.voice.recording`
+
+VAD parameters applied while a transcript recording is active.
+These override the main dictation VAD settings for the duration of the recording and are restored when recording stops.
+All fields are optional.
+An omitted field uses the recording default from the table below, not the dictation setting.
+
+[cols="2,1,2,4"]
+|===
+| Field | Default | Valid values | Description
+
+| `threshold`
+| `20`
+| 0 to 100
+| Logarithmic VAD sensitivity during recording, on the same scale as `defaults.voice.threshold`.
+Lower values capture quieter speech, such as remote voices played through laptop speakers.
+The dictation default corresponds to about 44.
+
+| `silence`
+| `1.0`
+| greater than 0, at most 10
+| Seconds of silence that end a recording passage.
+Shorter values produce faster updates in the reading view.
+
+| `max_chunk`
+| `12.0`
+| 2 to 30
+| Maximum seconds per recording passage.
+Continuous speech is split into passages of this length.
+
+| `pause_break`
+| `2.0`
+| greater than the effective `silence`
+| Seconds of silence between two passages that start a new block in the reading view and in the transcript file.
+The silence is measured from the last loud audio of one passage to the first loud audio of the next, so `--pre-roll` and the hangover do not change it.
+|===
+
+Values outside these ranges produce a configuration warning in category `voice`, and the relay uses the default for that field.

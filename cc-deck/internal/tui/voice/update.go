@@ -12,13 +12,108 @@ const (
 	headerLines = 6 // title, title-separator, workspace, device+mode, level bar, separator
 )
 
+// handleRelayEvent processes a single relay event, updating model state.
+// It is the single handler used by Update, updateFilenamePrompt, and
+// updateDevicePicker so relay event processing is not duplicated.
+func (m *Model) handleRelayEvent(msg relayEventMsg) {
+	switch msg.Type {
+	case "level":
+		m.audioLevel = msg.Level
+	case "transcription":
+		m.err = nil
+		m.history = append(m.history, historyEntry{
+			text:    msg.Text,
+			latency: msg.Latency,
+			status:  "transcribed",
+			at:      time.Now(),
+		})
+		if len(m.history) > maxHistoryLen {
+			m.history = m.history[len(m.history)-maxHistoryLen:]
+		}
+		if m.recState == recRecording && m.recFile != nil {
+			if msg.Segments != nil {
+				n, err := writeSegments(m.recFile, msg.Segments, m.recTimestamps, &m.recHasText)
+				if err != nil {
+					m.err = err
+					m.closeTranscript()
+				} else {
+					m.recCount += n
+				}
+			} else {
+				if err := writeTranscriptLine(m.recFile, msg.Text, m.recTimestamps); err != nil {
+					m.err = err
+					m.closeTranscript()
+				} else {
+					m.recCount++
+				}
+			}
+		}
+		// Append segments to the reading buffer while recording.
+		if m.recState == recRecording && msg.Segments != nil {
+			added := m.appendSegments(msg.Segments)
+			if m.reading {
+				m.syncReading(added)
+			}
+		}
+		m.resizeViewport()
+		m.syncViewport()
+	case "delivery":
+		m.err = nil
+		if len(m.history) > 0 {
+			m.history[len(m.history)-1].status = "delivered"
+		}
+		m.resizeViewport()
+		m.syncViewport()
+	case "error":
+		m.err = msg.Err
+		m.resizeViewport()
+	case "muted":
+		m.muted = true
+	case "unmuted":
+		m.muted = false
+	case "target_changed":
+		m.session = msg.Text
+	}
+}
+
 // Update handles incoming messages.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Clear an expired notice regardless of the active mode, so a notice
+	// never sticks because its timer fired while another view was open.
+	if cm, ok := msg.(clearNoticeMsg); ok {
+		if cm.seq == m.noticeSeq {
+			m.notice = ""
+		}
+		return m, nil
+	}
+	if m.reading {
+		return m.updateReading(msg)
+	}
 	if m.devicePick {
 		return m.updateDevicePicker(msg)
 	}
 	if m.recState == recPrompting {
 		return m.updateFilenamePrompt(msg)
+	}
+
+	// Download prompt: only y/n/esc are handled.
+	if m.dlPrompt {
+		if km, ok := msg.(tea.KeyMsg); ok {
+			switch km.String() {
+			case "y":
+				cmd := m.startDownload()
+				return m, cmd
+			case "n", "esc":
+				m.dlPrompt = false
+				m.err = nil
+				return m, nil
+			}
+		}
+		if rm, ok := msg.(relayEventMsg); ok {
+			m.handleRelayEvent(rm)
+			return m, waitForEvent(m.relay)
+		}
+		return m, nil
 	}
 
 	switch msg := msg.(type) {
@@ -43,9 +138,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncViewport()
 		return m, nil
 
+	case downloadProgressMsg:
+		cmd := m.handleDownloadProgress(msg)
+		return m, cmd
+
+	case downloadMsg:
+		cmd := m.handleDownloadComplete(msg)
+		return m, cmd
+
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "q", "ctrl+c":
+			if m.dlRunning {
+				m.cancelDownload()
+			}
 			m.closeTranscript()
 			m.quitting = true
 			return m, tea.Quit
@@ -81,6 +187,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.devicePick = true
 			m.deviceIdx = 0
 			return m, nil
+		case "s":
+			if m.recState == recIdle && !m.dlRunning {
+				cmd := m.toggleTurnMode()
+				return m, cmd
+			}
+			return m, nil
 		case "r":
 			switch m.recState {
 			case recIdle:
@@ -102,6 +214,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.resizeViewport()
 			}
 			return m, nil
+		case "v":
+			if m.recState == recRecording || m.recState == recPaused {
+				m.reading = true
+				m.follow = true
+				m.newBlocks = 0
+				m.resizeReadingViewport()
+				m.readView.GotoBottom()
+			}
+			return m, nil
 		case "pgup", "pgdown":
 			var cmd tea.Cmd
 			m.viewport, cmd = m.viewport.Update(msg)
@@ -109,47 +230,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case relayEventMsg:
-		switch msg.Type {
-		case "level":
-			m.audioLevel = msg.Level
-		case "transcription":
-			m.err = nil
-			m.history = append(m.history, historyEntry{
-				text:    msg.Text,
-				latency: msg.Latency,
-				status:  "transcribed",
-				at:      time.Now(),
-			})
-			if len(m.history) > maxHistoryLen {
-				m.history = m.history[len(m.history)-maxHistoryLen:]
-			}
-			if m.recState == recRecording && m.recFile != nil {
-				if err := writeTranscriptLine(m.recFile, msg.Text, m.recTimestamps); err != nil {
-					m.err = err
-					m.closeTranscript()
-				} else {
-					m.recCount++
-				}
-			}
-			m.resizeViewport()
-			m.syncViewport()
-		case "delivery":
-			m.err = nil
-			if len(m.history) > 0 {
-				m.history[len(m.history)-1].status = "delivered"
-			}
-			m.resizeViewport()
-			m.syncViewport()
-		case "error":
-			m.err = msg.Err
-			m.resizeViewport()
-		case "muted":
-			m.muted = true
-		case "unmuted":
-			m.muted = false
-		case "target_changed":
-			m.session = msg.Text
-		}
+		m.handleRelayEvent(msg)
 		return m, waitForEvent(m.relay)
 	}
 
@@ -203,8 +284,16 @@ func (m Model) updateFilenamePrompt(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.recFile = f
 			m.recPath = path
 			m.recCount = 0
+			m.recHasText = false
+			m.recBuffer = nil
+			m.newBlocks = 0
+			m.follow = true
 			m.recState = recRecording
-			m.relay.SetRecording(true)
+			effective, fallbackErr := m.relay.StartRecording(m.turnMode)
+			if fallbackErr != nil {
+				m.turnMode = effective
+				m.err = fallbackErr
+			}
 			m.recInput.Blur()
 			m.resizeViewport()
 			return m, nil
@@ -227,28 +316,89 @@ func (m Model) updateFilenamePrompt(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.resizeViewport()
 		return m, nil
 	case relayEventMsg:
-		// Continue consuming relay events while prompting.
-		switch msg.Type {
-		case "level":
-			m.audioLevel = msg.Level
-		case "transcription":
-			m.err = nil
-			m.history = append(m.history, historyEntry{
-				text:    msg.Text,
-				latency: msg.Latency,
-				status:  "transcribed",
-				at:      time.Now(),
-			})
-			if len(m.history) > maxHistoryLen {
-				m.history = m.history[len(m.history)-maxHistoryLen:]
+		m.handleRelayEvent(msg)
+		return m, waitForEvent(m.relay)
+	}
+	return m, nil
+}
+
+func (m Model) updateReading(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		m.resizeReadingViewport()
+		m.resizeViewport()
+		return m, nil
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "esc", "v":
+			m.reading = false
+			return m, nil
+		case "+":
+			m.relay.SetVADThreshold(m.relay.VADThreshold() + 2)
+			return m, nil
+		case "-":
+			m.relay.SetVADThreshold(m.relay.VADThreshold() - 2)
+			return m, nil
+		case "q", "ctrl+c":
+			if m.dlRunning {
+				m.cancelDownload()
 			}
-			m.resizeViewport()
-			m.syncViewport()
-		case "muted":
-			m.muted = true
-		case "unmuted":
-			m.muted = false
+			m.closeTranscript()
+			m.quitting = true
+			return m, tea.Quit
+		case "r":
+			switch m.recState {
+			case recRecording:
+				m.recState = recPaused
+			case recPaused:
+				m.recState = recRecording
+			}
+			return m, nil
+		case "R":
+			if m.recState == recRecording || m.recState == recPaused {
+				m.closeTranscript()
+				m.resizeViewport()
+			}
+			return m, nil
+		case "up", "k":
+			m.readView.ScrollUp(1)
+			if !m.readView.AtBottom() {
+				m.follow = false
+			}
+			return m, nil
+		case "down", "j":
+			m.readView.ScrollDown(1)
+			if m.readView.AtBottom() {
+				m.follow = true
+				m.newBlocks = 0
+			}
+			return m, nil
+		case "pgup":
+			m.readView.PageUp()
+			if !m.readView.AtBottom() {
+				m.follow = false
+			}
+			return m, nil
+		case "pgdown":
+			m.readView.PageDown()
+			if m.readView.AtBottom() {
+				m.follow = true
+				m.newBlocks = 0
+			}
+			return m, nil
+		case "G", "end":
+			m.readView.GotoBottom()
+			m.follow = true
+			m.newBlocks = 0
+			return m, nil
+		default:
+			// +, -, d, m, g, v and all other keys are ignored
+			return m, nil
 		}
+	case relayEventMsg:
+		m.handleRelayEvent(msg)
 		return m, waitForEvent(m.relay)
 	}
 	return m, nil
@@ -277,10 +427,7 @@ func (m Model) updateDevicePicker(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 	case relayEventMsg:
-		switch msg.Type {
-		case "level":
-			m.audioLevel = msg.Level
-		}
+		m.handleRelayEvent(msg)
 		return m, waitForEvent(m.relay)
 	}
 	return m, nil

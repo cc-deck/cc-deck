@@ -32,6 +32,7 @@ var (
 	separatorStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("238"))
 	scrollThumb    = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 	scrollTrack    = lipgloss.NewStyle().Foreground(lipgloss.Color("236"))
+	noticeStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
 )
 
 var brailleFill = []rune{'⠀', '⣀', '⣤', '⣶', '⣿'}
@@ -57,6 +58,10 @@ func (m Model) View() string {
 
 	if m.devicePick {
 		return m.viewDevicePicker()
+	}
+
+	if m.reading {
+		return m.viewReading()
 	}
 
 	if !m.viewportReady {
@@ -107,6 +112,9 @@ func (m Model) renderHeader() string {
 	} else {
 		b.WriteString("VAD (auto)")
 	}
+	b.WriteString("  ")
+	b.WriteString(labelStyle.Render("Speakers: "))
+	b.WriteString(m.turnMode.Label())
 	switch m.recState {
 	case recRecording:
 		b.WriteString("  ")
@@ -155,6 +163,20 @@ func (m Model) renderFooter() string {
 		return b.String()
 	}
 
+	if m.dlRunning {
+		pct := 0
+		// Decimal MB, matching the "488 MB" in the download prompt.
+		doneMB := m.dlDone / 1_000_000
+		totalMB := m.dlTotal / 1_000_000
+		if m.dlTotal > 0 {
+			pct = int(m.dlDone * 100 / m.dlTotal)
+		}
+		b.WriteString(fmt.Sprintf("  Downloading voice model: %d%% (%d/%d MB)", pct, doneMB, totalMB))
+		b.WriteString("\n")
+		b.WriteString(hintStyle.Render("  q: cancel"))
+		return b.String()
+	}
+
 	if m.err != nil {
 		errText := fmt.Sprintf("Error: %v", m.err)
 		w := m.width - 4
@@ -164,6 +186,9 @@ func (m Model) renderFooter() string {
 		wrapped := errStyle.Width(w).Render(errText)
 		b.WriteString("  ")
 		b.WriteString(wrapped)
+	} else if m.notice != "" {
+		b.WriteString("  ")
+		b.WriteString(noticeStyle.Render(truncateToWidth(m.notice, m.width-4)))
 	}
 	b.WriteString("\n")
 	muteHint := "m: mute"
@@ -179,7 +204,15 @@ func (m Model) renderFooter() string {
 	case recPaused:
 		recHint = "  r: resume  R: stop"
 	}
-	b.WriteString(hintStyle.Render("  q: quit  " + muteHint + recHint + "  +/-: threshold  d: device"))
+	var readHint string
+	if m.recState == recRecording || m.recState == recPaused {
+		readHint = "  v: read"
+	}
+	var turnHint string
+	if m.recState == recIdle && !m.dlRunning {
+		turnHint = "  s: speaker split"
+	}
+	b.WriteString(hintStyle.Render("  q: quit  " + muteHint + recHint + readHint + turnHint + "  +/-: threshold  d: device"))
 
 	return b.String()
 }
@@ -280,6 +313,18 @@ func (m Model) renderHistory() string {
 	return b.String()
 }
 
+func (m Model) viewReading() string {
+	var b strings.Builder
+
+	b.WriteString(m.renderReadingHeader())
+	b.WriteString(m.renderSeparator())
+	b.WriteString(m.readingViewportWithScrollbar())
+	b.WriteString(m.renderSeparator())
+	b.WriteString(m.renderReadingFooter())
+
+	return b.String()
+}
+
 func (m Model) viewDevicePicker() string {
 	var b strings.Builder
 
@@ -362,4 +407,20 @@ func renderBrailleBar(level, threshold float64) string {
 	}
 
 	return sb.String()
+}
+
+// truncateToWidth shortens s to at most width runes so a notice never wraps
+// and changes the footer height.
+func truncateToWidth(s string, width int) string {
+	if width <= 0 {
+		return s
+	}
+	r := []rune(s)
+	if len(r) <= width {
+		return s
+	}
+	if width <= 3 {
+		return string(r[:width])
+	}
+	return string(r[:width-3]) + "..."
 }

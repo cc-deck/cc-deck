@@ -79,7 +79,7 @@ The threshold setting controls how much ambient noise is tolerated before speech
 Lower values make detection more sensitive (quieter speech is captured), while higher values require louder input.
 Use the `+` and `-` keys in the TUI to adjust the threshold in real time.
 
-Silence of 1.5 seconds ends an utterance and triggers transcription.
+Silence of 2.5 seconds ends an utterance and triggers transcription (configurable with `--silence` or `defaults.voice.silence`).
 Utterances are capped at 30 seconds, which is the maximum window Whisper can process in a single pass.
 
 == Sidebar Integration
@@ -111,8 +111,8 @@ When you mute from the TUI, the sidebar updates immediately.
 [[models]]
 == Whisper Models
 
-cc-deck supports four Whisper model sizes.
-All are English-optimized except `medium`, which also handles other languages.
+cc-deck supports five Whisper models for dictation and recording.
+The `.en` models are English-optimized; `medium` and `large-v3-turbo` also handle other languages.
 
 [cols="1,1,1,1,3"]
 |===
@@ -140,8 +140,29 @@ All are English-optimized except `medium`, which also handles other languages.
 | 1.5 GB
 | Slower
 | High
-| Multilingual support. Most accurate, but higher latency per utterance.
+| Multilingual support. Accurate, but higher latency per utterance.
+
+| `large-v3-turbo`
+| 1.6 GB
+| Like `medium` on Apple Silicon
+| Highest
+| Multilingual support. The most accurate model; a pruned large model that transcribes about as fast as `medium`.
 |===
+
+=== Speech Filter
+
+Whisper models sometimes turn non-speech audio into words.
+Keyboard clicks, breathing, or room noise can come out as "Thank you.", "Okay.", or "Bye.", and the relay would deliver those phantom words to the attended session.
+The large models are more prone to this than the small ones.
+
+To prevent it, the relay runs a speech filter before transcription.
+It uses the Silero voice activity model (`ggml-silero-v6.2.0.bin`, under 1 MB), which `cc-deck ws voice --setup` installs together with the Whisper model.
+Audio without speech is skipped instead of transcribed, so it costs almost no time and produces no text.
+The filter applies to dictation, to recordings, and to separating speakers by voice.
+
+The filter is on by default.
+If it is not installed yet, the voice TUI shows a reminder at startup.
+To turn it off, set `defaults.voice.speech_filter: false` in `~/.config/cc-deck/config.yaml`.
 
 TIP: On an Apple Silicon Mac, `small.en` is the recommended upgrade from the default.
 It runs comfortably in real time and handles code-related vocabulary (function names, library names, technical jargon) much better than `base.en`.
@@ -198,6 +219,12 @@ The footer shows available keyboard shortcuts.
 | `R` (Shift+R)
 | Stop transcript recording and close the file.
 
+| `v`
+| Open the reading view (only while recording or paused).
+
+| `s`
+| Choose how the next recording separates speakers: by pause or by voice (only when idle).
+
 | `PgUp` / `PgDn`
 | Scroll through transcript history.
 |===
@@ -234,6 +261,109 @@ The transcribed text is not sent to the attended pane.
 This lets you capture notes or commentary that you do not want delivered to the active session.
 
 When no recording is active and the relay is muted, audio is discarded without transcription, preserving the existing mute behavior.
+
+== Reading View and Speaker Separation
+
+While recording a transcript, press `v` to open the reading view.
+The view shows the ongoing conversation as blocks, one block for each contribution in the call.
+Each block shows the time the contribution started, followed by the spoken text.
+The gutter bar alternates between two colors, so adjacent contributions are easy to tell apart.
+The view follows new speech as it arrives.
+
+=== Navigating the Reading View
+
+Scroll with `↑`/`↓` or `j`/`k` (one line) and `PgUp`/`PgDn` (one page).
+When you scroll up, auto-follow pauses and the footer shows how many new blocks have arrived below.
+Press `G` or `End` to jump back to the bottom and resume following.
+Press `esc` or `v` again to close the reading view and return to the normal TUI.
+
+The header line keeps the audio level meter and the threshold (`T:`) visible.
+Press `+` or `-` to adjust the threshold while you read, for example when quiet speakers are missing from the transcript.
+During a pause in the conversation, the level bar should drop below the threshold marker; otherwise silence is never detected and passages only end at the maximum chunk length.
+
+=== Separating Speakers
+
+The relay decides in one of two ways where one speaker stops and the next one starts.
+The header shows the current choice after `Speakers:`.
+
+By pause (the default)::
+A new block starts after a silence longer than the configured pause break, or where Whisper marks a speaker change with a leading dash.
+This mode works with every Whisper model and every language and needs no setup.
+A quick exchange without a pause stays in one block.
+
+By voice::
+A speech model listens for a change of voice and starts a new block at each change, even without a pause.
+This mode uses the tinydiarize model through `whisper-cli` and recognizes English only.
+The recording is transcribed with that model instead of your configured one, while dictation keeps using your configured model.
+
+Press `s` in the idle TUI to switch between the two modes.
+The choice applies to the next recording, and the status line briefly confirms it.
+While a recording runs, `s` has no effect, so choose the mode before you press `r`.
+
+=== Installing the Voice Model
+
+Separating speakers by voice needs the tinydiarize model (`small.en-tdrz`, 488 MB).
+When you press `s` and the model is missing, the TUI asks whether to download it and shows the progress in the footer.
+Dictation and recording keep working during the download, and quitting the relay with `q` cancels it.
+
+To install the model ahead of time, use the setup command:
+
+[source,bash]
+----
+cc-deck ws voice --setup --model small.en-tdrz
+----
+
+=== Tuning Recording Sensitivity
+
+Recording passages arrive faster than dictation utterances because the recording VAD uses a shorter silence window (1 second by default, compared to 2.5 seconds for dictation).
+This means the reading view updates more frequently during recording.
+
+For quiet remote voices or noisy environments, adjust the recording-specific VAD parameters in the config file:
+
+[source,yaml]
+----
+defaults:
+  voice:
+    recording:
+      threshold: 20
+      silence: 0.8
+      max_chunk: 10.0
+      pause_break: 1.5
+----
+
+Lower `threshold` values capture softer speech.
+Shorter `silence` values produce faster updates but may split mid-sentence pauses into separate passages.
+The `pause_break` value (2 seconds by default) sets how many seconds of real silence between two passages start a new block.
+The relay measures this silence from the last loud audio of one passage to the first loud audio of the next, so the `--pre-roll` setting does not affect it.
+
+See xref:reference:configuration.adoc[Configuration Reference] for the full list of recording parameters and their ranges.
+
+=== Speaker Breaks in the Transcript File
+
+The transcript file separates contributions with a single blank line.
+Each segment is written on its own line, and a blank line appears before each segment that starts a new contribution.
+The first line of a recording never has a blank line in front of it.
+Both modes write the file the same way.
+
+=== Troubleshooting Speaker Separation
+
+whisper-cli not found::
+Separating speakers by voice requires `whisper-cli`, which is part of the `whisper-cpp` package.
+Install it with `brew install whisper-cpp`.
+Without it, pressing `s` shows an error and the relay keeps separating speakers by pause.
+
+Voice model download failed::
+Network errors during the download appear in the TUI footer.
+Press `s` again to retry, or install the model with `cc-deck ws voice --setup --model small.en-tdrz`.
+
+Pause-based fallback during a recording::
+If the voice model fails on a passage or needs longer than 30 seconds for it, the relay transcribes that passage with your configured model and separates speakers by pause for it.
+The footer shows the reason, and the recording continues.
+Run the relay with `--verbose` to see the details in `~/.local/state/cc-deck/voice.log`.
+
+No new block while one person talks::
+The voice model reacts to a change of speaker, not to pauses.
+A long monologue therefore stays in one block, except where a silence exceeds the pause break.
 
 == Configuration
 
@@ -331,8 +461,12 @@ Then run `cc-deck ws voice --setup` to verify the installation.
 
 Timed out waiting for whisper-server::
 The server takes a few seconds to load the model into memory.
-Larger models (especially `medium` at 1.5 GB) need more time.
+Larger models (especially `medium` at 1.5 GB and `large-v3-turbo` at 1.6 GB) need more time.
 If this persists, check whether another process is using port 8234 and try a different port with `--port`.
+
+Phantom words such as "Thank you." appear without anyone speaking::
+Run `cc-deck ws voice --setup` to install the speech filter, and check that `defaults.voice.speech_filter` is not set to `false`.
+With `--verbose`, the log shows `speech filter: on` at startup when the filter is active.
 
 Transcription misses quiet speech::
 Lower the VAD threshold with the `-` key in the TUI, or set a lower value in the config file.

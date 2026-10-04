@@ -26,6 +26,8 @@ type WhisperServer struct {
 	mu         sync.Mutex
 	maxRetries int
 	retries    int
+	// vadModelPath enables whisper-server's speech filter (--vad) when set.
+	vadModelPath string
 	// logWriter receives whisper-server's own stderr when set, so a start
 	// that fails leaves a reason behind instead of a bare timeout.
 	logWriter io.Writer
@@ -45,6 +47,28 @@ func NewWhisperServer(modelPath string, port int) *WhisperServer {
 		port:       port,
 		maxRetries: 3,
 	}
+}
+
+// SetVADModel enables whisper-server's speech filter with the given Silero
+// model, so non-speech audio is skipped instead of transcribed. An empty
+// path disables it. Call before Start.
+func (s *WhisperServer) SetVADModel(path string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.vadModelPath = path
+}
+
+// args returns the whisper-server command-line arguments.
+func (s *WhisperServer) args() []string {
+	args := []string{
+		"-m", s.modelPath,
+		"--host", "127.0.0.1",
+		"--port", fmt.Sprintf("%d", s.port),
+	}
+	if s.vadModelPath != "" {
+		args = append(args, "--vad", "--vad-model", s.vadModelPath)
+	}
+	return args
 }
 
 // Start launches whisper-server and waits for it to be ready.
@@ -72,11 +96,7 @@ func (s *WhisperServer) Start(ctx context.Context) error {
 	}
 
 	cmdCtx, cancel := context.WithCancel(context.Background())
-	cmd := exec.CommandContext(cmdCtx, "whisper-server",
-		"-m", s.modelPath,
-		"--host", "127.0.0.1",
-		"--port", fmt.Sprintf("%d", s.port),
-	)
+	cmd := exec.CommandContext(cmdCtx, "whisper-server", s.args()...)
 	if s.logWriter != nil {
 		cmd.Stderr = s.logWriter
 	}

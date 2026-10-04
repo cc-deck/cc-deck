@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -131,7 +132,27 @@ func runVoiceRelay(wsName, modelName string, verbose bool, port int, flags vadOv
 		log.Printf("[voice] pipe channel type: %T", ch)
 	}
 
+	// Speech filter: skip non-speech audio so large models do not turn noise
+	// into phantom words. On by default; defaults.voice.speech_filter: false
+	// turns it off.
+	speechFilterEnabled := true
+	if cfg, err := ccconfig.Load(""); err == nil && cfg.Defaults.Voice.SpeechFilter != nil {
+		speechFilterEnabled = *cfg.Defaults.Voice.SpeechFilter
+	}
+	vadModelPath, speechFilterMissing := voice.ResolveSpeechFilter(speechFilterEnabled)
+	if verbose {
+		switch {
+		case vadModelPath != "":
+			log.Printf("[voice] speech filter: on (%s)", vadModelPath)
+		case speechFilterMissing:
+			log.Printf("[voice] speech filter: enabled but not installed (%s); run cc-deck ws voice --setup", voice.SpeechFilterModelPath())
+		default:
+			log.Printf("[voice] speech filter: off (config)")
+		}
+	}
+
 	server := voice.NewWhisperServer(modelPath, port)
+	server.SetVADModel(vadModelPath)
 	if verbose {
 		server.SetLogWriter(log.Writer())
 	}
@@ -151,6 +172,7 @@ func runVoiceRelay(wsName, modelName string, verbose bool, port int, flags vadOv
 	// Apply config file values (lowest priority)
 	thresholdPct := voice.ThresholdToPercent(config.VADConfig.Threshold)
 	var glossaryTerms []string
+	initialTurnMode := voice.TurnModeBasic
 	if cfg, err := ccconfig.Load(""); err == nil {
 		if cfg.Defaults.Voice.Threshold != nil {
 			thresholdPct = *cfg.Defaults.Voice.Threshold
@@ -175,6 +197,42 @@ func runVoiceRelay(wsName, modelName string, verbose bool, port int, flags vadOv
 			config.Commands = voice.BuildCommandMap(merged)
 		}
 		glossaryTerms = cfg.Defaults.Voice.Glossary
+
+		// Speaker split (pause or voice)
+		if cfg.Defaults.Voice.SpeakerSplit != nil {
+			if parsed, err := voice.ParseSpeakerSplit(*cfg.Defaults.Voice.SpeakerSplit); err == nil {
+				initialTurnMode = parsed
+			}
+		}
+
+		// Recording defaults
+		if rec := cfg.Defaults.Voice.Recording; rec != nil {
+			if rec.Threshold != nil {
+				t := *rec.Threshold
+				if t >= 0 && t <= 100 {
+					config.Recording.Threshold = voice.PercentToThreshold(t)
+				}
+			}
+			if rec.Silence != nil {
+				s := *rec.Silence
+				if s > 0 && s <= 10 {
+					config.Recording.SilenceDuration = s
+				}
+			}
+			if rec.MaxChunk != nil {
+				m := *rec.MaxChunk
+				if m >= 2 && m <= 30 {
+					config.Recording.MaxUtteranceDuration = m
+				}
+			}
+			if rec.PauseBreak != nil {
+				pb := *rec.PauseBreak
+				effectiveSilence := config.Recording.SilenceDuration
+				if pb > effectiveSilence {
+					config.Recording.PauseBreak = time.Duration(pb * float64(time.Second))
+				}
+			}
+		}
 	}
 
 	// Apply CLI flags (highest priority)
@@ -201,11 +259,37 @@ func runVoiceRelay(wsName, modelName string, verbose bool, port int, flags vadOv
 			config.VADConfig.SilenceDuration,
 			config.VADConfig.PreRollDuration,
 			config.VADConfig.HangoverDuration)
+		log.Printf("[voice] recording config: threshold=%d%% silence=%.1fs max_chunk=%.0fs pause_break=%.1fs",
+			voice.ThresholdToPercent(config.Recording.Threshold),
+			config.Recording.SilenceDuration,
+			config.Recording.MaxUtteranceDuration,
+			config.Recording.PauseBreak.Seconds())
 	}
 
 	relay := voice.NewVoiceRelay(config, audio, transcriber, &pipeAdapter{
 		ch: ch, verbose: verbose,
 	}, glossaryTerms)
+
+	// Build tdrz turn transcriber and set it on the relay.
+	tdrzModelPath := voice.ModelPath(voice.TdrzModelName)
+	tdrzTranscriber := voice.NewTdrzTranscriber(tdrzModelPath, vadModelPath)
+	if len(glossaryTerms) > 0 {
+		tdrzTranscriber.SetPrompt(strings.Join(glossaryTerms, ", "))
+	}
+	relay.SetTurnTranscriber(tdrzTranscriber, func() error {
+		toolErr, modelErr := voice.TdrzStatus()
+		if toolErr != nil {
+			return toolErr
+		}
+		if modelErr != nil {
+			return modelErr
+		}
+		return nil
+	})
+
+	if verbose && initialTurnMode != voice.TurnModeBasic {
+		log.Printf("[voice] initial turn mode from config: %s", initialTurnMode)
+	}
 
 	if err := relay.Start(ctx); err != nil {
 		return fmt.Errorf("starting voice relay: %w", err)
@@ -226,7 +310,10 @@ func runVoiceRelay(wsName, modelName string, verbose bool, port int, flags vadOv
 		}
 	}()
 
-	model := voicetui.New(relay, wsName, logPath)
+	model := voicetui.New(relay, wsName, logPath, initialTurnMode)
+	if speechFilterMissing {
+		model = model.WithStartupNotice("Speech filter not installed, phantom words possible. Install: cc-deck ws voice --setup")
+	}
 	p := tea.NewProgram(model, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("TUI error: %w", err)

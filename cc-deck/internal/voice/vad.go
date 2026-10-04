@@ -8,14 +8,24 @@ import (
 // VAD segments continuous audio into discrete utterances using
 // energy-based speech detection.
 type VAD struct {
-	config     *VADConfig
+	configFunc func() VADConfig
 	sampleRate int
 }
 
 // NewVAD creates a voice activity detector with the given config.
 // The config pointer is retained so threshold changes take effect immediately.
 func NewVAD(config *VADConfig, sampleRate int) *VAD {
-	return &VAD{config: config, sampleRate: sampleRate}
+	return NewVADFunc(func() VADConfig { return *config }, sampleRate)
+}
+
+// NewVADFunc creates a VAD that takes a fresh config snapshot on every
+// frame. This lets the caller change threshold, silence duration, and
+// maximum utterance length while the stream is running (for example,
+// when switching from dictation to recording settings). Pre-roll is
+// captured once at creation time because the ring buffer size must
+// not change mid-stream.
+func NewVADFunc(params func() VADConfig, sampleRate int) *VAD {
+	return &VAD{configFunc: params, sampleRate: sampleRate}
 }
 
 // Process reads PCM frames from the input channel and produces
@@ -24,26 +34,36 @@ func NewVAD(config *VADConfig, sampleRate int) *VAD {
 func (v *VAD) Process(frames <-chan []int16) <-chan Utterance {
 	out := make(chan Utterance, 4)
 
-	preRollSamples := int(v.config.PreRollDuration * float64(v.sampleRate))
-	silenceSamples := int(v.config.SilenceDuration * float64(v.sampleRate))
-	hangoverSamples := int(v.config.HangoverDuration * float64(v.sampleRate))
-	maxSamples := int(v.config.MaxUtteranceDuration * float64(v.sampleRate))
-	minSpeechSamples := int(v.config.MinSpeechDuration * float64(v.sampleRate))
+	// Pre-roll is captured once: the ring buffer size must not change.
+	initCfg := v.configFunc()
+	preRollSamples := int(initCfg.PreRollDuration * float64(v.sampleRate))
 
 	go func() {
 		defer close(out)
 
 		var (
-			ringBuf       = make([]int16, 0, preRollSamples)
-			utterance     []int16
-			speaking      bool
-			silenceSmpCnt int
-			speechSmpCnt  int
+			ringBuf        = make([]int16, 0, preRollSamples)
+			utterance      []int16
+			speaking       bool
+			silenceSmpCnt  int
+			speechSmpCnt   int
+			totalSamples   int // total samples processed since stream start
+			uttStartSample int // sample index where the utterance starts (onset - pre-roll)
+			speechStart    int // sample index of the first loud frame (onset)
+			lastLoudEnd    int // sample index just after the most recent loud frame
 		)
 
 		for frame := range frames {
+			// Take a fresh config snapshot each frame so threshold,
+			// silence duration, and maximum can change at runtime.
+			cfg := v.configFunc()
+			silenceSamples := int(cfg.SilenceDuration * float64(v.sampleRate))
+			hangoverSamples := int(cfg.HangoverDuration * float64(v.sampleRate))
+			maxSamples := int(cfg.MaxUtteranceDuration * float64(v.sampleRate))
+			minSpeechSamples := int(cfg.MinSpeechDuration * float64(v.sampleRate))
+
 			frameRMS := rmsLevel(frame)
-			frameSilent := frameRMS < v.config.Threshold
+			frameSilent := frameRMS < cfg.Threshold
 
 			if !speaking {
 				ringBuf = append(ringBuf, frame...)
@@ -55,6 +75,15 @@ func (v *VAD) Process(frames <-chan []int16) <-chan Utterance {
 					speaking = true
 					silenceSmpCnt = 0
 					speechSmpCnt = len(frame)
+					// The utterance starts at (onset - pre-roll). The onset
+					// is at totalSamples (current position before adding this
+					// frame). Pre-roll is len(ringBuf) samples before that.
+					uttStartSample = totalSamples - len(ringBuf)
+					if uttStartSample < 0 {
+						uttStartSample = 0
+					}
+					speechStart = totalSamples
+					lastLoudEnd = totalSamples + len(frame)
 					utterance = make([]int16, 0, v.sampleRate*2)
 					utterance = append(utterance, ringBuf...)
 					utterance = append(utterance, frame...)
@@ -68,13 +97,10 @@ func (v *VAD) Process(frames <-chan []int16) <-chan Utterance {
 				} else {
 					silenceSmpCnt = 0
 					speechSmpCnt += len(frame)
+					lastLoudEnd = totalSamples + len(frame)
 				}
 
 				if silenceSmpCnt >= silenceSamples || len(utterance) >= maxSamples {
-					// Keep hangover audio after the last loud frame
-					// instead of trimming all trailing silence. This
-					// preserves low-energy trailing speech that fell
-					// below the VAD threshold.
 					trimSamples := silenceSmpCnt - hangoverSamples
 					if trimSamples > 0 && trimSamples < len(utterance) {
 						trimmed := utterance[:len(utterance)-trimSamples]
@@ -84,9 +110,16 @@ func (v *VAD) Process(frames <-chan []int16) <-chan Utterance {
 					}
 
 					if speechSmpCnt >= minSpeechSamples {
+						uStart := samplesToDuration(uttStartSample, v.sampleRate)
+						uEnd := uStart + samplesToDuration(len(utterance), v.sampleRate)
 						out <- Utterance{
 							Audio:      utterance,
 							SampleRate: v.sampleRate,
+							Start:      uStart,
+							End:        uEnd,
+
+							SpeechStart: samplesToDuration(speechStart, v.sampleRate),
+							SpeechEnd:   samplesToDuration(lastLoudEnd, v.sampleRate),
 						}
 					}
 
@@ -96,12 +129,25 @@ func (v *VAD) Process(frames <-chan []int16) <-chan Utterance {
 					speechSmpCnt = 0
 				}
 			}
+
+			totalSamples += len(frame)
 		}
 
-		if speaking && len(utterance) > 0 && speechSmpCnt >= minSpeechSamples {
-			out <- Utterance{
-				Audio:      utterance,
-				SampleRate: v.sampleRate,
+		if speaking && len(utterance) > 0 {
+			cfg := v.configFunc()
+			minSpeechSamples := int(cfg.MinSpeechDuration * float64(v.sampleRate))
+			if speechSmpCnt >= minSpeechSamples {
+				uStart := samplesToDuration(uttStartSample, v.sampleRate)
+				uEnd := uStart + samplesToDuration(len(utterance), v.sampleRate)
+				out <- Utterance{
+					Audio:      utterance,
+					SampleRate: v.sampleRate,
+					Start:      uStart,
+					End:        uEnd,
+
+					SpeechStart: samplesToDuration(speechStart, v.sampleRate),
+					SpeechEnd:   samplesToDuration(lastLoudEnd, v.sampleRate),
+				}
 			}
 		}
 	}()
@@ -127,4 +173,12 @@ func UtteranceDuration(u Utterance) time.Duration {
 		return 0
 	}
 	return time.Duration(float64(len(u.Audio)) / float64(u.SampleRate) * float64(time.Second))
+}
+
+// samplesToDuration converts a sample count to a time.Duration.
+func samplesToDuration(samples, sampleRate int) time.Duration {
+	if sampleRate == 0 {
+		return 0
+	}
+	return time.Duration(float64(samples) / float64(sampleRate) * float64(time.Second))
 }

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
+	voicepkg "github.com/cc-deck/cc-deck/internal/voice"
 	"github.com/cc-deck/cc-deck/internal/xdg"
 )
 
@@ -60,6 +61,27 @@ func writeTranscriptLine(f *os.File, text string, timestamps bool) error {
 	return err
 }
 
+// writeSegments writes a slice of segments to the transcript file, inserting
+// a blank line before any segment with TurnStart when *hasText is true
+// (i.e., something has already been written to the file in this recording).
+// It returns the number of segment lines written.
+func writeSegments(f *os.File, segs []voicepkg.Segment, timestamps bool, hasText *bool) (int, error) {
+	lines := 0
+	for _, seg := range segs {
+		if seg.TurnStart && *hasText {
+			if _, err := fmt.Fprintln(f); err != nil {
+				return lines, err
+			}
+		}
+		if err := writeTranscriptLine(f, seg.Text, timestamps); err != nil {
+			return lines, err
+		}
+		lines++
+		*hasText = true
+	}
+	return lines, nil
+}
+
 // closeTranscript closes the transcript file and resets recording state.
 func (m *Model) closeTranscript() {
 	if m.recFile != nil {
@@ -69,7 +91,8 @@ func (m *Model) closeTranscript() {
 	m.recState = recIdle
 	m.recPath = ""
 	m.recCount = 0
+	m.reading = false
 	if m.relay != nil {
-		m.relay.SetRecording(false)
+		m.relay.StopRecording()
 	}
 }

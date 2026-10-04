@@ -53,12 +53,24 @@ type Defaults struct {
 
 // VoiceDefaults holds default values for the voice relay.
 type VoiceDefaults struct {
-	Threshold *int                `yaml:"threshold,omitempty"`
-	Silence   *float64            `yaml:"silence,omitempty"`
-	PreRoll   *float64            `yaml:"pre_roll,omitempty"`
-	Hangover  *float64            `yaml:"hangover,omitempty"`
-	Commands  map[string][]string `yaml:"commands,omitempty"`
-	Glossary  []string            `yaml:"glossary,omitempty"`
+	Threshold *int                     `yaml:"threshold,omitempty"`
+	Silence   *float64                 `yaml:"silence,omitempty"`
+	PreRoll   *float64                 `yaml:"pre_roll,omitempty"`
+	Hangover  *float64                 `yaml:"hangover,omitempty"`
+	Commands  map[string][]string      `yaml:"commands,omitempty"`
+	Glossary  []string                 `yaml:"glossary,omitempty"`
+	Recording *VoiceRecordingDefaults  `yaml:"recording,omitempty"`
+	SpeakerSplit *string               `yaml:"speaker_split,omitempty"` // "pause" or "voice"
+	SpeechFilter *bool                 `yaml:"speech_filter,omitempty"` // skip non-speech audio (default true)
+}
+
+// VoiceRecordingDefaults holds VAD parameters used while recording.
+// All fields are optional pointers; nil means use the default.
+type VoiceRecordingDefaults struct {
+	Threshold  *int     `yaml:"threshold,omitempty"`    // 0-100 logarithmic sensitivity
+	Silence    *float64 `yaml:"silence,omitempty"`      // seconds of silence to end a recording passage
+	MaxChunk   *float64 `yaml:"max_chunk,omitempty"`    // maximum seconds per recording passage
+	PauseBreak *float64 `yaml:"pause_break,omitempty"`  // seconds of silence that start a new turn
 }
 
 // Session represents a running or previously deployed Claude Code session.

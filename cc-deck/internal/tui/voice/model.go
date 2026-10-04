@@ -1,6 +1,7 @@
 package voice
 
 import (
+	"context"
 	"os"
 	"time"
 
@@ -11,6 +12,15 @@ import (
 )
 
 const maxHistoryLen = 200
+
+// turnBlock is a contiguous block of text from one speaker turn in
+// the reading view. Each block starts when a segment has TurnStart
+// set to true (a new dash marker, a pause break, or the first passage).
+type turnBlock struct {
+	at      time.Time // wall-clock time of the first segment in the block
+	parts   []string  // text fragments joined into the block
+	speaker string    // reserved for future speaker labels
+}
 
 // Model is the Bubbletea model for the voice relay TUI.
 type Model struct {
@@ -33,6 +43,32 @@ type Model struct {
 	recCount      int
 	recInput      textinput.Model
 	recTimestamps bool
+	recHasText    bool // true after at least one segment has been written to the file
+
+	// Reading view state
+	recBuffer []turnBlock     // turn blocks accumulated during recording
+	reading   bool            // true when the reading view is open
+	readView  viewport.Model  // viewport for the reading view
+	readReady bool            // true after the reading viewport is initialized
+	follow    bool            // auto-scroll to bottom on new content
+	newBlocks int             // count of new blocks since the user scrolled up
+
+	// Turn mode state
+	turnMode   voicepkg.TurnMode                               // current turn detection mode
+	tdrzStatus func() (toolErr, modelErr error)                // checks tdrz readiness
+	download   func(ctx context.Context, progress func(done, total int64)) error // downloads tdrz model
+
+	// Download state
+	dlPrompt  bool             // true when prompting for download confirmation
+	dlRunning bool             // true while a download is in progress
+	dlDone    int64            // bytes downloaded so far
+	dlTotal   int64            // total bytes expected
+	dlCancel  context.CancelFunc // cancels the running download
+	dlCh      <-chan tea.Msg   // channel for download progress/completion
+
+	// Transient status-line notice (e.g. after toggling the speaker split)
+	notice    string // shown in the status line when there is no error
+	noticeSeq int    // incremented per notice; stale clear timers are ignored
 
 	width         int
 	height        int
@@ -49,8 +85,10 @@ type historyEntry struct {
 
 type relayEventMsg voicepkg.RelayEvent
 
-// New creates a new voice TUI model.
-func New(relay *voicepkg.VoiceRelay, target string, logPath string) Model {
+// New creates a new voice TUI model. The turnMode sets the initial turn
+// detection mode (basic or tdrz). Pass voicepkg.TurnModeBasic when no
+// preference is configured.
+func New(relay *voicepkg.VoiceRelay, target string, logPath string, turnMode voicepkg.TurnMode) Model {
 	ti := textinput.New()
 	ti.Placeholder = "transcript.txt"
 	ti.CharLimit = 256
@@ -59,14 +97,38 @@ func New(relay *voicepkg.VoiceRelay, target string, logPath string) Model {
 		target:   target,
 		logPath:  logPath,
 		recInput: ti,
+		turnMode: turnMode,
+		tdrzStatus: func() (error, error) {
+			return voicepkg.TdrzStatus()
+		},
+		download: func(ctx context.Context, progress func(done, total int64)) error {
+			return voicepkg.DownloadModel(ctx, voicepkg.TdrzModelName, progress)
+		},
 	}
 }
 
 // Init starts the relay and subscribes to events.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(
-		waitForEvent(m.relay),
-	)
+	cmds := []tea.Cmd{waitForEvent(m.relay)}
+	if m.notice != "" {
+		seq := m.noticeSeq
+		cmds = append(cmds, tea.Tick(startupNoticeDuration, func(time.Time) tea.Msg {
+			return clearNoticeMsg{seq: seq}
+		}))
+	}
+	return tea.Batch(cmds...)
+}
+
+// startupNoticeDuration is how long a notice passed to WithStartupNotice
+// stays visible; longer than a toggle notice because it asks for an action.
+const startupNoticeDuration = 15 * time.Second
+
+// WithStartupNotice returns the model with a notice shown in the status line
+// for the first seconds after start, for example a missing speech filter.
+func (m Model) WithStartupNotice(text string) Model {
+	m.noticeSeq++
+	m.notice = text
+	return m
 }
 
 func waitForEvent(relay *voicepkg.VoiceRelay) tea.Cmd {

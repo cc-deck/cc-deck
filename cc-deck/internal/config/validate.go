@@ -493,5 +493,86 @@ func validateVoice(voice VoiceDefaults) []Finding {
 		}
 	}
 
+	// Speaker split: pause or voice (case-insensitive)
+	if voice.SpeakerSplit != nil {
+		mode := strings.ToLower(*voice.SpeakerSplit)
+		if mode != "pause" && mode != "voice" {
+			findings = append(findings, Finding{
+				Severity:   SeverityError,
+				Category:   CategoryVoice,
+				Message:    fmt.Sprintf("voice.speaker_split %q is invalid", *voice.SpeakerSplit),
+				Suggestion: "speaker_split must be \"pause\" or \"voice\"",
+			})
+		}
+	}
+
+	// Recording defaults
+	if voice.Recording != nil {
+		findings = append(findings, validateVoiceRecording(voice.Recording, voice.Silence)...)
+	}
+
+	return findings
+}
+
+// validateVoiceRecording checks recording-specific VAD parameter ranges.
+func validateVoiceRecording(rec *VoiceRecordingDefaults, dictationSilence *float64) []Finding {
+	var findings []Finding
+
+	// recording.threshold: 0-100
+	if rec.Threshold != nil {
+		t := *rec.Threshold
+		if t < 0 || t > 100 {
+			findings = append(findings, Finding{
+				Severity:   SeverityWarning,
+				Category:   CategoryVoice,
+				Message:    fmt.Sprintf("voice.recording.threshold %d is out of range", t),
+				Suggestion: "threshold must be between 0 and 100; default (20) will be used",
+			})
+		}
+	}
+
+	// recording.silence: > 0, <= 10
+	if rec.Silence != nil {
+		s := *rec.Silence
+		if s <= 0 || s > 10 {
+			findings = append(findings, Finding{
+				Severity:   SeverityWarning,
+				Category:   CategoryVoice,
+				Message:    fmt.Sprintf("voice.recording.silence %g is out of range", s),
+				Suggestion: "silence must be greater than 0 and at most 10 seconds; default (1.0) will be used",
+			})
+		}
+	}
+
+	// recording.max_chunk: 2-30
+	if rec.MaxChunk != nil {
+		m := *rec.MaxChunk
+		if m < 2 || m > 30 {
+			findings = append(findings, Finding{
+				Severity:   SeverityWarning,
+				Category:   CategoryVoice,
+				Message:    fmt.Sprintf("voice.recording.max_chunk %g is out of range", m),
+				Suggestion: "max_chunk must be between 2 and 30 seconds; default (12) will be used",
+			})
+		}
+	}
+
+	// recording.pause_break: must be greater than the effective recording silence
+	if rec.PauseBreak != nil {
+		pb := *rec.PauseBreak
+		effectiveSilence := 1.0 // default recording silence
+		if rec.Silence != nil && *rec.Silence > 0 && *rec.Silence <= 10 {
+			effectiveSilence = *rec.Silence
+		}
+		if pb <= effectiveSilence {
+			findings = append(findings, Finding{
+				Severity:   SeverityWarning,
+				Category:   CategoryVoice,
+				Message:    fmt.Sprintf("voice.recording.pause_break %g must be greater than the effective silence duration (%g)", pb, effectiveSilence),
+				Suggestion: "pause_break must exceed silence to distinguish turn breaks from passage breaks; default (2.0) will be used",
+			})
+		}
+	}
+
 	return findings
 }

@@ -14,6 +14,9 @@ func intPtr(v int) *int { return &v }
 // Helper to create a pointer to a float64.
 func float64Ptr(v float64) *float64 { return &v }
 
+// Helper to create a pointer to a string.
+func stringPtr(v string) *string { return &v }
+
 // findFinding searches findings for one matching the given severity and message substring.
 func findFinding(findings []Finding, sev Severity, msgSubstr string) *Finding {
 	for i := range findings {
@@ -477,6 +480,140 @@ func TestValidateVoice(t *testing.T) {
 			t.Errorf("expected no findings, got %d", len(findings))
 		}
 	})
+
+	// --- Recording defaults ---
+
+	t.Run("recording threshold out of range", func(t *testing.T) {
+		voice := VoiceDefaults{Recording: &VoiceRecordingDefaults{Threshold: intPtr(110)}}
+		findings := validateVoice(voice)
+		if f := findFinding(findings, SeverityWarning, "recording.threshold"); f == nil {
+			t.Error("expected warning for recording threshold 110")
+		}
+	})
+
+	t.Run("recording threshold negative", func(t *testing.T) {
+		voice := VoiceDefaults{Recording: &VoiceRecordingDefaults{Threshold: intPtr(-5)}}
+		findings := validateVoice(voice)
+		if f := findFinding(findings, SeverityWarning, "recording.threshold"); f == nil {
+			t.Error("expected warning for recording threshold -5")
+		}
+	})
+
+	t.Run("recording threshold valid", func(t *testing.T) {
+		voice := VoiceDefaults{Recording: &VoiceRecordingDefaults{Threshold: intPtr(20)}}
+		findings := validateVoice(voice)
+		if len(findings) != 0 {
+			t.Errorf("expected no findings for valid recording threshold, got %d: %+v", len(findings), findings)
+		}
+	})
+
+	t.Run("recording silence zero", func(t *testing.T) {
+		voice := VoiceDefaults{Recording: &VoiceRecordingDefaults{Silence: float64Ptr(0)}}
+		findings := validateVoice(voice)
+		if f := findFinding(findings, SeverityWarning, "recording.silence"); f == nil {
+			t.Error("expected warning for recording silence 0")
+		}
+	})
+
+	t.Run("recording silence over 10", func(t *testing.T) {
+		voice := VoiceDefaults{Recording: &VoiceRecordingDefaults{Silence: float64Ptr(11)}}
+		findings := validateVoice(voice)
+		if f := findFinding(findings, SeverityWarning, "recording.silence"); f == nil {
+			t.Error("expected warning for recording silence 11")
+		}
+	})
+
+	t.Run("recording silence valid", func(t *testing.T) {
+		voice := VoiceDefaults{Recording: &VoiceRecordingDefaults{Silence: float64Ptr(1.0)}}
+		findings := validateVoice(voice)
+		if len(findings) != 0 {
+			t.Errorf("expected no findings for valid recording silence, got %d: %+v", len(findings), findings)
+		}
+	})
+
+	t.Run("recording max_chunk below 2", func(t *testing.T) {
+		voice := VoiceDefaults{Recording: &VoiceRecordingDefaults{MaxChunk: float64Ptr(1)}}
+		findings := validateVoice(voice)
+		if f := findFinding(findings, SeverityWarning, "recording.max_chunk"); f == nil {
+			t.Error("expected warning for recording max_chunk 1")
+		}
+	})
+
+	t.Run("recording max_chunk above 30", func(t *testing.T) {
+		voice := VoiceDefaults{Recording: &VoiceRecordingDefaults{MaxChunk: float64Ptr(35)}}
+		findings := validateVoice(voice)
+		if f := findFinding(findings, SeverityWarning, "recording.max_chunk"); f == nil {
+			t.Error("expected warning for recording max_chunk 35")
+		}
+	})
+
+	t.Run("recording max_chunk valid", func(t *testing.T) {
+		voice := VoiceDefaults{Recording: &VoiceRecordingDefaults{MaxChunk: float64Ptr(12)}}
+		findings := validateVoice(voice)
+		if len(findings) != 0 {
+			t.Errorf("expected no findings for valid recording max_chunk, got %d: %+v", len(findings), findings)
+		}
+	})
+
+	t.Run("recording pause_break below effective silence", func(t *testing.T) {
+		voice := VoiceDefaults{Recording: &VoiceRecordingDefaults{
+			Silence:    float64Ptr(2.0),
+			PauseBreak: float64Ptr(1.5),
+		}}
+		findings := validateVoice(voice)
+		if f := findFinding(findings, SeverityWarning, "recording.pause_break"); f == nil {
+			t.Error("expected warning for pause_break below silence")
+		}
+	})
+
+	t.Run("recording pause_break equals effective silence", func(t *testing.T) {
+		voice := VoiceDefaults{Recording: &VoiceRecordingDefaults{
+			Silence:    float64Ptr(1.0),
+			PauseBreak: float64Ptr(1.0),
+		}}
+		findings := validateVoice(voice)
+		if f := findFinding(findings, SeverityWarning, "recording.pause_break"); f == nil {
+			t.Error("expected warning for pause_break equal to silence")
+		}
+	})
+
+	t.Run("recording pause_break valid", func(t *testing.T) {
+		voice := VoiceDefaults{Recording: &VoiceRecordingDefaults{
+			Silence:    float64Ptr(1.0),
+			PauseBreak: float64Ptr(3.0),
+		}}
+		findings := validateVoice(voice)
+		if len(findings) != 0 {
+			t.Errorf("expected no findings for valid recording pause_break, got %d: %+v", len(findings), findings)
+		}
+	})
+
+	t.Run("recording pause_break uses default silence when silence is nil", func(t *testing.T) {
+		// Default recording silence is 1.0, so pause_break of 0.5 should warn.
+		voice := VoiceDefaults{Recording: &VoiceRecordingDefaults{
+			PauseBreak: float64Ptr(0.5),
+		}}
+		findings := validateVoice(voice)
+		if f := findFinding(findings, SeverityWarning, "recording.pause_break"); f == nil {
+			t.Error("expected warning for pause_break below default silence")
+		}
+	})
+
+	t.Run("recording nil is valid", func(t *testing.T) {
+		voice := VoiceDefaults{Recording: nil}
+		findings := validateVoice(voice)
+		if len(findings) != 0 {
+			t.Errorf("expected no findings for nil recording, got %d", len(findings))
+		}
+	})
+
+	t.Run("recording all nil fields is valid", func(t *testing.T) {
+		voice := VoiceDefaults{Recording: &VoiceRecordingDefaults{}}
+		findings := validateVoice(voice)
+		if len(findings) != 0 {
+			t.Errorf("expected no findings for empty recording defaults, got %d: %+v", len(findings), findings)
+		}
+	})
 }
 
 // --- Config.Validate() Integration Tests ---
@@ -613,5 +750,52 @@ func TestValidateAndWarn_WarningsOnly_Silent(t *testing.T) {
 	}
 	if buf.Len() != 0 {
 		t.Errorf("expected no stderr for warnings-only, got %q", buf.String())
+	}
+}
+
+func TestValidateVoice_SpeakerSplit(t *testing.T) {
+	tests := []struct {
+		name    string
+		mode    string
+		wantErr bool
+	}{
+		{"pause lowercase", "pause", false},
+		{"voice lowercase", "voice", false},
+		{"Pause mixed case", "Pause", false},
+		{"VOICE uppercase", "VOICE", false},
+		{"old basic value", "basic", true},
+		{"old tdrz value", "tdrz", true},
+		{"empty string", "", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{
+				Defaults: Defaults{
+					Voice: VoiceDefaults{
+						SpeakerSplit: stringPtr(tt.mode),
+					},
+				},
+			}
+			findings := cfg.Validate()
+			hasErr := findFinding(findings, SeverityError, "speaker_split") != nil
+			if hasErr != tt.wantErr {
+				t.Errorf("speaker_split %q: hasErr=%v, wantErr=%v; findings=%v", tt.mode, hasErr, tt.wantErr, findings)
+			}
+		})
+	}
+}
+
+func TestValidateVoice_SpeakerSplitNilIsValid(t *testing.T) {
+	cfg := &Config{
+		Defaults: Defaults{
+			Voice: VoiceDefaults{
+				SpeakerSplit: nil,
+			},
+		},
+	}
+	findings := cfg.Validate()
+	if f := findFinding(findings, SeverityError, "speaker_split"); f != nil {
+		t.Errorf("nil speaker_split should not produce error, got: %s", f.Message)
 	}
 }
