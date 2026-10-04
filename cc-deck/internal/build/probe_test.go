@@ -1,6 +1,8 @@
 package build
 
 import (
+	"context"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -143,4 +145,49 @@ func TestParseProbeOutput_FindMethod(t *testing.T) {
 	require.Len(t, results["pkg_elixir"], 1)
 	assert.Equal(t, "find", results["pkg_elixir"][0].Method)
 	assert.Equal(t, "/usr/bin/mix", results["pkg_elixir"][0].Path)
+}
+
+func writeRuntimeStub(t *testing.T, script string) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := dir + "/fake-runtime"
+	require.NoError(t, os.WriteFile(path, []byte("#!/bin/sh\n"+script), 0o755))
+	return path
+}
+
+func TestProbeBinaries_ReturnsEmptyWhenNoProbeableComponents(t *testing.T) {
+	components := []PolicyComponent{
+		{Key: "claude_code", Match: MatchCondition{Always: true}, Binaries: []PolicyBinary{{Path: "/usr/local/bin/claude"}}},
+		{Key: "no_tools", Match: MatchCondition{Always: true}},
+	}
+
+	report, err := ProbeBinaries(context.Background(), "unused-runtime", "example.com/image:latest", components)
+	require.NoError(t, err)
+	assert.Empty(t, report.Results)
+	assert.Empty(t, report.Warnings)
+}
+
+func TestProbeBinaries_ParsesRuntimeOutput(t *testing.T) {
+	runtime := writeRuntimeStub(t, `echo '{"binary":"pip","path":"/usr/bin/pip","method":"which","component":"pkg_python"}'
+exit 0
+`)
+	components := []PolicyComponent{
+		{Key: "pkg_python", Match: MatchCondition{Tools: []string{"python"}}, ProbeBinaries: []string{"pip"}},
+	}
+
+	report, err := ProbeBinaries(context.Background(), runtime, "example.com/image:latest", components)
+	require.NoError(t, err)
+	require.Len(t, report.Results["pkg_python"], 1)
+	assert.Equal(t, "pip", report.Results["pkg_python"][0].Binary)
+}
+
+func TestProbeBinaries_CommandFailureReturnsError(t *testing.T) {
+	runtime := writeRuntimeStub(t, "exit 1\n")
+	components := []PolicyComponent{
+		{Key: "pkg_python", Match: MatchCondition{Tools: []string{"python"}}, ProbeBinaries: []string{"pip"}},
+	}
+
+	_, err := ProbeBinaries(context.Background(), runtime, "example.com/image:latest", components)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "probe container failed")
 }
