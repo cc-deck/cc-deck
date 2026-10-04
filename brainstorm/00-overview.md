@@ -68,7 +68,7 @@ Last updated: 2026-10-01
 | 090 | 2026-07-31 | openshell-profile-delegation | active | - | - |
 | 093 | 2026-09-09 | harness-profiles | active | 087 | [#36](https://github.com/cc-deck/cc-deck/issues/36) |
 | 094 | 2026-09-10 | openshell-profile-masking | active | - | [#38](https://github.com/cc-deck/cc-deck/issues/38) |
-| 095 | 2026-10-01 | voice-reading-view | active | - | [#43](https://github.com/cc-deck/cc-deck/issues/43) |
+| 095 | 2026-10-01 | voice-reading-view | spec-created | 088 | [#43](https://github.com/cc-deck/cc-deck/issues/43) |
 | - | 2026-05-14 | zellij-load-plugins-duplicate-instance | draft | - | - |
 
 ## Open Threads

@@ -1,7 +1,7 @@
 # Brainstorm: Voice Reading View
 
 **Date:** 2026-10-01
-**Status:** active
+**Status:** spec-created (specs/088-voice-reading-view, released in v0.17.0)
 **Issue:** https://github.com/cc-deck/cc-deck/issues/43
 
 ## Problem Framing
