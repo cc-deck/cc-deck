@@ -1,7 +1,7 @@
 # Brainstorm: sandcast, a Standalone Sandbox Image Builder
 
 **Date:** 2026-10-08
-**Status:** active
+**Status:** spec-created (moved to the sandcast repository, `../sandcast/specs/001-sandcast-standalone-build`)
 **Related:** [053-openshell-build-integration](053-openshell-build-integration.md), [070-build-system-multi-agent](070-build-system-multi-agent.md), [072-build-skill-iteration-reduction](072-build-skill-iteration-reduction.md), [091-nemoclaw-as-base-image](091-nemoclaw-as-base-image.md), [058-image-tool-plugins](058-image-tool-plugins.md)
 
 ## Problem Framing
@@ -128,3 +128,32 @@ The adapters also define where the sandcast skill bundle is installed on the hos
 - Probe script portability: the current probe assumes podman. Should sandcast support docker as a fallback for users outside the Red Hat ecosystem?
 - Version coupling: how does the skill bundle detect a mismatched binary version, and how does the binary refuse a plan written for a different schema?
 - Promotion into the catalog: pull request flow from the project-local recipe, and who reviews recipes for supply chain concerns (verified asset names, checksums).
+
+---
+
+## Revisit: 2026-10-08 (same day, during specification)
+
+### Updated Problem Framing
+
+During `/speckit-specify`, the question "where do component definitions with install recipes live" triggered research into upstream OpenShell (v0.1.2, released 2026-09-28) and into the mise tool manager. Two findings changed the decision for the composition unit:
+
+- Upstream OpenShell has a complete profile model. A provider profile declares id, category, optional credentials, endpoints and binaries in the exact sandbox policy endpoint schema. Credential-free profiles are valid (the upstream `pypi` example states "Credential scope: none"). The gateway ships no profiles; the repo's `providers/` directory holds 16 reviewable examples (7 inference providers, claude-code, codex, copilot, cursor, github, pypi, aws, aws-s3, google-cloud). Import is by file, directory or URL at workspace or platform scope. A sandbox gets profile-derived network policy only through attached provider instances, composed as `_provider_<name>` layers over the base policy. Profile binaries are static paths; a profile whose paths do not exist in the image is inert. Upstream tells users to copy and edit binaries per image by hand. Images cannot declare profiles. Build-from-directory was removed in 0.1.x.
+- Only the Google Cloud and Vertex providers have vendor-specific gateway code (env alias projection and a GCE metadata emulator). Credential refresh (OAuth2 refresh token, OAuth2 client credentials, Google service account JWT, AWS STS assume role) and SPIFFE token grants are generic mechanisms selected by profile data. New provider types with static tokens or no credentials need no gateway code.
+- mise installs languages (prebuilt), GitHub-release tools with checksums, and the agents (claude, codex, opencode) from a registry of roughly a thousand entries, independent of the base image's package manager, with a lockfile for exact versions. It does not install the base system (git, zsh, TLS roots).
+
+### Updated Decision
+
+- **No sandcast policy catalog.** Upstream OpenShell profiles are the only endpoint format. sandcast vendors the upstream examples at a pinned release, keeps a same-schema overlay for gaps (npm, crates.io, Go module proxy, GitLab) meant for upstream contribution, and accepts project-local profiles. Components reference profile ids instead of carrying endpoints.
+- **Image-adapted profile sets.** After a build, sandcast rewrites each referenced profile's `binaries` to the resolved paths in the image, lints the result with the upstream rules, records the set next to the image, and offers an import step. The image-embedded policy keeps only the static sections (filesystem, landlock, process).
+- **mise first for installation.** A component names a mise tool and version range; a generated lockfile gives reproducibility and replaces the GitHub asset verification from brainstorm 072. Recipes (system package, script) remain as the escape hatch, and the promote step still turns a working LLM-written layer into a recipe.
+- **Engine:** podman default, docker accepted through the same command surface.
+- **Manifest:** fresh schema, no reader for cc-deck's `build.yaml` v3.
+
+### Open Threads
+
+- Profile id strategy for image-adapted copies: workspace-scoped same id, or id suffixed per image.
+- Whether to offer a compiled fallback that bakes profile endpoints into the image policy for gateways without imported profiles (declined for now).
+- Refresh cadence for the vendored upstream profiles and the pinned mise release.
+- Relationship to cc-deck brainstorm 090 (profile delegation), which reached the same conclusion for cc-deck's runtime side.
+
+The specification and this brainstorm now live in the sandcast repository (`../sandcast`). cc-deck spec branch 089 was removed after the move.
