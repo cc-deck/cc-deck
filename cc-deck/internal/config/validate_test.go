@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Helper to create a pointer to an int.
@@ -16,6 +17,63 @@ func float64Ptr(v float64) *float64 { return &v }
 
 // Helper to create a pointer to a string.
 func stringPtr(v string) *string { return &v }
+
+func TestValidateSharingAcceptsWellFormedEndpoints(t *testing.T) {
+	findings := (&Config{Sharing: SharingConfig{
+		Endpoint:      "https://single.example",
+		Endpoints:     map[string]string{"work": "https://work.example", "home": "http://home.example:8080"},
+		Default:       "work",
+		VerifyTimeout: 15 * time.Second,
+	}}).Validate()
+	if countBySeverity(findings, SeverityError) != 0 {
+		t.Fatalf("unexpected findings: %+v", findings)
+	}
+}
+
+func TestValidateSharingRejectsMalformedAddresses(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		sharing SharingConfig
+		want    string
+	}{
+		{"relative single endpoint", SharingConfig{Endpoint: "dev.example.com"}, "sharing.endpoint must use the http or https scheme"},
+		{"non-http scheme", SharingConfig{Endpoint: "ftp://dev.example.com"}, "sharing.endpoint must use the http or https scheme"},
+		{"scheme without host", SharingConfig{Endpoint: "https://"}, "sharing.endpoint must be an absolute URL with a host"},
+		{"named endpoint malformed", SharingConfig{Endpoints: map[string]string{"work": "not a url"}}, `sharing.endpoints["work"] must use the http or https scheme`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			findings := (&Config{Sharing: tc.sharing}).Validate()
+			if f := findFinding(findings, SeverityError, tc.want); f == nil || f.Category != CategorySharing {
+				t.Fatalf("missing sharing finding %q in %+v", tc.want, findings)
+			}
+		})
+	}
+}
+
+func TestValidateSharingRejectsUnknownDefaultAndListsNames(t *testing.T) {
+	findings := (&Config{Sharing: SharingConfig{
+		Endpoints: map[string]string{"work": "https://work.example", "home": "https://home.example"},
+		Default:   "office",
+	}}).Validate()
+	f := findFinding(findings, SeverityError, `sharing.default "office" does not name a configured endpoint`)
+	if f == nil || f.Category != CategorySharing {
+		t.Fatalf("missing default finding: %+v", findings)
+	}
+	if !strings.Contains(f.Suggestion, "home, work") {
+		t.Fatalf("suggestion must list the configured names, got %q", f.Suggestion)
+	}
+}
+
+func TestValidateSharingRejectsNegativeVerifyTimeout(t *testing.T) {
+	findings := (&Config{Sharing: SharingConfig{VerifyTimeout: -time.Second}}).Validate()
+	if f := findFinding(findings, SeverityError, "sharing.verify_timeout must be positive"); f == nil {
+		t.Fatalf("missing verify_timeout finding: %+v", findings)
+	}
+	// Zero means "unset", which falls back to the default rather than failing.
+	if f := findFinding((&Config{}).Validate(), SeverityError, "sharing.verify_timeout"); f != nil {
+		t.Fatalf("unset verify_timeout must not be a finding: %+v", f)
+	}
+}
 
 // findFinding searches findings for one matching the given severity and message substring.
 func findFinding(findings []Finding, sev Severity, msgSubstr string) *Finding {
@@ -693,8 +751,8 @@ func TestValidateAndWarn_WithErrors(t *testing.T) {
 			{
 				Name: "test", File: "f", Extract: "e", Format: "json",
 				Values: map[string]string{
-					"wide": "☰",  // error (East Asian Wide)
-					"amb":  "▶",  // warning (Ambiguous)
+					"wide": "☰", // error (East Asian Wide)
+					"amb":  "▶", // warning (Ambiguous)
 				},
 			},
 			{Name: "", File: "f", Extract: "e", Format: "json"}, // error (missing name)

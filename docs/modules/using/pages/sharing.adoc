@@ -1,0 +1,402 @@
+= Share a workspace
+
+Workspace sharing gives remote collaborators temporary browser or terminal access to one local workspace's canonical Zellij session.
+Interactive invitations grant trusted users complete terminal control; observer invitations are read-only.
+
+Sharing works through an endpoint that you already run.
+cc-deck does not create one, does not start one, and never stops one.
+Think of it the way you think of a reverse proxy in front of any other local service: you own the exposure, and cc-deck owns what happens behind it.
+
+== Prerequisites
+
+Install Zellij 0.44.3 or later, and have an endpoint serving before you share.
+Sharing is local-only, and only one workspace can be shared per host.
+Invitations are browser links: a session address paired with a login token.
+
+Zellij's global `web_sharing` setting may stay at its default of `off`.
+cc-deck opts the canonical session in individually when it creates it, and it never edits your Zellij configuration.
+Only `web_sharing "disabled"` blocks sharing: cc-deck reports it and leaves the choice to you.
+The configuration is read from the file named by `ZELLIJ_CONFIG_FILE` when that variable is set, from `config.kdl` inside `ZELLIJ_CONFIG_DIR` when that one is set, and from `~/.config/zellij/config.kdl` otherwise.
+
+The endpoint requirement is a deliberate cost.
+Earlier versions started a tunnel for you, which meant cc-deck owned a process it could not reliably supervise, and the failures that followed were worse than the convenience was worth.
+You now bring your own endpoint, and cc-deck verifies it before anyone receives an invitation.
+
+== What your endpoint must do
+
+An endpoint is a reverse proxy in front of the Zellij web server, which listens on `http://127.0.0.1:8082` by default.
+The following table lists every path the web client uses.
+
+[cols="2,1,3"]
+|===
+| Path | Kind | Purpose
+
+| `/` and `/assets/*`
+| static
+| the web client itself
+
+| `POST /command/login`
+| JSON
+| exchanges a token for a `session_token` cookie
+
+| `GET /info/version`
+| JSON
+| client handshake
+
+| `POST /session`
+| JSON
+| issues the client id that addresses the control channel
+
+| `/ws/control`
+| WebSocket
+| control channel
+
+| `/ws/terminal/<session>`
+| WebSocket
+| terminal data
+|===
+
+Four requirements are violated often enough to be worth stating plainly.
+
+*WebSocket upgrades must pass on both socket paths.*
+A proxy that forwards HTTP while dropping the `Upgrade` and `Connection` headers produces a page that loads and a terminal that never fills.
+This is the single most common way sharing appears to work and does not.
+
+*Cookies must survive in both directions.*
+Login sets `session_token=...; HttpOnly; SameSite=Strict; Path=/`.
+Because the cookie is `SameSite=Strict`, the origin your guest browses must be the origin that issued it.
+
+*Paths must not be rewritten.*
+The session is selected by URL path, so a proxy that strips or rewrites a prefix sends your guest to the wrong session or to none at all.
+
+*Responses must not be buffered, and the idle timeout must be long.*
+A sixty second default idle timeout terminates terminals during use.
+
+For anything reachable outside a trusted network, terminate TLS at the endpoint.
+
+== Endpoint recipes
+
+The following configurations satisfy the contract above.
+Each one assumes the Zellij web server is listening on `127.0.0.1:8082`.
+
+=== Caddy
+
+Caddy proxies WebSockets without extra configuration, which makes it the shortest path to a working endpoint.
+
+[source,caddyfile]
+----
+dev.example.com {
+    reverse_proxy 127.0.0.1:8082 {
+        flush_interval -1        # <1>
+        transport http {
+            read_timeout 0       # <2>
+        }
+    }
+}
+----
+<1> Disables response buffering, which terminals need.
+<2> Removes the read timeout so an idle terminal is not disconnected.
+
+=== nginx
+
+nginx requires the upgrade headers to be forwarded explicitly.
+Omitting the `Upgrade` and `Connection` lines is what produces the blank terminal described above.
+
+[source,nginx]
+----
+server {
+    listen 443 ssl;                                                          # <1>
+    server_name dev.example.com;
+    ssl_certificate     /etc/letsencrypt/live/dev.example.com/fullchain.pem; # <1>
+    ssl_certificate_key /etc/letsencrypt/live/dev.example.com/privkey.pem;   # <1>
+
+    location / {
+        proxy_pass http://127.0.0.1:8082;
+        proxy_http_version 1.1;                      # <2>
+        proxy_set_header Upgrade $http_upgrade;      # <3>
+        proxy_set_header Connection "upgrade";       # <3>
+        proxy_set_header Host $host;                 # <4>
+        proxy_buffering off;                         # <5>
+        proxy_read_timeout 86400s;                   # <6>
+    }
+}
+----
+<1> Terminates TLS so the endpoint serves the `https://` address that the invitations carry; substitute your own certificate paths.
+<2> WebSocket upgrades require HTTP/1.1.
+<3> Without both headers, pages load and terminals stay empty.
+<4> Preserves the origin so the `SameSite=Strict` cookie remains valid.
+<5> Terminals are streams, not documents.
+<6> A long read timeout keeps idle terminals connected.
+
+=== Cloudflare Tunnel
+
+A named tunnel works well and is the configuration the earlier built-in provider approximated.
+Run it yourself so that its lifetime is yours to manage.
+
+[source,yaml]
+----
+tunnel: your-tunnel-id
+credentials-file: /path/to/credentials.json
+
+ingress:
+  - hostname: dev.example.com
+    service: http://127.0.0.1:8082
+  - service: http_status:404
+----
+
+Quick tunnels also work for a short session.
+Keep in mind that their hostnames are frequently blocked by DNS filters, which the verification described below reports by name.
+
+== Configure the endpoint
+
+A single endpoint needs one setting.
+
+[source,yaml]
+----
+# ~/.config/cc-deck/config.yaml
+sharing:
+  endpoint: https://dev.example.com
+  verify_timeout: 15s
+----
+
+Several named endpoints, with one of them declared as the default, look like this.
+
+[source,yaml]
+----
+sharing:
+  endpoints:
+    work: https://dev.example.com
+    home: https://terminal.example.net
+  default: work
+  verify_timeout: 15s
+----
+
+See the xref:reference:configuration.adoc[configuration reference] for the complete schema.
+
+== Start sharing
+
+[source,bash]
+----
+cc-deck ws start demo --share
+cc-deck ws start demo --share --endpoint https://other.example.com
+cc-deck ws start demo --share --endpoint-name home
+----
+
+The `--share` flag only affects creation of a missing canonical session.
+It never kills or converts an existing private session.
+Follow the printed `kill-session` and restart instructions when that explicit transition is desired.
+
+`--endpoint` and `--endpoint-name` apply to one command and never change your configuration.
+They cannot be combined.
+
+== What the invitations look like
+
+Every invitation for a share addresses the same session URL, so the address is printed once and the tokens are listed beneath it.
+
+[source]
+----
+https://dev.example.com/cc-deck-demo
+  interactive lively-otter   70a06a36-0e63-46c6-a8f3-f82519c35712
+  observer    brave-wolf     f1e3d3c2-b72e-4690-ba98-482dec3625af
+
+Interactive access gives control of the complete terminal session.
+----
+
+Add `--verbose` for the long form, which spells the address out once per role alongside the warning.
+
+== Repeating the command, and moving a share
+
+Running `ws start --share` again on a workspace that is already shared reports what the live share is and changes nothing.
+It cannot reprint the invitations, because a login token is never written to disk.
+Run `cc-deck ws invite NAME` when you need another link.
+
+Passing an endpoint that differs from the live share is refused rather than applied.
+
+[source]
+----
+Error: workspace "demo" is already shared through http://127.0.0.1:8082, so https://other.example.com was not applied
+  To move it:      cc-deck ws update demo --endpoint https://other.example.com
+  To stop sharing: cc-deck ws unshare demo
+----
+
+The move is a separate command because it is not free.
+An invitation pairs the endpoint with a login token, and the token is never stored, so moving a share has to issue new invitations and every link already handed out stops working.
+
+[source,bash]
+----
+cc-deck ws update demo --endpoint https://other.example.com
+----
+
+`ws update` verifies the new endpoint through the same five layers before anything is torn down.
+An address that fails leaves the current share exactly as it was.
+Once the new endpoint passes, the old invitations are revoked and new ones are printed, and the output names each label that stopped working.
+
+== How verification works
+
+Before any invitation is printed, cc-deck checks the endpoint in five layers and stops at the first failure.
+
+[cols="1,2,3"]
+|===
+| Stage | What it checks | What a failure usually means
+
+| `dns`
+| the name resolves
+| a typo, or a local DNS filter answering for the name
+
+| `tls`
+| the handshake completes
+| a certificate that is expired, self-signed, or issued for another name
+
+| `http`
+| the Zellij web client is served
+| the proxy points somewhere else, or rewrites paths
+
+| `auth`
+| login returns a `session_token` cookie
+| the proxy drops POST bodies or strips `Set-Cookie`
+
+| `websocket`
+| `/ws/control` upgrades to a WebSocket
+| the proxy drops the `Upgrade` and `Connection` headers
+|===
+
+A failure names the layer first, then explains what that layer means.
+
+[source]
+----
+Error: endpoint verification failed at the websocket stage
+  https://dev.example.com serves the web client but refused the WebSocket
+  upgrade on /ws/control, answering 200 OK instead of 101.
+  A proxy that forwards HTTP but drops the Upgrade and Connection headers
+  produces a page that loads and a terminal that never fills.
+----
+
+The whole check is bounded by `sharing.verify_timeout`, which defaults to fifteen seconds.
+An endpoint that accepts connections and never answers therefore delays the command rather than hanging it.
+
+Verification mints its own read-only credential, uses it, and revokes it before returning.
+No credential it creates is written to disk, and no credential issued to a person is touched.
+
+=== The DNS second opinion
+
+When a name fails to resolve, cc-deck asks an independent public resolver whether the name exists.
+A name that resolves publicly but not locally is being filtered on your network, which is a different problem from a name that does not exist, and the diagnostic says which one you have.
+
+The second opinion is best effort.
+If it cannot be reached, a successful primary lookup still passes.
+
+[NOTE]
+====
+The second opinion queries Cloudflare's public resolver at `1.1.1.1`, which sends your endpoint hostname off this machine.
+It runs only after your system resolver has already failed, never on the healthy path.
+On a network where outbound DNS is audited or restricted, expect that query when, and only when, a name fails to resolve locally.
+====
+
+=== What verification cannot tell you
+
+[IMPORTANT]
+====
+cc-deck verifies reachability from its own host only.
+A guest on a different network, behind a different DNS resolver or a different firewall, may still be unable to reach an endpoint that passed every stage here.
+The check proves that the endpoint works from where cc-deck is running, and nothing more.
+====
+
+=== Skipping verification
+
+[source,bash]
+----
+cc-deck ws start demo --share --no-verify
+----
+
+The share is created without a check.
+A share created this way reports no verification age in listings, which is how you can tell it apart from one that was verified.
+There is no third state: a share is either shared or degraded.
+
+== Manage invitations
+
+[source,bash]
+----
+cc-deck ws invite demo --role interactive --name alice
+cc-deck ws invite demo --role observer
+cc-deck ws revoke demo alice
+----
+
+Each invitation has an independent credential.
+Omit `--name` for a random memorable label.
+The raw browser and terminal secrets print exactly once; later list and status output contains only labels and roles.
+Revocation is idempotent: a credential that Zellij no longer has, because an earlier cleanup or a manual `zellij web --revoke-token` already removed it, counts as revoked rather than as a failure.
+
+`ws invite` runs the same verification gate as `ws start --share`, and accepts the same `--endpoint`, `--endpoint-name`, and `--no-verify` flags.
+When verification fails, no credential is created and none is left behind.
+
+== Inspect sharing
+
+[source,bash]
+----
+cc-deck ws
+cc-deck ws status demo
+----
+
+A listing performs no network access at all.
+It renders the last recorded verification result and how old it is, which keeps listing a shared workspace as cheap as listing a private one.
+
+[source]
+----
+shared (verified 12m ago)          # the last check passed
+degraded (websocket, 3m ago)       # the last check failed, naming the layer
+shared                             # created with --no-verify, so there is no age
+----
+
+`ws status` verifies the endpoint and reports what it found.
+It changes nothing whatever the result.
+A broken endpoint reports `degraded`, names the failing stage, and leaves every credential live and every resource in place.
+Repair the endpoint and run `ws status` again, and the report returns to `shared` without any intervention on your part.
+
+This matters more than it may appear.
+An endpoint being unreachable is not evidence that your session ended, and treating it as evidence is how an ordinary listing once revoked working credentials.
+
+== Stop sharing
+
+[source,bash]
+----
+cc-deck ws unshare demo
+----
+
+Unsharing revokes every active invitation and stops nothing that cc-deck did not start.
+
+* Your endpoint is untouched.
+  cc-deck never started it and has no business stopping it.
+* A Zellij web server that was already running when you shared stays running.
+  One that cc-deck started is stopped.
+* The workspace and its canonical session survive.
+
+Unsharing never probes, so an endpoint that is down is not a reason a share cannot be removed.
+
+If the session exits with Zellij's `Ctrl+q`, the next cc-deck command detects the dead session and completes the teardown.
+Cleanup therefore runs when a command observes the change, not from a background process.
+A plain `ws start` or `ws attach` after session death recreates a private session; pass `--share` again to share it.
+A degraded result after unsharing means cleanup could not confirm that all exposure ended, so correct the listed residual and retry `ws unshare`.
+
+== When a share fails
+
+A share that fails verification leaves the workspace running.
+The session you asked for is still there and still usable locally, and only the sharing part failed.
+
+[source,bash]
+----
+cc-deck ws start scratch --share --endpoint https://does-not-exist.invalid
+# sharing fails, and "scratch" is running
+cc-deck ws attach scratch
+----
+
+== When Zellij stops responding
+
+Every `zellij` call is bounded by a ten second timeout.
+A Zellij session server that stops answering therefore delays a command rather than blocking it forever.
+
+Sharing is reported as `degraded` with the residual `sharing state could not be verified` when the state of the session cannot be determined.
+In that case cc-deck deliberately changes nothing.
+Credentials stay valid, because an unresponsive server is not evidence that sharing has ended, and tearing down on an inconclusive check would revoke working access.
+
+Resolve the underlying Zellij problem, then run `cc-deck ws status NAME` again to get a definitive result.
+To confirm whether Zellij itself is affected, run `zellij list-sessions` directly and observe whether it returns.

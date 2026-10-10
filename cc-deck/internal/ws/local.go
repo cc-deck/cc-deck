@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -29,10 +30,83 @@ type LocalWorkspace struct {
 	store *FileStateStore
 	defs  *DefinitionStore
 
+	commandRunner localSessionCommandRunner
+	sessionState  func(string) string
+
 	pipeOnce sync.Once
 	pipeCh   PipeChannel
 	dataOnce sync.Once
 	dataCh   DataChannel
+}
+
+type localSessionCommandRunner interface {
+	Run(context.Context, string, ...string) ([]byte, error)
+}
+
+type osLocalSessionCommandRunner struct{}
+
+func (osLocalSessionCommandRunner) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
+	return runBoundedZellij(ctx, zellijSessionCreateTimeout, name, args...)
+}
+
+// runBoundedZellij runs a command that talks to a Zellij server, never waiting
+// on it indefinitely.
+//
+// A Zellij server can stop accepting new client connections while its session
+// carries on running. Every call made to it then blocks forever, and a command
+// that blocks forever reports nothing at all, which is the worst answer a CLI
+// can give. The bound is applied only when the caller has not set a deadline of
+// its own, so a caller with a shorter one keeps it.
+func runBoundedZellij(ctx context.Context, bound time.Duration, name string, args ...string) ([]byte, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, bound)
+		defer cancel()
+	}
+	out, err := exec.CommandContext(ctx, name, args...).CombinedOutput()
+	if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return out, unresponsiveZellijError(name, args, bound)
+	}
+	return out, err
+}
+
+// unresponsiveZellijError names the condition and the way out of it.
+//
+// "context deadline exceeded" tells a reader nothing they can act on, and the
+// recovery here is not guessable: the session looks alive in every listing, so
+// the server process has to be killed by hand before the session can be
+// deleted.
+func unresponsiveZellijError(name string, args []string, bound time.Duration) error {
+	return fmt.Errorf("%s %s: %w after %s\n"+
+		"  The session may still be running while its server refuses new clients.\n"+
+		"  Try:  cc-deck ws kill-session NAME\n"+
+		"  If that times out too, the server process for that session has to be\n"+
+		"  ended before the session can be removed.",
+		name, strings.Join(args, " "), ErrZellijUnresponsive, bound)
+}
+
+func (e *LocalWorkspace) runner() localSessionCommandRunner {
+	if e.commandRunner != nil {
+		return e.commandRunner
+	}
+	return osLocalSessionCommandRunner{}
+}
+
+func (e *LocalWorkspace) currentSessionState(name string) string {
+	if e.sessionState != nil {
+		return e.sessionState(name)
+	}
+	return ZellijSessionState(name)
+}
+
+func (e *LocalWorkspace) setSessionState(state SessionStateValue) {
+	if inst, err := e.store.FindInstanceByName(e.name); err == nil {
+		inst.SessionState = state
+		_ = e.store.UpdateInstance(inst)
+	}
 }
 
 // Type returns WorkspaceTypeLocal.
@@ -76,7 +150,7 @@ func (e *LocalWorkspace) Create(_ context.Context, _ CreateOpts) error {
 // does not exist, it is created in the background first (with the cc-deck
 // layout), then attached. This avoids issues with "zellij --session"
 // not creating new sessions when a Zellij server is already running.
-func (e *LocalWorkspace) Attach(_ context.Context) error {
+func (e *LocalWorkspace) Attach(ctx context.Context) error {
 	zellijPath, err := exec.LookPath("zellij")
 	if err != nil {
 		return ErrZellijNotFound
@@ -99,35 +173,55 @@ func (e *LocalWorkspace) Attach(_ context.Context) error {
 		return nil
 	}
 
-	// Delete any EXITED session with the same name to prevent stale ghosts.
-	// cc-deck manages its own session lifecycle; Zellij's serialization cache
-	// only produces stale EXITED sessions that interfere with clean re-attach.
-	if ZellijSessionState(sessionName) == "exited" {
-		del := exec.Command(zellijPath, "delete-session", "--force", sessionName)
-		_ = del.Run()
-	}
-
-	// If the session doesn't exist, create it in the background with the
-	// cc-deck layout. We try --layout with attach -b first, then fall back
-	// to attach -b without layout.
-	if !zellijSessionExists(sessionName) {
-		// The controller only ever sees a cached permission grant, so make
-		// sure the cache still carries one before Zellij loads the plugin.
-		if repaired, err := plugin.PreflightPluginPermissions(); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: could not check Zellij plugin permissions: %v\n", err)
-		} else if repaired {
-			fmt.Fprintln(os.Stderr, "Restored cc-deck plugin permissions in Zellij's permissions.kdl")
-		}
-		create := exec.Command(zellijPath, "--layout", "cc-deck", "attach", "-b", sessionName)
-		if out, createErr := create.CombinedOutput(); createErr != nil {
-			fallback := exec.Command(zellijPath, "attach", "-b", sessionName)
-			if fout, fallbackErr := fallback.CombinedOutput(); fallbackErr != nil {
-				return fmt.Errorf("creating session: %s\n%s\nlayout attempt: %s", fallbackErr, string(fout), string(out))
-			}
-		}
+	if _, err := e.EnsureSession(ctx, SessionStartOptions{}); err != nil {
+		return err
 	}
 
 	return syscall.Exec(zellijPath, []string{"zellij", "attach", sessionName}, os.Environ())
+}
+
+// EnsureSession idempotently creates the workspace's canonical Zellij session.
+//
+// Inside an existing Zellij session, "zellij --layout NAME attach -b SESSION"
+// adds a tab to the current session, exits zero, and creates nothing. Reporting
+// success for that is worse than refusing, because every later step then acts
+// on a session that does not exist. Attach already refuses for the same reason.
+func (e *LocalWorkspace) EnsureSession(ctx context.Context, opts SessionStartOptions) (SessionStartResult, error) {
+	name := e.zellijSessionName()
+	state := e.currentSessionState(name)
+	if state == "running" {
+		return SessionStartResult{Name: name}, nil
+	}
+	if os.Getenv("ZELLIJ") != "" {
+		return SessionStartResult{}, fmt.Errorf(
+			"cannot create the canonical session for %q from inside a Zellij session: "+
+				"the command would add a tab to this session instead. Detach first (Ctrl+o d), then run:\n"+
+				"  cc-deck ws start %s", e.name, e.name)
+	}
+	if state == "exited" {
+		_, _ = e.runner().Run(ctx, "zellij", "delete-session", "--force", name)
+	}
+
+	// The controller only ever sees a cached permission grant, so make sure
+	// the cache still carries one before Zellij loads the plugin. This used to
+	// sit inline in Attach; it belongs here now that every caller reaches
+	// session creation through EnsureSession.
+	if repaired, err := plugin.PreflightPluginPermissions(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not check Zellij plugin permissions: %v\n", err)
+	} else if repaired {
+		fmt.Fprintln(os.Stderr, "Restored cc-deck plugin permissions in Zellij's permissions.kdl")
+	}
+
+	args := []string{"--layout", "cc-deck", "attach", "-b", name}
+	if opts.WebSharing {
+		args = append(args, "options", "--web-sharing", "on")
+	}
+	if out, err := e.runner().Run(ctx, "zellij", args...); err != nil {
+		return SessionStartResult{}, fmt.Errorf("creating canonical session: %w: %s", err, out)
+	}
+
+	e.setSessionState(SessionStateExists)
+	return SessionStartResult{Created: true, Name: name}, nil
 }
 
 // Delete removes the workspace from the state store and deletes the Zellij
@@ -199,9 +293,9 @@ func (e *LocalWorkspace) KillSession(_ context.Context) error {
 		return nil
 	}
 
-	cmd := exec.Command("zellij", "delete-session", "--force", sessionName)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("killing session: %s\n%s", err, string(out))
+	if out, err := runBoundedZellij(context.Background(), zellijCLITimeout,
+		"zellij", "delete-session", "--force", sessionName); err != nil {
+		return fmt.Errorf("killing session: %w\n%s", err, string(out))
 	}
 
 	if inst, findErr := e.store.FindInstanceByName(e.name); findErr == nil {
@@ -225,9 +319,9 @@ func DeleteZellijSession(sessionName string, force bool) error {
 	if force {
 		args = []string{"delete-session", "--force", sessionName}
 	}
-	cmd := exec.Command("zellij", args...)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("deleting session: %s\n%s", err, string(out))
+	if out, err := runBoundedZellij(context.Background(), zellijCLITimeout,
+		"zellij", args...); err != nil {
+		return fmt.Errorf("deleting session: %w\n%s", err, string(out))
 	}
 
 	return nil
@@ -304,9 +398,32 @@ func ZellijSessionName(name string) string {
 	return zellijSessionPrefix + name
 }
 
+// zellijCLITimeout bounds direct "zellij" invocations from this package. A
+// wedged session server accepts the connection but never answers, and without
+// a bound every cc-deck command that inspects sessions would hang forever.
+// zellijCLITimeout bounds a question about session state, which a healthy
+// server answers immediately.
+const zellijCLITimeout = 10 * time.Second
+
+// zellijSessionCreateTimeout bounds creating or attaching a session, which does
+// real work: it reads a layout, loads plugins, and spawns a shell.
+const zellijSessionCreateTimeout = 30 * time.Second
+
+// ErrZellijUnresponsive marks a call that never got an answer, as opposed to
+// one that established a fact. It mirrors the sentinel the sharing package
+// already carries, for the same reason: silence is not evidence.
+var ErrZellijUnresponsive = errors.New("zellij is not responding")
+
+// runZellijListSessions runs "zellij list-sessions -n" under a timeout.
+func runZellijListSessions() ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), zellijCLITimeout)
+	defer cancel()
+	return exec.CommandContext(ctx, "zellij", "list-sessions", "-n").Output()
+}
+
 // ZellijSessionState returns "running", "exited", or "" for a session.
 func ZellijSessionState(sessionName string) string {
-	out, err := exec.Command("zellij", "list-sessions", "-n").Output()
+	out, err := runZellijListSessions()
 	if err != nil {
 		return ""
 	}
@@ -329,7 +446,7 @@ func ZellijSessionState(sessionName string) string {
 // returns session names. When includeExited is false, EXITED sessions are
 // skipped. Returns nil if zellij is not available or the command fails.
 func listZellijSessions(includeExited bool) []string {
-	out, err := exec.Command("zellij", "list-sessions", "-n").Output()
+	out, err := runZellijListSessions()
 	if err != nil {
 		return nil
 	}

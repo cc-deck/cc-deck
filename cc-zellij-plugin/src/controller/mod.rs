@@ -502,15 +502,7 @@ impl ControllerPlugin {
                 crate::debug_log("CTRL VOICE command: voice:unmute");
             }
             "enter" => {
-                let sessions = &self.state.sessions;
-                let is_session = |id: &u32| sessions.contains_key(id);
-                let target = self
-                    .state
-                    .last_attended_pane_id
-                    .filter(&is_session)
-                    .or(self.state.own_focus().filter(&is_session))
-                    .or_else(|| sessions.keys().next().copied());
-                if let Some(pane_id) = target {
+                if let Some(pane_id) = self.voice_target_pane() {
                     write_chars_to_pane(pane_id, "\r");
                     crate::debug_log(&format!("CTRL VOICE command: enter -> pane={}", pane_id));
                 }
@@ -658,17 +650,25 @@ fn broadcast_navigate(state: &ControllerState, direction: &str) {
 fn broadcast_navigate(_state: &ControllerState, _direction: &str) {}
 
 impl ControllerPlugin {
-    fn inject_voice_text(&self, text: &str) {
-        let sanitized = crate::sanitize_voice_text(text);
+    /// Resolve the pane that voice actions target.
+    ///
+    /// Dictation and the Enter that submits it must agree on one pane, or the
+    /// text lands in one session while the newline goes to another. Both call
+    /// this so they can never diverge. Preference order: the focused pane when
+    /// it is a session, then the last attended session, then the sole session.
+    fn voice_target_pane(&self) -> Option<u32> {
         let sessions = &self.state.sessions;
         let is_session = |id: &u32| sessions.contains_key(id);
-        let target = self
-            .state
+        self.state
             .own_focus()
-            .filter(&is_session)
-            .or(self.state.last_attended_pane_id.filter(&is_session))
-            .or_else(|| sessions.keys().next().copied());
-        if let Some(pane_id) = target {
+            .filter(is_session)
+            .or(self.state.last_attended_pane_id.filter(is_session))
+            .or_else(|| sessions.keys().next().copied())
+    }
+
+    fn inject_voice_text(&self, text: &str) {
+        let sanitized = crate::sanitize_voice_text(text);
+        if let Some(pane_id) = self.voice_target_pane() {
             write_chars_to_pane(pane_id, &sanitized);
             crate::debug_log(&format!(
                 "CTRL VOICE injected {} chars to pane={}",
@@ -795,6 +795,31 @@ mod tests {
         let mut plugin = ControllerPlugin::default();
         plugin.handle_voice_command("enter");
         // No sessions, should not panic
+    }
+
+    #[test]
+    fn test_voice_target_pane_shared_by_dictation_and_enter() {
+        // Dictation and Enter both resolve through voice_target_pane, so the
+        // dictated text and the newline that submits it cannot land in
+        // different sessions.
+        let mut plugin = ControllerPlugin::default();
+        for id in [1, 2] {
+            plugin
+                .state
+                .sessions
+                .insert(id, crate::session::Session::new(id, format!("s{id}")));
+        }
+        // Focus is on session 1; the last attended session is 2.
+        plugin.state.client_id = 1;
+        plugin.state.set_client_focus_intent(1, 1, 0);
+        plugin.state.last_attended_pane_id = Some(2);
+
+        // The focused session wins, and it is the single answer both actions use.
+        assert_eq!(plugin.voice_target_pane(), Some(1));
+
+        // When focus is not a session pane, both fall back to the attended one.
+        plugin.state.set_client_focus_intent(1, 99, 0);
+        assert_eq!(plugin.voice_target_pane(), Some(2));
     }
 
     #[test]

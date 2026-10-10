@@ -4,6 +4,7 @@
 * xref:attend.adoc[Smart Attend]
 * xref:sessions.adoc[Session Management]
 * xref:multiplayer.adoc[Multiplayer Sessions]
+* xref:sharing.adoc[Share a Zellij Session]
 * xref:multi-agent.adoc[Multi-Agent Setup]
 * xref:configuration.adoc[Configuration]
 * xref:voice.adoc[Voice Relay]

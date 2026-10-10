@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	sshSessionPrefix   = "cc-deck-"
+	sshSessionPrefix    = "cc-deck-"
 	defaultSSHWorkspace = "~/workspace"
 )
 
@@ -202,48 +202,8 @@ func (e *SSHWorkspace) Attach(ctx context.Context) error {
 	}
 
 	sessionName := e.sshSessionName()
-
-	// Check if a Zellij session already exists on the remote.
-	hasSession := e.remoteHasSession(client, sessionName)
-
-	if !hasSession {
-		// Delete any exited session to prevent Zellij from resurrecting
-		// a stale layout instead of using the --layout file.
-		deleteCmd := fmt.Sprintf("zellij delete-session --force %q", sessionName)
-		_, _ = client.Run(ctx, deleteCmd)
-
-		workspace, wsErr := resolveWorkspaceRemote(ctx, client, workspacePath(def))
-		if wsErr != nil {
-			return wsErr
-		}
-
-		// Create a fresh session with serialization disabled. cc-deck
-		// manages its own session lifecycle; Zellij's serialization cache
-		// only produces stale EXITED ghosts that interfere with clean
-		// re-attach.
-		createCmd := fmt.Sprintf(
-			"mkdir -p %q && cd %q && zellij --layout cc-deck attach --create-background %q",
-			workspace, workspace, sessionName)
-		if _, err := client.Run(ctx, createCmd); err != nil {
-			// Layout not found, retry without layout specification.
-			createCmd = fmt.Sprintf(
-				"cd %q && zellij attach --create-background %q",
-				workspace, sessionName)
-			if _, retryErr := client.Run(ctx, createCmd); retryErr != nil {
-				return fmt.Errorf("creating remote Zellij session: %w", retryErr)
-			}
-			log.Printf("NOTE: cc-deck layout not found on remote, using default layout")
-		}
-
-		// Wait for the background session to become attachable.
-		// create-background returns before the server is fully ready;
-		// attaching too early hits "unknown messages" in Zellij 0.44.
-		for i := 0; i < 10; i++ {
-			if e.remoteHasSession(client, sessionName) {
-				break
-			}
-			time.Sleep(200 * time.Millisecond)
-		}
+	if _, err := e.EnsureSession(ctx, SessionStartOptions{}); err != nil {
+		return err
 	}
 
 	// Set terminal background color for remote sessions if configured.
@@ -256,6 +216,64 @@ func (e *SSHWorkspace) Attach(ctx context.Context) error {
 	// Replace current process with SSH to attach to the remote Zellij session.
 	attachCmd := fmt.Sprintf("zellij attach %s", sessionName)
 	return client.RunInteractive(attachCmd)
+}
+
+// EnsureSession idempotently creates the canonical session on the SSH host.
+func (e *SSHWorkspace) EnsureSession(ctx context.Context, opts SessionStartOptions) (SessionStartResult, error) {
+	if opts.WebSharing {
+		return SessionStartResult{}, fmt.Errorf("sharing is currently supported for local workspaces only")
+	}
+	def, err := e.loadDefinition()
+	if err != nil {
+		return SessionStartResult{}, err
+	}
+	client := e.newSSHClient(def)
+	name := e.sshSessionName()
+	if e.remoteHasSession(ctx, client, name) {
+		return SessionStartResult{Name: name}, nil
+	}
+
+	_, _ = client.Run(ctx, fmt.Sprintf("zellij delete-session --force %q", name))
+	workspace, err := resolveWorkspaceRemote(ctx, client, workspacePath(def))
+	if err != nil {
+		return SessionStartResult{}, err
+	}
+	createCmd := fmt.Sprintf(
+		"mkdir -p %q && cd %q && zellij --layout cc-deck attach --create-background %q",
+		workspace, workspace, name)
+	if _, err := client.Run(ctx, createCmd); err != nil {
+		createCmd = fmt.Sprintf("cd %q && zellij attach --create-background %q", workspace, name)
+		if _, retryErr := client.Run(ctx, createCmd); retryErr != nil {
+			return SessionStartResult{}, fmt.Errorf("creating remote Zellij session: %w", retryErr)
+		}
+		log.Printf("NOTE: cc-deck layout not found on remote, using default layout")
+	}
+	// create-background returns before the server is fully ready; attaching
+	// too early hits "unknown messages" in Zellij 0.44. The session counts as
+	// created only once the remote lists it, and the caller's cancellation
+	// ends the wait.
+	ready := false
+	for attempt := 0; attempt < 10 && !ready; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return SessionStartResult{}, ctx.Err()
+			case <-time.After(200 * time.Millisecond):
+			}
+		}
+		ready = e.remoteHasSession(ctx, client, name)
+	}
+	if !ready {
+		if err := ctx.Err(); err != nil {
+			return SessionStartResult{}, err
+		}
+		return SessionStartResult{}, fmt.Errorf("remote Zellij session %q was created but did not become attachable", name)
+	}
+	if inst, err := e.store.FindInstanceByName(e.name); err == nil {
+		inst.SessionState = SessionStateExists
+		_ = e.store.UpdateInstance(inst)
+	}
+	return SessionStartResult{Created: true, Name: name}, nil
 }
 
 // Delete removes the SSH workspace.
@@ -358,7 +376,7 @@ func (e *SSHWorkspace) Status(ctx context.Context) (*WorkspaceStatus, error) {
 	client := ssh.NewClient(inst.SSH.Host, inst.SSH.Port, inst.SSH.IdentityFile, inst.SSH.JumpHost, inst.SSH.SSHConfig)
 	sessionName := e.sshSessionName()
 
-	if e.remoteHasSession(client, sessionName) {
+	if e.remoteHasSession(ctx, client, sessionName) {
 		status.SessionState = SessionStateExists
 	} else if err := client.Check(ctx); err != nil {
 		status.Message = fmt.Sprintf("host unreachable: %v", err)
@@ -499,8 +517,8 @@ func (e *SSHWorkspace) loadDefinition() (*WorkspaceDefinition, error) {
 
 // remoteHasSession checks if a Zellij session with the given name exists
 // on the remote host. Uses a short timeout to avoid blocking.
-func (e *SSHWorkspace) remoteHasSession(client *ssh.Client, sessionName string) bool {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+func (e *SSHWorkspace) remoteHasSession(ctx context.Context, client *ssh.Client, sessionName string) bool {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	out, err := client.Run(ctx, "zellij list-sessions -n")

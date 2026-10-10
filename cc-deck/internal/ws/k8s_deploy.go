@@ -2,10 +2,12 @@ package ws
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -67,11 +69,11 @@ type K8sDeployWorkspace struct {
 }
 
 const (
-	k8sResourcePrefix   = "cc-deck-"
-	defaultStorageSize  = "10Gi"
-	defaultPodTimeout   = 5 * time.Minute
-	k8sWorkspacePath    = "/workspace"
-	k8sCredentialPath   = "/run/secrets/cc-deck"
+	k8sResourcePrefix  = "cc-deck-"
+	defaultStorageSize = "10Gi"
+	defaultPodTimeout  = 5 * time.Minute
+	k8sWorkspacePath   = "/workspace"
+	k8sCredentialPath  = "/run/secrets/cc-deck"
 )
 
 func k8sResourceName(wsName string) string {
@@ -325,6 +327,9 @@ func (e *K8sDeployWorkspace) Attach(ctx context.Context) error {
 	ns := e.resolveNamespace(inst)
 	podName := k8sPodName(e.name)
 	kubeconfigArgs := e.kubeconfigArgs(inst)
+	if _, err := e.EnsureSession(ctx, SessionStartOptions{}); err != nil {
+		return err
+	}
 
 	// Set terminal background color for remote sessions if configured.
 	remoteBG := LoadRemoteBG(e.name, e.defs)
@@ -332,13 +337,9 @@ func (e *K8sDeployWorkspace) Attach(ctx context.Context) error {
 		SetRemoteBG(remoteBG)
 	}
 
-	// Check for existing Zellij session, attach or create.
+	// Attach to the canonical session created by EnsureSession.
 	args := append(kubeconfigArgs, "exec", "-it", "-n", ns, podName, "--", "zellij")
-	if k8sHasZellijSession(ctx, ns, podName, kubeconfigArgs) {
-		args = append(args, "attach")
-	} else {
-		args = append(args, "-n", "cc-deck")
-	}
+	args = append(args, "attach", ZellijSessionName(e.name))
 
 	cmd := exec.CommandContext(ctx, "kubectl", args...)
 	cmd.Stdin = os.Stdin
@@ -350,6 +351,35 @@ func (e *K8sDeployWorkspace) Attach(ctx context.Context) error {
 		fmt.Fprint(os.Stdout, ResetBGEscape)
 	}
 	return err
+}
+
+// EnsureSession idempotently creates the canonical session inside the Pod.
+func (e *K8sDeployWorkspace) EnsureSession(ctx context.Context, opts SessionStartOptions) (SessionStartResult, error) {
+	if opts.WebSharing {
+		return SessionStartResult{}, fmt.Errorf("sharing is currently supported for local workspaces only")
+	}
+	inst, err := e.store.FindInstanceByName(e.name)
+	if err != nil {
+		return SessionStartResult{}, err
+	}
+	ns := e.resolveNamespace(inst)
+	podName := k8sPodName(e.name)
+	kubeconfigArgs := e.kubeconfigArgs(inst)
+	name := ZellijSessionName(e.name)
+	names := k8sZellijSessionNames(ctx, ns, podName, kubeconfigArgs)
+	if slices.Contains(names, name) {
+		return SessionStartResult{Name: name}, nil
+	}
+	if hint := sessionRenameHint(e.name, name, names); hint != "" {
+		return SessionStartResult{}, errors.New(hint)
+	}
+	cmd := []string{"zellij", "--layout", "cc-deck", "attach", "-b", name}
+	if err := k8sExec(ctx, ns, podName, kubeconfigArgs, cmd, false); err != nil {
+		return SessionStartResult{}, fmt.Errorf("creating canonical session: %w", err)
+	}
+	inst.SessionState = SessionStateExists
+	_ = e.store.UpdateInstance(inst)
+	return SessionStartResult{Created: true, Name: name}, nil
 }
 
 // KillSession kills the Zellij session inside the K8s Pod without
@@ -876,21 +906,21 @@ func k8sStandardLabels(wsName string) map[string]string {
 	}
 }
 
-// k8sHasZellijSession checks whether a Zellij session is running in the Pod.
-func k8sHasZellijSession(ctx context.Context, ns, podName string, kubeconfigArgs []string) bool {
+// k8sZellijSessionNames lists the active (non-exited) Zellij session names
+// running in the Pod.
+func k8sZellijSessionNames(ctx context.Context, ns, podName string, kubeconfigArgs []string) []string {
 	args := append(kubeconfigArgs, "exec", "-n", ns, podName, "--", "zellij", "list-sessions", "-n")
 	cmd := exec.CommandContext(ctx, "kubectl", args...)
 	out, err := cmd.Output()
 	if err != nil {
-		return false
+		return nil
 	}
-	for _, line := range strings.Split(string(out), "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" && !strings.Contains(line, "(EXITED") {
-			return true
-		}
-	}
-	return false
+	return parseZellijSessionNames(string(out))
+}
+
+// k8sHasZellijSession checks whether a Zellij session is running in the Pod.
+func k8sHasZellijSession(ctx context.Context, ns, podName string, kubeconfigArgs []string) bool {
+	return len(k8sZellijSessionNames(ctx, ns, podName, kubeconfigArgs)) > 0
 }
 
 // k8sExec runs a command inside the K8s Pod.

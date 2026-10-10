@@ -11,8 +11,8 @@ import (
 
 	"github.com/cc-deck/cc-deck/internal/agent"
 	"github.com/cc-deck/cc-deck/internal/credential"
-	v1 "github.com/rhuss/openshell-sdk-go/openshell/v1"
 	"github.com/rhuss/openshell-sdk-go/openshell/v1/fake"
+	v1 "github.com/rhuss/openshell-sdk-go/openshell/v1"
 	"github.com/rhuss/openshell-sdk-go/openshell/v1/types"
 )
 
@@ -213,13 +213,13 @@ func (c *phaseOverrideClient) Sandboxes() v1.SandboxInterface {
 func (c *phaseOverrideClient) Providers() v1.ProviderInterface { return c.inner.Providers() }
 func (c *phaseOverrideClient) Services() v1.ServiceInterface   { return c.inner.Services() }
 func (c *phaseOverrideClient) Exec() v1.ExecInterface          { return c.inner.Exec() }
-func (c *phaseOverrideClient) Files() v1.FileInterface         { return c.inner.Files() }
-func (c *phaseOverrideClient) Health() v1.HealthInterface      { return c.inner.Health() }
-func (c *phaseOverrideClient) SSH() v1.SSHInterface            { return c.inner.SSH() }
-func (c *phaseOverrideClient) TCP() v1.TCPInterface            { return c.inner.TCP() }
-func (c *phaseOverrideClient) Config() v1.ConfigInterface      { return c.inner.Config() }
-func (c *phaseOverrideClient) Policy() v1.PolicyInterface      { return c.inner.Policy() }
-func (c *phaseOverrideClient) Close() error                    { return c.inner.Close() }
+func (c *phaseOverrideClient) Files() v1.FileInterface          { return c.inner.Files() }
+func (c *phaseOverrideClient) Health() v1.HealthInterface       { return c.inner.Health() }
+func (c *phaseOverrideClient) SSH() v1.SSHInterface             { return c.inner.SSH() }
+func (c *phaseOverrideClient) TCP() v1.TCPInterface             { return c.inner.TCP() }
+func (c *phaseOverrideClient) Config() v1.ConfigInterface       { return c.inner.Config() }
+func (c *phaseOverrideClient) Policy() v1.PolicyInterface       { return c.inner.Policy() }
+func (c *phaseOverrideClient) Close() error                     { return c.inner.Close() }
 
 type phaseOverrideSandboxClient struct {
 	inner v1.SandboxInterface
@@ -428,7 +428,8 @@ func TestSelectCredentialMode_ExplicitNoMatch(t *testing.T) {
 		{Spec: agent.CredentialSpec{Name: "api"}},
 	}
 	_, found, err := selectCredentialMode(available, "vertex")
-	assert.Error(t, err, "an explicit mode with no match must report why")
+	assert.ErrorContains(t, err, `auth mode "vertex" was requested`,
+		"an explicit mode with no match must report why")
 	assert.False(t, found)
 }
 
@@ -457,7 +458,7 @@ func TestMapToOpenShellProvider_Vertex(t *testing.T) {
 	resolved := credential.ResolvedCredentials{
 		EnvVars: map[string]string{
 			"ANTHROPIC_VERTEX_PROJECT_ID": "my-project",
-			"CLOUD_ML_REGION":             "us-east5",
+			"CLOUD_ML_REGION":            "us-east5",
 		},
 	}
 	name, pType, creds := mapToOpenShellProvider("ws1", spec, resolved)

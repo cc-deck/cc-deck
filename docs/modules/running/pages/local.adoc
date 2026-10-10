@@ -106,3 +106,27 @@ This removes the plugin, layouts, and hooks.
 * xref:using:sidebar.adoc[The Sidebar] to understand the UI
 * xref:using:navigation.adoc[Keyboard Navigation] for all shortcuts
 * xref:using:configuration.adoc[Configuration] for layout variants and custom keybindings
+
+== When a session stops responding
+
+A Zellij server can stop accepting new client connections while the session it
+holds carries on running.
+The session still appears in every listing, so nothing looks wrong until a
+command that talks to it never returns.
+
+cc-deck bounds every call it makes to a Zellij server, so such a command fails
+within seconds instead of hanging, and the failure names the recovery.
+
+[source]
+----
+Error: zellij delete-session --force cc-deck-demo: zellij is not responding after 10s
+  The session may still be running while its server refuses new clients.
+  Try:  cc-deck ws kill-session NAME
+  If that times out too, the server process for that session has to be
+  ended before the session can be removed.
+----
+
+If `cc-deck ws kill-session` also times out, end the server process for that one
+session only, then remove it with `cc-deck ws delete NAME --force`.
+Leave the servers for your other sessions alone.
+
