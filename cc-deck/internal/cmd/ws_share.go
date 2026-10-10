@@ -97,15 +97,12 @@ func readyAndMaybeShare(ctx context.Context, gf *GlobalFlags, workspace ws.Works
 	if err != nil {
 		return nil, ws.ReadyResult{}, err
 	}
-	configChanged, configErr := sharing.EnsureZellijWebSharing("")
-	if configErr != nil {
-		return nil, ws.ReadyResult{}, fmt.Errorf("configure Zellij web sharing: %w", configErr)
-	}
-	if configChanged {
-		fmt.Fprintln(os.Stderr, "Enabled web_sharing in Zellij config. A Zellij restart is required for this to take effect.")
-		fmt.Fprintf(os.Stderr, "Run: cc-deck ws kill-session %s, then cc-deck ws attach %s\n",
-			workspace.Name(), workspace.Name())
-		return nil, ws.ReadyResult{}, fmt.Errorf("web_sharing was just enabled in Zellij config; restart Zellij to activate it")
+	// Zellij's global web_sharing setting is left as the user set it. The
+	// canonical session opts in individually when it is created, which the
+	// default "off" permits; only "disabled" forbids that, and that is a choice
+	// cc-deck reports rather than overrides.
+	if err := sharing.CheckZellijWebSharing(""); err != nil {
+		return nil, ws.ReadyResult{}, err
 	}
 	service, err := makeWorkspaceShareService(gf, opts)
 	if err != nil {

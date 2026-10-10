@@ -217,6 +217,9 @@ The hex portion must be exactly 6 valid hexadecimal characters.
 
 | `ZELLIJ_CONFIG_DIR`
 | Zellij configuration directory. Default: `~/.config/zellij`
+
+| `ZELLIJ_CONFIG_FILE`
+| Zellij configuration file that the sharing prerequisite check reads for the `web_sharing` setting. Default: `config.kdl` inside `ZELLIJ_CONFIG_DIR`
 |===
 
 == File Locations

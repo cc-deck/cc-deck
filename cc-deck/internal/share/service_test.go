@@ -28,7 +28,11 @@ func (s *startStore) Save(op *SharingOperation) error {
 	if s.saveErr != nil {
 		return s.saveErr
 	}
+	// A faithful copy: the real store serialises, so later appends to the
+	// caller's slices must not show up in what was "written".
 	clone := *op
+	clone.Invitations = append([]InvitationRecord(nil), op.Invitations...)
+	clone.Residuals = append([]string(nil), op.Residuals...)
 	s.op = &clone
 	return nil
 }
@@ -155,6 +159,120 @@ func stringsContains(value, part string) bool {
 		}
 	}
 	return false
+}
+
+// observingZellij records what the store holds at the moment each resource is
+// about to be created, which is what an interrupted start would leave behind.
+type observingZellij struct {
+	*startZellij
+	store *startStore
+	seen  []string
+}
+
+func (z *observingZellij) observe() {
+	op := z.store.op
+	if op == nil {
+		z.seen = append(z.seen, "nothing on disk")
+		return
+	}
+	credentials := 0
+	for _, invitation := range op.Invitations {
+		if invitation.CredentialName != "" {
+			credentials++
+		}
+	}
+	// records and credentials are reported separately so that a record
+	// persisted before its credential exists shows up as a mismatch.
+	z.seen = append(z.seen, fmt.Sprintf("%s owned=%t records=%d credentials=%d", op.State, op.WebServerOwned, len(op.Invitations), credentials))
+}
+
+func (z *observingZellij) EnsureWebServer(ctx context.Context) (string, bool, error) {
+	z.observe()
+	return z.startZellij.EnsureWebServer(ctx)
+}
+
+func (z *observingZellij) CreateToken(ctx context.Context, label string, readOnly bool) (TokenCredential, error) {
+	z.observe()
+	return z.startZellij.CreateToken(ctx, label, readOnly)
+}
+
+// Everything Start creates is on disk before and after it is created. A start
+// killed part way through then leaves an operation the next command
+// reconciles, instead of live tokens and a web server nothing remembers.
+func TestStartRecordsEachResourceOnDiskBeforeCreatingTheNext(t *testing.T) {
+	store := &startStore{}
+	z := &observingZellij{startZellij: &startZellij{webStarted: true}, store: store}
+
+	_, err := NewService(store, z, &fakeEndpoint{}).Start(context.Background(), StartRequest{Workspace: "demo", Session: "selected"})
+
+	require.NoError(t, err)
+	starting := string(StateStarting)
+	require.Equal(t, []string{
+		starting + " owned=false records=0 credentials=0", // before the web server is started
+		starting + " owned=true records=0 credentials=0",  // before the first token is minted
+		starting + " owned=true records=1 credentials=1",  // before the second token is minted
+	}, z.seen, "a persisted record never names a credential that was not minted")
+	require.Equal(t, StateActive, store.op.State)
+}
+
+// Persisting early must not leave a record behind when a later step fails and
+// rollback succeeds in full.
+func TestStartRollbackRemovesTheRecordItPersisted(t *testing.T) {
+	store := &startStore{}
+	z := &startZellij{webStarted: true, fail: "create-observer-token"}
+
+	_, err := NewService(store, z, &fakeEndpoint{}).Start(context.Background(), StartRequest{Workspace: "demo", Session: "selected"})
+
+	require.Error(t, err)
+	require.Equal(t, 3, store.saves, "checkpointed before the web server, after it, and after the first token")
+	require.Nil(t, store.op, "a clean rollback leaves no record")
+	require.Contains(t, z.calls, "stop-web")
+	require.Len(t, z.revokedNames, 1, "the interactive credential is revoked")
+}
+
+// A record left by a start that was killed after minting one credential is
+// reconciled by the next start: the credential it names is revoked, the web
+// server it owned is stopped, and only then does the new share begin.
+func TestStartReconcilesARecordLeftByAKilledStart(t *testing.T) {
+	store := &startStore{op: &SharingOperation{
+		ID: "killed", Workspace: "demo", Session: "selected", State: StateStarting,
+		WebServerOwned: true,
+		Invitations: []InvitationRecord{
+			{Label: "first", CredentialName: "orphaned-interactive", Role: RoleInteractive, State: InvitationActive},
+		},
+	}}
+	z := &startZellij{webStarted: true}
+
+	got, err := NewService(store, z, &fakeEndpoint{}).Start(context.Background(), StartRequest{Workspace: "demo", Session: "selected"})
+
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	require.Contains(t, z.revokedNames, "orphaned-interactive", "the credential the killed start minted is revoked")
+	require.Equal(t, []string{"revoke-interactive", "stop-web", "validate-zellij", "session-exists", "web", "create-interactive-token", "create-observer-token"}, z.calls,
+		"cleanup of the old record completes before anything new is created")
+	require.Equal(t, StateActive, store.op.State)
+	require.Len(t, store.op.Invitations, 2)
+	require.NotContains(t, []string{store.op.Invitations[0].CredentialName, store.op.Invitations[1].CredentialName}, "orphaned-interactive")
+}
+
+// When the record cannot be removed during rollback, the failure is reported
+// as a residual and the record is left degraded rather than silently kept.
+func TestStartRollbackReportsARecordItCouldNotRemove(t *testing.T) {
+	store := &startStore{removeErr: errors.New("disk unavailable")}
+	z := &startZellij{webStarted: true, fail: "create-observer-token"}
+
+	_, err := NewService(store, z, &fakeEndpoint{}).Start(context.Background(), StartRequest{Workspace: "demo", Session: "selected"})
+
+	require.Error(t, err)
+	require.ErrorContains(t, err, "rollback residuals")
+	require.ErrorContains(t, err, "could not be removed")
+	require.NotNil(t, store.op)
+	require.Equal(t, StateDegraded, store.op.State)
+	// The degraded record reflects what the rollback already undid, so the
+	// next reconcile does not revoke a token Zellij no longer has.
+	require.True(t, store.op.WebServerStopped, "the web server stop is recorded")
+	require.Len(t, store.op.Invitations, 1)
+	require.Equal(t, InvitationRevoked, store.op.Invitations[0].State, "the revoked credential is recorded as revoked")
 }
 
 func TestStartRevealsBothRolesOnlyAfterReadinessAndPersistsNoSecrets(t *testing.T) {
@@ -318,11 +436,32 @@ func activeOperation() *SharingOperation {
 		ID: "operation", Session: "selected",
 		EndpointURL: "https://public.example",
 		Invitations: []InvitationRecord{
-			{Label: "interactive-label", Role: RoleInteractive, State: InvitationActive},
-			{Label: "observer-label", Role: RoleObserver, State: InvitationActive},
+			{Label: "interactive-label", CredentialName: "interactive-label", Role: RoleInteractive, State: InvitationActive},
+			{Label: "observer-label", CredentialName: "observer-label", Role: RoleObserver, State: InvitationActive},
 		},
 		State: StateActive,
 	}
+}
+
+// A record without a credential name is never revoked by label: labels are not
+// Zellij token names, and an unknown-token answer now counts as revoked, so
+// that call would silently mark a live credential as gone.
+func TestTeardownNeverRevokesByLabel(t *testing.T) {
+	op := activeOperation()
+	op.Invitations[1].CredentialName = ""
+	store, z := &startStore{op: op}, &startZellij{}
+
+	got, err := NewService(store, z, &fakeEndpoint{}).Stop(context.Background(), "")
+
+	require.Error(t, err)
+	require.ErrorContains(t, err, "observer-label")
+	require.ErrorContains(t, err, "no credential name")
+	require.Equal(t, []string{"interactive-label"}, z.revokedNames, "only the named credential is revoked")
+	require.Equal(t, StateDegraded, got.State)
+	require.Equal(t, InvitationActive, store.op.Invitations[1].State, "the unnamed record stays active for the user to resolve")
+
+	_, err = NewService(store, z, &fakeEndpoint{}).Revoke(context.Background(), "", "observer-label")
+	require.ErrorContains(t, err, "no recorded credential name")
 }
 
 func TestStopAttemptsEverySafetyActionAndRemovesState(t *testing.T) {
@@ -401,6 +540,37 @@ func TestStatusLeavesSharingIntactWhenZellijIsUnresponsive(t *testing.T) {
 	require.Equal(t, StateActive, store.op.State, "degraded state must not be persisted")
 	require.NotContains(t, z.calls, "stop-web")
 	require.Empty(t, z.revokedNames, "credentials must not be revoked")
+}
+
+// The same discipline applies to every other failure to ask. A binary missing
+// from this shell's PATH, a cancelled context, or an unexpected exit says
+// nothing about whether the session is alive, and each of them was once taken
+// as proof that it had ended.
+func TestStatusLeavesSharingIntactWhenZellijCannotBeAsked(t *testing.T) {
+	for name, sessionErr := range map[string]error{
+		"binary missing":    errors.New(`zellij list-sessions --no-formatting: exec: "zellij": executable file not found in $PATH`),
+		"context cancelled": context.Canceled,
+		"unexpected exit":   errors.New("zellij list-sessions --no-formatting: exit status 1"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			op := activeOperation()
+			op.WebServerOwned = true
+			store := &startStore{op: op}
+			z := &startZellij{sessionErr: sessionErr}
+
+			got, err := NewService(store, z, &fakeEndpoint{}).Status(context.Background())
+
+			require.Error(t, err)
+			require.ErrorIs(t, err, sessionErr)
+			require.Equal(t, StateDegraded, got.State, "reported as degraded to the caller")
+			require.Contains(t, got.Residuals[0], "could not be verified")
+
+			require.NotNil(t, store.op, "the operation must survive an inconclusive check")
+			require.Equal(t, StateActive, store.op.State, "degraded state must not be persisted")
+			require.NotContains(t, z.calls, "stop-web")
+			require.Empty(t, z.revokedNames, "credentials must not be revoked")
+		})
+	}
 }
 
 // The opposite case must keep working: a session positively reported absent is

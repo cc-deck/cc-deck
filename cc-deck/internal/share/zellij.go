@@ -17,9 +17,10 @@ import (
 // Declared as a variable so tests can shorten it.
 var zellijCommandTimeout = 10 * time.Second
 
-// ErrZellijUnresponsive marks a probe that could not determine an answer, as
-// opposed to one that positively established absence. An unresponsive server
-// is not evidence that a session ended, so cleanup must never run on it.
+// ErrZellijUnresponsive marks a call that timed out. Like every other error
+// from a zellij call, it is inconclusive: only a session positively reported
+// absent is evidence that sharing ended, so cleanup never runs on any error.
+// The sentinel lets callers name the timeout case in their diagnostics.
 var ErrZellijUnresponsive = errors.New("zellij is not responding")
 
 type ZellijCLI struct{ runner CommandRunner }
@@ -37,14 +38,18 @@ func (z *ZellijCLI) run(ctx context.Context, args ...string) (string, error) {
 		defer cancel()
 	}
 	b, e := z.runner.Run(ctx, "zellij", args...)
+	// The output is returned alongside a failure as well: Zellij reports some
+	// ordinary answers, such as an empty session list, through a non-zero exit,
+	// and a caller can only tell those apart from real failures by reading it.
+	out := strings.TrimSpace(string(b))
 	if e != nil {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return "", fmt.Errorf("zellij %s: %w (timed out after %s): %w",
+			return out, fmt.Errorf("zellij %s: %w (timed out after %s): %w",
 				strings.Join(args, " "), ErrZellijUnresponsive, zellijCommandTimeout, ctx.Err())
 		}
-		return "", fmt.Errorf("zellij %s: %w", strings.Join(args, " "), e)
+		return out, fmt.Errorf("zellij %s: %w", strings.Join(args, " "), e)
 	}
-	return strings.TrimSpace(string(b)), nil
+	return out, nil
 }
 func (z *ZellijCLI) ValidateCapabilities(ctx context.Context) error {
 	v, err := z.run(ctx, "--version")
@@ -84,6 +89,12 @@ func (z *ZellijCLI) ValidateCapabilities(ctx context.Context) error {
 func (z *ZellijCLI) SessionExists(ctx context.Context, requested string) (bool, error) {
 	out, err := z.run(ctx, "list-sessions", "--no-formatting")
 	if err != nil {
+		// Zellij answers an empty session list with a message and a non-zero
+		// exit. That is a positive answer, not an inability to ask, and must
+		// not be confused with the exec and timeout failures that are.
+		if strings.Contains(out, "No active zellij sessions") {
+			return false, nil
+		}
 		return false, err
 	}
 	var matches []string
@@ -147,8 +158,15 @@ func parseTokenCredential(out string, readOnly bool) (TokenCredential, error) {
 	return TokenCredential{Name: strings.TrimSpace(name), Secret: strings.TrimSpace(secret)}, nil
 }
 func (z *ZellijCLI) RevokeToken(ctx context.Context, label string) error {
-	_, e := z.run(ctx, "web", "--revoke-token", label)
-	return e
+	out, err := z.run(ctx, "web", "--revoke-token", label)
+	if err != nil && strings.Contains(out, "Token by that name does not exist") {
+		// Revocation is idempotent. A token Zellij no longer has is the
+		// outcome wanted, whether an earlier cleanup already removed it or
+		// the user revoked it by hand; reporting failure here would leave the
+		// operation degraded for good with nothing left to clean up.
+		return nil
+	}
+	return err
 }
 func (z *ZellijCLI) EnsureWebServer(ctx context.Context) (string, bool, error) {
 	out, err := z.run(ctx, "web", "--status")

@@ -2,11 +2,65 @@ package share
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 )
+
+// Zellij answers an empty session list with a message and a non-zero exit.
+// That is a positive answer, and the only failure of list-sessions that is.
+func TestSessionExistsTreatsAnEmptyListAsPositivelyAbsent(t *testing.T) {
+	listSessions := key("zellij", []string{"list-sessions", "--no-formatting"})
+	r := &fakeRunner{
+		outputs: map[string][]byte{listSessions: []byte("No active zellij sessions found.\n")},
+		errors:  map[string]error{listSessions: errors.New("exit status 1")},
+	}
+
+	got, err := NewZellij(r).SessionExists(context.Background(), "cc-deck-demo")
+
+	require.NoError(t, err)
+	require.False(t, got)
+}
+
+// Revocation is idempotent: a token Zellij no longer has is the outcome
+// wanted, so its "does not exist" answer is success, and only that answer is.
+func TestRevokeTokenTreatsAnUnknownTokenAsAlreadyRevoked(t *testing.T) {
+	revoke := key("zellij", []string{"web", "--revoke-token", "gone"})
+	r := &fakeRunner{
+		outputs: map[string][]byte{revoke: []byte("Token by that name does not exist.\n")},
+		errors:  map[string]error{revoke: errors.New("exit status 2")},
+	}
+	require.NoError(t, NewZellij(r).RevokeToken(context.Background(), "gone"))
+
+	failing := &fakeRunner{
+		outputs: map[string][]byte{revoke: []byte("Error occurred: could not open the token store\n")},
+		errors:  map[string]error{revoke: errors.New("exit status 1")},
+	}
+	require.ErrorContains(t, NewZellij(failing).RevokeToken(context.Background(), "gone"), "revoke-token")
+}
+
+func TestSessionExistsPropagatesEveryOtherFailure(t *testing.T) {
+	listSessions := key("zellij", []string{"list-sessions", "--no-formatting"})
+	for name, output := range map[string]string{
+		"error with output":    "Error occurred: failed to read the session directory\n",
+		"error without output": "",
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := &fakeRunner{
+				outputs: map[string][]byte{listSessions: []byte(output)},
+				errors:  map[string]error{listSessions: errors.New("exit status 1")},
+			}
+
+			got, err := NewZellij(r).SessionExists(context.Background(), "cc-deck-demo")
+
+			require.Error(t, err)
+			require.ErrorContains(t, err, "list-sessions")
+			require.False(t, got)
+		})
+	}
+}
 
 // deadlineRunner records the context deadline each call was given, and can
 // simulate a command that outlives it.

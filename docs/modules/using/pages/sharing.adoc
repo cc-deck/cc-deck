@@ -13,6 +13,11 @@ Install Zellij 0.44.3 or later, and have an endpoint serving before you share.
 Sharing is local-only, and only one workspace can be shared per host.
 Invitations are browser links: a session address paired with a login token.
 
+Zellij's global `web_sharing` setting may stay at its default of `off`.
+cc-deck opts the canonical session in individually when it creates it, and it never edits your Zellij configuration.
+Only `web_sharing "disabled"` blocks sharing: cc-deck reports it and leaves the choice to you.
+The configuration is read from the file named by `ZELLIJ_CONFIG_FILE` when that variable is set, from `config.kdl` inside `ZELLIJ_CONFIG_DIR` when that one is set, and from `~/.config/zellij/config.kdl` otherwise.
+
 The endpoint requirement is a deliberate cost.
 Earlier versions started a tunnel for you, which meant cc-deck owned a process it could not reliably supervise, and the failures that followed were worse than the convenience was worth.
 You now bring your own endpoint, and cc-deck verifies it before anyone receives an invitation.
@@ -100,24 +105,28 @@ Omitting the `Upgrade` and `Connection` lines is what produces the blank termina
 [source,nginx]
 ----
 server {
+    listen 443 ssl;                                                          # <1>
     server_name dev.example.com;
+    ssl_certificate     /etc/letsencrypt/live/dev.example.com/fullchain.pem; # <1>
+    ssl_certificate_key /etc/letsencrypt/live/dev.example.com/privkey.pem;   # <1>
 
     location / {
         proxy_pass http://127.0.0.1:8082;
-        proxy_http_version 1.1;                      # <1>
-        proxy_set_header Upgrade $http_upgrade;      # <2>
-        proxy_set_header Connection "upgrade";       # <2>
-        proxy_set_header Host $host;                 # <3>
-        proxy_buffering off;                         # <4>
-        proxy_read_timeout 86400s;                   # <5>
+        proxy_http_version 1.1;                      # <2>
+        proxy_set_header Upgrade $http_upgrade;      # <3>
+        proxy_set_header Connection "upgrade";       # <3>
+        proxy_set_header Host $host;                 # <4>
+        proxy_buffering off;                         # <5>
+        proxy_read_timeout 86400s;                   # <6>
     }
 }
 ----
-<1> WebSocket upgrades require HTTP/1.1.
-<2> Without both headers, pages load and terminals stay empty.
-<3> Preserves the origin so the `SameSite=Strict` cookie remains valid.
-<4> Terminals are streams, not documents.
-<5> A long read timeout keeps idle terminals connected.
+<1> Terminates TLS so the endpoint serves the `https://` address that the invitations carry; substitute your own certificate paths.
+<2> WebSocket upgrades require HTTP/1.1.
+<3> Without both headers, pages load and terminals stay empty.
+<4> Preserves the origin so the `SameSite=Strict` cookie remains valid.
+<5> Terminals are streams, not documents.
+<6> A long read timeout keeps idle terminals connected.
 
 === Cloudflare Tunnel
 
@@ -315,6 +324,7 @@ cc-deck ws revoke demo alice
 Each invitation has an independent credential.
 Omit `--name` for a random memorable label.
 The raw browser and terminal secrets print exactly once; later list and status output contains only labels and roles.
+Revocation is idempotent: a credential that Zellij no longer has, because an earlier cleanup or a manual `zellij web --revoke-token` already removed it, counts as revoked rather than as a failure.
 
 `ws invite` runs the same verification gate as `ws start --share`, and accepts the same `--endpoint`, `--endpoint-name`, and `--no-verify` flags.
 When verification fails, no credential is created and none is left behind.

@@ -630,8 +630,8 @@ The `cc-deck ws` command group manages Claude Code sessions across all supported
 | `cc-deck ws new` | Create a new workspace |
 | `cc-deck ws attach` | Attach to a workspace (auto-starts infrastructure if needed) |
 | `cc-deck ws kill-session` | Kill the Zellij session without affecting infrastructure |
-| `cc-deck ws start` | Start infrastructure for container/compose/k8s workspaces |
-| `cc-deck ws stop` | Stop infrastructure (kills session first, then stops container/pod) |
+| `cc-deck ws start` | Start infrastructure (if any) and create the canonical Zellij session |
+| `cc-deck ws stop` | End sharing, kill the session, then stop infrastructure (if any) |
 | `cc-deck ws delete` | Delete a workspace and its resources |
 | `cc-deck ws list` | List all workspaces with type-appropriate state display (also the default for a bare `cc-deck ws`; add `-v` for the sharing ENDPOINT column) |
 | `cc-deck ws status` | Show detailed status of a workspace |

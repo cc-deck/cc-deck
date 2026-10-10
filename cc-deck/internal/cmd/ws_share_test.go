@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -259,6 +260,28 @@ func useEnabledZellijConfig(t *testing.T) {
 	t.Setenv("ZELLIJ_CONFIG_FILE", path)
 }
 
+// A config that forbids web sharing outright is reported, not overridden. The
+// check never rewrites the file, and nothing is started or shared.
+func TestShareRefusesWhenZellijConfigDisablesWebSharing(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.kdl")
+	content := "web_sharing \"disabled\"\n"
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+	t.Setenv("ZELLIJ_CONFIG_FILE", path)
+	installEnsureReady(t, ws.ReadyResult{SessionCreated: true, SessionName: "cc-deck-scratch"})
+	installShareService(t, &failingShareService{startErr: errors.New("Start must not be reached")})
+
+	workspace := &stubWorkspace{name: "scratch", sessionState: ws.SessionStateNone}
+	invitations, _, err := readyAndMaybeShare(context.Background(), &GlobalFlags{}, workspace, true, shareOptions{})
+
+	require.ErrorContains(t, err, "disabled")
+	require.ErrorContains(t, err, path)
+	require.Empty(t, invitations)
+	require.False(t, workspace.killed)
+	after, readErr := os.ReadFile(path)
+	require.NoError(t, readErr)
+	require.Equal(t, content, string(after), "the user's config is never rewritten")
+}
+
 // installEnsureReady swaps the readiness step for the test's duration.
 func installEnsureReady(t *testing.T, result ws.ReadyResult) {
 	t.Helper()
@@ -495,26 +518,60 @@ func TestDegradedSharingWithoutAProbeReportsItsResiduals(t *testing.T) {
 }
 
 // A share whose last recorded check failed reads as degraded, and one that was
-// never checked reads as shared. There is no third value.
+// never checked reads as shared. There is no third value: an operation that is
+// still starting, still stopping, or already degraded is not a working share,
+// so it reads as degraded too.
 func TestSharingStateHasExactlyTwoValuesForASharedWorkspace(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
+		state sharing.LifecycleState
 		probe *sharing.ProbeResult
 		want  ws.WorkspaceSharingState
 	}{
-		{"never checked", nil, ws.SharingShared},
-		{"last check passed", &sharing.ProbeResult{OK: true, CheckedAt: time.Now()}, ws.SharingShared},
-		{"last check failed", &sharing.ProbeResult{OK: false, FailedAt: sharing.StageAuth, CheckedAt: time.Now()}, ws.SharingDegraded},
+		{"never checked", sharing.StateActive, nil, ws.SharingShared},
+		{"last check passed", sharing.StateActive, &sharing.ProbeResult{OK: true, CheckedAt: time.Now()}, ws.SharingShared},
+		{"last check failed", sharing.StateActive, &sharing.ProbeResult{OK: false, FailedAt: sharing.StageAuth, CheckedAt: time.Now()}, ws.SharingDegraded},
+		{"still starting", sharing.StateStarting, nil, ws.SharingDegraded},
+		{"still stopping", sharing.StateStopping, nil, ws.SharingDegraded},
+		{"degraded", sharing.StateDegraded, nil, ws.SharingDegraded},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			installShareService(t, &recordingShareService{status: sharing.SharingStatus{
-				State: sharing.StateActive, Workspace: "alpha", LastProbe: tc.probe,
+				State: tc.state, Workspace: "alpha", LastProbe: tc.probe,
 			}})
 			state, _, _, _, probe := newSharingSnapshot(&GlobalFlags{}).detailsWithProbe("alpha", ws.WorkspaceTypeLocal)
 			require.Equal(t, tc.want, state)
 			require.Equal(t, tc.probe, probe)
 		})
 	}
+}
+
+// unreadableShareService fails every read the way a corrupt state file does,
+// returning the zero status the real service returns alongside its error.
+type unreadableShareService struct {
+	recordingShareService
+	err error
+}
+
+func (s *unreadableShareService) Snapshot(context.Context) (sharing.SharingStatus, error) {
+	return sharing.SharingStatus{}, s.err
+}
+
+func (s *unreadableShareService) Status(context.Context) (sharing.SharingStatus, error) {
+	return sharing.SharingStatus{}, s.err
+}
+
+// A sharing state that cannot be read is unknown, and unknown must never be
+// rendered as private: that would hide a corrupt state file behind a listing
+// that looks perfectly healthy.
+func TestAnUnreadableSharingStateListsAsDegradedNotPrivate(t *testing.T) {
+	installShareService(t, &unreadableShareService{err: errors.New("share.yaml: yaml: line 3: mapping values are not allowed")})
+
+	state, _, _, residuals, _ := newSharingSnapshot(&GlobalFlags{}).detailsWithProbe("alpha", ws.WorkspaceTypeLocal)
+
+	require.Equal(t, ws.SharingDegraded, state)
+	require.Len(t, residuals, 1)
+	require.Contains(t, residuals[0], "share.yaml")
 }
 
 // tempSharingConfig writes a minimal config so endpoint resolution in tests

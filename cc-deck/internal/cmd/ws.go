@@ -1422,16 +1422,20 @@ func (s *sharingSnapshot) detailsWithProbe(name string, wsType ws.WorkspaceType)
 	}
 	s.load()
 	status, err := s.status, s.err
-	if err != nil && status.State == sharing.StateInactive {
+	// A read that failed outright carries either an explicit Inactive (set by
+	// load) or a zero status (returned by the service); both mean the state
+	// is unknown, and unknown must not render as private.
+	if err != nil && (status.State == "" || status.State == sharing.StateInactive) {
 		return ws.SharingDegraded, "", nil, []string{err.Error()}, nil
 	}
 	if status.State == sharing.StateInactive || status.Workspace != name {
 		return ws.SharingPrivate, "", nil, nil, nil
 	}
-	// Exactly two reported states, never a third. A share whose last check
-	// failed is degraded; anything else that is shared is shared.
+	// Exactly two reported states, never a third. Only an active share whose
+	// last check passed is shared; a share that is degraded, still starting,
+	// still stopping, or carrying residuals is degraded.
 	state := ws.SharingShared
-	if status.State == sharing.StateDegraded || len(status.Residuals) > 0 || err != nil {
+	if status.State != sharing.StateActive || len(status.Residuals) > 0 || err != nil {
 		state = ws.SharingDegraded
 	}
 	if status.LastProbe != nil && !status.LastProbe.OK {
@@ -1715,8 +1719,12 @@ func newStartCmdCore(gf *GlobalFlags) *cobra.Command {
 	var opts shareOptions
 	cmd := &cobra.Command{
 		Use:   "start [name]",
-		Short: "Start a stopped workspace",
-		Long: `Bring a stopped workspace back to a running state.
+		Short: "Bring a workspace to a ready state",
+		Long: `Start the workspace's infrastructure, if its type manages any, and create
+the canonical Zellij session if it does not exist yet. Applies to every
+workspace type, including local and SSH. With --share, the session is created
+with web sharing enabled and the invitations are printed.
+
 When no name is provided, auto-resolves from workspace definitions in the central store.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

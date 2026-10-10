@@ -1084,23 +1084,47 @@ cc-deck ws status -o json
 
 ==== ws start
 
-Start infrastructure for a stopped workspace.
-Only applies to workspace types that manage infrastructure (container, compose, k8s-deploy).
-For local and SSH workspaces, prints a suggestion to use `ws attach` instead.
-Does not create a Zellij session; use `ws attach` after starting.
+Bring a workspace to a ready state.
+For workspace types that manage infrastructure (container, compose, k8s-deploy, openshell), the infrastructure is started first.
+The canonical Zellij session is then created if it does not exist yet.
+This applies to every workspace type, including local and SSH workspaces.
+The command is idempotent and prints `Workspace "NAME" ready` when it finishes.
+Use `ws attach` to open the session.
+
+With `--share`, the session is created with web sharing enabled and invitations are printed.
+The sharing flags are described under <<_workspace_sharing_commands>>.
 
 [source,bash]
 ----
 cc-deck ws start mydev
 cc-deck ws start                     # resolves from workspace definitions
+cc-deck ws start mydev --share
 ----
+
+[cols="1,3"]
+|===
+|Flag |Description
+
+|`--share`
+|Create the canonical session with web sharing enabled and print the invitations.
+
+|`--endpoint URL`
+|Share through this endpoint address instead of the configured one. Requires `--share`.
+
+|`--endpoint-name NAME`
+|Share through the named endpoint from the configuration. Requires `--share` and cannot be combined with `--endpoint`.
+
+|`--no-verify`
+|Skip the endpoint verification that runs before invitations are issued.
+|===
 
 ==== ws stop
 
-Stop infrastructure and kill the Zellij session.
-Only applies to workspace types that manage infrastructure (container, compose, k8s-deploy).
-For local and SSH workspaces, prints a suggestion to use `ws kill-session` instead.
-The session is killed first, then the infrastructure is stopped.
+Stop a workspace completely.
+If the workspace is the shared one, its sharing operation is ended first and every invitation is revoked.
+The canonical Zellij session is then killed, and for workspace types that manage infrastructure, the infrastructure is stopped last.
+Local and SSH workspaces lose their session as well.
+Each step runs even when an earlier one fails, and the command reports every failure together.
 
 [source,bash]
 ----

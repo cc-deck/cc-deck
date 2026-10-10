@@ -229,7 +229,7 @@ func (e *SSHWorkspace) EnsureSession(ctx context.Context, opts SessionStartOptio
 	}
 	client := e.newSSHClient(def)
 	name := e.sshSessionName()
-	if e.remoteHasSession(client, name) {
+	if e.remoteHasSession(ctx, client, name) {
 		return SessionStartResult{Name: name}, nil
 	}
 
@@ -248,11 +248,26 @@ func (e *SSHWorkspace) EnsureSession(ctx context.Context, opts SessionStartOptio
 		}
 		log.Printf("NOTE: cc-deck layout not found on remote, using default layout")
 	}
-	for i := 0; i < 10; i++ {
-		if e.remoteHasSession(client, name) {
-			break
+	// create-background returns before the server is fully ready; attaching
+	// too early hits "unknown messages" in Zellij 0.44. The session counts as
+	// created only once the remote lists it, and the caller's cancellation
+	// ends the wait.
+	ready := false
+	for attempt := 0; attempt < 10 && !ready; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return SessionStartResult{}, ctx.Err()
+			case <-time.After(200 * time.Millisecond):
+			}
 		}
-		time.Sleep(200 * time.Millisecond)
+		ready = e.remoteHasSession(ctx, client, name)
+	}
+	if !ready {
+		if err := ctx.Err(); err != nil {
+			return SessionStartResult{}, err
+		}
+		return SessionStartResult{}, fmt.Errorf("remote Zellij session %q was created but did not become attachable", name)
 	}
 	if inst, err := e.store.FindInstanceByName(e.name); err == nil {
 		inst.SessionState = SessionStateExists
@@ -361,7 +376,7 @@ func (e *SSHWorkspace) Status(ctx context.Context) (*WorkspaceStatus, error) {
 	client := ssh.NewClient(inst.SSH.Host, inst.SSH.Port, inst.SSH.IdentityFile, inst.SSH.JumpHost, inst.SSH.SSHConfig)
 	sessionName := e.sshSessionName()
 
-	if e.remoteHasSession(client, sessionName) {
+	if e.remoteHasSession(ctx, client, sessionName) {
 		status.SessionState = SessionStateExists
 	} else if err := client.Check(ctx); err != nil {
 		status.Message = fmt.Sprintf("host unreachable: %v", err)
@@ -502,8 +517,8 @@ func (e *SSHWorkspace) loadDefinition() (*WorkspaceDefinition, error) {
 
 // remoteHasSession checks if a Zellij session with the given name exists
 // on the remote host. Uses a short timeout to avoid blocking.
-func (e *SSHWorkspace) remoteHasSession(client *ssh.Client, sessionName string) bool {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+func (e *SSHWorkspace) remoteHasSession(ctx context.Context, client *ssh.Client, sessionName string) bool {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	out, err := client.Run(ctx, "zellij list-sessions -n")

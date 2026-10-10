@@ -103,18 +103,28 @@ func (s *SharingService) Start(ctx context.Context, req StartRequest) ([]Invitat
 		if err != nil {
 			return err
 		}
+		// Invitation records are appended only once their credential exists, so
+		// a persisted record never names a credential that was not minted. A
+		// reconcile that revoked by label alone would fail against Zellij and
+		// leave the operation wedged as degraded.
 		op := &SharingOperation{
 			ID: id, Workspace: req.Workspace, Session: session,
 			EndpointName: ref.Name, EndpointURL: ref.BaseURL,
-			Invitations: []InvitationRecord{
-				{Label: interactiveLabel, Role: RoleInteractive, State: InvitationActive, CreatedAt: now},
-				{Label: observerLabel, Role: RoleObserver, State: InvitationActive, CreatedAt: now},
-			},
 			State: StateStarting, CreatedAt: now, UpdatedAt: now,
 		}
 
+		// Each undo step records its own success on the operation, so the
+		// degraded record a partial rollback leaves behind names only what is
+		// still outstanding. A later reconcile then never re-revokes a token
+		// Zellij no longer has, which would fail and wedge the record for good.
+		markRevoked := func(credentialName string) {
+			for i := range op.Invitations {
+				if op.Invitations[i].CredentialName == credentialName {
+					op.Invitations[i].State = InvitationRevoked
+				}
+			}
+		}
 		var undo []func(context.Context) error
-		persisted := false
 		rollback := func(cause error) error {
 			cleanupCtx, cancel := context.WithTimeout(context.Background(), rollbackTimeout)
 			defer cancel()
@@ -124,10 +134,10 @@ func (s *SharingService) Start(ctx context.Context, req StartRequest) ([]Invitat
 					residuals = append(residuals, rollbackErr.Error())
 				}
 			}
-			if persisted {
-				if rollbackErr := s.store.Remove(); rollbackErr != nil {
-					residuals = append(residuals, "operation state could not be removed: "+rollbackErr.Error())
-				}
+			// The record is on disk from the first checkpoint on, so a rollback
+			// always has one to remove.
+			if rollbackErr := s.store.Remove(); rollbackErr != nil {
+				residuals = append(residuals, "operation state could not be removed: "+rollbackErr.Error())
 			}
 			if len(residuals) == 0 {
 				return cause
@@ -135,6 +145,21 @@ func (s *SharingService) Start(ctx context.Context, req StartRequest) ([]Invitat
 			op.State, op.UpdatedAt, op.Residuals = StateDegraded, s.now().UTC(), residuals
 			_ = s.store.Save(op)
 			return fmt.Errorf("%w; rollback residuals: %s", cause, strings.Join(residuals, "; "))
+		}
+		// checkpoint writes what exists so far. A start killed between two
+		// checkpoints leaves a record the next command reconciles, instead of
+		// live tokens and a web server that nothing remembers starting.
+		checkpoint := func() error {
+			if err := s.store.Save(op); err != nil {
+				return rollback(err)
+			}
+			return nil
+		}
+
+		// The first checkpoint precedes any mutation, so it has nothing to roll
+		// back and returns the save error as is.
+		if err := s.store.Save(op); err != nil {
+			return err
 		}
 
 		_, webStarted, err := s.zellij.EnsureWebServer(ctx)
@@ -145,24 +170,53 @@ func (s *SharingService) Start(ctx context.Context, req StartRequest) ([]Invitat
 		// Teardown stops the web server only when this is true.
 		op.WebServerOwned = webStarted
 		if webStarted {
-			undo = append(undo, func(cleanupCtx context.Context) error { return s.zellij.StopWebServer(cleanupCtx) })
+			undo = append(undo, func(cleanupCtx context.Context) error {
+				if err := s.zellij.StopWebServer(cleanupCtx); err != nil {
+					return err
+				}
+				op.WebServerStopped = true
+				return nil
+			})
+		}
+		if err := checkpoint(); err != nil {
+			return err
 		}
 		interactiveCredential, err := s.zellij.CreateToken(ctx, interactiveLabel, false)
 		if err != nil {
 			return rollback(err)
 		}
 		undo = append(undo, func(cleanupCtx context.Context) error {
-			return s.zellij.RevokeToken(cleanupCtx, interactiveCredential.Name)
+			if err := s.zellij.RevokeToken(cleanupCtx, interactiveCredential.Name); err != nil {
+				return err
+			}
+			markRevoked(interactiveCredential.Name)
+			return nil
 		})
-		op.Invitations[0].CredentialName = interactiveCredential.Name
+		op.Invitations = append(op.Invitations, InvitationRecord{
+			Label: interactiveLabel, CredentialName: interactiveCredential.Name,
+			Role: RoleInteractive, State: InvitationActive, CreatedAt: now,
+		})
+		if err := checkpoint(); err != nil {
+			return err
+		}
 		observerCredential, err := s.zellij.CreateToken(ctx, observerLabel, true)
 		if err != nil {
 			return rollback(err)
 		}
-		op.Invitations[1].CredentialName = observerCredential.Name
 		undo = append(undo, func(cleanupCtx context.Context) error {
-			return s.zellij.RevokeToken(cleanupCtx, observerCredential.Name)
+			if err := s.zellij.RevokeToken(cleanupCtx, observerCredential.Name); err != nil {
+				return err
+			}
+			markRevoked(observerCredential.Name)
+			return nil
 		})
+		op.Invitations = append(op.Invitations, InvitationRecord{
+			Label: observerLabel, CredentialName: observerCredential.Name,
+			Role: RoleObserver, State: InvitationActive, CreatedAt: now,
+		})
+		if err := checkpoint(); err != nil {
+			return err
+		}
 
 		// The verification gate. It blocks: no invitation is printed until the
 		// endpoint has been shown to reach a live terminal, because an
@@ -183,11 +237,7 @@ func (s *SharingService) Start(ctx context.Context, req StartRequest) ([]Invitat
 			return rollback(err)
 		}
 		invitations = []Invitation{interactive, observer}
-		if err = s.store.Save(op); err != nil {
-			return rollback(err)
-		}
-		persisted = true
-		return nil
+		return checkpoint()
 	})
 	if err != nil {
 		return nil, err
@@ -332,7 +382,10 @@ func (s *SharingService) Revoke(ctx context.Context, workspace, label string) (S
 				status = statusFromOperation(op)
 				return nil
 			}
-			if err := s.zellij.RevokeToken(ctx, credentialName(op.Invitations[i])); err != nil {
+			if op.Invitations[i].CredentialName == "" {
+				return fmt.Errorf("invitation %q has no recorded credential name, so cc-deck cannot revoke it; remove the token in Zellij by hand", label)
+			}
+			if err := s.zellij.RevokeToken(ctx, op.Invitations[i].CredentialName); err != nil {
 				return err
 			}
 			op.Invitations[i].State = InvitationRevoked
@@ -362,17 +415,18 @@ func (s *SharingService) Status(ctx context.Context) (SharingStatus, error) {
 
 		status = statusFromOperation(op)
 		sessionExists, sessionErr := s.zellij.SessionExists(ctx, op.Session)
-		if errors.Is(sessionErr, ErrZellijUnresponsive) {
+		if sessionErr != nil {
+			// Every failure to ask is inconclusive: a timeout, a binary missing
+			// from this shell's PATH, a cancelled context, an unexpected exit.
+			// None of them says anything about whether the session is alive, and
+			// treating one as proof of absence once destroyed a live share from
+			// an ordinary status call.
 			return reportUnverified(op, &status, sessionErr)
 		}
-		if sessionErr != nil || !sessionExists {
+		if !sessionExists {
 			// A session positively reported absent is the one legitimate teardown
 			// trigger. Nothing else reaches reconcileLocked from here.
-			diagnostic := "canonical session disappeared"
-			if sessionErr != nil {
-				diagnostic = sessionErr.Error()
-			}
-			return s.reconcileLocked(ctx, op, &status, diagnostic)
+			return s.reconcileLocked(ctx, op, &status, "canonical session disappeared")
 		}
 		if op.State != StateActive {
 			return s.reconcileLocked(ctx, op, &status, "sharing operation is "+string(op.State))
@@ -540,7 +594,14 @@ func (s *SharingService) teardownLocked(ctx context.Context, op *SharingOperatio
 		steps = append(steps, cleanupStep{
 			fmt.Sprintf("%s credential %q may remain active", invitation.Role, invitation.Label),
 			func() error {
-				if err := s.zellij.RevokeToken(ctx, credentialName(invitation)); err != nil {
+				// A record without a credential name cannot be revoked by cc-deck.
+				// Revoking by label would hit a token that does not exist, and
+				// since that answer now counts as revoked, it would silently mark
+				// a live credential as gone. The residual says so instead.
+				if invitation.CredentialName == "" {
+					return fmt.Errorf("no credential name was recorded; remove the token in Zellij by hand")
+				}
+				if err := s.zellij.RevokeToken(ctx, invitation.CredentialName); err != nil {
 					return err
 				}
 				op.Invitations[invitationIndex].State = InvitationRevoked
@@ -587,11 +648,4 @@ func (s *SharingService) teardownLocked(ctx context.Context, op *SharingOperatio
 		return fmt.Errorf("sharing cleanup incomplete: %s; persist degraded state: %v", strings.Join(residuals, "; "), saveErr)
 	}
 	return fmt.Errorf("sharing cleanup incomplete: %s", strings.Join(residuals, "; "))
-}
-
-func credentialName(invitation InvitationRecord) string {
-	if invitation.CredentialName != "" {
-		return invitation.CredentialName
-	}
-	return invitation.Label
 }

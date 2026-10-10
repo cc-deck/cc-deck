@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strings"
 )
 
 func zellijConfigPath() string {
@@ -20,44 +19,32 @@ func zellijConfigPath() string {
 	return filepath.Join(dir, "config.kdl")
 }
 
-// EnsureZellijWebSharing checks the Zellij config.kdl for web_sharing "on"
-// and enables it if needed. Returns whether the config was modified.
-func EnsureZellijWebSharing(configPath string) (bool, error) {
+// webSharingDisabled matches an active (uncommented) web_sharing "disabled"
+// setting. Zellij's other two values both permit sharing: "on" shares every
+// session on the machine, and "off" (the default) shares only sessions that
+// opt in, which is what cc-deck does when it creates the canonical session.
+// Only "disabled" forbids that opt-in, so only "disabled" is a blocker.
+var webSharingDisabled = regexp.MustCompile(`(?m)^\s*web_sharing\s+"disabled"`)
+
+// CheckZellijWebSharing refuses to share when the user's Zellij config forbids
+// it. It never writes the config: the setting is global, so switching it to
+// "on" would expose every session on the machine rather than the one being
+// shared, and a user who chose "off" as a safeguard would lose it silently.
+// A missing config is fine, because Zellij's default is "off".
+func CheckZellijWebSharing(configPath string) error {
 	if configPath == "" {
 		configPath = zellijConfigPath()
 	}
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return false, fmt.Errorf("Zellij config not found at %s; create it with: zellij setup --dump-config > %s", configPath, configPath)
+			return nil
 		}
-		return false, fmt.Errorf("read Zellij config: %w", err)
+		return fmt.Errorf("read Zellij config: %w", err)
 	}
-	content := string(data)
-
-	uncommented := regexp.MustCompile(`(?m)^\s*web_sharing\s+"on"`)
-	if uncommented.MatchString(content) {
-		return false, nil
+	if webSharingDisabled.Match(data) {
+		return fmt.Errorf("web sharing is disabled in the Zellij config at %s (web_sharing \"disabled\"); "+
+			"change it to \"off\" so that sessions may opt in, then restart Zellij", configPath)
 	}
-
-	commented := regexp.MustCompile(`(?m)^(\s*)//\s*web_sharing\s+"on"(.*)$`)
-	if commented.MatchString(content) {
-		updated := commented.ReplaceAllString(content, `${1}web_sharing "on"${2}`)
-		if err := os.WriteFile(configPath, []byte(updated), 0644); err != nil {
-			return false, fmt.Errorf("enable web_sharing in Zellij config: %w", err)
-		}
-		return true, nil
-	}
-
-	var insertion string
-	if strings.Contains(content, "// web_sharing") {
-		re := regexp.MustCompile(`(?m)^(\s*)//\s*web_sharing\b.*$`)
-		insertion = re.ReplaceAllString(content, "${1}web_sharing \"on\"")
-	} else {
-		insertion = content + "\nweb_sharing \"on\"\n"
-	}
-	if err := os.WriteFile(configPath, []byte(insertion), 0644); err != nil {
-		return false, fmt.Errorf("add web_sharing to Zellij config: %w", err)
-	}
-	return true, nil
+	return nil
 }
