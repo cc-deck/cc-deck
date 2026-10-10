@@ -917,6 +917,16 @@ When run inside a git repo, the current project is auto-detected and included.
 |
 | Branch for the most recent `--repo` flag, repeatable.
 Requires a preceding `--repo`.
+
+| `--no-start`
+|
+| Register the workspace definition without starting infrastructure or creating the canonical session.
+`ws new` starts the workspace and creates the session by default; this flag opts out and cannot be combined with `--share`.
+
+| `--share`
+|
+| Enable workspace sharing once the workspace is ready (local workspaces only).
+A missing canonical session is created with web sharing enabled, and a running private session is never replaced.
 |===
 
 For openshell workspaces, when no explicit `policy` is set in the workspace definition, the policy file is extracted directly from the OCI image at `/etc/openshell/policy.yaml`.
@@ -960,7 +970,7 @@ An invitation pairs the endpoint with a login token, and the token is never stor
 ==== ws attach
 
 Attach to a workspace.
-Creates a Zellij session with the cc-deck layout if no session exists, or reattaches to an existing session.
+Creates the canonical session `cc-deck-<name>` with the cc-deck layout if it does not exist, or reattaches to it.
 For infrastructure-managed workspaces (container, compose, k8s-deploy), stopped infrastructure is auto-started before session creation.
 When no name is provided, resolves from workspace definitions in the central store.
 
@@ -979,6 +989,13 @@ cc-deck ws attach --branch feature   # land in a specific worktree
 |
 | Attach and land in a specific worktree directory inside the container
 |===
+
+[NOTE]
+====
+Sessions are now named `cc-deck-<name>` for every workspace type.
+A container, compose, or Kubernetes workspace created before this change holds a differently named session, so `ws attach` cannot find the canonical session and refuses with a recovery hint.
+Run `cc-deck ws kill-session <name>` once, then attach again: the next attach creates the canonical session.
+====
 
 ==== ws kill-session
 

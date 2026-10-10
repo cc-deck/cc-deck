@@ -2,9 +2,11 @@ package ws
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -366,8 +368,12 @@ func (e *ContainerWorkspace) EnsureSession(ctx context.Context, opts SessionStar
 	}
 	name := ZellijSessionName(e.name)
 	cName := containerName(e.name)
-	if ContainerHasZellijSession(ctx, cName) {
+	names := containerZellijSessionNames(ctx, cName)
+	if slices.Contains(names, name) {
 		return SessionStartResult{Name: name}, nil
+	}
+	if hint := sessionRenameHint(e.name, name, names); hint != "" {
+		return SessionStartResult{}, errors.New(hint)
 	}
 	if err := podman.Exec(ctx, cName, []string{"zellij", "--layout", "cc-deck", "attach", "-b", name}, false); err != nil {
 		return SessionStartResult{}, fmt.Errorf("creating canonical session: %w", err)

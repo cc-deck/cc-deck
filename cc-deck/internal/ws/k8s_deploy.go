@@ -2,10 +2,12 @@ package ws
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -364,8 +366,12 @@ func (e *K8sDeployWorkspace) EnsureSession(ctx context.Context, opts SessionStar
 	podName := k8sPodName(e.name)
 	kubeconfigArgs := e.kubeconfigArgs(inst)
 	name := ZellijSessionName(e.name)
-	if k8sHasZellijSession(ctx, ns, podName, kubeconfigArgs) {
+	names := k8sZellijSessionNames(ctx, ns, podName, kubeconfigArgs)
+	if slices.Contains(names, name) {
 		return SessionStartResult{Name: name}, nil
+	}
+	if hint := sessionRenameHint(e.name, name, names); hint != "" {
+		return SessionStartResult{}, errors.New(hint)
 	}
 	cmd := []string{"zellij", "--layout", "cc-deck", "attach", "-b", name}
 	if err := k8sExec(ctx, ns, podName, kubeconfigArgs, cmd, false); err != nil {
@@ -900,21 +906,21 @@ func k8sStandardLabels(wsName string) map[string]string {
 	}
 }
 
-// k8sHasZellijSession checks whether a Zellij session is running in the Pod.
-func k8sHasZellijSession(ctx context.Context, ns, podName string, kubeconfigArgs []string) bool {
+// k8sZellijSessionNames lists the active (non-exited) Zellij session names
+// running in the Pod.
+func k8sZellijSessionNames(ctx context.Context, ns, podName string, kubeconfigArgs []string) []string {
 	args := append(kubeconfigArgs, "exec", "-n", ns, podName, "--", "zellij", "list-sessions", "-n")
 	cmd := exec.CommandContext(ctx, "kubectl", args...)
 	out, err := cmd.Output()
 	if err != nil {
-		return false
+		return nil
 	}
-	for _, line := range strings.Split(string(out), "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" && !strings.Contains(line, "(EXITED") {
-			return true
-		}
-	}
-	return false
+	return parseZellijSessionNames(string(out))
+}
+
+// k8sHasZellijSession checks whether a Zellij session is running in the Pod.
+func k8sHasZellijSession(ctx context.Context, ns, podName string, kubeconfigArgs []string) bool {
+	return len(k8sZellijSessionNames(ctx, ns, podName, kubeconfigArgs)) > 0
 }
 
 // k8sExec runs a command inside the K8s Pod.

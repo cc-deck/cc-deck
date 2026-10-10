@@ -29,11 +29,11 @@ func (s *FileStore) Load() (*SharingOperation, error) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("read sharing state: %w", err)
+		return nil, fmt.Errorf("read sharing state %s: %w", s.path, err)
 	}
 	var op SharingOperation
 	if err = yaml.Unmarshal(b, &op); err != nil {
-		return nil, fmt.Errorf("parse sharing state: %w", err)
+		return nil, fmt.Errorf("parse sharing state %s: %w", s.path, err)
 	}
 	return &op, nil
 }
@@ -43,7 +43,7 @@ func (s *FileStore) Save(op *SharingOperation) error {
 	}
 	dir := filepath.Dir(s.path)
 	if err := os.MkdirAll(dir, 0700); err != nil {
-		return fmt.Errorf("create sharing state directory: %w", err)
+		return fmt.Errorf("create sharing state directory %s: %w", dir, err)
 	}
 	_ = os.Chmod(dir, 0700)
 	b, err := yaml.Marshal(op)
@@ -72,7 +72,7 @@ func (s *FileStore) Save(op *SharingOperation) error {
 		return err
 	}
 	if err = os.Rename(tmp, s.path); err != nil {
-		return fmt.Errorf("replace sharing state: %w", err)
+		return fmt.Errorf("replace sharing state %s: %w", s.path, err)
 	}
 	return os.Chmod(s.path, 0600)
 }

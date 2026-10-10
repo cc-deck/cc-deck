@@ -55,8 +55,5 @@ dist/
 
 # Base image digest tracking (local state)
 .base-images-digests.json
-**/.agents/
-**/.codex/
-**/.playwright-mcp/
 !**/.specify/spex.json
 transcript-*.txt

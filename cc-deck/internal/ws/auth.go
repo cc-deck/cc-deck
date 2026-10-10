@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"os/exec"
-	"strings"
 )
 
 // Deprecated: DetectAuthMode is superseded by credential.Detect() with agent-declared specs.
@@ -72,19 +71,19 @@ func DetectAuthCredentials(mode AuthMode, creds map[string]string) {
 	inject("ANTHROPIC_DEFAULT_HAIKU_MODEL")
 }
 
-// ContainerHasZellijSession checks whether any active (non-exited) Zellij
-// session is running inside the container.
-func ContainerHasZellijSession(ctx context.Context, containerName string) bool {
+// containerZellijSessionNames lists the active (non-exited) Zellij session
+// names running inside the container.
+func containerZellijSessionNames(ctx context.Context, containerName string) []string {
 	cmd := exec.CommandContext(ctx, "podman", "exec", containerName, "zellij", "list-sessions", "-n")
 	out, err := cmd.Output()
 	if err != nil {
-		return false
+		return nil
 	}
-	for _, line := range strings.Split(string(out), "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" && !strings.Contains(line, "(EXITED") {
-			return true
-		}
-	}
-	return false
+	return parseZellijSessionNames(string(out))
+}
+
+// ContainerHasZellijSession checks whether any active (non-exited) Zellij
+// session is running inside the container.
+func ContainerHasZellijSession(ctx context.Context, containerName string) bool {
+	return len(containerZellijSessionNames(ctx, containerName)) > 0
 }

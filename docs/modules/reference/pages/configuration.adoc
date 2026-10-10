@@ -132,8 +132,12 @@ Configure `sharing.endpoint` instead, and run the endpoint yourself.
 ====
 
 Sharing runtime state is not configuration.
-cc-deck stores non-secret operation metadata under `$XDG_STATE_HOME/cc-deck/` with restricted permissions so later lifecycle commands can reconcile an unclean exit.
+cc-deck stores non-secret operation metadata in `$XDG_STATE_HOME/cc-deck/share.yaml` with restricted permissions so later lifecycle commands can reconcile an unclean exit.
+Set `CC_DECK_SHARE_STATE_FILE` to override this path.
 Raw interactive and observer credentials are never persisted.
+
+If this file becomes corrupt, every sharing command fails with an error that names the file path.
+Remove the named file to recover; the next share starts from a clean state.
 
 === Voice Glossary
 

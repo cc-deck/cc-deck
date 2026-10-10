@@ -42,4 +42,6 @@ func TestFileStoreRejectsCorruption(t *testing.T) {
 	require.NoError(t, os.WriteFile(p, []byte(":"), 0600))
 	_, e := NewFileStore(p).Load()
 	require.Error(t, e)
+	// The error names the offending file so a wedged user can find and remove it.
+	require.Contains(t, e.Error(), p)
 }
