@@ -1,6 +1,6 @@
 # Brainstorm Overview
 
-Last updated: 2026-10-08
+Last updated: 2026-10-12
 
 ## Sessions
 
@@ -110,7 +110,7 @@ Last updated: 2026-10-08
 - Multiplayer focus modes: tab switch sync scope, per-client vs global mode state, session tracking in independent mode, focus_terminal_pane cross-client correctness (from #088)
 - Cross-pane MCP: prompt injection format across agents, timeout/error handling, temp file cleanup strategy, auto-add MCP config on install, voice relay infrastructure sharing, new pipe message type vs extension (from #089)
 - OpenShell profile delegation: profile name mapping granularity, auto-detection vs manifest declaration interaction, missing gateway profile handling, ephemeral profile lifecycle, AllowedDomains override migration (from #090)
-- Harness profiles: macOS Keychain OAuth transport to remote workspaces, Codex native profiles vs separate CODEX_HOME, wrapper bin dir and PATH per backend, snapshot command verbatim (spec 015), default_profile vs plain binary, per-session profile feeding OpenShell provider list (spec 085), pre-launch credentials check (from #093)
+- Harness profiles: Codex native profiles vs separate CODEX_HOME, default_profile vs plain binary, pre-launch credentials check; revisit 2026-10-12: directory-to-profile mapping deferred, Codex token equivalent for oauth_token, edge bar in other session listings (from #093)
 - OpenShell profile masking: gateway acceptance of imported profiles with renamed env vars, SDK profile import and delete surface, multiple Vertex service accounts per sandbox, anthropic-oauth capability detection, re-import on sync, Codex subscription variables as login vs env credentials, env file as home for profile color and icon (from #094)
 - Voice reading view: recording VAD values for quiet remote voices, end-to-end tdrz verification, turn continuity across chunk boundaries, pause breaks in tdrz mode, `g` key naming, tdrz model storage and download, turn mode persistence, whisper-cli failure fallback, speaker labels via embeddings as follow-up (from #095)
 - sandcast standalone build: profile id strategy for image-adapted copies, compiled policy fallback for gateways without profiles, refresh cadence for vendored upstream profiles and pinned mise, build plan format and stable API, fragment store lifecycle after promotion, portable skill format across OpenCode/Codex/pi, binary vs skill bundle version coupling, relationship to #090 profile delegation (from #096)
