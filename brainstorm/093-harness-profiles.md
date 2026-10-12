@@ -80,3 +80,66 @@ Design decisions made during brainstorming:
 - Should the existing `default_profile` in `config.yaml` influence the plain `claude` binary, or does plain `claude` always mean "no profile"? Keeping them separate avoids surprises but leaves `default_profile` as a Kubernetes-only setting.
 - For OpenShell, a Vertex profile needs Vertex network endpoints and an Anthropic profile needs Anthropic ones. How does the per-session profile feed the workspace-level provider list from spec 085 (profile delegation)? Likely the union of all profiles the workspace may run.
 - Does a profile need a lightweight `credentials check` to tell the user before launch that a referenced env var or file is missing on the host?
+
+---
+
+## Revisit: 2026-10-12
+
+### Updated Problem Framing
+
+The two-account setup (Vertex for work, subscription for private use) is now a daily reality rather than a plan. Spec 087 and PR #37 implement the design above, but the PR has sat open since 2026-09-09: 36 commits behind `main`, merge conflicts, failing `integration` CI job, no review. Reviewing it against the actual need surfaced three gaps:
+
+1. **The sidebar signal is too weak.** The profile color lives only on the harness glyph, and the glyph only appears when two or more (harness, profile) pairs are running. Knowing at a glance which account a session talks to is the core requirement, so the signal must be always present for profiled sessions.
+2. **Subscription tokens are not first-class.** `claude setup-token` creates a long-lived OAuth token that Claude Code reads from `CLAUDE_CODE_OAUTH_TOKEN`. Spec 087 only knows `api_key` and interactive `login: true`. A token source also answers the original open question about Keychain logins that cannot travel to remote workspaces: a token travels through the existing credential transport like an API key.
+3. **The PR needs to land.** The plumbing (wrappers, `CC_DECK_PROFILE`, per-profile config directories, snapshot restore with `claude-work --resume <id>`) matches the need and should not be redesigned.
+
+### New Approaches Considered
+
+Landing strategy:
+
+- **A: Revise spec 087 in place, then land PR #37 (chosen).** One spec, one PR, gaps fixed before users see the glyph-only behavior.
+- **B: Merge #37 unchanged, follow-up spec for the gaps.** Faster to merge, but ships a sidebar signal that is known to be insufficient and splits one feature over two specs.
+- **C: New branch cherry-picking the plumbing.** Clean history, but discards review artifacts and doubles the rebase work.
+
+Sidebar visualization (revisits the original glyph decision):
+
+- **Row background shade per profile: rejected again.** Same conflict as before with the cyan active row and amber cursor row; on the highlighted row the profile disappears.
+- **Left edge bar: chosen.** A one-column `▌` in the profile color on both lines of the entry. It survives active and cursor highlights, status fade and paused dimming, because it sits outside the highlighted area.
+- **Shade plus edge bar: rejected.** More visual noise than needed once the bar exists.
+- **Glyph color only, shown always: rejected.** Still too small a signal.
+
+Subscription auth:
+
+- **Add `auth.oauth_token`, keep `login: true` (chosen).**
+- **Replace `login` with `oauth_token`: rejected.** Interactive login remains useful locally.
+- **Generic `env` map: rejected.** Would put secrets into `config.yaml`.
+
+Directory-based profile selection (for example `~/work/**` maps to `work`) was considered and deferred. The wrapper name stays the only selector; the edge bar makes a wrong choice visible immediately.
+
+### Updated Decision
+
+Revise spec 087 on the existing `087-harness-profiles` branch, then land PR #37. Changes relative to the original decision:
+
+1. **Rebase and repair.** Rebase onto `main`, resolve conflicts, fix the failing `integration` CI job.
+2. **Profile edge bar replaces glyph coloring.** Every session with a profile shows a one-column `▌` in the profile color at the left edge of both entry lines, regardless of how many profiles are running. The bar is identity, not status: it does not fade, dim or change under active or cursor highlight. Sessions without a profile show a blank column. When no session in the sidebar has a profile, the column is not reserved and the sidebar looks exactly as today.
+3. **Glyph returns to harness brand color.** The bar carries the profile, the glyph carries the harness. The glyph show rule reverts to "more than one harness running". A profile `icon` still replaces the glyph. The help overlay legend shows the bar color next to each profile name.
+4. **Distinct default colors.** Profiles without an explicit `color` get a color from a palette of well-separated hues (truecolor, as the sidebar already uses), so two derived colors are never near-identical shades.
+5. **`auth.oauth_token`.** New credential with `{env: NAME}` or `{file: path}` source, exported as `CLAUDE_CODE_OAUTH_TOKEN` by the Claude translator and delivered through the credential transport like `api_key`. Mutually exclusive with `api_key` and `login`.
+6. **Hook hot path.** The wrapper exports `CC_DECK_PROFILE_COLOR` and `CC_DECK_PROFILE_ICON`; the hook reads them and falls back to loading `config.yaml` only when absent (idea inbox `hook-profile-env-cache`).
+
+### Key Requirements (delta to spec 087)
+
+- User Story 2 and its acceptance scenarios are rewritten around the edge bar instead of the glyph color.
+- FR-002 and FR-005 gain `oauth_token` with env and file sources and the mutual exclusion rule.
+- The Claude translator maps `oauth_token` to `CLAUDE_CODE_OAUTH_TOKEN`; wrappers still never embed the value.
+- The color derivation produces hues with a guaranteed minimum distance for the first N profiles.
+- The guide page shows the Vertex plus subscription-token setup end to end and documents `claude setup-token`.
+- Tests cover: bar presence and absence, bar under active and cursor highlight, column not reserved without profiles, `oauth_token` validation and rendering.
+
+### Open Threads
+
+- Directory-to-profile mapping (default profile per path glob, or a mismatch warning badge), deferred.
+- OpenShell credential masking stays a separate follow-up (#094, issue #38).
+- Wrapper delivery for podman, compose and Kubernetes backends stays in the idea inbox.
+- Does Codex have a token equivalent that should share the `oauth_token` field, or is it Claude-only?
+- Should the edge bar also appear in other surfaces that list sessions (for example `cc-deck ws status` output)?
