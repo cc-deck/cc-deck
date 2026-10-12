@@ -6,14 +6,28 @@ import "time"
 type WorkspaceType string
 
 const (
-	WorkspaceTypeLocal     WorkspaceType = "local"
-	WorkspaceTypeContainer WorkspaceType = "container"
+	WorkspaceTypeLocal      WorkspaceType = "local"
+	WorkspaceTypeContainer  WorkspaceType = "container"
 	WorkspaceTypeCompose    WorkspaceType = "compose"
 	WorkspaceTypeK8sDeploy  WorkspaceType = "k8s-deploy"
 	WorkspaceTypeK8sSandbox WorkspaceType = "k8s-sandbox"
 	WorkspaceTypeSSH        WorkspaceType = "ssh"
 	WorkspaceTypeOpenShell  WorkspaceType = "openshell"
 )
+
+type WorkspaceSharingState string
+
+const (
+	SharingPrivate     WorkspaceSharingState = "private"
+	SharingShared      WorkspaceSharingState = "shared"
+	SharingDegraded    WorkspaceSharingState = "degraded"
+	SharingUnsupported WorkspaceSharingState = "unsupported"
+)
+
+type InvitationSummary struct {
+	Label string `json:"label" yaml:"label"`
+	Role  string `json:"role" yaml:"role"`
+}
 
 // WorkspaceState represents the current state of a workspace.
 type WorkspaceState string
@@ -124,7 +138,7 @@ type SSHFields struct {
 
 // OpenShellFields holds fields for an OpenShell workspace.
 type OpenShellFields struct {
-	SandboxID  string `yaml:"sandbox_id,omitempty"`
+	SandboxID   string `yaml:"sandbox_id,omitempty"`
 	GatewayAddr string `yaml:"gateway_addr,omitempty"`
 }
 
@@ -143,8 +157,8 @@ type WorkspaceInstance struct {
 	Name         string            `yaml:"name"`
 	Type         WorkspaceType     `yaml:"type"`
 	State        WorkspaceState    `yaml:"state,omitempty"`
-	InfraState   *InfraStateValue   `yaml:"infra_state,omitempty"`
-	SessionState SessionStateValue  `yaml:"session_state"`
+	InfraState   *InfraStateValue  `yaml:"infra_state,omitempty"`
+	SessionState SessionStateValue `yaml:"session_state"`
 	CreatedAt    time.Time         `yaml:"created_at"`
 	LastAttached *time.Time        `yaml:"last_attached,omitempty"`
 	Container    *ContainerFields  `yaml:"container,omitempty"`

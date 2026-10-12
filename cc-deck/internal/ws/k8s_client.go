@@ -16,6 +16,7 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/util/retry"
 )
 
 // K8sClient wraps Kubernetes client-go for workspace lifecycle operations.
@@ -92,12 +93,19 @@ func (c *K8sClient) DeleteStatefulSet(ctx context.Context, ns, name string) erro
 
 // ScaleStatefulSet updates the replica count of a StatefulSet.
 func (c *K8sClient) ScaleStatefulSet(ctx context.Context, ns, name string, replicas int32) error {
-	scale, err := c.clientset.AppsV1().StatefulSets(ns).GetScale(ctx, name, metav1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("getting scale for StatefulSet %s/%s: %w", ns, name, err)
-	}
-	scale.Spec.Replicas = replicas
-	_, err = c.clientset.AppsV1().StatefulSets(ns).UpdateScale(ctx, name, scale, metav1.UpdateOptions{})
+	// The StatefulSet controller bumps the object's resourceVersion right after
+	// creation, so a GetScale/UpdateScale pair can lose an optimistic-concurrency
+	// race ("the object has been modified"). Retry on conflict by re-reading the
+	// scale subresource and re-applying the desired replica count.
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		scale, err := c.clientset.AppsV1().StatefulSets(ns).GetScale(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		scale.Spec.Replicas = replicas
+		_, err = c.clientset.AppsV1().StatefulSets(ns).UpdateScale(ctx, name, scale, metav1.UpdateOptions{})
+		return err
+	})
 	if err != nil {
 		return fmt.Errorf("scaling StatefulSet %s/%s to %d: %w", ns, name, replicas, err)
 	}

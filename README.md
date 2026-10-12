@@ -249,6 +249,43 @@ Auto-sort uses stable active and paused zones. Focusing or clicking a session ne
 
 **Known limitation:** Keyboard shortcuts (Alt+s, Alt+a, Alt+w) work for the primary client only. Other clients use mouse clicks for session navigation. This is due to Zellij pipe messages not carrying client identity (tracked upstream).
 
+### Share a Zellij session
+
+Workspace sharing temporarily exposes one local workspace's canonical Zellij session. Interactive invitations grant trusted collaborators full control; observer invitations are read-only. Invitations have memorable labels and can be revoked independently.
+
+Sharing works through an endpoint you already run. cc-deck does not create one, does not start one, and never stops one. Configure it first:
+
+```yaml
+# ~/.config/cc-deck/config.yaml
+sharing:
+  endpoint: https://dev.example.com
+  verify_timeout: 15s
+```
+
+```bash
+cc-deck ws new demo --share
+cc-deck ws start demo --share
+cc-deck ws start demo --share --endpoint https://other.example.com
+cc-deck ws attach demo --share
+cc-deck ws invite demo --role interactive --name alice
+cc-deck ws invite demo --role observer
+cc-deck ws revoke demo alice
+cc-deck ws unshare demo
+```
+
+Sharing is local-only and requires Zellij 0.44.3 or later plus an endpoint that is already serving. Only one workspace may be shared per host. Raw invitation secrets print once; `ws list` and `ws status` show only safe labels, roles, endpoint, and `private|shared|degraded` state.
+
+Before printing any invitation, cc-deck verifies the endpoint in five layers: DNS, TLS, HTTP, auth, and the WebSocket upgrade. A failure names the layer that failed rather than leaving you to guess. The layer that matters most is the last one: a proxy that forwards HTTP but drops the `Upgrade` header produces a page that loads and a terminal that never fills, and that now fails the command instead of reaching your collaborator. Pass `--no-verify` to skip the check.
+
+Listings never verify. They render the last recorded result and its age, so `cc-deck ws` stays as fast on a shared workspace as on a private one.
+
+> [!CAUTION]
+> Interactive access grants control of the entire shared terminal session. Share that invitation only with people you trust. Terminal attachment is experimental in V1: its generated command uses `--insecure`, which disables server certificate validation and creates an interception risk. Browser access validates the public endpoint normally.
+
+`cc-deck ws unshare demo` revokes every active invitation while keeping the canonical session running. It stops nothing cc-deck did not start: your endpoint is untouched, and a Zellij web server that was already running when you shared stays running. `--share` never replaces a private running session, and a share that fails verification leaves the workspace running and usable. If a shared session dies (for example with Zellij's `Ctrl+q`), the next command tears sharing down; a plain start or attach recreates the session privately. Treat degraded status as possible residual exposure.
+
+See the [session sharing guide](https://cc-deck.github.io/docs/cc-deck/0.1/using/sharing.html) for prerequisites, joining instructions, and recovery details.
+
 ---
 
 ## Usage
@@ -593,10 +630,10 @@ The `cc-deck ws` command group manages Claude Code sessions across all supported
 | `cc-deck ws new` | Create a new workspace |
 | `cc-deck ws attach` | Attach to a workspace (auto-starts infrastructure if needed) |
 | `cc-deck ws kill-session` | Kill the Zellij session without affecting infrastructure |
-| `cc-deck ws start` | Start infrastructure for container/compose/k8s workspaces |
-| `cc-deck ws stop` | Stop infrastructure (kills session first, then stops container/pod) |
+| `cc-deck ws start` | Start infrastructure (if any) and create the canonical Zellij session |
+| `cc-deck ws stop` | End sharing, kill the session, then stop infrastructure (if any) |
 | `cc-deck ws delete` | Delete a workspace and its resources |
-| `cc-deck ws list` | List all workspaces with type-appropriate state display |
+| `cc-deck ws list` | List all workspaces with type-appropriate state display (also the default for a bare `cc-deck ws`; add `-v` for the sharing ENDPOINT column) |
 | `cc-deck ws status` | Show detailed status of a workspace |
 | `cc-deck ws prune` | Remove stale project registry entries |
 

@@ -9,12 +9,12 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
 	ccconfig "github.com/cc-deck/cc-deck/internal/config"
-	"github.com/cc-deck/cc-deck/internal/voice"
 	voicetui "github.com/cc-deck/cc-deck/internal/tui/voice"
+	"github.com/cc-deck/cc-deck/internal/voice"
 	"github.com/cc-deck/cc-deck/internal/ws"
 	"github.com/cc-deck/cc-deck/internal/xdg"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 )
 
@@ -50,16 +50,16 @@ activity detection (VAD) with mute/unmute toggle.`,
 				return fmt.Errorf("workspace name required (or use --setup / --list-devices)")
 			}
 			vadFlags := vadOverrides{
-				threshold:       threshold,
-				thresholdSet:    c.Flags().Changed("threshold"),
-				silence:         silence,
-				silenceSet:      c.Flags().Changed("silence"),
-				preRoll:         preRoll,
-				preRollSet:      c.Flags().Changed("pre-roll"),
-				hangover:        hangover,
-				hangoverSet:     c.Flags().Changed("hangover"),
-				minSpeech:       minSpeech,
-				minSpeechSet:    c.Flags().Changed("min-speech"),
+				threshold:    threshold,
+				thresholdSet: c.Flags().Changed("threshold"),
+				silence:      silence,
+				silenceSet:   c.Flags().Changed("silence"),
+				preRoll:      preRoll,
+				preRollSet:   c.Flags().Changed("pre-roll"),
+				hangover:     hangover,
+				hangoverSet:  c.Flags().Changed("hangover"),
+				minSpeech:    minSpeech,
+				minSpeechSet: c.Flags().Changed("min-speech"),
 			}
 			return runVoiceRelay(args[0], model, verbose, serverPort, vadFlags)
 		},

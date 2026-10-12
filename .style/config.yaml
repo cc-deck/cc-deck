@@ -1,0 +1,23 @@
+# Style Configuration
+# Location: .style/
+# Scope: project (cc-deck)
+#
+# Configuration hierarchy:
+#   1. Plugin defaults
+#   2. Global config (~/.claude/style/)
+#   3. Project config (.style/) - highest priority
+
+severity_threshold: medium
+
+style:
+  target_sentence_length: 15
+  max_sentence_length: 40
+  target_active_voice_pct: 80
+  passive_voice_threshold: 20
+
+consistency:
+  duplication_similarity: 0.65
+  filler_word_density_max: 3.0
+
+voice:
+  default_profile: cc-deck

@@ -109,3 +109,65 @@ Ideas captured from code reviews for future brainstorming.
 - **Summary**: The Kubernetes deploy backend gets no profile wrappers. Two gaps: no delivery step (`kubectl cp` and `kubectl exec` target), and profiles for this backend use `{secret: <k8s-secret>}` sources, which `Render` refuses because the value is not a host env var or file.
 
 > Map a `secret` source to the mounted path or env var the pod exposes (`InjectK8s` already produces Secret data and volume mounts), so the translator can render `${NAME:?}` or a file check against the in-pod location. Then add a `Target` over `kubectl cp`/`kubectl exec` and call `profile.Provision` from `K8sDeployWorkspace.Create`. Until then Kubernetes keeps the single workspace-level profile selected by `default_profile`.
+### endpoint-name-dual-meaning
+
+- **Source**: deep-review
+- **Date**: 2026-09-07
+- **Reference**: 087-workspace-sharing-endpoint
+- **Summary**: `StaticEndpoint.Name()` returns the implementation kind while `EndpointRef.Name` carries the configured endpoint name, so "name" means two things in one package.
+
+> When the Endpoint interface gains a second implementation, implementors will need to know that Name() identifies the implementation, not the user's endpoint. Consider renaming to Kind().
+
+### dead-invitation-set-api
+
+- **Source**: deep-review
+- **Date**: 2026-09-07
+- **Reference**: 087-workspace-sharing-endpoint
+- **Summary**: `BuildInvitations` and `InvitationSet` have no production caller and are kept alive only by their own tests.
+
+> Tests covering dead code are worse than no tests because they provide false coverage confidence. Pre-existing, not introduced by this feature.
+
+### observation-save-errors-discarded
+
+- **Source**: deep-review
+- **Date**: 2026-09-07
+- **Reference**: 087-workspace-sharing-endpoint
+- **Summary**: recordProbe and reconcileLocked both discard the store.Save error, so a disk failure silently loses a probe observation.
+
+> Deliberate: an observation must not become a state change, and cleanup must not be blocked by persistence failure. But it means FR-047's "MUST update" is best-effort under disk error, with no signal to the user.
+
+### status-cost-two-subprocess-spawns
+
+- **Source**: deep-review
+- **Date**: 2026-09-07
+- **Reference**: 087-workspace-sharing-endpoint
+- **Summary**: Every `ws status` mints and revokes a Zellij token, so status will never be sub-second even on a healthy system.
+
+> An accepted trade for storing no standing secret. Worth revisiting if status latency becomes a complaint, for example by reusing a short-lived credential within one command.
+
+### e2e-coverage-lost-without-zellij
+
+- **Source**: deep-review
+- **Date**: 2026-09-07
+- **Reference**: 087-workspace-sharing-endpoint
+- **Summary**: The three end to end tests skip when zellij is absent, and they are the only coverage of the real network stack and real binary.
+
+> These caught the web_client_id disagreement that every offline fake had missed. CI without Zellij installed silently loses that class of coverage.
+
+### probe-credential-in-memory-lifetime
+
+- **Source**: deep-review
+- **Date**: 2026-09-07
+- **Reference**: 087-workspace-sharing-endpoint
+- **Summary**: The login body holding the probe credential stays reachable through bytes.NewReader longer than strictly necessary.
+
+> Acceptable for a short-lived CLI. Redaction coverage on diagnostics was confirmed complete; this is about in-memory residency, not disclosure.
+
+### configurable-public-dns-resolver
+
+- **Source**: deep-review
+- **Date**: 2026-09-07
+- **Reference**: 087-workspace-sharing-endpoint
+- **Summary**: The DNS second opinion is hardcoded to Cloudflare at 1.1.1.1 with no way to change or disable it.
+
+> Now documented, but on a restrictive or audited network a user may want to choose their own second-opinion resolver or turn the query off entirely.

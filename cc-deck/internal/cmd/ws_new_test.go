@@ -274,7 +274,7 @@ func TestWriteWsStructured_IncludesProjectField(t *testing.T) {
 	require.NoError(t, pipeErr)
 	os.Stdout = w
 
-	err := writeWsStructured("json", instances, nil, instanceNames, "", projectMap)
+	err := writeWsStructured(&GlobalFlags{}, "json", instances, nil, instanceNames, "", projectMap)
 	require.NoError(t, err)
 
 	w.Close()
@@ -289,6 +289,7 @@ func TestWriteWsStructured_IncludesProjectField(t *testing.T) {
 }
 
 func TestWriteWsTable_HasProjectColumn(t *testing.T) {
+	t.Setenv("CC_DECK_SHARE_STATE_FILE", filepath.Join(t.TempDir(), "share.yaml"))
 	projectMap := map[string]string{"proj-ws": "my-project"}
 	instances := []*ws.WorkspaceInstance{
 		{Name: "proj-ws", Type: ws.WorkspaceTypeLocal, State: ws.WorkspaceStateRunning},
@@ -300,7 +301,7 @@ func TestWriteWsTable_HasProjectColumn(t *testing.T) {
 	require.NoError(t, pipeErr)
 	os.Stdout = w
 
-	err := writeWsTableWithProjects(instances, nil, instanceNames, "", projectMap, false)
+	err := writeWsTableWithProjects(&GlobalFlags{}, instances, nil, instanceNames, "", projectMap, false)
 	require.NoError(t, err)
 
 	w.Close()
@@ -321,7 +322,7 @@ func TestWriteWsTable_EmptyShowsNoHeader(t *testing.T) {
 	require.NoError(t, pipeErr)
 	os.Stdout = w
 
-	err := writeWsTableWithProjects(nil, nil, map[string]bool{}, "", map[string]string{}, false)
+	err := writeWsTableWithProjects(&GlobalFlags{}, nil, nil, map[string]bool{}, "", map[string]string{}, false)
 	require.NoError(t, err)
 
 	w.Close()
@@ -424,17 +425,17 @@ func newTestStubAgent(name string, specs []agent.CredentialSpec) *testStubAgent 
 	return &testStubAgent{name: name, specs: specs}
 }
 
-func (s *testStubAgent) Name() string                                         { return s.name }
-func (s *testStubAgent) DisplayName() string                                  { return s.name }
-func (s *testStubAgent) Indicator() string                                    { return s.name }
-func (s *testStubAgent) IsInstalled() bool                                    { return false }
-func (s *testStubAgent) DetectConfig() string                                 { return "" }
-func (s *testStubAgent) InstallHooks() error                                  { return nil }
-func (s *testStubAgent) UninstallHooks() error                                { return nil }
-func (s *testStubAgent) HooksInstalled() bool                                 { return false }
+func (s *testStubAgent) Name() string                                              { return s.name }
+func (s *testStubAgent) DisplayName() string                                       { return s.name }
+func (s *testStubAgent) Indicator() string                                         { return s.name }
+func (s *testStubAgent) IsInstalled() bool                                         { return false }
+func (s *testStubAgent) DetectConfig() string                                      { return "" }
+func (s *testStubAgent) InstallHooks() error                                       { return nil }
+func (s *testStubAgent) UninstallHooks() error                                     { return nil }
+func (s *testStubAgent) HooksInstalled() bool                                      { return false }
 func (s *testStubAgent) TranslateEvent(_ []byte) (*agent.NormalizedPayload, error) { return nil, nil }
-func (s *testStubAgent) CredentialSpecs() []agent.CredentialSpec              { return s.specs }
-func (s *testStubAgent) RequiredDomainGroups() []string                      { return nil }
+func (s *testStubAgent) CredentialSpecs() []agent.CredentialSpec                   { return s.specs }
+func (s *testStubAgent) RequiredDomainGroups() []string                            { return nil }
 
 func TestWsPrune_IsNoOp(t *testing.T) {
 	cmd := newWsPruneCmd()

@@ -71,8 +71,8 @@ func newSnapshotListCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:     "list",
 		Aliases: []string{"ls"},
-		Short: "List saved snapshots",
-		Args:  cobra.NoArgs,
+		Short:   "List saved snapshots",
+		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSnapshotList()
 		},

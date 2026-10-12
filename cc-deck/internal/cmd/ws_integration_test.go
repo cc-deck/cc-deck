@@ -31,9 +31,18 @@ func buildRootCmd(gf *cmd.GlobalFlags) *cobra.Command {
 func setupTestWs(t *testing.T) (stateDir string) {
 	t.Helper()
 
+	// Detach from any Zellij session the suite is being run from. Creating a
+	// canonical session is refused inside one, because the command would add a
+	// tab to the caller's live session rather than create anything. These tests
+	// used to pass by doing exactly that to the developer's own session.
+	t.Setenv("ZELLIJ", "")
+	t.Setenv("ZELLIJ_SESSION_NAME", "")
+	t.Setenv("ZELLIJ_PANE_ID", "")
+
 	stateDir = t.TempDir()
 	stateFile := filepath.Join(stateDir, "state.yaml")
 	t.Setenv("CC_DECK_STATE_FILE", stateFile)
+	t.Setenv("CC_DECK_SHARE_STATE_FILE", filepath.Join(stateDir, "share.yaml"))
 
 	// Isolate definition store so system definitions don't leak into tests.
 	defsFile := filepath.Join(stateDir, "workspaces.yaml")
@@ -253,10 +262,10 @@ func TestWsStopLocal(t *testing.T) {
 	_, _, err := run(t, gf, "ws", "new", "stoptest", "--type", "local")
 	require.NoError(t, err)
 
-	// Stop on local workspace prints a warning (local has no infrastructure).
-	_, stderr, err := run(t, gf, "ws", "stop", "stoptest")
+	// Stop ends the canonical session even when there is no infrastructure.
+	stdout, _, err := run(t, gf, "ws", "stop", "stoptest")
 	require.NoError(t, err)
-	assert.Contains(t, stderr, "no infrastructure to stop")
+	assert.Contains(t, stdout, "stopped")
 }
 
 func TestWsStartLocal(t *testing.T) {
@@ -266,10 +275,10 @@ func TestWsStartLocal(t *testing.T) {
 	_, _, err := run(t, gf, "ws", "new", "starttest", "--type", "local")
 	require.NoError(t, err)
 
-	// Start on local workspace prints a warning (local has no infrastructure).
-	_, stderr, err := run(t, gf, "ws", "start", "starttest")
+	// Start converges the canonical session even when there is no infrastructure.
+	stdout, _, err := run(t, gf, "ws", "start", "starttest")
 	require.NoError(t, err)
-	assert.Contains(t, stderr, "no infrastructure to start")
+	assert.Contains(t, stdout, "ready")
 }
 
 func TestWsStubCommandsReturnError(t *testing.T) {
