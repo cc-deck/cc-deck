@@ -144,12 +144,6 @@ type InviteRequest struct {
 	Role      InvitationRole
 	NoVerify  bool
 }
-type InvitationSet struct {
-	InteractiveBrowser, InteractiveTerminal string
-	ObserverBrowser, ObserverTerminal       string
-	Warnings                                []string
-}
-
 type Invitation struct {
 	Label string
 	// URL and Token are the same facts the Browser line spells out, kept apart
@@ -157,7 +151,6 @@ type Invitation struct {
 	URL      string
 	Token    string
 	Browser  string
-	Terminal string
 	Role     InvitationRole
 	Warnings []string
 }

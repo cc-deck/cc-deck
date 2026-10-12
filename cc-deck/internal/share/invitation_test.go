@@ -6,33 +6,29 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestBuildInvitationsEscapesURLAndShellContexts(t *testing.T) {
-	got, err := BuildInvitations("https://example.test/base?discard=yes", "demo space/#?%'", "interactive ' token", "observer token")
+func TestBuildInvitationEscapesURLAndStripsQuery(t *testing.T) {
+	got, err := BuildInvitation("https://example.test/base?discard=yes", "demo space/#?%'", "brave-otter", "CONTROL_SECRET", RoleInteractive)
 	require.NoError(t, err)
-	require.Contains(t, got.InteractiveBrowser, "https://example.test/base/demo%20space/%23%3F%25%27")
-	require.NotContains(t, got.InteractiveBrowser, "discard")
-	require.Contains(t, got.InteractiveTerminal, `'interactive '"'"' token'`)
-	require.Contains(t, got.InteractiveTerminal, " --insecure")
-	require.NotEqual(t, got.InteractiveTerminal, got.ObserverTerminal)
+	require.Contains(t, got.URL, "https://example.test/base/demo%20space/%23%3F%25%27")
+	require.Contains(t, got.Browser, "https://example.test/base/demo%20space/%23%3F%25%27")
+	require.NotContains(t, got.Browser, "discard")
 }
 
-func TestInvitationsUseCorrectRoleTokensAndWarnings(t *testing.T) {
-	got, err := BuildInvitations("https://example.test", "selected", "CONTROL_SECRET", "WATCH_SECRET")
+func TestBuildInvitationUsesRoleSpecificTokens(t *testing.T) {
+	interactive, err := BuildInvitation("https://example.test", "selected", "brave-otter", "CONTROL_SECRET", RoleInteractive)
 	require.NoError(t, err)
-	for _, invitation := range []string{got.InteractiveBrowser, got.InteractiveTerminal} {
-		require.Contains(t, invitation, "CONTROL_SECRET")
-		require.NotContains(t, invitation, "WATCH_SECRET")
-	}
-	for _, invitation := range []string{got.ObserverBrowser, got.ObserverTerminal} {
-		require.Contains(t, invitation, "WATCH_SECRET")
-		require.NotContains(t, invitation, "CONTROL_SECRET")
-	}
-	require.Equal(t, []string{TrustedControlWarning}, got.Warnings)
-	require.Contains(t, got.ObserverTerminal, "/selected")
+	require.Contains(t, interactive.Browser, "CONTROL_SECRET")
+	require.NotContains(t, interactive.Browser, "WATCH_SECRET")
+
+	observer, err := BuildInvitation("https://example.test", "selected", "calm-fox", "WATCH_SECRET", RoleObserver)
+	require.NoError(t, err)
+	require.Contains(t, observer.Browser, "WATCH_SECRET")
+	require.NotContains(t, observer.Browser, "CONTROL_SECRET")
+	require.Contains(t, observer.URL, "/selected")
 }
 
-func TestBuildInvitationsRejectsNonAbsoluteEndpoint(t *testing.T) {
-	_, err := BuildInvitations("localhost:8082", "session", "one", "two")
+func TestBuildInvitationRejectsNonAbsoluteEndpoint(t *testing.T) {
+	_, err := BuildInvitation("localhost:8082", "session", "label", "token", RoleInteractive)
 	require.ErrorContains(t, err, "invalid sharing endpoint")
 }
 
