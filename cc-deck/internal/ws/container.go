@@ -344,7 +344,16 @@ func (e *ContainerWorkspace) Attach(ctx context.Context) error {
 		}
 	}
 
-	// Update LastAttached timestamp and session state.
+	// Ensure the canonical session exists before attaching. Mirrors the other
+	// backends (compose, k8s, openshell, ssh, local), whose Attach all route
+	// through EnsureSession so that a missing canonical session is created and a
+	// pre-rename session produces a recovery hint instead of a cryptic
+	// `zellij attach` failure.
+	if _, err := e.EnsureSession(ctx, SessionStartOptions{}); err != nil {
+		return err
+	}
+
+	// Record attachment only after the canonical session is confirmed.
 	now := time.Now().UTC()
 	inst.LastAttached = &now
 	inst.SessionState = SessionStateExists

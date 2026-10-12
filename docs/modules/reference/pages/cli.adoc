@@ -120,7 +120,9 @@ The workspace itself keeps running: a sharing failure never ends a session you a
 
 The whole check is bounded by `sharing.verify_timeout`, which defaults to fifteen seconds.
 
-`ws invite` creates an independently revocable interactive or observer credential. Omit `--name` for a random memorable label. Interactive invitations grant complete terminal control. Terminal invitations are experimental and print the `--insecure` interception warning before the secret.
+`ws invite` creates an independently revocable interactive or observer credential.
+Omit `--name` for a random memorable label.
+Interactive invitations grant complete terminal control.
 
 === Which commands verify
 
