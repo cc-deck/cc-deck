@@ -1,11 +1,15 @@
 package ws
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/cc-deck/cc-deck/internal/config"
+	"github.com/cc-deck/cc-deck/internal/xdg"
 )
 
 func TestK8sDeployWorkspace_Type(t *testing.T) {
@@ -249,4 +253,52 @@ func createTempStateStore(t *testing.T) *FileStateStore {
 	t.Helper()
 	dir := t.TempDir()
 	return NewStateStore(dir + "/state.yaml")
+}
+
+func TestK8sDeployWorkspace_CreateRejectsOAuthTokenProfile(t *testing.T) {
+	// FR-025: the guard returns before kubectl or any cluster call.
+	setupProfileConfig(t, map[string]config.Profile{
+		"private": {
+			Harness: "claude",
+			Auth:    &config.AuthConfig{OAuthToken: &config.CredentialSource{Env: "CLAUDE_TOKEN_PRIVATE"}},
+		},
+	})
+	setDefaultProfile(t, "private")
+	t.Setenv("PATH", t.TempDir()) // no kubectl: a later failure would be ErrKubectlNotFound
+
+	store := createTempStateStore(t)
+	e := &K8sDeployWorkspace{name: "tok-ws", store: store}
+	err := e.Create(t.Context(), CreateOpts{})
+	require.Error(t, err)
+	assert.Equal(t, `profile "private": subscription tokens (auth.oauth_token) are not supported on the Kubernetes deploy backend`, err.Error())
+	assert.NotErrorIs(t, err, ErrKubectlNotFound)
+}
+
+func TestK8sDeployWorkspace_CreateAcceptsAPIKeyProfile(t *testing.T) {
+	setupProfileConfig(t, map[string]config.Profile{
+		"work": {
+			Harness: "claude",
+			Auth:    &config.AuthConfig{APIKey: &config.CredentialSource{Env: "WORK_KEY"}},
+		},
+	})
+	setDefaultProfile(t, "work")
+	t.Setenv("PATH", t.TempDir())
+
+	store := createTempStateStore(t)
+	e := &K8sDeployWorkspace{name: "key-ws", store: store}
+	err := e.Create(t.Context(), CreateOpts{})
+	// The guard passes, so Create proceeds to the kubectl check.
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrKubectlNotFound)
+}
+
+// setDefaultProfile sets default_profile in the config written by
+// setupProfileConfig.
+func setDefaultProfile(t *testing.T, name string) {
+	t.Helper()
+	path := filepath.Join(xdg.ConfigHome, "cc-deck", "config.yaml")
+	cfg, err := config.Load(path)
+	require.NoError(t, err)
+	cfg.DefaultProfile = name
+	require.NoError(t, cfg.Save(path))
 }

@@ -173,13 +173,21 @@ fn apply_action(state: &mut SidebarState, action: &FuzzAction, next_pane_id: &mu
 }
 
 /// Build click regions matching the sidebar render layout.
-/// Each session occupies 3 rows starting at row 2 (after the header).
-/// Row 0 gets the header sentinel (u32::MAX - 1).
-fn build_click_regions(state: &SidebarState) -> Vec<(usize, u32, usize)> {
-    let mut regions = vec![(0, u32::MAX - 1, 0)];
+/// Entries are variable height (2 rows with a branch/badge line, else 1) and
+/// stack contiguously starting at row 2 (after the header). Row 0 gets the
+/// header sentinel (u32::MAX - 1).
+fn build_click_regions(state: &SidebarState) -> Vec<super::state::ClickRegion> {
+    let mut regions = vec![(0, u32::MAX - 1, 0, 1)];
     if let Some(ref payload) = state.cached_payload {
-        for (i, session) in payload.sessions.iter().enumerate() {
-            regions.push((2 + i * 3, session.pane_id, session.tab_index));
+        let mut row = 2;
+        for session in payload.sessions.iter() {
+            let height = if session.git_branch.is_some() || !session.badges.is_empty() {
+                2
+            } else {
+                1
+            };
+            regions.push((row, session.pane_id, session.tab_index, height));
+            row += height;
         }
     }
     regions

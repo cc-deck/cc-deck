@@ -35,6 +35,7 @@ Same indicator as Idle.
 | ⚠
 | Waiting (Permission)
 | Claude Code needs your permission to proceed.
+A prompt raised by a sub-agent puts the whole session into this state, so the attend key still lands here.
 This is the highest-priority state for smart attend.
 Text appears bold and highlighted.
 
@@ -64,6 +65,10 @@ The name appears dimmed and the session is excluded from smart attend.
 
 State changes are detected automatically via Claude Code hooks.
 You do not need to do anything to keep the sidebar updated.
+
+The permission state tracks each agent under a session separately, including every sub-agent a workflow spawns.
+A session shows the attention icon while any of its agents is still blocked on a prompt, and it returns to Working as soon as that agent resumes.
+A session that is merely busy inside a long-running sub-agent task therefore shows Working rather than attention, because a blocked agent produces no further tool activity until you answer.
 
 == The Header
 

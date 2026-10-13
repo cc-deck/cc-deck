@@ -4,15 +4,19 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sort"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/cc-deck/cc-deck/internal/agent"
+	"github.com/cc-deck/cc-deck/internal/config"
 	"github.com/cc-deck/cc-deck/internal/credential"
-	"github.com/rhuss/openshell-sdk-go/openshell/v1/fake"
+	_ "github.com/cc-deck/cc-deck/internal/profile"
+	"github.com/cc-deck/cc-deck/internal/xdg"
 	v1 "github.com/rhuss/openshell-sdk-go/openshell/v1"
+	"github.com/rhuss/openshell-sdk-go/openshell/v1/fake"
 	"github.com/rhuss/openshell-sdk-go/openshell/v1/types"
 )
 
@@ -213,13 +217,13 @@ func (c *phaseOverrideClient) Sandboxes() v1.SandboxInterface {
 func (c *phaseOverrideClient) Providers() v1.ProviderInterface { return c.inner.Providers() }
 func (c *phaseOverrideClient) Services() v1.ServiceInterface   { return c.inner.Services() }
 func (c *phaseOverrideClient) Exec() v1.ExecInterface          { return c.inner.Exec() }
-func (c *phaseOverrideClient) Files() v1.FileInterface          { return c.inner.Files() }
-func (c *phaseOverrideClient) Health() v1.HealthInterface       { return c.inner.Health() }
-func (c *phaseOverrideClient) SSH() v1.SSHInterface             { return c.inner.SSH() }
-func (c *phaseOverrideClient) TCP() v1.TCPInterface             { return c.inner.TCP() }
-func (c *phaseOverrideClient) Config() v1.ConfigInterface       { return c.inner.Config() }
-func (c *phaseOverrideClient) Policy() v1.PolicyInterface       { return c.inner.Policy() }
-func (c *phaseOverrideClient) Close() error                     { return c.inner.Close() }
+func (c *phaseOverrideClient) Files() v1.FileInterface         { return c.inner.Files() }
+func (c *phaseOverrideClient) Health() v1.HealthInterface      { return c.inner.Health() }
+func (c *phaseOverrideClient) SSH() v1.SSHInterface            { return c.inner.SSH() }
+func (c *phaseOverrideClient) TCP() v1.TCPInterface            { return c.inner.TCP() }
+func (c *phaseOverrideClient) Config() v1.ConfigInterface      { return c.inner.Config() }
+func (c *phaseOverrideClient) Policy() v1.PolicyInterface      { return c.inner.Policy() }
+func (c *phaseOverrideClient) Close() error                    { return c.inner.Close() }
 
 type phaseOverrideSandboxClient struct {
 	inner v1.SandboxInterface
@@ -458,7 +462,7 @@ func TestMapToOpenShellProvider_Vertex(t *testing.T) {
 	resolved := credential.ResolvedCredentials{
 		EnvVars: map[string]string{
 			"ANTHROPIC_VERTEX_PROJECT_ID": "my-project",
-			"CLOUD_ML_REGION":            "us-east5",
+			"CLOUD_ML_REGION":             "us-east5",
 		},
 	}
 	name, pType, creds := mapToOpenShellProvider("ws1", spec, resolved)
@@ -620,3 +624,174 @@ func newOpenShellWS(name string, client v1.ClientInterface, store *FileStateStor
 }
 
 func infraPtr(v InfraStateValue) *InfraStateValue { return &v }
+
+// setupProfileConfig writes a config.yaml with the given profiles into a temp
+// directory and overrides xdg.ConfigHome so config.Load("") finds it.
+// Returns the temp home directory.
+func setupProfileConfig(t *testing.T, profiles map[string]config.Profile) {
+	t.Helper()
+
+	tmp := t.TempDir()
+	configHome := filepath.Join(tmp, "config")
+	configDir := filepath.Join(configHome, "cc-deck")
+	require.NoError(t, os.MkdirAll(configDir, 0o755))
+
+	cfg := &config.Config{Profiles: profiles}
+	require.NoError(t, cfg.Save(filepath.Join(configDir, "config.yaml")))
+
+	origConfigHome := xdg.ConfigHome
+	xdg.ConfigHome = configHome
+	t.Cleanup(func() { xdg.ConfigHome = origConfigHome })
+}
+
+func TestCreate_ProfileProviders_OnePerProfile(t *testing.T) {
+	t.Setenv("WORK_KEY", "sk-work-key")
+	t.Setenv("TEAM_KEY", "sk-team-key")
+
+	setupProfileConfig(t, map[string]config.Profile{
+		"work": {
+			Harness: "claude",
+			Auth:    &config.AuthConfig{APIKey: &config.CredentialSource{Env: "WORK_KEY"}},
+		},
+		"team": {
+			Harness: "claude",
+			Auth:    &config.AuthConfig{APIKey: &config.CredentialSource{Env: "TEAM_KEY"}},
+		},
+	})
+
+	fc := fake.NewClient()
+	store := newTestStore(t)
+	w := newOpenShellWS("my-ws", fc, store)
+
+	err := w.Create(context.Background(), CreateOpts{})
+	require.NoError(t, err)
+
+	providers, listErr := fc.Providers().List(context.Background())
+	require.NoError(t, listErr)
+
+	var names []string
+	for _, p := range providers {
+		names = append(names, p.Name)
+	}
+	sort.Strings(names)
+
+	assert.Contains(t, names, "cc-deck-my-ws-work")
+	assert.Contains(t, names, "cc-deck-my-ws-team")
+
+	for _, p := range providers {
+		if p.Name == "cc-deck-my-ws-work" || p.Name == "cc-deck-my-ws-team" {
+			assert.Equal(t, "claude", p.Type, "profile provider type should be claude")
+		}
+	}
+}
+
+func TestCreate_ProfileProviders_DeduplicatesWithSingleSpec(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "sk-single-spec")
+	t.Setenv("WORK_KEY", "sk-work-key")
+
+	setupProfileConfig(t, map[string]config.Profile{
+		"work": {
+			Harness: "claude",
+			Auth:    &config.AuthConfig{APIKey: &config.CredentialSource{Env: "WORK_KEY"}},
+		},
+	})
+
+	fc := fake.NewClient()
+	store := newTestStore(t)
+	w := newOpenShellWS("my-ws", fc, store)
+
+	err := w.Create(context.Background(), CreateOpts{})
+	require.NoError(t, err)
+
+	providers, listErr := fc.Providers().List(context.Background())
+	require.NoError(t, listErr)
+
+	var names []string
+	for _, p := range providers {
+		names = append(names, p.Name)
+	}
+
+	// The single-spec provider is named cc-deck-my-ws-api (from spec.Name="api"),
+	// and the profile provider is named cc-deck-my-ws-work. Both should exist.
+	assert.Contains(t, names, "cc-deck-my-ws-api", "single-spec provider")
+	assert.Contains(t, names, "cc-deck-my-ws-work", "profile provider")
+
+	// No duplicate names.
+	seen := map[string]int{}
+	for _, n := range names {
+		seen[n]++
+	}
+	for n, count := range seen {
+		assert.Equal(t, 1, count, "provider %q should appear exactly once", n)
+	}
+}
+
+func TestCreate_ProfileProviders_SkipsOtherHarnesses(t *testing.T) {
+	t.Setenv("CODEX_KEY", "sk-codex-key")
+
+	setupProfileConfig(t, map[string]config.Profile{
+		"codex-work": {
+			Harness: "codex",
+			Backend: config.BackendOpenAI,
+			Auth:    &config.AuthConfig{APIKey: &config.CredentialSource{Env: "CODEX_KEY"}},
+		},
+	})
+
+	fc := fake.NewClient()
+	store := newTestStore(t)
+	w := newOpenShellWS("my-ws", fc, store)
+
+	err := w.Create(context.Background(), CreateOpts{})
+	require.NoError(t, err)
+
+	providers, listErr := fc.Providers().List(context.Background())
+	require.NoError(t, listErr)
+
+	// The codex translator's ProviderType returns "openai", so a provider
+	// should be created for it.
+	var names []string
+	for _, p := range providers {
+		names = append(names, p.Name)
+	}
+	assert.Contains(t, names, "cc-deck-my-ws-codex-work",
+		"codex profile should create a provider since ProviderType returns 'openai'")
+
+	for _, p := range providers {
+		if p.Name == "cc-deck-my-ws-codex-work" {
+			assert.Equal(t, "openai", p.Type)
+		}
+	}
+}
+
+func TestCreate_ProfileProviders_OAuthTokenProfile(t *testing.T) {
+	// FR-026: a subscription token profile gets its own provider of type
+	// claude, carrying the token under the host variable name.
+	t.Setenv("CLAUDE_TOKEN_PRIVATE", "sk-ant-oat01-provider")
+
+	setupProfileConfig(t, map[string]config.Profile{
+		"private": {
+			Harness: "claude",
+			Auth:    &config.AuthConfig{OAuthToken: &config.CredentialSource{Env: "CLAUDE_TOKEN_PRIVATE"}},
+		},
+	})
+
+	fc := fake.NewClient()
+	store := newTestStore(t)
+	w := newOpenShellWS("my-ws", fc, store)
+
+	require.NoError(t, w.Create(context.Background(), CreateOpts{}))
+
+	providers, err := fc.Providers().List(context.Background())
+	require.NoError(t, err)
+
+	var found bool
+	for _, p := range providers {
+		if p.Name != "cc-deck-my-ws-private" {
+			continue
+		}
+		found = true
+		assert.Equal(t, "claude", p.Type)
+		assert.Equal(t, "sk-ant-oat01-provider", p.Spec.Credentials["CLAUDE_TOKEN_PRIVATE"])
+	}
+	assert.True(t, found, "expected provider cc-deck-my-ws-private")
+}

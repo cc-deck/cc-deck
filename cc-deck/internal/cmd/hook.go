@@ -15,6 +15,7 @@ import (
 	"github.com/cc-deck/cc-deck/internal/agent"
 	"github.com/cc-deck/cc-deck/internal/badge"
 	"github.com/cc-deck/cc-deck/internal/config"
+	"github.com/cc-deck/cc-deck/internal/profile"
 	"github.com/cc-deck/cc-deck/internal/session"
 	"github.com/cc-deck/cc-deck/internal/xdg"
 )
@@ -192,6 +193,12 @@ func runHook(stdin io.Reader, paneIDStr string, agentName string) {
 
 	normalized.AgentIndicator = a.Indicator()
 
+	// Profile enrichment: when CC_DECK_PROFILE is set, attach profile name
+	// and color to the payload so the sidebar can distinguish sessions.
+	if profileName := os.Getenv("CC_DECK_PROFILE"); profileName != "" {
+		enrichProfile(normalized, profileName)
+	}
+
 	// An agent running outside Zellij has no pane and so no sidebar row to
 	// own. Stopping here is what keeps it out: `zellij pipe` succeeds from
 	// outside a session and delivers to whichever session is running, so
@@ -262,4 +269,52 @@ func runHook(stdin io.Reader, paneIDStr string, agentName string) {
 		delete(m, normalized.SessionID)
 		savePaneMap(m)
 	}
+}
+
+// loadProfileConfig loads config.yaml for the profile fallback in
+// enrichProfile. Tests replace it to count reads (SC-010).
+var loadProfileConfig = config.Load
+
+// enrichProfile sets the profile name, color and optional icon on a hook
+// payload. Wrappers export the effective color and icon, so sessions they
+// start need no config.yaml read for profile data (research R17). Sessions
+// from wrappers generated before that export existed, or with an unparsable
+// color, fall back to the config lookup; an unknown profile, or one with an
+// invalid declared color, gets the color derived from its name. A declared
+// icon travels both as the agent indicator (it replaces the harness glyph,
+// FR-018) and as profile_icon (the legend, FR-019).
+func enrichProfile(normalized *agent.NormalizedPayload, profileName string) {
+	normalized.Profile = profileName
+
+	if envColor := os.Getenv("CC_DECK_PROFILE_COLOR"); envColor != "" {
+		if _, _, _, err := profile.ParseHex(envColor); err == nil {
+			normalized.ProfileColor = envColor
+			// The icon reaches the sidebar unescaped, so an environment value
+			// that config validation never saw must pass the same check.
+			if icon := os.Getenv("CC_DECK_PROFILE_ICON"); config.ValidIcon(icon) {
+				setProfileIcon(normalized, icon)
+			}
+			return
+		}
+	}
+
+	normalized.ProfileColor = profile.Derive(profileName)
+	cfg, _ := loadProfileConfig("")
+	if cfg == nil {
+		return
+	}
+	p, err := cfg.GetProfile(profileName)
+	if err != nil {
+		return
+	}
+	normalized.ProfileColor = profile.EffectiveColor(profileName, p)
+	if config.ValidIcon(p.Icon) {
+		setProfileIcon(normalized, p.Icon)
+	}
+}
+
+// setProfileIcon records a declared profile icon on the payload.
+func setProfileIcon(normalized *agent.NormalizedPayload, icon string) {
+	normalized.AgentIndicator = icon
+	normalized.ProfileIcon = icon
 }

@@ -20,6 +20,7 @@ func init() {
 func (c *CodexAgent) Name() string        { return "codex" }
 func (c *CodexAgent) DisplayName() string { return "Codex CLI" }
 func (c *CodexAgent) Indicator() string   { return "◆" }
+func (c *CodexAgent) Binary() string      { return "codex" }
 
 func (c *CodexAgent) IsInstalled() bool {
 	_, err := exec.LookPath("codex")
@@ -39,7 +40,20 @@ func (c *CodexAgent) DetectConfig() string {
 }
 
 func (c *CodexAgent) InstallHooks() error {
-	hooksPath := codexHooksPath()
+	dir := c.DetectConfig()
+	if dir == "" {
+		dir = filepath.Dir(defaultCodexHooksPath())
+	}
+	return c.InstallHooksAt(dir)
+}
+
+func (c *CodexAgent) InstallHooksAt(configDir string) error {
+	hooksPath := filepath.Join(configDir, "hooks.json")
+	// Resolve symlinks so AtomicWrite does not replace a link with a regular file.
+	if resolved, err := filepath.EvalSymlinks(hooksPath); err == nil {
+		hooksPath = resolved
+	}
+
 	hooksFile, err := readCodexHooks(hooksPath)
 	if err != nil {
 		return err
@@ -166,6 +180,13 @@ func (c *CodexAgent) CredentialSpecs() []CredentialSpec {
 
 func (c *CodexAgent) RequiredDomainGroups() []string {
 	return []string{"openai"}
+}
+
+func (c *CodexAgent) ResumeArgs(sessionID string) []string {
+	if sessionID == "" {
+		return nil
+	}
+	return []string{"resume", sessionID}
 }
 
 // --- Codex hooks.json management ---

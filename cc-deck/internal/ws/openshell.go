@@ -14,9 +14,11 @@ import (
 
 	"github.com/cc-deck/cc-deck/internal/agent"
 	"github.com/cc-deck/cc-deck/internal/build"
+	"github.com/cc-deck/cc-deck/internal/config"
 	"github.com/cc-deck/cc-deck/internal/credential"
 	"github.com/cc-deck/cc-deck/internal/oci"
 	"github.com/cc-deck/cc-deck/internal/openshell"
+	"github.com/cc-deck/cc-deck/internal/profile"
 	v1 "github.com/rhuss/openshell-sdk-go/openshell/v1"
 	"github.com/rhuss/openshell-sdk-go/openshell/v1/types"
 	"golang.org/x/term"
@@ -311,6 +313,51 @@ func mapToOpenShellProvider(wsName string, spec agent.CredentialSpec, resolved c
 	return name, providerType, creds
 }
 
+// openShellTarget adapts an OpenShell sandbox for use as a profile.Target.
+type openShellTarget struct {
+	ws   *OpenShellWorkspace
+	ctx  context.Context
+	home string
+}
+
+func (t *openShellTarget) Upload(path string, content []byte, mode os.FileMode) error {
+	// Write content to a temp file locally, then upload via the SDK.
+	tmp, err := os.CreateTemp("", "cc-deck-provision-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.Write(content); err != nil {
+		tmp.Close()
+		return err
+	}
+	tmp.Close()
+
+	adapter := &openshell.OpenShellClientAdapter{Client: t.ws.client}
+	if err := adapter.FileUpload(t.ctx, t.ws.sandboxID, tmp.Name(), path); err != nil {
+		return err
+	}
+	// Set permissions.
+	chmodCmd := fmt.Sprintf("chmod %04o %q", mode, path)
+	return adapter.ExecRun(t.ctx, t.ws.sandboxID, []string{"bash", "-c", chmodCmd})
+}
+
+func (t *openShellTarget) Run(cmd string) (string, error) {
+	return t.ws.ExecOutput(t.ctx, []string{"bash", "-c", cmd})
+}
+
+func (t *openShellTarget) Home() string { return t.home }
+
+func (t *openShellTarget) Agents() []string {
+	var agents []string
+	for _, a := range agent.All() {
+		if _, err := t.ws.ExecOutput(t.ctx, []string{"bash", "-c", fmt.Sprintf("command -v %s", a.Binary())}); err == nil {
+			agents = append(agents, a.Name())
+		}
+	}
+	return agents
+}
+
 // Create provisions a new OpenShell sandbox.
 func (w *OpenShellWorkspace) Create(ctx context.Context, _ CreateOpts) error {
 	if err := ValidateWsName(w.name); err != nil {
@@ -373,6 +420,59 @@ func (w *OpenShellWorkspace) Create(ctx context.Context, _ CreateOpts) error {
 		}
 	}
 
+	// Create per-profile credential providers (FR-026).
+	if cfg, loadErr := config.Load(""); loadErr == nil && cfg != nil {
+		seen := make(map[string]bool)
+		for pName, p := range cfg.Profiles {
+			harness := p.HarnessName()
+			a := agent.Get(harness)
+			if a == nil {
+				continue
+			}
+			tr, ok := profile.Lookup(harness)
+			if !ok {
+				continue
+			}
+			backend := p.EffectiveBackend()
+			provType := tr.ProviderType(backend)
+			if provType == "" {
+				continue
+			}
+			// Deduplicate: skip if this profile's provider type matches
+			// the already-created single-spec provider.
+			provName := fmt.Sprintf("cc-deck-%s-%s", w.name, pName)
+			if seen[provName] {
+				continue
+			}
+			seen[provName] = true
+
+			creds, credErr := credential.ResolveProfile(pName, p)
+			if credErr != nil {
+				log.Printf("profile %s: credential resolution skipped: %v", pName, credErr)
+				continue
+			}
+			provCreds := make(map[string]string)
+			if creds != nil {
+				for k, v := range creds.EnvVars {
+					provCreds[k] = v
+				}
+			}
+			provider := &v1.Provider{
+				Name: provName,
+				Type: provType,
+				Spec: types.ProviderSpec{
+					Credentials: provCreds,
+				},
+			}
+			if _, err := w.client.Providers().Ensure(ctx, provider); err != nil {
+				log.Printf("WARNING: failed to create profile provider %s: %v", provName, err)
+				continue
+			}
+			credProviders = append(credProviders, provName)
+			log.Printf("DEBUG: openshell: created profile provider %s (type=%s, profile=%s)", provName, provType, pName)
+		}
+	}
+
 	// Merge credential providers with any providers from the definition.
 	allProviders := append(sbCfg.Providers, credProviders...)
 
@@ -414,6 +514,22 @@ func (w *OpenShellWorkspace) Create(ctx context.Context, _ CreateOpts) error {
 		}
 	}
 
+	// Provision profile wrappers and config dirs in the sandbox.
+	if cfg, loadErr := config.Load(""); loadErr == nil && cfg != nil && len(cfg.Profiles) > 0 {
+		target := &openShellTarget{ws: w, ctx: ctx, home: "/sandbox"}
+		syncResult, provErr := profile.Provision(cfg, target)
+		if provErr != nil {
+			log.Printf("WARNING: profile provisioning failed: %v", provErr)
+		} else {
+			for _, skip := range syncResult.Skipped {
+				log.Printf("profile %s skipped: %s", skip.Profile, skip.Reason)
+			}
+			for _, warn := range syncResult.Warnings {
+				log.Printf("WARNING: %s", warn)
+			}
+		}
+	}
+
 	if len(w.Repos) > 0 {
 		creds := loadActiveGitCredentials()
 		workspace := "/sandbox"
@@ -435,6 +551,7 @@ func (w *OpenShellWorkspace) Create(ctx context.Context, _ CreateOpts) error {
 		OpenShell: &OpenShellFields{
 			SandboxID:   w.sandboxID,
 			GatewayAddr: w.gatewayAddr,
+			Providers:   credProviders,
 		},
 	}
 	return w.store.AddInstance(&inst)

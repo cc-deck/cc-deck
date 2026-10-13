@@ -33,4 +33,7 @@ type ResolvedCredentials struct {
 type ResolvedFile struct {
 	EnvVar    string
 	LocalPath string
+	// Dest is the remote destination path relative to the user's home directory.
+	// When empty, the file is uploaded to ~/.config/cc-deck/<EnvVar>.
+	Dest string
 }

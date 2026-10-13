@@ -2095,14 +2095,15 @@ func runWsRefreshCreds(name string) error {
 
 	client := sshPkg.NewClient(inst.SSH.Host, inst.SSH.Port, inst.SSH.IdentityFile, inst.SSH.JumpHost, inst.SSH.SSHConfig)
 
-	modes := credential.DetectAll()
-	if len(modes) == 0 {
-		fmt.Fprintf(os.Stdout, "No credentials found to refresh for workspace %q\n", name)
-		return nil
-	}
-	merged, mergeErr := credential.MergeCredentials(modes)
+	// Same set as attach: detected agent credentials plus env-sourced
+	// profile credentials, so a refresh never drops profile tokens.
+	merged, mergeErr := ws.SSHCredentialSet(cmd_context(), client)
 	if mergeErr != nil {
 		return fmt.Errorf("merging credentials: %w", mergeErr)
+	}
+	if len(merged.EnvVars) == 0 && merged.FileCredential == nil && len(merged.FileCredentials) == 0 {
+		fmt.Fprintf(os.Stdout, "No credentials found to refresh for workspace %q\n", name)
+		return nil
 	}
 	if err := credential.InjectSSH(cmd_context(), client, merged); err != nil {
 		return fmt.Errorf("writing credentials: %w", err)

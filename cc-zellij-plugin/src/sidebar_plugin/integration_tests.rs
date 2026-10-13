@@ -213,6 +213,7 @@ fn test_render_payload_roundtrip_through_pipe() {
             },
         )]),
         multiplayer_colors: None,
+        profile_legend: vec![],
     };
 
     let json = serde_json::to_string(&original).unwrap();
@@ -275,7 +276,7 @@ fn test_local_mute_override_preserved_on_mismatch() {
 }
 
 use super::SidebarRendererPlugin;
-use cc_deck::RenderPayload;
+use cc_deck::{LegendEntry, RenderPayload};
 
 // ---------------------------------------------------------------------------
 // Lost Permission Grant Recovery
@@ -340,4 +341,87 @@ fn test_sidebar_permission_grant_requests_repaint() {
     let should_render = plugin.update(Event::PermissionRequestResult(PermissionStatus::Granted));
 
     assert!(should_render);
+}
+
+// ---------------------------------------------------------------------------
+// US2: Profile Indicators in Sidebar (T040)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_sidebar_profile_color_draws_edge_bar() {
+    use super::render::session_entry_lines;
+
+    let mut plugin = setup_sidebar();
+
+    // Three profiled sessions of different profiles plus one unprofiled (SC-008).
+    let colors = [(226, 124, 90), (90, 192, 226), (140, 226, 90)];
+    let mut sessions: Vec<_> = colors
+        .iter()
+        .enumerate()
+        .map(|(i, &color)| {
+            let mut s = make_session(i as u32 + 1, "profiled", i);
+            s.git_branch = Some("main".to_string());
+            s.profile_color = Some(color);
+            s
+        })
+        .collect();
+    let mut plain = make_session(4, "unprofiled", 3);
+    plain.git_branch = Some("main".to_string());
+    sessions.push(plain);
+    let payload = make_payload(sessions);
+    let json = serde_json::to_string(&payload).unwrap();
+    plugin.pipe(make_pipe("cc-deck:render", &json));
+
+    let cached = plugin.test_state().cached_payload.as_ref().unwrap();
+    assert_eq!(cached.sessions.len(), 4);
+    for (is_active, has_cursor) in [(false, false), (true, false), (false, true)] {
+        for session in &cached.sessions {
+            let (line1, line2) =
+                session_entry_lines(session, is_active, has_cursor, false, 20, None);
+            match session.profile_color {
+                Some((r, g, b)) => {
+                    let bar = format!("\x1b[38;2;{r};{g};{b}m\u{258c}\x1b[0m");
+                    assert!(line1.starts_with(&bar), "{line1:?}");
+                    assert!(line2.starts_with(&bar), "{line2:?}");
+                }
+                None => {
+                    assert!(!line1.contains('\u{258c}'));
+                    assert!(!line2.contains('\u{258c}'));
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn test_sidebar_help_overlay_contains_legend_names() {
+    let mut plugin = setup_sidebar();
+
+    let mut payload = make_payload(vec![make_session(1, "test", 0)]);
+    payload.profile_legend = vec![
+        LegendEntry {
+            name: "work".to_string(),
+            icon: "W".to_string(),
+            color: (255, 0, 0),
+        },
+        LegendEntry {
+            name: "personal".to_string(),
+            icon: String::new(),
+            color: (0, 255, 0),
+        },
+    ];
+    let json = serde_json::to_string(&payload).unwrap();
+    plugin.pipe(make_pipe("cc-deck:render", &json));
+
+    let cached = plugin.test_state().cached_payload.as_ref().unwrap();
+    assert_eq!(cached.profile_legend.len(), 2);
+    assert_eq!(cached.profile_legend[0].name, "work");
+    assert_eq!(cached.profile_legend[1].name, "personal");
+
+    // Each entry renders as "▌ <name>" with the bar in the profile color,
+    // followed by the icon when one is declared.
+    let work = super::render::legend_line(&cached.profile_legend[0]);
+    assert_eq!(work, " \x1b[38;2;255;0;0m\u{258c}\x1b[0m work W");
+    let personal = super::render::legend_line(&cached.profile_legend[1]);
+    assert_eq!(personal, " \x1b[38;2;0;255;0m\u{258c}\x1b[0m personal");
 }

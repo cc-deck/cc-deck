@@ -1,0 +1,289 @@
+= Harness Profiles
+
+A developer often has more than one account for the same AI agent.
+For example, company access through Vertex AI for work projects and a personal subscription for private experimentation.
+Harness profiles let you define named configurations in `config.yaml`, each with its own credentials, model, and display color.
+Running `cc-deck config profile sync` generates one wrapper command per profile (such as `claude-work` or `codex-team`) that sets the right environment before launching the harness.
+The plain `claude`, `codex`, or `opencode` command is never modified.
+
+Profiles work across all workspace types: local Zellij sessions, SSH remotes, and OpenShell sandboxes.
+The sidebar distinguishes sessions by profile, and snapshots preserve the profile so that restore brings each session back under the correct account.
+
+== Quick Start: Two Accounts Side by Side
+
+Suppose you have company access through Vertex AI and a personal Claude subscription.
+First create a long-lived subscription token for the personal account.
+Run the following command while logged in to that account, and store the token in an environment variable of your shell profile (here `CLAUDE_TOKEN_PRIVATE`):
+
+[source,bash]
+----
+claude setup-token
+----
+
+Then add both accounts to `~/.config/cc-deck/config.yaml`:
+
+[source,yaml]
+----
+default_profile: work
+profiles:
+  work:
+    harness: claude
+    backend: vertex
+    project: acme-ml
+    region: us-east5
+    model: claude-sonnet-5
+    auth:
+      credentials: {file: ~/.config/gcloud/acme-adc.json}
+    color: "#5AC0E2"
+  private:
+    harness: claude
+    model: claude-opus-5
+    auth:
+      oauth_token: {env: CLAUDE_TOKEN_PRIVATE}
+    color: "#E27C5A"
+----
+
+Run the sync command to generate wrappers:
+
+[source,bash]
+----
+cc-deck config profile sync
+----
+
+The sync creates two wrapper commands on your `PATH`: `claude-work` and `claude-private`.
+If this is the first sync, the output will remind you to open a new shell so the updated `PATH` takes effect.
+
+Now open two panes in your workspace.
+In one, type `claude-work` to start a session with Vertex credentials and the company model.
+In the other, type `claude-private` to start a session with your personal subscription, without an interactive login prompt.
+Both sessions appear in the sidebar, each marked with a bar in its profile color.
+
+The plain `claude` command continues to work exactly as before, with no profile and no `CC_DECK_PROFILE` variable.
+
+== Profile Schema
+
+Each profile accepts the following fields.
+See xref:reference:configuration.adoc[Configuration Reference] for the complete schema and validation rules.
+
+[cols="1,1,3"]
+|===
+| Field | Required | Description
+
+| `harness`
+| No (defaults to `claude`)
+| The agent binary: `claude`, `codex`, or `opencode`.
+
+| `backend`
+| No
+| The auth backend.
+Allowed values depend on the harness.
+For Claude: `anthropic` (default) and `vertex`.
+
+| `auth`
+| Yes (unless legacy fields are present)
+| Credential source.
+Accepts `api_key` (with exactly one of `env`, `file`, or `secret`), `oauth_token` (Claude subscription token, with exactly one of `env` or `file`), `credentials` (Vertex ADC JSON, same source options as `api_key`), or `login: true` (interactive login).
+The kinds `api_key`, `oauth_token`, and `login` are mutually exclusive.
+
+| `model`
+| No
+| Model identifier passed to the harness.
+
+| `project`
+| No
+| Google Cloud project (Vertex backend only).
+
+| `region`
+| No
+| Google Cloud region (Vertex backend only).
+
+| `env`
+| No
+| Additional environment variables the wrapper exports before executing the harness.
+
+| `color`
+| No
+| Hex color (`#RRGGBB`) for the sidebar edge bar.
+`cc-deck config profile add` fills in a distinct palette color when you give none.
+For a profile without `color`, a stable color is derived from the profile name.
+
+| `icon`
+| No
+| A single display glyph that replaces the harness icon in the sidebar while more than one harness runs.
+|===
+
+== Sidebar Legend
+
+Every session started through a profile wrapper carries a `▌` edge bar in its profile color.
+The bar occupies the left margin column of every row of the entry, so it is visible in every state: idle, active, cursor, rename, faded, and paused.
+An entry is two rows when it shows a branch or badges, and a single row otherwise.
+Highlights on the active and cursor rows start right of the bar, so the bar keeps its color on every row.
+Sessions without a profile keep a blank margin, exactly as before.
+Because the bar reuses the existing margin column, names and branches keep their full width.
+
+Entries stack directly without a blank separator row between them.
+The edge bar and the leading status glyph mark where one entry ends and the next begins, so the list stays compact.
+
+The harness glyph is independent of profiles.
+It appears only when more than one harness runs in the workspace, for example Claude Code next to Codex, and it always uses the harness brand color.
+A profile with a custom `icon` field replaces the glyph for that profile's sessions, so the icon is visible only while the glyph is.
+
+Press `?` to open the help overlay.
+The overlay includes a Profiles section that lists `▌ <name>` for every running profile, with the bar in the profile color and the icon after the name when the profile declares one.
+
+The color travels with the session: the wrapper exports `CC_DECK_PROFILE_COLOR`, and the hook reads it from there instead of reading `config.yaml` on every event.
+A changed color therefore applies to sessions started after the next `cc-deck config profile sync`.
+When two profiles have colors that are hard to tell apart, `sync` prints a warning that names both profiles.
+
+== Inherited Credentials Are Cleared
+
+Claude Code gives an `ANTHROPIC_API_KEY` or `CLAUDE_CODE_USE_VERTEX` exported in the calling shell precedence over a subscription token.
+Without countermeasures, a stray API key in your shell would silently move `claude-private` to API billing.
+
+Every wrapper therefore clears the auth variables of all other auth kinds before it starts the harness.
+`claude-private` clears `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_USE_VERTEX`, and `CLAUDE_CODE_USE_BEDROCK`.
+`claude-work` (Vertex) clears the API key and token variables.
+You can check this yourself: `ANTHROPIC_API_KEY=bogus claude-private` still starts on the subscription.
+
+The profile's own `env` map is applied after the clearing step.
+If an `env` key sets a credential variable of another auth kind, `sync` warns that it overrides the profile's credential.
+See xref:reference:configuration.adoc[Configuration Reference] for the variables each harness clears.
+
+== Snapshot and Restore
+
+Snapshots record the profile name alongside each session entry.
+When you restore a snapshot, each tab relaunches through its original wrapper command.
+For example, a session saved under profile `work` restores as `claude-work --resume <session-id>`.
+
+If a profile referenced in the snapshot no longer exists in `config.yaml`, restore falls back to the plain harness command and prints a warning naming the missing profile.
+Snapshots saved before this feature (with no profile field) restore exactly as they did before.
+
+See xref:sessions.adoc[Sessions] for more on snapshot save and restore.
+
+== Subscriptions in Remote Workspaces
+
+A subscription token profile (`auth.oauth_token`) works in SSH and OpenShell workspaces without any login step.
+The token travels through the credential transport like an API key: an `env` source lands in the remote credential environment, and a `file` source is copied to `~/.config/cc-deck/profiles/<name>/oauth_token` with mode 0600.
+The wrapper itself references the token only by variable name or file path.
+On SSH workspaces, an `env` source is written in plain text to `~/.config/cc-deck/credentials.env` (mode 0600), which remote shells source, together with the other transported credentials.
+`cc-deck ws refresh-creds` rewrites that file with the same set, so a refresh keeps profile tokens.
+
+Profiles with `auth: {login: true}` use the harness's own interactive login flow instead.
+cc-deck does not transport interactive login state to remote workspaces.
+The first time you launch a login-profile wrapper in a new workspace, the harness prompts for its interactive login inside that workspace.
+Use an `oauth_token` profile when you want no per-workspace login.
+
+Subsequent launches in the same workspace reuse the stored login without prompting again.
+Each workspace maintains its own login state independently, so logging in on one SSH remote does not affect another.
+
+The per-profile config directory isolates login state from other profiles and from the default harness configuration.
+Non-auth configuration (settings, skills, commands, plugins, MCP config) is shared with the default directory through symlinks, so changes to shared settings are visible to profiled sessions without a re-sync.
+
+== OpenShell Provider Hint
+
+OpenShell workspaces declare their credential providers at creation time based on the profiles that exist in your config.
+When you add a new profile with a different auth backend after creating a workspace, the workspace's provider list does not update automatically.
+
+The `sync` command detects this mismatch.
+It compares the providers that your current profiles need against the providers recorded in the workspace state.
+When they differ, sync prints a hint explaining which providers are missing and suggests re-creating the workspace:
+
+[source,text]
+----
+OpenShell workspace "my-sandbox" is missing providers: [vertex-ai]
+Run "cc-deck ws new my-sandbox --type openshell --force" to re-create with updated providers.
+----
+
+This applies only to OpenShell workspaces.
+SSH and local workspaces resolve credentials from the host environment and do not need provider declarations.
+
+A known limitation affects OpenShell sandboxes with credential masking enabled.
+Masking renames the variables a provider injects, so a wrapper that checks `CLAUDE_TOKEN_PRIVATE` or `ANTHROPIC_API_KEY_WORK` does not find them.
+This applies to subscription token profiles and API key profiles alike, and it is tracked in https://github.com/cc-deck/cc-deck/issues/38[issue #38].
+
+== Kubernetes Deploy Restriction
+
+The Kubernetes deploy backend does not support subscription tokens.
+When `default_profile` points at a profile with `auth.oauth_token`, `cc-deck ws new` fails before it creates any resource, with an error that names the profile.
+Use an API key or Vertex profile as the default for Kubernetes deployments.
+
+== Managing Profiles via CLI
+
+The `cc-deck config profile` commands provide a complete lifecycle for profiles.
+See xref:reference:cli.adoc[CLI Reference] for the full flag and option reference.
+
+=== Adding a Profile
+
+Add a profile with flags for non-interactive use:
+
+[source,bash]
+----
+cc-deck config profile add work \
+  --harness claude \
+  --backend vertex \
+  --model claude-sonnet-5 \
+  --credentials-file ~/.config/gcloud/acme-adc.json \
+  --color "#5AC0E2"
+----
+
+A subscription token profile takes `--oauth-token-env` or `--oauth-token-file`:
+
+[source,bash]
+----
+cc-deck config profile add private \
+  --harness claude \
+  --oauth-token-env CLAUDE_TOKEN_PRIVATE
+----
+
+Without `--color`, the command writes the palette color that is most distinct from the colors of your existing profiles.
+Without flags, the command prompts interactively, starting with the harness selection.
+The profile is validated before saving; invalid colors, icons, or auth configurations are rejected with a message naming the problem.
+
+=== Listing Profiles
+
+[source,bash]
+----
+cc-deck config profile list
+----
+
+The output shows columns for NAME, HARNESS, BACKEND, AUTH, MODEL, and DEFAULT.
+A subscription token profile shows `token:env:NAME` or `token:file` in the AUTH column.
+Add `-o json` or `-o yaml` for machine-readable output.
+
+=== Showing Profile Details
+
+[source,bash]
+----
+cc-deck config profile show work
+----
+
+The output displays all fields including the resolved wrapper name and the derived or explicit color.
+Credential references are shown (for example, the environment variable name), but actual secret values are never printed.
+
+=== Deleting a Profile
+
+[source,bash]
+----
+cc-deck config profile delete work
+----
+
+If the deleted profile was the default, `default_profile` is cleared.
+The command prints a reminder to run `cc-deck config profile sync` to remove the stale wrapper.
+
+=== Setting the Default Profile
+
+[source,bash]
+----
+cc-deck config profile use private
+----
+
+This sets `default_profile` in the config.
+The default profile is used by Kubernetes deploy and git credential resolution.
+It does not affect which wrapper command you type in a terminal; each wrapper is independent.
+
+== See Also
+
+* xref:reference:configuration.adoc[Configuration Reference] for the full profile schema and validation rules
+* xref:reference:cli.adoc[CLI Reference] for the complete `config profile` command reference
+* xref:sessions.adoc[Sessions] for snapshot save, restore, and session lifecycle
+* xref:sidebar.adoc[The Sidebar] for understanding session states and visual indicators
