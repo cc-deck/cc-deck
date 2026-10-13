@@ -194,10 +194,12 @@ func runProfileAdd(name string, gf *GlobalFlags, flags *profileAddFlags) error {
 		return fmt.Errorf("adding profile: %w", err)
 	}
 
-	// Cross-profile validation via Config.Validate().
-	findings := cfg.Validate()
-	for _, f := range findings {
-		if f.Severity == "error" {
+	// Cross-profile validation via Config.Validate(). An invalid existing
+	// profile fails the whole add by design (see
+	// TestProfileAdd_RefusesWhenExistingColorInvalid): cc-deck does not write
+	// to an already-broken config, and the message names the offending profile.
+	for _, f := range cfg.Validate() {
+		if f.Severity == config.SeverityError {
 			// Roll back: remove the profile we just added.
 			delete(cfg.Profiles, name)
 			return fmt.Errorf("validation error: %s", f.Message)
@@ -658,4 +660,3 @@ func runProfileShow(name string, gf *GlobalFlags) error {
 
 	return nil
 }
-

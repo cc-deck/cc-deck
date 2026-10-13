@@ -23,8 +23,9 @@ type Translator interface {
     IsolatedEntries() []string                         // top-level entries never shared
     SupportsLogin() bool                               // auth.login allowed
     Backends() []config.BackendType                    // allowed backends, first is default
+    DefaultConfigSubdir() string                       // conventional config subdir under $HOME (e.g. ".claude")
     Render(rp ResolvedProfile) (WrapperScript, error)  // wrapper content
-    PrepareConfigDir(rp ResolvedProfile, defaultDir string) error
+    PrepareConfigDir(rp ResolvedProfile, defaultDir string) (warnings []string, err error)
     ProviderType(backend config.BackendType) string    // OpenShell provider type, "" if none
     SupportsOAuthToken() bool                          // auth.oauth_token allowed (claude only), revision 2026-10-12
     AuthVars() map[AuthKind][]string                   // env vars selecting or carrying each auth kind (research R16)

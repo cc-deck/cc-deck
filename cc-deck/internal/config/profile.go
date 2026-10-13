@@ -302,68 +302,73 @@ func PromptProfile(r io.Reader, w io.Writer) (Profile, error) {
 	}
 	p.Backend = BackendType(backend)
 
-	// Auth source. Claude also offers a subscription token (claude setup-token).
-	authMethods := "api-key-env/api-key-file/login"
-	if harness == "claude" {
-		authMethods = "api-key-env/api-key-file/oauth-token-env/oauth-token-file/login"
-	}
-	fmt.Fprintf(w, "Auth method (%s) [api-key-env]: ", authMethods)
-	if !scanner.Scan() {
-		return p, fmt.Errorf("reading auth method: %w", scannerErr(scanner))
-	}
-	authMethod := strings.TrimSpace(scanner.Text())
-	if authMethod == "" {
-		authMethod = "api-key-env"
-	}
+	// Vertex authenticates via ADC (Workload Identity or a credentials file),
+	// resolved in the vertex block below, so it skips the api-key/oauth/login
+	// prompt. Offering it would force an answer that Validate then rejects.
+	if p.Backend != BackendVertex {
+		// Auth source. Claude also offers a subscription token (claude setup-token).
+		authMethods := "api-key-env/api-key-file/login"
+		if harness == "claude" {
+			authMethods = "api-key-env/api-key-file/oauth-token-env/oauth-token-file/login"
+		}
+		fmt.Fprintf(w, "Auth method (%s) [api-key-env]: ", authMethods)
+		if !scanner.Scan() {
+			return p, fmt.Errorf("reading auth method: %w", scannerErr(scanner))
+		}
+		authMethod := strings.TrimSpace(scanner.Text())
+		if authMethod == "" {
+			authMethod = "api-key-env"
+		}
 
-	switch authMethod {
-	case "api-key-env":
-		fmt.Fprintf(w, "Environment variable name: ")
-		if !scanner.Scan() {
-			return p, fmt.Errorf("reading env var name: %w", scannerErr(scanner))
-		}
-		envName := strings.TrimSpace(scanner.Text())
-		if envName == "" {
-			return p, fmt.Errorf("environment variable name is required")
-		}
-		p.Auth = &AuthConfig{APIKey: &CredentialSource{Env: envName}}
-	case "api-key-file":
-		fmt.Fprintf(w, "File path: ")
-		if !scanner.Scan() {
-			return p, fmt.Errorf("reading file path: %w", scannerErr(scanner))
-		}
-		filePath := strings.TrimSpace(scanner.Text())
-		if filePath == "" {
-			return p, fmt.Errorf("file path is required")
-		}
-		p.Auth = &AuthConfig{APIKey: &CredentialSource{File: filePath}}
-	case "oauth-token-env", "oauth-token-file":
-		if harness != "claude" {
+		switch authMethod {
+		case "api-key-env":
+			fmt.Fprintf(w, "Environment variable name: ")
+			if !scanner.Scan() {
+				return p, fmt.Errorf("reading env var name: %w", scannerErr(scanner))
+			}
+			envName := strings.TrimSpace(scanner.Text())
+			if envName == "" {
+				return p, fmt.Errorf("environment variable name is required")
+			}
+			p.Auth = &AuthConfig{APIKey: &CredentialSource{Env: envName}}
+		case "api-key-file":
+			fmt.Fprintf(w, "File path: ")
+			if !scanner.Scan() {
+				return p, fmt.Errorf("reading file path: %w", scannerErr(scanner))
+			}
+			filePath := strings.TrimSpace(scanner.Text())
+			if filePath == "" {
+				return p, fmt.Errorf("file path is required")
+			}
+			p.Auth = &AuthConfig{APIKey: &CredentialSource{File: filePath}}
+		case "oauth-token-env", "oauth-token-file":
+			if harness != "claude" {
+				return p, fmt.Errorf("unknown auth method: %q", authMethod)
+			}
+			src := &CredentialSource{}
+			if authMethod == "oauth-token-env" {
+				fmt.Fprintf(w, "Environment variable holding the subscription token: ")
+			} else {
+				fmt.Fprintf(w, "File holding the subscription token: ")
+			}
+			if !scanner.Scan() {
+				return p, fmt.Errorf("reading token source: %w", scannerErr(scanner))
+			}
+			ref := strings.TrimSpace(scanner.Text())
+			if ref == "" {
+				return p, fmt.Errorf("token source is required")
+			}
+			if authMethod == "oauth-token-env" {
+				src.Env = ref
+			} else {
+				src.File = ref
+			}
+			p.Auth = &AuthConfig{OAuthToken: src}
+		case "login":
+			p.Auth = &AuthConfig{Login: true}
+		default:
 			return p, fmt.Errorf("unknown auth method: %q", authMethod)
 		}
-		src := &CredentialSource{}
-		if authMethod == "oauth-token-env" {
-			fmt.Fprintf(w, "Environment variable holding the subscription token: ")
-		} else {
-			fmt.Fprintf(w, "File holding the subscription token: ")
-		}
-		if !scanner.Scan() {
-			return p, fmt.Errorf("reading token source: %w", scannerErr(scanner))
-		}
-		ref := strings.TrimSpace(scanner.Text())
-		if ref == "" {
-			return p, fmt.Errorf("token source is required")
-		}
-		if authMethod == "oauth-token-env" {
-			src.Env = ref
-		} else {
-			src.File = ref
-		}
-		p.Auth = &AuthConfig{OAuthToken: src}
-	case "login":
-		p.Auth = &AuthConfig{Login: true}
-	default:
-		return p, fmt.Errorf("unknown auth method: %q", authMethod)
 	}
 
 	// Vertex-specific fields

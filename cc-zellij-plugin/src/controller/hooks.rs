@@ -473,7 +473,7 @@ fn maybe_rename_tab(state: &mut ControllerState, pane_id: u32) {
 /// Returns None for malformed input.
 fn parse_hex_color(s: &str) -> Option<(u8, u8, u8)> {
     let s = s.strip_prefix('#').unwrap_or(s);
-    if s.len() != 6 {
+    if s.len() != 6 || !s.is_ascii() {
         return None;
     }
     let r = u8::from_str_radix(&s[0..2], 16).ok()?;

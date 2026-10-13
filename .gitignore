@@ -57,3 +57,4 @@ dist/
 .base-images-digests.json
 !**/.specify/spex.json
 transcript-*.txt
+.cc-review/

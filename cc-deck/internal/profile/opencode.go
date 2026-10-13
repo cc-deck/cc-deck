@@ -130,7 +130,7 @@ func (c *opencodeTranslator) PrepareConfigDir(rp ResolvedProfile, defaultDir str
 	encoded = append(encoded, '\n')
 
 	configPath := filepath.Join(rp.ConfigDir, "opencode.json")
-	if err := os.WriteFile(configPath, encoded, 0644); err != nil {
+	if err := os.WriteFile(configPath, encoded, 0600); err != nil {
 		return warnings, fmt.Errorf("profile %q: write opencode.json: %w", rp.Name, err)
 	}
 
@@ -148,14 +148,16 @@ func (c *opencodeTranslator) ProviderType(backend config.BackendType) string {
 	}
 }
 
-// opencodeModelValue formats the model string for opencode.json.
-// OpenAI models use the bare name; Anthropic models get an "anthropic/" prefix.
+// opencodeModelValue formats the model string for opencode.json as
+// provider_id/model_id, which is the format OpenCode's "model" field expects.
 func opencodeModelValue(backend config.BackendType, model string) string {
 	switch backend {
 	case config.BackendAnthropic:
 		return "anthropic/" + model
+	case config.BackendOpenAI:
+		return "openai/" + model
 	default:
-		// OpenAI and any future backends use the bare model name.
+		// Unknown backends use the bare model name.
 		return model
 	}
 }

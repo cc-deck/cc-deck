@@ -4,6 +4,7 @@ import (
 	"bytes"
 	_ "embed"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"text/template"
@@ -13,6 +14,12 @@ import (
 
 //go:embed templates/wrapper.sh.tmpl
 var wrapperTemplate string
+
+// safeProfileName matches a profile name that is safe to interpolate into the
+// generated shell wrapper. A name failing this gate is rejected before
+// rendering, so a hand-edited config cannot inject shell metacharacters even
+// if the upstream skip of invalid profiles misses it.
+var safeProfileName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 
 var tmpl = template.Must(template.New("wrapper").Parse(wrapperTemplate))
 
@@ -65,6 +72,9 @@ type wrapperData struct {
 // Translator.Render implementation) is responsible for populating the
 // wrapperLines struct with the correct per-backend lines.
 func renderWrapper(rp ResolvedProfile, lines wrapperLines) (WrapperScript, error) {
+	if !safeProfileName.MatchString(rp.Name) {
+		return WrapperScript{}, fmt.Errorf("profile %q: name is not a safe shell identifier", rp.Name)
+	}
 	var buf bytes.Buffer
 	// The icon is always exported, empty when none is declared, so a wrapper
 	// started from inside another profiled session does not inherit that

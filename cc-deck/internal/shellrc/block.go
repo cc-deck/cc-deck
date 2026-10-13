@@ -21,6 +21,11 @@ const (
 // the same directory, then rename. This prevents partial writes from
 // corrupting shell rc files if the process is interrupted mid-write.
 func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
+	// Follow a symlinked rc file (e.g. a dotfiles-managed ~/.zshrc) so the
+	// atomic rename replaces the symlink target, not the symlink itself.
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		path = resolved
+	}
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, ".cc-deck-rc-*.tmp")
 	if err != nil {

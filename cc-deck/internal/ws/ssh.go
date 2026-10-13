@@ -1,8 +1,8 @@
 package ws
 
 import (
+	"bytes"
 	"context"
-	"encoding/base64"
 	"fmt"
 	"log"
 	"os"
@@ -180,13 +180,11 @@ type sshTarget struct {
 }
 
 func (t *sshTarget) Upload(path string, content []byte, mode os.FileMode) error {
-	// Write content to a remote file using base64 encoding to avoid quoting issues.
-	encoded := base64.StdEncoding.EncodeToString(content)
+	// Stream content over stdin to `cat` so credential bytes never appear in
+	// the local ssh process arguments (readable by other local users).
 	dir := path[:strings.LastIndex(path, "/")]
-	cmd := fmt.Sprintf(
-		"mkdir -p %q && echo %q | base64 -d > %q && chmod %04o %q",
-		dir, encoded, path, mode, path)
-	_, err := t.client.Run(t.ctx, cmd)
+	cmd := fmt.Sprintf("mkdir -p %q && cat > %q && chmod %04o %q", dir, path, mode, path)
+	_, err := t.client.RunWithStdin(t.ctx, cmd, bytes.NewReader(content))
 	return err
 }
 

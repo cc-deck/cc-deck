@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -17,10 +18,10 @@ type Client struct {
 	IdentityFile    string
 	JumpHost        string
 	SSHConfig       string
-	AgentForwarding  bool
-	OnAttach         func()
-	OnDetach         func()
-	OnDetachEscape   string
+	AgentForwarding bool
+	OnAttach        func()
+	OnDetach        func()
+	OnDetachEscape  string
 }
 
 // NewClient creates a new SSH client with the given connection parameters.
@@ -76,6 +77,30 @@ func (c *Client) Run(ctx context.Context, cmd string) (string, error) {
 
 	args := c.BuildArgs(c.Host, "--", cmd)
 	command := exec.CommandContext(ctx, sshBin, args...)
+
+	var stdout, stderr bytes.Buffer
+	command.Stdout = &stdout
+	command.Stderr = &stderr
+
+	if err := command.Run(); err != nil {
+		return "", fmt.Errorf("ssh command failed: %s: %w", strings.TrimSpace(stderr.String()), err)
+	}
+
+	return strings.TrimSpace(stdout.String()), nil
+}
+
+// RunWithStdin executes a command on the remote host, streaming stdin to it,
+// and returns the combined stdout. Streaming over stdin keeps sensitive
+// payloads (e.g. credential contents) out of the local ssh process arguments,
+// which other local users could otherwise read via the process list.
+func (c *Client) RunWithStdin(ctx context.Context, cmd string, stdin io.Reader) (string, error) {
+	sshBin, err := exec.LookPath("ssh")
+	if err != nil {
+		return "", fmt.Errorf("ssh binary not found: %w", err)
+	}
+
+	command := exec.CommandContext(ctx, sshBin, c.BuildArgs(c.Host, "--", cmd)...)
+	command.Stdin = stdin
 
 	var stdout, stderr bytes.Buffer
 	command.Stdout = &stdout

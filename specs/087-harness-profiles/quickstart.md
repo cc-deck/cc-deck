@@ -20,7 +20,7 @@ cc-deck config profile list
 cc-deck config profile sync
 ```
 
-Expected: `list` shows all three with HARNESS `claude` and AUTH `env:ANTHROPIC_API_KEY_WORK` / `token:env:CLAUDE_TOKEN_PRIVATE` / `login`. `config.yaml` now has a `color` for `private` and `home`, chosen by `add` as the palette hues farthest from the colors in use (FR-017); `work` keeps its declared color. `sync` reports `written: claude-work, claude-private`, creates `~/.local/share/cc-deck/bin/`, the rc block in `~/.zshrc` (or `~/.bashrc`), and the two config dirs under `~/.local/share/cc-deck/profiles/`. Open a new shell.
+Expected: `list` shows all three with HARNESS `claude` and AUTH `env:ANTHROPIC_API_KEY_WORK` / `token:env:CLAUDE_TOKEN_PRIVATE` / `login`. `config.yaml` now has a `color` for `private` and `home`, chosen by `add` as the palette hues farthest from the colors in use (FR-017); `work` keeps its declared color. `sync` reports `written: claude-work, claude-private, claude-home`, creates `~/.local/share/cc-deck/bin/`, the rc block in `~/.zshrc` (or `~/.bashrc`), and the three config dirs under `~/.local/share/cc-deck/profiles/`. Open a new shell.
 
 ```sh
 sh -n ~/.local/share/cc-deck/bin/claude-work
