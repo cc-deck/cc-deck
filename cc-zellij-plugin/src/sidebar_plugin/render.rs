@@ -29,8 +29,13 @@ pub struct RenderResult {
 /// Returns click regions and viewport metadata for mouse/scroll handling.
 pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> RenderResult {
     if state.mode.is_help() {
+        let legend = state
+            .cached_payload
+            .as_ref()
+            .map(|p| p.profile_legend.as_slice())
+            .unwrap_or(&[]);
         return RenderResult {
-            click_regions: render_help_overlay(rows, cols),
+            click_regions: render_help_overlay(rows, cols, legend),
             viewport_start: 0,
             max_visible: 0,
         };
@@ -76,28 +81,29 @@ pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> RenderR
     // Voice indicator click region MUST come before header regions so
     // handle_left_click's .find() matches the voice sentinel first on row 0.
     if payload.voice_connected {
-        click_regions.push((0, VOICE_CLICK_SENTINEL, 0));
+        click_regions.push((0, VOICE_CLICK_SENTINEL, 0, 1));
     }
 
     // Use pane_id u32::MAX - 1 as sentinel for "header clicked"
-    click_regions.push((0, u32::MAX - 1, 0));
+    click_regions.push((0, u32::MAX - 1, 0, 1));
     // Row 1 (separator): use u32::MAX - 3 sentinel to activate first session
-    click_regions.push((1, SEPARATOR_CLICK_SENTINEL, 0));
+    click_regions.push((1, SEPARATOR_CLICK_SENTINEL, 0, 1));
 
     // Available rows for sessions (header + separator at top)
     let content_start = 2;
     let content_end = rows;
     let available = content_end.saturating_sub(content_start);
 
-    let lines_per_session: usize = 3;
+    // Per-entry heights: entries are variable height now (no blank separator
+    // row). An entry is 2 rows when it has a branch/badge line, else 1 row.
+    let heights: Vec<usize> = sessions.iter().map(|s| entry_height(s)).collect();
+    // Reserve one row for the active/paused group divider when present, matching
+    // where it is drawn in the render loop below.
     let effective_available = if separator_after_index.is_some() {
         available.saturating_sub(1)
     } else {
         available
     };
-    let max_visible = effective_available
-        .checked_div(lines_per_session)
-        .unwrap_or(0);
 
     let total = sessions.len();
     // Use the same pane-id source for scrolling as for highlighting:
@@ -114,15 +120,16 @@ pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> RenderR
         .and_then(|view| view.active_tab_index)
         .or(state.my_tab_index)
         .unwrap_or(0);
-    let (start_idx, end_idx, above_count, below_count) = visible_range(
-        total,
-        max_visible,
+    // Resolve which session the viewport should keep in view (the scroll
+    // anchor), then pack entries around it.
+    let active_pos = resolve_active_pos(
+        &sessions,
         active_tab_index,
         scroll_anchor_pane_id,
         payload.sort_active,
-        &sessions,
-        state.scroll_offset,
     );
+    let (start_idx, end_idx, above_count, below_count) =
+        visible_range(&heights, effective_available, active_pos, state.scroll_offset);
 
     // Defensive bounds clamping
     let start_idx = start_idx.min(total);
@@ -134,7 +141,7 @@ pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> RenderR
     if above_count > 0 {
         let msg = format!("  \u{25b2} +{above_count}");
         print_line(row, cols, &msg, Style::Dim);
-        click_regions.push((row, OVERFLOW_UP_CLICK_SENTINEL, 0));
+        click_regions.push((row, OVERFLOW_UP_CLICK_SENTINEL, 0, 1));
         row += 1;
     }
 
@@ -176,6 +183,13 @@ pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> RenderR
             ));
         }
         let is_delete_confirm = state.mode.delete_confirm_pane() == Some(session.pane_id);
+        // Delete confirmation always needs two rows (prompt + hint); a normal
+        // entry is 1 or 2 rows depending on whether it has a branch line.
+        let entry_h = if is_delete_confirm {
+            2
+        } else {
+            entry_height(session)
+        };
 
         if is_delete_confirm {
             let prompt = format!(
@@ -193,8 +207,7 @@ pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> RenderR
                 row + 2,
                 pad(&format!("\x1b[2m{confirm_hint}\x1b[0m"), cols)
             );
-            print!("\x1b[{};1H{}", row + 3, " ".repeat(cols));
-            click_regions.push((row, session.pane_id, session.tab_index));
+            click_regions.push((row, session.pane_id, session.tab_index, entry_h));
         } else {
             let rename_for_session = state
                 .mode
@@ -216,7 +229,7 @@ pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> RenderR
                 click_regions.push(region);
             }
         }
-        row += lines_per_session;
+        row += entry_h;
 
         // Draw separator after the last active session (before paused zone)
         if let Some(sep_idx) = separator_after_index {
@@ -237,7 +250,7 @@ pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> RenderR
     if below_count > 0 && row < content_end {
         let msg = format!("  \u{25bc} +{below_count}");
         print_line(row, cols, &msg, Style::Dim);
-        click_regions.push((row, OVERFLOW_DOWN_CLICK_SENTINEL, 0));
+        click_regions.push((row, OVERFLOW_DOWN_CLICK_SENTINEL, 0, 1));
         row += 1;
     }
 
@@ -318,12 +331,14 @@ pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> RenderR
     }
 
     // Header click region last so session regions take priority
-    click_regions.push((0, u32::MAX - 1, usize::MAX));
+    click_regions.push((0, u32::MAX - 1, usize::MAX, 1));
 
     RenderResult {
         click_regions,
         viewport_start: start_idx,
-        max_visible,
+        // Report the number of entries actually shown as the page size, so
+        // keyboard paging and overflow scrolling have a sensible step.
+        max_visible: end_idx.saturating_sub(start_idx),
     }
 }
 
@@ -468,11 +483,55 @@ fn agent_indicator_color(indicator: &str) -> (u8, u8, u8) {
     match indicator {
         "\u{2733}" => (255, 170, 50), // ✳ Claude Code: orange
         "\u{276f}" => (60, 190, 190), // ❯ OpenCode: dark cyan
+        "\u{25c6}" => (16, 163, 127), // ◆ Codex: OpenAI green
         _ => (180, 175, 195),         // fallback: light grey
     }
 }
 
-/// Render a single session entry (3 lines: indicator+name, branch, blank).
+/// Pick the row highlight as (background, foreground, highlighted).
+///
+/// has_cursor (amber) wins over is_active (cyan) during navigation so the
+/// cursor remains visible on the active row.  force_active (from
+/// local_focus_override after Enter/click) still wins over everything so
+/// the target row flips to cyan immediately.
+fn row_highlight(
+    is_active: bool,
+    has_cursor: bool,
+    force_active: bool,
+    renaming: bool,
+) -> (&'static str, &'static str, bool) {
+    if force_active || renaming {
+        (ACTIVE_BG, ACTIVE_FG, true)
+    } else if has_cursor {
+        (CURSOR_BG, CURSOR_FG, true)
+    } else if is_active {
+        (ACTIVE_BG, ACTIVE_FG, true)
+    } else {
+        ("", "", false)
+    }
+}
+
+/// Edge bar glyph drawn in the left margin column of profiled entries.
+const EDGE_BAR: &str = "\u{258c}"; // ▌
+
+/// The edge bar in a profile color on the default background.
+fn edge_bar((r, g, b): (u8, u8, u8)) -> String {
+    format!("\x1b[38;2;{r};{g};{b}m{EDGE_BAR}{RESET}")
+}
+
+/// Height of a session entry in rows: 2 when it has a branch/badge line,
+/// else 1. Mirrors the condition `format_line2` uses to decide whether line 2
+/// is non-empty, so the layout never reserves a row for an empty second line.
+fn entry_height(session: &RenderSession) -> usize {
+    if session.git_branch.is_some() || !session.badges.is_empty() {
+        2
+    } else {
+        1
+    }
+}
+
+/// Render a single session entry (1 row for a bare name, 2 rows when it has a
+/// branch/badge line). Entries are drawn back to back with no blank separator.
 #[allow(clippy::too_many_arguments)]
 fn render_session_entry(
     session: &RenderSession,
@@ -484,107 +543,12 @@ fn render_session_entry(
     rename_state: Option<&super::modes::RenameState>,
     presence: &[LocalPresence],
 ) -> Option<ClickRegion> {
-    let (r, g, b) = session.color;
-    let indicator = if session.paused {
-        "\u{23f8}"
-    } else {
-        &session.indicator
-    };
+    let (bg, fg, use_bg) =
+        row_highlight(is_active, has_cursor, force_active, rename_state.is_some());
+    let (line1, line2) =
+        session_entry_lines(session, is_active, has_cursor, force_active, cols, rename_state);
 
-    // has_cursor (amber) wins over is_active (cyan) during navigation so the
-    // cursor remains visible on the active row.  force_active (from
-    // local_focus_override after Enter/click) still wins over everything so
-    // the target row flips to cyan immediately.
-    let (bg, fg, use_bg) = if force_active || rename_state.is_some() {
-        (ACTIVE_BG, ACTIVE_FG, true)
-    } else if has_cursor {
-        (CURSOR_BG, CURSOR_FG, true)
-    } else if is_active {
-        (ACTIVE_BG, ACTIVE_FG, true)
-    } else {
-        ("", "", false)
-    };
-
-    // Line 1: indicator + name (or rename input buffer)
-    // When in a worktree, show only the project part (before @) on line 1.
-    // The worktree branch is already visible on line 2 via git_branch.
-    let render_name: &str = if session.in_worktree {
-        session
-            .display_name
-            .split('@')
-            .next()
-            .unwrap_or(&session.display_name)
-    } else {
-        &session.display_name
-    };
-
-    let line1 = if let Some(rs) = rename_state {
-        let max_input = cols.saturating_sub(3);
-        let rename_fg = if has_cursor { RENAME_NAV_FG } else { RENAME_FG };
-        let input_display = rename::render_input(rs, max_input, rename_fg, bg);
-        format!("{bg} \x1b[38;2;{r};{g};{b}m{indicator}{bg}{rename_fg} {input_display}{bg}")
-    } else {
-        let agent_prefix = session.agent_indicator.clone().unwrap_or_default();
-        let name = render_name;
-        let agent_prefix_len = if agent_prefix.is_empty() {
-            0
-        } else {
-            display_width(&agent_prefix) + 1
-        };
-        let prefix_len = 1 + display_width(indicator) + 1 + agent_prefix_len;
-        let max_name = cols.saturating_sub(prefix_len);
-        let truncated_name = truncate(name, max_name);
-
-        let agent_part = if agent_prefix.is_empty() {
-            String::new()
-        } else {
-            let (ar, ag, ab) = agent_indicator_color(&agent_prefix);
-            format!("\x1b[38;2;{ar};{ag};{ab}m{agent_prefix}\x1b[0m ")
-        };
-
-        let name_part = if session.paused {
-            format!("\x1b[2m{truncated_name}\x1b[0m")
-        } else if is_active {
-            format!("\x1b[1m{truncated_name}\x1b[0m")
-        } else {
-            truncated_name.to_string()
-        };
-
-        format!(" \x1b[38;2;{r};{g};{b}m{indicator}\x1b[0m {agent_part}{name_part}")
-    };
-
-    if rename_state.is_some() {
-        print!(
-            "\x1b[{};1H{}",
-            start_row + 1,
-            pad_with_bg_color(&line1, cols, bg)
-        );
-    } else if use_bg {
-        let agent_prefix = session.agent_indicator.clone().unwrap_or_default();
-        let agent_prefix_len = if agent_prefix.is_empty() {
-            0
-        } else {
-            display_width(&agent_prefix) + 1
-        };
-        let prefix_len = 1 + display_width(indicator) + 1 + agent_prefix_len;
-        let max_name = cols.saturating_sub(prefix_len);
-        let truncated_name = truncate(render_name, max_name);
-        let agent_part = if agent_prefix.is_empty() {
-            String::new()
-        } else {
-            let (ar, ag, ab) = agent_indicator_color(&agent_prefix);
-            format!("\x1b[38;2;{ar};{ag};{ab}m{agent_prefix}{bg}{fg} ")
-        };
-        let bold_or_dim = if session.paused { "\x1b[2m" } else { "\x1b[1m" };
-        let styled_line1 = format!("{bg} \x1b[38;2;{r};{g};{b}m{indicator}{fg} {agent_part}{bold_or_dim}{truncated_name}{RESET}");
-        print!(
-            "\x1b[{};1H{}",
-            start_row + 1,
-            pad_with_bg_color(&styled_line1, cols, bg)
-        );
-    } else {
-        print!("\x1b[{};1H{}", start_row + 1, pad(&line1, cols));
-    }
+    print!("\x1b[{};1H{}", start_row + 1, line1);
 
     // Presence indicators: overwrite right side of line 1
     if let Some((indicator_str, indicator_width)) =
@@ -606,6 +570,112 @@ fn render_session_entry(
         }
     }
 
+    // Line 2 (branch/badges) is only drawn for 2-row entries. Branchless
+    // entries occupy a single row with no trailing blank separator.
+    let height = entry_height(session);
+    if height == 2 {
+        print!("\x1b[{};1H{}", start_row + 2, line2);
+    }
+
+    Some((start_row, session.pane_id, session.tab_index, height))
+}
+
+/// Build the two text lines of a session entry, each padded to `cols`.
+pub(super) fn session_entry_lines(
+    session: &RenderSession,
+    is_active: bool,
+    has_cursor: bool,
+    force_active: bool,
+    cols: usize,
+    rename_state: Option<&super::modes::RenameState>,
+) -> (String, String) {
+    // The activity indicator always carries the status color (working, idle,
+    // fading).
+    let (r, g, b) = session.color;
+    let indicator = if session.paused {
+        "\u{23f8}"
+    } else {
+        &session.indicator
+    };
+
+    let (bg, fg, use_bg) =
+        row_highlight(is_active, has_cursor, force_active, rename_state.is_some());
+
+    // Column 1 of both text lines is the edge bar for profiled sessions and
+    // the plain margin space otherwise (R12). The bar stays on the default
+    // background, so highlights start at column 2 on profiled rows (FR-016a).
+    let bar = session.profile_color.map(edge_bar);
+    let lead = |bg: &str| match bar {
+        Some(ref bar) => format!("{bar}{bg}"),
+        None => format!("{bg} "),
+    };
+
+    // Line 1: indicator + name (or rename input buffer)
+    // When in a worktree, show only the project part (before @) on line 1.
+    // The worktree branch is already visible on line 2 via git_branch.
+    let render_name: &str = if session.in_worktree {
+        session
+            .display_name
+            .split('@')
+            .next()
+            .unwrap_or(&session.display_name)
+    } else {
+        &session.display_name
+    };
+
+    let line1 = if let Some(rs) = rename_state {
+        let max_input = cols.saturating_sub(3);
+        let rename_fg = if has_cursor { RENAME_NAV_FG } else { RENAME_FG };
+        let input_display = rename::render_input(rs, max_input, rename_fg, bg);
+        let lead = lead(bg);
+        let line1 =
+            format!("{lead}\x1b[38;2;{r};{g};{b}m{indicator}{bg}{rename_fg} {input_display}{bg}");
+        pad_with_bg_color(&line1, cols, bg)
+    } else {
+        let agent_prefix = session.agent_indicator.clone().unwrap_or_default();
+        let agent_prefix_len = if agent_prefix.is_empty() {
+            0
+        } else {
+            display_width(&agent_prefix) + 1
+        };
+        let prefix_len = 1 + display_width(indicator) + 1 + agent_prefix_len;
+        let max_name = cols.saturating_sub(prefix_len);
+        let truncated_name = truncate(render_name, max_name);
+
+        if use_bg {
+            let agent_part = if agent_prefix.is_empty() {
+                String::new()
+            } else {
+                let (ar, ag, ab) = agent_indicator_color(&agent_prefix);
+                format!("\x1b[38;2;{ar};{ag};{ab}m{agent_prefix}{bg}{fg} ")
+            };
+            let bold_or_dim = if session.paused { "\x1b[2m" } else { "\x1b[1m" };
+            let lead = lead(bg);
+            let styled_line1 = format!("{lead}\x1b[38;2;{r};{g};{b}m{indicator}{fg} {agent_part}{bold_or_dim}{truncated_name}{RESET}");
+            pad_with_bg_color(&styled_line1, cols, bg)
+        } else {
+            let agent_part = if agent_prefix.is_empty() {
+                String::new()
+            } else {
+                let (ar, ag, ab) = agent_indicator_color(&agent_prefix);
+                format!("\x1b[38;2;{ar};{ag};{ab}m{agent_prefix}\x1b[0m ")
+            };
+
+            let name_part = if session.paused {
+                format!("\x1b[2m{truncated_name}\x1b[0m")
+            } else if is_active {
+                format!("\x1b[1m{truncated_name}\x1b[0m")
+            } else {
+                truncated_name.to_string()
+            };
+
+            let lead = lead("");
+            let line1 =
+                format!("{lead}\x1b[38;2;{r};{g};{b}m{indicator}\x1b[0m {agent_part}{name_part}");
+            pad(&line1, cols)
+        }
+    };
+
     let line2_content = format_line2(
         &session.badges,
         session.git_branch.as_deref(),
@@ -613,22 +683,24 @@ fn render_session_entry(
         session.in_worktree,
     );
 
-    if use_bg {
-        let highlighted = format!("{bg}{fg}\x1b[2m{line2_content}{RESET}");
-        print!(
-            "\x1b[{};1H{}",
-            start_row + 2,
-            pad_with_bg_color(&highlighted, cols, bg)
-        );
+    // format_line2 starts every non-empty variant with the margin space,
+    // which the bar replaces on profiled rows.
+    let (bar2, line2_text) = match bar {
+        Some(ref bar) => (
+            bar.as_str(),
+            line2_content.strip_prefix(' ').unwrap_or(&line2_content),
+        ),
+        None => ("", line2_content.as_str()),
+    };
+    let line2 = if use_bg {
+        let highlighted = format!("{bar2}{bg}{fg}\x1b[2m{line2_text}{RESET}");
+        pad_with_bg_color(&highlighted, cols, bg)
     } else {
-        let dimmed = format!("\x1b[2m{line2_content}\x1b[0m");
-        print!("\x1b[{};1H{}", start_row + 2, pad(&dimmed, cols));
-    }
+        let dimmed = format!("{bar2}\x1b[2m{line2_text}\x1b[0m");
+        pad(&dimmed, cols)
+    };
 
-    // Line 3: blank separator
-    print!("\x1b[{};1H{}", start_row + 3, " ".repeat(cols));
-
-    Some((start_row, session.pane_id, session.tab_index))
+    (line1, line2)
 }
 
 /// Build presence indicator data from the shared client-view projection.
@@ -722,7 +794,7 @@ fn render_empty_state(
         print_line(row, cols, "", Style::Normal);
     }
 
-    click_regions.push((0, u32::MAX - 1, usize::MAX));
+    click_regions.push((0, u32::MAX - 1, usize::MAX, 1));
     click_regions
 }
 
@@ -756,74 +828,145 @@ const HELP_LINES: &[&str] = &[
     " \x1b[1m?\x1b[0m      This help",
 ];
 
-/// Render a help overlay listing all keyboard shortcuts.
-fn render_help_overlay(rows: usize, cols: usize) -> Vec<ClickRegion> {
+/// Render a help overlay listing all keyboard shortcuts and an optional
+/// profile legend section when profiles are active.
+fn render_help_overlay(rows: usize, cols: usize, legend: &[cc_deck::LegendEntry]) -> Vec<ClickRegion> {
     let help_lines = HELP_LINES;
-    for (i, line) in help_lines.iter().enumerate() {
-        if i >= rows {
+    let mut row = 0;
+    for line in help_lines.iter() {
+        if row >= rows {
             break;
         }
-        print!("\x1b[{};1H{}", i + 1, pad(line, cols));
+        print!("\x1b[{};1H{}", row + 1, pad(line, cols));
+        row += 1;
     }
-    for i in help_lines.len()..rows {
+
+    // Append a dynamic Profiles section when legend entries exist.
+    if !legend.is_empty() && row < rows {
+        // Blank separator
+        print!("\x1b[{};1H{}", row + 1, " ".repeat(cols));
+        row += 1;
+        if row < rows {
+            print!(
+                "\x1b[{};1H{}",
+                row + 1,
+                pad(" \x1b[2mProfiles:\x1b[0m", cols)
+            );
+            row += 1;
+        }
+        for entry in legend {
+            if row >= rows {
+                break;
+            }
+            print!("\x1b[{};1H{}", row + 1, pad(&legend_line(entry), cols));
+            row += 1;
+        }
+    }
+
+    for i in row..rows {
         print!("\x1b[{};1H{}", i + 1, " ".repeat(cols));
     }
 
     Vec::new()
 }
 
-/// Compute the visible range of sessions, keeping the active one visible.
-fn visible_range(
-    total: usize,
-    max_visible: usize,
-    active_tab_index: usize,
-    focused_pane_id: Option<u32>,
-    sort_active: bool,
+/// Format one profile legend entry: " ▌ <name>", followed by the profile
+/// icon when one is declared.
+pub(super) fn legend_line(entry: &cc_deck::LegendEntry) -> String {
+    let bar = edge_bar(entry.color);
+    if entry.icon.is_empty() {
+        format!(" {bar} {}", entry.name)
+    } else {
+        format!(" {bar} {} {}", entry.name, entry.icon)
+    }
+}
+
+/// Resolve the session index the viewport should anchor on. When sorted,
+/// prefer the focused pane so the viewport stays stable when tabs are
+/// physically reordered via MoveTab (Alt-I/O), falling back to the active tab.
+fn resolve_active_pos(
     sessions: &[&RenderSession],
-    scroll_offset: Option<usize>,
-) -> (usize, usize, usize, usize) {
-    if total == 0 || max_visible == 0 {
-        return (0, 0, 0, 0);
-    }
-    if total <= max_visible {
-        return (0, total, 0, 0);
-    }
-
-    // Manual scroll offset overrides auto-centering.
-    if let Some(offset) = scroll_offset {
-        let start = offset.min(total.saturating_sub(max_visible));
-        let end = (start + max_visible).min(total);
-        return (start, end, start, total.saturating_sub(end));
-    }
-
-    // When sorted, use focused_pane_id for the scroll anchor so the viewport
-    // stays stable when tabs are physically reordered via MoveTab (Alt-I/O).
-    let active_pos = if sort_active {
-        focused_pane_id
+    active_tab_index: usize,
+    scroll_anchor_pane_id: Option<u32>,
+    sort_active: bool,
+) -> usize {
+    if sort_active {
+        scroll_anchor_pane_id
             .and_then(|pid| sessions.iter().position(|s| s.pane_id == pid))
-            .or_else(|| {
-                sessions
-                    .iter()
-                    .position(|s| s.tab_index == active_tab_index)
-            })
+            .or_else(|| sessions.iter().position(|s| s.tab_index == active_tab_index))
             .unwrap_or(0)
     } else {
         sessions
             .iter()
             .position(|s| s.tab_index == active_tab_index)
             .unwrap_or(0)
+    }
+}
+
+/// Compute the visible range of sessions, packing variable-height entries into
+/// `available` rows and keeping the entry at `active_pos` in view.
+///
+/// `heights[i]` is the row count of session `i`. Returns `(start, end, above,
+/// below)`: the half-open session window `[start, end)` plus how many entries
+/// fall above and below it.
+fn visible_range(
+    heights: &[usize],
+    available: usize,
+    active_pos: usize,
+    scroll_offset: Option<usize>,
+) -> (usize, usize, usize, usize) {
+    let total = heights.len();
+    if total == 0 || available == 0 {
+        return (0, 0, 0, 0);
+    }
+    // Everything fits: no scrolling needed.
+    if heights.iter().sum::<usize>() <= available {
+        return (0, total, 0, 0);
+    }
+
+    // Greedily pack forward from `start`, returning the exclusive end index of
+    // the window that fits in `available` rows. Always shows at least the
+    // starting entry even if it alone overflows (the render loop truncates).
+    let pack_from = |start: usize| -> usize {
+        let mut used = 0;
+        let mut end = start;
+        while end < total && used + heights[end] <= available {
+            used += heights[end];
+            end += 1;
+        }
+        end.max((start + 1).min(total))
     };
 
-    let half = max_visible / 2;
-    let start = if active_pos <= half {
-        0
-    } else if active_pos + half >= total {
-        total.saturating_sub(max_visible)
-    } else {
-        active_pos - half
+    // Smallest start whose tail `[start..total]` still fits, so the last entry
+    // stays reachable when scrolled to the bottom.
+    let max_start = {
+        let mut used = 0;
+        let mut s = total;
+        while s > 0 && used + heights[s - 1] <= available {
+            used += heights[s - 1];
+            s -= 1;
+        }
+        s
     };
-    let end = (start + max_visible).min(total);
 
+    // Manual scroll offset overrides auto-centering.
+    if let Some(offset) = scroll_offset {
+        let start = offset.min(max_start);
+        let end = pack_from(start);
+        return (start, end, start, total.saturating_sub(end));
+    }
+
+    // Auto-center: give the rows above the active entry up to half the budget,
+    // then pack forward. Clamp to `max_start` so the tail stays visible.
+    let half = available / 2;
+    let mut start = active_pos.min(total - 1);
+    let mut used_above = 0;
+    while start > 0 && used_above + heights[start - 1] <= half {
+        used_above += heights[start - 1];
+        start -= 1;
+    }
+    let start = start.min(max_start);
+    let end = pack_from(start);
     (start, end, start, total.saturating_sub(end))
 }
 
@@ -997,8 +1140,8 @@ fn truncate_chars(s: &str, max: usize) -> String {
 
 #[cfg(test)]
 fn handle_click(click_row: usize, click_regions: &[ClickRegion]) -> Option<(usize, u32)> {
-    for &(row, pane_id, tab_index) in click_regions {
-        if click_row >= row && click_row < row + 3 {
+    for &(row, pane_id, tab_index, height) in click_regions {
+        if click_row >= row && click_row < row + height {
             return Some((tab_index, pane_id));
         }
     }
@@ -1128,6 +1271,7 @@ mod tests {
             badges: vec![],
             agent_indicator: None,
             in_worktree: false,
+            profile_color: None,
         };
         let s2 = cc_deck::RenderSession {
             pane_id: 2,
@@ -1142,9 +1286,12 @@ mod tests {
             badges: vec![],
             agent_indicator: None,
             in_worktree: false,
+            profile_color: None,
         };
         let sessions: Vec<&RenderSession> = vec![&s1, &s2];
-        let (start, end, above, below) = visible_range(2, 5, 0, None, false, &sessions, None);
+        let heights: Vec<usize> = sessions.iter().map(|s| entry_height(s)).collect();
+        // Both are branchless (height 1), so 2 rows fit easily in 5.
+        let (start, end, above, below) = visible_range(&heights, 5, 0, None);
         assert_eq!((start, end, above, below), (0, 2, 0, 0));
     }
 
@@ -1164,17 +1311,20 @@ mod tests {
                 badges: vec![],
                 agent_indicator: None,
                 in_worktree: false,
+                profile_color: None,
             })
             .collect();
         let refs: Vec<&RenderSession> = sessions_owned.iter().collect();
-        let (start, end, above, below) = visible_range(10, 3, 5, None, false, &refs, None);
+        let heights: Vec<usize> = refs.iter().map(|s| entry_height(s)).collect();
+        // 10 branchless entries (height 1), budget 3 rows, anchored on index 5.
+        let (start, end, above, below) = visible_range(&heights, 3, 5, None);
         assert_eq!(end - start, 3);
         assert!(start <= 5 && end > 5);
         assert!(above > 0 || below > 0);
     }
 
     #[test]
-    fn test_visible_range_sorted_uses_pane_id_anchor() {
+    fn test_resolve_active_pos_sorted_uses_pane_id_anchor() {
         let sessions_owned: Vec<cc_deck::RenderSession> = (0..10)
             .map(|i| cc_deck::RenderSession {
                 pane_id: i + 100,
@@ -1189,20 +1339,17 @@ mod tests {
                 badges: vec![],
                 agent_indicator: None,
                 in_worktree: false,
+                profile_color: None,
             })
             .collect();
         let refs: Vec<&RenderSession> = sessions_owned.iter().collect();
-        // Sorted mode with focused_pane_id=107 (display position 7)
-        let (start, end, _, _) = visible_range(10, 3, 0, Some(107), true, &refs, None);
-        assert_eq!(end - start, 3);
-        assert!(
-            start <= 7 && end > 7,
-            "viewport should center on pane_id 107"
-        );
+        // Sorted mode with focused_pane_id=107 resolves to display position 7.
+        let pos = resolve_active_pos(&refs, 0, Some(107), true);
+        assert_eq!(pos, 7, "anchor should resolve to pane_id 107");
     }
 
     #[test]
-    fn test_visible_range_sorted_fallback_to_tab_index() {
+    fn test_resolve_active_pos_sorted_fallback_to_tab_index() {
         let sessions_owned: Vec<cc_deck::RenderSession> = (0..10)
             .map(|i| cc_deck::RenderSession {
                 pane_id: i + 100,
@@ -1217,25 +1364,90 @@ mod tests {
                 badges: vec![],
                 agent_indicator: None,
                 in_worktree: false,
+                profile_color: None,
             })
             .collect();
         let refs: Vec<&RenderSession> = sessions_owned.iter().collect();
-        // Sorted mode but no focused_pane_id — should fall back to active_tab_index=5
-        let (start, end, _, _) = visible_range(10, 3, 5, None, true, &refs, None);
-        assert_eq!(end - start, 3);
-        assert!(
-            start <= 5 && end > 5,
-            "viewport should center on tab_index 5 as fallback"
-        );
+        // Sorted mode but no focused_pane_id falls back to active_tab_index 5.
+        let pos = resolve_active_pos(&refs, 5, None, true);
+        assert_eq!(pos, 5, "anchor should fall back to tab_index 5");
+    }
+
+    #[test]
+    fn test_entry_height() {
+        let mut s = cc_deck::RenderSession {
+            pane_id: 1,
+            display_name: "a".into(),
+            activity_label: "Idle".into(),
+            indicator: "\u{25cb}".into(),
+            color: (180, 175, 195),
+            git_branch: None,
+            tab_index: 0,
+            paused: false,
+            done_attended: false,
+            badges: vec![],
+            agent_indicator: None,
+            in_worktree: false,
+            profile_color: None,
+        };
+        assert_eq!(entry_height(&s), 1, "branchless, no badges => 1 row");
+        s.git_branch = Some("main".into());
+        assert_eq!(entry_height(&s), 2, "with branch => 2 rows");
+        s.git_branch = None;
+        s.badges = vec!["x".into()];
+        assert_eq!(entry_height(&s), 2, "with badge => 2 rows");
+    }
+
+    #[test]
+    fn test_visible_range_mixed_heights_pack() {
+        // Five 2-row entries, 5-row budget: exactly two entries fit.
+        let heights = vec![2, 2, 2, 2, 2];
+        let (start, end, above, below) = visible_range(&heights, 5, 0, None);
+        assert_eq!((start, end), (0, 2));
+        assert_eq!((above, below), (0, 3));
+    }
+
+    #[test]
+    fn test_visible_range_scroll_offset_clamps_to_tail() {
+        // Six 2-row entries, 5-row budget: the tail window starts at index 4
+        // no matter how large the requested offset.
+        let heights = vec![2; 6];
+        let (start, end, _, below) = visible_range(&heights, 5, 0, Some(100));
+        assert_eq!((start, end), (4, 6));
+        assert_eq!(below, 0);
+    }
+
+    #[test]
+    fn test_visible_range_center_keeps_active_visible() {
+        // Mixed heights; the active entry must always land inside [start, end).
+        let heights = vec![2, 1, 2, 1, 2, 1, 2, 1];
+        for active in 0..heights.len() {
+            let (start, end, _, _) = visible_range(&heights, 4, active, None);
+            assert!(
+                start <= active && active < end,
+                "active {active} not in window [{start}, {end})"
+            );
+        }
     }
 
     #[test]
     fn test_handle_click_hit() {
-        let regions: Vec<ClickRegion> = vec![(2, 1, 0), (5, 2, 1)];
+        let regions: Vec<ClickRegion> = vec![(2, 1, 0, 2), (5, 2, 1, 2)];
         assert_eq!(handle_click(2, &regions), Some((0, 1)));
         assert_eq!(handle_click(3, &regions), Some((0, 1)));
         assert_eq!(handle_click(5, &regions), Some((1, 2)));
         assert_eq!(handle_click(10, &regions), None);
+    }
+
+    #[test]
+    fn test_handle_click_mixed_heights() {
+        // Row 2: 1-row entry (pane 1). Rows 3-4: 2-row entry (pane 2).
+        let regions: Vec<ClickRegion> = vec![(2, 1, 0, 1), (3, 2, 1, 2)];
+        assert_eq!(handle_click(2, &regions), Some((0, 1)));
+        // The row below the 1-row entry belongs to the next entry, not it.
+        assert_eq!(handle_click(3, &regions), Some((1, 2)));
+        assert_eq!(handle_click(4, &regions), Some((1, 2)));
+        assert_eq!(handle_click(5, &regions), None);
     }
 
     #[test]
@@ -1277,5 +1489,220 @@ mod tests {
             clients: vec![],
         }];
         assert!(presence_indicator_string(7, &presence).is_none());
+    }
+
+    // --- Profile edge bar (R12, FR-016, FR-016a, SC-008) ---
+
+    use crate::sidebar_plugin::modes::RenameState;
+    use crate::sidebar_plugin::test_helpers::make_session;
+
+    const PROFILE_COLORS: [(u8, u8, u8); 3] = [(226, 124, 90), (90, 192, 226), (140, 226, 90)];
+
+    /// Visible text of an ANSI string.
+    fn visible(s: &str) -> String {
+        let mut out = String::new();
+        let mut in_escape = false;
+        for ch in s.chars() {
+            if ch == '\x1b' {
+                in_escape = true;
+            } else if in_escape {
+                if ch == 'm' {
+                    in_escape = false;
+                }
+            } else {
+                out.push(ch);
+            }
+        }
+        out
+    }
+
+    /// Three profiled sessions of different profiles plus one unprofiled.
+    fn bar_sessions() -> Vec<RenderSession> {
+        let mut sessions: Vec<RenderSession> = PROFILE_COLORS
+            .iter()
+            .enumerate()
+            .map(|(i, &color)| {
+                let mut s = make_session(i as u32 + 1, "a-rather-long-session-name", i);
+                s.git_branch = Some("feature-branch".into());
+                s.agent_indicator = Some("\u{2733}".into());
+                s.profile_color = Some(color);
+                s
+            })
+            .collect();
+        let mut plain = make_session(4, "a-rather-long-session-name", 3);
+        plain.git_branch = Some("feature-branch".into());
+        plain.agent_indicator = Some("\u{2733}".into());
+        sessions.push(plain);
+        sessions
+    }
+
+    /// Entry states from SC-008 as (name, session tweak, is_active, has_cursor, renaming).
+    #[allow(clippy::type_complexity)]
+    fn bar_states() -> Vec<(&'static str, fn(&mut RenderSession), bool, bool, bool)> {
+        vec![
+            ("plain", |_| {}, false, false, false),
+            ("active", |_| {}, true, false, false),
+            ("cursor", |_| {}, false, true, false),
+            ("rename", |_| {}, false, false, true),
+            ("faded", |s| s.color = (70, 65, 80), false, false, false),
+            ("paused", |s| s.paused = true, false, false, false),
+            ("paused-active", |s| s.paused = true, true, false, false),
+        ]
+    }
+
+    #[test]
+    fn test_edge_bar_on_both_lines_in_every_state() {
+        let cols = 24;
+        let rename = RenameState {
+            pane_id: 0,
+            input_buffer: "renamed".into(),
+            cursor_pos: 7,
+        };
+        for (state, tweak, is_active, has_cursor, renaming) in bar_states() {
+            for base in bar_sessions() {
+                let mut session = base.clone();
+                tweak(&mut session);
+                let rs = renaming.then_some(&rename);
+                let (line1, line2) =
+                    session_entry_lines(&session, is_active, has_cursor, false, cols, rs);
+
+                // Pre-revision rendering: the same entry without a profile.
+                let mut unprofiled = session.clone();
+                unprofiled.profile_color = None;
+                let (old1, old2) =
+                    session_entry_lines(&unprofiled, is_active, has_cursor, false, cols, rs);
+
+                for (line, old) in [(&line1, &old1), (&line2, &old2)] {
+                    assert_eq!(display_width(line), cols, "{state}: width of {line:?}");
+                    assert_eq!(display_width(line), display_width(old), "{state}");
+                    match session.profile_color {
+                        Some(color) => {
+                            // The bar leads the line on the default background.
+                            assert!(
+                                line.starts_with(&edge_bar(color)),
+                                "{state}: profiled line must start with the bar: {line:?}"
+                            );
+                            // Everything after column 1 is unchanged.
+                            let (new_vis, old_vis) = (visible(line), visible(old));
+                            assert!(new_vis.starts_with(EDGE_BAR));
+                            assert!(old_vis.starts_with(' '));
+                            assert_eq!(
+                                new_vis.chars().skip(1).collect::<String>(),
+                                old_vis.chars().skip(1).collect::<String>(),
+                                "{state}"
+                            );
+                        }
+                        None => {
+                            assert_eq!(line, old);
+                            assert!(visible(line).starts_with(' '), "{state}: {line:?}");
+                            assert!(!line.contains(EDGE_BAR));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_edge_bar_highlight_starts_at_column_two() {
+        let session = bar_sessions().remove(0);
+        let bar = edge_bar(PROFILE_COLORS[0]);
+        let rename = RenameState {
+            pane_id: 1,
+            input_buffer: "x".into(),
+            cursor_pos: 1,
+        };
+        for (is_active, has_cursor, rs, bg) in [
+            (true, false, None, ACTIVE_BG),
+            (false, true, None, CURSOR_BG),
+            (false, false, Some(&rename), ACTIVE_BG),
+        ] {
+            let (line1, line2) = session_entry_lines(&session, is_active, has_cursor, false, 24, rs);
+            assert!(line1.starts_with(&format!("{bar}{bg}")), "{line1:?}");
+            assert!(line2.starts_with(&format!("{bar}{bg}")), "{line2:?}");
+        }
+
+        // Unprofiled rows keep the highlight on the margin column.
+        let plain = bar_sessions().remove(3);
+        let (line1, line2) = session_entry_lines(&plain, true, false, false, 24, None);
+        assert!(line1.starts_with(&format!("{ACTIVE_BG} ")));
+        assert!(line2.starts_with(&format!("{ACTIVE_BG}{ACTIVE_FG}\x1b[2m ")));
+    }
+
+    #[test]
+    fn test_edge_bar_on_empty_second_line() {
+        let mut session = make_session(1, "s", 0);
+        session.profile_color = Some(PROFILE_COLORS[1]);
+        let (_, line2) = session_entry_lines(&session, false, false, false, 10, None);
+        assert!(line2.starts_with(&edge_bar(PROFILE_COLORS[1])));
+        assert_eq!(display_width(&line2), 10);
+    }
+
+    #[test]
+    fn test_glyph_uses_brand_color_on_profiled_rows() {
+        let brand = "\x1b[38;2;255;170;50m\u{2733}";
+        for (_, tweak, is_active, has_cursor, _) in bar_states() {
+            for base in bar_sessions() {
+                let mut session = base.clone();
+                tweak(&mut session);
+                let (line1, _) = session_entry_lines(&session, is_active, has_cursor, false, 40, None);
+                assert!(line1.contains(brand), "{line1:?}");
+                if let Some((r, g, b)) = session.profile_color {
+                    assert!(!line1.contains(&format!("\x1b[38;2;{r};{g};{b}m\u{2733}")));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_unprofiled_entry_layout_unchanged() {
+        let mut session = make_session(1, "api", 0);
+        session.git_branch = Some("main".into());
+        let (line1, line2) = session_entry_lines(&session, false, false, false, 12, None);
+        assert_eq!(line1, " \x1b[38;2;180;175;195m\u{25cb}\x1b[0m api      ");
+        assert_eq!(line2, "\x1b[2m   \u{2387} main\x1b[0m   ");
+    }
+
+    #[test]
+    fn test_legend_line_shows_bar_and_name() {
+        let entry = cc_deck::LegendEntry {
+            name: "private".into(),
+            icon: String::new(),
+            color: (226, 124, 90),
+        };
+        let line = legend_line(&entry);
+        assert_eq!(line, format!(" {} private", edge_bar((226, 124, 90))));
+        assert_eq!(visible(&line), " \u{258c} private");
+    }
+
+    #[test]
+    fn test_legend_line_appends_declared_icon() {
+        let entry = cc_deck::LegendEntry {
+            name: "work".into(),
+            icon: "W".into(),
+            color: (90, 192, 226),
+        };
+        let line = legend_line(&entry);
+        assert!(line.starts_with(&format!(" {}", edge_bar((90, 192, 226)))));
+        assert_eq!(visible(&line), " \u{258c} work W");
+    }
+
+    #[test]
+    fn test_edge_bar_is_one_column() {
+        assert_eq!(display_width(EDGE_BAR), 1);
+        assert_eq!(display_width(&edge_bar((1, 2, 3))), 1);
+    }
+
+    #[test]
+    fn test_harness_glyphs_have_brand_colors() {
+        // FR-017a: every known harness glyph uses its brand color, not the
+        // grey fallback.
+        use crate::controller::render_broadcast::agent_name_to_indicator;
+        let fallback = agent_indicator_color("?");
+        for harness in ["claude", "codex", "opencode"] {
+            let glyph = agent_name_to_indicator(Some(harness));
+            assert_ne!(agent_indicator_color(&glyph), fallback, "{harness} glyph {glyph}");
+        }
+        assert_eq!(agent_indicator_color("\u{25c6}"), (16, 163, 127));
     }
 }

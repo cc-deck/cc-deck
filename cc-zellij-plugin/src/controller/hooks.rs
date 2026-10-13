@@ -116,11 +116,14 @@ pub fn process_hook(state: &mut ControllerState, hook: HookPayload) -> bool {
                 }
                 session.meta_ts = 0;
                 session.done_attended = false;
-                session.pending_permissions = 0;
+                session.pending_prompts.clear();
                 session.working_dir = None;
                 session.in_worktree = false;
                 session.agent_name = None;
                 session.agent_indicator = None;
+                session.profile = None;
+                session.profile_color = None;
+                session.profile_icon = None;
             } else {
                 crate::debug_log(&format!(
                     "CTRL SESSION cross-agent pane={}: {} -> {} (no state reset)",
@@ -131,6 +134,11 @@ pub fn process_hook(state: &mut ControllerState, hook: HookPayload) -> bool {
                 // Update agent identity without resetting session state.
                 session.agent_name = hook.agent.clone();
                 session.agent_indicator = hook.agent_indicator.clone();
+                session.profile = hook.profile.clone();
+                if let Some(ref color_str) = hook.profile_color {
+                    session.profile_color = parse_hex_color(color_str);
+                }
+                session.profile_icon = hook.profile_icon.clone();
             }
             // Always update session_id to prevent repeated replacement
             // detection on subsequent hooks from the same new session.
@@ -157,17 +165,17 @@ pub fn process_hook(state: &mut ControllerState, hook: HookPayload) -> bool {
         }
     }
 
-    // Apply the event to the session's activity. The permission counter,
-    // the implicit PermissionReply carried by a main-agent PostToolUse, and
-    // the Waiting guard all live in Session::apply_hook so they can be
-    // tested and fuzzed without a controller.
-    let from_subagent = hook.agent_id.is_some();
+    // Apply the event to the session's activity. The per-agent prompt
+    // accounting, the implicit PermissionReply carried by a PostToolUse, and
+    // the Waiting lifecycle all live in Session::apply_hook so they can be
+    // tested and fuzzed without a controller. The main agent carries no
+    // agent_id; subagents carry their own, which keys the per-agent map.
     let (prev_activity, was_waiting) = match state.sessions.get(&hook.pane_id) {
         Some(s) => (format!("{:?}", s.activity), s.activity.is_waiting()),
         None => return false,
     };
     let outcome = match state.sessions.get_mut(&hook.pane_id) {
-        Some(s) => s.apply_hook(&hook.hook_event_name, activity, from_subagent),
+        Some(s) => s.apply_hook(&hook.hook_event_name, activity, hook.agent_id.as_deref()),
         None => return false,
     };
     let changed = match outcome {
@@ -175,13 +183,18 @@ pub fn process_hook(state: &mut ControllerState, hook: HookPayload) -> bool {
         HookOutcome::Unchanged => false,
         HookOutcome::Absorbed => {
             crate::debug_log(&format!(
-                "CTRL HOOK: pane={} {} absorbed while {} permissions pending",
+                "CTRL HOOK: pane={} {} absorbed while {} prompt(s) pending across {} agent(s)",
                 hook.pane_id,
                 hook.hook_event_name,
                 state
                     .sessions
                     .get(&hook.pane_id)
-                    .map(|s| s.pending_permissions)
+                    .map(|s| s.pending_prompt_count())
+                    .unwrap_or(0),
+                state
+                    .sessions
+                    .get(&hook.pane_id)
+                    .map(|s| s.pending_prompts.len())
                     .unwrap_or(0),
             ));
             return false;
@@ -223,6 +236,28 @@ pub fn process_hook(state: &mut ControllerState, hook: HookPayload) -> bool {
                 s.agent_name = hook.agent.clone();
                 s.agent_indicator = hook.agent_indicator.clone();
             }
+        }
+    }
+
+    // Store profile name and color from the first hook carrying them.
+    // Update profile_color on subsequent hooks if the color changed.
+    if hook.profile.is_some() {
+        if let Some(s) = state.sessions.get_mut(&hook.pane_id) {
+            if s.profile.is_none() {
+                s.profile = hook.profile.clone();
+            }
+            // Always update color in case the config changed between hooks.
+            if let Some(ref color_str) = hook.profile_color {
+                s.profile_color = parse_hex_color(color_str);
+            }
+            // The indicator carries the profile icon override, so it follows
+            // config changes the same way the color does.
+            if hook.agent_indicator.is_some() {
+                s.agent_indicator = hook.agent_indicator.clone();
+            }
+            // The hook sends profile_icon with every profiled event when one
+            // is declared, so its absence means the profile has none.
+            s.profile_icon = hook.profile_icon.clone();
         }
     }
 
@@ -355,6 +390,12 @@ fn apply_override(state: &mut ControllerState, pane_id: u32, cwd: &str, ovr: &Pe
         s.display_name = session::deduplicate_name(&ovr.display_name, &name_refs);
         s.manually_renamed = true;
         s.paused = ovr.paused;
+        if let Some(ref p) = ovr.profile {
+            s.profile = Some(p.clone());
+        }
+        if let Some(ref pc) = ovr.profile_color {
+            s.profile_color = parse_hex_color(pc);
+        }
         let now = session::unix_now();
         s.last_event_ts = now;
         s.meta_ts = now;
@@ -379,6 +420,16 @@ pub fn process_restore_meta(state: &mut ControllerState, payload: &str) {
                     .get("paused")
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
+                let profile = val
+                    .get("profile")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string());
+                let profile_color = val
+                    .get("profile_color")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string());
                 if !name.is_empty() {
                     state
                         .pending_overrides
@@ -387,6 +438,8 @@ pub fn process_restore_meta(state: &mut ControllerState, payload: &str) {
                         .push(PendingOverride {
                             display_name: name,
                             paused,
+                            profile,
+                            profile_color,
                         });
                 }
             }
@@ -416,6 +469,19 @@ fn maybe_rename_tab(state: &mut ControllerState, pane_id: u32) {
     }
 }
 
+/// Parse a #RRGGBB color string into an (r, g, b) tuple.
+/// Returns None for malformed input.
+fn parse_hex_color(s: &str) -> Option<(u8, u8, u8)> {
+    let s = s.strip_prefix('#').unwrap_or(s);
+    if s.len() != 6 {
+        return None;
+    }
+    let r = u8::from_str_radix(&s[0..2], 16).ok()?;
+    let g = u8::from_str_radix(&s[2..4], 16).ok()?;
+    let b = u8::from_str_radix(&s[4..6], 16).ok()?;
+    Some((r, g, b))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -433,10 +499,17 @@ mod tests {
             cwd: None,
             agent_id: None,
             badges: vec![],
+            profile: None,
+            profile_color: None,
+            profile_icon: None,
         }
     }
 
     fn make_subagent_hook(pane_id: u32, event: &str) -> HookPayload {
+        make_agent_hook(pane_id, event, "sub-1")
+    }
+
+    fn make_agent_hook(pane_id: u32, event: &str, agent_id: &str) -> HookPayload {
         HookPayload {
             agent: None,
             agent_indicator: None,
@@ -445,9 +518,103 @@ mod tests {
             hook_event_name: event.to_string(),
             tool_name: None,
             cwd: None,
-            agent_id: Some("sub-1".to_string()),
+            agent_id: Some(agent_id.to_string()),
             badges: vec![],
+            profile: None,
+            profile_color: None,
+            profile_icon: None,
         }
+    }
+
+    #[test]
+    fn test_subagent_prompt_raises_and_self_clears() {
+        // A subagent's permission prompt must put the whole row in attention
+        // (so the attend key lands here), then clear once that subagent
+        // resumes work - without any main-agent event.
+        let mut state = ControllerState::default();
+        state.sessions.insert(42, Session::new(42, "test-session".into()));
+
+        let changed = process_hook(&mut state, make_agent_hook(42, "PermissionRequest", "sub-a"));
+        assert!(changed);
+        assert!(state.sessions[&42].activity.is_waiting());
+
+        // The same subagent's next PostToolUse proves its prompt was answered.
+        let changed = process_hook(&mut state, make_agent_hook(42, "PostToolUse", "sub-a"));
+        assert!(changed);
+        assert_eq!(state.sessions[&42].activity, Activity::Working);
+        assert_eq!(state.sessions[&42].pending_prompt_count(), 0);
+    }
+
+    #[test]
+    fn test_subagent_prompt_clears_on_subagent_stop() {
+        let mut state = ControllerState::default();
+        state.sessions.insert(42, Session::new(42, "test-session".into()));
+
+        process_hook(&mut state, make_agent_hook(42, "PermissionRequest", "sub-a"));
+        assert!(state.sessions[&42].activity.is_waiting());
+
+        // The subagent finishes without ever emitting another tool event.
+        process_hook(&mut state, make_agent_hook(42, "SubagentStop", "sub-a"));
+        assert_eq!(state.sessions[&42].pending_prompt_count(), 0);
+        assert!(!state.sessions[&42].activity.is_waiting());
+    }
+
+    #[test]
+    fn test_parked_main_not_stuck_while_subagents_churn() {
+        // Regression for the observed jam: the main agent is parked inside a
+        // Task (emits nothing), several subagents raise prompts and then keep
+        // working. Previously each subagent prompt leaked onto a single counter
+        // that only a main-agent PostToolUse could drain, so the row stuck on
+        // the attention glyph for the whole workflow. Now each subagent drains
+        // its own prompt as it resumes, so the row returns to Working.
+        let mut state = ControllerState::default();
+        state.sessions.insert(42, Session::new(42, "test-session".into()));
+
+        for id in ["sub-a", "sub-b", "sub-c"] {
+            process_hook(&mut state, make_agent_hook(42, "PermissionRequest", id));
+        }
+        assert!(state.sessions[&42].activity.is_waiting());
+        assert_eq!(state.sessions[&42].pending_prompt_count(), 3);
+
+        // Each subagent resumes with a PostToolUse (interleaved with extra
+        // auto-approved tool calls that carry no prompt).
+        for id in ["sub-a", "sub-b", "sub-c"] {
+            process_hook(&mut state, make_agent_hook(42, "PostToolUse", id));
+            process_hook(&mut state, make_agent_hook(42, "PostToolUse", id));
+        }
+
+        assert_eq!(state.sessions[&42].pending_prompt_count(), 0);
+        assert_eq!(state.sessions[&42].activity, Activity::Working);
+    }
+
+    #[test]
+    fn test_one_blocked_subagent_keeps_attention_while_others_work() {
+        // If one subagent is genuinely still blocked, the row must stay in
+        // attention even as other subagents finish their work.
+        let mut state = ControllerState::default();
+        state.sessions.insert(42, Session::new(42, "test-session".into()));
+
+        process_hook(&mut state, make_agent_hook(42, "PermissionRequest", "sub-a"));
+        process_hook(&mut state, make_agent_hook(42, "PermissionRequest", "sub-b"));
+
+        // sub-a resumes, sub-b never does.
+        process_hook(&mut state, make_agent_hook(42, "PostToolUse", "sub-a"));
+        assert!(state.sessions[&42].activity.is_waiting());
+        assert_eq!(state.sessions[&42].pending_prompt_count(), 1);
+    }
+
+    #[test]
+    fn test_user_prompt_submit_resets_stuck_prompts() {
+        // A fresh user turn supersedes any outstanding prompt accounting.
+        let mut state = ControllerState::default();
+        state.sessions.insert(42, Session::new(42, "test-session".into()));
+
+        process_hook(&mut state, make_agent_hook(42, "PermissionRequest", "sub-a"));
+        assert!(state.sessions[&42].activity.is_waiting());
+
+        process_hook(&mut state, make_hook(42, "UserPromptSubmit"));
+        assert_eq!(state.sessions[&42].pending_prompt_count(), 0);
+        assert_eq!(state.sessions[&42].activity, Activity::Working);
     }
 
     #[test]
@@ -720,6 +887,9 @@ mod tests {
             cwd: Some("/home/user/my-project".to_string()),
             agent_id: None,
             badges: vec![],
+            profile: None,
+            profile_color: None,
+            profile_icon: None,
         };
         process_hook(&mut state, hook);
         assert_eq!(
@@ -747,6 +917,9 @@ mod tests {
             cwd: Some("/home/user/project/.claude/worktree".to_string()),
             agent_id: None,
             badges: vec![],
+            profile: None,
+            profile_color: None,
+            profile_icon: None,
         };
         process_hook(&mut state, hook);
         // CWD should NOT change to the worktree path
@@ -775,6 +948,9 @@ mod tests {
             cwd: None,
             agent_id: None,
             badges: vec![],
+            profile: None,
+            profile_color: None,
+            profile_icon: None,
         };
         process_hook(&mut state, hook);
 
@@ -796,6 +972,8 @@ mod tests {
             vec![PendingOverride {
                 display_name: "api-server".to_string(),
                 paused: true,
+                profile: None,
+                profile_color: None,
             }],
         );
 
@@ -809,6 +987,9 @@ mod tests {
             cwd: Some("/home/user/api".to_string()),
             agent_id: None,
             badges: vec![],
+            profile: None,
+            profile_color: None,
+            profile_icon: None,
         };
         process_hook(&mut state, hook);
 
@@ -872,7 +1053,7 @@ mod tests {
         // Use PermissionRequest hook to enter Waiting and set counter.
         state.sessions.insert(42, Session::new(42, "test-session".into()));
         process_hook(&mut state, make_hook(42, "PermissionRequest"));
-        assert_eq!(state.sessions[&42].pending_permissions, 1);
+        assert_eq!(state.sessions[&42].pending_prompt_count(), 1);
 
         // PreToolUse from subagent should NOT clear Waiting
         let changed = process_hook(&mut state, make_subagent_hook(42, "PreToolUse"));
@@ -897,14 +1078,14 @@ mod tests {
         // Enter Waiting via PermissionRequest (sets counter=1).
         state.sessions.insert(42, Session::new(42, "test-session".into()));
         process_hook(&mut state, make_hook(42, "PermissionRequest"));
-        assert_eq!(state.sessions[&42].pending_permissions, 1);
+        assert_eq!(state.sessions[&42].pending_prompt_count(), 1);
 
         // PostToolUse from main agent (no agent_id) acts as implicit
         // PermissionReply: decrements counter and clears Waiting.
         let changed = process_hook(&mut state, make_hook(42, "PostToolUse"));
         assert!(changed);
         assert_eq!(state.sessions[&42].activity, Activity::Working);
-        assert_eq!(state.sessions[&42].pending_permissions, 0);
+        assert_eq!(state.sessions[&42].pending_prompt_count(), 0);
     }
 
     #[test]
@@ -928,14 +1109,16 @@ mod tests {
     }
 
     #[test]
-    fn test_waiting_preserved_with_empty_agent_id() {
+    fn test_empty_agent_id_is_treated_as_main_agent() {
         let mut state = ControllerState::default();
-        // Enter Waiting via PermissionRequest.
+        // Enter Waiting via a main-agent PermissionRequest (no agent_id).
         state.sessions.insert(42, Session::new(42, "test-session".into()));
         process_hook(&mut state, make_hook(42, "PermissionRequest"));
 
-        // PostToolUse with empty agent_id (treated as subagent) should
-        // NOT act as implicit PermissionReply.
+        // A PostToolUse carrying an empty agent_id keys the main agent (""),
+        // the same slot the prompt was recorded under, so it drains that
+        // prompt and clears Waiting. Only a non-empty agent_id denotes a
+        // distinct subagent.
         let hook = HookPayload {
             agent: None,
             agent_indicator: None,
@@ -946,13 +1129,14 @@ mod tests {
             cwd: None,
             agent_id: Some("".to_string()),
             badges: vec![],
+            profile: None,
+            profile_color: None,
+            profile_icon: None,
         };
         let changed = process_hook(&mut state, hook);
-        assert!(!changed);
-        assert_eq!(
-            state.sessions[&42].activity,
-            Activity::Waiting(crate::session::WaitReason::Permission)
-        );
+        assert!(changed);
+        assert_eq!(state.sessions[&42].activity, Activity::Working);
+        assert_eq!(state.sessions[&42].pending_prompt_count(), 0);
     }
 
     #[test]
@@ -969,7 +1153,7 @@ mod tests {
         // Tool A hits permission
         process_hook(&mut state, make_hook(42, "PermissionRequest"));
         assert!(state.sessions[&42].activity.is_waiting());
-        assert_eq!(state.sessions[&42].pending_permissions, 1);
+        assert_eq!(state.sessions[&42].pending_prompt_count(), 1);
 
         // Tool B fires PreToolUse (parallel, no agent_id) - must NOT clear Waiting
         let changed = process_hook(&mut state, make_hook(42, "PreToolUse"));
@@ -986,20 +1170,20 @@ mod tests {
         // Two PermissionRequests
         process_hook(&mut state, make_hook(42, "PermissionRequest"));
         process_hook(&mut state, make_hook(42, "PermissionRequest"));
-        assert_eq!(state.sessions[&42].pending_permissions, 2);
+        assert_eq!(state.sessions[&42].pending_prompt_count(), 2);
         assert!(state.sessions[&42].activity.is_waiting());
 
         // First PermissionReply: counter decrements but stays in Waiting
         let changed = process_hook(&mut state, make_hook(42, "PermissionReply"));
         assert!(!changed);
         assert!(state.sessions[&42].activity.is_waiting());
-        assert_eq!(state.sessions[&42].pending_permissions, 1);
+        assert_eq!(state.sessions[&42].pending_prompt_count(), 1);
 
         // Second PermissionReply: counter reaches 0, transitions to Working
         let changed = process_hook(&mut state, make_hook(42, "PermissionReply"));
         assert!(changed);
         assert_eq!(state.sessions[&42].activity, Activity::Working);
-        assert_eq!(state.sessions[&42].pending_permissions, 0);
+        assert_eq!(state.sessions[&42].pending_prompt_count(), 0);
     }
 
     #[test]
@@ -1010,22 +1194,22 @@ mod tests {
         // Enter Waiting with 2 pending permissions
         process_hook(&mut state, make_hook(42, "PermissionRequest"));
         process_hook(&mut state, make_hook(42, "PermissionRequest"));
-        assert_eq!(state.sessions[&42].pending_permissions, 2);
+        assert_eq!(state.sessions[&42].pending_prompt_count(), 2);
 
         // Stop event resets counter and transitions to Done
         process_hook(&mut state, make_hook(42, "Stop"));
         assert_eq!(state.sessions[&42].activity, Activity::Done);
-        assert_eq!(state.sessions[&42].pending_permissions, 0);
+        assert_eq!(state.sessions[&42].pending_prompt_count(), 0);
     }
 
     #[test]
     fn test_post_tool_use_not_suppressed_when_no_pending_permissions() {
-        // When pending_permissions is 0 (e.g. manual state or already cleared),
+        // When no prompts are pending (e.g. manual state or already cleared),
         // PostToolUse should transition normally.
         let mut state = ControllerState::default();
         let mut s = Session::new(42, "test-session".into());
         s.activity = Activity::Waiting(crate::session::WaitReason::Permission);
-        s.pending_permissions = 0; // counter already at 0
+        s.pending_prompts.clear(); // no outstanding prompts
         state.sessions.insert(42, s);
 
         let changed = process_hook(&mut state, make_hook(42, "PostToolUse"));
@@ -1172,6 +1356,9 @@ mod tests {
             cwd: Some("/home/user/project/.claude/worktrees/076-fix/".to_string()),
             agent_id: None,
             badges: vec![],
+            profile: None,
+            profile_color: None,
+            profile_icon: None,
         };
         process_hook(&mut state, hook);
 
@@ -1201,6 +1388,9 @@ mod tests {
             cwd: Some("/home/user/project/.claude/settings.json".to_string()),
             agent_id: None,
             badges: vec![],
+            profile: None,
+            profile_color: None,
+            profile_icon: None,
         };
         process_hook(&mut state, hook);
 
@@ -1231,6 +1421,9 @@ mod tests {
             cwd: Some("/home/user/project".to_string()),
             agent_id: None,
             badges: vec![],
+            profile: None,
+            profile_color: None,
+            profile_icon: None,
         };
         process_hook(&mut state, hook);
 
@@ -1261,6 +1454,9 @@ mod tests {
             cwd: Some("/home/user/project/.claude/worktrees/077-other/".to_string()),
             agent_id: None,
             badges: vec![],
+            profile: None,
+            profile_color: None,
+            profile_icon: None,
         };
         process_hook(&mut state, hook);
 

@@ -65,15 +65,6 @@ Ideas captured from code reviews for future brainstorming.
 
 > Pre-existing design in the credential package. `FileCredentials` (plural) is collected during merge, but transport functions consume `FileCredential` (singular, `files[0]`). If a future agent declares multiple file credentials, only the first would be transported.
 
-### hook-profile-env-cache
-
-- **Source**: deep-review
-- **Date**: 2026-09-09
-- **Reference**: 087-harness-profiles (PR #37), `cc-deck/internal/cmd/hook.go`
-- **Summary**: `cc-deck hook` loads and parses `config.yaml` on every hook event when `CC_DECK_PROFILE` is set, only to resolve the profile color and icon. Hook events fire on every tool call, so this is disk I/O plus YAML parsing on the hot path. The wrapper already knows both values at generation time.
-
-> Two reviewers (architecture, production) suggested exporting `CC_DECK_PROFILE_COLOR` and `CC_DECK_PROFILE_ICON` from the generated wrapper and reading them in the hook, falling back to the config load only when they are absent. Zero cost per event, and the hook payload contract stays unchanged. Color edits would then take effect on the next `config profile sync` instead of the next hook event, which the guide should say.
-
 ### pane-map-write-race
 
 - **Source**: deep-review
@@ -171,3 +162,39 @@ Ideas captured from code reviews for future brainstorming.
 - **Summary**: The DNS second opinion is hardcoded to Cloudflare at 1.1.1.1 with no way to change or disable it.
 
 > Now documented, but on a restrictive or audited network a user may want to choose their own second-opinion resolver or turn the query off entirely.
+
+### per-profile-remote-secret-scope
+
+- **Source**: deep-review
+- **Date**: 2026-10-12
+- **Reference**: 087-harness-profiles, `cc-deck/internal/profile/sync.go` EnvCredentials, `cc-deck/internal/ws/ssh.go`
+- **Summary**: On SSH workspaces every env-sourced profile secret lands in the shared `~/.config/cc-deck/credentials.env`, so each profiled session (and its subprocesses and MCP servers) sees every other profile's token, and the tokens stay at rest on the remote host.
+
+> Writing each env-sourced value to `~/.config/cc-deck/profiles/<name>/<field>` (0600) and rendering the remote wrapper with the file form would scope each secret to its own wrapper. Related hardening: create remote credential files under `umask 077` and send content over stdin instead of argv, and single-quote values in `credentials.env` instead of Go `%q`.
+
+### env-override-warning-in-validate
+
+- **Source**: deep-review
+- **Date**: 2026-10-12
+- **Reference**: 087-harness-profiles, `cc-deck/internal/profile/sync.go` envOverrideWarnings
+- **Summary**: FR-007a's warning for an `env` key that overrides another auth kind is only emitted by `sync` and `Provision`, not by `cc-deck config validate`, because the config package cannot import the translators.
+
+> A validation hook that the profile package registers with config (or an `AuthKindOf(backend, auth)` helper plus an exported auth variable table) would let `config validate` report it too. Either that, or reword FR-007a to say sync warns.
+
+### derived-color-palette-shift
+
+- **Source**: deep-review
+- **Date**: 2026-10-12
+- **Reference**: 087-harness-profiles, `cc-deck/internal/profile/color.go`
+- **Summary**: Replacing the palette changes the derived color of every profile without an explicit `color:`; only profiles added afterwards get a stored, stable color.
+
+> The feature is unreleased, so this only affects users of the branch. If it ships after any release with the old palette, a release note or a `sync` hint listing `color:` values that keep current colors would avoid a surprise recolor.
+
+### anthropic-auth-token-precedence
+
+- **Source**: deep-review
+- **Date**: 2026-10-12
+- **Reference**: 087-harness-profiles, `cc-deck/internal/profile/claude.go` AuthVars
+- **Summary**: `ANTHROPIC_AUTH_TOKEN` is grouped with `ANTHROPIC_API_KEY` under the api_key kind (research R16), so an api_key profile does not clear an inherited `ANTHROPIC_AUTH_TOKEN`, which Claude Code prefers over the API key.
+
+> Computing the unset list from the profile's actual source variable, or giving `ANTHROPIC_AUTH_TOKEN` its own kind owned only by a profile that sources it, would close the gap for gateway tokens exported in the calling shell.

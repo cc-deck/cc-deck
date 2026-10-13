@@ -95,6 +95,25 @@ func (p *mockPipeSender) getSent() []pipeSend {
 	return cp
 }
 
+// blockingPipeSender simulates a hung `zellij pipe`: real text deliveries block
+// until their context is cancelled (as happens when a bounded delivery times
+// out). Protocol messages return immediately so Start is not delayed.
+type blockingPipeSender struct {
+	mu      sync.Mutex
+	blocked int
+}
+
+func (p *blockingPipeSender) Send(ctx context.Context, pipeName, payload string) error {
+	if pipeName != "cc-deck:voice" || isProtocolMessage(payload) {
+		return nil
+	}
+	p.mu.Lock()
+	p.blocked++
+	p.mu.Unlock()
+	<-ctx.Done()
+	return ctx.Err()
+}
+
 func collectEvents(ch <-chan RelayEvent, timeout time.Duration) []RelayEvent {
 	var events []RelayEvent
 	deadline := time.After(timeout)
@@ -165,6 +184,71 @@ func TestVoiceRelay_TextFlowsToSender(t *testing.T) {
 	}
 	if !hasDelivery {
 		t.Error("expected delivery event")
+	}
+}
+
+// TestVoiceRelay_HungDeliveryDoesNotStallDetection reproduces the production
+// failure where only the first utterance is ever detected: a hung pipe
+// delivery used the relay's unbounded context, so processUtterances blocked
+// forever on the first send and no further speech was transcribed. With a
+// bounded DeliveryTimeout the stuck delivery is dropped and detection
+// continues, so both utterances produce transcription events.
+func TestVoiceRelay_HungDeliveryDoesNotStallDetection(t *testing.T) {
+	// Two utterances. Each silence gap (2000 samples) exceeds SilenceDuration
+	// (0.1s = 1600 samples at 16 kHz) so the two speech bursts end as separate
+	// utterances rather than merging into one.
+	audio := newMockAudioSource(
+		makeSpeech(500, 5000), makeSilence(2000),
+		makeSpeech(500, 5000), makeSilence(2000),
+	)
+	transcriber := &mockTranscriber{results: []string{"first message", "second message"}}
+	pipe := &blockingPipeSender{}
+
+	config := DefaultRelayConfig()
+	config.MinTranscriptionLatency = 0
+	config.DeliveryTimeout = 100 * time.Millisecond
+	config.VADConfig.Threshold = 0.01
+	config.VADConfig.SilenceDuration = 0.1
+	config.VADConfig.PreRollDuration = 0
+	config.VADConfig.MinSpeechDuration = 0
+
+	relay := NewVoiceRelay(config, audio, transcriber, pipe, nil)
+	if err := relay.Start(context.Background()); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	events := collectEvents(relay.Events(), 2*time.Second)
+	relay.Stop()
+
+	var transcriptions, deliveries, errors int
+	for _, ev := range events {
+		switch ev.Type {
+		case "transcription":
+			transcriptions++
+		case "delivery":
+			deliveries++
+		case "error":
+			errors++
+		}
+	}
+	if transcriptions < 2 {
+		t.Fatalf("detection stalled after a hung delivery: got %d transcription events, want >= 2", transcriptions)
+	}
+	// A hung delivery (CLI held open by a stale instance) must be treated as
+	// delivered, not surfaced as a false error.
+	if errors != 0 {
+		t.Errorf("hung delivery surfaced a false error event: got %d error events, want 0", errors)
+	}
+	if deliveries < 2 {
+		t.Errorf("hung delivery not treated as delivered: got %d delivery events, want >= 2", deliveries)
+	}
+
+	// The blocking pipe must have actually been hit (otherwise the test proves
+	// nothing about timeout handling).
+	pipe.mu.Lock()
+	blocked := pipe.blocked
+	pipe.mu.Unlock()
+	if blocked < 2 {
+		t.Errorf("expected >= 2 blocked deliveries, got %d", blocked)
 	}
 }
 

@@ -256,7 +256,7 @@ pub fn toggle_navigate(state: &mut SidebarState) {
 
 fn handle_left_click(state: &mut SidebarState, row: usize) -> bool {
     // Check for special click regions
-    if let Some(&(_r, pane_id, _)) = state.click_regions.iter().find(|(r, _, _)| *r == row) {
+    if let Some(&(_r, pane_id, _, _)) = state.click_regions.iter().find(|(r, _, _, _)| *r == row) {
         if pane_id == super::render::VOICE_CLICK_SENTINEL {
             // Immediate visual feedback: toggle mute locally before
             // the controller round-trip. Cleared when the payload confirms.
@@ -303,9 +303,9 @@ fn handle_left_click(state: &mut SidebarState, row: usize) -> bool {
     let hit = state
         .click_regions
         .iter()
-        .find(|(r, pid, _)| {
+        .find(|(r, pid, _, h)| {
             *r <= row
-                && row < r + 3
+                && row < *r + *h
                 && *pid != u32::MAX
                 && *pid != u32::MAX - 1
                 && *pid != super::render::SEPARATOR_CLICK_SENTINEL
@@ -315,7 +315,7 @@ fn handle_left_click(state: &mut SidebarState, row: usize) -> bool {
         })
         .copied();
 
-    if let Some((_r, pane_id, tab_index)) = hit {
+    if let Some((_r, pane_id, tab_index, _h)) = hit {
         // Double-click detection for rename
         let now = unix_now_ms();
         if let Some((last_ts, last_pid)) = state.last_click {
@@ -358,9 +358,9 @@ fn handle_right_click(state: &mut SidebarState, row: usize) -> bool {
     let hit = state
         .click_regions
         .iter()
-        .find(|(r, pid, _)| {
+        .find(|(r, pid, _, h)| {
             *r <= row
-                && row < r + 3
+                && row < *r + *h
                 && *pid != u32::MAX
                 && *pid != u32::MAX - 1
                 && *pid != super::render::SEPARATOR_CLICK_SENTINEL
@@ -370,7 +370,7 @@ fn handle_right_click(state: &mut SidebarState, row: usize) -> bool {
         })
         .copied();
 
-    if let Some((_r, pane_id, _tab_index)) = hit {
+    if let Some((_r, pane_id, _tab_index, _h)) = hit {
         enter_rename_passive(state, pane_id)
     } else {
         false
@@ -1563,7 +1563,7 @@ mod tests {
     #[test]
     fn test_left_click_session_switches() {
         let mut state = make_state_with_sessions(&[(10, "api", 0), (20, "web", 1)]);
-        state.click_regions = vec![(2, 10, 0), (5, 20, 1)];
+        state.click_regions = vec![(2, 10, 0, 2), (5, 20, 1, 2)];
         assert!(handle_left_click(&mut state, 2));
         assert_eq!(state.local_focus_override, Some(10));
     }
@@ -1571,7 +1571,7 @@ mod tests {
     #[test]
     fn test_left_click_exits_navigate() {
         let mut state = make_nav_state(&[(10, "api", 0), (20, "web", 1)], 0);
-        state.click_regions = vec![(2, 10, 0), (5, 20, 1)];
+        state.click_regions = vec![(2, 10, 0, 2), (5, 20, 1, 2)];
         assert!(handle_left_click(&mut state, 2));
         assert!(matches!(state.mode, SidebarMode::Passive));
     }
@@ -1579,7 +1579,7 @@ mod tests {
     #[test]
     fn test_left_click_header_toggles_nav() {
         let mut state = make_state_with_sessions(&[(10, "api", 0)]);
-        state.click_regions = vec![(0, u32::MAX - 1, 0)];
+        state.click_regions = vec![(0, u32::MAX - 1, 0, 1)];
         assert!(handle_left_click(&mut state, 0));
         assert!(state.mode.is_navigating());
     }
@@ -1587,7 +1587,7 @@ mod tests {
     #[test]
     fn test_left_click_voice_toggles_mute() {
         let mut state = make_state_with_sessions(&[(10, "api", 0)]);
-        state.click_regions = vec![(0, VOICE_CLICK_SENTINEL, 0)];
+        state.click_regions = vec![(0, VOICE_CLICK_SENTINEL, 0, 1)];
         assert!(handle_left_click(&mut state, 0));
         assert_eq!(state.local_mute_override, Some(true));
     }
@@ -1595,14 +1595,14 @@ mod tests {
     #[test]
     fn test_left_click_no_hit() {
         let mut state = make_state_with_sessions(&[(10, "api", 0)]);
-        state.click_regions = vec![(2, 10, 0)];
+        state.click_regions = vec![(2, 10, 0, 2)];
         assert!(!handle_left_click(&mut state, 10));
     }
 
     #[test]
     fn test_right_click_enters_rename() {
         let mut state = make_state_with_sessions(&[(10, "api", 0)]);
-        state.click_regions = vec![(2, 10, 0)];
+        state.click_regions = vec![(2, 10, 0, 2)];
         assert!(handle_right_click(&mut state, 2));
         assert!(matches!(state.mode, SidebarMode::RenamePassive { .. }));
     }
@@ -1610,7 +1610,7 @@ mod tests {
     #[test]
     fn test_right_click_no_hit() {
         let mut state = make_state_with_sessions(&[(10, "api", 0)]);
-        state.click_regions = vec![(2, 10, 0)];
+        state.click_regions = vec![(2, 10, 0, 2)];
         assert!(!handle_right_click(&mut state, 10));
     }
 

@@ -164,7 +164,8 @@ func TestClaudeAgentTranslateEventPreservesFields(t *testing.T) {
 
 func TestClaudeAgentInstallHooksIdempotent(t *testing.T) {
 	dir := t.TempDir()
-	settingsPath := filepath.Join(dir, ".claude", "settings.json")
+	configDir := filepath.Join(dir, ".claude")
+	settingsPath := filepath.Join(configDir, "settings.json")
 
 	origFunc := claudeSettingsPathFunc
 	claudeSettingsPathFunc = func() string { return settingsPath }
@@ -172,16 +173,16 @@ func TestClaudeAgentInstallHooksIdempotent(t *testing.T) {
 
 	a := &ClaudeAgent{}
 
-	if err := a.InstallHooks(); err != nil {
-		t.Fatalf("first InstallHooks() error: %v", err)
+	if err := a.InstallHooksAt(configDir); err != nil {
+		t.Fatalf("first InstallHooksAt() error: %v", err)
 	}
 
 	if !a.HooksInstalled() {
-		t.Error("HooksInstalled() = false after InstallHooks()")
+		t.Error("HooksInstalled() = false after InstallHooksAt()")
 	}
 
-	if err := a.InstallHooks(); err != nil {
-		t.Fatalf("second InstallHooks() error: %v", err)
+	if err := a.InstallHooksAt(configDir); err != nil {
+		t.Fatalf("second InstallHooksAt() error: %v", err)
 	}
 
 	data, err := os.ReadFile(settingsPath)
@@ -227,7 +228,8 @@ func TestClaudeAgentCredentialSpecs(t *testing.T) {
 
 func TestClaudeAgentUninstallHooksSafety(t *testing.T) {
 	dir := t.TempDir()
-	settingsPath := filepath.Join(dir, ".claude", "settings.json")
+	configDir := filepath.Join(dir, ".claude")
+	settingsPath := filepath.Join(configDir, "settings.json")
 
 	origFunc := claudeSettingsPathFunc
 	claudeSettingsPathFunc = func() string { return settingsPath }
@@ -239,8 +241,8 @@ func TestClaudeAgentUninstallHooksSafety(t *testing.T) {
 		t.Fatalf("UninstallHooks() on nonexistent file: %v", err)
 	}
 
-	if err := a.InstallHooks(); err != nil {
-		t.Fatalf("InstallHooks() error: %v", err)
+	if err := a.InstallHooksAt(configDir); err != nil {
+		t.Fatalf("InstallHooksAt() error: %v", err)
 	}
 	if err := a.UninstallHooks(); err != nil {
 		t.Fatalf("UninstallHooks() error: %v", err)
@@ -253,7 +255,8 @@ func TestClaudeAgentUninstallHooksSafety(t *testing.T) {
 
 func TestClaudeAgentInstallHooksPreservesExisting(t *testing.T) {
 	dir := t.TempDir()
-	settingsPath := filepath.Join(dir, ".claude", "settings.json")
+	configDir := filepath.Join(dir, ".claude")
+	settingsPath := filepath.Join(configDir, "settings.json")
 
 	origFunc := claudeSettingsPathFunc
 	claudeSettingsPathFunc = func() string { return settingsPath }
@@ -283,8 +286,8 @@ func TestClaudeAgentInstallHooksPreservesExisting(t *testing.T) {
 	}
 
 	a := &ClaudeAgent{}
-	if err := a.InstallHooks(); err != nil {
-		t.Fatalf("InstallHooks() error: %v", err)
+	if err := a.InstallHooksAt(configDir); err != nil {
+		t.Fatalf("InstallHooksAt() error: %v", err)
 	}
 
 	result, err := os.ReadFile(settingsPath)
@@ -316,7 +319,7 @@ func TestClaudeAgentInstallHooksPreservesExisting(t *testing.T) {
 		}
 	}
 	if !foundObsidian {
-		t.Error("obsidian sync hook was lost after InstallHooks()")
+		t.Error("obsidian sync hook was lost after InstallHooksAt()")
 	}
 
 	// PreToolUse is not registered by cc-deck: only the rtk hook remains there.
@@ -335,8 +338,8 @@ func TestClaudeAgentInstallHooksPreservesExisting(t *testing.T) {
 	}
 
 	// Run again to verify idempotency with existing hooks
-	if err := a.InstallHooks(); err != nil {
-		t.Fatalf("second InstallHooks() error: %v", err)
+	if err := a.InstallHooksAt(configDir); err != nil {
+		t.Fatalf("second InstallHooksAt() error: %v", err)
 	}
 
 	result, _ = os.ReadFile(settingsPath)
@@ -356,7 +359,8 @@ func TestClaudeAgentInstallHooksPreservesExisting(t *testing.T) {
 
 func TestClaudeAgentInstallHooksPreservesTopLevelKeys(t *testing.T) {
 	dir := t.TempDir()
-	settingsPath := filepath.Join(dir, ".claude", "settings.json")
+	configDir := filepath.Join(dir, ".claude")
+	settingsPath := filepath.Join(configDir, "settings.json")
 
 	origFunc := claudeSettingsPathFunc
 	claudeSettingsPathFunc = func() string { return settingsPath }
@@ -401,8 +405,8 @@ func TestClaudeAgentInstallHooksPreservesTopLevelKeys(t *testing.T) {
 	}
 
 	a := &ClaudeAgent{}
-	if err := a.InstallHooks(); err != nil {
-		t.Fatalf("InstallHooks() error: %v", err)
+	if err := a.InstallHooksAt(configDir); err != nil {
+		t.Fatalf("InstallHooksAt() error: %v", err)
 	}
 
 	result, _ := os.ReadFile(settingsPath)
@@ -459,7 +463,8 @@ func TestClaudeAgentRequiredDomainGroups(t *testing.T) {
 // stale entry, or the upgrade keeps paying one process per tool call.
 func TestClaudeAgentInstallHooksRemovesStalePreToolUse(t *testing.T) {
 	tmpDir := t.TempDir()
-	settingsPath := filepath.Join(tmpDir, ".claude", "settings.json")
+	configDir := filepath.Join(tmpDir, ".claude")
+	settingsPath := filepath.Join(configDir, "settings.json")
 	claudeSettingsPathFunc = func() string { return settingsPath }
 	defer func() { claudeSettingsPathFunc = defaultClaudeSettingsPath }()
 
@@ -477,8 +482,8 @@ func TestClaudeAgentInstallHooksRemovesStalePreToolUse(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := (&ClaudeAgent{}).InstallHooks(); err != nil {
-		t.Fatalf("InstallHooks() error: %v", err)
+	if err := (&ClaudeAgent{}).InstallHooksAt(configDir); err != nil {
+		t.Fatalf("InstallHooksAt() error: %v", err)
 	}
 
 	result, _ := os.ReadFile(settingsPath)
@@ -495,7 +500,8 @@ func TestClaudeAgentInstallHooksRemovesStalePreToolUse(t *testing.T) {
 
 func TestClaudeAgentHookEventCount(t *testing.T) {
 	dir := t.TempDir()
-	settingsPath := filepath.Join(dir, ".claude", "settings.json")
+	configDir := filepath.Join(dir, ".claude")
+	settingsPath := filepath.Join(configDir, "settings.json")
 
 	origFunc := claudeSettingsPathFunc
 	claudeSettingsPathFunc = func() string { return settingsPath }
@@ -507,8 +513,8 @@ func TestClaudeAgentHookEventCount(t *testing.T) {
 		t.Errorf("HookEventCount() = %d before install, want 0", count)
 	}
 
-	if err := a.InstallHooks(); err != nil {
-		t.Fatalf("InstallHooks() error: %v", err)
+	if err := a.InstallHooksAt(configDir); err != nil {
+		t.Fatalf("InstallHooksAt() error: %v", err)
 	}
 
 	if count := a.HookEventCount(); count != len(claudeHookEvents) {

@@ -24,6 +24,7 @@ func init() {
 func (o *OpenCodeAgent) Name() string        { return "opencode" }
 func (o *OpenCodeAgent) DisplayName() string { return "OpenCode" }
 func (o *OpenCodeAgent) Indicator() string   { return "❯" }
+func (o *OpenCodeAgent) Binary() string      { return "opencode" }
 
 func (o *OpenCodeAgent) IsInstalled() bool {
 	_, err := exec.LookPath("opencode")
@@ -39,18 +40,40 @@ func (o *OpenCodeAgent) DetectConfig() string {
 }
 
 func (o *OpenCodeAgent) InstallHooks() error {
-	pluginPath := opencodePluginPath()
-	dir := filepath.Dir(pluginPath)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("creating OpenCode plugins directory %s: %w", dir, err)
+	dir := o.DetectConfig()
+	if dir == "" {
+		dir = defaultOpencodeConfigDir()
+	}
+	return o.InstallHooksAt(dir)
+}
+
+func (o *OpenCodeAgent) InstallHooksAt(configDir string) error {
+	pluginPath := filepath.Join(configDir, "plugins", "cc-deck.ts")
+	pluginsDir := filepath.Dir(pluginPath)
+	if err := os.MkdirAll(pluginsDir, 0o755); err != nil {
+		return fmt.Errorf("creating OpenCode plugins directory %s: %w", pluginsDir, err)
 	}
 	if err := fileutil.AtomicWrite(pluginPath, opencodePluginTemplate, 0o644); err != nil {
 		return fmt.Errorf("writing OpenCode plugin: %w", err)
 	}
-	if err := registerPluginInConfig(pluginPath); err != nil {
-		return fmt.Errorf("registering plugin in opencode config: %w", err)
+
+	configPath := filepath.Join(configDir, "opencode.json")
+	config, err := readOpencodeConfig(configPath)
+	if err != nil {
+		return fmt.Errorf("reading opencode config: %w", err)
 	}
-	return nil
+
+	plugins, _ := config["plugin"].([]any)
+	// Check for both the absolute path and the well-known tilde entry
+	// to stay idempotent when the default config dir is used.
+	for _, p := range plugins {
+		if s, ok := p.(string); ok && (s == pluginPath || s == pluginEntry) {
+			return nil
+		}
+	}
+	plugins = append(plugins, pluginPath)
+	config["plugin"] = plugins
+	return writeOpencodeConfig(configPath, config)
 }
 
 func (o *OpenCodeAgent) UninstallHooks() error {
@@ -121,31 +144,16 @@ func (o *OpenCodeAgent) RequiredDomainGroups() []string {
 	return []string{"openai"}
 }
 
+func (o *OpenCodeAgent) ResumeArgs(sessionID string) []string {
+	if sessionID == "" {
+		return nil
+	}
+	return []string{"--session", sessionID}
+}
+
 // --- OpenCode config (opencode.json) management ---
 
 const pluginEntry = "~/.config/opencode/plugins/cc-deck.ts"
-
-// registerPluginInConfig adds the cc-deck plugin to the "plugin" array
-// in opencode.json if not already present.
-func registerPluginInConfig(pluginPath string) error {
-	configPath := opencodeConfigPath()
-	config, err := readOpencodeConfig(configPath)
-	if err != nil {
-		return err
-	}
-
-	plugins, _ := config["plugin"].([]any)
-
-	for _, p := range plugins {
-		if s, ok := p.(string); ok && (s == pluginEntry || s == pluginPath) {
-			return nil
-		}
-	}
-
-	plugins = append(plugins, pluginEntry)
-	config["plugin"] = plugins
-	return writeOpencodeConfig(configPath, config)
-}
 
 // unregisterPluginFromConfig removes the cc-deck plugin entry from
 // the "plugin" array in opencode.json.

@@ -15,10 +15,19 @@ All settings have sensible defaults and can be overridden via CLI flags.
 namespace: cc-deck
 
 # Default credential profile
-profile: default
+default_profile: work
 
 # Verbose output
 verbose: false
+
+# Harness profiles (see the Profiles section below)
+profiles:
+  work:
+    harness: claude
+    backend: vertex
+    model: claude-sonnet-5
+    auth:
+      credentials: {file: ~/.config/gcloud/acme-adc.json}
 
 # Voice relay defaults
 defaults:
@@ -198,6 +207,229 @@ The hex portion must be exactly 6 valid hexadecimal characters.
 | May cause issues in some environments but is not guaranteed to break
 |===
 
+== Profiles
+
+Profiles let you run the same AI harness under different accounts, credentials, and models side by side.
+Each profile generates a wrapper command (for example `claude-work` or `codex-team`) that configures the harness before launching it.
+The plain harness command (`claude`, `codex`, `opencode`) remains unaffected and means "no profile."
+
+=== Profile Schema
+
+[source,yaml]
+----
+profiles:
+  <name>:                        # lowercase letters, digits, and hyphens
+    harness: claude              # claude (default) | codex | opencode
+    backend: anthropic           # optional; allowed set depends on harness
+    model: claude-sonnet-5       # optional
+    auth:                        # required for new profiles
+      api_key:                   # exactly one of env, file, secret
+        env: ANTHROPIC_API_KEY_WORK
+        # file: ~/.secrets/anthropic-work
+        # secret: anthropic-work        (Kubernetes deploy only)
+      credentials:               # vertex only, ADC JSON; exactly one of env, file, secret
+        file: ~/.config/gcloud/work-adc.json
+      oauth_token:               # claude + anthropic only; exactly one of env, file
+        env: CLAUDE_TOKEN_PRIVATE
+      login: true                # claude only
+      # api_key, oauth_token and login are mutually exclusive
+    project: my-gcp-project      # vertex backend only
+    region: us-east5             # vertex backend only
+    env:                         # optional extra environment variables
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: claude-haiku-4-5-20251001
+    color: "#5AC0E2"             # optional, #RRGGBB hex; `config profile add` fills it in
+    icon: "W"                    # optional, single glyph (terminal width 1 or 2)
+----
+
+=== Field Reference
+
+[cols="1,1,3"]
+|===
+| Field | Type | Description
+
+| `harness`
+| string
+| Agent binary to invoke.
+Allowed values: `claude`, `codex`, `opencode`.
+Defaults to `claude` when omitted, so profiles written before this feature remain valid.
+
+| `backend`
+| string
+| Authentication backend for the harness.
+The allowed set and default depend on the harness.
+Claude supports `anthropic` (default) and `vertex`, Codex supports `openai`, and OpenCode supports `openai` (default) and `anthropic`.
+
+| `model`
+| string
+| Model identifier passed to the harness (for example `claude-sonnet-5` or `gpt-5`).
+Optional.
+
+| `auth`
+| object
+| Credential block.
+Required for new profiles.
+Contains at most one of `api_key`, `oauth_token`, or `login`, because these three are mutually exclusive.
+Vertex profiles use `credentials` instead.
+
+| `auth.api_key`
+| object
+| API key credential.
+Specify exactly one source: `{env: VAR_NAME}` reads from an environment variable, `{file: /path}` reads from a file, `{secret: name}` reads from a Kubernetes secret.
+Mutually exclusive with `oauth_token` and `login`.
+
+| `auth.credentials`
+| object
+| Application Default Credentials JSON (Vertex backend only).
+Same source options as `api_key`: `env`, `file`, or `secret`.
+
+| `auth.oauth_token`
+| object
+| Long-lived Claude subscription token, created with `claude setup-token`.
+Specify exactly one source: `{env: VAR_NAME}` or `{file: /path}`.
+Kubernetes secrets are not supported for tokens.
+Allowed only for harness `claude` with backend `anthropic`.
+The wrapper exports the token as `CLAUDE_CODE_OAUTH_TOKEN`.
+Mutually exclusive with `api_key` and `login`.
+
+| `auth.login`
+| boolean
+| When `true`, the harness uses its own interactive login stored in a per-profile config directory.
+Supported by Claude only.
+Mutually exclusive with `api_key` and `oauth_token`.
+
+| `project`
+| string
+| Google Cloud project ID (Vertex backend only).
+
+| `region`
+| string
+| Google Cloud region (Vertex backend only).
+
+| `env`
+| map
+| Additional environment variables the wrapper exports before executing the harness.
+
+| `color`
+| string
+| Color of the profile's edge bar in the sidebar, in `#RRGGBB` format.
+`cc-deck config profile add` writes the palette color that is most distinct from the colors of the existing profiles when `--color` is not given.
+For a profile without `color`, a palette color is derived from the profile name and stays stable across restarts.
+A changed color applies to sessions started after the next `cc-deck config profile sync`, because the wrapper carries the color.
+
+| `icon`
+| string
+| A single display glyph that replaces the harness icon in the sidebar for sessions under this profile.
+The harness icon, and with it the profile icon, appears only while more than one harness runs.
+Must have a terminal display width of 1 or 2.
+|===
+
+=== Worked Example
+
+The following configuration defines two Anthropic accounts (company Vertex and a personal subscription token) plus a Codex team profile:
+
+[source,yaml]
+----
+profiles:
+  work:
+    harness: claude
+    backend: vertex
+    project: acme-ml
+    region: us-east5
+    model: claude-sonnet-5
+    auth:
+      credentials: {file: ~/.config/gcloud/acme-adc.json}
+    color: "#5AC0E2"
+  private:
+    harness: claude
+    model: claude-opus-5
+    auth:
+      oauth_token: {env: CLAUDE_TOKEN_PRIVATE}
+    color: "#E27C5A"
+  team:
+    harness: codex
+    model: gpt-5
+    auth:
+      api_key: {env: OPENAI_API_KEY_TEAM}
+----
+
+After running `cc-deck config profile sync`, three wrapper commands are available on `PATH`: `claude-work`, `claude-private`, and `codex-team`.
+
+=== Wrapper and Config Directories
+
+Wrappers are written to `~/.local/share/cc-deck/bin/`.
+The `sync` command adds this directory to `PATH` through a managed shell rc block and reports when a new shell is required.
+
+Each profile gets a per-profile config directory at `~/.local/share/cc-deck/profiles/<name>/<harness>/`.
+This directory shares the user's non-auth configuration (settings, skills, commands, plugins, MCP configuration) with the harness's default config directory through symlinks, and isolates only login and credential state.
+A change to shared configuration in the default directory is visible to profiled sessions without a re-sync.
+
+Credential files referenced by `file` sources are copied to `~/.config/cc-deck/profiles/<name>/` with mode 0600, under the names `api_key`, `oauth_token`, and `credentials`.
+
+Wrappers contain no credential values.
+Credential material reaches the workspace through the existing credential transport.
+
+=== Wrapper Environment
+
+Every wrapper exports `CC_DECK_PROFILE` with the profile name and `CC_DECK_PROFILE_COLOR` with the effective color.
+The wrapper also exports `CC_DECK_PROFILE_ICON` with the declared `icon`, or an empty value when the profile declares none, so a wrapper started from inside another profiled session never inherits that session's icon.
+The hook reads these variables, so sessions started by a current wrapper never read `config.yaml` for profile data.
+An icon from the environment is used only when it is a single printable glyph.
+
+Before it applies the profile's own settings, the wrapper clears the auth variables of every other auth kind.
+A credential exported in the calling shell therefore cannot override the profile.
+
+[cols="1,1,3"]
+|===
+| Harness | Auth kind | Variables
+
+| `claude`
+| `api_key`
+| `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`
+
+| `claude`
+| `oauth_token`
+| `CLAUDE_CODE_OAUTH_TOKEN`
+
+| `claude`
+| `vertex`
+| `CLAUDE_CODE_USE_VERTEX`
+
+| `claude`
+| `bedrock`
+| `CLAUDE_CODE_USE_BEDROCK`
+
+| `codex`
+| `api_key`
+| `OPENAI_API_KEY`
+
+| `opencode`
+| `api_key`
+| `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`
+|===
+
+A Claude `login` profile owns none of these variables, so its wrapper clears all of them.
+Codex and OpenCode have a single auth kind, so their wrappers clear nothing.
+`GOOGLE_APPLICATION_CREDENTIALS`, `ANTHROPIC_VERTEX_PROJECT_ID`, and `CLOUD_ML_REGION` are never cleared, because they have no effect without `CLAUDE_CODE_USE_VERTEX`.
+
+The profile's `env` map is applied after the clearing step.
+`cc-deck config profile sync` warns when an `env` key sets a variable of another auth kind, because that key overrides the profile's credential.
+A credential source that reads a variable the wrapper clears (for example `oauth_token: {env: ANTHROPIC_API_KEY}`) is rejected, because the credential check would always fail.
+
+=== Backend Restrictions
+
+The Kubernetes deploy backend does not support subscription tokens.
+When the profile selected through `default_profile` uses `auth.oauth_token`, workspace creation fails before any resource exists.
+
+=== Legacy Compatibility
+
+Profiles written before this feature (without `harness`, `auth`, or other new fields) continue to work.
+The following defaults apply:
+
+* A profile without a `harness` field defaults to `claude`.
+* Existing `api_key_secret` and `credentials_secret` fields are mapped to `auth.api_key.secret` and `auth.credentials.secret` internally.
+* The `git_credential_type` and `git_credential_secret` fields are still resolved by the workspace git credential system for every backend.
+* Loading the config file never rewrites it. `Save()` writes new fields only when they are set.
+
 == Environment Variables
 
 [cols="1,3"]
@@ -276,6 +508,15 @@ The hex portion must be exactly 6 valid hexadecimal characters.
 
 | `~/.local/state/cc-deck/`
 | Restricted session-sharing operation state. Contains no raw invitation credentials.
+
+| `~/.local/share/cc-deck/bin/`
+| Profile wrapper commands (added to `PATH` by `cc-deck config profile sync`)
+
+| `~/.local/share/cc-deck/profiles/<name>/<harness>/`
+| Per-profile harness config directory (shared non-auth config via symlinks, isolated login and credential state)
+
+| `~/.config/cc-deck/profiles/<name>/`
+| Per-profile credential storage (file-based credential sources)
 
 | `<project>/.cc-deck/voice-glossary.txt`
 | Project-specific voice glossary (one term per line)

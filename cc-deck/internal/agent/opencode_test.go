@@ -113,12 +113,15 @@ func setupOpenCodeTestDir(t *testing.T) (cleanup func()) {
 
 	origPlugin := opencodePluginPathFunc
 	origConfig := opencodeConfigPathFunc
+	origConfigDir := opencodeConfigDirFunc
 	opencodePluginPathFunc = func() string { return pluginPath }
 	opencodeConfigPathFunc = func() string { return configPath }
+	opencodeConfigDirFunc = func() string { return dir }
 
 	return func() {
 		opencodePluginPathFunc = origPlugin
 		opencodeConfigPathFunc = origConfig
+		opencodeConfigDirFunc = origConfigDir
 	}
 }
 
@@ -177,15 +180,19 @@ func TestOpenCodeAgentInstallHooksRegistersInConfig(t *testing.T) {
 		t.Fatalf("parsing config: %v", err)
 	}
 
+	// InstallHooksAt registers the absolute plugin path in the config.
+	// The tilde-based pluginEntry is only used by the standalone
+	// registerPluginInConfig helper for the default directory case.
+	wantPath := opencodePluginPath()
 	plugins, _ := config["plugin"].([]any)
 	found := false
 	for _, p := range plugins {
-		if s, ok := p.(string); ok && s == pluginEntry {
+		if s, ok := p.(string); ok && (s == wantPath || s == pluginEntry) {
 			found = true
 		}
 	}
 	if !found {
-		t.Errorf("plugin entry %q not found in config plugins: %v", pluginEntry, plugins)
+		t.Errorf("plugin path not found in config plugins: %v", plugins)
 	}
 }
 
@@ -240,15 +247,16 @@ func TestOpenCodeAgentInstallHooksIdempotent(t *testing.T) {
 	}
 	var config map[string]any
 	json.Unmarshal(data, &config)
+	wantPath := opencodePluginPath()
 	plugins, _ := config["plugin"].([]any)
 	count := 0
 	for _, p := range plugins {
-		if s, ok := p.(string); ok && s == pluginEntry {
+		if s, ok := p.(string); ok && (s == wantPath || s == pluginEntry) {
 			count++
 		}
 	}
 	if count != 1 {
-		t.Errorf("expected 1 plugin entry, got %d", count)
+		t.Errorf("expected 1 plugin entry, got %d in %v", count, plugins)
 	}
 }
 

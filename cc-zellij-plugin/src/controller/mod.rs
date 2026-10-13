@@ -236,7 +236,7 @@ impl ZellijPlugin for ControllerPlugin {
                 // human is waiting on, so it does not wait for the timer.
                 let pane_id = hook.pane_id;
                 let was_waiting = self.state.session_is_waiting(pane_id);
-                hooks::process_hook(&mut self.state, hook);
+                hooks::process_hook(&mut self.state, *hook);
                 if self.state.session_is_waiting(pane_id) != was_waiting {
                     render_broadcast::flush_render(&mut self.state);
                 }

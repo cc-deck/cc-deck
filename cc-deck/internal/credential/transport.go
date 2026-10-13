@@ -84,32 +84,58 @@ type SSHClient interface {
 
 // InjectSSH writes credentials to a remote host via SSH.
 func InjectSSH(ctx context.Context, client SSHClient, resolved ResolvedCredentials) error {
-	if len(resolved.EnvVars) == 0 && resolved.FileCredential == nil {
+	if len(resolved.EnvVars) == 0 && resolved.FileCredential == nil && len(resolved.FileCredentials) == 0 {
 		return nil
 	}
 
 	var lines []string
 
-	if resolved.FileCredential != nil {
-		key := resolved.FileCredential.EnvVar
-		localPath := resolved.FileCredential.LocalPath
-		remoteName := key
+	// Upload all file credentials (FileCredentials), falling back to the
+	// legacy single FileCredential when the slice is empty.
+	fileCredentials := resolved.FileCredentials
+	if len(fileCredentials) == 0 && resolved.FileCredential != nil {
+		fileCredentials = []*ResolvedFile{resolved.FileCredential}
+	}
 
-		if _, err := client.Run(ctx, "mkdir -p ~/.config/cc-deck"); err != nil {
-			return fmt.Errorf("creating remote config directory: %w", err)
+	// Track which env vars are handled by file credentials to skip them
+	// in the env var loop below.
+	fileEnvVars := make(map[string]bool)
+	for _, fc := range fileCredentials {
+		fileEnvVars[fc.EnvVar] = true
+	}
+
+	for _, fc := range fileCredentials {
+		localPath := fc.LocalPath
+		var remotePath string
+		if fc.Dest != "" {
+			// Dest is relative to home; ensure parent directory exists.
+			remotePath = fmt.Sprintf("~/%s", fc.Dest)
+			parentDir := remotePath[:strings.LastIndex(remotePath, "/")]
+			if _, err := client.Run(ctx, fmt.Sprintf("mkdir -p %s", parentDir)); err != nil {
+				return fmt.Errorf("creating remote directory for %s: %w", fc.EnvVar, err)
+			}
+		} else {
+			if _, err := client.Run(ctx, "mkdir -p ~/.config/cc-deck"); err != nil {
+				return fmt.Errorf("creating remote config directory: %w", err)
+			}
+			remotePath = fmt.Sprintf("~/.config/cc-deck/%s", fc.EnvVar)
 		}
-		remotePath := fmt.Sprintf("~/.config/cc-deck/%s", remoteName)
 		if err := client.Upload(ctx, localPath, remotePath); err != nil {
-			return fmt.Errorf("uploading credential file: %w", err)
+			return fmt.Errorf("uploading credential file %s: %w", fc.EnvVar, err)
 		}
 		if _, err := client.Run(ctx, fmt.Sprintf("chmod 600 %s", remotePath)); err != nil {
 			return fmt.Errorf("setting credential file permissions: %w", err)
 		}
-		lines = append(lines, fmt.Sprintf("export %s=\"$HOME/.config/cc-deck/%s\"", key, remoteName))
+		// Use $HOME for the env export so the credentials.env is portable.
+		envPath := remotePath
+		if strings.HasPrefix(envPath, "~/") {
+			envPath = "$HOME/" + envPath[2:]
+		}
+		lines = append(lines, fmt.Sprintf("export %s=%q", fc.EnvVar, envPath))
 	}
 
 	for key, val := range resolved.EnvVars {
-		if resolved.FileCredential != nil && key == resolved.FileCredential.EnvVar {
+		if fileEnvVars[key] {
 			continue
 		}
 		if info, err := os.Stat(val); err == nil && !info.IsDir() {
@@ -226,7 +252,39 @@ type OpenShellClient interface {
 
 // InjectOpenShell uploads credentials to an OpenShell sandbox.
 func InjectOpenShell(ctx context.Context, client OpenShellClient, sandboxID string, resolved ResolvedCredentials) error {
+	// Upload all file credentials (FileCredentials), falling back to the
+	// legacy single FileCredential when the slice is empty.
+	fileCredentials := resolved.FileCredentials
+	if len(fileCredentials) == 0 && resolved.FileCredential != nil {
+		fileCredentials = []*ResolvedFile{resolved.FileCredential}
+	}
+
+	// Track which env vars are handled by file credentials.
+	fileEnvVars := make(map[string]bool)
+	for _, fc := range fileCredentials {
+		fileEnvVars[fc.EnvVar] = true
+	}
+
+	for _, fc := range fileCredentials {
+		localPath := fc.LocalPath
+		var remotePath string
+		if fc.Dest != "" {
+			remotePath = "/sandbox/" + fc.Dest
+		} else {
+			remotePath = "/sandbox/.config/cc-deck/" + fc.EnvVar
+		}
+		if err := client.FileUpload(ctx, sandboxID, localPath, remotePath); err != nil {
+			return fmt.Errorf("uploading credential file %s: %w", fc.EnvVar, err)
+		}
+		if err := injectOpenShellEnvVar(ctx, client, sandboxID, fc.EnvVar, remotePath); err != nil {
+			return err
+		}
+	}
+
 	for key, val := range resolved.EnvVars {
+		if fileEnvVars[key] {
+			continue
+		}
 		if info, err := os.Stat(val); err == nil && !info.IsDir() {
 			remotePath := "/sandbox/.config/cc-deck/" + key
 			if err := client.FileUpload(ctx, sandboxID, val, remotePath); err != nil {
@@ -238,18 +296,6 @@ func InjectOpenShell(ctx context.Context, client OpenShellClient, sandboxID stri
 			continue
 		}
 		if err := injectOpenShellEnvVar(ctx, client, sandboxID, key, val); err != nil {
-			return err
-		}
-	}
-
-	if resolved.FileCredential != nil {
-		key := resolved.FileCredential.EnvVar
-		localPath := resolved.FileCredential.LocalPath
-		remotePath := "/sandbox/.config/cc-deck/" + key
-		if err := client.FileUpload(ctx, sandboxID, localPath, remotePath); err != nil {
-			return fmt.Errorf("uploading credential file: %w", err)
-		}
-		if err := injectOpenShellEnvVar(ctx, client, sandboxID, key, remotePath); err != nil {
 			return err
 		}
 	}

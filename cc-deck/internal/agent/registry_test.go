@@ -22,6 +22,9 @@ func (s *stubAgent) HooksInstalled() bool { return false }
 func (s *stubAgent) TranslateEvent(_ []byte) (*NormalizedPayload, error) { return nil, nil }
 func (s *stubAgent) CredentialSpecs() []CredentialSpec                   { return nil }
 func (s *stubAgent) RequiredDomainGroups() []string                      { return nil }
+func (s *stubAgent) Binary() string                                      { return s.name }
+func (s *stubAgent) InstallHooksAt(_ string) error                       { return nil }
+func (s *stubAgent) ResumeArgs(_ string) []string                        { return nil }
 
 func TestRegisterAndGet(t *testing.T) {
 	Reset()

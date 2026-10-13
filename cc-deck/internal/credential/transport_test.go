@@ -225,6 +225,139 @@ func TestInjectK8s_UnsetVars(t *testing.T) {
 	assert.Equal(t, []string{"GEMINI_API_KEY"}, result.UnsetVars)
 }
 
+// ---------------------------------------------------------------------------
+// Multi-file upload and custom destinations (T042)
+// ---------------------------------------------------------------------------
+
+func TestInjectSSH_MultiFileCredentials(t *testing.T) {
+	dir := t.TempDir()
+	cred1 := filepath.Join(dir, "creds.json")
+	cred2 := filepath.Join(dir, "auth.json")
+	require.NoError(t, os.WriteFile(cred1, []byte(`{"type":"service_account"}`), 0o600))
+	require.NoError(t, os.WriteFile(cred2, []byte(`{"token":"abc"}`), 0o600))
+
+	client := &mockSSHClient{}
+	resolved := ResolvedCredentials{
+		EnvVars: map[string]string{},
+		FileCredentials: []*ResolvedFile{
+			{EnvVar: "GOOGLE_APPLICATION_CREDENTIALS", LocalPath: cred1},
+			{EnvVar: "AUTH_TOKEN_FILE", LocalPath: cred2},
+		},
+	}
+
+	err := InjectSSH(context.Background(), client, resolved)
+	require.NoError(t, err)
+
+	// Both files should be uploaded
+	require.Len(t, client.uploads, 2)
+	assert.Contains(t, client.uploads[0].remotePath, "GOOGLE_APPLICATION_CREDENTIALS")
+	assert.Contains(t, client.uploads[1].remotePath, "AUTH_TOKEN_FILE")
+}
+
+func TestInjectSSH_CustomDest(t *testing.T) {
+	dir := t.TempDir()
+	credFile := filepath.Join(dir, "creds.json")
+	require.NoError(t, os.WriteFile(credFile, []byte(`{}`), 0o600))
+
+	client := &mockSSHClient{}
+	resolved := ResolvedCredentials{
+		EnvVars: map[string]string{},
+		FileCredentials: []*ResolvedFile{
+			{
+				EnvVar:    "GOOGLE_APPLICATION_CREDENTIALS",
+				LocalPath: credFile,
+				Dest:      ".config/gcloud/application_default_credentials.json",
+			},
+		},
+	}
+
+	err := InjectSSH(context.Background(), client, resolved)
+	require.NoError(t, err)
+
+	require.Len(t, client.uploads, 1)
+	assert.Equal(t, "~/.config/gcloud/application_default_credentials.json", client.uploads[0].remotePath)
+
+	// Parent directory should have been created
+	mkdirFound := false
+	for _, cmd := range client.commands {
+		if strings.Contains(cmd, "mkdir -p") && strings.Contains(cmd, ".config/gcloud") {
+			mkdirFound = true
+			break
+		}
+	}
+	assert.True(t, mkdirFound, "expected mkdir -p for custom dest parent directory")
+}
+
+func TestInjectSSH_FileCredentialsFallsBackToLegacy(t *testing.T) {
+	dir := t.TempDir()
+	credFile := filepath.Join(dir, "creds.json")
+	require.NoError(t, os.WriteFile(credFile, []byte(`{}`), 0o600))
+
+	client := &mockSSHClient{}
+	// Use only the legacy FileCredential (not FileCredentials slice)
+	resolved := ResolvedCredentials{
+		EnvVars: map[string]string{},
+		FileCredential: &ResolvedFile{
+			EnvVar:    "GOOGLE_APPLICATION_CREDENTIALS",
+			LocalPath: credFile,
+		},
+	}
+
+	err := InjectSSH(context.Background(), client, resolved)
+	require.NoError(t, err)
+
+	require.Len(t, client.uploads, 1)
+	assert.Contains(t, client.uploads[0].remotePath, "GOOGLE_APPLICATION_CREDENTIALS")
+}
+
+func TestInjectOpenShell_MultiFileCredentials(t *testing.T) {
+	dir := t.TempDir()
+	cred1 := filepath.Join(dir, "creds.json")
+	cred2 := filepath.Join(dir, "auth.json")
+	require.NoError(t, os.WriteFile(cred1, []byte(`{"type":"sa"}`), 0o600))
+	require.NoError(t, os.WriteFile(cred2, []byte(`{"token":"x"}`), 0o600))
+
+	client := &mockOpenShellClient{}
+	resolved := ResolvedCredentials{
+		EnvVars: map[string]string{},
+		FileCredentials: []*ResolvedFile{
+			{EnvVar: "GOOGLE_APPLICATION_CREDENTIALS", LocalPath: cred1},
+			{EnvVar: "AUTH_TOKEN_FILE", LocalPath: cred2},
+		},
+	}
+
+	err := InjectOpenShell(context.Background(), client, "sandbox-1", resolved)
+	require.NoError(t, err)
+
+	require.Len(t, client.uploads, 2)
+	assert.Contains(t, client.uploads[0].remotePath, "GOOGLE_APPLICATION_CREDENTIALS")
+	assert.Contains(t, client.uploads[1].remotePath, "AUTH_TOKEN_FILE")
+}
+
+func TestInjectOpenShell_CustomDest(t *testing.T) {
+	dir := t.TempDir()
+	credFile := filepath.Join(dir, "creds.json")
+	require.NoError(t, os.WriteFile(credFile, []byte(`{}`), 0o600))
+
+	client := &mockOpenShellClient{}
+	resolved := ResolvedCredentials{
+		EnvVars: map[string]string{},
+		FileCredentials: []*ResolvedFile{
+			{
+				EnvVar:    "GOOGLE_APPLICATION_CREDENTIALS",
+				LocalPath: credFile,
+				Dest:      ".config/gcloud/creds.json",
+			},
+		},
+	}
+
+	err := InjectOpenShell(context.Background(), client, "sandbox-1", resolved)
+	require.NoError(t, err)
+
+	require.Len(t, client.uploads, 1)
+	assert.Equal(t, "/sandbox/.config/gcloud/creds.json", client.uploads[0].remotePath)
+}
+
 func testSpec() agent.CredentialSpec {
 	return agent.CredentialSpec{Name: "test"}
 }

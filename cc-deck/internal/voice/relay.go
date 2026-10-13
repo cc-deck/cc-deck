@@ -41,6 +41,13 @@ type RelayConfig struct {
 	// in-process stub, a warm local model on a GPU) should do.
 	MinTranscriptionLatency time.Duration
 
+	// DeliveryTimeout bounds each pipe delivery (transcribed text, command
+	// keystrokes, mute toggles) so a hung `zellij pipe` cannot block the
+	// utterance pipeline. Without it, one stuck delivery wedges
+	// processUtterances forever and all further speech detection stops.
+	// Zero falls back to DefaultDeliveryTimeout.
+	DeliveryTimeout time.Duration
+
 	// StatePollInterval is how often the relay polls the plugin for session
 	// state. The poll doubles as the voice heartbeat and carries the mute
 	// state, so it is the only periodic message the relay sends. Each tick
@@ -59,6 +66,12 @@ const DefaultTranscriptionLatency = 300 * time.Millisecond
 // DefaultStatePollInterval is the default StatePollInterval.
 const DefaultStatePollInterval = 5 * time.Second
 
+// DefaultDeliveryTimeout is the default DeliveryTimeout. A healthy pipe
+// delivery is near-instant; this only bites when a stale plugin instance holds
+// the broadcast pipe open, in which case the relay reaps the delivery, assumes
+// it landed (the active controller already injected it), and keeps detecting.
+const DefaultDeliveryTimeout = 1 * time.Second
+
 // DefaultTurnTimeout is the default TurnTimeout for tdrz transcription.
 const DefaultTurnTimeout = 30 * time.Second
 
@@ -70,6 +83,7 @@ func DefaultRelayConfig() RelayConfig {
 		Recording:               DefaultRecordingConfig(),
 		Commands:                BuildCommandMap(DefaultCommands),
 		MinTranscriptionLatency: DefaultTranscriptionLatency,
+		DeliveryTimeout:         DefaultDeliveryTimeout,
 		StatePollInterval:       DefaultStatePollInterval,
 		TurnTimeout:             DefaultTurnTimeout,
 	}
@@ -289,7 +303,7 @@ func (r *VoiceRelay) SendMuteCommand(cmd string) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	return r.pipe.Send(ctx, "cc-deck:voice", cmd)
+	return r.sendPipe(ctx, "cc-deck:voice", cmd)
 }
 
 // VADThreshold returns the current VAD threshold as a 0-100 percentage
@@ -536,10 +550,10 @@ func (r *VoiceRelay) statePoll(ctx context.Context, sr PipeSendReceiver) {
 
 				if requested != muted {
 					if requested {
-						_ = r.pipe.Send(ctx, "cc-deck:voice", "[[voice:mute]]")
+						_ = r.sendPipe(ctx, "cc-deck:voice", "[[voice:mute]]")
 						r.sendEvent(RelayEvent{Type: "muted"})
 					} else {
-						_ = r.pipe.Send(ctx, "cc-deck:voice", "[[voice:unmute]]")
+						_ = r.sendPipe(ctx, "cc-deck:voice", "[[voice:unmute]]")
 						r.sendEvent(RelayEvent{Type: "unmuted"})
 					}
 				}
@@ -666,6 +680,37 @@ func (r *VoiceRelay) processUtterances(ctx context.Context, utterances <-chan Ut
 	}
 }
 
+// sendPipe delivers a payload with a bounded timeout derived from ctx so a
+// hung `zellij pipe` cannot block the caller indefinitely. A stuck delivery
+// must never stall the utterance pipeline, which would freeze all further
+// speech detection (the "only the first utterance is detected" failure).
+//
+// Voice text is broadcast to every plugin instance (so it reliably reaches the
+// active controller). The active controller injects the text and unblocks the
+// CLI, but a stale/zombie plugin instance from a disconnected client (Zellij
+// issue #4064) also receives the broadcast and never unblocks, so the
+// `zellij pipe` process hangs until the timeout kills it even though the text
+// was already delivered. A timeout is therefore treated as delivered rather
+// than surfaced as a false error. A genuine failure (for example Zellij not
+// running) exits fast with a non-deadline error and is still returned.
+func (r *VoiceRelay) sendPipe(ctx context.Context, pipeName, payload string) error {
+	timeout := r.config.DeliveryTimeout
+	if timeout <= 0 {
+		timeout = DefaultDeliveryTimeout
+	}
+	sendCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	err := r.pipe.Send(sendCtx, pipeName, payload)
+	if err != nil && sendCtx.Err() == context.DeadlineExceeded {
+		if r.config.Verbose {
+			log.Printf("[voice] delivery to %q timed out after %s (likely a stale plugin instance holding the pipe); assuming delivered",
+				pipeName, timeout)
+		}
+		return nil
+	}
+	return err
+}
+
 func (r *VoiceRelay) handleUtterance(ctx context.Context, u Utterance) {
 	muted := r.IsMuted()
 	recording := r.IsRecording()
@@ -766,7 +811,7 @@ func (r *VoiceRelay) handleUtterance(ctx context.Context, u Utterance) {
 		case "attend":
 			payload = "[[attend]]"
 		case "submit_attend":
-			if err := r.pipe.Send(ctx, "cc-deck:voice", "[[enter]]"); err != nil {
+			if err := r.sendPipe(ctx, "cc-deck:voice", "[[enter]]"); err != nil {
 				log.Printf("[voice] submit_attend: enter failed: %v", err)
 			}
 			payload = "[[attend]]"
@@ -782,7 +827,7 @@ func (r *VoiceRelay) handleUtterance(ctx context.Context, u Utterance) {
 			payload, len(payload))
 	}
 
-	if err := r.pipe.Send(ctx, "cc-deck:voice", payload); err != nil {
+	if err := r.sendPipe(ctx, "cc-deck:voice", payload); err != nil {
 		if r.config.Verbose {
 			log.Printf("[voice] pipe send error: %v", err)
 		}

@@ -480,6 +480,17 @@ Text does not appear in Claude Code::
 Verify that the workspace has an active Zellij session and that a pane is attended.
 Check the transcript history in the TUI for delivery errors (the `!` indicator).
 
+Only the first utterance is detected, then detection stops::
+This happened when a text delivery to the plugin hung and blocked the pipeline.
+The relay now bounds every delivery, so a stuck send is reaped after about a second and detection keeps working.
+If it still recurs, restart the Zellij session to clear stale plugin instances.
+
+Text appears in the pane but detection feels slow, or a delivery error flashes::
+Voice text is broadcast to every plugin instance so it reliably reaches the active controller, which injects the text.
+A stale plugin instance from a disconnected client (Zellij issue #4064) can also receive the broadcast and never release the `zellij pipe` process, so the send takes until the timeout to return even though the text already landed.
+The relay treats that timeout as delivered rather than reporting a false error, and `--verbose` logs an "assuming delivered" note.
+Restart the Zellij session to clear the stale instances and make deliveries return promptly again.
+
 == Next Steps
 
 * xref:sidebar.adoc[The Sidebar] for understanding session states and the attended pane

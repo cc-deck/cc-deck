@@ -2,6 +2,7 @@ package ws
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"log"
 	"os"
@@ -10,7 +11,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cc-deck/cc-deck/internal/agent"
+	"github.com/cc-deck/cc-deck/internal/config"
 	"github.com/cc-deck/cc-deck/internal/credential"
+	"github.com/cc-deck/cc-deck/internal/profile"
 	"github.com/cc-deck/cc-deck/internal/ssh"
 )
 
@@ -167,6 +171,101 @@ func (e *SSHWorkspace) Create(ctx context.Context, _ CreateOpts) error {
 	return e.store.AddInstance(inst)
 }
 
+// sshTarget adapts an ssh.Client for use as a profile.Target.
+type sshTarget struct {
+	client *ssh.Client
+	ctx    context.Context
+	home   string
+	agents []string
+}
+
+func (t *sshTarget) Upload(path string, content []byte, mode os.FileMode) error {
+	// Write content to a remote file using base64 encoding to avoid quoting issues.
+	encoded := base64.StdEncoding.EncodeToString(content)
+	dir := path[:strings.LastIndex(path, "/")]
+	cmd := fmt.Sprintf(
+		"mkdir -p %q && echo %q | base64 -d > %q && chmod %04o %q",
+		dir, encoded, path, mode, path)
+	_, err := t.client.Run(t.ctx, cmd)
+	return err
+}
+
+func (t *sshTarget) Run(cmd string) (string, error) {
+	return t.client.Run(t.ctx, cmd)
+}
+
+func (t *sshTarget) Home() string     { return t.home }
+func (t *sshTarget) Agents() []string { return t.agents }
+
+// sshCredentialSet builds the credential set written to the remote
+// credentials.env: the detected agent credentials plus the env-sourced
+// credentials of every profile whose harness is in agents, so that profile
+// wrappers find their variables on the remote (FR-002a). cfg may be nil.
+func sshCredentialSet(modes []credential.DetectedMode, cfg *config.Config, agents []string) (credential.ResolvedCredentials, error) {
+	var merged credential.ResolvedCredentials
+	if len(modes) > 0 {
+		m, err := credential.MergeCredentials(modes)
+		if err != nil {
+			return credential.ResolvedCredentials{}, err
+		}
+		merged = m
+	}
+	if cfg != nil {
+		for k, v := range profile.EnvCredentials(cfg, agents) {
+			if merged.EnvVars == nil {
+				merged.EnvVars = map[string]string{}
+			}
+			merged.EnvVars[k] = v
+		}
+	}
+	return merged, nil
+}
+
+// SSHCredentialSet resolves the credential set for an SSH workspace the same
+// way Attach does, for commands that rewrite credentials.env on their own
+// (cc-deck ws refresh-creds). It returns an empty set when nothing applies.
+func SSHCredentialSet(ctx context.Context, client *ssh.Client) (credential.ResolvedCredentials, error) {
+	var agents []string
+	cfg, err := config.Load("")
+	if err != nil {
+		log.Printf("WARNING: could not load config.yaml; profile credentials are not included: %v", err)
+		cfg = nil
+	}
+	if cfg != nil && len(cfg.Profiles) > 0 {
+		target, targetErr := newSSHTarget(ctx, client)
+		if targetErr != nil {
+			log.Printf("WARNING: could not detect remote harnesses for profile credentials: %v", targetErr)
+		} else {
+			agents = target.Agents()
+		}
+	}
+	return sshCredentialSet(credential.DetectAll(), cfg, agents)
+}
+
+// newSSHTarget creates a profile.Target wrapping an ssh.Client.
+func newSSHTarget(ctx context.Context, client *ssh.Client) (*sshTarget, error) {
+	home, err := client.Run(ctx, "eval printf '%s' ~")
+	if err != nil {
+		return nil, fmt.Errorf("resolving remote home: %w", err)
+	}
+	home = strings.TrimSpace(home)
+
+	// Discover which harnesses are installed on the remote.
+	var agents []string
+	for _, a := range agent.All() {
+		if _, checkErr := client.Run(ctx, fmt.Sprintf("command -v %s", a.Binary())); checkErr == nil {
+			agents = append(agents, a.Name())
+		}
+	}
+
+	return &sshTarget{
+		client: client,
+		ctx:    ctx,
+		home:   home,
+		agents: agents,
+	}, nil
+}
+
 // Attach opens an interactive SSH session to the remote Zellij session.
 func (e *SSHWorkspace) Attach(ctx context.Context) error {
 	if os.Getenv("ZELLIJ") != "" {
@@ -190,14 +289,45 @@ func (e *SSHWorkspace) Attach(ctx context.Context) error {
 	client := e.newSSHClient(def)
 	client.AgentForwarding = true
 
+	// Profile wrappers need their env-sourced credentials on the remote, so
+	// prepare the profile target first and add those values to the
+	// credential transport.
+	var (
+		profileCfg    *config.Config
+		profileTarget *sshTarget
+	)
+	if cfg, loadErr := config.Load(""); loadErr == nil && cfg != nil && len(cfg.Profiles) > 0 {
+		target, targetErr := newSSHTarget(ctx, client)
+		if targetErr != nil {
+			log.Printf("WARNING: could not prepare profile target: %v", targetErr)
+		} else {
+			profileCfg, profileTarget = cfg, target
+		}
+	}
+
 	// Write credentials to remote before attaching.
-	modes := credential.DetectAll()
-	if len(modes) > 0 {
-		merged, mergeErr := credential.MergeCredentials(modes)
-		if mergeErr != nil {
-			log.Printf("WARNING: could not merge credentials: %v", mergeErr)
-		} else if writeErr := credential.InjectSSH(ctx, client, merged); writeErr != nil {
-			log.Printf("WARNING: could not write credentials to remote: %v", writeErr)
+	var agents []string
+	if profileTarget != nil {
+		agents = profileTarget.Agents()
+	}
+	if merged, credErr := sshCredentialSet(credential.DetectAll(), profileCfg, agents); credErr != nil {
+		log.Printf("WARNING: could not merge credentials: %v", credErr)
+	} else if writeErr := credential.InjectSSH(ctx, client, merged); writeErr != nil {
+		log.Printf("WARNING: could not write credentials to remote: %v", writeErr)
+	}
+
+	// Provision profile wrappers and config dirs on the remote.
+	if profileTarget != nil {
+		syncResult, provErr := profile.Provision(profileCfg, profileTarget)
+		if provErr != nil {
+			log.Printf("WARNING: profile provisioning failed: %v", provErr)
+		} else {
+			for _, skip := range syncResult.Skipped {
+				log.Printf("profile %s skipped: %s", skip.Profile, skip.Reason)
+			}
+			for _, w := range syncResult.Warnings {
+				log.Printf("WARNING: %s", w)
+			}
 		}
 	}
 

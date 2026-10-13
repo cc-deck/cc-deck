@@ -1,6 +1,7 @@
 // T002: Session struct with Activity enum and state transition logic
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn unix_now() -> u64 {
@@ -173,16 +174,38 @@ pub struct Session {
     /// Single source of truth for sidebar display.
     #[serde(default)]
     pub agent_indicator: Option<String>,
-    /// Number of outstanding permission prompts the user has not yet answered.
-    /// Incremented on PermissionRequest, decremented on PermissionReply (or
-    /// main-agent PostToolUse for backward compatibility with Claude Code).
-    /// The session stays in Waiting as long as this counter is > 0.
+    /// Outstanding permission prompts, counted per agent that raised them.
+    ///
+    /// The key is the hook's `agent_id`; the main agent uses the empty string.
+    /// A session is in Waiting as long as any agent has a non-zero count, so a
+    /// prompt raised by a subagent keeps the whole row in attention (the
+    /// attend key then lands here). Each agent's count drains when that same
+    /// agent resumes work (its next `PostToolUse`), replies to the prompt
+    /// (`PermissionReply`), or finishes (`SubagentStop`); `Stop` and
+    /// `UserPromptSubmit` clear every agent at once. This per-agent accounting
+    /// is what keeps a main agent parked inside a long `Task` from staying
+    /// stuck in Waiting while its subagents churn.
+    ///
+    /// Renamed from the old scalar `pending_permissions`; an old cache's
+    /// numeric field is simply ignored and the map rebuilds from live events.
     #[serde(default)]
-    pub pending_permissions: u32,
+    pub pending_prompts: BTreeMap<String, u32>,
     /// Whether this session is currently operating inside a `.claude/worktrees/`
     /// directory. Set from CWD changes; persisted for reattach.
     #[serde(default)]
     pub in_worktree: bool,
+    /// Profile name from CC_DECK_PROFILE (e.g., "work", "private").
+    /// Set from the first hook event carrying a profile field.
+    #[serde(default)]
+    pub profile: Option<String>,
+    /// Profile color as #RRGGBB string. Set alongside the profile name,
+    /// parsed into an RGB tuple for rendering by the controller.
+    #[serde(default)]
+    pub profile_color: Option<(u8, u8, u8)>,
+    /// Declared profile icon, set alongside the profile name. Drives the
+    /// help overlay legend; `None` when the profile declares no icon.
+    #[serde(default)]
+    pub profile_icon: Option<String>,
 }
 
 impl Session {
@@ -205,25 +228,22 @@ impl Session {
             badges: Vec::new(),
             agent_name: None,
             agent_indicator: None,
-            pending_permissions: 0,
+            pending_prompts: BTreeMap::new(),
             in_worktree: false,
+            profile: None,
+            profile_color: None,
+            profile_icon: None,
         }
     }
 
     /// Transition to a new activity state based on a hook event.
     /// Returns true if the state actually changed.
     pub fn transition(&mut self, new_activity: Activity) -> bool {
-        // Waiting can only transition to Working or Done, not back to Idle.
-        // AgentDone (SubagentStop) must NOT clear Waiting: a subagent finishing
-        // does not mean the permission prompt was answered.
-        if matches!(self.activity, Activity::Waiting(_)) {
-            match new_activity {
-                Activity::Working | Activity::Done => {}
-                // Allow upgrading Notification wait to Permission wait
-                Activity::Waiting(_) => {}
-                _ => return false,
-            }
-        }
+        // The Waiting lifecycle is owned entirely by `apply_hook` via the
+        // per-agent `pending_prompts` map: it forces Waiting while any prompt
+        // is outstanding and only calls `transition` to another state once the
+        // map is empty. `transition` is therefore a plain state setter here
+        // (plus the two adjustments below), and leaving Waiting is safe.
 
         // Suppress AgentDone when the session is actively Working.
         // SubagentStop fires when a subagent finishes, but the parent
@@ -258,47 +278,82 @@ impl Session {
         unix_now().saturating_sub(self.last_event_ts)
     }
 
+    /// Total outstanding prompts across all agents under this session.
+    pub fn pending_prompt_count(&self) -> u32 {
+        self.pending_prompts.values().copied().sum()
+    }
+
     /// Apply a hook event that maps to `activity` to this session.
     ///
-    /// This owns the permission bookkeeping around `transition`:
+    /// Permission bookkeeping is tracked per agent (keyed by `agent_id`, main
+    /// agent = `""`). The session is Waiting while any agent has an outstanding
+    /// prompt, so a subagent's prompt keeps the whole row in attention; it
+    /// drains when that same agent resumes, replies, or finishes:
     ///
-    /// - `PermissionRequest` counts an outstanding prompt and enters Waiting.
-    /// - `PermissionReply` answers one prompt. While prompts remain, the
-    ///   event is absorbed: the session stays Waiting.
-    /// - A `PostToolUse` from the main agent (`from_subagent == false`) is an
-    ///   implicit reply, because Claude Code does not send `PermissionReply`.
-    ///   Any other Working event while prompts are outstanding is absorbed.
-    /// - `Stop` (Done) clears the counter: the turn is over either way.
+    /// - `PermissionRequest` records a prompt for the emitting agent → Waiting.
+    /// - `PermissionReply` answers one of that agent's prompts (OpenCode sends
+    ///   this explicitly).
+    /// - A `PostToolUse` from an agent is an implicit reply for that agent,
+    ///   because Claude Code sends no `PermissionReply`: the agent could only
+    ///   emit it after its prompt was answered. (`PreToolUse` is not a reply,
+    ///   so OpenCode's parallel tool calls do not clear a sibling's prompt.)
+    /// - `SubagentStop` clears the finishing subagent's prompts entirely.
+    /// - `Stop` (Done), `UserPromptSubmit`, and `SessionStart` clear every
+    ///   agent: the turn or session has moved on.
     ///
-    /// Every absorbed event still refreshes `last_event_ts`.
-    pub fn apply_hook(&mut self, event: &str, activity: Activity, from_subagent: bool) -> HookOutcome {
+    /// While any prompt remains the event is absorbed and the row stays
+    /// Waiting; every absorbed event still refreshes `last_event_ts`.
+    pub fn apply_hook(
+        &mut self,
+        event: &str,
+        activity: Activity,
+        agent_id: Option<&str>,
+    ) -> HookOutcome {
+        let key = agent_id.unwrap_or("");
+
+        // Record a new prompt for the emitting agent.
         if matches!(activity, Activity::Waiting(WaitReason::Permission)) {
-            self.pending_permissions = self.pending_permissions.saturating_add(1);
+            *self.pending_prompts.entry(key.to_string()).or_insert(0) += 1;
         }
 
-        if event == "PermissionReply" {
-            self.pending_permissions = self.pending_permissions.saturating_sub(1);
-            if self.pending_permissions > 0 {
-                self.last_event_ts = unix_now();
-                return HookOutcome::Absorbed;
+        // Drain prompts. A blocked agent cannot emit further work until its
+        // prompt is answered, so any of these events proves resolution.
+        let drain_one = |prompts: &mut BTreeMap<String, u32>, k: &str| {
+            if let Some(count) = prompts.get_mut(k) {
+                *count = count.saturating_sub(1);
+                if *count == 0 {
+                    prompts.remove(k);
+                }
             }
-        }
-
-        if matches!(activity, Activity::Working) && self.pending_permissions > 0 {
-            let implicit_reply = event == "PostToolUse" && !from_subagent;
-            if implicit_reply {
-                self.pending_permissions = self.pending_permissions.saturating_sub(1);
+        };
+        match (event, &activity) {
+            ("Stop", _) | ("UserPromptSubmit", _) | ("SessionStart", _) => {
+                self.pending_prompts.clear();
             }
-            if !implicit_reply || self.pending_permissions > 0 {
-                self.last_event_ts = unix_now();
-                return HookOutcome::Absorbed;
+            ("PermissionReply", _) => drain_one(&mut self.pending_prompts, key),
+            ("SubagentStop", _) => {
+                self.pending_prompts.remove(key);
             }
+            ("PostToolUse", Activity::Working) | ("PostToolUseFailure", Activity::Working) => {
+                drain_one(&mut self.pending_prompts, key);
+            }
+            _ => {}
         }
 
-        if matches!(activity, Activity::Done) {
-            self.pending_permissions = 0;
+        // As long as any agent is still blocked, the row stays in attention,
+        // regardless of this event's nominal activity. Entering Waiting for the
+        // first time is a real change (the UI must redraw); staying in Waiting
+        // absorbs the event.
+        if self.pending_prompt_count() > 0 {
+            if !matches!(self.activity, Activity::Waiting(WaitReason::Permission)) {
+                self.transition(Activity::Waiting(WaitReason::Permission));
+                return HookOutcome::Changed;
+            }
+            self.last_event_ts = unix_now();
+            return HookOutcome::Absorbed;
         }
 
+        // Nobody blocked: apply the event's own activity.
         if self.transition(activity) {
             HookOutcome::Changed
         } else {
@@ -347,28 +402,38 @@ mod tests {
     }
 
     #[test]
-    fn test_waiting_transition_restrictions() {
+    fn test_apply_hook_keeps_waiting_until_requesting_agent_resumes() {
+        // The Waiting lifecycle lives in apply_hook (transition is now a plain
+        // setter). A main-agent prompt stays in attention through unrelated
+        // subagent activity and clears only when the main agent itself resumes.
         let mut session = Session::new(1, "test".into());
-        session.activity = Activity::Waiting(WaitReason::Permission);
-        session.last_event_ts = unix_now();
+        session.apply_hook(
+            "PermissionRequest",
+            Activity::Waiting(WaitReason::Permission),
+            None,
+        );
+        assert!(session.activity.is_waiting());
 
-        // Waiting should not transition to Idle
-        assert!(!session.transition(Activity::Idle));
+        // A subagent's PostToolUse keys a different agent: the main prompt holds.
+        session.apply_hook("PostToolUse", Activity::Working, Some("sub-1"));
         assert_eq!(session.activity, Activity::Waiting(WaitReason::Permission));
 
-        // Waiting should transition to Working
-        assert!(session.transition(Activity::Working));
+        // The main agent's own PostToolUse drains the prompt.
+        session.apply_hook("PostToolUse", Activity::Working, None);
         assert_eq!(session.activity, Activity::Working);
     }
 
     #[test]
-    fn test_waiting_blocks_agent_done() {
+    fn test_apply_hook_subagent_stop_does_not_clear_main_prompt() {
+        // A subagent finishing (SubagentStop) must not answer the main agent's
+        // prompt: it only clears that subagent's own pending entry.
         let mut session = Session::new(1, "test".into());
-        session.activity = Activity::Waiting(WaitReason::Permission);
-        session.last_event_ts = unix_now();
-
-        // AgentDone (SubagentStop) must not clear Waiting
-        assert!(!session.transition(Activity::AgentDone));
+        session.apply_hook(
+            "PermissionRequest",
+            Activity::Waiting(WaitReason::Permission),
+            None,
+        );
+        session.apply_hook("SubagentStop", Activity::AgentDone, Some("sub-1"));
         assert_eq!(session.activity, Activity::Waiting(WaitReason::Permission));
     }
 
@@ -475,6 +540,23 @@ mod tests {
         assert_eq!(session.pane_id, 42);
         assert_eq!(session.session_id, "test-session");
         assert_eq!(session.activity, Activity::Working);
+        // Pre-profile JSON loads with no profile fields.
+        assert_eq!(session.profile, None);
+        assert_eq!(session.profile_color, None);
+        assert_eq!(session.profile_icon, None);
+    }
+
+    #[test]
+    fn test_session_profile_fields_round_trip() {
+        let mut s = Session::new(7, "sid".into());
+        s.profile = Some("work".into());
+        s.profile_color = Some((90, 192, 226));
+        s.profile_icon = Some("W".into());
+        let json = serde_json::to_string(&s).unwrap();
+        let restored: Session = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.profile.as_deref(), Some("work"));
+        assert_eq!(restored.profile_color, Some((90, 192, 226)));
+        assert_eq!(restored.profile_icon.as_deref(), Some("W"));
     }
 
     #[test]
@@ -558,9 +640,12 @@ mod hook_fuzz {
         "Notification",
     ];
 
-    fn apply(session: &mut Session, event: &str, from_subagent: bool) {
+    /// `main` picks the agent: main agent (no agent_id) when true, else a
+    /// single stand-in subagent key.
+    fn apply(session: &mut Session, event: &str, main: bool) {
+        let agent_id = if main { None } else { Some("sub") };
         if let Some(activity) = hook_event_to_activity(event, None) {
-            session.apply_hook(event, activity, from_subagent);
+            session.apply_hook(event, activity, agent_id);
         }
     }
 
@@ -568,19 +653,22 @@ mod hook_fuzz {
         #![proptest_config(ProptestConfig::with_cases(2000))]
 
         #[test]
-        fn permission_counter_and_waiting_agree(
+        fn pending_prompts_and_waiting_agree(
             steps in prop::collection::vec((0usize..EVENTS.len(), any::<bool>()), 1..40)
         ) {
+            // The row is in Waiting(Permission) exactly when some agent still
+            // has an outstanding prompt. This is the invariant the attention
+            // indicator and the attend key depend on.
             let mut session = Session::new(1, "s".into());
-            for (idx, from_subagent) in steps {
-                apply(&mut session, EVENTS[idx], from_subagent);
+            for (idx, main) in steps {
+                apply(&mut session, EVENTS[idx], main);
                 let waiting_on_permission =
                     session.activity == Activity::Waiting(WaitReason::Permission);
                 prop_assert_eq!(
-                    session.pending_permissions > 0,
+                    session.pending_prompt_count() > 0,
                     waiting_on_permission,
                     "pending={} activity={:?} after {}",
-                    session.pending_permissions,
+                    session.pending_prompt_count(),
                     session.activity,
                     EVENTS[idx]
                 );
@@ -592,39 +680,52 @@ mod hook_fuzz {
             steps in prop::collection::vec((0usize..EVENTS.len(), any::<bool>()), 0..40)
         ) {
             let mut session = Session::new(1, "s".into());
-            for (idx, from_subagent) in steps {
-                apply(&mut session, EVENTS[idx], from_subagent);
+            for (idx, main) in steps {
+                apply(&mut session, EVENTS[idx], main);
             }
-            apply(&mut session, "Stop", false);
+            apply(&mut session, "Stop", true);
+            prop_assert_eq!(session.pending_prompt_count(), 0);
             prop_assert_eq!(session.activity, Activity::Done);
-            prop_assert_eq!(session.pending_permissions, 0);
         }
 
         #[test]
-        fn subagent_events_never_answer_a_prompt(
+        fn subagent_activity_never_answers_a_main_prompt(
             n in 1u32..4,
             steps in prop::collection::vec(0usize..EVENTS.len(), 0..20)
         ) {
+            // A main-agent prompt can only be answered by the main agent. No
+            // amount of subagent tool activity clears it, so the row keeps
+            // attention until the main agent itself resumes (or the turn ends).
             let mut session = Session::new(1, "s".into());
             for _ in 0..n {
-                apply(&mut session, "PermissionRequest", false);
+                apply(&mut session, "PermissionRequest", true);
             }
-            let mut expected = n;
             for idx in steps {
                 let event = EVENTS[idx];
-                // Only main-agent replies may answer; everything else here
-                // comes from a subagent and must leave the prompt standing.
-                // A subagent's own PermissionRequest adds a prompt.
-                if event == "PermissionReply" || event == "Stop" {
+                // Skip turn/session-level resets and explicit main replies;
+                // those legitimately clear everything and are main-agent events.
+                if matches!(event, "Stop" | "UserPromptSubmit" | "SessionStart") {
                     continue;
                 }
-                if event == "PermissionRequest" {
-                    expected += 1;
-                }
-                apply(&mut session, event, true);
+                apply(&mut session, event, false); // all from a subagent
             }
-            prop_assert_eq!(session.pending_permissions, expected);
+            prop_assert_eq!(session.pending_prompts.get("").copied().unwrap_or(0), n);
             prop_assert_eq!(session.activity, Activity::Waiting(WaitReason::Permission));
+        }
+
+        #[test]
+        fn subagent_prompt_clears_when_that_subagent_resumes(
+            drain_event in prop::sample::select(vec!["PostToolUse", "PostToolUseFailure", "SubagentStop"])
+        ) {
+            // The reported bug: a subagent prompt pinned the whole row in
+            // attention forever. It must clear as soon as that subagent
+            // produces its next tool event (or finishes).
+            let mut session = Session::new(1, "s".into());
+            apply(&mut session, "PermissionRequest", false); // subagent "sub"
+            prop_assert!(session.activity.is_waiting());
+            apply(&mut session, drain_event, false); // same subagent resumes/finishes
+            prop_assert_eq!(session.pending_prompt_count(), 0);
+            prop_assert!(!session.activity.is_waiting());
         }
     }
 }

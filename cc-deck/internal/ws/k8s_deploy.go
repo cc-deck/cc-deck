@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cc-deck/cc-deck/internal/config"
 	"github.com/cc-deck/cc-deck/internal/credential"
 )
 
@@ -94,9 +95,38 @@ func (e *K8sDeployWorkspace) Name() string {
 	return e.name
 }
 
+// checkK8sProfileSupported rejects the active profile when it uses a
+// subscription token, which the Kubernetes deploy backend cannot deliver
+// (FR-025, research R19). It uses the same profile selection as
+// loadActiveGitCredentials, because this backend has no per-workspace profile
+// flag. A missing or unreadable config is not an error here.
+func checkK8sProfileSupported() error {
+	cfg, err := config.Load("")
+	if err != nil || cfg == nil {
+		return nil
+	}
+	name := cfg.ResolveProfile("")
+	if name == "" {
+		return nil
+	}
+	p, err := cfg.GetProfile(name)
+	if err != nil {
+		return nil
+	}
+	if p.EffectiveAuth().OAuthToken != nil {
+		return fmt.Errorf("profile %q: subscription tokens (auth.oauth_token) are not supported on the Kubernetes deploy backend", name)
+	}
+	return nil
+}
+
 // Create provisions a new k8s-deploy workspace.
 func (e *K8sDeployWorkspace) Create(ctx context.Context, opts CreateOpts) error {
 	if err := ValidateWsName(e.name); err != nil {
+		return err
+	}
+
+	// FR-025: reject subscription token profiles before touching the cluster.
+	if err := checkK8sProfileSupported(); err != nil {
 		return err
 	}
 

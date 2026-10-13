@@ -18,12 +18,20 @@ pub struct HookPayload {
     pub agent_id: Option<String>,
     #[serde(default)]
     pub badges: Vec<String>,
+    #[serde(default)]
+    pub profile: Option<String>,
+    #[serde(default)]
+    pub profile_color: Option<String>,
+    /// Declared profile icon. Sent only when the profile declares one; the
+    /// hook also sends it as agent_indicator to replace the glyph (FR-018).
+    #[serde(default)]
+    pub profile_icon: Option<String>,
 }
 
 /// Pipe message types that the plugin handles.
 pub enum PipeAction {
     /// Hook event from CLI (cc-deck:hook).
-    HookEvent(HookPayload),
+    HookEvent(Box<HookPayload>),
     /// Attend action (cc-deck:attend).
     Attend,
     /// New session action (cc-deck:new).
@@ -62,7 +70,7 @@ pub fn parse_pipe_message(name: &str, payload: Option<&str>) -> PipeAction {
         "cc-deck:hook" => {
             if let Some(payload_str) = payload {
                 match serde_json::from_str::<HookPayload>(payload_str) {
-                    Ok(hook) => PipeAction::HookEvent(hook),
+                    Ok(hook) => PipeAction::HookEvent(Box::new(hook)),
                     Err(_) => PipeAction::Unknown,
                 }
             } else {
@@ -101,8 +109,8 @@ pub fn hook_event_to_activity(event: &str, _tool_name: Option<&str>) -> Option<A
         "PreToolUse" | "PostToolUse" | "PostToolUseFailure" | "UserPromptSubmit" | "SubagentStart" => Some(Activity::Working),
         "PermissionRequest" => Some(Activity::Waiting(WaitReason::Permission)),
         // PermissionReply signals the user answered a permission prompt.
-        // Handled specially in hooks.rs: decrements pending_permissions counter
-        // and only transitions to Working when all prompts are answered.
+        // Session::apply_hook drains that agent's entry in the per-agent
+        // pending_prompts map and only leaves Waiting once no agent is blocked.
         "PermissionReply" => Some(Activity::Working),
         "Stop" => Some(Activity::Done),
         "SubagentStop" => Some(Activity::AgentDone),

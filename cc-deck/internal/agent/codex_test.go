@@ -22,7 +22,8 @@ func TestCodexAgentIdentity(t *testing.T) {
 
 func TestCodexAgentInstallHooks(t *testing.T) {
 	dir := t.TempDir()
-	hooksPath := filepath.Join(dir, ".codex", "hooks.json")
+	configDir := filepath.Join(dir, ".codex")
+	hooksPath := filepath.Join(configDir, "hooks.json")
 
 	origFunc := codexHooksPathFunc
 	codexHooksPathFunc = func() string { return hooksPath }
@@ -30,8 +31,8 @@ func TestCodexAgentInstallHooks(t *testing.T) {
 
 	a := &CodexAgent{}
 
-	if err := a.InstallHooks(); err != nil {
-		t.Fatalf("InstallHooks() error: %v", err)
+	if err := a.InstallHooksAt(configDir); err != nil {
+		t.Fatalf("InstallHooksAt() error: %v", err)
 	}
 
 	if !a.HooksInstalled() {
@@ -82,7 +83,8 @@ func TestCodexAgentInstallHooks(t *testing.T) {
 
 func TestCodexAgentInstallHooksIdempotent(t *testing.T) {
 	dir := t.TempDir()
-	hooksPath := filepath.Join(dir, ".codex", "hooks.json")
+	configDir := filepath.Join(dir, ".codex")
+	hooksPath := filepath.Join(configDir, "hooks.json")
 
 	origFunc := codexHooksPathFunc
 	codexHooksPathFunc = func() string { return hooksPath }
@@ -90,12 +92,12 @@ func TestCodexAgentInstallHooksIdempotent(t *testing.T) {
 
 	a := &CodexAgent{}
 
-	if err := a.InstallHooks(); err != nil {
-		t.Fatalf("first InstallHooks() error: %v", err)
+	if err := a.InstallHooksAt(configDir); err != nil {
+		t.Fatalf("first InstallHooksAt() error: %v", err)
 	}
 
-	if err := a.InstallHooks(); err != nil {
-		t.Fatalf("second InstallHooks() error: %v", err)
+	if err := a.InstallHooksAt(configDir); err != nil {
+		t.Fatalf("second InstallHooksAt() error: %v", err)
 	}
 
 	data, err := os.ReadFile(hooksPath)
@@ -124,7 +126,8 @@ func TestCodexAgentInstallHooksIdempotent(t *testing.T) {
 
 func TestCodexAgentInstallHooksPreservesOtherHooks(t *testing.T) {
 	dir := t.TempDir()
-	hooksPath := filepath.Join(dir, ".codex", "hooks.json")
+	configDir := filepath.Join(dir, ".codex")
+	hooksPath := filepath.Join(configDir, "hooks.json")
 
 	origFunc := codexHooksPathFunc
 	codexHooksPathFunc = func() string { return hooksPath }
@@ -153,8 +156,8 @@ func TestCodexAgentInstallHooksPreservesOtherHooks(t *testing.T) {
 	}
 
 	a := &CodexAgent{}
-	if err := a.InstallHooks(); err != nil {
-		t.Fatalf("InstallHooks() error: %v", err)
+	if err := a.InstallHooksAt(configDir); err != nil {
+		t.Fatalf("InstallHooksAt() error: %v", err)
 	}
 
 	result, err := os.ReadFile(hooksPath)
@@ -190,7 +193,8 @@ func TestCodexAgentInstallHooksPreservesOtherHooks(t *testing.T) {
 
 func TestCodexAgentInstallHooksCorruptedFile(t *testing.T) {
 	dir := t.TempDir()
-	hooksPath := filepath.Join(dir, ".codex", "hooks.json")
+	configDir := filepath.Join(dir, ".codex")
+	hooksPath := filepath.Join(configDir, "hooks.json")
 
 	origFunc := codexHooksPathFunc
 	codexHooksPathFunc = func() string { return hooksPath }
@@ -204,7 +208,7 @@ func TestCodexAgentInstallHooksCorruptedFile(t *testing.T) {
 	}
 
 	a := &CodexAgent{}
-	err := a.InstallHooks()
+	err := a.InstallHooksAt(configDir)
 	if err == nil {
 		t.Fatal("expected error for corrupted hooks.json, got nil")
 	}
@@ -217,7 +221,8 @@ func TestCodexAgentInstallHooksCorruptedFile(t *testing.T) {
 
 func TestCodexAgentUninstallHooks(t *testing.T) {
 	dir := t.TempDir()
-	hooksPath := filepath.Join(dir, ".codex", "hooks.json")
+	configDir := filepath.Join(dir, ".codex")
+	hooksPath := filepath.Join(configDir, "hooks.json")
 
 	origFunc := codexHooksPathFunc
 	codexHooksPathFunc = func() string { return hooksPath }
@@ -225,8 +230,8 @@ func TestCodexAgentUninstallHooks(t *testing.T) {
 
 	a := &CodexAgent{}
 
-	if err := a.InstallHooks(); err != nil {
-		t.Fatalf("InstallHooks() error: %v", err)
+	if err := a.InstallHooksAt(configDir); err != nil {
+		t.Fatalf("InstallHooksAt() error: %v", err)
 	}
 	if err := a.UninstallHooks(); err != nil {
 		t.Fatalf("UninstallHooks() error: %v", err)
@@ -328,7 +333,8 @@ func TestCodexAgentUninstallHooksNoFile(t *testing.T) {
 
 func TestCodexAgentHooksInstalled(t *testing.T) {
 	dir := t.TempDir()
-	hooksPath := filepath.Join(dir, ".codex", "hooks.json")
+	configDir := filepath.Join(dir, ".codex")
+	hooksPath := filepath.Join(configDir, "hooks.json")
 
 	origFunc := codexHooksPathFunc
 	codexHooksPathFunc = func() string { return hooksPath }
@@ -340,8 +346,8 @@ func TestCodexAgentHooksInstalled(t *testing.T) {
 		t.Error("HooksInstalled() = true before install")
 	}
 
-	if err := a.InstallHooks(); err != nil {
-		t.Fatalf("InstallHooks() error: %v", err)
+	if err := a.InstallHooksAt(configDir); err != nil {
+		t.Fatalf("InstallHooksAt() error: %v", err)
 	}
 
 	if !a.HooksInstalled() {

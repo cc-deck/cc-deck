@@ -41,7 +41,8 @@ pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
     let done_timeout = state.config.done_timeout;
     let idle_fade_secs = state.config.idle_fade_secs;
 
-    // Count distinct agent types to decide whether to show indicators
+    // Count distinct agent types to decide whether to show indicators.
+    // Profiles do not affect this; the edge bar identifies them (R13).
     let mut agent_types = std::collections::HashSet::new();
     for s in &sessions {
         if let Some(ref name) = s.agent_name {
@@ -49,6 +50,23 @@ pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
         }
     }
     let show_agent_indicators = agent_types.len() > 1;
+
+    // Build profile legend from sessions that carry a profile.
+    let mut legend_map: std::collections::BTreeMap<String, cc_deck::LegendEntry> =
+        std::collections::BTreeMap::new();
+    for s in &sessions {
+        if let Some(ref prof) = s.profile {
+            legend_map.entry(prof.clone()).or_insert_with(|| {
+                let color = s.profile_color.unwrap_or((180, 175, 195));
+                cc_deck::LegendEntry {
+                    name: prof.clone(),
+                    icon: s.profile_icon.clone().unwrap_or_default(),
+                    color,
+                }
+            });
+        }
+    }
+    let profile_legend: Vec<cc_deck::LegendEntry> = legend_map.into_values().collect();
 
     let mut render_sessions: Vec<RenderSession> = sessions
         .iter()
@@ -90,6 +108,7 @@ pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
                 badges: s.badges.clone(),
                 agent_indicator,
                 in_worktree: s.in_worktree,
+                profile_color: s.profile_color,
             }
         })
         .collect();
@@ -155,13 +174,15 @@ pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
             .map(|(&client_id, view)| (client_id, view.snapshot()))
             .collect(),
         multiplayer_colors: state.multiplayer_colors.clone(),
+        profile_legend,
     }
 }
 
 /// Map an agent name to a short indicator string for sidebar display.
-fn agent_name_to_indicator(name: Option<&str>) -> String {
+pub(crate) fn agent_name_to_indicator(name: Option<&str>) -> String {
     match name {
         Some("claude") => "\u{2733}".to_string(),   // ✳
+        Some("codex") => "\u{25c6}".to_string(),    // ◆
         Some("opencode") => "\u{276f}".to_string(), // ❯
         Some(other) => {
             let upper: String = other.chars().take(2).collect::<String>().to_uppercase();
