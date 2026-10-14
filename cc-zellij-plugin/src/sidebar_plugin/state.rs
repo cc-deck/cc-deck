@@ -11,7 +11,7 @@ use cc_deck::{RenderPayload, RenderSession};
 /// Click region: (start_row, pane_id, tab_index, height).
 ///
 /// `height` is how many rows the region spans starting at `start_row`. Session
-/// entries are variable height (1 row without a branch line, 2 rows with one),
+/// entries span 2 rows (name line plus branch/badge line, blank when empty),
 /// so hit tests use the span `start_row..start_row + height`. Sentinel regions
 /// (header, voice, separator, overflow) occupy a single row and carry height 1.
 pub type ClickRegion = (usize, u32, usize, usize);

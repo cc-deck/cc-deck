@@ -94,8 +94,8 @@ pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> RenderR
     let content_end = rows;
     let available = content_end.saturating_sub(content_start);
 
-    // Per-entry heights: entries are variable height now (no blank separator
-    // row). An entry is 2 rows when it has a branch/badge line, else 1 row.
+    // Per-entry heights (two rows each, no blank separator row between
+    // entries).
     let heights: Vec<usize> = sessions.iter().map(|s| entry_height(s)).collect();
     // Reserve one row for the active/paused group divider when present, matching
     // where it is drawn in the render loop below.
@@ -183,8 +183,7 @@ pub fn render_sidebar(state: &SidebarState, rows: usize, cols: usize) -> RenderR
             ));
         }
         let is_delete_confirm = state.mode.delete_confirm_pane() == Some(session.pane_id);
-        // Delete confirmation always needs two rows (prompt + hint); a normal
-        // entry is 1 or 2 rows depending on whether it has a branch line.
+        // Delete confirmation uses the entry's two rows (prompt + hint).
         let entry_h = if is_delete_confirm {
             2
         } else {
@@ -519,19 +518,16 @@ fn edge_bar((r, g, b): (u8, u8, u8)) -> String {
     format!("\x1b[38;2;{r};{g};{b}m{EDGE_BAR}{RESET}")
 }
 
-/// Height of a session entry in rows: 2 when it has a branch/badge line,
-/// else 1. Mirrors the condition `format_line2` uses to decide whether line 2
-/// is non-empty, so the layout never reserves a row for an empty second line.
-fn entry_height(session: &RenderSession) -> usize {
-    if session.git_branch.is_some() || !session.badges.is_empty() {
-        2
-    } else {
-        1
-    }
+/// Height of a session entry in rows. Every entry has two rows, even when it
+/// has no branch or badges, so entries stay uniform and a profiled entry's
+/// edge bar always spans both lines.
+fn entry_height(_session: &RenderSession) -> usize {
+    2
 }
 
-/// Render a single session entry (1 row for a bare name, 2 rows when it has a
-/// branch/badge line). Entries are drawn back to back with no blank separator.
+/// Render a single session entry (name line plus branch/badge line, which is
+/// blank when there is neither). Entries are drawn back to back with no blank
+/// separator.
 #[allow(clippy::too_many_arguments)]
 fn render_session_entry(
     session: &RenderSession,
@@ -570,12 +566,10 @@ fn render_session_entry(
         }
     }
 
-    // Line 2 (branch/badges) is only drawn for 2-row entries. Branchless
-    // entries occupy a single row with no trailing blank separator.
+    // Line 2 (branch/badges, or blank). For profiled entries it still carries
+    // the edge bar.
     let height = entry_height(session);
-    if height == 2 {
-        print!("\x1b[{};1H{}", start_row + 2, line2);
-    }
+    print!("\x1b[{};1H{}", start_row + 2, line2);
 
     Some((start_row, session.pane_id, session.tab_index, height))
 }
@@ -1290,7 +1284,7 @@ mod tests {
         };
         let sessions: Vec<&RenderSession> = vec![&s1, &s2];
         let heights: Vec<usize> = sessions.iter().map(|s| entry_height(s)).collect();
-        // Both are branchless (height 1), so 2 rows fit easily in 5.
+        // Both are branchless but still 2 rows each, so 4 rows fit in 5.
         let (start, end, above, below) = visible_range(&heights, 5, 0, None);
         assert_eq!((start, end, above, below), (0, 2, 0, 0));
     }
@@ -1316,8 +1310,8 @@ mod tests {
             .collect();
         let refs: Vec<&RenderSession> = sessions_owned.iter().collect();
         let heights: Vec<usize> = refs.iter().map(|s| entry_height(s)).collect();
-        // 10 branchless entries (height 1), budget 3 rows, anchored on index 5.
-        let (start, end, above, below) = visible_range(&heights, 3, 5, None);
+        // 10 branchless entries (2 rows each), budget 6 rows, anchored on index 5.
+        let (start, end, above, below) = visible_range(&heights, 6, 5, None);
         assert_eq!(end - start, 3);
         assert!(start <= 5 && end > 5);
         assert!(above > 0 || below > 0);
@@ -1390,7 +1384,7 @@ mod tests {
             in_worktree: false,
             profile_color: None,
         };
-        assert_eq!(entry_height(&s), 1, "branchless, no badges => 1 row");
+        assert_eq!(entry_height(&s), 2, "branchless, no badges => still 2 rows");
         s.git_branch = Some("main".into());
         assert_eq!(entry_height(&s), 2, "with branch => 2 rows");
         s.git_branch = None;
