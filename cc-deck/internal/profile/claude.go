@@ -2,6 +2,7 @@ package profile
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
 
 	"github.com/cc-deck/cc-deck/internal/config"
@@ -17,8 +18,13 @@ func init() {
 func (c *claudeTranslator) Harness() string      { return "claude" }
 func (c *claudeTranslator) ConfigDirEnv() string { return "CLAUDE_CONFIG_DIR" }
 
+// IsolatedEntries lists the per-profile entries of CLAUDE_CONFIG_DIR.
+// .claude.json holds the account next to user configuration, so it is never
+// linked; PrepareConfigDir merges the configuration part into it instead.
+// backups holds Claude Code's backups of .claude.json, which belong to the
+// same account.
 func (c *claudeTranslator) IsolatedEntries() []string {
-	return []string{".credentials.json", "statsig"}
+	return []string{".claude.json", ".credentials.json", "backups", "statsig"}
 }
 
 func (c *claudeTranslator) SupportsLogin() bool { return true }
@@ -154,6 +160,14 @@ func (c *claudeTranslator) PrepareConfigDir(rp ResolvedProfile, defaultDir strin
 	warnings, err := PrepareSharedDir(rp.ConfigDir, defaultDir, c.IsolatedEntries())
 	if err != nil {
 		return warnings, fmt.Errorf("profile %q: prepare config dir: %w", rp.Name, err)
+	}
+	// Share user-scope MCP servers and project trust with the default setup.
+	warning, err := mergeClaudeJSON(defaultClaudeJSONPath(defaultDir), filepath.Join(rp.ConfigDir, ".claude.json"))
+	if err != nil {
+		return warnings, fmt.Errorf("profile %q: merge .claude.json: %w", rp.Name, err)
+	}
+	if warning != "" {
+		warnings = append(warnings, warning)
 	}
 	return warnings, nil
 }

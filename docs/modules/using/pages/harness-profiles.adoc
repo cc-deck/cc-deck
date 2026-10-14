@@ -178,6 +178,9 @@ Each workspace maintains its own login state independently, so logging in on one
 
 The per-profile config directory isolates login state from other profiles and from the default harness configuration.
 Non-auth configuration (settings, skills, commands, plugins, MCP config) is shared with the default directory through symlinks, so changes to shared settings are visible to profiled sessions without a re-sync.
+Claude Code keeps user-scope MCP servers and project trust in `~/.claude.json`, next to the account.
+`sync` merges those settings into each profile's own `.claude.json`, so a profiled session sees your MCP servers and does not ask to trust a known project again.
+After you add an MCP server or trust a new project in your default setup, run `cc-deck config profile sync` to pass it on to your profiles.
 
 == OpenShell Provider Hint
 

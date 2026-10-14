@@ -3,6 +3,7 @@ package profile_test
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -342,4 +343,42 @@ func TestEnvCredentials_IncludesTokenEnvForPresentHarness(t *testing.T) {
 
 	env = profile.EnvCredentials(cfg, []string{"claude", "codex"})
 	assert.Len(t, env, 2)
+}
+
+func TestProvision_PrepareShUnlinksIsolatedEntries(t *testing.T) {
+	home := setupTestEnv(t)
+	t.Setenv("WORK_KEY", "secret")
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("sh not available")
+	}
+
+	defaultDir := home + "/.claude"
+	require.NoError(t, os.MkdirAll(defaultDir+"/backups", 0o755))
+	require.NoError(t, os.WriteFile(defaultDir+"/settings.json", []byte("{}"), 0o644))
+	configDir := home + "/.local/share/cc-deck/profiles/work/claude"
+	require.NoError(t, os.MkdirAll(configDir, 0o700))
+	// Link left behind by an earlier provisioning that still shared backups.
+	require.NoError(t, os.Symlink(defaultDir+"/backups", configDir+"/backups"))
+
+	cfg := &config.Config{Profiles: map[string]config.Profile{
+		"work": {Harness: "claude", Auth: &config.AuthConfig{APIKey: &config.CredentialSource{Env: "WORK_KEY"}}},
+	}}
+	tgt := &memTarget{home: home, agents: []string{"claude"}}
+	_, err = profile.Provision(cfg, tgt)
+	require.NoError(t, err)
+	prep := tgt.findUpload("prepare.sh")
+	require.NotNil(t, prep)
+
+	script := t.TempDir() + "/prepare.sh"
+	require.NoError(t, os.WriteFile(script, prep.content, 0o755))
+	out, err := exec.Command(sh, script).CombinedOutput()
+	require.NoError(t, err, "prepare.sh failed: %s", out)
+
+	_, err = os.Lstat(configDir + "/backups")
+	assert.True(t, os.IsNotExist(err), "stale backups link removed")
+	_, err = os.Stat(defaultDir + "/backups")
+	assert.NoError(t, err, "link target untouched")
+	_, err = os.Readlink(configDir + "/settings.json")
+	assert.NoError(t, err, "shared entries still linked")
 }

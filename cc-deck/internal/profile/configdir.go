@@ -7,8 +7,10 @@ import (
 )
 
 // PrepareSharedDir creates configDir (mode 0700) and symlinks non-isolated
-// entries from defaultDir into it. Returns a list of warnings for entries
-// that could not be linked (e.g., real files already exist).
+// entries from defaultDir into it. A link to defaultDir that an earlier sync
+// created for an entry that is isolated now is removed; nothing else is ever
+// deleted. Returns a list of warnings for entries that could not be linked
+// (e.g., real files already exist).
 func PrepareSharedDir(configDir, defaultDir string, isolated []string) (warnings []string, err error) {
 	// If the default config directory doesn't exist yet, there is nothing
 	// to share. Return early without error so callers that run before first
@@ -40,12 +42,20 @@ func PrepareSharedDir(configDir, defaultDir string, isolated []string) (warnings
 
 	for _, entry := range entries {
 		name := entry.Name()
-		if isIsolated(name, isolated) {
-			continue
-		}
-
 		linkPath := filepath.Join(configDir, name)
 		target := filepath.Join(relBase, name)
+
+		if isIsolated(name, isolated) {
+			// An earlier sync may have linked an entry that is isolated now.
+			// Remove only that link (never its target), so the profile stops
+			// sharing it with the default directory.
+			if existing, readErr := os.Readlink(linkPath); readErr == nil && existing == target {
+				if removeErr := os.Remove(linkPath); removeErr != nil {
+					return warnings, fmt.Errorf("unlink isolated %s: %w", name, removeErr)
+				}
+			}
+			continue
+		}
 
 		info, lstatErr := os.Lstat(linkPath)
 		if os.IsNotExist(lstatErr) {

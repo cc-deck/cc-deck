@@ -331,16 +331,20 @@ func Provision(cfg *config.Config, t Target) (SyncResult, error) {
 			"    [ -e \"$entry\" ] || continue",
 			"    base=$(basename \"$entry\")",
 		)
-		// Build the isolated check.
+		prepareLines = append(prepareLines,
+			fmt.Sprintf("    target=%s/\"$base\"", shQuote(configDir)))
+		// Isolated entries are never linked; a link an earlier provisioning
+		// created for an entry that is isolated now is removed (link only).
 		if len(tr.IsolatedEntries()) > 0 {
 			prepareLines = append(prepareLines,
-				fmt.Sprintf("    case \"$base\" in %s) continue ;; esac",
-					strings.Join(tr.IsolatedEntries(), "|")),
+				fmt.Sprintf("    case \"$base\" in %s)", strings.Join(tr.IsolatedEntries(), "|")),
+				"      if [ -L \"$target\" ] && [ \"$(readlink \"$target\")\" = \"$entry\" ]; then rm \"$target\"; fi",
+				"      continue ;;",
+				"    esac",
 			)
 		}
-		// Create relative symlink if target does not exist or is a symlink to wrong target.
+		// Create the symlink if the target does not exist or is a symlink to a wrong target.
 		prepareLines = append(prepareLines,
-			fmt.Sprintf("    target=%s/\"$base\"", shQuote(configDir)),
 			"    if [ ! -e \"$target\" ] || [ -L \"$target\" ]; then",
 			"      ln -sfn \"$entry\" \"$target\"",
 			"    fi",

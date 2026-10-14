@@ -363,6 +363,14 @@ Each profile gets a per-profile config directory at `~/.local/share/cc-deck/prof
 This directory shares the user's non-auth configuration (settings, skills, commands, plugins, MCP configuration) with the harness's default config directory through symlinks, and isolates only login and credential state.
 A change to shared configuration in the default directory is visible to profiled sessions without a re-sync.
 
+For Claude Code, the per-profile directory keeps its own `.claude.json`, because that file holds the account next to user configuration.
+On every `cc-deck config profile sync`, cc-deck merges the configuration part of `~/.claude.json` into it: user-scope MCP servers and, per project, trust, allowed tools, and MCP server settings.
+The default file wins for those keys, while the profile's account, caches, and session statistics stay untouched.
+MCP servers that exist only in the profile file are kept.
+Changes to MCP servers or project trust in `~/.claude.json` reach profiled sessions after the next sync.
+Remote workspaces do not receive this merge, so a profiled session on an SSH host or in an OpenShell sandbox starts with the harness's own defaults.
+The `backups` directory, where Claude Code keeps copies of `.claude.json`, is also per profile.
+
 Credential files referenced by `file` sources are copied to `~/.config/cc-deck/profiles/<name>/` with mode 0600, under the names `api_key`, `oauth_token`, and `credentials`.
 
 Wrappers contain no credential values.
