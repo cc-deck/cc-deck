@@ -1,6 +1,6 @@
 # Brainstorm Overview
 
-Last updated: 2026-10-12
+Last updated: 2026-10-14
 
 ## Sessions
 
@@ -70,6 +70,7 @@ Last updated: 2026-10-12
 | 094 | 2026-09-10 | openshell-profile-masking | active | - | [#38](https://github.com/cc-deck/cc-deck/issues/38) |
 | 095 | 2026-10-01 | voice-reading-view | spec-created | 088 | [#43](https://github.com/cc-deck/cc-deck/issues/43) |
 | 096 | 2026-10-08 | sandcast-standalone-build | spec-created | sandcast 001 | - |
+| 097 | 2026-10-14 | codex-daemon-pane-attribution | active | - | - |
 | - | 2026-05-14 | zellij-load-plugins-duplicate-instance | draft | - | - |
 
 ## Open Threads
@@ -118,6 +119,8 @@ Last updated: 2026-10-12
 - Security model: credential watchdog default, re-injection after removal, YOLO mode enforcement vs warning, agent action auditing, external secret management, security scoring, secret vs passthrough typing, env var sync configurability (from #25)
 - Sidebar badges: badge evaluation caching, max badge count, YAML format support, dot-path array handling (from #26)
 - OpenShell SDK migration: GatewayConfig to SDK Config mapping, credentials.go SDK type usage, consumer surface audit (22 files), go.mod replace directive for CI (from #27)
+- Codex daemon pane attribution: daemon detection, TUI identification across install methods, `codex -C` matching, first-event scan cost, wrapper marker for exact matching (from #097)
+
 
 ## Parked Ideas
 

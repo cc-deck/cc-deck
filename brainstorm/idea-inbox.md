@@ -65,15 +65,6 @@ Ideas captured from code reviews for future brainstorming.
 
 > Pre-existing design in the credential package. `FileCredentials` (plural) is collected during merge, but transport functions consume `FileCredential` (singular, `files[0]`). If a future agent declares multiple file credentials, only the first would be transported.
 
-### pane-map-write-race
-
-- **Source**: deep-review
-- **Date**: 2026-09-09
-- **Reference**: pre-existing, surfaced during 087-harness-profiles review, `cc-deck/internal/cmd/hook.go` (`loadPaneMap`, `savePaneMap`)
-- **Summary**: The pane-map cache (`pane-map.json`) is read, pruned and rewritten on every hook event with no locking and a non-atomic `os.WriteFile`. Two concurrent hook processes (two sessions firing at once) can clobber each other's entries, and a reader can observe a partially written file.
-
-> The cache self-heals on the next event, so the impact is a brief pane-id miss and a dropped sidebar update. Fix options: write to a temp file in the same directory and `os.Rename` (removes partial reads), plus a lockfile or `flock` for full correctness. If the race is accepted as benign, document it in a comment.
-
 ### openshell-policy-tempfile-cleanup
 
 - **Source**: deep-review
