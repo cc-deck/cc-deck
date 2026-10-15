@@ -2,8 +2,10 @@ package cmd
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +18,8 @@ import (
 type hookTestEnv struct {
 	t    *testing.T
 	sent [][]byte
+	// targets holds the --session argument of each send ("" for none).
+	targets []string
 }
 
 func newHookTestEnv(t *testing.T) *hookTestEnv {
@@ -29,8 +33,9 @@ func newHookTestEnv(t *testing.T) *hookTestEnv {
 	paneMapFile = filepath.Join(dir, "pane-map.json")
 
 	env := &hookTestEnv{t: t}
-	sendHookPayload = func(_ string, payload []byte) {
+	sendHookPayload = func(_ string, targetSession string, payload []byte) {
 		env.sent = append(env.sent, payload)
+		env.targets = append(env.targets, targetSession)
 	}
 
 	t.Cleanup(func() {
@@ -271,5 +276,76 @@ func TestRunHook_UnchangedPaneMappingDoesNotRewriteCache(t *testing.T) {
 	runHook(strings.NewReader(claudeEvent("PostToolUse", "sess-a")), "9", "claude")
 	if got := env.readMap()["sess-a"].PaneID; got != 9 {
 		t.Errorf("pane id after change: got %d, want 9", got)
+	}
+}
+
+func TestRecordClientMapping_StoresIdentityAndRefreshesHourly(t *testing.T) {
+	env := newHookTestEnv(t)
+	want := paneMapEntry{PaneID: 4, ZellijSession: "s1", ClientPID: 4242, ClientStart: 99, Profile: "work"}
+
+	recordClientMapping("sess-x", want)
+	got := env.readMap()["sess-x"]
+	if got.PaneID != 4 || got.ZellijSession != "s1" || got.ClientPID != 4242 || got.ClientStart != 99 || got.Profile != "work" {
+		t.Fatalf("stored entry: %+v", got)
+	}
+	if got.UpdatedAt == 0 {
+		t.Fatal("expected a timestamp")
+	}
+	first, _ := os.Stat(paneMapFile)
+
+	// Unchanged and fresh: no rewrite.
+	time.Sleep(20 * time.Millisecond)
+	recordClientMapping("sess-x", want)
+	second, _ := os.Stat(paneMapFile)
+	if !second.ModTime().Equal(first.ModTime()) {
+		t.Error("an unchanged, fresh client mapping was rewritten")
+	}
+
+	// Stale: refreshed.
+	stale := got
+	stale.UpdatedAt = time.Now().Add(-2 * time.Hour).Unix()
+	env.writeMap(map[string]paneMapEntry{"sess-x": stale})
+	recordClientMapping("sess-x", want)
+	if env.readMap()["sess-x"].UpdatedAt <= stale.UpdatedAt {
+		t.Error("a mapping older than the refresh interval was not refreshed")
+	}
+
+	// A different client start time is a different client: rewritten.
+	other := want
+	other.ClientStart = 100
+	recordClientMapping("sess-x", other)
+	if env.readMap()["sess-x"].ClientStart != 100 {
+		t.Error("a mapping for a different client was not written")
+	}
+}
+
+// Files written by older binaries carry no client fields; they still load.
+func TestLoadPaneMap_EntryWithoutClientFields(t *testing.T) {
+	env := newHookTestEnv(t)
+	if err := os.WriteFile(paneMapFile, []byte(fmt.Sprintf(`{"s":{"pane_id":3,"zellij_session":"z","updated_at":%d}}`, time.Now().Unix())), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_ = env
+	e, ok := loadPaneMap()["s"]
+	if !ok || e.PaneID != 3 || e.ClientPID != 0 || e.ClientStart != 0 || e.Profile != "" {
+		t.Fatalf("got (%+v, %v)", e, ok)
+	}
+}
+
+// The real sender: no target keeps today's argv; a target adds --session.
+func TestHookPipeArgs(t *testing.T) {
+	// The argv is tested directly rather than through an executed stub: a
+	// freshly written executable can fail to start while a concurrent fork
+	// in the test binary still holds it open ("text file busy"), and
+	// sendHookPayload deliberately swallows that error.
+	payload := []byte(`{"x":1}`)
+	cases := map[string][]string{
+		"":   {"pipe", "--name", "cc-deck:hook", "--", `{"x":1}`},
+		"s2": {"--session", "s2", "pipe", "--name", "cc-deck:hook", "--", `{"x":1}`},
+	}
+	for target, want := range cases {
+		if got := hookPipeArgs(target, payload); !reflect.DeepEqual(got, want) {
+			t.Errorf("target %q: argv %q, want %q", target, got, want)
+		}
 	}
 }

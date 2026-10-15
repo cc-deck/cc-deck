@@ -193,6 +193,8 @@ cc-deck supports multiple AI coding agents through a pluggable Agent interface. 
 
 When sessions from different agents are active, the sidebar shows agent indicators (`[CC]`, `[OC]`, `[◆]`) before each session name. With a single agent type, indicators are hidden.
 
+Although Codex 0.157 and later run hooks inside a [shared app-server daemon](https://cc-deck.github.io/docs/cc-deck/0.1/using/multi-agent.html#codex-shared-daemon), cc-deck traces each Codex event back to the `codex` client that owns the session and shows it in that client's pane, without any change to how you start Codex.
+
 For containerized builds, declare which agents to include in `build.yaml`:
 
 ```yaml

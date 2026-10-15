@@ -17,6 +17,10 @@ Each agent gets automatic detection, hook installation, and event translation.
 | OpenCode
 | `[OC]`
 | TypeScript plugin in `~/.config/opencode/plugins/cc-deck.ts`
+
+| Codex CLI
+| `[◆]`
+| Hook entries in `~/.codex/hooks.json`
 |===
 
 == Installing Hooks
@@ -90,3 +94,82 @@ The agent adapter translates the agent-specific payload into the normalized form
 ----
 Agent emits event --> cc-deck hook --agent <name> --> TranslateEvent() --> NormalizedPayload --> Zellij pipe --> Sidebar
 ----
+
+[#codex-shared-daemon]
+== Codex Shared Daemon
+
+Since Codex 0.157, an interactive `codex` client no longer runs its sessions in its own process.
+It hands the work to a shared app-server daemon, one per Codex home, and Codex runs its lifecycle hooks inside that daemon.
+The daemon carries the environment of whichever client started it first, including the Zellij pane and Zellij session of that client.
+Every hook event from every later Codex client therefore names the pane of the first client.
+Taken at face value, that inherited identity would hide a new Codex session from the sidebar or put it in the row of another pane.
+
+cc-deck handles this case without any action on your part.
+You do not change how you start Codex, the Codex configuration, or the hook installation.
+
+=== How cc-deck Attributes Daemon Events
+
+When the hook command runs, it first checks whether it runs inside the daemon.
+This is the case when the managed `codex app-server` daemon, or one of its helper processes, is among its ancestor processes.
+An app-server that a tool starts for itself, such as the one an IDE extension runs, is not the shared daemon, and its hooks take the regular path.
+For such a daemon-hosted event, cc-deck ignores the pane identity that the hook inherited and looks for the Codex client that owns the event's session:
+
+. *Remembered client.*
+When cc-deck has already attributed the session, it reuses the remembered client, identified by its process ID and start time.
+The mapping stays valid only while that exact process still runs in the same pane and the same Zellij session.
+When that client has exited, cc-deck drops the remaining events of the session until Codex starts or resumes it again, because a different client in the same directory does not own the session.
+. *Discovered client.*
+Otherwise, cc-deck looks for the single Codex process of the same user and the same Codex home (`CODEX_HOME`, default `~/.codex`) whose working directory equals the working directory of the event.
+The working directory of a client is the `-C` or `--cd` argument when one is given, and otherwise the actual working directory of the process on Linux and its `PWD` environment variable on macOS.
+cc-deck resolves symbolic links on both sides, so `/tmp` and `/private/tmp` on macOS match.
+When no client matches, or several do, cc-deck drops the event and tries again on the next event of the session.
+
+Once cc-deck has found the client, the event goes to the pane and Zellij session of that client.
+This holds even when the daemon was started from another Zellij session or from a plain terminal.
+The sidebar also shows the profile name and color of the client, so a session started through a profile wrapper such as `codex-team` keeps its own profile.
+Codex clients that run outside Zellij never appear in any sidebar.
+
+Only interactive clients receive a sidebar row: plain `codex`, `codex resume`, `codex fork`, and `codex "<initial prompt>"`.
+However, every Codex process in the directory counts when cc-deck decides whether the match is unique, including non-interactive runs such as `codex exec` and the app-server of an IDE extension.
+The rule behind this is strict on purpose: cc-deck would rather show no row than a wrong one.
+
+=== Several Clients in One Directory
+
+When two or more Codex clients share a working directory and a Codex home, the hook cannot tell which of them started a new session.
+New sessions in that directory stay hidden until only one client remains there.
+Sessions that already have a row keep updating it, because cc-deck remembers which client owns them.
+The same memory has one blind spot: when you resume a session in a second client in the same directory while its original client still runs, the session keeps the row of the original client.
+A second blind spot concerns a session that never received a row because its directory was shared.
+When its client exits while the session still sends a few final events, and only one other client remains in that directory, those final events can briefly appear in the row of the remaining client.
+
+[TIP]
+====
+Give each Codex client its own working directory, for example one Git worktree per agent.
+If several clients must share a directory, start them with `codex --no-daemon`, which runs the hooks in the client process itself.
+====
+
+=== Codex Without the Daemon
+
+When Codex runs without the shared daemon, the hooks run inside the client process and carry the pane identity of that client.
+This applies to `codex --no-daemon` and to Codex releases older than 0.157.
+Attribution then uses the pane identity of the hook process directly, just as it does for Claude Code and OpenCode.
+
+=== Platform Support
+
+Finding the originating client requires inspecting the process table, which cc-deck supports on macOS and Linux.
+On Linux, cc-deck reads the environment of each Codex process, which the kernel refuses for a process that marks itself as non-dumpable, so cc-deck drops daemon-hosted events of such processes.
+When cc-deck cannot inspect the processes of the hook, on other platforms or after an inspection error, it drops Codex events instead of guessing a pane.
+
+=== Diagnosing Attribution
+
+When a Codex session does not show up in the sidebar, enable the hook debug log and reproduce the problem:
+
+[source,bash]
+----
+touch ~/.local/state/cc-deck/hook-debug
+tail -f ~/.local/state/cc-deck/hook.log
+----
+
+Each Codex event then records how cc-deck determined the pane or why it dropped the event, for example `resolution=discovered` or `resolution=ambiguous`.
+Remove the flag file when you are done, because the log grows with every hook event.
+See xref:reference:cli.adoc#hook-debug-log[the `hook` command reference] for the flag file, the log fields, and the full list of resolution values.

@@ -166,6 +166,26 @@ func (c *CodexAgent) TranslateEvent(input []byte) (*NormalizedPayload, error) {
 	}, nil
 }
 
+// CodexClientEnv returns the optional client_env object of a Codex hook
+// payload: environment values of the originating terminal client, which a
+// future Codex release may pass to hooks (openai/codex#44902; the field name
+// follows that proposal and lives only here). It returns nil when the field
+// is absent, empty or not an object of strings. NormalizedPayload is
+// unaffected, so the pipe message keeps its schema.
+func CodexClientEnv(input []byte) map[string]string {
+	var payload struct {
+		ClientEnv json.RawMessage `json:"client_env"`
+	}
+	if err := json.Unmarshal(input, &payload); err != nil || len(payload.ClientEnv) == 0 {
+		return nil
+	}
+	var env map[string]string
+	if err := json.Unmarshal(payload.ClientEnv, &env); err != nil || len(env) == 0 {
+		return nil
+	}
+	return env
+}
+
 func (c *CodexAgent) CredentialSpecs() []CredentialSpec {
 	return []CredentialSpec{
 		{

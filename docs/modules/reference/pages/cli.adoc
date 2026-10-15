@@ -307,9 +307,11 @@ This command is normally called by agent hooks, not directly by users.
 Use `--raw` for custom integrations.
 
 The command exits silently when it is not running inside a Zellij session, which keeps agents started in a plain terminal out of the sidebar.
-It also exits silently on malformed input or any other error, so that it never disrupts the agent that invoked it.
+Codex events that run inside the shared Codex daemon are the exception, as <<codex-daemon-attribution>> describes.
+The command also exits silently on malformed input or any other error, so that it never disrupts the agent that invoked it.
 
 Set the flag file `~/.local/state/cc-deck/hook-debug` to record why each invocation was forwarded or dropped to `~/.local/state/cc-deck/hook.log`.
+<<hook-debug-log>> describes the log format.
 
 `cc-deck config plugin install` registers the command for the events that change a session's state: `SessionStart`, `UserPromptSubmit`, `PostToolUse`, `PostToolUseFailure`, `PermissionRequest`, `Notification`, `Stop`, `SubagentStart`, `SubagentStop`, and `SessionEnd`.
 `PreToolUse` is not registered.
@@ -327,13 +329,146 @@ echo '{"event":"SessionStart","agent":"custom","pane_id":1,"hook_event_name":"Se
 | Flag | Description
 
 | `--agent`
-| Agent name: `claude` (default), `opencode`
+| Agent name: `claude` (default), `opencode`, `codex`
 
 | `--pane-id`
 | Zellij pane ID (use `$ZELLIJ_PANE_ID` for shell expansion)
 
 | `--raw`
 | Accept pre-normalized JSON payload, skip TranslateEvent
+|===
+
+[#codex-daemon-attribution]
+==== Codex daemon attribution
+
+Since Codex 0.157, Codex runs its hooks inside a shared app-server daemon, one per Codex home.
+The daemon carries the environment of the client that started it first.
+For a hook running inside the daemon, `--pane-id` and `ZELLIJ_SESSION_NAME` therefore name the pane and Zellij session of that first client, not those of the client that owns the event.
+
+With `--agent codex`, the command treats an event as daemon-hosted when the shared daemon is among its ancestor processes.
+The shared daemon is the managed app-server (`codex app-server --listen unix://... --managed-daemon`) together with its helper processes (`codex app-server daemon ...`).
+An app-server that a tool starts for itself, such as the stdio app-server of an IDE extension, is not the shared daemon.
+Its hooks take the regular path, and the process itself counts toward uniqueness like `codex exec`.
+When the command cannot inspect its ancestor processes, it drops the Codex event, because it cannot tell its own pane identity from an inherited one.
+An ancestor that belongs to another user, such as `sshd` or `sudo`, ends the search with the regular path, because the shared daemon of the user cannot run above such a process.
+For a daemon-hosted event, it never uses the inherited pane or Zellij session to choose the target.
+It resolves the originating client in this order instead:
+
+. An explicit client identity in the payload (`client_env.ZELLIJ_PANE_ID` and `client_env.ZELLIJ_SESSION_NAME`).
+This path is reserved for a future Codex release that passes the client environment to hooks (https://github.com/openai/codex/issues/44902[openai/codex#44902]).
+. A remembered mapping in `pane-map.json` that records the process ID and start time of the client.
+The command uses it only while that exact process still runs in the recorded pane and Zellij session.
+When the recorded client no longer runs, the command drops later events of the session instead of searching for another client, because another client in the same directory does not own the session.
+On a `SessionStart` event, which Codex sends on startup, resume, clear, compaction, and fork, discovery runs even for a remembered session.
+A uniquely discovered client replaces the remembered mapping, so a session that the user resumes in another client follows that client.
+When discovery finds no unique client, a live remembered mapping applies only if its client is among the matching processes, for example after a compaction while another client shares the directory.
+Otherwise the session has left its remembered client, and the command drops the event and forgets the mapping.
+. Discovery of the single Codex process of the current user in the same Codex home (`CODEX_HOME`, default `~/.codex`) whose working directory equals the `cwd` of the event.
+Every Codex process in that directory counts toward uniqueness, including `codex exec`, but only an interactive client (`codex`, `codex resume`, `codex fork`, or `codex "<initial prompt>"`) can receive the event.
+The working directory of a client is its `-C` or `--cd` argument when one is given.
+Otherwise it is the actual working directory of the process on Linux and the `PWD` environment variable of the process on macOS.
+A discovered client is recorded in `pane-map.json` for later events of the same session.
+
+When none of these paths yields exactly one client inside Zellij, the command drops the event.
+It tries again on the next event of the session, or on the next `SessionStart` event when the remembered client of the session has exited.
+It never falls back to the inherited `--pane-id`.
+
+An attributed event goes to the Zellij session of the client with `zellij --session <name> pipe --name cc-deck:hook`.
+The event therefore reaches the right sidebar even when the daemon belongs to another Zellij session or to no Zellij session at all.
+The early exit outside Zellij does not apply to daemon-hosted events, because the Zellij membership of the daemon says nothing about the client.
+Profile name, color, and icon in the payload also come from the environment of the client, not from the environment of the daemon.
+
+Codex events that do not run inside the daemon (`codex --no-daemon` or Codex releases older than 0.157) take the same path as Claude Code and OpenCode events.
+Process inspection is available on macOS and Linux.
+The ancestor check reads only the arguments of each ancestor, so it also works for processes whose environment is not readable.
+Discovery and the remembered mapping read the environment of Codex processes, which Linux refuses for a non-dumpable process, so the command drops daemon-hosted events of such clients.
+When a session is resumed in a second client in the same directory while its original client still runs, the remembered mapping keeps the session in the row of the original client, because this case looks the same as a compaction in the original client.
+On other platforms, the command cannot inspect its ancestor processes and therefore drops Codex events.
+The xref:using:multi-agent.adoc#codex-shared-daemon[multi-agent guide] explains the user-visible behavior, including sessions in a working directory that several Codex clients share.
+
+[#hook-debug-log]
+==== Debug log
+
+While the flag file `~/.local/state/cc-deck/hook-debug` exists, each invocation appends one line to `~/.local/state/cc-deck/hook.log`.
+For Codex events, the line contains `event=`, `session=`, `resolution=`, `pane=` (the resolved pane, empty when the event was dropped), and `target_session=`.
+When the resolution alone does not explain a dropped event, a `detail=` field follows `resolution=`, for example `detail="stale-mapping"` or the error of a failed process inspection.
+The environment fields `pane_id_arg=`, `ZELLIJ=`, `ZELLIJ_SESSION_NAME=`, and `ZELLIJ_PANE_ID=` follow.
+For daemon-hosted events, these environment fields show the identity inherited from the daemon, so they can differ from `pane=` and `target_session=`.
+In the following example, the daemon inherited pane 3, and cc-deck delivered the event to pane 7 of the client that owns the session:
+
+[source,text]
+----
+2026-10-15T10:12:03+02:00 event=PostToolUse session=019a2f1c resolution=discovered pane=7 target_session="work" pane_id_arg="3" ZELLIJ="0" ZELLIJ_SESSION_NAME="work" ZELLIJ_PANE_ID="3"
+----
+
+The `resolution=` field names the path that decided the target pane.
+Daemon-hosted Codex events use the following values:
+
+[cols="1,3,1"]
+|===
+| Resolution | Meaning | Delivered
+
+| `client-env`
+| The payload names the pane of the client explicitly (reserved for a future Codex release, see https://github.com/openai/codex/issues/44902[openai/codex#44902]).
+| Yes
+
+| `from-client-cache`
+| A remembered mapping names a client that still runs in the same pane and Zellij session.
+| Yes
+
+| `discovered`
+| Exactly one Codex process matches the working directory and Codex home of the event, and it is an interactive client inside Zellij.
+The mapping is recorded.
+| Yes
+
+| `ambiguous`
+| Several Codex processes match the working directory and Codex home of the event.
+| No
+
+| `no-client`
+| No Codex process matches, the only match is not interactive (for example `codex exec`), the remembered client of the session no longer runs, or process inspection failed or is not supported on the platform.
+The command also logs this value when it cannot inspect its own ancestor processes and so cannot tell whether the event is daemon-hosted.
+The `detail=` field tells these cases apart.
+| No
+
+| `client-not-in-zellij`
+| The single matching client runs outside Zellij.
+| No
+|===
+
+All other events, including Codex events that do not run inside the daemon, use the existing values:
+
+[cols="1,3,1"]
+|===
+| Resolution | Meaning | Delivered
+
+| `from-arg`
+| The pane comes from `--pane-id`.
+| Yes
+
+| `from-cache`
+| No `--pane-id` was given, and `pane-map.json` holds a mapping for the session in the current Zellij session.
+| Yes
+
+| `no-cache-entry`
+| No `--pane-id` was given, and `pane-map.json` holds no mapping for the session.
+| No
+
+| `cache-session-mismatch`
+| The mapping in `pane-map.json` belongs to a different Zellij session.
+| No
+
+| `not-in-zellij`
+| The command does not run inside a Zellij session.
+| No
+
+| `bad-pane-id-arg`
+| The `--pane-id` value is not a valid pane ID.
+| No
+
+| `no-pane-id-no-session-id`
+| Neither `--pane-id` nor a session ID is available.
+| No
 |===
 
 === snapshot
@@ -1506,6 +1641,7 @@ cc-deck ws pipe mydev --name cc-deck:voice --payload "hello world"
 Internal command used by Claude Code hooks.
 Not intended for direct use.
 Exits silently when it is not running inside a Zellij session.
+Codex events from the shared Codex daemon are the exception, as <<codex-daemon-attribution>> describes.
 
 [source,bash]
 ----

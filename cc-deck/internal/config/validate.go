@@ -463,6 +463,13 @@ func checkIconWidth(_, badgeName, key, icon string) []Finding {
 // starting with a letter or digit.
 var profileNameRegex = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 
+// ValidProfileName reports whether name is a valid profile name. Hook code
+// uses it for profile names read from other processes or hook payloads,
+// which config validation never saw.
+func ValidProfileName(name string) bool {
+	return profileNameRegex.MatchString(name)
+}
+
 // colorRegex matches a valid hex color: #RRGGBB.
 var colorRegex = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 

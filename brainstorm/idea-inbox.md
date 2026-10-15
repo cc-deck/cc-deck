@@ -189,3 +189,48 @@ Ideas captured from code reviews for future brainstorming.
 - **Summary**: `ANTHROPIC_AUTH_TOKEN` is grouped with `ANTHROPIC_API_KEY` under the api_key kind (research R16), so an api_key profile does not clear an inherited `ANTHROPIC_AUTH_TOKEN`, which Claude Code prefers over the API key.
 
 > Computing the unset list from the profile's actual source variable, or giving `ANTHROPIC_AUTH_TOKEN` its own kind owned only by a profile that sources it, would close the gap for gateway tokens exported in the calling shell.
+
+### codex-client-env-trust
+
+- **Source**: deep-review
+- **Date**: 2026-10-15
+- **Reference**: 089-codex-daemon-pane-attribution, `cc-deck/internal/cmd/codex_attribution.go` clientEnvTarget
+- **Summary**: A parseable `client_env.ZELLIJ_PANE_ID` wins over everything, without checking that a live Codex client of this user sits in that pane.
+
+> Once Codex forwards client environment (openai/codex#44902), cross-check client_env against procinfo (a live, bindable client with that pane and session) before trusting it.
+
+### codex-non-shell-daemon-clients
+
+- **Source**: deep-review
+- **Date**: 2026-10-15
+- **Reference**: 089-codex-daemon-pane-attribution, discovery in `resolveCodex`
+- **Summary**: Discovery assumes every daemon client is a visible local `codex` process; a desktop app or socket client that is not would let its events bind to the only TUI in the same directory.
+
+> Document the assumption and revisit when Codex exposes other daemon clients.
+
+### codex-same-dir-resume-row
+
+- **Source**: deep-review
+- **Date**: 2026-10-15
+- **Reference**: 089-codex-daemon-pane-attribution, SessionStart fallback
+- **Summary**: Resuming a session in a second client in the same directory while the original client runs keeps the original row; a SessionStart `source` field (resume vs compact) in the payload would let the hook tell the cases apart.
+
+> Parsing the SessionStart source would close the last documented wrong-row window without weakening US2-2.
+
+### pane-map-lock-latency
+
+- **Source**: deep-review
+- **Date**: 2026-10-15
+- **Reference**: 089-codex-daemon-pane-attribution, `withPaneMapLock`
+- **Summary**: The 2 s lock wait plus F_FULLFSYNC on Darwin sits in the blocking hook path; delivering before recording, or a shorter timeout, would cut tail latency.
+
+> Not a defect at the measured load (about 10 ms per serialized write), but invisible today.
+
+### hook-autosave-and-darwin-seams
+
+- **Source**: deep-review
+- **Date**: 2026-10-15
+- **Reference**: 089-codex-daemon-pane-attribution, `deliverHookPayload`, `procinfo_darwin.go`
+- **Summary**: The autoSave gating and the Darwin ListUser and Ancestor error branches have no test seam.
+
+> A `hookAutoSave` variable and injectable sysctl readers would make them testable.

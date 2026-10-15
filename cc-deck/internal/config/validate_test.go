@@ -1144,3 +1144,14 @@ func TestValidIcon(t *testing.T) {
 		t.Error("control character icon must fail validation")
 	}
 }
+
+func TestValidProfileName(t *testing.T) {
+	for name, want := range map[string]bool{
+		"work": true, "team-2": true, "0x": true,
+		"": false, "-x": false, "Work": false, "a b": false, "bad\x1b[2J": false,
+	} {
+		if got := ValidProfileName(name); got != want {
+			t.Errorf("ValidProfileName(%q) = %v, want %v", name, got, want)
+		}
+	}
+}

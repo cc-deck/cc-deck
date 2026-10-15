@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
+	"unicode"
 )
 
 // Hook diagnostics are opt-in: they exist to answer whether the Zellij
@@ -53,6 +55,37 @@ func hookDebugf(format string, args ...any) {
 	defer func() { _ = f.Close() }()
 	line := fmt.Sprintf(format, args...)
 	_, _ = fmt.Fprintf(f, "%s %s\n", time.Now().Format(time.RFC3339), line)
+}
+
+// logCodexAttribution records how a Codex event was attributed or why it was
+// dropped (FR-014): the event, its session, the resolution reason, the
+// resolved pane (empty when dropped) and the Zellij session it is delivered
+// to, plus the hook's own (for daemon-hosted hooks, inherited) environment.
+// detail refines the resolution (for example an inspection error) and is
+// omitted when empty. Event and session come from the payload and are
+// written without control characters, so they cannot forge log lines.
+func logCodexAttribution(event, sessionID, resolution, detail, pane, targetSession, paneIDArg string) {
+	detailField := ""
+	if detail != "" {
+		detailField = fmt.Sprintf(" detail=%q", detail)
+	}
+	hookDebugf(
+		"event=%s session=%s resolution=%s%s pane=%s target_session=%q pane_id_arg=%q ZELLIJ=%q ZELLIJ_SESSION_NAME=%q ZELLIJ_PANE_ID=%q",
+		stripControl(event), stripControl(sessionID), resolution, detailField, pane, targetSession, paneIDArg,
+		os.Getenv("ZELLIJ"),
+		os.Getenv("ZELLIJ_SESSION_NAME"),
+		os.Getenv("ZELLIJ_PANE_ID"),
+	)
+}
+
+// stripControl replaces control characters (newlines included) with "?".
+func stripControl(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return '?'
+		}
+		return r
+	}, s)
 }
 
 // logHookEnv records whether the Zellij environment survived into this hook

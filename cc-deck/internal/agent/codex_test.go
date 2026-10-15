@@ -511,3 +511,41 @@ func TestCodexAgentRequiredDomainGroups(t *testing.T) {
 		t.Errorf("RequiredDomainGroups()[0] = %q, want %q", groups[0], "openai")
 	}
 }
+
+func TestCodexClientEnv(t *testing.T) {
+	cases := map[string]struct {
+		input string
+		want  map[string]string
+	}{
+		"absent":     {`{"hook_event_name":"Stop"}`, nil},
+		"null":       {`{"hook_event_name":"Stop","client_env":null}`, nil},
+		"empty":      {`{"hook_event_name":"Stop","client_env":{}}`, nil},
+		"not object": {`{"hook_event_name":"Stop","client_env":"x"}`, nil},
+		"non-string": {`{"hook_event_name":"Stop","client_env":{"ZELLIJ_PANE_ID":4}}`, nil},
+		"bad json":   {`{"hook_event_name":`, nil},
+		"present": {`{"hook_event_name":"Stop","client_env":{"ZELLIJ_PANE_ID":"4","ZELLIJ_SESSION_NAME":"s"}}`,
+			map[string]string{"ZELLIJ_PANE_ID": "4", "ZELLIJ_SESSION_NAME": "s"}},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := CodexClientEnv([]byte(c.input))
+			if len(got) != len(c.want) {
+				t.Fatalf("got %v, want %v", got, c.want)
+			}
+			for k, v := range c.want {
+				if got[k] != v {
+					t.Errorf("%s: got %q, want %q", k, got[k], v)
+				}
+			}
+		})
+	}
+
+	// The normalized payload, and so the pipe message, does not change.
+	n, err := (&CodexAgent{}).TranslateEvent([]byte(`{"hook_event_name":"Stop","session_id":"s","client_env":{"ZELLIJ_PANE_ID":"4"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n.PaneID != 0 || n.SessionID != "s" {
+		t.Errorf("normalized payload changed: %+v", n)
+	}
+}

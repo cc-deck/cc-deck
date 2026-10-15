@@ -532,6 +532,14 @@ The following defaults apply:
 | `~/.local/state/cc-deck/pane-map.json`
 | Hook pane ID cache.
 Entries are scoped to the Zellij session that recorded them and expire after 12 hours.
+Entries for daemon-hosted Codex sessions also carry the optional fields `client_pid` and `client_start` (process ID and start time of the Codex client that owns the session) and `profile` (the profile name of that client).
+Other entries omit these fields, and older cc-deck binaries ignore them.
+The hook writes the file atomically through a temporary file in the same directory followed by a rename, so readers never see a partially written file.
+
+| `~/.local/state/cc-deck/pane-map.lock`
+| Empty lock file for `pane-map.json`.
+Hook processes hold an exclusive lock on it while they update `pane-map.json`.
+When a hook cannot acquire the lock within 2 seconds, it skips the update instead of blocking the agent, and still delivers the event.
 
 | `~/.local/state/cc-deck/hook-debug`
 | Flag file. When it exists, the hook command records diagnostics.
