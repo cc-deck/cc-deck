@@ -182,7 +182,7 @@ Background jobs run in a daemon whose environment belongs to the terminal that f
 cc-deck finds the terminal that currently views each job and sends the job's events to that pane, including when the viewer uses another workspace.
 You do not need to change your Claude Code settings or reinstall hooks for this attribution.
 
-A background row shows a dim `⇣` before its name.
+A background row shows a dim `⇣` at the right edge of the row, so names stay aligned.
 The status indicator still reports working, waiting, or done, and a manual rename survives the move to the background.
 The marker disappears with the next foreground event.
 

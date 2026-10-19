@@ -16,7 +16,7 @@ const (
 
 // sidebarPluginBlock returns the KDL snippet for the sidebar plugin pane.
 func sidebarPluginBlock(pluginsDir string) string {
-	return fmt.Sprintf(`pane size=22 borderless=true {
+	return fmt.Sprintf(`pane size=23 borderless=true {
                 plugin location="file:%s/cc_deck.wasm" {
                     mode "sidebar"
                 }

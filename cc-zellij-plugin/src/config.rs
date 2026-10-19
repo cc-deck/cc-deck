@@ -14,7 +14,7 @@ pub enum NewSessionMode {
 
 /// Plugin configuration parsed from KDL layout parameters.
 pub struct PluginConfig {
-    /// Sidebar width in characters (default 22).
+    /// Sidebar width in characters (default 23).
     pub sidebar_width: usize,
     /// Done-to-Idle timeout in seconds (default 120).
     pub done_timeout: u64,
@@ -52,7 +52,7 @@ pub struct PluginConfig {
 impl Default for PluginConfig {
     fn default() -> Self {
         Self {
-            sidebar_width: 22,
+            sidebar_width: 23,
             done_timeout: 300,
             idle_fade_secs: 3600,
             auto_pause_secs: 18000,
@@ -179,7 +179,7 @@ mod tests {
     #[test]
     fn test_default_config() {
         let config = PluginConfig::default();
-        assert_eq!(config.sidebar_width, 22);
+        assert_eq!(config.sidebar_width, 23);
         assert_eq!(config.done_timeout, 300);
         assert_eq!(config.idle_fade_secs, 3600);
         assert!((config.timer_interval - 1.0).abs() < f64::EPSILON);
@@ -243,10 +243,10 @@ mod tests {
         let mut map = BTreeMap::new();
         map.insert("sidebar_width".into(), "5".into()); // too small
         let config = PluginConfig::from_configuration(&map);
-        assert_eq!(config.sidebar_width, 22); // stays default
+        assert_eq!(config.sidebar_width, 23); // stays default
 
         map.insert("sidebar_width".into(), "100".into()); // too large
         let config = PluginConfig::from_configuration(&map);
-        assert_eq!(config.sidebar_width, 22); // stays default
+        assert_eq!(config.sidebar_width, 23); // stays default
     }
 }

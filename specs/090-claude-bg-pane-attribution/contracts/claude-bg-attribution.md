@@ -68,7 +68,7 @@ The controller handles `cc-deck:release-row` as follows:
 - `HookPayload.background: bool`, `#[serde(default)]`.
 - Every processed hook event sets `Session.background = hook.background`, including events on paused rows (which otherwise only update `session_id`) and events that create the row.
 - `Session.background` and `RenderSession.background` carry `#[serde(default)]`; restored sessions from older builds start without the marker.
-- Rendering: line 1 becomes `edge bar + status indicator + " " + agent prefix + [dim "⇣ "] + name` when `background` is true; the name budget shrinks by two columns. Line 2, the edge bar and the indicator do not change. Rows without `background` render byte-identically to today.
+- Rendering: line 1 keeps `edge bar + status indicator + " " + agent prefix + name`, and when `background` is true a dim `⇣` is drawn flush-right at the end of the line. The two reserved columns come off the right of the name budget, not the left prefix, so the name's start column is identical on background and non-background rows. Line 2, the edge bar and the indicator do not change. Rows without `background` render byte-identically to today.
 - The help overlay legend lists the marker.
 
 ## 7. Debug log (FR-014)

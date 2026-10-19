@@ -632,9 +632,13 @@ pub(super) fn session_entry_lines(
         } else {
             display_width(&agent_prefix) + 1
         };
-        let background_len = if session.background { 2 } else { 0 };
-        let prefix_len = 1 + display_width(indicator) + 1 + agent_prefix_len + background_len;
-        let max_name = cols.saturating_sub(prefix_len);
+        // The background marker is drawn flush-right (appended below), so its two
+        // columns are reserved from the right of the name budget rather than the
+        // left prefix. This keeps the name's start column identical on background
+        // and non-background rows, so names stay aligned.
+        let right_reserve = if session.background { 2 } else { 0 };
+        let prefix_len = 1 + display_width(indicator) + 1 + agent_prefix_len;
+        let max_name = cols.saturating_sub(prefix_len + right_reserve);
         let truncated_name = truncate(render_name, max_name);
 
         if use_bg {
@@ -646,9 +650,13 @@ pub(super) fn session_entry_lines(
             };
             let bold_or_dim = if session.paused { "\x1b[2m" } else { "\x1b[1m" };
             let lead = lead(bg);
-            let background_part = if session.background { format!("\x1b[2m⇣\x1b[0m{bg}{fg} ") } else { String::new() };
-            let styled_line1 = format!("{lead}\x1b[38;2;{r};{g};{b}m{indicator}{fg} {agent_part}{background_part}{bold_or_dim}{truncated_name}{RESET}");
-            pad_with_bg_color(&styled_line1, cols, bg)
+            let styled_line1 = format!("{lead}\x1b[38;2;{r};{g};{b}m{indicator}{fg} {agent_part}{bold_or_dim}{truncated_name}{RESET}");
+            let padded = pad_with_bg_color(&styled_line1, cols.saturating_sub(right_reserve), bg);
+            if session.background {
+                format!("{padded}{bg}\x1b[2m ⇣{RESET}")
+            } else {
+                padded
+            }
         } else {
             let agent_part = if agent_prefix.is_empty() {
                 String::new()
@@ -666,10 +674,14 @@ pub(super) fn session_entry_lines(
             };
 
             let lead = lead("");
-            let background_part = if session.background { "\x1b[2m⇣\x1b[0m " } else { "" };
             let line1 =
-                format!("{lead}\x1b[38;2;{r};{g};{b}m{indicator}\x1b[0m {agent_part}{background_part}{name_part}");
-            pad(&line1, cols)
+                format!("{lead}\x1b[38;2;{r};{g};{b}m{indicator}\x1b[0m {agent_part}{name_part}");
+            let padded = pad(&line1, cols.saturating_sub(right_reserve));
+            if session.background {
+                format!("{padded}\x1b[2m ⇣\x1b[0m")
+            } else {
+                padded
+            }
         }
     };
 
@@ -1711,9 +1723,18 @@ mod tests {
             let (bg1, bg2) = session_entry_lines(&s, active, cursor, false, 24, None);
             let fg = visible(&fg1);
             let bg = visible(&bg1);
+            // The marker is dim-only on the foreground line and only on the
+            // background line, and it now sits at the right edge, not before name.
             assert!(!fg.contains('⇣'));
-            assert!(bg.contains("✳ ⇣ "));
-            assert_eq!(fg.chars().take(3).collect::<String>(), bg.chars().take(3).collect::<String>());
+            assert!(bg.trim_end().ends_with('⇣'), "marker at right edge: {bg:?}");
+            // Names stay aligned: the agent prefix is followed directly by the
+            // name on both rows, so the first 22 columns (prefix + shared name
+            // prefix) are identical; only the last two columns differ (name tail
+            // vs. the reserved marker).
+            assert_eq!(
+                fg.chars().take(22).collect::<String>(),
+                bg.chars().take(22).collect::<String>()
+            );
             assert_eq!(bg2, fg2);
             assert_eq!(display_width(&bg1), 24);
             assert!(bg.contains(&truncate(&s.display_name, 17)));

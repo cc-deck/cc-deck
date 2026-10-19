@@ -12,7 +12,8 @@ Each entry shows:
 * A status indicator showing current activity
 * Visual highlighting for sessions that need attention
 
-A dim `⇣` before the name marks a Claude Code background job shown in that pane.
+A dim `⇣` at the right edge of the row marks a Claude Code background job shown in that pane.
+The marker sits at the end of the line so session names stay aligned.
 The marker leaves the activity indicator and profile bar in place, and disappears with the next foreground event.
 
 The currently viewed session is highlighted with a teal background.
