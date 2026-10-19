@@ -161,7 +161,7 @@ func waitForPluginReady(timeout time.Duration) {
 	defer cancel()
 
 	for {
-		_, err := queryPluginCtx(ctx)
+		_, err := queryPluginCtx(ctx, "")
 		if err == nil {
 			return
 		}
@@ -192,6 +192,7 @@ type pendingOverride struct {
 	Paused       bool   `json:"paused"`
 	Profile      string `json:"profile,omitempty"`
 	ProfileColor string `json:"profile_color,omitempty"`
+	Background   bool   `json:"background,omitempty"`
 }
 
 // sendPendingOverrides pipes session metadata to the plugin so custom names,
@@ -199,6 +200,21 @@ type pendingOverride struct {
 // working directory, with a list per directory to support multiple sessions
 // sharing the same dir.
 func sendPendingOverrides(sessions []SessionEntry, cfg *config.Config) {
+	overrides := buildOverrides(sessions, cfg)
+	if len(overrides) == 0 {
+		return
+	}
+	data, err := json.Marshal(overrides)
+	if err != nil {
+		return
+	}
+	exec.Command("zellij", "pipe", "--name", "cc-deck:restore-meta", "--", string(data)).Run()
+}
+
+// buildOverrides maps snapshot entries to the restore-meta overrides keyed by
+// resolved working directory. Split out so the mapping (including the background
+// marker) is testable without shelling out to zellij.
+func buildOverrides(sessions []SessionEntry, cfg *config.Config) map[string][]pendingOverride {
 	overrides := make(map[string][]pendingOverride)
 	for _, entry := range sessions {
 		if entry.WorkingDir == "" {
@@ -208,6 +224,7 @@ func sendPendingOverrides(sessions []SessionEntry, cfg *config.Config) {
 			DisplayName: entry.DisplayName,
 			Paused:      entry.Paused,
 			Profile:     entry.Profile,
+			Background:  entry.Background,
 		}
 		// Resolve the profile color from config if the profile still exists.
 		if entry.Profile != "" && cfg != nil {
@@ -217,12 +234,5 @@ func sendPendingOverrides(sessions []SessionEntry, cfg *config.Config) {
 		}
 		overrides[entry.WorkingDir] = append(overrides[entry.WorkingDir], po)
 	}
-	if len(overrides) == 0 {
-		return
-	}
-	data, err := json.Marshal(overrides)
-	if err != nil {
-		return
-	}
-	exec.Command("zellij", "pipe", "--name", "cc-deck:restore-meta", "--", string(data)).Run()
+	return overrides
 }

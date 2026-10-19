@@ -24,17 +24,22 @@ type pluginSession struct {
 	Profile         *string `json:"profile"`
 	ManuallyRenamed bool    `json:"manually_renamed"`
 	Paused          bool    `json:"paused"`
+	Background      bool    `json:"background"`
 }
 
 // QueryPluginState queries the cc-deck plugin for current session state
-// via zellij pipe and returns a Snapshot.
+// via zellij pipe and returns a Snapshot. It targets the ambient Zellij
+// session (the one this process runs in).
 func QueryPluginState(name string) (*Snapshot, error) {
-	return QueryPluginStateCtx(context.Background(), name)
+	return QueryPluginStateCtx(context.Background(), name, "")
 }
 
-// QueryPluginStateCtx is like QueryPluginState but with a context for timeout.
-func QueryPluginStateCtx(ctx context.Context, name string) (*Snapshot, error) {
-	raw, err := queryPluginCtx(ctx)
+// QueryPluginStateCtx is like QueryPluginState but with a context for timeout
+// and an explicit target Zellij session. An empty targetSession queries the
+// ambient session; a non-empty one queries that named session, which is how a
+// daemon-hosted hook (no ambient Zellij) snapshots the session it delivered to.
+func QueryPluginStateCtx(ctx context.Context, name, targetSession string) (*Snapshot, error) {
+	raw, err := queryPluginCtx(ctx, targetSession)
 	if err != nil {
 		return nil, err
 	}
@@ -47,13 +52,31 @@ func QueryPluginStateCtx(ctx context.Context, name string) (*Snapshot, error) {
 		return nil, fmt.Errorf("parsing plugin state: %w", err)
 	}
 
-	// Convert to SessionEntry list sorted by tab index
+	entries := buildEntries(sessions)
+
+	if name == "" {
+		name = nextSnapshotName()
+	}
+
+	return &Snapshot{
+		Version:  1,
+		Name:     name,
+		SavedAt:  time.Now().UTC(),
+		Sessions: entries,
+	}, nil
+}
+
+// buildEntries converts the plugin's session map into SessionEntry values
+// sorted by tab index, resolving working-dir symlinks. It is the pure mapping
+// step of QueryPluginStateCtx, split out so it can be tested without a plugin.
+func buildEntries(sessions map[string]pluginSession) []SessionEntry {
 	var entries []SessionEntry
 	for _, s := range sessions {
 		entry := SessionEntry{
 			SessionID:   s.SessionID,
 			DisplayName: s.DisplayName,
 			Paused:      s.Paused,
+			Background:  s.Background,
 		}
 		if s.TabName != nil {
 			entry.TabName = *s.TabName
@@ -83,17 +106,7 @@ func QueryPluginStateCtx(ctx context.Context, name string) (*Snapshot, error) {
 	sort.Slice(entries, func(i, j int) bool {
 		return entries[i].tabIndex < entries[j].tabIndex
 	})
-
-	if name == "" {
-		name = nextSnapshotName()
-	}
-
-	return &Snapshot{
-		Version:  1,
-		Name:     name,
-		SavedAt:  time.Now().UTC(),
-		Sessions: entries,
-	}, nil
+	return entries
 }
 
 func parseDumpState(raw []byte) (map[string]pluginSession, error) {
@@ -119,9 +132,15 @@ func parseDumpState(raw []byte) (map[string]pluginSession, error) {
 // queryPluginCtx runs zellij pipe to get session state JSON from the controller plugin.
 // Uses broadcast delivery so the leader controller responds regardless of
 // which instance Zellij routes targeted pipes to (duplicate instance bug).
-func queryPluginCtx(ctx context.Context) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, "zellij", "pipe",
-		"--name", "cc-deck:dump-state", "--", "")
+// An empty targetSession pipes to the ambient Zellij session; a non-empty one
+// pipes to that named session via "zellij --session <name> pipe".
+func queryPluginCtx(ctx context.Context, targetSession string) ([]byte, error) {
+	var args []string
+	if targetSession != "" {
+		args = append(args, "--session", targetSession)
+	}
+	args = append(args, "pipe", "--name", "cc-deck:dump-state", "--", "")
+	cmd := exec.CommandContext(ctx, "zellij", args...)
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("querying plugin state: %w", err)

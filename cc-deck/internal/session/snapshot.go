@@ -24,6 +24,7 @@ type SessionEntry struct {
 	GitBranch   string `json:"git_branch,omitempty"`
 	Agent       string `json:"agent,omitempty"`
 	Profile     string `json:"profile,omitempty"`
+	Background  bool   `json:"background,omitempty"`
 	tabIndex    int    // internal, for sorting during save
 }
 

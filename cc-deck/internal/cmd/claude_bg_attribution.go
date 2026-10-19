@@ -565,7 +565,7 @@ func runClaudeBackgroundLocked(zellijPath string, input []byte, normalized *agen
 		if att.Profile.Name != "" && config.ValidProfileName(att.Profile.Name) {
 			enrichProfileFrom(normalized, att.Profile)
 		}
-		if err := deliverHookPayload(zellijPath, att.ZellijSession, normalized, false); err != nil {
+		if err := deliverHookPayload(zellijPath, att.ZellijSession, normalized); err != nil {
 			hookDebugf("event=%s job=%s delivery_error=%q", stripControl(normalized.HookEvent), stripControl(att.JobID), err)
 		}
 	}

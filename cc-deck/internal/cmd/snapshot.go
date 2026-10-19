@@ -30,6 +30,7 @@ func NewSnapshotCmd(_ *GlobalFlags) *cobra.Command {
 
 func newSnapshotSaveCmd() *cobra.Command {
 	var auto bool
+	var targetSession string
 	cmd := &cobra.Command{
 		Use:   "save [name]",
 		Short: "Save current session state",
@@ -37,7 +38,7 @@ func newSnapshotSaveCmd() *cobra.Command {
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if auto {
-				return session.RunAutoSave()
+				return session.RunAutoSave(targetSession)
 			}
 			name := ""
 			if len(args) > 0 {
@@ -48,6 +49,11 @@ func newSnapshotSaveCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&auto, "auto", false, "Perform rolling auto-save with cooldown")
 	_ = cmd.Flags().MarkHidden("auto")
+	// --session names the Zellij session to query for an auto-save. A
+	// daemon-hosted hook (Codex, or a Claude background job) has no ambient
+	// Zellij session, so it passes the viewer's session here.
+	cmd.Flags().StringVar(&targetSession, "session", "", "Zellij session to snapshot (auto-save only; default: ambient)")
+	_ = cmd.Flags().MarkHidden("session")
 	return cmd
 }
 

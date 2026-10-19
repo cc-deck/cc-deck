@@ -426,15 +426,18 @@ func runHook(stdin io.Reader, paneIDStr string, agentName string) {
 	}
 
 	normalized.PaneID = paneID
-	deliverHookPayload(zellijPath, "", normalized, true)
+	deliverHookPayload(zellijPath, "", normalized)
 }
 
 // deliverHookPayload evaluates badges, sends the payload to the plugin (in
 // targetSession, or the caller's own session when empty) and handles the
-// post-delivery bookkeeping (auto-save, SessionEnd cache removal). autoSave
-// is false when the snapshot would be taken in a Zellij session other than
-// the one the event belongs to.
-func deliverHookPayload(zellijPath, targetSession string, normalized *agent.NormalizedPayload, autoSave bool) error {
+// post-delivery bookkeeping (auto-save, SessionEnd cache removal).
+//
+// The auto-save snapshots the session the event was delivered to: an empty
+// targetSession means the hook's own (ambient) session, while a daemon-hosted
+// Codex or background Claude event names the viewer's session explicitly, so
+// that session is snapshotted rather than the daemon's inherited one.
+func deliverHookPayload(zellijPath, targetSession string, normalized *agent.NormalizedPayload) error {
 	if normalized.Cwd != "" {
 		cfg, _ := config.Load("")
 		if cfg != nil && len(cfg.Badges) > 0 {
@@ -451,9 +454,7 @@ func deliverHookPayload(zellijPath, targetSession string, normalized *agent.Norm
 	defer cancel()
 	deliveryErr := sendHookPayload(ctx, zellijPath, targetSession, "cc-deck:hook", payloadJSON)
 
-	if autoSave {
-		session.AutoSave()
-	}
+	session.AutoSave(targetSession)
 
 	if normalized.HookEvent == "SessionEnd" && normalized.SessionID != "" {
 		removePaneMapping(normalized.SessionID)
@@ -475,7 +476,7 @@ func runCodexHook(zellijPath string, input []byte, normalized *agent.NormalizedP
 	// inherited.
 	if att, ok := clientEnvTarget(agent.CodexClientEnv(input), host != hostOwn, ambient); ok {
 		logCodexAttribution(normalized.HookEvent, normalized.SessionID, att.Reason, att.Detail, att.pane(), att.ZellijSession, paneIDStr)
-		deliverCodexAttribution(zellijPath, normalized, att, inZellij && ambient == att.ZellijSession)
+		deliverCodexAttribution(zellijPath, normalized, att)
 		return true
 	}
 
@@ -497,12 +498,12 @@ func runCodexHook(zellijPath string, input []byte, normalized *agent.NormalizedP
 // daemon's (FR-017); a name that is not a valid profile name is dropped,
 // because it comes from another process or the payload and reaches the
 // sidebar unescaped.
-func deliverCodexAttribution(zellijPath string, normalized *agent.NormalizedPayload, att attribution, autoSave bool) {
+func deliverCodexAttribution(zellijPath string, normalized *agent.NormalizedPayload, att attribution) {
 	normalized.PaneID = att.PaneID
 	if att.Profile.Name != "" && config.ValidProfileName(att.Profile.Name) {
 		enrichProfileFrom(normalized, att.Profile)
 	}
-	deliverHookPayload(zellijPath, att.ZellijSession, normalized, autoSave)
+	deliverHookPayload(zellijPath, att.ZellijSession, normalized)
 }
 
 // hookProcSource inspects processes for Codex daemon attribution. Tests
@@ -538,9 +539,7 @@ func runDaemonHostedCodex(zellijPath string, normalized *agent.NormalizedPayload
 		})
 	}
 
-	// The snapshot runs in the hook's ambient Zellij session; take it only
-	// when that is the session the event belongs to.
-	deliverCodexAttribution(zellijPath, normalized, att, inZellij && ambient == att.ZellijSession)
+	deliverCodexAttribution(zellijPath, normalized, att)
 }
 
 // loadProfileConfig loads config.yaml for the profile fallback in

@@ -57,6 +57,10 @@ pub struct PendingOverride {
     pub paused: bool,
     pub profile: Option<String>,
     pub profile_color: Option<String>,
+    /// True when the snapshot captured this row as a Claude Code background job.
+    /// Restored as a foreground resume that still shows the marker until its
+    /// first foreground event clears it.
+    pub background: bool,
 }
 
 #[derive(Debug, Clone, Default)]

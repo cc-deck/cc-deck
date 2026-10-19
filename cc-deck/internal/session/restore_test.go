@@ -79,3 +79,39 @@ func TestLaunchCommand_ProfileNoSessionID(t *testing.T) {
 	assert.Equal(t, "claude-work", cmd)
 	assert.Empty(t, warning)
 }
+
+func TestLaunchCommand_OpenCodeAgent(t *testing.T) {
+	entry := SessionEntry{
+		Agent:     "opencode",
+		SessionID: "oc1",
+	}
+	cmd, warning := launchCommand(entry, nil)
+	assert.Equal(t, "opencode --session oc1", cmd)
+	assert.Empty(t, warning)
+}
+
+// A backgrounded Claude entry relaunches as a foreground resume; the background
+// marker travels via the restore-meta override, not the launch command.
+func TestLaunchCommand_BackgroundEntryResumesForeground(t *testing.T) {
+	entry := SessionEntry{
+		Agent:      "claude",
+		SessionID:  "bg1",
+		Background: true,
+	}
+	cmd, warning := launchCommand(entry, nil)
+	assert.Equal(t, "claude --resume bg1", cmd)
+	assert.Empty(t, warning)
+}
+
+func TestBuildOverrides_CarriesBackgroundMarker(t *testing.T) {
+	sessions := []SessionEntry{
+		{WorkingDir: "/src/fg", DisplayName: "fg", Background: false},
+		{WorkingDir: "/src/bg", DisplayName: "bg", Paused: true, Background: true},
+		{WorkingDir: "", DisplayName: "skipped"}, // no working dir: dropped
+	}
+	overrides := buildOverrides(sessions, nil)
+	assert.Len(t, overrides, 2)
+	assert.False(t, overrides["/src/fg"][0].Background)
+	assert.True(t, overrides["/src/bg"][0].Background, "background marker must be sent to the plugin on restore")
+	assert.True(t, overrides["/src/bg"][0].Paused)
+}

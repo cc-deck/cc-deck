@@ -52,7 +52,7 @@ func TestAutoSave_DoesNotReExecTestBinary(t *testing.T) {
 	require.True(t, CooldownElapsed(),
 		"precondition: with an isolated state home there is no auto snapshot, so the cooldown must be elapsed")
 
-	AutoSave()
+	AutoSave("")
 
 	assert.Empty(t, *spawned,
 		"AutoSave must not re-exec a test binary: each spawn re-runs the suite and forks another generation")

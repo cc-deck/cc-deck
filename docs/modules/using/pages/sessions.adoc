@@ -170,4 +170,9 @@ cc-deck snapshot remove my-checkpoint
 ----
 
 Auto-save is enabled by default via hooks.
-Every time a Claude Code session completes a task, the state is saved automatically with a sequential name (`snapshot-1`, `snapshot-2`, etc.).
+Every time a session makes progress, the rolling `auto` snapshot is refreshed (subject to a cooldown).
+Codex sessions and Claude Code background jobs run under a shared daemon, so their events now trigger an auto-save scoped to the session they belong to, which means a Codex-only or background-only workspace still keeps its snapshot current.
+
+Snapshots capture every agent in the workspace.
+On restore, each session is relaunched with its own resume command: `claude --resume <id>`, `codex resume <id>`, or `opencode --session <id>`.
+A session that was a Claude Code background job is relaunched as a foreground resume and keeps the `⇣` marker until its first foreground event, so a restored paused background row still shows that it ran in the background.

@@ -57,5 +57,7 @@ func runHookRaw(stdin io.Reader, stderr io.Writer) {
 		os.Exit(1)
 	}
 
-	session.AutoSave()
+	// Raw payloads forward to the ambient Zellij session, so the auto-save
+	// snapshots that same session.
+	session.AutoSave("")
 }

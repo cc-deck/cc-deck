@@ -35,7 +35,13 @@ var autoSaveTiers = []autoSaveTier{
 // AutoSave checks the cooldown and, if elapsed, spawns a detached background
 // process to perform the actual save. This avoids blocking the caller (hook
 // subprocess) on the blocking zellij pipe query.
-func AutoSave() {
+//
+// targetSession is the Zellij session to snapshot. An empty value snapshots the
+// ambient session (a foreground hook runs in its own pane's session). A
+// daemon-hosted hook (Codex, or a Claude background job) has no ambient Zellij
+// session, so it passes the session it delivered the event to, which the save
+// subprocess then queries explicitly via "zellij --session <name> pipe".
+func AutoSave(targetSession string) {
 	if !CooldownElapsed() {
 		return
 	}
@@ -55,7 +61,11 @@ func AutoSave() {
 		return
 	}
 
-	startDetached(binPath, "snapshot", "save", "--auto")
+	args := []string{"snapshot", "save", "--auto"}
+	if targetSession != "" {
+		args = append(args, "--session", targetSession)
+	}
+	startDetached(binPath, args...)
 }
 
 // startDetached runs binPath with args as a background process that outlives
@@ -90,7 +100,10 @@ func isTestBinaryPath(binPath string) bool {
 // RunAutoSave performs the actual auto-save: queries plugin state and
 // overwrites the single "auto" snapshot. Called by "cc-deck snapshot save --auto".
 // Uses a file lock to ensure only one auto-save runs at a time.
-func RunAutoSave() error {
+//
+// targetSession is the Zellij session to query; an empty value uses the ambient
+// session (see QueryPluginStateCtx).
+func RunAutoSave(targetSession string) error {
 	// Acquire exclusive lock to prevent concurrent auto-saves.
 	lockPath := filepath.Join(SessionsDir(), ".autosave.lock")
 	if err := os.MkdirAll(SessionsDir(), 0o755); err != nil {
@@ -117,7 +130,7 @@ func RunAutoSave() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	snap, err := QueryPluginStateCtx(ctx, autoSaveName)
+	snap, err := QueryPluginStateCtx(ctx, autoSaveName, targetSession)
 	if err != nil {
 		return err
 	}

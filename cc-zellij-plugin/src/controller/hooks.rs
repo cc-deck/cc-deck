@@ -408,6 +408,7 @@ fn apply_override(state: &mut ControllerState, pane_id: u32, cwd: &str, ovr: &Pe
         s.display_name = session::deduplicate_name(&ovr.display_name, &name_refs);
         s.manually_renamed = true;
         s.paused = ovr.paused;
+        s.background = ovr.background;
         if let Some(ref p) = ovr.profile {
             s.profile = Some(p.clone());
         }
@@ -448,6 +449,10 @@ pub fn process_restore_meta(state: &mut ControllerState, payload: &str) {
                     .and_then(|v| v.as_str())
                     .filter(|s| !s.is_empty())
                     .map(|s| s.to_string());
+                let background = val
+                    .get("background")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
                 if !name.is_empty() {
                     state
                         .pending_overrides
@@ -458,6 +463,7 @@ pub fn process_restore_meta(state: &mut ControllerState, payload: &str) {
                             paused,
                             profile,
                             profile_color,
+                            background,
                         });
                 }
             }
@@ -1021,6 +1027,7 @@ mod tests {
                 paused: true,
                 profile: None,
                 profile_color: None,
+                background: false,
             }],
         );
 
@@ -1065,6 +1072,44 @@ mod tests {
         assert_eq!(web.len(), 1);
         assert_eq!(web[0].display_name, "frontend");
         assert!(web[0].paused);
+    }
+
+    #[test]
+    fn test_restore_meta_background_marker_round_trips() {
+        let mut state = ControllerState::default();
+        // A snapshot entry captured from a background job carries background=true.
+        let payload = r#"{"/home/user/api":[{"display_name":"api-server","paused":true,"background":true}]}"#;
+        process_restore_meta(&mut state, payload);
+        assert!(
+            state.pending_overrides["/home/user/api"][0].background,
+            "restore-meta must parse background=true"
+        );
+
+        // When the restored session reports its CWD, the override is applied and
+        // the row shows the background marker (cleared later by a foreground event).
+        let mut s = Session::new(42, "test".into());
+        s.display_name = "session-42".to_string();
+        state.sessions.insert(42, s);
+        let hook = HookPayload {
+            agent: None,
+            agent_indicator: None,
+            session_id: Some("test".to_string()),
+            pane_id: 42,
+            hook_event_name: "PreToolUse".to_string(),
+            tool_name: None,
+            cwd: Some("/home/user/api".to_string()),
+            agent_id: None,
+            badges: vec![],
+            profile: None,
+            profile_color: None,
+            profile_icon: None,
+            background: false,
+        };
+        process_hook(&mut state, hook);
+        assert!(
+            state.sessions[&42].background,
+            "applied override must set the session background marker"
+        );
     }
 
     #[test]

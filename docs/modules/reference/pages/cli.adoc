@@ -406,9 +406,10 @@ Exactly one terminal inside a workspace receives the event.
 
 The inherited `--pane-id`, the hook's Zellij environment, and `pane-map.json` never choose a background destination.
 Each event resolves the viewer again and carries `background: true` to the viewer's Zellij session.
-Profile fields come from the viewer, and background delivery does not trigger an automatic snapshot.
+Profile fields come from the viewer.
+Background delivery triggers an auto-save scoped to the viewer's Zellij session, so background and Codex sessions reach the snapshot even without foreground activity.
 Foreground payloads omit `background`.
-The sidebar shows a dim `⇣` before the name until a foreground event clears it.
+The sidebar shows a dim `⇣` at the right edge of the row until a foreground event clears it.
 
 The debug log includes `background=true`, `job=`, `resolution=`, `pane=`, `target_session=`, and `CLAUDE_BG_BACKEND=` alongside the inherited environment fields.
 Background Claude Code events use these resolution values:
@@ -561,6 +562,9 @@ Restore a saved snapshot.
 ----
 cc-deck snapshot restore my-checkpoint
 ----
+
+Each session is relaunched by its agent's resume command: `claude --resume <id>`, `codex resume <id>`, or `opencode --session <id>`.
+A session captured as a Claude Code background job is relaunched as a foreground resume and keeps the `⇣` marker until its first foreground event, so a restored paused background row still shows that it ran in the background.
 
 ==== snapshot list
 
