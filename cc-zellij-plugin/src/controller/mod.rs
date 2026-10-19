@@ -231,6 +231,13 @@ impl ZellijPlugin for ControllerPlugin {
         }
 
         match action {
+            PipeAction::ReleaseRow { pane_id, session_id } => {
+                if self.state.release_row(pane_id, &session_id) {
+                    self.state.save_sessions();
+                    render_broadcast::broadcast_render(&self.state);
+                    self.state.render_dirty = false;
+                }
+            }
             PipeAction::HookEvent(hook) => {
                 // A change into or out of Waiting is the one transition a
                 // human is waiting on, so it does not wait for the timer.

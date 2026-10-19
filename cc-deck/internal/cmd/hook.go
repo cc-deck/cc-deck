@@ -127,38 +127,42 @@ func loadPaneMap() map[string]paneMapEntry {
 // one. Callers that read, modify and write the map must hold the pane-map
 // lock (withPaneMapLock) so that concurrent hooks do not lose each other's
 // entries.
-func savePaneMap(m map[string]paneMapEntry) {
-	dir := filepath.Dir(paneMapFile)
+func saveStateFileAtomic(path string, v any) error {
+	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0700); err != nil {
-		return
+		return err
 	}
-	data, err := json.Marshal(m)
+	data, err := json.Marshal(v)
 	if err != nil {
-		return
+		return err
 	}
-	tmp, err := os.CreateTemp(dir, "pane-map-*.json")
+	tmp, err := os.CreateTemp(dir, ".state-*.json")
 	if err != nil {
-		return
+		return err
 	}
 	tmpName := tmp.Name()
 	if _, err := tmp.Write(data); err != nil {
 		_ = tmp.Close()
 		_ = os.Remove(tmpName)
-		return
+		return err
 	}
 	if err := tmp.Sync(); err != nil {
 		_ = tmp.Close()
 		_ = os.Remove(tmpName)
-		return
+		return err
 	}
 	if err := tmp.Close(); err != nil {
 		_ = os.Remove(tmpName)
-		return
+		return err
 	}
-	if err := os.Rename(tmpName, paneMapFile); err != nil {
+	if err := os.Rename(tmpName, path); err != nil {
 		_ = os.Remove(tmpName)
+		return err
 	}
+	return nil
 }
+
+func savePaneMap(m map[string]paneMapEntry) { saveStateFileAtomic(paneMapFile, m) }
 
 // paneMapLockTimeout bounds how long a hook waits for the pane-map lock.
 // The hook must never block its agent for long, so a lock that stays taken
@@ -172,18 +176,22 @@ const paneMapLockPoll = 10 * time.Millisecond
 // next to pane-map.json. It reports false, without running fn, when the
 // lock cannot be acquired within paneMapLockTimeout. The lock is released
 // when fn returns, and by the kernel when the process dies.
-func withPaneMapLock(fn func()) bool {
-	dir := filepath.Dir(paneMapFile)
+func withStateLock(lockPath string, fn func()) bool {
+	return withStateLockTimeout(lockPath, paneMapLockTimeout, fn)
+}
+
+func withStateLockTimeout(lockPath string, timeout time.Duration, fn func()) bool {
+	dir := filepath.Dir(lockPath)
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return false
 	}
-	f, err := os.OpenFile(filepath.Join(dir, "pane-map.lock"), os.O_CREATE|os.O_RDWR, 0600)
+	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		return false
 	}
 	defer func() { _ = f.Close() }()
 
-	deadline := time.Now().Add(paneMapLockTimeout)
+	deadline := time.Now().Add(timeout)
 	for {
 		err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
 		if err == nil {
@@ -200,6 +208,10 @@ func withPaneMapLock(fn func()) bool {
 	defer func() { _ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN) }()
 	fn()
 	return true
+}
+
+func withPaneMapLock(fn func()) bool {
+	return withStateLock(filepath.Join(filepath.Dir(paneMapFile), "pane-map.lock"), fn)
 }
 
 // paneMapRefresh is how old a still-correct cache entry may get before its
@@ -286,23 +298,20 @@ func currentZellijSession() (string, bool) {
 //
 // A package-level variable so tests can observe what would have been sent
 // without shelling out to zellij.
-var sendHookPayload = func(zellijPath, targetSession string, payload []byte) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, zellijPath, hookPipeArgs(targetSession, payload)...)
-	_ = cmd.Run()
+var sendHookPayload = func(ctx context.Context, zellijPath, targetSession, pipeName string, payload []byte) error {
+	cmd := exec.CommandContext(ctx, zellijPath, hookPipeArgs(targetSession, pipeName, payload)...)
+	return cmd.Run()
 }
 
 // hookPipeArgs builds the zellij arguments that deliver a hook payload. An
 // empty target session keeps the ambient session, exactly as before
 // daemon-hosted Codex attribution existed.
-func hookPipeArgs(targetSession string, payload []byte) []string {
+func hookPipeArgs(targetSession, pipeName string, payload []byte) []string {
 	var args []string
 	if targetSession != "" {
 		args = append(args, "--session", targetSession)
 	}
-	return append(args, "pipe", "--name", "cc-deck:hook", "--", string(payload))
+	return append(args, "pipe", "--name", pipeName, "--", string(payload))
 }
 
 func runHook(stdin io.Reader, paneIDStr string, agentName string) {
@@ -331,6 +340,18 @@ func runHook(stdin io.Reader, paneIDStr string, agentName string) {
 	}
 
 	normalized.AgentIndicator = a.Indicator()
+
+	// Background Claude Code hooks inherit a daemon's pane environment (or no
+	// Zellij environment at all). Resolve them before the normal membership
+	// and pane-map path, which must never choose their destination.
+	if agentName == "claude" {
+		env := map[string]string{"CLAUDE_CONFIG_DIR": os.Getenv("CLAUDE_CONFIG_DIR"), "HOME": os.Getenv("HOME"), "PWD": os.Getenv("PWD")}
+		recordsDir := filepath.Join(claudeConfigDir(env), "sessions")
+		if host, worker, workerProc, detail := claudeHostOf(hookProcSource, recordsDir, os.Getenv("CLAUDE_BG_BACKEND") != ""); host == claudeBackground {
+			runClaudeBackground(zellijPath, input, normalized, paneIDStr, worker, workerProc, detail)
+			return
+		}
+	}
 
 	// Codex hooks may run inside the shared app-server daemon, whose
 	// environment (and so --pane-id and ZELLIJ_SESSION_NAME) belongs to
@@ -413,7 +434,7 @@ func runHook(stdin io.Reader, paneIDStr string, agentName string) {
 // post-delivery bookkeeping (auto-save, SessionEnd cache removal). autoSave
 // is false when the snapshot would be taken in a Zellij session other than
 // the one the event belongs to.
-func deliverHookPayload(zellijPath, targetSession string, normalized *agent.NormalizedPayload, autoSave bool) {
+func deliverHookPayload(zellijPath, targetSession string, normalized *agent.NormalizedPayload, autoSave bool) error {
 	if normalized.Cwd != "" {
 		cfg, _ := config.Load("")
 		if cfg != nil && len(cfg.Badges) > 0 {
@@ -423,10 +444,12 @@ func deliverHookPayload(zellijPath, targetSession string, normalized *agent.Norm
 
 	payloadJSON, err := json.Marshal(normalized)
 	if err != nil {
-		return
+		return err
 	}
 
-	sendHookPayload(zellijPath, targetSession, payloadJSON)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	deliveryErr := sendHookPayload(ctx, zellijPath, targetSession, "cc-deck:hook", payloadJSON)
 
 	if autoSave {
 		session.AutoSave()
@@ -435,6 +458,7 @@ func deliverHookPayload(zellijPath, targetSession string, normalized *agent.Norm
 	if normalized.HookEvent == "SessionEnd" && normalized.SessionID != "" {
 		removePaneMapping(normalized.SessionID)
 	}
+	return deliveryErr
 }
 
 // runCodexHook handles the Codex-specific resolution steps (contract

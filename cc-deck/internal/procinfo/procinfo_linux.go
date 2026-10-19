@@ -16,11 +16,16 @@ import (
 // linuxSource reads /proc. The root is a field so tests can point it at a
 // fixture tree.
 type linuxSource struct {
-	root string
-	uid  int
+	root     string
+	uid      int
+	bootTime int64
 }
 
-func defaultSource() Source { return linuxSource{root: "/proc", uid: os.Getuid()} }
+func defaultSource() Source { return newLinuxSource("/proc", os.Getuid()) }
+
+func newLinuxSource(root string, uid int) linuxSource {
+	return linuxSource{root: root, uid: uid, bootTime: readBootTime(root)}
+}
 
 func (linuxSource) Self() int { return os.Getpid() }
 
@@ -54,7 +59,7 @@ func (s linuxSource) Ancestor(pid int) (Process, error) {
 	if exe == "" {
 		exe = st.comm
 	}
-	return Process{PID: st.pid, PPID: st.ppid, StartTime: st.start, Exe: exe, Args: args}, nil
+	return Process{PID: st.pid, PPID: st.ppid, StartTime: st.start, StartUnix: s.startUnix(st.start), Comm: st.comm, Exe: exe, Args: args}, nil
 }
 
 // own checks that pid belongs to the current user and returns its stat.
@@ -120,6 +125,13 @@ func (s linuxSource) owner(pid int) (int, error) {
 // so an ambiguous match never turns into a wrong one. A process that exited
 // meanwhile is skipped.
 func (s linuxSource) ListUser() ([]Process, error) {
+	return s.ListUserMatching(func(comm string) bool { return comm == CodexComm })
+}
+
+// ListUserMatching lists processes whose kernel command matches. A matching
+// process that remains live but cannot be read is an error, while one that
+// exits during the read is ignored.
+func (s linuxSource) ListUserMatching(match func(comm string) bool) ([]Process, error) {
 	entries, err := os.ReadDir(s.root)
 	if err != nil {
 		return nil, fmt.Errorf("procinfo: reading %s: %w", s.root, err)
@@ -131,11 +143,18 @@ func (s linuxSource) ListUser() ([]Process, error) {
 			continue
 		}
 		st, err := s.stat(pid)
-		if err != nil || st.comm != CodexComm {
-			continue // exited, or not codex
+		if err != nil || !match(st.comm) {
+			continue // exited, or not matched
 		}
-		if uid, err := s.owner(pid); err != nil || uid != s.uid {
-			continue // exited, or another user's
+		uid, err := s.owner(pid)
+		if err != nil {
+			if cur, serr := s.stat(pid); serr != nil || cur.start != st.start {
+				continue // exited meanwhile
+			}
+			return nil, err
+		}
+		if uid != s.uid {
+			continue // another user's
 		}
 		p, err := s.details(st)
 		if err != nil {
@@ -147,6 +166,32 @@ func (s linuxSource) ListUser() ([]Process, error) {
 		out = append(out, p)
 	}
 	return out, nil
+}
+
+// startUnix converts Linux clock ticks since boot to Unix seconds. A missing
+// or malformed btime deliberately yields zero, which cannot verify a record.
+func (s linuxSource) startUnix(start int64) int64 {
+	if s.bootTime == 0 {
+		return 0
+	}
+	return s.bootTime + start/100 // Linux USER_HZ for supported targets.
+}
+
+func readBootTime(root string) int64 {
+	data, err := os.ReadFile(filepath.Join(root, "stat"))
+	if err != nil {
+		return 0
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 2 && fields[0] == "btime" {
+			btime, err := strconv.ParseInt(fields[1], 10, 64)
+			if err == nil && btime > 0 {
+				return btime
+			}
+		}
+	}
+	return 0
 }
 
 type procStat struct {
@@ -222,6 +267,8 @@ func (s linuxSource) details(st procStat) (Process, error) {
 		PID:       st.pid,
 		PPID:      st.ppid,
 		StartTime: st.start,
+		StartUnix: s.startUnix(st.start),
+		Comm:      st.comm,
 		Exe:       exe,
 		Args:      args,
 		Env:       parseEnvBlock(environ),

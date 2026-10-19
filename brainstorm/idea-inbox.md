@@ -234,3 +234,12 @@ Ideas captured from code reviews for future brainstorming.
 - **Summary**: The autoSave gating and the Darwin ListUser and Ancestor error branches have no test seam.
 
 > A `hookAutoSave` variable and injectable sysctl readers would make them testable.
+
+### background-cleanup-lifecycle-gc
+
+- **Source**: deep-review
+- **Date**: 2026-10-19
+- **Reference**: 090-claude-bg-pane-attribution, `bg-job-panes.json` and per-job lock files
+- **Summary**: Cleanup ownership must not expire by age while sidebar rows can remain visible. Jobs killed without SessionEnd can therefore leave ledger entries and empty lock files behind.
+
+> Add lifecycle-aware garbage collection that verifies worker retirement and conditionally releases any owned row before forgetting it. Lock-file cleanup must avoid replacing an inode still used by waiting hooks. Do not restore a TTL that silently loses active row ownership.

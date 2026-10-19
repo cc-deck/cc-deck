@@ -78,6 +78,23 @@ func logCodexAttribution(event, sessionID, resolution, detail, pane, targetSessi
 	)
 }
 
+func logClaudeBackground(event, sessionID, jobID, resolution, detail, pane, targetSession, paneIDArg string) {
+	detailField := ""
+	if detail != "" {
+		detailField = fmt.Sprintf(" detail=%q", detail)
+	}
+	hookDebugf(
+		"event=%s session=%s background=true job=%s resolution=%s%s pane=%s target_session=%q pane_id_arg=%q ZELLIJ=%q ZELLIJ_SESSION_NAME=%q ZELLIJ_PANE_ID=%q CLAUDE_BG_BACKEND=%q",
+		stripControl(event), stripControl(sessionID), stripControl(jobID), resolution, detailField, pane, targetSession, paneIDArg,
+		os.Getenv("ZELLIJ"), os.Getenv("ZELLIJ_SESSION_NAME"), os.Getenv("ZELLIJ_PANE_ID"), os.Getenv("CLAUDE_BG_BACKEND"),
+	)
+}
+
+func logRowRelease(event, sessionID, jobID string, r bgRowRelease) {
+	hookDebugf("event=%s session=%s job=%s release_pane=%d release_session=%q release_sid=%s",
+		stripControl(event), stripControl(sessionID), stripControl(jobID), r.PaneID, stripControl(r.ZellijSession), stripControl(r.SessionID))
+}
+
 // stripControl replaces control characters (newlines included) with "?".
 func stripControl(s string) string {
 	return strings.Map(func(r rune) rune {

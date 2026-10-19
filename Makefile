@@ -88,7 +88,7 @@ test-e2e: build  ## Run E2E tests (builds binary, runs as subprocess)
 	cd cc-deck && go test -tags e2e -v -count=1 ./internal/e2e/
 
 test-compose:  ## Run compose smoke tests (requires podman + podman-compose)
-	cd cc-deck && go test -run "TestComposeSmoke" -v -count=1 -timeout 300s ./internal/cmd/
+	cd cc-deck && go test -run "TestComposeSmoke" -v -count=1 -timeout 600s ./internal/cmd/
 
 test-integration:  ## Run K8s integration tests (requires kind cluster named cc-deck-test)
 	cd cc-deck && go test -tags integration -v -timeout 5m -count=1 ./internal/integration/

@@ -15,3 +15,7 @@ func (unsupportedSource) Get(int) (Process, error) { return Process{}, ErrUnsupp
 func (unsupportedSource) Ancestor(int) (Process, error) { return Process{}, ErrUnsupported }
 
 func (unsupportedSource) ListUser() ([]Process, error) { return nil, ErrUnsupported }
+
+func (unsupportedSource) ListUserMatching(func(string) bool) ([]Process, error) {
+	return nil, ErrUnsupported
+}

@@ -1,9 +1,11 @@
 package agent
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -159,6 +161,42 @@ func TestClaudeAgentTranslateEventPreservesFields(t *testing.T) {
 	}
 	if payload.PaneID != 0 {
 		t.Errorf("PaneID = %d, want 0 (set by hook command, not adapter)", payload.PaneID)
+	}
+}
+
+func TestClaudeViewerEnv(t *testing.T) {
+	tests := []struct {
+		name, input string
+		want        map[string]string
+	}{
+		{"viewer env wins", `{"viewer_env":{"ZELLIJ_PANE_ID":"3","n":1},"client_env":{"ZELLIJ_PANE_ID":"4"}}`, map[string]string{"ZELLIJ_PANE_ID": "3"}},
+		{"client env fallback", `{"client_env":{"ZELLIJ_SESSION_NAME":"work","n":false}}`, map[string]string{"ZELLIJ_SESSION_NAME": "work"}},
+		{"missing", `{}`, nil},
+		{"empty viewer wins", `{"viewer_env":{},"client_env":{"ZELLIJ_PANE_ID":"4"}}`, map[string]string{}},
+		{"nonobject viewer", `{"viewer_env":"invalid"}`, nil},
+		{"malformed", `{`, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ClaudeViewerEnv([]byte(tt.input))
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("ClaudeViewerEnv() = %#v, want %#v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestClaudePayloadOmitsBackgroundWhenFalse(t *testing.T) {
+	p, err := (&ClaudeAgent{}).TranslateEvent([]byte(`{"hook_event_name":"Stop"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(b, []byte(`"background"`)) {
+		t.Errorf("background unexpectedly marshalled: %s", b)
 	}
 }
 

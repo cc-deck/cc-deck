@@ -26,12 +26,16 @@ pub struct HookPayload {
     /// hook also sends it as agent_indicator to replace the glyph (FR-018).
     #[serde(default)]
     pub profile_icon: Option<String>,
+    #[serde(default)]
+    pub background: bool,
 }
 
 /// Pipe message types that the plugin handles.
 pub enum PipeAction {
     /// Hook event from CLI (cc-deck:hook).
     HookEvent(Box<HookPayload>),
+    /// Conditionally evict a background job row after it moved or detached.
+    ReleaseRow { pane_id: u32, session_id: String },
     /// Attend action (cc-deck:attend).
     Attend,
     /// New session action (cc-deck:new).
@@ -75,6 +79,14 @@ pub fn parse_pipe_message(name: &str, payload: Option<&str>) -> PipeAction {
                 }
             } else {
                 PipeAction::Unknown
+            }
+        }
+        "cc-deck:release-row" => {
+            #[derive(Deserialize)]
+            struct Release { pane_id: u32, session_id: String }
+            match payload.and_then(|p| serde_json::from_str::<Release>(p).ok()) {
+                Some(release) if !release.session_id.is_empty() => PipeAction::ReleaseRow { pane_id: release.pane_id, session_id: release.session_id },
+                _ => PipeAction::Unknown,
             }
         }
         "cc-deck:attend" => PipeAction::Attend,
@@ -149,6 +161,17 @@ mod tests {
         assert_eq!(payload.hook_event_name, "Stop");
         assert!(payload.session_id.is_none());
         assert!(payload.tool_name.is_none());
+        assert!(!payload.background);
+    }
+
+    #[test]
+    fn test_parse_background_hook_and_release_row() {
+        let payload: HookPayload = serde_json::from_str(r#"{"pane_id":1,"hook_event_name":"Stop","background":true}"#).unwrap();
+        assert!(payload.background);
+        assert!(matches!(parse_pipe_message("cc-deck:release-row", Some(r#"{"pane_id":7,"session_id":"job"}"#)), PipeAction::ReleaseRow { pane_id: 7, session_id } if session_id == "job"));
+        for payload in [None, Some("{"), Some(r#"{"pane_id":7,"session_id":""}"#), Some(r#"{"pane_id":-1,"session_id":"job"}"#)] {
+            assert!(matches!(parse_pipe_message("cc-deck:release-row", payload), PipeAction::Unknown));
+        }
     }
 
     #[test]

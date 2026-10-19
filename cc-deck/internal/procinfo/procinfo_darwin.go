@@ -56,6 +56,8 @@ func (darwinSource) Ancestor(pid int) (Process, error) {
 		PID:       pid,
 		PPID:      int(kp.Eproc.Ppid),
 		StartTime: int64(st.Sec)*1_000_000 + int64(st.Usec),
+		StartUnix: int64(st.Sec),
+		Comm:      comm(kp),
 		Exe:       exe,
 		Args:      args,
 	}
@@ -87,6 +89,10 @@ func kinfo(pid int) (*unix.KinfoProc, error) {
 // fail: silently leaving it out could turn an ambiguous match into a wrong
 // one. A process that exited between the listing and the read is skipped.
 func (darwinSource) ListUser() ([]Process, error) {
+	return (darwinSource{}).ListUserMatching(func(comm string) bool { return comm == CodexComm })
+}
+
+func (darwinSource) ListUserMatching(match func(comm string) bool) ([]Process, error) {
 	kps, err := unix.SysctlKinfoProcSlice("kern.proc.uid", os.Getuid())
 	if err != nil {
 		return nil, fmt.Errorf("procinfo: kern.proc.uid: %w", err)
@@ -94,7 +100,7 @@ func (darwinSource) ListUser() ([]Process, error) {
 	var out []Process
 	for i := range kps {
 		kp := &kps[i]
-		if comm(kp) != CodexComm || kp.Proc.P_stat == darwinZombie {
+		if !match(comm(kp)) || kp.Proc.P_stat == darwinZombie {
 			continue
 		}
 		p, err := fromKinfo(kp)
@@ -125,6 +131,8 @@ func fromKinfo(kp *unix.KinfoProc) (Process, error) {
 		PID:       pid,
 		PPID:      int(kp.Eproc.Ppid),
 		StartTime: int64(st.Sec)*1_000_000 + int64(st.Usec),
+		StartUnix: int64(st.Sec),
+		Comm:      comm(kp),
 	}
 	buf, err := unix.SysctlRaw("kern.procargs2", pid)
 	if err != nil {

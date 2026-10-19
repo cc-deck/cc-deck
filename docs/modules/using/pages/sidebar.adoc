@@ -12,6 +12,9 @@ Each entry shows:
 * A status indicator showing current activity
 * Visual highlighting for sessions that need attention
 
+A dim `⇣` before the name marks a Claude Code background job shown in that pane.
+The marker leaves the activity indicator and profile bar in place, and disappears with the next foreground event.
+
 The currently viewed session is highlighted with a teal background.
 When you enter navigation mode, the selected session shows an amber cursor.
 
@@ -91,6 +94,11 @@ The sidebar hooks into Claude Code's event system and receives updates for:
 
 Session tracking works across all tabs in the Zellij session.
 Opening a new tab and starting Claude Code there immediately appears in the sidebar.
+
+For a Claude Code background job, cc-deck follows the terminal that views the job through parking or `claude attach`.
+Jobs with no viewer, several viewer terminals, or a viewer outside the workspace stay hidden.
+When a viewer moves or detaches, the next job event releases its former row if that row still belongs to the job.
+See xref:multi-agent.adoc#claude-code-background-sessions[Claude Code background sessions] for details.
 
 == What the Sidebar Does Not Track
 

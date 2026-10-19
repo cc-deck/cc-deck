@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -33,9 +34,10 @@ func newHookTestEnv(t *testing.T) *hookTestEnv {
 	paneMapFile = filepath.Join(dir, "pane-map.json")
 
 	env := &hookTestEnv{t: t}
-	sendHookPayload = func(_ string, targetSession string, payload []byte) {
+	sendHookPayload = func(_ context.Context, _ string, targetSession, _ string, payload []byte) error {
 		env.sent = append(env.sent, payload)
 		env.targets = append(env.targets, targetSession)
+		return nil
 	}
 
 	t.Cleanup(func() {
@@ -337,15 +339,20 @@ func TestHookPipeArgs(t *testing.T) {
 	// The argv is tested directly rather than through an executed stub: a
 	// freshly written executable can fail to start while a concurrent fork
 	// in the test binary still holds it open ("text file busy"), and
-	// sendHookPayload deliberately swallows that error.
+	// foreground hook callers deliberately ignore delivery errors.
 	payload := []byte(`{"x":1}`)
 	cases := map[string][]string{
 		"":   {"pipe", "--name", "cc-deck:hook", "--", `{"x":1}`},
 		"s2": {"--session", "s2", "pipe", "--name", "cc-deck:hook", "--", `{"x":1}`},
 	}
 	for target, want := range cases {
-		if got := hookPipeArgs(target, payload); !reflect.DeepEqual(got, want) {
+		if got := hookPipeArgs(target, "cc-deck:hook", payload); !reflect.DeepEqual(got, want) {
 			t.Errorf("target %q: argv %q, want %q", target, got, want)
 		}
+	}
+	release := []byte(`{"pane_id":7,"session_id":"job-session"}`)
+	want := []string{"--session", "viewer-session", "pipe", "--name", "cc-deck:release-row", "--", string(release)}
+	if got := hookPipeArgs("viewer-session", "cc-deck:release-row", release); !reflect.DeepEqual(got, want) {
+		t.Fatalf("release argv=%q, want %q", got, want)
 	}
 }

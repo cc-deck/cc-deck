@@ -27,6 +27,8 @@ type fakeProcs struct {
 	// value means Ancestor succeeds even though Get fails.
 	ancestorErr map[int]error
 	listCalls   int
+	// listed provides a separate snapshot to simulate exit or pid reuse after listing.
+	listed []procinfo.Process
 }
 
 func (f *fakeProcs) Self() int { return f.self }
@@ -57,9 +59,26 @@ func (f *fakeProcs) Ancestor(pid int) (procinfo.Process, error) {
 }
 
 func (f *fakeProcs) ListUser() ([]procinfo.Process, error) {
+	return f.ListUserMatching(func(comm string) bool { return comm == procinfo.CodexComm })
+}
+
+func (f *fakeProcs) ListUserMatching(match func(comm string) bool) ([]procinfo.Process, error) {
 	f.listCalls++
 	if f.listErr != nil {
 		return nil, f.listErr
+	}
+	if f.listed != nil {
+		var out []procinfo.Process
+		for _, p := range f.listed {
+			comm := p.Comm
+			if comm == "" {
+				comm = p.Basename()
+			}
+			if match(comm) {
+				out = append(out, p)
+			}
+		}
+		return out, nil
 	}
 	pids := make([]int, 0, len(f.procs))
 	for pid := range f.procs {
@@ -68,7 +87,12 @@ func (f *fakeProcs) ListUser() ([]procinfo.Process, error) {
 	sort.Ints(pids)
 	var out []procinfo.Process
 	for _, pid := range pids {
-		if p := f.procs[pid]; p.Basename() == procinfo.CodexComm {
+		p := f.procs[pid]
+		comm := p.Comm
+		if comm == "" {
+			comm = p.Basename()
+		}
+		if match(comm) {
 			out = append(out, p)
 		}
 	}

@@ -6,11 +6,20 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+const composeSmokeImage = "localhost/cc-deck-compose-smoke:latest"
+
+// Build once per suite; Podman's layer cache keeps subsequent runs inexpensive.
+var buildComposeSmokeImage = sync.OnceValues(func() ([]byte, error) {
+	return exec.Command("podman", "build", "--layers", "-t", composeSmokeImage,
+		filepath.Join("..", "..", "test", "compose-smoke")).CombinedOutput()
+})
 
 // skipIfNoCompose skips the test if podman-compose is not available.
 func skipIfNoCompose(t *testing.T) {
@@ -41,6 +50,8 @@ func buildTestBinary(t *testing.T) string {
 func ccd(t *testing.T, bin string, env map[string]string, args ...string) (string, error) {
 	t.Helper()
 	cmd := exec.Command(bin, args...)
+	// Avoid discovering the developer checkout's repository and workspace config.
+	cmd.Dir = env["PWD"]
 	cmd.Env = os.Environ()
 	for k, v := range env {
 		cmd.Env = append(cmd.Env, k+"="+v)
@@ -52,6 +63,9 @@ func ccd(t *testing.T, bin string, env map[string]string, args ...string) (strin
 // setupComposeSmokeEnv creates isolated state/definition files and a project dir.
 func setupComposeSmokeEnv(t *testing.T) (envVars map[string]string, projectDir string) {
 	t.Helper()
+	out, err := buildComposeSmokeImage()
+	require.NoError(t, err, "failed to build compose smoke image: %s", out)
+
 	stateDir := t.TempDir()
 	projectDir = t.TempDir()
 
@@ -63,8 +77,13 @@ func setupComposeSmokeEnv(t *testing.T) (envVars map[string]string, projectDir s
 		[]byte("module test-project\n"), 0o644))
 
 	envVars = map[string]string{
-		"CC_DECK_STATE_FILE":      filepath.Join(stateDir, "state.yaml"),
-		"CC_DECK_WORKSPACES_FILE": filepath.Join(stateDir, "workspaces.yaml"),
+		"CC_DECK_STATE_FILE":       filepath.Join(stateDir, "state.yaml"),
+		"CC_DECK_WORKSPACES_FILE":  filepath.Join(stateDir, "workspaces.yaml"),
+		"CC_DECK_SHARE_STATE_FILE": filepath.Join(stateDir, "share.yaml"),
+		"PWD":                      projectDir,
+		"ZELLIJ":                   "",
+		"ZELLIJ_SESSION_NAME":      "",
+		"ZELLIJ_PANE_ID":           "",
 	}
 	return envVars, projectDir
 }
@@ -82,7 +101,7 @@ func TestComposeSmokeFullLifecycle(t *testing.T) {
 	// 1. Create
 	out, err := ccd(t, bin, envVars, "ws", "new", "smoke-full",
 		"--type", "compose",
-		"--image", "fedora:latest",
+		"--image", composeSmokeImage,
 		"--path", projectDir,
 		"--credential", "MY_KEY=test123")
 	require.NoError(t, err, "create failed: %s", out)
@@ -98,7 +117,7 @@ func TestComposeSmokeFullLifecycle(t *testing.T) {
 	composeYAML, err := os.ReadFile(filepath.Join(ccDeckRunDir, "compose.yaml"))
 	require.NoError(t, err)
 	assert.Contains(t, string(composeYAML), "cc-deck-smoke-full")
-	assert.Contains(t, string(composeYAML), "fedora:latest")
+	assert.Contains(t, string(composeYAML), composeSmokeImage)
 	assert.Contains(t, string(composeYAML), "stdin_open: true")
 	assert.Contains(t, string(composeYAML), "/workspace")
 
@@ -139,12 +158,13 @@ func TestComposeSmokeFullLifecycle(t *testing.T) {
 	// 10. Start
 	out, err = ccd(t, bin, envVars, "ws", "start", "smoke-full")
 	require.NoError(t, err, "start failed: %s", out)
-	assert.Contains(t, out, "started")
+	assert.Contains(t, out, `Workspace "smoke-full" ready`)
 
 	// 11. Status
 	out, err = ccd(t, bin, envVars, "ws", "status", "smoke-full")
 	require.NoError(t, err, "status failed: %s", out)
 	assert.Contains(t, out, "compose")
+	assert.Regexp(t, `Session:\s+exists`, out)
 
 	// 12. Delete
 	out, err = ccd(t, bin, envVars, "ws", "delete", "smoke-full", "--force")
@@ -171,7 +191,7 @@ func TestComposeSmokeNetworkFiltering(t *testing.T) {
 	// Create with allowed domains.
 	out, err := ccd(t, bin, envVars, "ws", "new", "smoke-filter",
 		"--type", "compose",
-		"--image", "fedora:latest",
+		"--image", composeSmokeImage,
 		"--path", projectDir,
 		"--allowed-domains", "anthropic")
 	require.NoError(t, err, "create failed: %s", out)
@@ -220,7 +240,7 @@ func TestComposeSmokeGitignore(t *testing.T) {
 
 	out, err := ccd(t, bin, envVars, "ws", "new", "smoke-gitignore",
 		"--type", "compose",
-		"--image", "fedora:latest",
+		"--image", composeSmokeImage,
 		"--path", projectDir)
 	require.NoError(t, err, "create failed: %s", out)
 
@@ -247,7 +267,7 @@ func TestComposeSmokeDeleteRefusesRunning(t *testing.T) {
 
 	_, err := ccd(t, bin, envVars, "ws", "new", "smoke-nodelete",
 		"--type", "compose",
-		"--image", "fedora:latest",
+		"--image", composeSmokeImage,
 		"--path", projectDir)
 	require.NoError(t, err)
 
@@ -268,7 +288,7 @@ func TestComposeSmokeBindMountSync(t *testing.T) {
 
 	_, err := ccd(t, bin, envVars, "ws", "new", "smoke-sync",
 		"--type", "compose",
-		"--image", "fedora:latest",
+		"--image", composeSmokeImage,
 		"--path", projectDir)
 	require.NoError(t, err)
 
@@ -299,7 +319,7 @@ func nonRootTestImage(t *testing.T) string {
 	imageName := fmt.Sprintf("localhost/cc-deck-test-nonroot:%d", os.Getpid())
 	containerfile := filepath.Join(t.TempDir(), "Containerfile")
 	require.NoError(t, os.WriteFile(containerfile, []byte(
-		"FROM fedora:latest\nRUN useradd -m devuser\nUSER devuser\n"), 0o644))
+		"FROM "+composeSmokeImage+"\nRUN useradd -m devuser\nUSER devuser\n"), 0o644))
 	out, err := exec.Command("podman", "build", "-t", imageName,
 		"-f", containerfile, filepath.Dir(containerfile)).CombinedOutput()
 	require.NoError(t, err, "failed to build non-root test image: %s", out)
@@ -356,7 +376,7 @@ func TestComposeSmokeNamedVolume(t *testing.T) {
 	// Create with named-volume storage.
 	out, err := ccd(t, bin, envVars, "ws", "new", "smoke-vol",
 		"--type", "compose",
-		"--image", "fedora:latest",
+		"--image", composeSmokeImage,
 		"--path", projectDir,
 		"--storage", "named-volume")
 	require.NoError(t, err, "create with named-volume failed: %s", out)
@@ -383,11 +403,11 @@ func TestComposeSmokeNamedVolume(t *testing.T) {
 		"sh", "-c", "echo 'persist-test' > /workspace/persist.txt").CombinedOutput()
 	require.NoError(t, err)
 
-	_, err = ccd(t, bin, envVars, "ws", "stop", "smoke-vol")
-	require.NoError(t, err)
+	out, err = ccd(t, bin, envVars, "ws", "stop", "smoke-vol")
+	require.NoError(t, err, "stop failed: %s", out)
 
-	_, err = ccd(t, bin, envVars, "ws", "start", "smoke-vol")
-	require.NoError(t, err)
+	out, err = ccd(t, bin, envVars, "ws", "start", "smoke-vol")
+	require.NoError(t, err, "start failed: %s", out)
 
 	podOut, err = exec.Command("podman", "exec", "cc-deck-smoke-vol",
 		"cat", "/workspace/persist.txt").Output()
@@ -408,7 +428,7 @@ func TestComposeSmokeRecreateAfterDelete(t *testing.T) {
 	// First create.
 	_, err := ccd(t, bin, envVars, "ws", "new", "smoke-recreate",
 		"--type", "compose",
-		"--image", "fedora:latest",
+		"--image", composeSmokeImage,
 		"--path", projectDir)
 	require.NoError(t, err)
 
@@ -425,7 +445,7 @@ func TestComposeSmokeRecreateAfterDelete(t *testing.T) {
 	// Second create should succeed (no stale resource conflicts).
 	out, err := ccd(t, bin, envVars, "ws", "new", "smoke-recreate",
 		"--type", "compose",
-		"--image", "fedora:latest",
+		"--image", composeSmokeImage,
 		"--path", projectDir)
 	require.NoError(t, err, "re-create after delete should succeed: %s", out)
 	assert.Contains(t, out, "created")
@@ -449,7 +469,7 @@ func TestComposeSmokeDuplicateNameFailsFast(t *testing.T) {
 	// First create should succeed.
 	_, err := ccd(t, bin, envVars, "ws", "new", "smoke-dup",
 		"--type", "compose",
-		"--image", "fedora:latest",
+		"--image", composeSmokeImage,
 		"--path", projectDir)
 	require.NoError(t, err)
 
@@ -457,7 +477,7 @@ func TestComposeSmokeDuplicateNameFailsFast(t *testing.T) {
 	projectDir2 := t.TempDir()
 	out, err := ccd(t, bin, envVars, "ws", "new", "smoke-dup",
 		"--type", "compose",
-		"--image", "fedora:latest",
+		"--image", composeSmokeImage,
 		"--path", projectDir2)
 	assert.Error(t, err, "duplicate create should fail")
 	assert.Contains(t, out, "already exists", "should report name conflict")

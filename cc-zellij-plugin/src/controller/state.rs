@@ -308,6 +308,14 @@ impl ControllerState {
         removed
     }
 
+    /// Remove a row only when it still belongs to the named session.
+    pub fn release_row(&mut self, pane_id: u32, session_id: &str) -> bool {
+        if session_id.is_empty() || self.sessions.get(&pane_id).map(|s| s.session_id.as_str()) != Some(session_id) {
+            return false;
+        }
+        self.evict_session(pane_id)
+    }
+
     /// Settle quarantined panes whose deadline has passed.
     ///
     /// Returns whether anything visible changed, so the caller can persist and

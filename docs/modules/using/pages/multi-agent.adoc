@@ -173,3 +173,38 @@ tail -f ~/.local/state/cc-deck/hook.log
 Each Codex event then records how cc-deck determined the pane or why it dropped the event, for example `resolution=discovered` or `resolution=ambiguous`.
 Remove the flag file when you are done, because the log grows with every hook event.
 See xref:reference:cli.adoc#hook-debug-log[the `hook` command reference] for the flag file, the log fields, and the full list of resolution values.
+
+[#claude-code-background-sessions]
+== Claude Code Background Sessions
+
+Claude Code can park an interactive session with `/background`, start a job with `claude --bg`, or view a running job with `claude attach <jobId>`.
+Background jobs run in a daemon whose environment belongs to the terminal that first started it.
+cc-deck finds the terminal that currently views each job and sends the job's events to that pane, including when the viewer uses another workspace.
+You do not need to change your Claude Code settings or reinstall hooks for this attribution.
+
+A background row shows a dim `⇣` before its name.
+The status indicator still reports working, waiting, or done, and a manual rename survives the move to the background.
+The marker disappears with the next foreground event.
+
+cc-deck recognizes two kinds of viewer: a parking terminal whose session record still names the job in `parkedJobId`, and a `claude attach` process naming the job.
+Both must use the same Claude Code configuration directory as the worker, even when profiles share their session-record directory.
+When both processes occupy the same pane, they count as one terminal.
+The row uses the viewer's profile name, color, and icon.
+
+A job stays hidden while it has no viewer, several viewer terminals, or a single viewer outside the workspace.
+Each job event checks the viewers again, so the row resumes updating when exactly one workspace pane views it.
+When that viewer moves or detaches, the next event releases the former row if it still belongs to the job.
+A different agent or conversation that has taken the pane keeps its row.
+Attaching to an idle job updates the sidebar only after the job emits its next hook event.
+
+[NOTE]
+====
+In the tested Claude Code 2.1.302 release, `/background` exits the original terminal interface and leaves no `parkedJobId` viewer.
+The job becomes headless until you view it with `claude attach <jobId>`.
+cc-deck also supports releases that keep a parking terminal open and name the job in `parkedJobId`.
+====
+
+If a background session stays hidden, resume the conversation in the foreground or attach to the job from one workspace pane.
+Enable `~/.local/state/cc-deck/hook-debug` and inspect `~/.local/state/cc-deck/hook.log` to see `background=true`, the job ID, and the resolution reason.
+The xref:reference:cli.adoc#claude-background-attribution[hook reference] describes each reason and the row-release message.
+The upstream report https://github.com/anthropics/claude-code/issues/102949[anthropics/claude-code#102949] tracks terminal identity inherited by background jobs.

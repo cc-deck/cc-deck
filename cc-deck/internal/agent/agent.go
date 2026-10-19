@@ -75,6 +75,7 @@ type NormalizedPayload struct {
 	Profile        string   `json:"profile,omitempty"`
 	ProfileColor   string   `json:"profile_color,omitempty"`
 	ProfileIcon    string   `json:"profile_icon,omitempty"`
+	Background     bool     `json:"background,omitempty"`
 }
 
 var (

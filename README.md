@@ -195,6 +195,8 @@ When sessions from different agents are active, the sidebar shows agent indicato
 
 Although Codex 0.157 and later run hooks inside a [shared app-server daemon](https://cc-deck.github.io/docs/cc-deck/0.1/using/multi-agent.html#codex-shared-daemon), cc-deck traces each Codex event back to the `codex` client that owns the session and shows it in that client's pane, without any change to how you start Codex.
 
+Claude Code [background sessions](https://cc-deck.github.io/docs/cc-deck/0.1/using/multi-agent.html#claude-code-background-sessions) appear in the row of the pane that views them, with a dim `⇣` marker before the name.
+
 For containerized builds, declare which agents to include in `build.yaml`:
 
 ```yaml

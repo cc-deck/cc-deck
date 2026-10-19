@@ -307,7 +307,7 @@ This command is normally called by agent hooks, not directly by users.
 Use `--raw` for custom integrations.
 
 The command exits silently when it is not running inside a Zellij session, which keeps agents started in a plain terminal out of the sidebar.
-Codex events that run inside the shared Codex daemon are the exception, as <<codex-daemon-attribution>> describes.
+Codex events inside the shared daemon and Claude Code background jobs resolve their viewer separately, as <<codex-daemon-attribution>> and <<claude-background-attribution>> describe.
 The command also exits silently on malformed input or any other error, so that it never disrupts the agent that invoked it.
 
 Set the flag file `~/.local/state/cc-deck/hook-debug` to record why each invocation was forwarded or dropped to `~/.local/state/cc-deck/hook.log`.
@@ -386,6 +386,74 @@ When a session is resumed in a second client in the same directory while its ori
 On other platforms, the command cannot inspect its ancestor processes and therefore drops Codex events.
 The xref:using:multi-agent.adoc#codex-shared-daemon[multi-agent guide] explains the user-visible behavior, including sessions in a working directory that several Codex clients share.
 
+[#claude-background-attribution]
+==== Claude Code background attribution
+
+With `--agent claude`, the hook checks up to eight ancestors for a verified Claude Code session record or a `--bg-pty-host` argument.
+The first verified record decides: `interactive` keeps foreground behavior, and `bg` identifies a background worker.
+Records must match the live process ID and start time, with one second of tolerance.
+An inspection error keeps foreground behavior unless `CLAUDE_BG_BACKEND` hints that the hook belongs to a background job.
+With that hint, the event is dropped with `record-missing` and `detail="host-unknown"`.
+
+Background resolution proceeds in this order:
+
+. An explicit `viewer_env` object in the payload, otherwise `client_env`, supplies a valid `ZELLIJ_PANE_ID` and `ZELLIJ_SESSION_NAME`.
+. The verified worker record supplies the job ID, and its process environment supplies the Claude Code configuration directory.
+. Interactive records with that `parkedJobId` and `claude attach <jobId>` processes identify viewers using the worker's configuration directory.
+An attach process can also name the job's full session ID.
+. Viewers are grouped by pane and Zellij session.
+Exactly one terminal inside a workspace receives the event.
+
+The inherited `--pane-id`, the hook's Zellij environment, and `pane-map.json` never choose a background destination.
+Each event resolves the viewer again and carries `background: true` to the viewer's Zellij session.
+Profile fields come from the viewer, and background delivery does not trigger an automatic snapshot.
+Foreground payloads omit `background`.
+The sidebar shows a dim `⇣` before the name until a foreground event clears it.
+
+The debug log includes `background=true`, `job=`, `resolution=`, `pane=`, `target_session=`, and `CLAUDE_BG_BACKEND=` alongside the inherited environment fields.
+Background Claude Code events use these resolution values:
+
+[cols="1,3,1"]
+|===
+| Resolution | Meaning | Delivered
+
+| `viewer-env`
+| The payload explicitly names a valid viewer pane and session.
+| Yes
+
+| `parked-viewer`
+| One terminal views the job, including a parking TUI.
+| Yes
+
+| `attach-viewer`
+| One terminal views the job through `claude attach`.
+| Yes
+
+| `headless`
+| No terminal views the job.
+| No
+
+| `several-viewers`
+| Several terminals view the job.
+| No
+
+| `viewer-not-in-zellij`
+| The only viewer runs outside the workspace.
+| No
+
+| `record-missing`
+| A worker record, job ID, process environment, or viewer listing cannot be verified.
+The optional `detail=` field explains the failure.
+| No
+|===
+
+`bg-job-panes.json` remembers the last viewer only to release stale rows.
+When that terminal stops showing the job, the hook sends `cc-deck:release-row` with `{"pane_id":<id>,"session_id":"<job session>"}` before delivering to a new viewer.
+The controller removes the row only when its session ID still matches.
+Releases add a separate log line with `release_pane=`, `release_session=`, and `release_sid=`.
+An uncertain `record-missing` result keeps the remembered row for the next event to retry.
+A background `SessionEnd` removes any foreground pane-map entry left for that session.
+
 [#hook-debug-log]
 ==== Debug log
 
@@ -436,7 +504,7 @@ The `detail=` field tells these cases apart.
 | No
 |===
 
-All other events, including Codex events that do not run inside the daemon, use the existing values:
+Foreground events, including Codex events that do not run inside the daemon, use the existing values:
 
 [cols="1,3,1"]
 |===
@@ -1410,6 +1478,7 @@ If the workspace is the shared one, its sharing operation is ended first and eve
 The canonical Zellij session is then killed, and for workspace types that manage infrastructure, the infrastructure is stopped last.
 Local and SSH workspaces lose their session as well.
 Each step runs even when an earlier one fails, and the command reports every failure together.
+For container and compose workspaces, a session that disappears during deletion counts as stopped once cc-deck confirms its removal.
 
 [source,bash]
 ----

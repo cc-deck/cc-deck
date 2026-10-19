@@ -32,6 +32,11 @@ type Process struct {
 	// opaque but comparable for the same pid, which is what guards against
 	// pid reuse.
 	StartTime int64
+	// StartUnix is the process start time in seconds since the Unix epoch.
+	// Zero means the platform could not determine it.
+	StartUnix int64
+	// Comm is the kernel process name used by ListUserMatching.
+	Comm string
 	// Exe is argv[0].
 	Exe string
 	// Args is argv[1:].
@@ -51,15 +56,18 @@ type Source interface {
 	// Get returns a single process of the current user. A process of
 	// another user yields an error wrapping ErrForeign.
 	Get(pid int) (Process, error)
-	// Ancestor returns the PID, PPID, StartTime, Exe and Args of a process
+	// Ancestor returns the PID, PPID, StartTime, StartUnix, Comm, Exe and Args of a process
 	// of the current user, leaving Env and Cwd empty. It needs only data
 	// that stays readable when the environment is not (a non-dumpable
 	// process on Linux), which is all the ancestor walk of the Codex hook
 	// needs. A process of another user yields an error wrapping ErrForeign.
 	Ancestor(pid int) (Process, error)
-	// ListUser returns the processes of the current uid whose executable
-	// basename is "codex". The filter runs before arguments and environment
-	// are read, so unrelated processes are never inspected in depth.
+	// ListUserMatching returns current-user processes whose kernel name matches.
+	// The filter runs before arguments and environment are read. A matching
+	// process that still runs but cannot be read fails the whole listing, so an
+	// ambiguous match cannot be used for attribution.
+	ListUserMatching(match func(comm string) bool) ([]Process, error)
+	// ListUser is ListUserMatching with the codex filter.
 	ListUser() ([]Process, error)
 }
 

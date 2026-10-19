@@ -62,7 +62,7 @@ func mustWrite(t *testing.T, path, data string) {
 	}
 }
 
-func testSource(root string) linuxSource { return linuxSource{root: root, uid: os.Getuid()} }
+func testSource(root string) linuxSource { return newLinuxSource(root, os.Getuid()) }
 
 func TestLinuxGet_CommWithSpacesAndParens(t *testing.T) {
 	root := t.TempDir()
@@ -76,6 +76,9 @@ func TestLinuxGet_CommWithSpacesAndParens(t *testing.T) {
 	if p.PID != 42 || p.PPID != 7 || p.StartTime != 123456 {
 		t.Errorf("got pid=%d ppid=%d start=%d", p.PID, p.PPID, p.StartTime)
 	}
+	if p.Comm != "we (ird) name" || p.StartUnix != 0 {
+		t.Errorf("comm/startUnix = %q/%d, want fixture comm and 0 without btime", p.Comm, p.StartUnix)
+	}
 	if p.Exe != "/usr/bin/codex" || len(p.Args) != 1 || p.Args[0] != "resume" {
 		t.Errorf("got exe=%q args=%q", p.Exe, p.Args)
 	}
@@ -84,6 +87,53 @@ func TestLinuxGet_CommWithSpacesAndParens(t *testing.T) {
 	}
 	if p.Cwd != "/w" {
 		t.Errorf("cwd: got %q", p.Cwd)
+	}
+}
+
+func TestLinuxStartUnixAndListUserMatching(t *testing.T) {
+	root := t.TempDir()
+	mustWrite(t, filepath.Join(root, "stat"), "cpu 1 2 3\nbtime 1700000000\n")
+	fakeProc{pid: 10, ppid: 1, comm: "2.1.302", start: 250, argv: []string{"claude"}, env: []string{"PWD=/a"}}.write(t, root)
+	fakeProc{pid: 11, ppid: 1, comm: "claude", start: 399, argv: []string{"claude"}, env: []string{"PWD=/a"}}.write(t, root)
+	fakeProc{pid: 12, ppid: 1, comm: "codex", start: 400, argv: []string{"codex"}, env: []string{"PWD=/a"}}.write(t, root)
+
+	p, err := testSource(root).Get(10)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if p.StartUnix != 1700000002 {
+		t.Errorf("StartUnix = %d, want 1700000002", p.StartUnix)
+	}
+	got, err := testSource(root).ListUserMatching(func(comm string) bool { return comm == "2.1.302" || comm == "claude" })
+	if err != nil {
+		t.Fatalf("ListUserMatching: %v", err)
+	}
+	if len(got) != 2 || got[0].PID != 10 || got[1].PID != 11 {
+		t.Fatalf("matching pids = %+v, want 10 and 11", got)
+	}
+}
+
+func TestLinuxBootTimeReadOnce(t *testing.T) {
+	root := t.TempDir()
+	mustWrite(t, filepath.Join(root, "stat"), "btime 1700000000\n")
+	src := testSource(root)
+	mustWrite(t, filepath.Join(root, "stat"), "btime invalid\n")
+	if got := src.startUnix(250); got != 1700000002 {
+		t.Fatalf("cached startUnix = %d", got)
+	}
+	if got := testSource(root).startUnix(250); got != 0 {
+		t.Fatalf("malformed btime startUnix = %d", got)
+	}
+}
+
+func TestLinuxMatchingUnreadableOwnerFails(t *testing.T) {
+	root := t.TempDir()
+	fakeProc{pid: 10, ppid: 1, comm: "claude", start: 100, argv: []string{"claude"}, env: []string{}}.write(t, root)
+	if err := os.Remove(filepath.Join(root, "10/status")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := testSource(root).ListUserMatching(func(c string) bool { return c == "claude" }); err == nil {
+		t.Fatal("live matching process with unreadable ownership must fail listing")
 	}
 }
 

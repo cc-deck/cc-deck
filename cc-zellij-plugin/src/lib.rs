@@ -51,6 +51,8 @@ pub struct RenderSession {
     /// `None` for unprofiled sessions. Never colors the harness glyph.
     #[serde(default)]
     pub profile_color: Option<(u8, u8, u8)>,
+    #[serde(default)]
+    pub background: bool,
 }
 
 /// Complete render payload broadcast by the controller to all sidebars.
@@ -203,6 +205,7 @@ mod protocol_tests {
                 agent_indicator: None,
                 in_worktree: false,
                 profile_color: None,
+                background: false,
             }],
             notification: None,
             notification_expiry: None,

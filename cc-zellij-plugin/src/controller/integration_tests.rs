@@ -10,6 +10,66 @@ use crate::session::Activity;
 use cc_deck::ActionType;
 use zellij_tile::prelude::*;
 
+#[test]
+fn background_render_and_release_are_scoped_to_session_ownership() {
+    use crate::session::Session;
+    use crate::controller::render_broadcast::build_render_payload;
+    let mut plugin = setup_controller();
+    let state = plugin.test_state_mut();
+    let mut panes = std::collections::HashMap::new();
+    panes.insert(0, vec![make_pane_info_full(7, false, false)]);
+    state.pane_manifest = Some(PaneManifest { panes });
+    let mut job = Session::new(7, "job".into());
+    job.background = true;
+    state.sessions.insert(7, job);
+    assert!(build_render_payload(plugin.test_state()).sessions[0].background);
+
+    for payload in [r#"{"pane_id":7,"session_id":"other"}"#, r#"{"pane_id":8,"session_id":"job"}"#, r#"{"pane_id":7,"session_id":""}"#] {
+        plugin.pipe(make_pipe("cc-deck:release-row", payload));
+        assert!(plugin.test_state().sessions.contains_key(&7));
+    }
+    plugin.pipe(make_pipe("cc-deck:release-row", r#"{"pane_id":7,"session_id":"job"}"#));
+    assert!(!plugin.test_state().sessions.contains_key(&7), "release evicts even a live pane");
+    let mut other = Session::new(7, "codex-session".into());
+    other.agent_name = Some("codex".into());
+    plugin.test_state_mut().sessions.insert(7, other);
+    plugin.pipe(make_pipe("cc-deck:release-row", r#"{"pane_id":7,"session_id":"job"}"#));
+    assert!(plugin.test_state().sessions.contains_key(&7));
+    plugin.test_state_mut().sessions.get_mut(&7).unwrap().session_id.clear();
+    plugin.pipe(make_pipe("cc-deck:release-row", r#"{"pane_id":7,"session_id":"job"}"#));
+    assert!(plugin.test_state().sessions.contains_key(&7));
+}
+
+#[test]
+fn background_notification_adopts_ownership_before_release() {
+    use crate::session::Session;
+    for sid in ["foreground-session", ""] {
+        let mut plugin = setup_controller();
+        let mut panes = std::collections::HashMap::new();
+        panes.insert(0, vec![make_pane_info_full(7, false, false)]);
+        plugin.test_state_mut().pane_manifest = Some(PaneManifest { panes });
+        let mut previous = Session::new(7, sid.into());
+        previous.manually_renamed = true;
+        previous.display_name = "My work".into();
+        previous.agent_name = Some("claude".into());
+        previous.activity = Activity::Waiting(crate::session::WaitReason::Permission);
+        plugin.test_state_mut().sessions.insert(7, previous);
+        plugin.pipe(make_pipe("cc-deck:hook", r##"{"pane_id":7,"session_id":"job-session","hook_event_name":"Notification","background":true,"agent":"claude","agent_indicator":"C","profile":"viewer","profile_color":"#123456","profile_icon":"V"}"##));
+        let row = &plugin.test_state().sessions[&7];
+        assert_eq!(row.session_id, "job-session");
+        assert!(row.background);
+        assert_eq!(row.agent_name.as_deref(), Some("claude"));
+        assert_eq!(row.agent_indicator.as_deref(), Some("C"));
+        assert_eq!(row.profile.as_deref(), Some("viewer"));
+        assert_eq!(row.profile_color, Some((0x12, 0x34, 0x56)));
+        assert_eq!(row.profile_icon.as_deref(), Some("V"));
+        assert_eq!(row.display_name, "My work");
+        assert_eq!(row.activity, Activity::Waiting(crate::session::WaitReason::Permission), "Notification must not change activity");
+        plugin.pipe(make_pipe("cc-deck:release-row", r#"{"pane_id":7,"session_id":"job-session"}"#));
+        assert!(!plugin.test_state().sessions.contains_key(&7));
+    }
+}
+
 // ---------------------------------------------------------------------------
 // User Story 2: Controller Processes Hook Events (T015-T018)
 // ---------------------------------------------------------------------------
@@ -752,6 +812,7 @@ fn test_profile_icon_tracks_hooks() {
         profile: Some("work".to_string()),
         profile_color: Some("#5ac0e2".to_string()),
         profile_icon: icon.map(str::to_string),
+        background: false,
     };
 
     let mut state = ControllerState::default();
@@ -850,6 +911,7 @@ fn test_restore_meta_applies_profile_and_color() {
         profile: None,
         profile_color: None,
         profile_icon: None,
+        background: false,
     };
     process_hook(&mut state, hook);
 
@@ -887,6 +949,7 @@ fn test_restore_meta_without_profile_leaves_none() {
         profile: None,
         profile_color: None,
         profile_icon: None,
+        background: false,
     };
     process_hook(&mut state, hook);
 

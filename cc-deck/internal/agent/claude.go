@@ -187,6 +187,33 @@ func (c *ClaudeAgent) TranslateEvent(input []byte) (*NormalizedPayload, error) {
 	}, nil
 }
 
+// ClaudeViewerEnv returns viewer_env when present, otherwise client_env. Only
+// string values are retained so a malformed optional identity never blocks a
+// regular hook event.
+func ClaudeViewerEnv(input []byte) map[string]string {
+	var payload struct {
+		ViewerEnv map[string]any `json:"viewer_env"`
+		ClientEnv map[string]any `json:"client_env"`
+	}
+	if json.Unmarshal(input, &payload) != nil {
+		return nil
+	}
+	env := payload.ViewerEnv
+	if env == nil {
+		env = payload.ClientEnv
+	}
+	if env == nil {
+		return nil
+	}
+	out := make(map[string]string, len(env))
+	for key, value := range env {
+		if text, ok := value.(string); ok {
+			out[key] = text
+		}
+	}
+	return out
+}
+
 func (c *ClaudeAgent) CredentialSpecs() []CredentialSpec {
 	return []CredentialSpec{
 		{
@@ -411,4 +438,3 @@ func writeClaudeSettings(path string, settings map[string]any) error {
 	data = append(data, '\n')
 	return fileutil.AtomicWrite(path, data, 0o644)
 }
-

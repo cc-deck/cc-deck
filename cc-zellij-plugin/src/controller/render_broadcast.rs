@@ -109,6 +109,7 @@ pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
                 agent_indicator,
                 in_worktree: s.in_worktree,
                 profile_color: s.profile_color,
+                background: s.background,
             }
         })
         .collect();

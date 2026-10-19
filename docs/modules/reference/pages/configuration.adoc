@@ -541,6 +541,27 @@ The hook writes the file atomically through a temporary file in the same directo
 Hook processes hold an exclusive lock on it while they update `pane-map.json`.
 When a hook cannot acquire the lock within 2 seconds, it skips the update instead of blocking the agent, and still delivers the event.
 
+| `~/.local/state/cc-deck/bg-job-panes.json`
+| Last viewer of each Claude Code background job, used only for releasing a stale sidebar row.
+Each key combines the resolved Claude Code configuration directory and job ID.
+Entries contain `pane_id`, `zellij_session`, `session_id`, and `updated_at` in Unix seconds.
+Removal ownership does not expire by age, because a sidebar row can outlive an overnight idle period.
+Failed removals remain in a `pending` list until a later event confirms the pane has left and delivery succeeds.
+Retries use a shared 100 ms budget per event and back off from one to 32 seconds after failures.
+An unchanged entry refreshes after one hour.
+This file never supplies a destination for hook events.
+
+| `~/.local/state/cc-deck/bg-job-panes.lock`
+| Short-lived lock for merging atomic background-job state writes.
+Zellij delivery does not hold this shared lock.
+If it cannot be acquired within 20 ms when a transition needs recording, the event is dropped to avoid creating an untracked row.
+
+| `~/.local/state/cc-deck/bg-job-<hash>.lock`
+| Per-job lock covering viewer discovery, ownership transitions, and delivery.
+The hash combines the resolved configuration directory and job ID.
+An event drops after a 100 ms lock wait; the next event resolves the viewer again.
+These empty lock files remain on disk so waiting hook processes always lock the same file.
+
 | `~/.local/state/cc-deck/hook-debug`
 | Flag file. When it exists, the hook command records diagnostics.
 

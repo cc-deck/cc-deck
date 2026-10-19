@@ -2,12 +2,20 @@
 **/target/
 *.rs.bk
 *.rlib
+*.profraw
+*.profdata
+
+# Go build/test artifacts
+*.exe
+*.test
+*.out
 
 # OS files
 .DS_Store
 
 # IDE
 .idea/
+.vscode/
 *.swp
 *.swo
 *~

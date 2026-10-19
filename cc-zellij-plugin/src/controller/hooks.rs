@@ -20,6 +20,16 @@ pub fn process_hook(state: &mut ControllerState, hook: HookPayload) -> bool {
         state.confirm_pane(hook.pane_id);
     }
 
+    let background_changed = state.sessions.get_mut(&hook.pane_id).is_some_and(|s| {
+        let changed = s.background != hook.background;
+        s.background = hook.background;
+        changed
+    });
+    if background_changed {
+        state.save_sessions();
+        state.mark_render_dirty();
+    }
+
     // SessionEnd: remove the session only if the pane is actually gone.
     // Claude Code may fire SessionEnd transiently (e.g., during plugin
     // reinstall via `claude plugin install`) while the pane is still alive.
@@ -58,10 +68,21 @@ pub fn process_hook(state: &mut ControllerState, hook: HookPayload) -> bool {
             // Notification fires after 6s of user inactivity (including while
             // a permission prompt is showing), so it does NOT indicate the
             // session has moved past the waiting state.
+            // Background Notifications can be the first event after parking.
+            // Adopt their ownership before returning, otherwise a later
+            // conditional release carries a session ID this row never took.
+            let ownership_changed = hook.background && replace_session(state, &hook);
             if let Some(session) = state.sessions.get_mut(&hook.pane_id) {
                 session.last_event_ts = session::unix_now();
+                if ownership_changed {
+                    apply_identity(session, &hook);
+                }
             }
-            return false;
+            if ownership_changed {
+                state.save_sessions();
+                state.mark_render_dirty();
+            }
+            return background_changed || ownership_changed;
         }
     };
 
@@ -86,67 +107,12 @@ pub fn process_hook(state: &mut ControllerState, hook: HookPayload) -> bool {
         }
     }
 
-    // Detect session replacement: new Claude Code instance in same pane
-    let session_replaced = !is_new
-        && hook.session_id.as_ref().is_some_and(|new_sid| {
-            state
-                .sessions
-                .get(&hook.pane_id)
-                .map(|s| !s.session_id.is_empty() && s.session_id != *new_sid)
-                .unwrap_or(false)
-        });
-    if session_replaced {
-        if let Some(session) = state.sessions.get_mut(&hook.pane_id) {
-            let same_agent = hook
-                .agent
-                .as_deref()
-                .map(|a| session.agent_name.as_deref() == Some(a))
-                .unwrap_or(true);
-
-            if same_agent {
-                crate::debug_log(&format!(
-                    "CTRL SESSION replaced pane={}: {} -> {} (manually_renamed={})",
-                    hook.pane_id,
-                    session.session_id,
-                    hook.session_id.as_deref().unwrap_or("?"),
-                    session.manually_renamed,
-                ));
-                if !session.manually_renamed {
-                    session.display_name = format!("session-{}", hook.pane_id);
-                }
-                session.meta_ts = 0;
-                session.done_attended = false;
-                session.pending_prompts.clear();
-                session.working_dir = None;
-                session.in_worktree = false;
-                session.agent_name = None;
-                session.agent_indicator = None;
-                session.profile = None;
-                session.profile_color = None;
-                session.profile_icon = None;
-            } else {
-                crate::debug_log(&format!(
-                    "CTRL SESSION cross-agent pane={}: {} -> {} (no state reset)",
-                    hook.pane_id,
-                    session.agent_name.as_deref().unwrap_or("?"),
-                    hook.agent.as_deref().unwrap_or("?"),
-                ));
-                // Update agent identity without resetting session state.
-                session.agent_name = hook.agent.clone();
-                session.agent_indicator = hook.agent_indicator.clone();
-                session.profile = hook.profile.clone();
-                if let Some(ref color_str) = hook.profile_color {
-                    session.profile_color = parse_hex_color(color_str);
-                }
-                session.profile_icon = hook.profile_icon.clone();
-            }
-            // Always update session_id to prevent repeated replacement
-            // detection on subsequent hooks from the same new session.
-            if let Some(ref sid) = hook.session_id {
-                session.session_id = sid.clone();
-            }
-        }
+    // Newly created sessions also take the event's background flag.
+    if let Some(session) = state.sessions.get_mut(&hook.pane_id) {
+        session.background = hook.background;
     }
+
+    replace_session(state, &hook);
 
     // Skip updates for paused sessions, but always allow session_id to be
     // updated (handled above) to prevent replacement detection spirals.
@@ -159,6 +125,9 @@ pub fn process_hook(state: &mut ControllerState, hook: HookPayload) -> bool {
                     if let Some(s) = state.sessions.get_mut(&hook.pane_id) {
                         s.session_id = sid.clone();
                     }
+                }
+                if background_changed {
+                    state.save_sessions();
                 }
                 return false;
             }
@@ -229,36 +198,8 @@ pub fn process_hook(state: &mut ControllerState, hook: HookPayload) -> bool {
         }
     }
 
-    // Store agent name and indicator from the first hook event
-    if hook.agent.is_some() {
-        if let Some(s) = state.sessions.get_mut(&hook.pane_id) {
-            if s.agent_name.is_none() {
-                s.agent_name = hook.agent.clone();
-                s.agent_indicator = hook.agent_indicator.clone();
-            }
-        }
-    }
-
-    // Store profile name and color from the first hook carrying them.
-    // Update profile_color on subsequent hooks if the color changed.
-    if hook.profile.is_some() {
-        if let Some(s) = state.sessions.get_mut(&hook.pane_id) {
-            if s.profile.is_none() {
-                s.profile = hook.profile.clone();
-            }
-            // Always update color in case the config changed between hooks.
-            if let Some(ref color_str) = hook.profile_color {
-                s.profile_color = parse_hex_color(color_str);
-            }
-            // The indicator carries the profile icon override, so it follows
-            // config changes the same way the color does.
-            if hook.agent_indicator.is_some() {
-                s.agent_indicator = hook.agent_indicator.clone();
-            }
-            // The hook sends profile_icon with every profiled event when one
-            // is declared, so its absence means the profile has none.
-            s.profile_icon = hook.profile_icon.clone();
-        }
+    if let Some(s) = state.sessions.get_mut(&hook.pane_id) {
+        apply_identity(s, &hook);
     }
 
     // Process CWD changes
@@ -280,10 +221,87 @@ pub fn process_hook(state: &mut ControllerState, hook: HookPayload) -> bool {
         }
     }
 
-    if changed {
+    if changed || background_changed || (is_new && hook.background) {
         state.save_sessions();
     }
     state.mark_render_dirty();
+    true
+}
+
+/// Store the first supplied identity and refresh profile presentation from
+/// subsequent profiled hooks. Absent identity/profile fields leave state alone.
+fn apply_identity(session: &mut Session, hook: &HookPayload) {
+    if hook.agent.is_some() && session.agent_name.is_none() {
+        session.agent_name = hook.agent.clone();
+        session.agent_indicator = hook.agent_indicator.clone();
+    }
+    if hook.profile.is_some() {
+        if session.profile.is_none() {
+            session.profile = hook.profile.clone();
+        }
+        if let Some(ref color_str) = hook.profile_color {
+            session.profile_color = parse_hex_color(color_str);
+        }
+        if hook.agent_indicator.is_some() {
+            session.agent_indicator = hook.agent_indicator.clone();
+        }
+        session.profile_icon = hook.profile_icon.clone();
+    }
+}
+
+/// Adopt a new owner without changing activity. Used before returning from
+/// background non-activity hooks as well as the normal activity path.
+fn replace_session(state: &mut ControllerState, hook: &HookPayload) -> bool {
+    let Some(session) = state.sessions.get_mut(&hook.pane_id) else {
+        return false;
+    };
+    let Some(new_sid) = hook.session_id.as_ref() else {
+        return false;
+    };
+    if session.session_id == *new_sid {
+        return false;
+    }
+    if !session.session_id.is_empty() {
+        let same_agent = hook
+            .agent
+            .as_deref()
+            .map(|a| session.agent_name.as_deref() == Some(a))
+            .unwrap_or(true);
+        if same_agent {
+            crate::debug_log(&format!(
+                "CTRL SESSION replaced pane={}: {} -> {} (manually_renamed={})",
+                hook.pane_id, session.session_id, new_sid, session.manually_renamed,
+            ));
+            if !session.manually_renamed {
+                session.display_name = format!("session-{}", hook.pane_id);
+            }
+            session.meta_ts = 0;
+            session.done_attended = false;
+            session.pending_prompts.clear();
+            session.working_dir = None;
+            session.in_worktree = false;
+            session.agent_name = None;
+            session.agent_indicator = None;
+            session.profile = None;
+            session.profile_color = None;
+            session.profile_icon = None;
+        } else {
+            crate::debug_log(&format!(
+                "CTRL SESSION cross-agent pane={}: {} -> {} (no state reset)",
+                hook.pane_id,
+                session.agent_name.as_deref().unwrap_or("?"),
+                hook.agent.as_deref().unwrap_or("?"),
+            ));
+            session.agent_name = hook.agent.clone();
+            session.agent_indicator = hook.agent_indicator.clone();
+            session.profile = hook.profile.clone();
+            if let Some(ref color_str) = hook.profile_color {
+                session.profile_color = parse_hex_color(color_str);
+            }
+            session.profile_icon = hook.profile_icon.clone();
+        }
+    }
+    session.session_id = new_sid.clone();
     true
 }
 
@@ -502,11 +520,36 @@ mod tests {
             profile: None,
             profile_color: None,
             profile_icon: None,
+            background: false,
         }
     }
 
     fn make_subagent_hook(pane_id: u32, event: &str) -> HookPayload {
         make_agent_hook(pane_id, event, "sub-1")
+    }
+
+    #[test]
+    fn test_background_follows_every_hook_and_preserves_rename() {
+        let mut state = ControllerState::default();
+        let mut hook = make_hook(42, "PostToolUse");
+        hook.background = true;
+        process_hook(&mut state, hook);
+        assert!(state.sessions[&42].background);
+        // A non-activity event also clears the marker.
+        process_hook(&mut state, make_hook(42, "Notification"));
+        assert!(!state.sessions[&42].background);
+        let s = state.sessions.get_mut(&42).unwrap();
+        s.paused = true;
+        s.manually_renamed = true;
+        s.display_name = "my job".into();
+        let mut hook = make_hook(42, "PostToolUse");
+        hook.background = true;
+        hook.session_id = Some("replacement".into());
+        process_hook(&mut state, hook);
+        assert!(state.sessions[&42].background);
+        assert_eq!(state.sessions[&42].display_name, "my job");
+        process_hook(&mut state, make_hook(42, "PostToolUse"));
+        assert!(!state.sessions[&42].background);
     }
 
     fn make_agent_hook(pane_id: u32, event: &str, agent_id: &str) -> HookPayload {
@@ -523,6 +566,7 @@ mod tests {
             profile: None,
             profile_color: None,
             profile_icon: None,
+            background: false,
         }
     }
 
@@ -890,6 +934,7 @@ mod tests {
             profile: None,
             profile_color: None,
             profile_icon: None,
+            background: false,
         };
         process_hook(&mut state, hook);
         assert_eq!(
@@ -920,6 +965,7 @@ mod tests {
             profile: None,
             profile_color: None,
             profile_icon: None,
+            background: false,
         };
         process_hook(&mut state, hook);
         // CWD should NOT change to the worktree path
@@ -951,6 +997,7 @@ mod tests {
             profile: None,
             profile_color: None,
             profile_icon: None,
+            background: false,
         };
         process_hook(&mut state, hook);
 
@@ -990,6 +1037,7 @@ mod tests {
             profile: None,
             profile_color: None,
             profile_icon: None,
+            background: false,
         };
         process_hook(&mut state, hook);
 
@@ -1132,6 +1180,7 @@ mod tests {
             profile: None,
             profile_color: None,
             profile_icon: None,
+            background: false,
         };
         let changed = process_hook(&mut state, hook);
         assert!(changed);
@@ -1359,6 +1408,7 @@ mod tests {
             profile: None,
             profile_color: None,
             profile_icon: None,
+            background: false,
         };
         process_hook(&mut state, hook);
 
@@ -1391,6 +1441,7 @@ mod tests {
             profile: None,
             profile_color: None,
             profile_icon: None,
+            background: false,
         };
         process_hook(&mut state, hook);
 
@@ -1424,6 +1475,7 @@ mod tests {
             profile: None,
             profile_color: None,
             profile_icon: None,
+            background: false,
         };
         process_hook(&mut state, hook);
 
@@ -1457,6 +1509,7 @@ mod tests {
             profile: None,
             profile_color: None,
             profile_icon: None,
+            background: false,
         };
         process_hook(&mut state, hook);
 

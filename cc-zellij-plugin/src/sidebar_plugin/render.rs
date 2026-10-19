@@ -632,7 +632,8 @@ pub(super) fn session_entry_lines(
         } else {
             display_width(&agent_prefix) + 1
         };
-        let prefix_len = 1 + display_width(indicator) + 1 + agent_prefix_len;
+        let background_len = if session.background { 2 } else { 0 };
+        let prefix_len = 1 + display_width(indicator) + 1 + agent_prefix_len + background_len;
         let max_name = cols.saturating_sub(prefix_len);
         let truncated_name = truncate(render_name, max_name);
 
@@ -645,7 +646,8 @@ pub(super) fn session_entry_lines(
             };
             let bold_or_dim = if session.paused { "\x1b[2m" } else { "\x1b[1m" };
             let lead = lead(bg);
-            let styled_line1 = format!("{lead}\x1b[38;2;{r};{g};{b}m{indicator}{fg} {agent_part}{bold_or_dim}{truncated_name}{RESET}");
+            let background_part = if session.background { format!("\x1b[2m⇣\x1b[0m{bg}{fg} ") } else { String::new() };
+            let styled_line1 = format!("{lead}\x1b[38;2;{r};{g};{b}m{indicator}{fg} {agent_part}{background_part}{bold_or_dim}{truncated_name}{RESET}");
             pad_with_bg_color(&styled_line1, cols, bg)
         } else {
             let agent_part = if agent_prefix.is_empty() {
@@ -664,8 +666,9 @@ pub(super) fn session_entry_lines(
             };
 
             let lead = lead("");
+            let background_part = if session.background { "\x1b[2m⇣\x1b[0m " } else { "" };
             let line1 =
-                format!("{lead}\x1b[38;2;{r};{g};{b}m{indicator}\x1b[0m {agent_part}{name_part}");
+                format!("{lead}\x1b[38;2;{r};{g};{b}m{indicator}\x1b[0m {agent_part}{background_part}{name_part}");
             pad(&line1, cols)
         }
     };
@@ -795,6 +798,9 @@ fn render_empty_state(
 const HELP_LINES: &[&str] = &[
     "\x1b[1m Keyboard Shortcuts\x1b[0m",
     "\x1b[2m \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\x1b[0m",
+    " \x1b[2mLegend:\x1b[0m",
+    " \x1b[2m⇣\x1b[0m background job",
+    "",
     " \x1b[1mAlt+s\x1b[0m  Session list \x1b[2m/ next\x1b[0m",
     " \x1b[1mAlt+S\x1b[0m  Session list \x1b[2m/ prev\x1b[0m",
     " \x1b[1mAlt+a\x1b[0m  Next session",
@@ -1266,6 +1272,7 @@ mod tests {
             agent_indicator: None,
             in_worktree: false,
             profile_color: None,
+            background: false,
         };
         let s2 = cc_deck::RenderSession {
             pane_id: 2,
@@ -1281,6 +1288,7 @@ mod tests {
             agent_indicator: None,
             in_worktree: false,
             profile_color: None,
+            background: false,
         };
         let sessions: Vec<&RenderSession> = vec![&s1, &s2];
         let heights: Vec<usize> = sessions.iter().map(|s| entry_height(s)).collect();
@@ -1306,6 +1314,7 @@ mod tests {
                 agent_indicator: None,
                 in_worktree: false,
                 profile_color: None,
+                background: false,
             })
             .collect();
         let refs: Vec<&RenderSession> = sessions_owned.iter().collect();
@@ -1334,6 +1343,7 @@ mod tests {
                 agent_indicator: None,
                 in_worktree: false,
                 profile_color: None,
+                background: false,
             })
             .collect();
         let refs: Vec<&RenderSession> = sessions_owned.iter().collect();
@@ -1359,6 +1369,7 @@ mod tests {
                 agent_indicator: None,
                 in_worktree: false,
                 profile_color: None,
+                background: false,
             })
             .collect();
         let refs: Vec<&RenderSession> = sessions_owned.iter().collect();
@@ -1383,6 +1394,7 @@ mod tests {
             agent_indicator: None,
             in_worktree: false,
             profile_color: None,
+            background: false,
         };
         assert_eq!(entry_height(&s), 2, "branchless, no badges => still 2 rows");
         s.git_branch = Some("main".into());
@@ -1685,6 +1697,28 @@ mod tests {
     fn test_edge_bar_is_one_column() {
         assert_eq!(display_width(EDGE_BAR), 1);
         assert_eq!(display_width(&edge_bar((1, 2, 3))), 1);
+    }
+
+    #[test]
+    fn test_background_marker_keeps_status_columns_and_second_line() {
+        let mut s = make_session(7, "abcdefghijklmnopqrstuvwxyz", 0);
+        s.agent_indicator = Some("✳".into());
+        s.profile_color = Some((90, 192, 226));
+        for (active, cursor) in [(false, false), (true, false), (false, true)] {
+            s.background = false;
+            let (fg1, fg2) = session_entry_lines(&s, active, cursor, false, 24, None);
+            s.background = true;
+            let (bg1, bg2) = session_entry_lines(&s, active, cursor, false, 24, None);
+            let fg = visible(&fg1);
+            let bg = visible(&bg1);
+            assert!(!fg.contains('⇣'));
+            assert!(bg.contains("✳ ⇣ "));
+            assert_eq!(fg.chars().take(3).collect::<String>(), bg.chars().take(3).collect::<String>());
+            assert_eq!(bg2, fg2);
+            assert_eq!(display_width(&bg1), 24);
+            assert!(bg.contains(&truncate(&s.display_name, 17)));
+            assert_ne!(bg, fg);
+        }
     }
 
     #[test]

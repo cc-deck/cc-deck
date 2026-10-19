@@ -439,9 +439,8 @@ func (e *ComposeWorkspace) KillSession(ctx context.Context) error {
 	if !ContainerHasZellijSession(ctx, cName) {
 		return nil
 	}
-	cmd := []string{"zellij", "delete-session", "--force", zellijSessionPrefix + e.name}
-	if err := podman.Exec(ctx, cName, cmd, false); err != nil {
-		return fmt.Errorf("deleting session: %w", err)
+	if err := deleteContainerZellijSession(ctx, cName, ZellijSessionName(e.name)); err != nil {
+		return err
 	}
 	if inst, findErr := e.store.FindInstanceByName(e.name); findErr == nil {
 		inst.SessionState = SessionStateNone

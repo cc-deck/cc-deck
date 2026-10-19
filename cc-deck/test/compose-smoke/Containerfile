@@ -1,0 +1,19 @@
+FROM registry.fedoraproject.org/fedora:latest
+
+# Workspace creation starts a real canonical Zellij session.
+RUN dnf install -y git curl-minimal tar gzip shadow-utils && dnf clean all
+ARG ZELLIJ_VERSION=0.45.1
+RUN curl -fsSL "https://github.com/zellij-org/zellij/releases/download/v${ZELLIJ_VERSION}/zellij-$(uname -m)-unknown-linux-musl.tar.gz" \
+      -o /tmp/zellij.tar.gz \
+    && tar -xzf /tmp/zellij.tar.gz -C /usr/local/bin \
+    && rm /tmp/zellij.tar.gz \
+    && zellij --version
+COPY cc-deck.kdl /etc/zellij/layouts/cc-deck.kdl
+
+# keep-id can run the container as a host UID absent from the image.
+RUN mkdir -p /tmp/cc-deck-smoke-home && chmod 1777 /tmp/cc-deck-smoke-home
+ENV HOME=/tmp/cc-deck-smoke-home \
+    ZELLIJ_CONFIG_DIR=/etc/zellij \
+    TERM=xterm-256color
+
+CMD ["sleep", "infinity"]

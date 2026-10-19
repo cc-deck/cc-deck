@@ -206,6 +206,9 @@ pub struct Session {
     /// help overlay legend; `None` when the profile declares no icon.
     #[serde(default)]
     pub profile_icon: Option<String>,
+    /// True while this row represents a Claude Code background job.
+    #[serde(default)]
+    pub background: bool,
 }
 
 impl Session {
@@ -233,6 +236,7 @@ impl Session {
             profile: None,
             profile_color: None,
             profile_icon: None,
+            background: false,
         }
     }
 
@@ -359,6 +363,21 @@ impl Session {
         } else {
             HookOutcome::Unchanged
         }
+    }
+}
+
+#[cfg(test)]
+mod background_compat_tests {
+    use super::*;
+
+    #[test]
+    fn background_persists_and_old_sessions_default_to_false() {
+        let mut session = Session::new(7, "job".into());
+        session.background = true;
+        let mut value = serde_json::to_value(&session).unwrap();
+        assert!(serde_json::from_value::<Session>(value.clone()).unwrap().background);
+        value.as_object_mut().unwrap().remove("background");
+        assert!(!serde_json::from_value::<Session>(value).unwrap().background);
     }
 }
 
