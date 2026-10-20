@@ -64,8 +64,6 @@ make build-cli
 
 **Result:**
 
-Passed (agent). The first attempt from the main checkout used its older CLI and showed incorrect rows. Retried from this feature worktree with the built CLI; it listed `claude-private` (harness `claude`, default) and `codex-private` (harness `codex`). Exit code 0.
-
 Passed (agent). `make build-cli` exited 0; output showed `go build -o cc-deck ./cmd/cc-deck` creating the worktree binary.
 
 ### Step 2 of 8: Add the same name under Codex (US1)
@@ -105,6 +103,8 @@ Passed (agent). Output: `Profile "private" added.`
 **If you see something else:** If one row is missing, validate the config and inspect the corresponding qualified selector.
 
 **Result:**
+
+Passed (agent). The first attempt from the main checkout used its older CLI and showed incorrect rows. Retried from this feature worktree with the built CLI; it listed `claude-private` (harness `claude`, default) and `codex-private` (harness `codex`). Exit code 0.
 
 
 ### Step 4 of 8: Inspect each qualified profile (US2)
