@@ -66,8 +66,10 @@ func buildOpenShellProfileTarget(ctx context.Context, name string, store *FileSt
 func NeededProfileProviders(cfg *config.Config, wsName string) []string {
 	var names []string
 	seen := make(map[string]bool)
-	for pName, p := range cfg.Profiles {
-		harness := p.HarnessName()
+	for _, key := range cfg.ListProfileKeys() {
+		p := cfg.Profiles[key.Harness][key.Name]
+		p.Harness = key.Harness
+		harness := key.Harness
 		a := agent.Get(harness)
 		if a == nil {
 			continue
@@ -81,7 +83,7 @@ func NeededProfileProviders(cfg *config.Config, wsName string) []string {
 		if provType == "" {
 			continue
 		}
-		provName := fmt.Sprintf("cc-deck-%s-%s", wsName, pName)
+		provName := fmt.Sprintf("cc-deck-%s-%s-%s", wsName, key.Harness, key.Name)
 		if seen[provName] {
 			continue
 		}

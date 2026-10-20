@@ -159,11 +159,6 @@ func runProfileAdd(name string, gf *GlobalFlags, flags *profileAddFlags) error {
 		return fmt.Errorf("loading config: %w", err)
 	}
 
-	// Check if profile already exists
-	if _, err := cfg.GetProfile(name); err == nil {
-		return fmt.Errorf("profile %q already exists (delete it first or choose a different name)", name)
-	}
-
 	var p config.Profile
 	if flags.hasAnyFlag() {
 		// Non-interactive: build profile from flags.
@@ -178,19 +173,30 @@ func runProfileAdd(name string, gf *GlobalFlags, flags *profileAddFlags) error {
 			return fmt.Errorf("creating profile: %w", err)
 		}
 	}
+	key := config.ProfileKey{Harness: p.HarnessName(), Name: name}
+	// Canonicalize a valid bare default before adding a profile could make its
+	// short name ambiguous. The selected profile remains the same pair.
+	if cfg.DefaultProfile != "" {
+		if defaultKey, resolveErr := cfg.ResolveProfileRef(cfg.DefaultProfile); resolveErr == nil {
+			cfg.DefaultProfile = defaultKey.String()
+		}
+	}
+	if _, err := cfg.GetProfileFor(key.Harness, key.Name); err == nil {
+		return fmt.Errorf("profile %q already exists (delete it first or choose a different name)", key)
+	}
 
 	// FR-017: without an explicit color, pick the palette entry most distinct
 	// from the existing profiles and store it, so later profiles keep their
 	// colors stable.
 	if p.Color == "" {
 		used := make([]string, 0, len(cfg.Profiles))
-		for _, existing := range cfg.ListProfiles() {
-			used = append(used, profile.EffectiveColor(existing, cfg.Profiles[existing]))
+		for _, existing := range cfg.ListProfileKeys() {
+			used = append(used, profile.EffectiveColor(existing.Name, cfg.Profiles[existing.Harness][existing.Name]))
 		}
 		p.Color = profile.Pick(used)
 	}
 
-	if err := cfg.AddProfile(name, p); err != nil {
+	if err := cfg.AddProfile(key, p); err != nil {
 		return fmt.Errorf("adding profile: %w", err)
 	}
 
@@ -201,15 +207,15 @@ func runProfileAdd(name string, gf *GlobalFlags, flags *profileAddFlags) error {
 	for _, f := range cfg.Validate() {
 		if f.Severity == config.SeverityError {
 			// Roll back: remove the profile we just added.
-			delete(cfg.Profiles, name)
+			_ = cfg.DeleteProfile(key)
 			return fmt.Errorf("validation error: %s", f.Message)
 		}
 	}
 
 	// Set as default if it's the first profile
-	if len(cfg.Profiles) == 1 {
-		cfg.DefaultProfile = name
-		fmt.Fprintf(os.Stdout, "Set %q as default profile.\n", name)
+	if len(cfg.ListProfileKeys()) == 1 {
+		cfg.DefaultProfile = key.String()
+		fmt.Fprintf(os.Stdout, "Set %q as default profile.\n", key)
 	}
 
 	if err := cfg.Save(gf.ConfigFile); err != nil {
@@ -343,51 +349,57 @@ func runProfileList(gf *GlobalFlags) error {
 		return fmt.Errorf("loading config: %w", err)
 	}
 
-	names := cfg.ListProfiles()
-	if len(names) == 0 {
+	keys := cfg.ListProfileKeys()
+	if len(keys) == 0 {
 		fmt.Fprintln(os.Stdout, "No profiles configured. Run 'cc-deck config profile add <name>' to create one.")
 		return nil
 	}
 
-	buildEntry := func(name string) profileListEntry {
-		p := cfg.Profiles[name]
+	defaultKey, defaultErr := cfg.ResolveProfileRef(cfg.DefaultProfile)
+	buildEntry := func(key config.ProfileKey) profileListEntry {
+		p := cfg.Profiles[key.Harness][key.Name]
+		p.Harness = key.Harness
 		return profileListEntry{
-			Name:    name,
-			Harness: p.HarnessName(),
+			Name:    key.Name,
+			Harness: key.Harness,
 			Backend: string(p.EffectiveBackend()),
 			Auth:    authSummary(p),
 			Model:   p.Model,
-			Default: name == cfg.DefaultProfile,
+			Default: defaultErr == nil && key == defaultKey,
 		}
 	}
 
 	switch gf.Output {
 	case "json":
-		entries := make([]profileListEntry, 0, len(names))
-		for _, name := range names {
-			entries = append(entries, buildEntry(name))
+		entries := make([]profileListEntry, 0, len(keys))
+		for _, key := range keys {
+			entries = append(entries, buildEntry(key))
 		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		return enc.Encode(entries)
 
 	case "yaml":
-		entries := make([]profileListEntry, 0, len(names))
-		for _, name := range names {
-			entries = append(entries, buildEntry(name))
+		entries := make([]profileListEntry, 0, len(keys))
+		for _, key := range keys {
+			entries = append(entries, buildEntry(key))
 		}
 		return yaml.NewEncoder(os.Stdout).Encode(entries)
 
 	default:
 		w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 		fmt.Fprintln(w, "NAME\tHARNESS\tBACKEND\tAUTH\tMODEL\tDEFAULT")
-		for _, name := range names {
-			e := buildEntry(name)
+		for _, key := range keys {
+			e := buildEntry(key)
 			defaultMarker := ""
 			if e.Default {
 				defaultMarker = "*"
 			}
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", e.Name, e.Harness, e.Backend, e.Auth, e.Model, defaultMarker)
+			binary := e.Harness
+			if harness := agent.Get(e.Harness); harness != nil {
+				binary = harness.Binary()
+			}
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", config.WrapperName(binary, key.Name), e.Harness, e.Backend, e.Auth, e.Model, defaultMarker)
 		}
 		return w.Flush()
 	}
@@ -417,7 +429,11 @@ func runProfileDelete(name string, gf *GlobalFlags) error {
 		return fmt.Errorf("loading config: %w", err)
 	}
 
-	if err := cfg.DeleteProfile(name); err != nil {
+	key, err := cfg.ResolveProfileRef(name)
+	if err != nil {
+		return err
+	}
+	if err := cfg.DeleteProfile(key); err != nil {
 		return err
 	}
 
@@ -570,17 +586,22 @@ func runProfileShow(name string, gf *GlobalFlags) error {
 		return fmt.Errorf("loading config: %w", err)
 	}
 
-	p, err := cfg.GetProfile(name)
+	key, err := cfg.ResolveProfileRef(name)
+	if err != nil {
+		return err
+	}
+	p, err := cfg.GetProfileFor(key.Harness, key.Name)
 	if err != nil {
 		return err
 	}
 
+	defaultKey, defaultErr := cfg.ResolveProfileRef(cfg.DefaultProfile)
 	defaultMarker := ""
-	if name == cfg.DefaultProfile {
+	if defaultErr == nil && key == defaultKey {
 		defaultMarker = " (default)"
 	}
 
-	fmt.Fprintf(os.Stdout, "Profile: %s%s\n", name, defaultMarker)
+	fmt.Fprintf(os.Stdout, "Profile: %s%s\n", key, defaultMarker)
 	fmt.Fprintf(os.Stdout, "  Harness:  %s\n", p.HarnessName())
 	fmt.Fprintf(os.Stdout, "  Backend:  %s\n", p.EffectiveBackend())
 
@@ -631,7 +652,7 @@ func runProfileShow(name string, gf *GlobalFlags) error {
 			fmt.Fprintf(os.Stdout, "    %s=%s\n", k, v)
 		}
 	}
-	if color := profile.EffectiveColor(name, p); color == p.Color {
+	if color := profile.EffectiveColor(key.Name, p); color == p.Color {
 		fmt.Fprintf(os.Stdout, "  Color:    %s\n", color)
 	} else {
 		fmt.Fprintf(os.Stdout, "  Color:    %s (derived)\n", color)
@@ -643,7 +664,7 @@ func runProfileShow(name string, gf *GlobalFlags) error {
 	// Resolved wrapper name.
 	a := agent.Get(p.HarnessName())
 	if a != nil {
-		fmt.Fprintf(os.Stdout, "  Wrapper:  %s-%s\n", a.Binary(), name)
+		fmt.Fprintf(os.Stdout, "  Wrapper:  %s-%s\n", a.Binary(), key.Name)
 	}
 
 	// Legacy fields (shown when present for backward compat).

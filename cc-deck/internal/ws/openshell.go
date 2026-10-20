@@ -423,8 +423,11 @@ func (w *OpenShellWorkspace) Create(ctx context.Context, _ CreateOpts) error {
 	// Create per-profile credential providers (FR-026).
 	if cfg, loadErr := config.Load(""); loadErr == nil && cfg != nil {
 		seen := make(map[string]bool)
-		for pName, p := range cfg.Profiles {
-			harness := p.HarnessName()
+		for _, key := range cfg.ListProfileKeys() {
+			p := cfg.Profiles[key.Harness][key.Name]
+			p.Harness = key.Harness
+			pName := key.String()
+			harness := key.Harness
 			a := agent.Get(harness)
 			if a == nil {
 				continue
@@ -440,7 +443,7 @@ func (w *OpenShellWorkspace) Create(ctx context.Context, _ CreateOpts) error {
 			}
 			// Deduplicate: skip if this profile's provider type matches
 			// the already-created single-spec provider.
-			provName := fmt.Sprintf("cc-deck-%s-%s", w.name, pName)
+			provName := fmt.Sprintf("cc-deck-%s-%s-%s", w.name, key.Harness, key.Name)
 			if seen[provName] {
 				continue
 			}

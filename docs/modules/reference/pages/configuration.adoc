@@ -15,19 +15,19 @@ All settings have sensible defaults and can be overridden via CLI flags.
 namespace: cc-deck
 
 # Default credential profile
-default_profile: work
+default_profile: claude/work
 
 # Verbose output
 verbose: false
 
 # Harness profiles (see the Profiles section below)
 profiles:
-  work:
-    harness: claude
-    backend: vertex
-    model: claude-sonnet-5
-    auth:
-      credentials: {file: ~/.config/gcloud/acme-adc.json}
+  claude:
+    work:
+      backend: vertex
+      model: claude-sonnet-5
+      auth:
+        credentials: {file: ~/.config/gcloud/acme-adc.json}
 
 # Voice relay defaults
 defaults:
@@ -218,27 +218,27 @@ The plain harness command (`claude`, `codex`, `opencode`) remains unaffected and
 [source,yaml]
 ----
 profiles:
-  <name>:                        # lowercase letters, digits, and hyphens
-    harness: claude              # claude (default) | codex | opencode
-    backend: anthropic           # optional; allowed set depends on harness
-    model: claude-sonnet-5       # optional
-    auth:                        # required for new profiles
-      api_key:                   # exactly one of env, file, secret
-        env: ANTHROPIC_API_KEY_WORK
-        # file: ~/.secrets/anthropic-work
-        # secret: anthropic-work        (Kubernetes deploy only)
-      credentials:               # vertex only, ADC JSON; exactly one of env, file, secret
-        file: ~/.config/gcloud/work-adc.json
-      oauth_token:               # claude + anthropic only; exactly one of env, file
-        env: CLAUDE_TOKEN_PRIVATE
-      login: true                # claude only
-      # api_key, oauth_token and login are mutually exclusive
-    project: my-gcp-project      # vertex backend only
-    region: us-east5             # vertex backend only
-    env:                         # optional extra environment variables
-      ANTHROPIC_DEFAULT_HAIKU_MODEL: claude-haiku-4-5-20251001
-    color: "#5AC0E2"             # optional, #RRGGBB hex; `config profile add` fills it in
-    icon: "W"                    # optional, single glyph (terminal width 1 or 2)
+  <harness>:                     # claude | codex | opencode
+    <name>:                      # lowercase letters, digits, and hyphens
+      backend: anthropic           # optional; allowed set depends on harness
+      model: claude-sonnet-5       # optional
+      auth:                        # required for new profiles
+        api_key:                   # exactly one of env, file, secret
+          env: ANTHROPIC_API_KEY_WORK
+          # file: ~/.secrets/anthropic-work
+          # secret: anthropic-work        (Kubernetes deploy only)
+        credentials:               # vertex only, ADC JSON; exactly one of env, file, secret
+          file: ~/.config/gcloud/work-adc.json
+        oauth_token:               # claude + anthropic only; exactly one of env, file
+          env: CLAUDE_TOKEN_PRIVATE
+        login: true                # claude only
+        # api_key, oauth_token and login are mutually exclusive
+      project: my-gcp-project      # vertex backend only
+      region: us-east5             # vertex backend only
+      env:                         # optional extra environment variables
+        ANTHROPIC_DEFAULT_HAIKU_MODEL: claude-haiku-4-5-20251001
+      color: "#5AC0E2"             # optional, #RRGGBB hex; `config profile add` fills it in
+      icon: "W"                    # optional, single glyph (terminal width 1 or 2)
 ----
 
 === Field Reference
@@ -247,11 +247,10 @@ profiles:
 |===
 | Field | Type | Description
 
-| `harness`
+| `profiles.<harness>`
 | string
-| Agent binary to invoke.
-Allowed values: `claude`, `codex`, `opencode`.
-Defaults to `claude` when omitted, so profiles written before this feature remain valid.
+| Required outer group for the agent binary: `claude`, `codex`, or `opencode`.
+The profile body must not repeat `harness`.
 
 | `backend`
 | string
@@ -330,29 +329,30 @@ The following configuration defines two Anthropic accounts (company Vertex and a
 [source,yaml]
 ----
 profiles:
-  work:
-    harness: claude
-    backend: vertex
-    project: acme-ml
-    region: us-east5
-    model: claude-sonnet-5
-    auth:
-      credentials: {file: ~/.config/gcloud/acme-adc.json}
-    color: "#5AC0E2"
-  private:
-    harness: claude
-    model: claude-opus-5
-    auth:
-      oauth_token: {env: CLAUDE_TOKEN_PRIVATE}
-    color: "#E27C5A"
-  team:
-    harness: codex
-    model: gpt-5
-    auth:
-      api_key: {env: OPENAI_API_KEY_TEAM}
+  claude:
+    work:
+      backend: vertex
+      project: acme-ml
+      region: us-east5
+      model: claude-sonnet-5
+      auth:
+        credentials: {file: ~/.config/gcloud/acme-adc.json}
+      color: "#5AC0E2"
+    private:
+      model: claude-opus-5
+      auth:
+        oauth_token: {env: CLAUDE_TOKEN_PRIVATE}
+      color: "#E27C5A"
+  codex:
+    private:
+      model: gpt-5
+      auth:
+        api_key: {env: OPENAI_API_KEY_TEAM}
 ----
 
-After running `cc-deck config profile sync`, three wrapper commands are available on `PATH`: `claude-work`, `claude-private`, and `codex-team`.
+After running `cc-deck config profile sync`, three wrapper commands are available on `PATH`: `claude-work`, `claude-private`, and `codex-private`.
+The pair of harness and name is the profile identity. Use `claude/private` or `codex/private` in profile commands and `default_profile`.
+A bare name resolves only when one harness defines it. Duplicate YAML keys and flat legacy entries are rejected.
 
 === Wrapper and Config Directories
 
@@ -371,7 +371,7 @@ Changes to MCP servers or project trust in `~/.claude.json` reach profiled sessi
 Remote workspaces do not receive this merge, so a profiled session on an SSH host or in an OpenShell sandbox starts with the harness's own defaults.
 The `backups` directory, where Claude Code keeps copies of `.claude.json`, is also per profile.
 
-Credential files referenced by `file` sources are copied to `~/.config/cc-deck/profiles/<name>/` with mode 0600, under the names `api_key`, `oauth_token`, and `credentials`.
+Credential files referenced by `file` sources are copied to `~/.config/cc-deck/profiles/<harness>/<name>/` with mode 0600, under the names `api_key`, `oauth_token`, and `credentials`.
 
 Wrappers contain no credential values.
 Credential material reaches the workspace through the existing credential transport.
@@ -523,7 +523,7 @@ The following defaults apply:
 | `~/.local/share/cc-deck/profiles/<name>/<harness>/`
 | Per-profile harness config directory (shared non-auth config via symlinks, isolated login and credential state)
 
-| `~/.config/cc-deck/profiles/<name>/`
+| `~/.config/cc-deck/profiles/<harness>/<name>/`
 | Per-profile credential storage (file-based credential sources)
 
 | `<project>/.cc-deck/voice-glossary.txt`

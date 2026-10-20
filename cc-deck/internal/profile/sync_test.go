@@ -81,9 +81,9 @@ func TestSync_FirstRunWritesWrappers(t *testing.T) {
 	t.Setenv("TEST_API_KEY", "secret-123")
 
 	cfg := &config.Config{
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfileGroupsFromFlat(map[string]config.Profile{
 			"work": simpleClaudeProfile("TEST_API_KEY"),
-		},
+		}),
 	}
 
 	result, err := profile.Sync(cfg, home)
@@ -96,14 +96,42 @@ func TestSync_FirstRunWritesWrappers(t *testing.T) {
 	assert.NoError(t, statErr, "wrapper file must exist on disk")
 }
 
+func TestSync_SameNameAcrossHarnesses(t *testing.T) {
+	home := setupTestEnv(t)
+	claudeKey := filepath.Join(home, "claude-key")
+	codexKey := filepath.Join(home, "codex-key")
+	require.NoError(t, os.WriteFile(claudeKey, []byte("claude-test-value"), 0o600))
+	require.NoError(t, os.WriteFile(codexKey, []byte("codex-test-value"), 0o600))
+	cfg := &config.Config{Profiles: config.ProfileGroups{
+		"claude": {"private": {Auth: &config.AuthConfig{APIKey: &config.CredentialSource{File: claudeKey}}}},
+		"codex":  {"private": {Auth: &config.AuthConfig{APIKey: &config.CredentialSource{File: codexKey}}}},
+	}}
+	result, err := profile.Sync(cfg, home)
+	require.NoError(t, err)
+	assert.Contains(t, result.Written, "claude-private")
+	assert.Contains(t, result.Written, "codex-private")
+	claudeScript, err := os.ReadFile(filepath.Join(binDir(), "claude-private"))
+	require.NoError(t, err)
+	codexScript, err := os.ReadFile(filepath.Join(binDir(), "codex-private"))
+	require.NoError(t, err)
+	assert.Contains(t, string(claudeScript), "profiles/claude/private")
+	assert.Contains(t, string(codexScript), "profiles/codex/private")
+	claudeCopied, err := os.ReadFile(filepath.Join(xdg.ConfigHome, "cc-deck", "profiles", "claude", "private", "api_key"))
+	require.NoError(t, err)
+	codexCopied, err := os.ReadFile(filepath.Join(xdg.ConfigHome, "cc-deck", "profiles", "codex", "private", "api_key"))
+	require.NoError(t, err)
+	assert.Equal(t, "claude-test-value", string(claudeCopied))
+	assert.Equal(t, "codex-test-value", string(codexCopied))
+}
+
 func TestSync_SecondRunIsNoOp(t *testing.T) {
 	home := setupTestEnv(t)
 	t.Setenv("TEST_API_KEY", "secret-123")
 
 	cfg := &config.Config{
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfileGroupsFromFlat(map[string]config.Profile{
 			"work": simpleClaudeProfile("TEST_API_KEY"),
-		},
+		}),
 	}
 
 	_, err := profile.Sync(cfg, home)
@@ -124,17 +152,17 @@ func TestSync_DeletedProfileRemovesWrapper(t *testing.T) {
 	t.Setenv("KEY_B", "val-b")
 
 	cfg := &config.Config{
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfileGroupsFromFlat(map[string]config.Profile{
 			"alpha": simpleClaudeProfile("KEY_A"),
 			"beta":  simpleClaudeProfile("KEY_B"),
-		},
+		}),
 	}
 
 	_, err := profile.Sync(cfg, home)
 	require.NoError(t, err)
 
 	// Remove the beta profile.
-	delete(cfg.Profiles, "beta")
+	delete(cfg.Profiles["claude"], "beta")
 
 	result, err := profile.Sync(cfg, home)
 	require.NoError(t, err)
@@ -157,9 +185,9 @@ func TestSync_NonCCDeckFileUntouched(t *testing.T) {
 	t.Setenv("TEST_API_KEY", "secret-123")
 
 	cfg := &config.Config{
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfileGroupsFromFlat(map[string]config.Profile{
 			"work": simpleClaudeProfile("TEST_API_KEY"),
-		},
+		}),
 	}
 
 	// First sync creates the bin dir and writes the wrapper.
@@ -171,7 +199,7 @@ func TestSync_NonCCDeckFileUntouched(t *testing.T) {
 	require.NoError(t, os.WriteFile(foreignPath, []byte("#!/bin/sh\necho hello\n"), 0o755))
 
 	// Remove the profile so stale cleanup runs.
-	delete(cfg.Profiles, "work")
+	delete(cfg.Profiles["claude"], "work")
 
 	result, err := profile.Sync(cfg, home)
 	require.NoError(t, err)
@@ -191,9 +219,9 @@ func TestSync_WrapperPassesShellSyntaxCheck(t *testing.T) {
 	t.Setenv("TEST_API_KEY", "secret-123")
 
 	cfg := &config.Config{
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfileGroupsFromFlat(map[string]config.Profile{
 			"work": simpleClaudeProfile("TEST_API_KEY"),
-		},
+		}),
 	}
 
 	_, err := profile.Sync(cfg, home)
@@ -214,9 +242,9 @@ func TestSync_WrapperContainsNoCredentialValue(t *testing.T) {
 	t.Setenv("TEST_API_KEY", secretValue)
 
 	cfg := &config.Config{
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfileGroupsFromFlat(map[string]config.Profile{
 			"work": simpleClaudeProfile("TEST_API_KEY"),
-		},
+		}),
 	}
 
 	_, err := profile.Sync(cfg, home)
@@ -238,9 +266,9 @@ func TestSync_MissingEnvVarReportedAsWarning(t *testing.T) {
 	// Deliberately do NOT set MISSING_VAR in the environment.
 
 	cfg := &config.Config{
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfileGroupsFromFlat(map[string]config.Profile{
 			"broken": simpleClaudeProfile("MISSING_VAR"),
-		},
+		}),
 	}
 
 	result, err := profile.Sync(cfg, home)
@@ -270,7 +298,7 @@ func TestSync_NoBareHarnessBinaryInBinDir(t *testing.T) {
 
 	// Create profiles for all three harnesses.
 	cfg := &config.Config{
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfileGroupsFromFlat(map[string]config.Profile{
 			"cc": simpleClaudeProfile("KEY_A"),
 			"cx": {
 				Harness: "codex",
@@ -284,7 +312,7 @@ func TestSync_NoBareHarnessBinaryInBinDir(t *testing.T) {
 					APIKey: &config.CredentialSource{Env: "KEY_C"},
 				},
 			},
-		},
+		}),
 	}
 
 	_, err := profile.Sync(cfg, home)
@@ -314,7 +342,7 @@ func TestSync_TenProfilesUnderTwoSeconds(t *testing.T) {
 		profiles[name] = simpleClaudeProfile(envVar)
 	}
 
-	cfg := &config.Config{Profiles: profiles}
+	cfg := &config.Config{Profiles: config.ProfileGroupsFromFlat(profiles)}
 
 	start := time.Now()
 	result, err := profile.Sync(cfg, home)
@@ -334,12 +362,12 @@ func TestSync_OAuthTokenFileCopiedPrivately(t *testing.T) {
 	require.NoError(t, os.WriteFile(tokenFile, []byte(tokenValue), 0o600))
 
 	cfg := &config.Config{
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfileGroupsFromFlat(map[string]config.Profile{
 			"private": {
 				Harness: "claude",
 				Auth:    &config.AuthConfig{OAuthToken: &config.CredentialSource{File: tokenFile}},
 			},
-		},
+		}),
 	}
 
 	result, err := profile.Sync(cfg, home)
@@ -347,7 +375,7 @@ func TestSync_OAuthTokenFileCopiedPrivately(t *testing.T) {
 	assert.Contains(t, result.Written, "claude-private")
 	assert.Empty(t, result.Skipped)
 
-	copied := filepath.Join(xdg.ConfigHome, "cc-deck", "profiles", "private", "oauth_token")
+	copied := filepath.Join(xdg.ConfigHome, "cc-deck", "profiles", "claude", "private", "oauth_token")
 	info, err := os.Stat(copied)
 	require.NoError(t, err, "token file must be copied into the profile credential dir")
 	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
@@ -367,12 +395,12 @@ func TestSync_MissingOAuthTokenReportedAsWarning(t *testing.T) {
 	os.Unsetenv("ABSENT_TOKEN")
 
 	cfg := &config.Config{
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfileGroupsFromFlat(map[string]config.Profile{
 			"private": {
 				Harness: "claude",
 				Auth:    &config.AuthConfig{OAuthToken: &config.CredentialSource{Env: "ABSENT_TOKEN"}},
 			},
-		},
+		}),
 	}
 
 	result, err := profile.Sync(cfg, home)
@@ -386,18 +414,18 @@ func TestSync_EnvOverrideOfOtherAuthKindWarns(t *testing.T) {
 	t.Setenv("CLAUDE_TOKEN_PRIVATE", "tok")
 
 	cfg := &config.Config{
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfileGroupsFromFlat(map[string]config.Profile{
 			"private": {
 				Harness: "claude",
 				Auth:    &config.AuthConfig{OAuthToken: &config.CredentialSource{Env: "CLAUDE_TOKEN_PRIVATE"}},
 				Env:     map[string]string{"ANTHROPIC_API_KEY": "sk-override", "OTHER": "x"},
 			},
-		},
+		}),
 	}
 
 	result, err := profile.Sync(cfg, home)
 	require.NoError(t, err)
-	want := `profile "private": env "ANTHROPIC_API_KEY" belongs to auth kind "api_key" and overrides the profile's credential`
+	want := `profile "claude/private": env "ANTHROPIC_API_KEY" belongs to auth kind "api_key" and overrides the profile's credential`
 	assert.Contains(t, result.Warnings, want)
 	assert.False(t, containsSubstring(result.Warnings, `env "OTHER"`), "unrelated env key must not warn")
 }
@@ -421,7 +449,7 @@ func TestSync_SimilarColorsWarnOnce(t *testing.T) {
 	alpha.Color = "#E27C5A"
 	beta := simpleClaudeProfile("K_B")
 	beta.Color = "#E2805A"
-	cfg := &config.Config{Profiles: map[string]config.Profile{"alpha": alpha, "beta": beta}}
+	cfg := &config.Config{Profiles: config.ProfileGroupsFromFlat(map[string]config.Profile{"alpha": alpha, "beta": beta})}
 
 	result, err := profile.Sync(cfg, home)
 	require.NoError(t, err)
@@ -433,8 +461,8 @@ func TestSync_SimilarColorsWarnOnce(t *testing.T) {
 		}
 	}
 	require.Len(t, collisions, 1, "warnings: %v", result.Warnings)
-	assert.Contains(t, collisions[0], `"alpha"`)
-	assert.Contains(t, collisions[0], `"beta"`)
+	assert.Contains(t, collisions[0], `"claude/alpha"`)
+	assert.Contains(t, collisions[0], `"claude/beta"`)
 	assert.Contains(t, collisions[0], "color:")
 }
 
@@ -446,16 +474,15 @@ func TestSync_DistinctColorsNoWarningAndConfigUntouched(t *testing.T) {
 	cfgPath := filepath.Join(xdg.ConfigHome, "cc-deck", "config.yaml")
 	require.NoError(t, os.MkdirAll(filepath.Dir(cfgPath), 0o755))
 	original := []byte(`profiles:
-  alpha:
-    harness: claude
-    auth:
-      api_key: {env: K_A}
-    color: "#E27C5A"
-  beta:
-    harness: claude
-    auth:
-      api_key: {env: K_B}
-    color: "#5AC0E2"
+  claude:
+    alpha:
+      auth:
+        api_key: {env: K_A}
+      color: "#E27C5A"
+    beta:
+      auth:
+        api_key: {env: K_B}
+      color: "#5AC0E2"
 `)
 	require.NoError(t, os.WriteFile(cfgPath, original, 0o600))
 	cfg, err := config.Load(cfgPath)
@@ -478,13 +505,13 @@ func TestSync_DerivedColorCollisionWarns(t *testing.T) {
 	home := setupTestEnv(t)
 	t.Setenv("K_A", "a")
 
-	cfg := &config.Config{Profiles: map[string]config.Profile{
+	cfg := &config.Config{Profiles: config.ProfileGroupsFromFlat(map[string]config.Profile{
 		"one":      simpleClaudeProfile("K_A"),
 		"stranger": simpleClaudeProfile("K_A"),
-	}}
+	})}
 	result, err := profile.Sync(cfg, home)
 	require.NoError(t, err)
-	assert.True(t, containsSubstring(result.Warnings, `profiles "one"`), "warnings: %v", result.Warnings)
+	assert.True(t, containsSubstring(result.Warnings, `profiles "claude/one"`), "warnings: %v", result.Warnings)
 }
 
 func TestSync_InvalidProfileExcludedFromCollisionCheck(t *testing.T) {
@@ -496,7 +523,7 @@ func TestSync_InvalidProfileExcludedFromCollisionCheck(t *testing.T) {
 	bad := simpleClaudeProfile("K_A")
 	bad.Harness = "nonexistent"
 	bad.Color = "#E2805A"
-	cfg := &config.Config{Profiles: map[string]config.Profile{"good": good, "bad": bad}}
+	cfg := &config.Config{Profiles: config.ProfileGroupsFromFlat(map[string]config.Profile{"good": good, "bad": bad})}
 
 	result, err := profile.Sync(cfg, home)
 	require.NoError(t, err)
@@ -516,7 +543,7 @@ func TestProvision_WarnsForProvisionedProfilesOnly(t *testing.T) {
 	beta.Color = "#E2805A"
 	// Same color as alpha, but its harness is not on the target.
 	team := config.Profile{Harness: "codex", Color: "#E2825A", Auth: &config.AuthConfig{APIKey: &config.CredentialSource{Env: "K_C"}}}
-	cfg := &config.Config{Profiles: map[string]config.Profile{"alpha": alpha, "beta": beta, "team": team}}
+	cfg := &config.Config{Profiles: config.ProfileGroupsFromFlat(map[string]config.Profile{"alpha": alpha, "beta": beta, "team": team})}
 
 	target := &memTarget{home: "/home/remote", agents: []string{"claude"}}
 	result, err := profile.Provision(cfg, target)
@@ -529,8 +556,8 @@ func TestProvision_WarnsForProvisionedProfilesOnly(t *testing.T) {
 		}
 	}
 	require.Len(t, collisions, 1, "warnings: %v", result.Warnings)
-	assert.Contains(t, collisions[0], `"alpha"`)
-	assert.Contains(t, collisions[0], `"beta"`)
+	assert.Contains(t, collisions[0], `"claude/alpha"`)
+	assert.Contains(t, collisions[0], `"claude/beta"`)
 	assert.True(t, containsSubstring(result.Warnings, `env "CLAUDE_CODE_OAUTH_TOKEN" belongs to auth kind "oauth_token"`),
 		"Provision must also report env overrides: %v", result.Warnings)
 }

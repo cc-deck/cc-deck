@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -48,7 +49,7 @@ func TestProfileAdd_WithFlags(t *testing.T) {
 	var cfg config.Config
 	require.NoError(t, yaml.Unmarshal(data, &cfg))
 
-	p, ok := cfg.Profiles["work"]
+	p, ok := cfg.Profiles["claude"]["work"]
 	require.True(t, ok, "profile 'work' should exist in saved config")
 	assert.Equal(t, "claude", p.Harness)
 	assert.Equal(t, config.BackendAnthropic, p.Backend)
@@ -124,7 +125,7 @@ func TestProfileList_Columns(t *testing.T) {
 
 	cfg := &config.Config{
 		DefaultProfile: "work",
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfileGroupsFromFlat(map[string]config.Profile{
 			"work": {
 				Harness: "claude",
 				Backend: config.BackendAnthropic,
@@ -136,7 +137,7 @@ func TestProfileList_Columns(t *testing.T) {
 				Backend: config.BackendOpenAI,
 				Auth:    &config.AuthConfig{APIKey: &config.CredentialSource{Env: "TEAM_KEY"}},
 			},
-		},
+		}),
 	}
 	data, err := yaml.Marshal(cfg)
 	require.NoError(t, err)
@@ -167,13 +168,13 @@ func TestProfileShow_PrintsReferences(t *testing.T) {
 	cfgPath := filepath.Join(dir, "config.yaml")
 
 	cfg := &config.Config{
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfileGroupsFromFlat(map[string]config.Profile{
 			"secure": {
 				Harness: "claude",
 				Backend: config.BackendAnthropic,
 				Auth:    &config.AuthConfig{APIKey: &config.CredentialSource{Env: "ANTHROPIC_API_KEY"}},
 			},
-		},
+		}),
 	}
 	data, err := yaml.Marshal(cfg)
 	require.NoError(t, err)
@@ -201,13 +202,13 @@ func TestProfileDelete_ClearsDefault(t *testing.T) {
 
 	cfg := &config.Config{
 		DefaultProfile: "doomed",
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfileGroupsFromFlat(map[string]config.Profile{
 			"doomed": {
 				Harness: "claude",
 				Backend: config.BackendAnthropic,
 				Auth:    &config.AuthConfig{APIKey: &config.CredentialSource{Env: "KEY"}},
 			},
-		},
+		}),
 	}
 	data, err := yaml.Marshal(cfg)
 	require.NoError(t, err)
@@ -249,7 +250,7 @@ func loadSavedProfiles(t *testing.T, cfgPath string) map[string]config.Profile {
 	require.NoError(t, err)
 	var cfg config.Config
 	require.NoError(t, yaml.Unmarshal(data, &cfg))
-	return cfg.Profiles
+	return cfg.Profiles["claude"]
 }
 
 func TestProfileAdd_PicksColorWhenUnset(t *testing.T) {
@@ -340,10 +341,10 @@ func TestProfileAdd_AvoidsDerivedColorOfExistingProfile(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.yaml")
 	require.NoError(t, os.WriteFile(cfgPath, []byte(`profiles:
-  work:
-    harness: claude
-    auth:
-      api_key: {env: K}
+  claude:
+    work:
+      auth:
+        api_key: {env: K}
 `), 0o644))
 
 	require.NoError(t, runProfileCmd(t, cfgPath, "add", "second", "--harness", "claude", "--api-key-env", "K2"))
@@ -358,13 +359,104 @@ func TestProfileAdd_RefusesWhenExistingColorInvalid(t *testing.T) {
 	// validation, so add writes nothing rather than picking around it.
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.yaml")
-	original := []byte("profiles:\n  work:\n    harness: claude\n    auth:\n      api_key: {env: K}\n    color: \"red\"\n")
+	original := []byte("profiles:\n  claude:\n    work:\n      auth:\n        api_key: {env: K}\n      color: \"red\"\n")
 	require.NoError(t, os.WriteFile(cfgPath, original, 0o644))
 
 	err := runProfileCmd(t, cfgPath, "add", "second", "--harness", "claude", "--api-key-env", "K2")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), `profile "work": color must be #RRGGBB`)
+	assert.Contains(t, err.Error(), `profile "claude/work": color must be #RRGGBB`)
 	after, readErr := os.ReadFile(cfgPath)
 	require.NoError(t, readErr)
 	assert.Equal(t, original, after)
+}
+
+func TestProfileAddSameNameKeepsExistingBareDefault(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	original := `default_profile: private
+profiles:
+  claude:
+    private:
+      auth: {login: true}
+`
+	require.NoError(t, os.WriteFile(cfgPath, []byte(original), 0o600))
+	require.NoError(t, runProfileCmd(t, cfgPath, "add", "private", "--harness", "codex", "--api-key-env", "CODEX_KEY"))
+
+	loaded, err := config.Load(cfgPath)
+	require.NoError(t, err)
+	assert.Equal(t, "claude/private", loaded.DefaultProfile)
+	_, err = loaded.GetProfileFor("codex", "private")
+	require.NoError(t, err)
+}
+
+func TestProfileListAndShowResolveBareDefault(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	cfg := &config.Config{
+		Profiles:       config.ProfileGroups{"claude": {"private": {Auth: &config.AuthConfig{Login: true}}}},
+		DefaultProfile: "private",
+	}
+	require.NoError(t, cfg.Save(cfgPath))
+
+	listing := captureProfileStdout(t, func() {
+		require.NoError(t, runProfileList(&GlobalFlags{ConfigFile: cfgPath}))
+	})
+	assert.Contains(t, listing, "claude-private")
+	assert.Regexp(t, `claude-private\s+claude\s+anthropic\s+login\s+\*`, listing)
+
+	show := captureProfileStdout(t, func() {
+		require.NoError(t, runProfileShow("claude/private", &GlobalFlags{ConfigFile: cfgPath}))
+	})
+	assert.Contains(t, show, "Profile: claude/private (default)")
+}
+
+func TestProfileCommandsResolveHarnessScopedNames(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	cfg := &config.Config{Profiles: config.ProfileGroups{
+		"claude": {"private": {Auth: &config.AuthConfig{Login: true}}},
+		"codex":  {"private": {Auth: &config.AuthConfig{APIKey: &config.CredentialSource{Env: "CODEX_KEY"}}}},
+	}, DefaultProfile: "claude/private"}
+	require.NoError(t, cfg.Save(cfgPath))
+	for _, format := range []string{"", "json", "yaml"} {
+		gf := &GlobalFlags{ConfigFile: cfgPath, Output: format}
+		listing := captureProfileStdout(t, func() { require.NoError(t, runProfileList(gf)) })
+		switch format {
+		case "":
+			assert.Regexp(t, `claude-private\s+claude`, listing)
+			assert.Regexp(t, `codex-private\s+codex`, listing)
+		case "json":
+			var entries []profileListEntry
+			require.NoError(t, json.Unmarshal([]byte(listing), &entries))
+			assert.Equal(t, []profileListEntry{
+				{Name: "private", Harness: "claude", Backend: "anthropic", Auth: "login", Default: true},
+				{Name: "private", Harness: "codex", Backend: "openai", Auth: "env:CODEX_KEY"},
+			}, entries)
+		case "yaml":
+			var entries []profileListEntry
+			require.NoError(t, yaml.Unmarshal([]byte(listing), &entries))
+			assert.Equal(t, []profileListEntry{
+				{Name: "private", Harness: "claude", Backend: "anthropic", Auth: "login", Default: true},
+				{Name: "private", Harness: "codex", Backend: "openai", Auth: "env:CODEX_KEY"},
+			}, entries)
+		}
+	}
+	original, err := os.ReadFile(cfgPath)
+	require.NoError(t, err)
+	for _, command := range [][]string{{"show", "private"}, {"use", "private"}, {"delete", "private"}} {
+		err := runProfileCmd(t, cfgPath, command...)
+		require.ErrorContains(t, err, "ambiguous")
+		assert.ErrorContains(t, err, "claude/private")
+		assert.ErrorContains(t, err, "codex/private")
+		after, err := os.ReadFile(cfgPath)
+		require.NoError(t, err)
+		assert.Equal(t, original, after)
+	}
+	require.NoError(t, runProfileCmd(t, cfgPath, "use", "codex/private"))
+	loaded, err := config.Load(cfgPath)
+	require.NoError(t, err)
+	assert.Equal(t, "codex/private", loaded.DefaultProfile)
+	require.NoError(t, runProfileCmd(t, cfgPath, "delete", "claude/private"))
+	loaded, err = config.Load(cfgPath)
+	require.NoError(t, err)
+	assert.Equal(t, "codex/private", loaded.DefaultProfile)
+	_, err = loaded.GetProfileFor("codex", "private")
+	require.NoError(t, err)
 }

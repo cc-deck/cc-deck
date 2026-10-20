@@ -130,7 +130,7 @@ func TestOpenCodeRenderGolden_FileSource(t *testing.T) {
 	script := string(ws.Content)
 
 	// File credential check pattern
-	assert.Contains(t, script, `_f="$HOME/.config/cc-deck/profiles/filepro/api_key"`)
+	assert.Contains(t, script, `_f="$HOME/.config/cc-deck/profiles/opencode/filepro/api_key"`)
 	assert.Contains(t, script, `if [ ! -r "$_f" ]; then`)
 	assert.Contains(t, script, `echo "cc-deck profile 'filepro': credential file $_f is not available" >&2`)
 	assert.Contains(t, script, `export OPENAI_API_KEY="$(cat "$_f")"`)
@@ -160,7 +160,7 @@ func TestOpenCodeRenderGolden_AnthropicFileSource(t *testing.T) {
 	script := string(ws.Content)
 
 	// File check
-	assert.Contains(t, script, `_f="$HOME/.config/cc-deck/profiles/anthfile/api_key"`)
+	assert.Contains(t, script, `_f="$HOME/.config/cc-deck/profiles/opencode/anthfile/api_key"`)
 	assert.Contains(t, script, `if [ ! -r "$_f" ]; then`)
 
 	// Anthropic backend uses ANTHROPIC_API_KEY

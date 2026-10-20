@@ -673,8 +673,8 @@ fn test_profile_one_harness_two_profiles_hides_indicators() {
     assert!(payload.sessions.iter().all(|s| s.agent_indicator.is_none()));
     assert_eq!(payload.profile_legend.len(), 2);
     let legend_names: Vec<&str> = payload.profile_legend.iter().map(|e| e.name.as_str()).collect();
-    assert!(legend_names.contains(&"work"));
-    assert!(legend_names.contains(&"personal"));
+    assert!(legend_names.contains(&"claude/work"));
+    assert!(legend_names.contains(&"claude/personal"));
 }
 
 #[test]
@@ -686,6 +686,22 @@ fn test_profile_two_harnesses_shows_indicators() {
     let payload = build_render_payload(&state);
     assert!(payload.show_agent_indicators);
     assert!(payload.sessions.iter().all(|s| s.agent_indicator.is_some()));
+}
+
+#[test]
+fn test_profile_same_name_across_harnesses_has_distinct_legend_entries() {
+    let mut state = ControllerState::default();
+    state.sessions.insert(1, iconed_session(1, "claude-private", "claude", "C", "private", (226, 124, 90)));
+    state.sessions.insert(2, iconed_session(2, "codex-private", "codex", "X", "private", (90, 192, 226)));
+
+    let payload = build_render_payload(&state);
+    assert_eq!(payload.profile_legend.len(), 2);
+    assert_eq!(payload.profile_legend[0].name, "claude/private");
+    assert_eq!(payload.profile_legend[0].icon, "C");
+    assert_eq!(payload.profile_legend[0].color, (226, 124, 90));
+    assert_eq!(payload.profile_legend[1].name, "codex/private");
+    assert_eq!(payload.profile_legend[1].icon, "X");
+    assert_eq!(payload.profile_legend[1].color, (90, 192, 226));
 }
 
 #[test]
@@ -708,7 +724,7 @@ fn test_profile_unprofiled_plus_profiled_same_harness_hides() {
     let payload = build_render_payload(&state);
     assert!(!payload.show_agent_indicators);
     assert_eq!(payload.profile_legend.len(), 1);
-    assert_eq!(payload.profile_legend[0].name, "work");
+    assert_eq!(payload.profile_legend[0].name, "claude/work");
 }
 
 #[test]
@@ -748,9 +764,9 @@ fn test_profile_legend_content_and_order() {
 
     let payload = build_render_payload(&state);
     assert_eq!(payload.profile_legend.len(), 3);
-    assert_eq!(payload.profile_legend[0].name, "alpha");
-    assert_eq!(payload.profile_legend[1].name, "bravo");
-    assert_eq!(payload.profile_legend[2].name, "charlie");
+    assert_eq!(payload.profile_legend[0].name, "claude/alpha");
+    assert_eq!(payload.profile_legend[1].name, "claude/bravo");
+    assert_eq!(payload.profile_legend[2].name, "claude/charlie");
     assert_eq!(payload.profile_legend[0].color, (170, 170, 170));
     assert_eq!(payload.profile_legend[1].color, (187, 187, 187));
     assert_eq!(payload.profile_legend[2].color, (204, 204, 204));
@@ -769,9 +785,9 @@ fn test_profile_icon_hidden_with_one_harness() {
     assert!(!payload.show_agent_indicators);
     assert!(payload.sessions.iter().all(|s| s.agent_indicator.is_none()));
     // The legend still names the declared icon.
-    assert_eq!(payload.profile_legend[0].name, "private");
+    assert_eq!(payload.profile_legend[0].name, "claude/private");
     assert_eq!(payload.profile_legend[0].icon, "");
-    assert_eq!(payload.profile_legend[1].name, "work");
+    assert_eq!(payload.profile_legend[1].name, "claude/work");
     assert_eq!(payload.profile_legend[1].icon, "W");
 }
 

@@ -889,7 +889,8 @@ cc-deck config profile add private \
 The flags `--api-key-env`, `--api-key-file`, `--oauth-token-env`, `--oauth-token-file`, and `--login` are mutually exclusive.
 In interactive mode, the Claude harness offers an API key, a subscription token, or the interactive login as the auth method.
 
-When this is the first profile in the configuration, `default_profile` is set to it automatically.
+When this is the first profile in the configuration, `default_profile` is set to its qualified `harness/name` selector automatically.
+The same name can be added under another harness; adding an existing harness and name pair fails.
 
 ==== profile list
 
@@ -908,7 +909,7 @@ The table includes the following columns:
 | Column | Description
 
 | NAME
-| Profile name
+| Synced wrapper command name (for example, `claude-private`); JSON and YAML include separate short-name and `harness` fields
 
 | HARNESS
 | Agent harness (`claude`, `codex`, `opencode`)
@@ -931,10 +932,11 @@ The table includes the following columns:
 Display all fields of a single profile.
 The output includes the resolved wrapper command name (for example `claude-work`) and the display color, whether explicitly configured or derived from the profile name.
 Source references are shown (environment variable names, file paths) but credential values are never printed.
+Use `harness/name` when two harnesses share a name. A bare name works only when it identifies one profile; an ambiguous name fails and lists the qualified choices.
 
 [source,bash]
 ----
-cc-deck config profile show work
+cc-deck config profile show claude/work
 ----
 
 ==== profile use
@@ -945,7 +947,7 @@ It does not affect wrapper commands or the sidebar.
 
 [source,bash]
 ----
-cc-deck config profile use myprofile
+cc-deck config profile use claude/private
 ----
 
 ==== profile delete
@@ -956,7 +958,7 @@ The command prints a reminder to run `sync` to remove the corresponding wrapper 
 
 [source,bash]
 ----
-cc-deck config profile delete work
+cc-deck config profile delete claude/work
 ----
 
 ==== profile sync

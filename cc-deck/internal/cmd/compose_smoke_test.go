@@ -49,7 +49,8 @@ func buildTestBinary(t *testing.T) string {
 // ccd runs the cc-deck CLI binary with the given args and env overrides.
 func ccd(t *testing.T, bin string, env map[string]string, args ...string) (string, error) {
 	t.Helper()
-	cmd := exec.Command(bin, args...)
+	cliArgs := append([]string{"--config", env["CC_DECK_TEST_CONFIG_FILE"]}, args...)
+	cmd := exec.Command(bin, cliArgs...)
 	// Avoid discovering the developer checkout's repository and workspace config.
 	cmd.Dir = env["PWD"]
 	cmd.Env = os.Environ()
@@ -76,10 +77,14 @@ func setupComposeSmokeEnv(t *testing.T) (envVars map[string]string, projectDir s
 		filepath.Join(projectDir, "go.mod"),
 		[]byte("module test-project\n"), 0o644))
 
+	configFile := filepath.Join(stateDir, "config.yaml")
+	require.NoError(t, os.WriteFile(configFile, []byte("{}\n"), 0o600))
+
 	envVars = map[string]string{
 		"CC_DECK_STATE_FILE":       filepath.Join(stateDir, "state.yaml"),
 		"CC_DECK_WORKSPACES_FILE":  filepath.Join(stateDir, "workspaces.yaml"),
 		"CC_DECK_SHARE_STATE_FILE": filepath.Join(stateDir, "share.yaml"),
+		"CC_DECK_TEST_CONFIG_FILE": configFile,
 		"PWD":                      projectDir,
 		"ZELLIJ":                   "",
 		"ZELLIJ_SESSION_NAME":      "",

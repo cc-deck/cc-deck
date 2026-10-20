@@ -245,21 +245,25 @@ Define named profiles in `config.yaml` to run different accounts or credentials 
 
 ```yaml
 profiles:
-  work:
-    harness: claude
-    backend: vertex
-    project: acme-ml
-    region: us-east5
-    model: claude-sonnet-5
-    auth:
-      credentials: {file: ~/.config/gcloud/acme-adc.json}
-    color: "#5AC0E2"
-  private:
-    harness: claude
-    model: claude-opus-5
-    auth:
-      oauth_token: {env: CLAUDE_TOKEN_PRIVATE}   # from `claude setup-token`
-    color: "#E27C5A"
+  claude:
+    work:
+      backend: vertex
+      project: acme-ml
+      region: us-east5
+      model: claude-sonnet-5
+      auth:
+        credentials: {file: ~/.config/gcloud/acme-adc.json}
+      color: "#5AC0E2"
+    private:
+      model: claude-opus-5
+      auth:
+        oauth_token: {env: CLAUDE_TOKEN_PRIVATE}   # from `claude setup-token`
+      color: "#E27C5A"
+  codex:
+    private:
+      auth:
+        api_key: {env: OPENAI_API_KEY_PRIVATE}
+      color: "#5AC0E2"
 ```
 
 After editing profiles, run the sync command to generate or update the wrapper scripts:
@@ -269,6 +273,8 @@ cc-deck config profile sync
 ```
 
 Every session started through a profile wrapper carries an edge bar in its profile color on the left of its sidebar entry, so you can tell accounts apart at a glance. `config profile add` picks a color that is distinct from your existing profiles. Profiles, including subscription tokens, travel to SSH and OpenShell workspaces through the existing credential transport, and snapshots preserve which profile each session was running under so that restore brings every session back with the correct account.
+
+Profile names are unique within a harness. The example creates both `claude-private` and `codex-private`. The human profile list displays these wrapper command names; JSON and YAML retain separate profile-name and harness fields. Use `claude/private` or `codex/private` with `config profile show`, `use`, and `delete`; a bare `private` works only while it identifies one profile. Credential files are isolated under `~/.config/cc-deck/profiles/<harness>/<name>/`.
 
 ### Multi-platform
 

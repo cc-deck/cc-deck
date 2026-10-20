@@ -484,12 +484,27 @@ var harnessBackends = map[string][]BackendType{
 }
 
 // validateProfiles checks profile configurations and default_profile reference.
-func validateProfiles(profiles map[string]Profile, defaultProfile string) []Finding {
+func validateProfiles(profileInput interface{}, defaultProfile string) []Finding {
 	var findings []Finding
+	var profiles ProfileGroups
+	switch p := profileInput.(type) {
+	case ProfileGroups:
+		profiles = p
+	case map[string]Profile:
+		profiles = ProfileGroupsFromFlat(p)
+	case nil:
+		profiles = nil
+	default:
+		return []Finding{{Severity: SeverityError, Category: CategoryProfiles, Message: "invalid profile map"}}
+	}
 
-	for name, profile := range profiles {
+	cfg := &Config{Profiles: profiles}
+	for _, key := range cfg.ListProfileKeys() {
+		name := key.String()
+		profile := profiles[key.Harness][key.Name]
+		profile.Harness = key.Harness
 		// Name pattern
-		if !profileNameRegex.MatchString(name) {
+		if !profileNameRegex.MatchString(key.Name) {
 			findings = append(findings, Finding{
 				Severity:   SeverityError,
 				Category:   CategoryProfiles,
@@ -498,7 +513,7 @@ func validateProfiles(profiles map[string]Profile, defaultProfile string) []Find
 			})
 		}
 
-		harness := profile.HarnessName()
+		harness := key.Harness
 
 		// Known harness
 		known := false
@@ -625,16 +640,13 @@ func validateProfiles(profiles map[string]Profile, defaultProfile string) []Find
 	}
 
 	// Check default_profile reference
-	if defaultProfile != "" && len(profiles) > 0 {
-		if _, ok := profiles[defaultProfile]; !ok {
-			names := make([]string, 0, len(profiles))
-			for n := range profiles {
-				names = append(names, n)
-			}
+	if defaultProfile != "" {
+		if _, err := cfg.ResolveProfileRef(defaultProfile); err != nil {
+			names := cfg.ListProfiles()
 			findings = append(findings, Finding{
 				Severity:   SeverityError,
 				Category:   CategoryProfiles,
-				Message:    fmt.Sprintf("default_profile %q does not match any defined profile", defaultProfile),
+				Message:    fmt.Sprintf("default_profile %q is invalid: %s", defaultProfile, err),
 				Suggestion: fmt.Sprintf("available profiles: %s", strings.Join(names, ", ")),
 			})
 		}

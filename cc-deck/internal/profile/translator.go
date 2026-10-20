@@ -189,7 +189,7 @@ func resolve(name string, p config.Profile, a agent.Agent, dataHome, configHome 
 		Project:   p.Project,
 		Region:    p.Region,
 		ConfigDir: filepath.Join(dataHome, "cc-deck", "profiles", name, harness),
-		CredDir:   filepath.Join(configHome, "cc-deck", "profiles", name),
+		CredDir:   filepath.Join(configHome, "cc-deck", "profiles", harness, name),
 		BinDir:    filepath.Join(dataHome, "cc-deck", "bin"),
 	}
 

@@ -35,10 +35,12 @@ func Sync(cfg *config.Config, home string) (SyncResult, error) {
 	written := map[string]bool{}
 
 	invalid := invalidProfiles(cfg)
-	for _, name := range cfg.ListProfiles() {
-		p := cfg.Profiles[name]
-		if reason, bad := invalid[name]; bad {
-			result.Skipped = append(result.Skipped, Skip{Profile: name, Reason: reason})
+	for _, key := range cfg.ListProfileKeys() {
+		name := key.Name
+		p := cfg.Profiles[key.Harness][key.Name]
+		p.Harness = key.Harness
+		if reason, bad := invalid[key.String()]; bad {
+			result.Skipped = append(result.Skipped, Skip{Profile: key.String(), Reason: reason})
 			continue
 		}
 		harness := p.HarnessName()
@@ -47,7 +49,7 @@ func Sync(cfg *config.Config, home string) (SyncResult, error) {
 		a := agent.Get(harness)
 		if a == nil {
 			result.Skipped = append(result.Skipped, Skip{
-				Profile: name,
+				Profile: key.String(),
 				Reason:  fmt.Sprintf("unknown agent %q", harness),
 			})
 			continue
@@ -56,7 +58,7 @@ func Sync(cfg *config.Config, home string) (SyncResult, error) {
 		tr, ok := Lookup(harness)
 		if !ok {
 			result.Skipped = append(result.Skipped, Skip{
-				Profile: name,
+				Profile: key.String(),
 				Reason:  fmt.Sprintf("no translator for harness %q", harness),
 			})
 			continue
@@ -65,7 +67,7 @@ func Sync(cfg *config.Config, home string) (SyncResult, error) {
 		// Check if the harness binary is installed.
 		if !a.IsInstalled() {
 			result.Skipped = append(result.Skipped, Skip{
-				Profile: name,
+				Profile: key.String(),
 				Reason:  fmt.Sprintf("%s is not installed", a.Binary()),
 			})
 			continue
@@ -75,7 +77,7 @@ func Sync(cfg *config.Config, home string) (SyncResult, error) {
 		auth := p.EffectiveAuth()
 		if isSecretOnly(auth) {
 			result.Skipped = append(result.Skipped, Skip{
-				Profile: name,
+				Profile: key.String(),
 				Reason:  "secret source is only available on Kubernetes",
 			})
 			continue
@@ -85,21 +87,21 @@ func Sync(cfg *config.Config, home string) (SyncResult, error) {
 		rp, err := Resolve(name, p, a)
 		if err != nil {
 			result.Skipped = append(result.Skipped, Skip{
-				Profile: name,
+				Profile: key.String(),
 				Reason:  err.Error(),
 			})
 			continue
 		}
 
-		result.Warnings = append(result.Warnings, envOverrideWarnings(name, p, tr)...)
+		result.Warnings = append(result.Warnings, envOverrideWarnings(key.String(), p, tr)...)
 
 		// Resolve credentials; warn but don't fail on missing.
-		_, credErr := credential.ResolveProfile(name, p)
+		_, credErr := credential.ResolveProfile(key.String(), p)
 		if credErr != nil {
 			// Credential resolution failures are warnings: the wrapper
 			// script includes a runtime check that will fail gracefully.
 			result.Warnings = append(result.Warnings,
-				fmt.Sprintf("profile %q: %s", name, credErr.Error()),
+				fmt.Sprintf("profile %q: %s", key.String(), credErr.Error()),
 			)
 		}
 
@@ -112,19 +114,19 @@ func Sync(cfg *config.Config, home string) (SyncResult, error) {
 		prepWarnings, err := tr.PrepareConfigDir(rp, defaultDir)
 		if err != nil {
 			result.Skipped = append(result.Skipped, Skip{
-				Profile: name,
+				Profile: key.String(),
 				Reason:  err.Error(),
 			})
 			continue
 		}
 		for _, w := range prepWarnings {
-			result.Warnings = append(result.Warnings, fmt.Sprintf("profile %q: %s", name, w))
+			result.Warnings = append(result.Warnings, fmt.Sprintf("profile %q: %s", key.String(), w))
 		}
 
 		// Install hooks in the per-profile config dir.
 		if err := a.InstallHooksAt(rp.ConfigDir); err != nil {
 			result.Warnings = append(result.Warnings,
-				fmt.Sprintf("profile %q: hook install: %s", name, err.Error()),
+				fmt.Sprintf("profile %q: hook install: %s", key.String(), err.Error()),
 			)
 		}
 
@@ -137,7 +139,7 @@ func Sync(cfg *config.Config, home string) (SyncResult, error) {
 		ws, err := tr.Render(rp)
 		if err != nil {
 			result.Skipped = append(result.Skipped, Skip{
-				Profile: name,
+				Profile: key.String(),
 				Reason:  err.Error(),
 			})
 			continue
@@ -146,7 +148,7 @@ func Sync(cfg *config.Config, home string) (SyncResult, error) {
 		// Guard FR-012: never write a file named after a bare harness binary.
 		if ws.Name == a.Binary() {
 			result.Skipped = append(result.Skipped, Skip{
-				Profile: name,
+				Profile: key.String(),
 				Reason:  fmt.Sprintf("wrapper name %q equals the harness binary", ws.Name),
 			})
 			continue
@@ -222,10 +224,12 @@ func Provision(cfg *config.Config, t Target) (SyncResult, error) {
 	prepareLines = append(prepareLines, fmt.Sprintf("mkdir -p %s", shQuote(binDir)))
 
 	invalid := invalidProfiles(cfg)
-	for _, name := range cfg.ListProfiles() {
-		p := cfg.Profiles[name]
-		if reason, bad := invalid[name]; bad {
-			result.Skipped = append(result.Skipped, Skip{Profile: name, Reason: reason})
+	for _, key := range cfg.ListProfileKeys() {
+		name := key.Name
+		p := cfg.Profiles[key.Harness][key.Name]
+		p.Harness = key.Harness
+		if reason, bad := invalid[key.String()]; bad {
+			result.Skipped = append(result.Skipped, Skip{Profile: key.String(), Reason: reason})
 			continue
 		}
 		harness := p.HarnessName()
@@ -233,7 +237,7 @@ func Provision(cfg *config.Config, t Target) (SyncResult, error) {
 		// Check if the harness is in the target's agent list.
 		if !availableAgents[harness] {
 			result.Skipped = append(result.Skipped, Skip{
-				Profile: name,
+				Profile: key.String(),
 				Reason:  fmt.Sprintf("agent %q not in target agent list", harness),
 			})
 			continue
@@ -242,7 +246,7 @@ func Provision(cfg *config.Config, t Target) (SyncResult, error) {
 		a := agent.Get(harness)
 		if a == nil {
 			result.Skipped = append(result.Skipped, Skip{
-				Profile: name,
+				Profile: key.String(),
 				Reason:  fmt.Sprintf("unknown agent %q", harness),
 			})
 			continue
@@ -251,7 +255,7 @@ func Provision(cfg *config.Config, t Target) (SyncResult, error) {
 		tr, ok := Lookup(harness)
 		if !ok {
 			result.Skipped = append(result.Skipped, Skip{
-				Profile: name,
+				Profile: key.String(),
 				Reason:  fmt.Sprintf("no translator for harness %q", harness),
 			})
 			continue
@@ -260,7 +264,7 @@ func Provision(cfg *config.Config, t Target) (SyncResult, error) {
 		// Check if the harness binary is present on the remote.
 		if _, err := t.Run(fmt.Sprintf("command -v %s", a.Binary())); err != nil {
 			result.Skipped = append(result.Skipped, Skip{
-				Profile: name,
+				Profile: key.String(),
 				Reason:  fmt.Sprintf("%s not found on remote", a.Binary()),
 			})
 			continue
@@ -270,7 +274,7 @@ func Provision(cfg *config.Config, t Target) (SyncResult, error) {
 		auth := p.EffectiveAuth()
 		if isSecretOnly(auth) {
 			result.Skipped = append(result.Skipped, Skip{
-				Profile: name,
+				Profile: key.String(),
 				Reason:  "secret source is only available on Kubernetes",
 			})
 			continue
@@ -280,19 +284,19 @@ func Provision(cfg *config.Config, t Target) (SyncResult, error) {
 		rp, err := resolve(name, p, a, home+"/.local/share", home+"/.config")
 		if err != nil {
 			result.Skipped = append(result.Skipped, Skip{
-				Profile: name,
+				Profile: key.String(),
 				Reason:  err.Error(),
 			})
 			continue
 		}
 
-		result.Warnings = append(result.Warnings, envOverrideWarnings(name, p, tr)...)
+		result.Warnings = append(result.Warnings, envOverrideWarnings(key.String(), p, tr)...)
 
 		// Render the wrapper.
 		ws, err := tr.Render(rp)
 		if err != nil {
 			result.Skipped = append(result.Skipped, Skip{
-				Profile: name,
+				Profile: key.String(),
 				Reason:  err.Error(),
 			})
 			continue
@@ -301,7 +305,7 @@ func Provision(cfg *config.Config, t Target) (SyncResult, error) {
 		// Guard FR-012: never upload a file named after a bare harness binary.
 		if ws.Name == a.Binary() {
 			result.Skipped = append(result.Skipped, Skip{
-				Profile: name,
+				Profile: key.String(),
 				Reason:  fmt.Sprintf("wrapper name %q equals the harness binary", ws.Name),
 			})
 			continue
@@ -313,7 +317,7 @@ func Provision(cfg *config.Config, t Target) (SyncResult, error) {
 			return result, fmt.Errorf("upload wrapper %s: %w", ws.Name, err)
 		}
 		uploaded[ws.Name] = true
-		provisioned[name] = true
+		provisioned[key.String()] = true
 		result.Written = append(result.Written, ws.Name)
 
 		// Add config dir setup to prepare.sh.
@@ -353,24 +357,24 @@ func Provision(cfg *config.Config, t Target) (SyncResult, error) {
 		)
 
 		// Upload file credentials.
-		creds, credErr := credential.ResolveProfile(name, p)
+		creds, credErr := credential.ResolveProfile(key.String(), p)
 		if credErr != nil {
 			result.Warnings = append(result.Warnings,
-				fmt.Sprintf("profile %q: %s", name, credErr.Error()),
+				fmt.Sprintf("profile %q: %s", key.String(), credErr.Error()),
 			)
 		} else if creds != nil {
 			for _, fc := range creds.FileCredentials {
 				data, err := os.ReadFile(fc.LocalPath)
 				if err != nil {
 					result.Warnings = append(result.Warnings,
-						fmt.Sprintf("profile %q: cannot read credential file %s: %s", name, fc.LocalPath, err.Error()),
+						fmt.Sprintf("profile %q: cannot read credential file %s: %s", key.String(), fc.LocalPath, err.Error()),
 					)
 					continue
 				}
 				remotePath := credDir + "/" + fc.EnvVar
 				if err := t.Upload(remotePath, data, 0600); err != nil {
 					result.Warnings = append(result.Warnings,
-						fmt.Sprintf("profile %q: upload credential %s: %s", name, fc.EnvVar, err.Error()),
+						fmt.Sprintf("profile %q: upload credential %s: %s", key.String(), fc.EnvVar, err.Error()),
 					)
 				}
 			}
@@ -458,15 +462,16 @@ func EnvCredentials(cfg *config.Config, agents []string) map[string]string {
 	invalid := invalidProfiles(cfg)
 
 	env := map[string]string{}
-	for _, name := range cfg.ListProfiles() {
-		if _, bad := invalid[name]; bad {
+	for _, key := range cfg.ListProfileKeys() {
+		if _, bad := invalid[key.String()]; bad {
 			continue
 		}
-		p := cfg.Profiles[name]
+		p := cfg.Profiles[key.Harness][key.Name]
+		p.Harness = key.Harness
 		if !available[p.HarnessName()] {
 			continue
 		}
-		creds, err := credential.ResolveProfile(name, p)
+		creds, err := credential.ResolveProfile(key.String(), p)
 		if err != nil || creds == nil {
 			continue
 		}
@@ -519,14 +524,15 @@ func colorCollisionWarnings(cfg *config.Config, only map[string]bool) []string {
 	invalid := invalidProfiles(cfg)
 	type entry struct{ name, color string }
 	var entries []entry
-	for _, name := range cfg.ListProfiles() {
-		if _, bad := invalid[name]; bad {
+	for _, key := range cfg.ListProfileKeys() {
+		name := key.Name
+		if _, bad := invalid[key.String()]; bad {
 			continue
 		}
-		if only != nil && !only[name] {
+		if only != nil && !only[key.String()] {
 			continue
 		}
-		entries = append(entries, entry{name, EffectiveColor(name, cfg.Profiles[name])})
+		entries = append(entries, entry{key.String(), EffectiveColor(name, cfg.Profiles[key.Harness][key.Name])})
 	}
 
 	var warnings []string
@@ -581,6 +587,10 @@ func envOverrideWarnings(name string, p config.Profile, t Translator) []string {
 // copyFileCredentials copies file-sourced credentials into the profile's
 // CredDir so the wrapper can reference them at a stable path.
 func copyFileCredentials(rp ResolvedProfile, p config.Profile, result *SyncResult) {
+	identity := rp.Name
+	if rp.Harness != nil {
+		identity = rp.Harness.Name() + "/" + rp.Name
+	}
 	auth := p.EffectiveAuth()
 	targets := []struct {
 		src  *config.CredentialSource
@@ -606,14 +616,14 @@ func copyFileCredentials(rp ResolvedProfile, p config.Profile, result *SyncResul
 		data, err := os.ReadFile(srcPath)
 		if err != nil {
 			result.Warnings = append(result.Warnings,
-				fmt.Sprintf("profile %q: cannot read credential file %s: %s", rp.Name, srcPath, err.Error()),
+				fmt.Sprintf("profile %q: cannot read credential file %s: %s", identity, srcPath, err.Error()),
 			)
 			continue
 		}
 
 		if err := os.MkdirAll(rp.CredDir, 0700); err != nil {
 			result.Warnings = append(result.Warnings,
-				fmt.Sprintf("profile %q: create cred dir: %s", rp.Name, err.Error()),
+				fmt.Sprintf("profile %q: create cred dir: %s", identity, err.Error()),
 			)
 			continue
 		}
@@ -621,7 +631,7 @@ func copyFileCredentials(rp ResolvedProfile, p config.Profile, result *SyncResul
 		dstPath := filepath.Join(rp.CredDir, t.name)
 		if err := os.WriteFile(dstPath, data, 0600); err != nil {
 			result.Warnings = append(result.Warnings,
-				fmt.Sprintf("profile %q: write credential %s: %s", rp.Name, t.name, err.Error()),
+				fmt.Sprintf("profile %q: write credential %s: %s", identity, t.name, err.Error()),
 			)
 		}
 	}

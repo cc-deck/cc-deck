@@ -1,9 +1,11 @@
 package session
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	// Blank imports to register agents via their init() functions.
 	_ "github.com/cc-deck/cc-deck/internal/agent"
@@ -26,9 +28,9 @@ func TestLaunchCommand_PreFeatureSnapshot_NoSession(t *testing.T) {
 
 func TestLaunchCommand_ClaudeWithProfile(t *testing.T) {
 	cfg := &config.Config{
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfileGroupsFromFlat(map[string]config.Profile{
 			"work": {Backend: config.BackendAnthropic},
-		},
+		}),
 	}
 	entry := SessionEntry{
 		Agent:     "claude",
@@ -40,9 +42,55 @@ func TestLaunchCommand_ClaudeWithProfile(t *testing.T) {
 	assert.Empty(t, warning)
 }
 
+func TestLaunchCommand_SameNameAcrossHarnesses(t *testing.T) {
+	cfg := &config.Config{Profiles: config.ProfileGroups{
+		"claude": {"private": {Auth: &config.AuthConfig{Login: true}, Color: "#E27C5A"}},
+		"codex":  {"private": {Auth: &config.AuthConfig{APIKey: &config.CredentialSource{Env: "CODEX_KEY"}}, Color: "#5AC0E2"}},
+	}}
+	claudeCmd, claudeWarning := launchCommand(SessionEntry{Agent: "claude", Profile: "private", SessionID: "claude-id"}, cfg)
+	codexCmd, codexWarning := launchCommand(SessionEntry{Agent: "codex", Profile: "private", SessionID: "codex-id"}, cfg)
+	assert.Equal(t, "claude-private --resume claude-id", claudeCmd)
+	assert.Equal(t, "codex-private resume codex-id", codexCmd)
+	assert.Empty(t, claudeWarning)
+	assert.Empty(t, codexWarning)
+	entries := []SessionEntry{
+		{Agent: "claude", Profile: "private", WorkingDir: "/work/claude"},
+		{Agent: "codex", Profile: "private", WorkingDir: "/work/codex"},
+	}
+	overrides := buildOverrides(entries, cfg)
+	assert.Equal(t, "#E27C5A", overrides["/work/claude"][0].ProfileColor)
+	assert.Equal(t, "#5AC0E2", overrides["/work/codex"][0].ProfileColor)
+}
+
+func TestSnapshotRoundTripRestoresSameNamedProfilesByHarness(t *testing.T) {
+	const dump = `{"sessions":{
+		"1":{"session_id":"claude-id","display_name":"claude","tab_index":0,"agent_name":"claude","profile":"private"},
+		"2":{"session_id":"codex-id","display_name":"codex","tab_index":1,"agent_name":"codex","profile":"private"}
+	}}`
+	sessions, err := parseDumpState([]byte(dump))
+	require.NoError(t, err)
+	snapshot := Snapshot{Version: 1, Name: "same-name", Sessions: buildEntries(sessions)}
+	data, err := json.Marshal(snapshot)
+	require.NoError(t, err)
+	var restored Snapshot
+	require.NoError(t, json.Unmarshal(data, &restored))
+	require.Len(t, restored.Sessions, 2)
+
+	cfg := &config.Config{Profiles: config.ProfileGroups{
+		"claude": {"private": {Auth: &config.AuthConfig{Login: true}}},
+		"codex":  {"private": {Auth: &config.AuthConfig{APIKey: &config.CredentialSource{Env: "CODEX_KEY"}}}},
+	}}
+	claudeCommand, claudeWarning := launchCommand(restored.Sessions[0], cfg)
+	codexCommand, codexWarning := launchCommand(restored.Sessions[1], cfg)
+	assert.Equal(t, "claude-private --resume claude-id", claudeCommand)
+	assert.Equal(t, "codex-private resume codex-id", codexCommand)
+	assert.Empty(t, claudeWarning)
+	assert.Empty(t, codexWarning)
+}
+
 func TestLaunchCommand_MissingProfile(t *testing.T) {
 	cfg := &config.Config{
-		Profiles: map[string]config.Profile{},
+		Profiles: config.ProfileGroupsFromFlat(map[string]config.Profile{}),
 	}
 	entry := SessionEntry{
 		Agent:     "claude",
@@ -67,9 +115,9 @@ func TestLaunchCommand_CodexAgent(t *testing.T) {
 
 func TestLaunchCommand_ProfileNoSessionID(t *testing.T) {
 	cfg := &config.Config{
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfileGroupsFromFlat(map[string]config.Profile{
 			"work": {Backend: config.BackendAnthropic},
-		},
+		}),
 	}
 	entry := SessionEntry{
 		Agent:   "claude",

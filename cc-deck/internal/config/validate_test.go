@@ -377,8 +377,8 @@ func TestValidateProfiles(t *testing.T) {
 			"bad": {Backend: BackendAnthropic},
 		}
 		findings := validateProfiles(profiles, "")
-		if f := findFinding(findings, SeverityError, "api_key_secret"); f == nil {
-			t.Error("expected error for missing api_key_secret")
+		if f := findFinding(findings, SeverityError, "auth.api_key"); f == nil {
+			t.Error("expected error for missing auth.api_key")
 		}
 	})
 
@@ -407,7 +407,7 @@ func TestValidateProfiles(t *testing.T) {
 			"dev": {Backend: BackendAnthropic, APIKeySecret: "secret"},
 		}
 		findings := validateProfiles(profiles, "nonexistent")
-		if f := findFinding(findings, SeverityError, "does not match"); f == nil {
+		if f := findFinding(findings, SeverityError, "is invalid"); f == nil {
 			t.Error("expected error for dangling default_profile")
 		}
 	})
@@ -693,9 +693,9 @@ func TestConfigValidate_MultipleCategories(t *testing.T) {
 				Values: map[string]string{"wide": "☰"}, // badge icon width finding
 			},
 		},
-		Profiles: map[string]Profile{
+		Profiles: ProfileGroupsFromFlat(map[string]Profile{
 			"bad": {Backend: BackendAnthropic},
-		},
+		}),
 		Defaults: Defaults{
 			Voice: VoiceDefaults{Threshold: intPtr(200)},
 		},
@@ -1119,7 +1119,7 @@ func TestValidateProfiles_OAuthToken(t *testing.T) {
 			if f == nil {
 				t.Fatalf("expected error containing %q, got %+v", tc.wantMsg, findings)
 			}
-			if !strings.Contains(f.Message, `profile "private"`) {
+			if !strings.Contains(f.Message, `profile "`+tc.profile.HarnessName()+`/private"`) {
 				t.Errorf("message %q does not name the profile", f.Message)
 			}
 		})

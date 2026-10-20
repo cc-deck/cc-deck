@@ -3,6 +3,8 @@
 A developer often has more than one account for the same AI agent.
 For example, company access through Vertex AI for work projects and a personal subscription for private experimentation.
 Harness profiles let you define named configurations in `config.yaml`, each with its own credentials, model, and display color.
+Place each profile under its harness group in `profiles`; the same short name can appear in different harness groups.
+Older flat profile entries must be moved under their harness group before using this version.
 Running `cc-deck config profile sync` generates one wrapper command per profile (such as `claude-work` or `codex-team`) that sets the right environment before launching the harness.
 The plain `claude`, `codex`, or `opencode` command is never modified.
 
@@ -24,23 +26,27 @@ Then add both accounts to `~/.config/cc-deck/config.yaml`:
 
 [source,yaml]
 ----
-default_profile: work
+default_profile: claude/work
 profiles:
-  work:
-    harness: claude
-    backend: vertex
-    project: acme-ml
-    region: us-east5
-    model: claude-sonnet-5
-    auth:
-      credentials: {file: ~/.config/gcloud/acme-adc.json}
-    color: "#5AC0E2"
-  private:
-    harness: claude
-    model: claude-opus-5
-    auth:
-      oauth_token: {env: CLAUDE_TOKEN_PRIVATE}
-    color: "#E27C5A"
+  claude:
+    work:
+      backend: vertex
+      project: acme-ml
+      region: us-east5
+      model: claude-sonnet-5
+      auth:
+        credentials: {file: ~/.config/gcloud/acme-adc.json}
+      color: "#5AC0E2"
+    private:
+      model: claude-opus-5
+      auth:
+        oauth_token: {env: CLAUDE_TOKEN_PRIVATE}
+      color: "#E27C5A"
+  codex:
+    private:
+      auth:
+        api_key: {env: OPENAI_API_KEY_PRIVATE}
+      color: "#5AC0E2"
 ----
 
 Run the sync command to generate wrappers:
@@ -50,7 +56,7 @@ Run the sync command to generate wrappers:
 cc-deck config profile sync
 ----
 
-The sync creates two wrapper commands on your `PATH`: `claude-work` and `claude-private`.
+The sync creates three wrapper commands on your `PATH`: `claude-work`, `claude-private`, and `codex-private`.
 If this is the first sync, the output will remind you to open a new shell so the updated `PATH` takes effect.
 
 Now open two panes in your workspace.
@@ -59,6 +65,9 @@ In the other, type `claude-private` to start a session with your personal subscr
 Both sessions appear in the sidebar, each marked with a bar in its profile color.
 
 The plain `claude` command continues to work exactly as before, with no profile and no `CC_DECK_PROFILE` variable.
+The sidebar legend labels profiled sessions with both harness and name, such as `claude/private` and `codex/private`.
+Use the same qualified form to select one profile with `config profile show`, `use`, or `delete`.
+A bare name works only while it belongs to one harness.
 
 == Profile Schema
 
@@ -69,9 +78,9 @@ See xref:reference:configuration.adoc[Configuration Reference] for the complete 
 |===
 | Field | Required | Description
 
-| `harness`
-| No (defaults to `claude`)
-| The agent binary: `claude`, `codex`, or `opencode`.
+| Outer harness group
+| Yes
+| Place each profile under `profiles.claude`, `profiles.codex`, or `profiles.opencode`.
 
 | `backend`
 | No
@@ -163,7 +172,7 @@ See xref:sessions.adoc[Sessions] for more on snapshot save and restore.
 == Subscriptions in Remote Workspaces
 
 A subscription token profile (`auth.oauth_token`) works in SSH and OpenShell workspaces without any login step.
-The token travels through the credential transport like an API key: an `env` source lands in the remote credential environment, and a `file` source is copied to `~/.config/cc-deck/profiles/<name>/oauth_token` with mode 0600.
+The token travels through the credential transport like an API key: an `env` source lands in the remote credential environment, and a `file` source is copied to `~/.config/cc-deck/profiles/<harness>/<name>/oauth_token` with mode 0600.
 The wrapper itself references the token only by variable name or file path.
 On SSH workspaces, an `env` source is written in plain text to `~/.config/cc-deck/credentials.env` (mode 0600), which remote shells source, together with the other transported credentials.
 `cc-deck ws refresh-creds` rewrites that file with the same set, so a refresh keeps profile tokens.
@@ -250,6 +259,8 @@ cc-deck config profile list
 ----
 
 The output shows columns for NAME, HARNESS, BACKEND, AUTH, MODEL, and DEFAULT.
+NAME uses the synced wrapper command, such as `claude-private` or `codex-private`.
+JSON and YAML output keep the short profile name and harness in separate fields.
 A subscription token profile shows `token:env:NAME` or `token:file` in the AUTH column.
 Add `-o json` or `-o yaml` for machine-readable output.
 
@@ -257,7 +268,7 @@ Add `-o json` or `-o yaml` for machine-readable output.
 
 [source,bash]
 ----
-cc-deck config profile show work
+cc-deck config profile show claude/work
 ----
 
 The output displays all fields including the resolved wrapper name and the derived or explicit color.
@@ -267,7 +278,7 @@ Credential references are shown (for example, the environment variable name), bu
 
 [source,bash]
 ----
-cc-deck config profile delete work
+cc-deck config profile delete claude/work
 ----
 
 If the deleted profile was the default, `default_profile` is cleared.
@@ -277,10 +288,10 @@ The command prints a reminder to run `cc-deck config profile sync` to remove the
 
 [source,bash]
 ----
-cc-deck config profile use private
+cc-deck config profile use claude/private
 ----
 
-This sets `default_profile` in the config.
+This saves `default_profile: claude/private` in the config.
 The default profile is used by Kubernetes deploy and git credential resolution.
 It does not affect which wrapper command you type in a terminal; each wrapper is independent.
 

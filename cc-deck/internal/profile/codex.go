@@ -81,7 +81,7 @@ func (c *codexTranslator) Render(rp ResolvedProfile) (WrapperScript, error) {
 			lines.CredentialChecks = append(lines.CredentialChecks, envCheckBlock(rp.Name, rp.APIKey.Env))
 			lines.CredentialExports = append(lines.CredentialExports, fmt.Sprintf("export OPENAI_API_KEY=\"$%s\"", rp.APIKey.Env))
 		case config.SourceFile:
-			varRef := fmt.Sprintf("$HOME/.config/cc-deck/profiles/%s/api_key", rp.Name)
+			varRef := fmt.Sprintf("$HOME/.config/cc-deck/profiles/%s/%s/api_key", rp.Harness.Name(), rp.Name)
 			lines.CredentialChecks = append(lines.CredentialChecks,
 				fmt.Sprintf("_f=\"%s\"", varRef),
 			)

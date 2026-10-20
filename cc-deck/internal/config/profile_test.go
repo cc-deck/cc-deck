@@ -11,35 +11,34 @@ import (
 // workedExample is the YAML from contracts/profile-schema.md.
 const workedExample = `
 profiles:
-  work:
-    harness: claude
-    backend: vertex
-    project: acme-ml
-    region: us-east5
-    model: claude-sonnet-5
-    auth:
-      credentials: {file: ~/.config/gcloud/acme-adc.json}
-    color: "#5AC0E2"
-  private:
-    harness: claude
-    model: claude-opus-5
-    auth:
-      oauth_token: {env: CLAUDE_TOKEN_PRIVATE}
-    color: "#E27C5A"
-  team:
-    harness: codex
-    model: gpt-5
-    auth:
-      api_key: {env: OPENAI_API_KEY_TEAM}
+  claude:
+    work:
+      backend: vertex
+      project: acme-ml
+      region: us-east5
+      model: claude-sonnet-5
+      auth:
+        credentials: {file: ~/.config/gcloud/acme-adc.json}
+      color: "#5AC0E2"
+    private:
+      model: claude-opus-5
+      auth:
+        oauth_token: {env: CLAUDE_TOKEN_PRIVATE}
+      color: "#E27C5A"
+  codex:
+    team:
+      model: gpt-5
+      auth:
+        api_key: {env: OPENAI_API_KEY_TEAM}
 `
 
 func TestProfileYAMLRoundTrip(t *testing.T) {
 	var cfg Config
 	require.NoError(t, yaml.Unmarshal([]byte(workedExample), &cfg))
 
-	assert.Len(t, cfg.Profiles, 3)
+	assert.Len(t, cfg.ListProfileKeys(), 3)
 
-	work := cfg.Profiles["work"]
+	work := cfg.Profiles["claude"]["work"]
 	assert.Equal(t, "claude", work.HarnessName())
 	assert.Equal(t, BackendVertex, work.EffectiveBackend())
 	assert.Equal(t, "acme-ml", work.Project)
@@ -50,7 +49,7 @@ func TestProfileYAMLRoundTrip(t *testing.T) {
 	require.NotNil(t, work.Auth.Credentials)
 	assert.Equal(t, "~/.config/gcloud/acme-adc.json", work.Auth.Credentials.File)
 
-	priv := cfg.Profiles["private"]
+	priv := cfg.Profiles["claude"]["private"]
 	assert.Equal(t, "claude", priv.HarnessName())
 	assert.Equal(t, BackendAnthropic, priv.EffectiveBackend())
 	require.NotNil(t, priv.Auth)
@@ -61,7 +60,7 @@ func TestProfileYAMLRoundTrip(t *testing.T) {
 	require.NotNil(t, priv.EffectiveAuth().OAuthToken)
 	assert.NoError(t, priv.Validate())
 
-	team := cfg.Profiles["team"]
+	team := cfg.Profiles["codex"]["team"]
 	assert.Equal(t, "codex", team.HarnessName())
 	assert.Equal(t, BackendOpenAI, team.EffectiveBackend())
 	require.NotNil(t, team.Auth)
@@ -73,9 +72,93 @@ func TestProfileYAMLRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	var cfg2 Config
 	require.NoError(t, yaml.Unmarshal(out, &cfg2))
-	assert.Equal(t, len(cfg.Profiles), len(cfg2.Profiles))
-	assert.Equal(t, cfg.Profiles["private"], cfg2.Profiles["private"])
+	assert.Equal(t, len(cfg.ListProfileKeys()), len(cfg2.ListProfileKeys()))
+	assert.Equal(t, cfg.Profiles["claude"]["private"], cfg2.Profiles["claude"]["private"])
 	assert.Empty(t, validateProfiles(cfg2.Profiles, ""))
+}
+
+func TestHarnessScopedSelectors(t *testing.T) {
+	cfg := &Config{}
+	claude := Profile{Auth: &AuthConfig{Login: true}}
+	// Codex login is currently unsupported, so use an API key source.
+	codex := Profile{Auth: &AuthConfig{APIKey: &CredentialSource{Env: "CODEX_KEY"}}}
+	require.NoError(t, cfg.AddProfile(ProfileKey{"claude", "private"}, claude))
+	require.NoError(t, cfg.SetDefaultProfile("private"))
+	assert.Equal(t, "claude/private", cfg.DefaultProfile)
+	require.NoError(t, cfg.AddProfile(ProfileKey{"codex", "private"}, codex))
+	_, err := cfg.ResolveProfileRef("private")
+	require.ErrorContains(t, err, "ambiguous")
+	assert.ErrorContains(t, err, "claude/private")
+	assert.ErrorContains(t, err, "codex/private")
+	assert.Equal(t, "claude/private", cfg.DefaultProfile)
+	key, err := cfg.ResolveProfileRef("codex/private")
+	require.NoError(t, err)
+	assert.Equal(t, ProfileKey{"codex", "private"}, key)
+	require.Error(t, cfg.AddProfile(key, codex))
+	require.NoError(t, cfg.DeleteProfile(ProfileKey{"claude", "private"}))
+	_, err = cfg.GetProfileFor("codex", "private")
+	require.NoError(t, err)
+	assert.Empty(t, cfg.DefaultProfile)
+}
+
+func TestHarnessScopedYAMLStrictness(t *testing.T) {
+	for name, input := range map[string]string{
+		"legacy":                  "profiles:\n  private:\n    auth: {login: true}\n",
+		"duplicate harness":       "profiles:\n  claude: {}\n  claude: {}\n",
+		"duplicate name":          "profiles:\n  claude:\n    private: {auth: {login: true}}\n    private: {auth: {login: true}}\n",
+		"inner harness":           "profiles:\n  claude:\n    private: {harness: claude, auth: {login: true}}\n",
+		"unknown harness":         "profiles:\n  unknown:\n    private: {}\n",
+		"unknown profile field":   "profiles:\n  claude:\n    private: {auth: {login: true}, modle: typo}\n",
+		"duplicate profile field": "profiles:\n  claude:\n    private: {model: one, model: two}\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			var cfg Config
+			require.Error(t, yaml.Unmarshal([]byte(input), &cfg))
+		})
+	}
+}
+
+func TestUnknownNestedProfileFieldsAreRejected(t *testing.T) {
+	for _, tc := range []struct {
+		name, input, want string
+	}{
+		{"profile", "modle: typo", `unknown field "modle"`},
+		{"auth", "auth: {api_keey: {env: KEY}}", `unknown field "auth.api_keey"`},
+		{"credential source", "auth: {api_key: {enV: KEY}}", `unknown field "auth.api_key.enV"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var cfg Config
+			err := yaml.Unmarshal([]byte("profiles:\n  claude:\n    private: {"+tc.input+"}\n"), &cfg)
+			require.Error(t, err)
+			assert.ErrorContains(t, err, `profile "claude/private": `+tc.want)
+		})
+	}
+}
+
+func TestProfileEnvAllowsArbitraryKeys(t *testing.T) {
+	var cfg Config
+	err := yaml.Unmarshal([]byte("profiles:\n  claude:\n    private:\n      auth: {login: true}\n      env: {modle: preserved}\n"), &cfg)
+	require.NoError(t, err)
+	assert.Equal(t, "preserved", cfg.Profiles["claude"]["private"].Env["modle"])
+}
+
+func TestMigrationFixturePreservesProfilesAndDefault(t *testing.T) {
+	legacy := map[string]Profile{
+		"private": {Harness: "claude", Model: "claude-opus-5", Color: "#E27C5A", Auth: &AuthConfig{OAuthToken: &CredentialSource{File: "~/token"}}},
+		"team":    {Harness: "codex", Model: "gpt-5", Auth: &AuthConfig{APIKey: &CredentialSource{Env: "TEAM_KEY"}}},
+	}
+	cfg := &Config{Profiles: ProfileGroupsFromFlat(legacy)}
+	require.NoError(t, cfg.SetDefaultProfile("private"))
+	assert.Equal(t, "claude/private", cfg.DefaultProfile)
+	encoded, err := yaml.Marshal(cfg)
+	require.NoError(t, err)
+	assert.NotContains(t, string(encoded), "harness:")
+	var reloaded Config
+	require.NoError(t, yaml.Unmarshal(encoded, &reloaded))
+	assert.Equal(t, legacy["private"].Model, reloaded.Profiles["claude"]["private"].Model)
+	assert.Equal(t, legacy["private"].Auth.OAuthToken.File, reloaded.Profiles["claude"]["private"].Auth.OAuthToken.File)
+	assert.Equal(t, legacy["team"].Model, reloaded.Profiles["codex"]["team"].Model)
+	assert.Equal(t, "claude/private", reloaded.DefaultProfile)
 }
 
 func TestEffectiveAuth_Legacy(t *testing.T) {
@@ -208,8 +291,7 @@ func TestValidate_OAuthTokenSatisfiesAnthropic(t *testing.T) {
 	assert.Contains(t, err.Error(), "auth.api_key, auth.oauth_token or auth.login")
 }
 
-func TestPreFeatureFixtureLoadsWithoutFindings(t *testing.T) {
-	// SC-005: pre-feature config loads and validates without findings
+func TestPreFeatureFixtureRequiresMigration(t *testing.T) {
 	cfgYAML := `
 default_profile: prod
 profiles:
@@ -222,13 +304,8 @@ profiles:
     region: us-central1
 `
 	var cfg Config
-	require.NoError(t, yaml.Unmarshal([]byte(cfgYAML), &cfg))
-	findings := cfg.Validate()
-	for _, f := range findings {
-		if f.Category == CategoryProfiles && f.Severity == SeverityError {
-			t.Errorf("unexpected error finding: %s", f.Message)
-		}
-	}
+	err := yaml.Unmarshal([]byte(cfgYAML), &cfg)
+	require.ErrorContains(t, err, "expected profiles.<harness>.<name>")
 }
 
 func TestValidate_LegacyProfile(t *testing.T) {

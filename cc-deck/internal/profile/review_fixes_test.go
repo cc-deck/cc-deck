@@ -39,8 +39,8 @@ func TestClaudeRender_VertexBothFileSourcesUseDistinctVariables(t *testing.T) {
 	require.NoError(t, err)
 	script := string(ws.Content)
 
-	assert.Contains(t, script, `_f_apikey="$HOME/.config/cc-deck/profiles/work/api_key"`)
-	assert.Contains(t, script, `_f_creds="$HOME/.config/cc-deck/profiles/work/credentials"`)
+	assert.Contains(t, script, `_f_apikey="$HOME/.config/cc-deck/profiles/claude/work/api_key"`)
+	assert.Contains(t, script, `_f_creds="$HOME/.config/cc-deck/profiles/claude/work/credentials"`)
 	assert.Contains(t, script, `export ANTHROPIC_API_KEY="$(cat "$_f_apikey")"`)
 	assert.Contains(t, script, `export GOOGLE_APPLICATION_CREDENTIALS="$_f_creds"`)
 	assert.NotContains(t, script, `_f="`, "the shared _f variable must not be used")
@@ -113,14 +113,14 @@ func TestSync_SkipsProfilesFailingValidation(t *testing.T) {
 	t.Setenv("BAD_KEY", "secret-456")
 
 	cfg := &config.Config{
-		Profiles: map[string]config.Profile{
-			"good":      simpleClaudeProfile("GOOD_KEY"),
+		Profiles: config.ProfileGroupsFromFlat(map[string]config.Profile{
+			"good":       simpleClaudeProfile("GOOD_KEY"),
 			"bad$(name)": simpleClaudeProfile("BAD_KEY"),
 			"badenv": {
 				Harness: "claude",
 				Auth:    &config.AuthConfig{APIKey: &config.CredentialSource{Env: `X"; echo pwned; #`}},
 			},
-		},
+		}),
 	}
 
 	result, err := profile.Sync(cfg, home)
@@ -135,7 +135,7 @@ func TestSync_SkipsProfilesFailingValidation(t *testing.T) {
 	for _, s := range result.Skipped {
 		skipped[s.Profile] = s.Reason
 	}
-	assert.Contains(t, skipped["bad$(name)"], "config validation")
-	assert.Contains(t, skipped["badenv"], "config validation")
-	assert.Contains(t, skipped["badenv"], "not a valid variable name")
+	assert.Contains(t, skipped["claude/bad$(name)"], "config validation")
+	assert.Contains(t, skipped["claude/badenv"], "config validation")
+	assert.Contains(t, skipped["claude/badenv"], "not a valid variable name")
 }

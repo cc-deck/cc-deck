@@ -112,7 +112,7 @@ func (c *claudeTranslator) Render(rp ResolvedProfile) (WrapperScript, error) {
 			// Distinct variable per credential: all checks render before all
 			// exports, so a shared name would be clobbered by the credentials
 			// block below when both use file sources.
-			varRef := fmt.Sprintf("$HOME/.config/cc-deck/profiles/%s/api_key", rp.Name)
+			varRef := fmt.Sprintf("$HOME/.config/cc-deck/profiles/%s/%s/api_key", rp.Harness.Name(), rp.Name)
 			lines.CredentialChecks = append(lines.CredentialChecks,
 				fmt.Sprintf("_f_apikey=\"%s\"", varRef),
 			)
@@ -127,7 +127,7 @@ func (c *claudeTranslator) Render(rp ResolvedProfile) (WrapperScript, error) {
 			lines.CredentialChecks = append(lines.CredentialChecks, envCheckBlock(rp.Name, rp.OAuthToken.Env))
 			lines.CredentialExports = append(lines.CredentialExports, fmt.Sprintf("export CLAUDE_CODE_OAUTH_TOKEN=\"$%s\"", rp.OAuthToken.Env))
 		case config.SourceFile:
-			varRef := fmt.Sprintf("$HOME/.config/cc-deck/profiles/%s/oauth_token", rp.Name)
+			varRef := fmt.Sprintf("$HOME/.config/cc-deck/profiles/%s/%s/oauth_token", rp.Harness.Name(), rp.Name)
 			lines.CredentialChecks = append(lines.CredentialChecks,
 				fmt.Sprintf("_f_oauthtoken=\"%s\"", varRef),
 			)
@@ -142,7 +142,7 @@ func (c *claudeTranslator) Render(rp ResolvedProfile) (WrapperScript, error) {
 			lines.CredentialChecks = append(lines.CredentialChecks, envCheckBlock(rp.Name, rp.Credentials.Env))
 			lines.CredentialExports = append(lines.CredentialExports, fmt.Sprintf("export GOOGLE_APPLICATION_CREDENTIALS=\"$%s\"", rp.Credentials.Env))
 		case config.SourceFile:
-			varRef := fmt.Sprintf("$HOME/.config/cc-deck/profiles/%s/credentials", rp.Name)
+			varRef := fmt.Sprintf("$HOME/.config/cc-deck/profiles/%s/%s/credentials", rp.Harness.Name(), rp.Name)
 			lines.CredentialChecks = append(lines.CredentialChecks,
 				fmt.Sprintf("_f_creds=\"%s\"", varRef),
 			)

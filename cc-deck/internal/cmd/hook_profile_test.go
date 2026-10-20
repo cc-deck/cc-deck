@@ -42,17 +42,42 @@ func clearProfileEnv(t *testing.T) {
 }
 
 const hookProfileFixture = `profiles:
-  work:
-    harness: claude
-    auth:
-      login: true
-    color: "#4FC1E9"
-    icon: "W"
-  plain:
-    harness: claude
-    auth:
-      login: true
+  claude:
+    work:
+      auth:
+        login: true
+      color: "#4FC1E9"
+      icon: "W"
+    plain:
+      auth:
+        login: true
 `
+
+func TestEnrichProfile_SameNameUsesAgentContext(t *testing.T) {
+	withProfileConfig(t, `profiles:
+  claude:
+    private:
+      auth: {login: true}
+      color: "#E27C5A"
+      icon: "C"
+  codex:
+    private:
+      auth:
+        api_key: {env: CODEX_KEY}
+      color: "#5AC0E2"
+      icon: "X"
+`)
+	for _, tc := range []struct{ agent, color, icon string }{
+		{"claude", "#E27C5A", "C"},
+		{"codex", "#5AC0E2", "X"},
+	} {
+		payload := &agent.NormalizedPayload{Agent: tc.agent}
+		enrichProfileFrom(payload, profileEnv{Name: "private"})
+		if payload.ProfileColor != tc.color || payload.ProfileIcon != tc.icon {
+			t.Errorf("%s/private: color=%q icon=%q", tc.agent, payload.ProfileColor, payload.ProfileIcon)
+		}
+	}
+}
 
 func runProfiledHook(t *testing.T, env *hookTestEnv, profileName string) agent.NormalizedPayload {
 	t.Helper()
@@ -271,11 +296,11 @@ func TestRunHook_InvalidConfigColorDerives(t *testing.T) {
 	// plugin; the session still counts as profiled with the derived color.
 	env := newHookTestEnv(t)
 	withProfileConfig(t, `profiles:
-  work:
-    harness: claude
-    auth:
-      login: true
-    color: "red"
+  claude:
+    work:
+      auth:
+        login: true
+      color: "red"
 `)
 	got := runProfiledHook(t, env, "work")
 
@@ -296,7 +321,7 @@ func TestRunHook_ConfigIconSetsProfileIcon(t *testing.T) {
 
 func TestRunHook_UnsafeConfigIconIgnored(t *testing.T) {
 	env := newHookTestEnv(t)
-	withProfileConfig(t, "profiles:\n  work:\n    harness: claude\n    auth:\n      login: true\n    icon: \"\\e[2J\"\n")
+	withProfileConfig(t, "profiles:\n  claude:\n    work:\n      auth:\n        login: true\n      icon: \"\\e[2J\"\n")
 	got := runProfiledHook(t, env, "work")
 
 	if got.ProfileIcon != "" {

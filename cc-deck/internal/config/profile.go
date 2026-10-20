@@ -4,8 +4,11 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"reflect"
 	"sort"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 // BackendType represents the type of AI backend.
@@ -85,7 +88,7 @@ type Profile struct {
 	GitCredentialSecret string            `yaml:"git_credential_secret,omitempty"`
 
 	// New fields
-	Harness string            `yaml:"harness,omitempty"`
+	Harness string            `yaml:"-"`
 	Auth    *AuthConfig       `yaml:"auth,omitempty"`
 	Env     map[string]string `yaml:"env,omitempty"`
 	Color   string            `yaml:"color,omitempty"`
@@ -210,56 +213,287 @@ func (p *Profile) Validate() error {
 	return nil
 }
 
-// AddProfile adds or replaces a profile in the config.
-func (c *Config) AddProfile(name string, p Profile) error {
-	if err := p.Validate(); err != nil {
-		return fmt.Errorf("invalid profile %q: %w", name, err)
+// ProfileKey is the exact identity of a harness profile.
+type ProfileKey struct{ Harness, Name string }
+
+func (k ProfileKey) String() string { return k.Harness + "/" + k.Name }
+
+// ProfileGroups is the sole persisted profile schema: harness, then short name.
+type ProfileGroups map[string]map[string]Profile
+
+// ProfileGroupsFromFlat converts an in-memory legacy profile set. It does not
+// participate in loading config files, which only accept the nested schema.
+func ProfileGroupsFromFlat(flat map[string]Profile) ProfileGroups {
+	out := make(ProfileGroups)
+	for name, p := range flat {
+		h := p.HarnessName()
+		if out[h] == nil {
+			out[h] = make(map[string]Profile)
+		}
+		out[h][name] = p
 	}
-	if c.Profiles == nil {
-		c.Profiles = make(map[string]Profile)
+	return out
+}
+
+func (groups *ProfileGroups) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind != yaml.MappingNode {
+		return fmt.Errorf("profiles must group entries by harness: profiles.<harness>.<name>")
 	}
-	c.Profiles[name] = p
+	out := make(ProfileGroups)
+	for i := 0; i < len(node.Content); i += 2 {
+		h := node.Content[i].Value
+		if !knownHarness(h) {
+			return fmt.Errorf("profiles.%s: unknown harness or legacy flat profile; expected profiles.<harness>.<name> (claude, codex, opencode)", h)
+		}
+		if _, exists := out[h]; exists {
+			return fmt.Errorf("duplicate harness group %q", h)
+		}
+		group := node.Content[i+1]
+		if group.Kind != yaml.MappingNode {
+			return fmt.Errorf("profiles.%s must map profile names to definitions", h)
+		}
+		out[h] = make(map[string]Profile)
+		for j := 0; j < len(group.Content); j += 2 {
+			name := group.Content[j].Value
+			if _, exists := out[h][name]; exists {
+				return fmt.Errorf("duplicate profile %q", ProfileKey{h, name})
+			}
+			body := group.Content[j+1]
+			if body.Kind != yaml.MappingNode {
+				return fmt.Errorf("profile %q must be a mapping", ProfileKey{h, name})
+			}
+			key := ProfileKey{h, name}
+			if err := validateProfileYAMLFields(body, reflect.TypeOf(Profile{}), key, ""); err != nil {
+				return err
+			}
+			var p Profile
+			if err := body.Decode(&p); err != nil {
+				return fmt.Errorf("profile %q: %w", ProfileKey{h, name}, err)
+			}
+			p.Harness = h
+			out[h][name] = p
+		}
+	}
+	*groups = out
 	return nil
 }
 
-// GetProfile returns the profile with the given name.
-func (c *Config) GetProfile(name string) (Profile, error) {
-	p, ok := c.Profiles[name]
-	if !ok {
-		return Profile{}, fmt.Errorf("profile %q not found", name)
+func validateProfileYAMLFields(node *yaml.Node, typ reflect.Type, key ProfileKey, prefix string) error {
+	for typ.Kind() == reflect.Pointer {
+		typ = typ.Elem()
 	}
-	return p, nil
+
+	switch typ.Kind() {
+	case reflect.Struct:
+		if node.Kind != yaml.MappingNode {
+			return nil // The typed decoder below reports a shape mismatch.
+		}
+		fields := make(map[string]reflect.Type, typ.NumField())
+		for i := 0; i < typ.NumField(); i++ {
+			field := typ.Field(i)
+			tag := strings.Split(field.Tag.Get("yaml"), ",")[0]
+			if tag != "" && tag != "-" {
+				fields[tag] = field.Type
+			}
+		}
+		seen := make(map[string]struct{}, len(node.Content)/2)
+		for i := 0; i < len(node.Content); i += 2 {
+			name := node.Content[i].Value
+			fieldPath := name
+			if prefix != "" {
+				fieldPath = prefix + "." + name
+			}
+			if _, exists := seen[name]; exists {
+				return fmt.Errorf("profile %q: duplicate field %q", key, fieldPath)
+			}
+			seen[name] = struct{}{}
+			if prefix == "" && name == "harness" {
+				return fmt.Errorf("profile %q: remove inner harness; use profiles.%s.%s", key, key.Harness, key.Name)
+			}
+			fieldType, ok := fields[name]
+			if !ok {
+				return fmt.Errorf("profile %q: unknown field %q", key, fieldPath)
+			}
+			if err := validateProfileYAMLFields(node.Content[i+1], fieldType, key, fieldPath); err != nil {
+				return err
+			}
+		}
+	case reflect.Map:
+		if node.Kind != yaml.MappingNode {
+			return nil
+		}
+		seen := make(map[string]struct{}, len(node.Content)/2)
+		for i := 0; i < len(node.Content); i += 2 {
+			name := node.Content[i].Value
+			if _, exists := seen[name]; exists {
+				fieldPath := name
+				if prefix != "" {
+					fieldPath = prefix + "." + name
+				}
+				return fmt.Errorf("profile %q: duplicate field %q", key, fieldPath)
+			}
+			seen[name] = struct{}{}
+			if err := validateProfileYAMLFields(node.Content[i+1], typ.Elem(), key, prefix); err != nil {
+				return err
+			}
+		}
+	case reflect.Slice, reflect.Array:
+		if node.Kind != yaml.SequenceNode {
+			return nil
+		}
+		for _, item := range node.Content {
+			if err := validateProfileYAMLFields(item, typ.Elem(), key, prefix); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func knownHarness(h string) bool {
+	for _, candidate := range KnownHarnesses {
+		if h == candidate {
+			return true
+		}
+	}
+	return false
+}
+
+func validKey(k ProfileKey) error {
+	if !knownHarness(k.Harness) {
+		return fmt.Errorf("unknown harness %q", k.Harness)
+	}
+	if !profileNameRegex.MatchString(k.Name) {
+		return fmt.Errorf("invalid profile name %q", k.Name)
+	}
+	return nil
+}
+
+func (c *Config) ListProfileKeys() []ProfileKey {
+	keys := []ProfileKey{}
+	for h, group := range c.Profiles {
+		for name := range group {
+			keys = append(keys, ProfileKey{h, name})
+		}
+	}
+	sort.Slice(keys, func(i, j int) bool { return keys[i].String() < keys[j].String() })
+	return keys
+}
+
+func (c *Config) GetProfileFor(harness, name string) (Profile, error) {
+	if group := c.Profiles[harness]; group != nil {
+		if p, ok := group[name]; ok {
+			p.Harness = harness
+			return p, nil
+		}
+	}
+	return Profile{}, fmt.Errorf("profile %q not found", ProfileKey{harness, name})
+}
+
+func (c *Config) ResolveProfileRef(ref string) (ProfileKey, error) {
+	if strings.Contains(ref, "/") {
+		parts := strings.Split(ref, "/")
+		if len(parts) != 2 {
+			return ProfileKey{}, fmt.Errorf("invalid profile selector %q; use <harness>/<name>", ref)
+		}
+		k := ProfileKey{parts[0], parts[1]}
+		if err := validKey(k); err != nil {
+			return ProfileKey{}, err
+		}
+		if _, err := c.GetProfileFor(k.Harness, k.Name); err != nil {
+			return ProfileKey{}, err
+		}
+		return k, nil
+	}
+	if !profileNameRegex.MatchString(ref) {
+		return ProfileKey{}, fmt.Errorf("invalid profile selector %q; use <harness>/<name>", ref)
+	}
+	matches := []ProfileKey{}
+	for _, k := range c.ListProfileKeys() {
+		if k.Name == ref {
+			matches = append(matches, k)
+		}
+	}
+	if len(matches) == 1 {
+		return matches[0], nil
+	}
+	if len(matches) == 0 {
+		return ProfileKey{}, fmt.Errorf("profile %q not found", ref)
+	}
+	choices := make([]string, len(matches))
+	for i, k := range matches {
+		choices[i] = k.String()
+	}
+	return ProfileKey{}, fmt.Errorf("profile %q is ambiguous; use %s", ref, strings.Join(choices, " or "))
+}
+
+// AddProfile rejects an existing pair, including when the other harness has the same name.
+func (c *Config) AddProfile(key ProfileKey, p Profile) error {
+	if err := validKey(key); err != nil {
+		return err
+	}
+	if p.Harness != "" && p.Harness != key.Harness {
+		return fmt.Errorf("profile %q has inconsistent harness %q", key, p.Harness)
+	}
+	p.Harness = key.Harness
+	if err := p.Validate(); err != nil {
+		return fmt.Errorf("invalid profile %q: %w", key, err)
+	}
+	if c.Profiles == nil {
+		c.Profiles = make(ProfileGroups)
+	}
+	if c.Profiles[key.Harness] == nil {
+		c.Profiles[key.Harness] = make(map[string]Profile)
+	}
+	if _, exists := c.Profiles[key.Harness][key.Name]; exists {
+		return fmt.Errorf("profile %q already exists", key)
+	}
+	c.Profiles[key.Harness][key.Name] = p
+	return nil
+}
+
+// GetProfile resolves a qualified or unambiguous short name.
+func (c *Config) GetProfile(ref string) (Profile, error) {
+	k, err := c.ResolveProfileRef(ref)
+	if err != nil {
+		return Profile{}, err
+	}
+	return c.GetProfileFor(k.Harness, k.Name)
 }
 
 // DeleteProfile removes a profile from the config.
 // Returns an error if the profile does not exist.
-func (c *Config) DeleteProfile(name string) error {
-	if _, ok := c.Profiles[name]; !ok {
-		return fmt.Errorf("profile %q not found", name)
+func (c *Config) DeleteProfile(key ProfileKey) error {
+	if _, err := c.GetProfileFor(key.Harness, key.Name); err != nil {
+		return err
 	}
-	delete(c.Profiles, name)
-	if c.DefaultProfile == name {
+	defaultKey, defaultErr := c.ResolveProfileRef(c.DefaultProfile)
+	delete(c.Profiles[key.Harness], key.Name)
+	if len(c.Profiles[key.Harness]) == 0 {
+		delete(c.Profiles, key.Harness)
+	}
+	if c.DefaultProfile == key.String() || (defaultErr == nil && defaultKey == key) {
 		c.DefaultProfile = ""
 	}
 	return nil
 }
 
 // SetDefaultProfile sets the default profile, validating it exists.
-func (c *Config) SetDefaultProfile(name string) error {
-	if _, ok := c.Profiles[name]; !ok {
-		return fmt.Errorf("profile %q not found", name)
+func (c *Config) SetDefaultProfile(ref string) error {
+	k, err := c.ResolveProfileRef(ref)
+	if err != nil {
+		return err
 	}
-	c.DefaultProfile = name
+	c.DefaultProfile = k.String()
 	return nil
 }
 
 // ListProfiles returns a sorted list of profile names.
 func (c *Config) ListProfiles() []string {
-	names := make([]string, 0, len(c.Profiles))
-	for name := range c.Profiles {
-		names = append(names, name)
+	names := []string{}
+	for _, k := range c.ListProfileKeys() {
+		names = append(names, k.String())
 	}
-	sort.Strings(names)
 	return names
 }
 

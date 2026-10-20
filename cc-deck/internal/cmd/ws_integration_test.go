@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/cc-deck/cc-deck/internal/cmd"
+	"github.com/cc-deck/cc-deck/internal/xdg"
 )
 
 // buildRootCmd constructs a CLI tree identical to the real one but limited
@@ -30,6 +31,11 @@ func buildRootCmd(gf *cmd.GlobalFlags) *cobra.Command {
 // state file and definitions file via env vars.
 func setupTestWs(t *testing.T) (stateDir string) {
 	t.Helper()
+
+	// Keep the integration suite independent of the developer's real config.
+	originalConfigHome := xdg.ConfigHome
+	xdg.ConfigHome = t.TempDir()
+	t.Cleanup(func() { xdg.ConfigHome = originalConfigHome })
 
 	// Detach from any Zellij session the suite is being run from. Creating a
 	// canonical session is refused inside one, because the command would add a

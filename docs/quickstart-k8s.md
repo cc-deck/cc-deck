@@ -51,35 +51,37 @@ cc-deck config profile add my-profile
 **Example config.yaml** (Anthropic):
 
 ```yaml
-default_profile: my-profile
+default_profile: claude/my-profile
 defaults:
   namespace: my-namespace
   image: ghcr.io/anthropics/claude-code
   image_tag: latest
 profiles:
-  my-profile:
-    backend: anthropic
-    api_key_secret: anthropic-key
+  claude:
+    my-profile:
+      backend: anthropic
+      api_key_secret: anthropic-key
 ```
 
 **Example config.yaml** (Vertex AI):
 
 ```yaml
-default_profile: vertex-prod
+default_profile: claude/vertex-prod
 defaults:
   namespace: my-namespace
 profiles:
-  vertex-prod:
-    backend: vertex
-    project: my-gcp-project
-    region: us-central1
-    credentials_secret: gcp-creds
+  claude:
+    vertex-prod:
+      backend: vertex
+      project: my-gcp-project
+      region: us-central1
+      credentials_secret: gcp-creds
 ```
 
 Set the default profile:
 
 ```bash
-cc-deck config profile use my-profile
+cc-deck config profile use claude/my-profile
 cc-deck config profile list
 ```
 
@@ -170,11 +172,12 @@ Add to your profile in config.yaml:
 
 ```yaml
 profiles:
-  my-profile:
-    backend: anthropic
-    api_key_secret: anthropic-key
-    git_credential_type: ssh
-    git_credential_secret: git-ssh
+  claude:
+    my-profile:
+      backend: anthropic
+      api_key_secret: anthropic-key
+      git_credential_type: ssh
+      git_credential_secret: git-ssh
 ```
 
 ### Token-based
@@ -187,11 +190,12 @@ kubectl create secret generic git-token \
 
 ```yaml
 profiles:
-  my-profile:
-    backend: anthropic
-    api_key_secret: anthropic-key
-    git_credential_type: token
-    git_credential_secret: git-token
+  claude:
+    my-profile:
+      backend: anthropic
+      api_key_secret: anthropic-key
+      git_credential_type: token
+      git_credential_secret: git-token
 ```
 
 ## Global Flags
@@ -202,7 +206,7 @@ These flags work with any command:
 |------|-------------|---------|
 | `--kubeconfig` | Path to kubeconfig | `$KUBECONFIG` or `~/.kube/config` |
 | `--namespace` | Kubernetes namespace | From config or kubeconfig context |
-| `--profile` | Credential profile name | From config default |
+| `--profile` | Qualified `harness/name` or unique bare profile name | From config default |
 | `--config` | Config file path | `~/.config/cc-deck/config.yaml` |
 | `--verbose` | Verbose output | false |
 

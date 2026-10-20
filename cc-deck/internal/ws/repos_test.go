@@ -525,13 +525,14 @@ func TestLoadActiveGitCredentials_LegacyProfile(t *testing.T) {
 	t.Run("SSH legacy profile", func(t *testing.T) {
 		dir := t.TempDir()
 		cfgPath := dir + "/config.yaml"
-		cfgYAML := `default_profile: work
+		cfgYAML := `default_profile: claude/work
 profiles:
-  work:
-    backend: anthropic
-    api_key_secret: MY_API_KEY
-    git_credential_type: ssh
-    git_credential_secret: my-ssh-key
+  claude:
+    work:
+      backend: anthropic
+      api_key_secret: MY_API_KEY
+      git_credential_type: ssh
+      git_credential_secret: my-ssh-key
 `
 		if err := writeTestFile(cfgPath, cfgYAML); err != nil {
 			t.Fatalf("writing config: %v", err)
@@ -541,8 +542,8 @@ profiles:
 			t.Fatalf("config.Load: %v", err)
 		}
 		profileName := cfg.ResolveProfile("")
-		if profileName != "work" {
-			t.Fatalf("expected profile 'work', got %q", profileName)
+		if profileName != "claude/work" {
+			t.Fatalf("expected profile 'claude/work', got %q", profileName)
 		}
 		p, err := cfg.GetProfile(profileName)
 		if err != nil {
@@ -565,13 +566,14 @@ profiles:
 
 		dir := t.TempDir()
 		cfgPath := dir + "/config.yaml"
-		cfgYAML := `default_profile: ci
+		cfgYAML := `default_profile: claude/ci
 profiles:
-  ci:
-    backend: anthropic
-    api_key_secret: MY_API_KEY
-    git_credential_type: token
-    git_credential_secret: LEGACY_GIT_TOKEN
+  claude:
+    ci:
+      backend: anthropic
+      api_key_secret: MY_API_KEY
+      git_credential_type: token
+      git_credential_secret: LEGACY_GIT_TOKEN
 `
 		if err := writeTestFile(cfgPath, cfgYAML); err != nil {
 			t.Fatalf("writing config: %v", err)
@@ -602,13 +604,14 @@ profiles:
 	t.Run("legacy profile with no new-style fields validates", func(t *testing.T) {
 		dir := t.TempDir()
 		cfgPath := dir + "/config.yaml"
-		cfgYAML := `default_profile: old
+		cfgYAML := `default_profile: claude/old
 profiles:
-  old:
-    backend: anthropic
-    api_key_secret: MY_KEY
-    model: claude-sonnet-4-20250514
-    git_credential_type: ssh
+  claude:
+    old:
+      backend: anthropic
+      api_key_secret: MY_KEY
+      model: claude-sonnet-4-20250514
+      git_credential_type: ssh
 `
 		if err := writeTestFile(cfgPath, cfgYAML); err != nil {
 			t.Fatalf("writing config: %v", err)
@@ -626,8 +629,8 @@ profiles:
 			t.Errorf("legacy profile should validate, got: %v", err)
 		}
 		// New-style fields should be zero values.
-		if p.Harness != "" {
-			t.Errorf("expected empty harness, got %q", p.Harness)
+		if p.Harness != "claude" {
+			t.Errorf("expected harness claude from group, got %q", p.Harness)
 		}
 		if p.Auth != nil {
 			t.Errorf("expected nil auth, got %+v", p.Auth)

@@ -11,12 +11,12 @@ import (
 )
 
 func tokenProfileConfig() *config.Config {
-	return &config.Config{Profiles: map[string]config.Profile{
+	return &config.Config{Profiles: config.ProfileGroupsFromFlat(map[string]config.Profile{
 		"private": {
 			Harness: "claude",
 			Auth:    &config.AuthConfig{OAuthToken: &config.CredentialSource{Env: "CLAUDE_TOKEN_PRIVATE"}},
 		},
-	}}
+	})}
 }
 
 func TestSSHCredentialSet_ProfileTokenWithoutDetectedModes(t *testing.T) {

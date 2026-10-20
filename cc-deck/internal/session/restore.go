@@ -136,7 +136,7 @@ func launchCommand(entry SessionEntry, cfg *config.Config) (cmd string, warning 
 
 	// When a profile is set, try to use the wrapper command.
 	if entry.Profile != "" && cfg != nil {
-		if _, err := cfg.GetProfile(entry.Profile); err == nil {
+		if _, err := cfg.GetProfileFor(a.Name(), entry.Profile); err == nil {
 			// Profile exists: use the wrapper name (binary-profilename).
 			binary = config.WrapperName(a.Binary(), entry.Profile)
 		} else {
@@ -228,7 +228,11 @@ func buildOverrides(sessions []SessionEntry, cfg *config.Config) map[string][]pe
 		}
 		// Resolve the profile color from config if the profile still exists.
 		if entry.Profile != "" && cfg != nil {
-			if p, err := cfg.GetProfile(entry.Profile); err == nil {
+			harness := entry.Agent
+			if harness == "" {
+				harness = "claude"
+			}
+			if p, err := cfg.GetProfileFor(harness, entry.Profile); err == nil {
 				po.ProfileColor = profile.EffectiveColor(entry.Profile, p)
 			}
 		}

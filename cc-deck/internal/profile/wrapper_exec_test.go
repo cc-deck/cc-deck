@@ -115,7 +115,7 @@ func TestWrapperExec_MissingTokenExitsBeforeHarness(t *testing.T) {
 
 func TestWrapperExec_TokenFileExportsContentWithoutNewline(t *testing.T) {
 	home := t.TempDir()
-	credDir := filepath.Join(home, ".config", "cc-deck", "profiles", "private")
+	credDir := filepath.Join(home, ".config", "cc-deck", "profiles", "claude", "private")
 	require.NoError(t, os.MkdirAll(credDir, 0o700))
 	require.NoError(t, os.WriteFile(filepath.Join(credDir, "oauth_token"), []byte("tok-file\n"), 0o600))
 

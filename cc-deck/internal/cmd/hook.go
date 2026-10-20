@@ -586,7 +586,7 @@ func enrichProfileFrom(normalized *agent.NormalizedPayload, pe profileEnv) {
 	if cfg == nil {
 		return
 	}
-	p, err := cfg.GetProfile(profileName)
+	p, err := cfg.GetProfileFor(normalized.Agent, profileName)
 	if err != nil {
 		return
 	}

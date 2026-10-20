@@ -636,7 +636,7 @@ func setupProfileConfig(t *testing.T, profiles map[string]config.Profile) {
 	configDir := filepath.Join(configHome, "cc-deck")
 	require.NoError(t, os.MkdirAll(configDir, 0o755))
 
-	cfg := &config.Config{Profiles: profiles}
+	cfg := &config.Config{Profiles: config.ProfileGroupsFromFlat(profiles)}
 	require.NoError(t, cfg.Save(filepath.Join(configDir, "config.yaml")))
 
 	origConfigHome := xdg.ConfigHome
@@ -675,11 +675,11 @@ func TestCreate_ProfileProviders_OnePerProfile(t *testing.T) {
 	}
 	sort.Strings(names)
 
-	assert.Contains(t, names, "cc-deck-my-ws-work")
-	assert.Contains(t, names, "cc-deck-my-ws-team")
+	assert.Contains(t, names, "cc-deck-my-ws-claude-work")
+	assert.Contains(t, names, "cc-deck-my-ws-claude-team")
 
 	for _, p := range providers {
-		if p.Name == "cc-deck-my-ws-work" || p.Name == "cc-deck-my-ws-team" {
+		if p.Name == "cc-deck-my-ws-claude-work" || p.Name == "cc-deck-my-ws-claude-team" {
 			assert.Equal(t, "claude", p.Type, "profile provider type should be claude")
 		}
 	}
@@ -712,9 +712,9 @@ func TestCreate_ProfileProviders_DeduplicatesWithSingleSpec(t *testing.T) {
 	}
 
 	// The single-spec provider is named cc-deck-my-ws-api (from spec.Name="api"),
-	// and the profile provider is named cc-deck-my-ws-work. Both should exist.
+	// and the profile provider is named cc-deck-my-ws-claude-work. Both should exist.
 	assert.Contains(t, names, "cc-deck-my-ws-api", "single-spec provider")
-	assert.Contains(t, names, "cc-deck-my-ws-work", "profile provider")
+	assert.Contains(t, names, "cc-deck-my-ws-claude-work", "profile provider")
 
 	// No duplicate names.
 	seen := map[string]int{}
@@ -753,11 +753,11 @@ func TestCreate_ProfileProviders_SkipsOtherHarnesses(t *testing.T) {
 	for _, p := range providers {
 		names = append(names, p.Name)
 	}
-	assert.Contains(t, names, "cc-deck-my-ws-codex-work",
+	assert.Contains(t, names, "cc-deck-my-ws-codex-codex-work",
 		"codex profile should create a provider since ProviderType returns 'openai'")
 
 	for _, p := range providers {
-		if p.Name == "cc-deck-my-ws-codex-work" {
+		if p.Name == "cc-deck-my-ws-codex-codex-work" {
 			assert.Equal(t, "openai", p.Type)
 		}
 	}
@@ -786,12 +786,12 @@ func TestCreate_ProfileProviders_OAuthTokenProfile(t *testing.T) {
 
 	var found bool
 	for _, p := range providers {
-		if p.Name != "cc-deck-my-ws-private" {
+		if p.Name != "cc-deck-my-ws-claude-private" {
 			continue
 		}
 		found = true
 		assert.Equal(t, "claude", p.Type)
 		assert.Equal(t, "sk-ant-oat01-provider", p.Spec.Credentials["CLAUDE_TOKEN_PRIVATE"])
 	}
-	assert.True(t, found, "expected provider cc-deck-my-ws-private")
+	assert.True(t, found, "expected provider cc-deck-my-ws-claude-private")
 }

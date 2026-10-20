@@ -87,7 +87,7 @@ func TestCodexRenderGolden_FileSource(t *testing.T) {
 	script := string(ws.Content)
 
 	// File credential check pattern
-	assert.Contains(t, script, `_f="$HOME/.config/cc-deck/profiles/corp/api_key"`)
+	assert.Contains(t, script, `_f="$HOME/.config/cc-deck/profiles/codex/corp/api_key"`)
 	assert.Contains(t, script, `if [ ! -r "$_f" ]; then`)
 	assert.Contains(t, script, `echo "cc-deck profile 'corp': credential file $_f is not available" >&2`)
 	assert.Contains(t, script, `export OPENAI_API_KEY="$(cat "$_f")"`)

@@ -12,8 +12,9 @@ import (
 // NewCheckCmd creates the 'config check' subcommand.
 func NewCheckCmd(gf *GlobalFlags) *cobra.Command {
 	return &cobra.Command{
-		Use:   "check",
-		Short: "Validate configuration file",
+		Use:     "check",
+		Aliases: []string{"validate"},
+		Short:   "Validate configuration file",
 		Long: `Validate the cc-deck configuration file for common issues.
 
 Checks badge icon widths, profile required fields, voice parameter ranges,

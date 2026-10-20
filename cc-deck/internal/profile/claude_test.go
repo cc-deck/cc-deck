@@ -85,7 +85,7 @@ export ANTHROPIC_MODEL='claude-sonnet-5'
 export CLAUDE_CODE_USE_VERTEX=1
 export ANTHROPIC_VERTEX_PROJECT_ID='acme-ml'
 export CLOUD_ML_REGION='us-east5'
-_f_creds="$HOME/.config/cc-deck/profiles/work/credentials"
+_f_creds="$HOME/.config/cc-deck/profiles/claude/work/credentials"
 if [ ! -r "$_f_creds" ]; then
   echo "cc-deck profile 'work': credential file $_f_creds is not available" >&2
   exit 1
@@ -142,7 +142,7 @@ export CC_DECK_PROFILE_COLOR='#E27C5A'
 export CC_DECK_PROFILE_ICON=''
 unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_VERTEX
 export CLAUDE_CONFIG_DIR="$HOME/.local/share/cc-deck/profiles/private/claude"
-_f_oauthtoken="$HOME/.config/cc-deck/profiles/private/oauth_token"
+_f_oauthtoken="$HOME/.config/cc-deck/profiles/claude/private/oauth_token"
 if [ ! -r "$_f_oauthtoken" ]; then
   echo "cc-deck profile 'private': credential file $_f_oauthtoken is not available" >&2
   exit 1
@@ -247,7 +247,7 @@ func TestClaudeRenderGolden_EnvEntries(t *testing.T) {
 }
 
 // TestClaudeRenderGolden_SingleQuoteEscaping verifies that model values with
-// embedded single quotes are escaped with the POSIX '\'' idiom.
+// embedded single quotes are escaped with the POSIX '\” idiom.
 func TestClaudeRenderGolden_SingleQuoteEscaping(t *testing.T) {
 	a := agent.Get("claude")
 	require.NotNil(t, a)

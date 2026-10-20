@@ -56,10 +56,11 @@ pub fn build_render_payload(state: &ControllerState) -> RenderPayload {
         std::collections::BTreeMap::new();
     for s in &sessions {
         if let Some(ref prof) = s.profile {
-            legend_map.entry(prof.clone()).or_insert_with(|| {
+            let qualified = format!("{}/{}", s.agent_name.as_deref().unwrap_or("claude"), prof);
+            legend_map.entry(qualified.clone()).or_insert_with(|| {
                 let color = s.profile_color.unwrap_or((180, 175, 195));
                 cc_deck::LegendEntry {
-                    name: prof.clone(),
+                    name: qualified,
                     icon: s.profile_icon.clone().unwrap_or_default(),
                     color,
                 }

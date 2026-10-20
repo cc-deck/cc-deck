@@ -46,8 +46,8 @@ func (m *memTarget) Run(cmd string) (string, error) {
 	return "", nil
 }
 
-func (m *memTarget) Home() string      { return m.home }
-func (m *memTarget) Agents() []string  { return m.agents }
+func (m *memTarget) Home() string     { return m.home }
+func (m *memTarget) Agents() []string { return m.agents }
 
 func (m *memTarget) findUpload(suffix string) *memUpload {
 	for i := range m.uploads {
@@ -67,7 +67,7 @@ func TestProvision_CorrectWrapperSet(t *testing.T) {
 	t.Setenv("TEAM_KEY", "secret2")
 
 	cfg := &config.Config{
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfileGroupsFromFlat(map[string]config.Profile{
 			"work": {
 				Harness: "claude",
 				Auth:    &config.AuthConfig{APIKey: &config.CredentialSource{Env: "WORK_KEY"}},
@@ -76,7 +76,7 @@ func TestProvision_CorrectWrapperSet(t *testing.T) {
 				Harness: "codex",
 				Auth:    &config.AuthConfig{APIKey: &config.CredentialSource{Env: "TEAM_KEY"}},
 			},
-		},
+		}),
 	}
 
 	tgt := &memTarget{
@@ -105,18 +105,35 @@ func TestProvision_CorrectWrapperSet(t *testing.T) {
 	require.NotNil(t, prepUp, "prepare.sh must be uploaded")
 }
 
+func TestProvision_SameNameAcrossHarnesses(t *testing.T) {
+	home := setupTestEnv(t)
+	t.Setenv("CLAUDE_PRIVATE_KEY", "claude-test-value")
+	t.Setenv("CODEX_PRIVATE_KEY", "codex-test-value")
+	cfg := &config.Config{Profiles: config.ProfileGroups{
+		"claude": {"private": {Auth: &config.AuthConfig{APIKey: &config.CredentialSource{Env: "CLAUDE_PRIVATE_KEY"}}}},
+		"codex":  {"private": {Auth: &config.AuthConfig{APIKey: &config.CredentialSource{Env: "CODEX_PRIVATE_KEY"}}}},
+	}}
+	tgt := &memTarget{home: home, agents: []string{"claude", "codex"}}
+	result, err := profile.Provision(cfg, tgt)
+	require.NoError(t, err)
+	assert.Contains(t, result.Written, "claude-private")
+	assert.Contains(t, result.Written, "codex-private")
+	assert.NotNil(t, tgt.findUpload("claude-private"))
+	assert.NotNil(t, tgt.findUpload("codex-private"))
+}
+
 func TestProvision_PrepareShContent(t *testing.T) {
 	home := setupTestEnv(t)
 
 	t.Setenv("WORK_KEY", "secret")
 
 	cfg := &config.Config{
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfileGroupsFromFlat(map[string]config.Profile{
 			"work": {
 				Harness: "claude",
 				Auth:    &config.AuthConfig{APIKey: &config.CredentialSource{Env: "WORK_KEY"}},
 			},
-		},
+		}),
 	}
 
 	tgt := &memTarget{
@@ -144,12 +161,12 @@ func TestProvision_RCBlockAppendedOnce(t *testing.T) {
 	t.Setenv("WORK_KEY", "secret")
 
 	cfg := &config.Config{
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfileGroupsFromFlat(map[string]config.Profile{
 			"work": {
 				Harness: "claude",
 				Auth:    &config.AuthConfig{APIKey: &config.CredentialSource{Env: "WORK_KEY"}},
 			},
-		},
+		}),
 	}
 
 	tgt := &memTarget{
@@ -182,12 +199,12 @@ func TestProvision_MissingHarnessSkipped(t *testing.T) {
 	t.Setenv("TEAM_KEY", "secret")
 
 	cfg := &config.Config{
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfileGroupsFromFlat(map[string]config.Profile{
 			"team": {
 				Harness: "codex",
 				Auth:    &config.AuthConfig{APIKey: &config.CredentialSource{Env: "TEAM_KEY"}},
 			},
-		},
+		}),
 	}
 
 	// Target only has "claude", not "codex".
@@ -201,7 +218,7 @@ func TestProvision_MissingHarnessSkipped(t *testing.T) {
 
 	assert.Empty(t, result.Written, "no wrappers should be written")
 	require.Len(t, result.Skipped, 1)
-	assert.Equal(t, "team", result.Skipped[0].Profile)
+	assert.Equal(t, "codex/team", result.Skipped[0].Profile)
 	assert.Contains(t, result.Skipped[0].Reason, "not in target agent list")
 }
 
@@ -211,12 +228,12 @@ func TestProvision_StaleWrapperRemoval(t *testing.T) {
 	t.Setenv("WORK_KEY", "secret")
 
 	cfg := &config.Config{
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfileGroupsFromFlat(map[string]config.Profile{
 			"work": {
 				Harness: "claude",
 				Auth:    &config.AuthConfig{APIKey: &config.CredentialSource{Env: "WORK_KEY"}},
 			},
-		},
+		}),
 	}
 
 	tgt := &memTarget{
@@ -250,7 +267,7 @@ func TestProvision_RemoteBinaryNotFound(t *testing.T) {
 	t.Setenv("TEAM_KEY", "secret2")
 
 	cfg := &config.Config{
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfileGroupsFromFlat(map[string]config.Profile{
 			"work": {
 				Harness: "claude",
 				Auth:    &config.AuthConfig{APIKey: &config.CredentialSource{Env: "WORK_KEY"}},
@@ -259,7 +276,7 @@ func TestProvision_RemoteBinaryNotFound(t *testing.T) {
 				Harness: "codex",
 				Auth:    &config.AuthConfig{APIKey: &config.CredentialSource{Env: "TEAM_KEY"}},
 			},
-		},
+		}),
 	}
 
 	tgt := &memTarget{
@@ -280,10 +297,10 @@ func TestProvision_RemoteBinaryNotFound(t *testing.T) {
 	for i, s := range result.Skipped {
 		skippedNames[i] = s.Profile
 	}
-	assert.Contains(t, skippedNames, "team")
+	assert.Contains(t, skippedNames, "codex/team")
 
 	for _, s := range result.Skipped {
-		if s.Profile == "team" {
+		if s.Profile == "codex/team" {
 			assert.Contains(t, s.Reason, "not found on remote")
 		}
 	}
@@ -296,12 +313,12 @@ func TestProvision_OAuthTokenFileUploaded(t *testing.T) {
 	require.NoError(t, os.WriteFile(tokenFile, []byte(tokenValue), 0o600))
 
 	cfg := &config.Config{
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfileGroupsFromFlat(map[string]config.Profile{
 			"private": {
 				Harness: "claude",
 				Auth:    &config.AuthConfig{OAuthToken: &config.CredentialSource{File: tokenFile}},
 			},
-		},
+		}),
 	}
 	target := &memTarget{home: "/home/remote", agents: []string{"claude"}}
 
@@ -309,7 +326,7 @@ func TestProvision_OAuthTokenFileUploaded(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, result.Written, "claude-private")
 
-	up := target.findUpload("/home/remote/.config/cc-deck/profiles/private/oauth_token")
+	up := target.findUpload("/home/remote/.config/cc-deck/profiles/claude/private/oauth_token")
 	require.NotNil(t, up, "token file must be uploaded to the profile credential dir")
 	assert.Equal(t, os.FileMode(0o600), up.mode)
 	assert.Equal(t, tokenValue, string(up.content))
@@ -317,7 +334,7 @@ func TestProvision_OAuthTokenFileUploaded(t *testing.T) {
 	wrapper := target.findUpload("/home/remote/.local/share/cc-deck/bin/claude-private")
 	require.NotNil(t, wrapper)
 	assert.NotContains(t, string(wrapper.content), tokenValue, "wrapper must not contain the token value")
-	assert.Contains(t, string(wrapper.content), `_f_oauthtoken="$HOME/.config/cc-deck/profiles/private/oauth_token"`)
+	assert.Contains(t, string(wrapper.content), `_f_oauthtoken="$HOME/.config/cc-deck/profiles/claude/private/oauth_token"`)
 }
 
 func TestEnvCredentials_IncludesTokenEnvForPresentHarness(t *testing.T) {
@@ -325,7 +342,7 @@ func TestEnvCredentials_IncludesTokenEnvForPresentHarness(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY_TEAM", "sk-team")
 
 	cfg := &config.Config{
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfileGroupsFromFlat(map[string]config.Profile{
 			"private": {
 				Harness: "claude",
 				Auth:    &config.AuthConfig{OAuthToken: &config.CredentialSource{Env: "CLAUDE_TOKEN_PRIVATE"}},
@@ -334,7 +351,7 @@ func TestEnvCredentials_IncludesTokenEnvForPresentHarness(t *testing.T) {
 				Harness: "codex",
 				Auth:    &config.AuthConfig{APIKey: &config.CredentialSource{Env: "OPENAI_API_KEY_TEAM"}},
 			},
-		},
+		}),
 	}
 
 	env := profile.EnvCredentials(cfg, []string{"claude"})
@@ -361,9 +378,9 @@ func TestProvision_PrepareShUnlinksIsolatedEntries(t *testing.T) {
 	// Link left behind by an earlier provisioning that still shared backups.
 	require.NoError(t, os.Symlink(defaultDir+"/backups", configDir+"/backups"))
 
-	cfg := &config.Config{Profiles: map[string]config.Profile{
+	cfg := &config.Config{Profiles: config.ProfileGroupsFromFlat(map[string]config.Profile{
 		"work": {Harness: "claude", Auth: &config.AuthConfig{APIKey: &config.CredentialSource{Env: "WORK_KEY"}}},
-	}}
+	})}
 	tgt := &memTarget{home: home, agents: []string{"claude"}}
 	_, err = profile.Provision(cfg, tgt)
 	require.NoError(t, err)
