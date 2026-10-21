@@ -67,7 +67,7 @@ type Translator interface {
 | Harness | `ConfigDirEnv` | `IsolatedEntries` | `SupportsLogin` | `SupportsOAuthToken` | `Backends` | Model mechanism | `ProviderType` |
 |---------|----------------|-------------------|-----------------|----------------------|------------|-----------------|----------------|
 | claude | `CLAUDE_CONFIG_DIR` | `.claude.json`, `.credentials.json`, `backups`, `statsig` | true | true | `anthropic` (default), `vertex` | `ANTHROPIC_MODEL` | `anthropic`/token/login: `claude`; `vertex`: `google-cloud` |
-| codex | `CODEX_HOME` | `auth.json`, `config.toml`, `sessions` | false | false | `openai` | `model = "<m>"` in generated `config.toml` | `openai` |
+| codex | `CODEX_HOME` | `auth.json`, `config.toml`, `sessions`, `app-server-daemon` | false | false | `openai` | `model = "<m>"` in generated `config.toml` | `openai` |
 | opencode | `OPENCODE_CONFIG` | the generated `opencode.json` | false | false | `openai` (default), `anthropic` | `"model": "<provider>/<m>"` in generated file | `openai` or `claude` |
 
 `AuthVars()` per harness is the table in research R16.
@@ -75,6 +75,8 @@ type Translator interface {
 Claude `.claude.json` (added 2026-10-14): Claude Code keeps account state and user configuration in one file, `$CLAUDE_CONFIG_DIR/.claude.json` (default setup: `~/.claude.json`), so it cannot be linked. `PrepareConfigDir` merges the configuration part of the default file into the profile's file on every sync: user-scope `mcpServers` (default wins by server name, profile-only servers stay) and, per project, `allowedTools`, `disabledMcpServers`, `disabledMcpjsonServers`, `enabledMcpjsonServers`, `hasClaudeMdExternalIncludesApproved`, `hasClaudeMdExternalIncludesWarningShown`, `hasTrustDialogAccepted`, `mcpContextUris` and `mcpServers`. `hasCompletedOnboarding` and `lastOnboardingVersion` are copied only when the profile file lacks them. Account fields, caches, counters and per-project session statistics are never copied. The file is written atomically with mode 0600 and only when it changes. Remote provisioning does not merge `.claude.json`.
 
 Isolation changes: when an entry becomes isolated after an earlier sync linked it (for example `backups`), `PrepareConfigDir` and the remote `prepare.sh` remove that link to the default directory, never its target.
+
+Codex daemon state is profile-local: Codex requires `app-server-daemon` to be a real directory and rejects a symlink. Leave it absent for Codex to create on first launch, remove previously generated links during sync/provisioning, and preserve existing real directories and their contents on repeated runs.
 
 Credential export names per backend: `anthropic` and `openai` export `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`; `vertex` exports `CLAUDE_CODE_USE_VERTEX=1`, `ANTHROPIC_VERTEX_PROJECT_ID`, `CLOUD_ML_REGION`, and `GOOGLE_APPLICATION_CREDENTIALS` pointing at the transported credentials file when `Credentials` is set.
 

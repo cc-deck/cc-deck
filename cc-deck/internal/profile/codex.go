@@ -21,7 +21,9 @@ func (c *codexTranslator) Harness() string      { return "codex" }
 func (c *codexTranslator) ConfigDirEnv() string { return "CODEX_HOME" }
 
 func (c *codexTranslator) IsolatedEntries() []string {
-	return []string{"auth.json", "config.toml", "sessions"}
+	// Codex requires a real directory for daemon state; it cannot be shared
+	// through the symlinks used for non-isolated configuration.
+	return []string{"auth.json", "config.toml", "sessions", "app-server-daemon"}
 }
 
 func (c *codexTranslator) SupportsLogin() bool { return false }
