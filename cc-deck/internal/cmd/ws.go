@@ -197,7 +197,7 @@ Workspace types (--type):
 	cmd.Flags().StringVar(&cf.variant, "variant", "", "Variant name for multiple instances from same definition")
 	cmd.Flags().BoolVar(&cf.update, "update", false, "Update existing workspace (deprecated: use ws update)")
 	cmd.Flags().BoolVar(&cf.share, "share", false, "Create and share the canonical session")
-	cmd.Flags().BoolVar(&cf.noStart, "no-start", false, "Create without starting infrastructure or a session")
+	cmd.Flags().BoolVar(&cf.noStart, "no-start", false, "Leave the workspace stopped after creation, without a canonical session")
 	_ = cmd.Flags().MarkDeprecated("update", "use 'cc-deck ws update' instead")
 
 	// Container/compose flags
@@ -1096,6 +1096,7 @@ func buildProjectPathMap(allDefs []*ws.WorkspaceDefinition) map[string]string {
 func writeWsStructured(gf *GlobalFlags, format string, instances []*ws.WorkspaceInstance, allDefs []*ws.WorkspaceDefinition, instanceNames map[string]bool, filterType string, projectMap map[string]string) error {
 	var entries []wsListEntry
 	authMap := buildAuthMap(allDefs)
+	sharingInfo := newSharingLookup(gf)
 
 	for _, inst := range instances {
 		image := ""
@@ -1122,7 +1123,7 @@ func writeWsStructured(gf *GlobalFlags, format string, instances []*ws.Workspace
 		if authStr == "" {
 			authStr = "-"
 		}
-		sharingState, endpoint, invitations, residuals := workspaceSharingDetails(gf, inst.Name, inst.Type)
+		sharingState, endpoint, invitations, residuals := sharingInfo.details(inst.Name, inst.Type)
 		entries = append(entries, wsListEntry{
 			Name:         inst.Name,
 			Type:         instType,
@@ -1154,7 +1155,7 @@ func writeWsStructured(gf *GlobalFlags, format string, instances []*ws.Workspace
 		if authStr == "" {
 			authStr = "-"
 		}
-		sharingState, endpoint, invitations, residuals := workspaceSharingDetails(gf, def.Name, def.Type)
+		sharingState, endpoint, invitations, residuals := sharingInfo.details(def.Name, def.Type)
 		entries = append(entries, wsListEntry{
 			Name:         def.Name,
 			Type:         string(def.Type),
@@ -1182,6 +1183,7 @@ func writeWsTableWithProjects(gf *GlobalFlags, instances []*ws.WorkspaceInstance
 	tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 
 	authMap := buildAuthMap(allDefs)
+	sharingInfo := newSharingLookup(gf)
 
 	var pathMap map[string]string
 	if verbose {
@@ -1220,7 +1222,7 @@ func writeWsTableWithProjects(gf *GlobalFlags, instances []*ws.WorkspaceInstance
 			authStr = "-"
 		}
 		infra, sess := formatWorkspaceColumns(inst)
-		sharingState, _, _, _ := workspaceSharingDetails(gf, inst.Name, instType)
+		sharingState, _, _, _ := sharingInfo.details(inst.Name, instType)
 		r := row{inst.Name, string(instType), infra, sess, string(sharingState), proj, authStr, storage,
 			formatRelativeTime(inst.LastAttached), formatDuration(time.Since(inst.CreatedAt)), ""}
 		if verbose && pathMap[inst.Name] != "" {
@@ -1251,7 +1253,7 @@ func writeWsTableWithProjects(gf *GlobalFlags, instances []*ws.WorkspaceInstance
 		if authStr == "" {
 			authStr = "-"
 		}
-		sharingState, _, _, _ := workspaceSharingDetails(gf, d.Name, d.Type)
+		sharingState, _, _, _ := sharingInfo.details(d.Name, d.Type)
 		r := row{d.Name, string(d.Type), "-", "none", string(sharingState), proj, authStr, storage, "never", "-", ""}
 		if verbose && pathMap[d.Name] != "" {
 			r.path = pathMap[d.Name]
@@ -1294,16 +1296,44 @@ func formatWorkspaceColumns(inst *ws.WorkspaceInstance) (infra, session string) 
 	return infra, session
 }
 
-func workspaceSharingDetails(gf *GlobalFlags, name string, wsType ws.WorkspaceType) (ws.WorkspaceSharingState, string, []ws.InvitationSummary, []string) {
+// sharingLookup reads the host-wide sharing status at most once per command
+// and maps it to individual workspaces.
+type sharingLookup struct {
+	gf     *GlobalFlags
+	loaded bool
+	status sharing.SharingStatus
+	err    error
+}
+
+func newSharingLookup(gf *GlobalFlags) *sharingLookup {
+	return &sharingLookup{gf: gf}
+}
+
+func (l *sharingLookup) details(name string, wsType ws.WorkspaceType) (ws.WorkspaceSharingState, string, []ws.InvitationSummary, []string) {
 	if wsType != ws.WorkspaceTypeLocal {
 		return ws.SharingUnsupported, "", nil, nil
 	}
-	service, err := makeWorkspaceShareService(gf)
-	if err != nil {
-		return ws.SharingDegraded, "", nil, []string{err.Error()}
+	if !l.loaded {
+		l.loaded = true
+		service, err := makeWorkspaceShareService(l.gf)
+		if err != nil {
+			l.err = err
+		} else {
+			l.status, l.err = service.Status(cmd_context())
+		}
 	}
-	status, err := service.Status(cmd_context())
-	if err != nil && status.State == sharing.StateInactive {
+	return sharingDetailsFor(l.status, l.err, name)
+}
+
+func workspaceSharingDetails(gf *GlobalFlags, name string, wsType ws.WorkspaceType) (ws.WorkspaceSharingState, string, []ws.InvitationSummary, []string) {
+	return newSharingLookup(gf).details(name, wsType)
+}
+
+// sharingDetailsFor maps a sharing.Service.Status result to one workspace.
+// See sharing.SharingService.Status for the error contract.
+func sharingDetailsFor(status sharing.SharingStatus, err error, name string) (ws.WorkspaceSharingState, string, []ws.InvitationSummary, []string) {
+	if err != nil && status.Workspace == "" {
+		// The sharing state could not be read, so ownership is unknown.
 		return ws.SharingDegraded, "", nil, []string{err.Error()}
 	}
 	if status.State == sharing.StateInactive || status.Workspace != name {
@@ -1662,13 +1692,18 @@ func runWsStopWithFlags(gf *GlobalFlags, name string) error {
 
 	ctx := cmd_context()
 	var failures []string
-	if service, serviceErr := makeWorkspaceShareService(gf); serviceErr != nil {
-		failures = append(failures, "sharing teardown unavailable: "+serviceErr.Error())
-	} else if sharingStatus, statusErr := service.Status(ctx); statusErr != nil {
-		failures = append(failures, statusErr.Error())
-	} else if sharingStatus.State != sharing.StateInactive && sharingStatus.Workspace == name {
-		if _, stopErr := service.Stop(ctx, name); stopErr != nil {
-			failures = append(failures, stopErr.Error())
+	// Only local workspaces can be shared, so other types never need sharing teardown.
+	if e.Type() == ws.WorkspaceTypeLocal {
+		if service, serviceErr := makeWorkspaceShareService(gf); serviceErr != nil {
+			failures = append(failures, "sharing teardown unavailable: "+serviceErr.Error())
+		} else if sharingStatus, statusErr := service.Status(ctx); statusErr != nil && sharingStatus.Workspace == "" {
+			// Unreadable sharing state: ownership is unknown, so report it.
+			failures = append(failures, "sharing state unavailable: "+statusErr.Error())
+		} else if sharingStatus.State != sharing.StateInactive && sharingStatus.Workspace == name {
+			// A Status error attributed to another workspace is not this stop's concern.
+			if _, stopErr := service.Stop(ctx, name); stopErr != nil {
+				failures = append(failures, stopErr.Error())
+			}
 		}
 	}
 	if err := e.KillSession(ctx); err != nil {

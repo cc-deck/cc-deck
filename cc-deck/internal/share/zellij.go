@@ -125,7 +125,8 @@ func (z *ZellijCLI) RevokeToken(ctx context.Context, label string) error {
 func (z *ZellijCLI) EnsureWebServer(ctx context.Context) (string, bool, error) {
 	out, err := z.run(ctx, "web", "--status")
 	if err == nil && strings.Contains(strings.ToLower(out), "online") {
-		return extractLocalURL(out), false, nil
+		localURL, urlErr := extractLocalURL(out)
+		return localURL, false, urlErr
 	}
 	if _, err = z.run(ctx, "web", "--daemonize"); err != nil {
 		return "", false, err
@@ -137,14 +138,18 @@ func (z *ZellijCLI) EnsureWebServer(ctx context.Context) (string, bool, error) {
 	if !strings.Contains(strings.ToLower(out), "online") {
 		return "", true, fmt.Errorf("Zellij web server did not become ready: %s", out)
 	}
-	return extractLocalURL(out), true, nil
+	localURL, urlErr := extractLocalURL(out)
+	return localURL, true, urlErr
 }
-func extractLocalURL(out string) string {
+
+// extractLocalURL returns the web server URL from `zellij web --status` output.
+// It never guesses: tunneling to a guessed port could publish an unrelated service.
+func extractLocalURL(out string) (string, error) {
 	re := regexp.MustCompile(`https?://[^\s]+`)
 	if u := re.FindString(out); u != "" {
-		return strings.TrimRight(u, ".,")
+		return strings.TrimRight(u, ".,"), nil
 	}
-	return "http://127.0.0.1:8082"
+	return "", fmt.Errorf("cannot determine Zellij web server URL from status output: %s", strings.TrimSpace(out))
 }
 func (z *ZellijCLI) StopWebServer(ctx context.Context) error {
 	_, e := z.run(ctx, "web", "--stop")

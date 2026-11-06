@@ -248,11 +248,16 @@ func (e *SSHWorkspace) EnsureSession(ctx context.Context, opts SessionStartOptio
 		}
 		log.Printf("NOTE: cc-deck layout not found on remote, using default layout")
 	}
+	ready := false
 	for i := 0; i < 10; i++ {
 		if e.remoteHasSession(client, name) {
+			ready = true
 			break
 		}
 		time.Sleep(200 * time.Millisecond)
+	}
+	if !ready {
+		return SessionStartResult{}, fmt.Errorf("remote Zellij session %q did not become available", name)
 	}
 	if inst, err := e.store.FindInstanceByName(e.name); err == nil {
 		inst.SessionState = SessionStateExists

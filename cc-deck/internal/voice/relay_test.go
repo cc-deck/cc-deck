@@ -15,6 +15,17 @@ func testRelayConfig() RelayConfig {
 	return c
 }
 
+func TestNewVoiceRelayNormalizesNonPositivePollInterval(t *testing.T) {
+	for _, interval := range []time.Duration{0, -time.Second} {
+		c := DefaultRelayConfig()
+		c.PollInterval = interval
+		relay := NewVoiceRelay(c, nil, nil, nil, nil)
+		if relay.config.PollInterval != defaultPollInterval {
+			t.Fatalf("PollInterval %v normalized to %v, want %v", interval, relay.config.PollInterval, defaultPollInterval)
+		}
+	}
+}
+
 type mockAudioSource struct {
 	mu      sync.Mutex
 	frames  chan []int16

@@ -16,6 +16,7 @@ cc-deck ws status NAME
 - `ws new` creates a ready private workspace by default. `--no-start` leaves it stopped; it conflicts with `--share`.
 - `ws start` and `ws attach` converge missing infrastructure and the canonical session. `--share` is local-only and creates a missing canonical session with web sharing enabled.
 - `--share` never replaces or kills an existing private session. The command explains that the session must be killed and restarted explicitly.
+- When `--share` first enables `web_sharing` in the Zellij configuration, the command stops before readiness or session creation and asks for a Zellij restart. For `ws new --share`, the workspace already exists at that point; recovery after the restart is `ws start NAME --share` or `ws attach NAME --share`.
 - `ws invite` creates one independently revocable credential and prints its raw secret exactly once. `ws revoke` revokes only the named invitation.
 - `ws unshare` closes remote access and revokes all active invitations without stopping the canonical session.
 - Only one local workspace may be shared per host. A different workspace is rejected while sharing is active.

@@ -5,10 +5,20 @@ import (
 	"fmt"
 )
 
+// CheckShareSupported reports whether the workspace type supports session sharing.
+func CheckShareSupported(workspace Workspace) error {
+	if workspace.Type() != WorkspaceTypeLocal {
+		return fmt.Errorf("sharing is currently supported for local workspaces only (workspace %q is %s)", workspace.Name(), workspace.Type())
+	}
+	return nil
+}
+
 // EnsureReady independently converges workspace infrastructure and its canonical session.
 func EnsureReady(ctx context.Context, workspace Workspace, opts ReadyOptions) (ReadyResult, error) {
-	if opts.Share && workspace.Type() != WorkspaceTypeLocal {
-		return ReadyResult{}, fmt.Errorf("sharing is currently supported for local workspaces only (workspace %q is %s)", workspace.Name(), workspace.Type())
+	if opts.Share {
+		if err := CheckShareSupported(workspace); err != nil {
+			return ReadyResult{}, err
+		}
 	}
 
 	status, err := workspace.Status(ctx)

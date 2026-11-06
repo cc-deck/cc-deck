@@ -17,6 +17,15 @@ cc-deck ws attach demo --share
 
 The `--share` flag only affects creation of a missing canonical session. It never kills or converts an existing private session. Follow the printed `kill-session` and restart instructions when that explicit transition is desired.
 
+=== First share on a host
+
+The first `--share` enables `web_sharing` in the Zellij configuration and then stops before creating a session.
+Zellij reads this setting only at startup, so restart Zellij as the printed message describes.
+Restarting Zellij is a known limitation that cc-deck does not yet automate.
+
+After the restart, continue with `cc-deck ws start NAME --share` or `cc-deck ws attach NAME --share`.
+When the first share came from `ws new NAME --share`, the workspace already exists, so do not rerun `ws new`.
+
 == Manage invitations
 
 [source,bash]

@@ -70,7 +70,7 @@ affect Containerfile generation and build behavior.
 
 cc-deck fully abstracts the Zellij multiplexer. Users interact exclusively through `cc-deck` commands.
 
-1. **All examples and documentation** MUST use `cc-deck` commands only. Never instruct users to run `zellij` directly.
+1. **All user-facing examples and documentation** for workspace and session workflows MUST use `cc-deck` commands. Never instruct users to run `zellij` directly. Developer tooling (`make`, `podman`, build and test commands) is out of scope for this rule.
 2. **If a workflow requires a raw `zellij` command**, that is a gap in cc-deck's coverage. Document it as a known limitation and file a follow-up to close the gap.
 3. **Configuration**: cc-deck owns the Zellij config lifecycle. Features that need Zellij config changes (e.g., `web_sharing`, `web_server`) must apply them programmatically, not ask users to edit `config.kdl`.
 4. **Session lifecycle**: `cc-deck ws` commands handle session creation, attachment, sharing, and teardown. Users should never need `zellij attach`, `zellij delete-session`, or `zellij web` directly.

@@ -284,6 +284,14 @@ func (s *SharingService) Revoke(ctx context.Context, workspace, label string) (S
 	return status, err
 }
 
+// Status reports the host-wide sharing operation, reconciling a stale one.
+//
+// Error contract:
+//   - No sharing: State is StateInactive and the error is nil.
+//   - Unreadable state (lock, read, or parse failure): the error is non-nil and
+//     Workspace is empty, so ownership is unknown.
+//   - Failed reconciliation: the error is non-nil and the status carries the
+//     owning Workspace with its degraded state and residuals.
 func (s *SharingService) Status(ctx context.Context) (SharingStatus, error) {
 	var status SharingStatus
 	err := s.store.WithLock(ctx, func() error {
@@ -378,6 +386,9 @@ func (s *SharingService) reconcileLocked(ctx context.Context, op *SharingOperati
 }
 
 func (s *SharingService) teardownLocked(ctx context.Context, op *SharingOperation, status *SharingStatus) error {
+	// Once teardown starts, caller cancellation must not abort cleanup and leave
+	// the endpoint or credentials active. Each step gets its own bounded context.
+	cleanupBase := context.WithoutCancel(ctx)
 	op.State = StateStopping
 	op.UpdatedAt = s.now().UTC()
 	op.Residuals = nil
@@ -390,11 +401,11 @@ func (s *SharingService) teardownLocked(ctx context.Context, op *SharingOperatio
 	}
 	type cleanupStep struct {
 		residual string
-		run      func() error
+		run      func(ctx context.Context) error
 	}
 	var steps []cleanupStep
 	if !op.EndpointStopped {
-		steps = append(steps, cleanupStep{"public endpoint may remain active", func() error {
+		steps = append(steps, cleanupStep{"public endpoint may remain active", func(ctx context.Context) error {
 			if err := s.provider.Stop(ctx, op.ProviderHandle); err != nil {
 				return err
 			}
@@ -413,7 +424,7 @@ func (s *SharingService) teardownLocked(ctx context.Context, op *SharingOperatio
 		}
 		steps = append(steps, cleanupStep{
 			fmt.Sprintf("%s credential %q may remain active", invitation.Role, invitation.Label),
-			func() error {
+			func(ctx context.Context) error {
 				if err := s.zellij.RevokeToken(ctx, credentialName(invitation)); err != nil {
 					return err
 				}
@@ -427,7 +438,7 @@ func (s *SharingService) teardownLocked(ctx context.Context, op *SharingOperatio
 		})
 	}
 	if !op.WebServerStopped {
-		steps = append(steps, cleanupStep{"remote clients may remain connected", func() error {
+		steps = append(steps, cleanupStep{"remote clients may remain connected", func(ctx context.Context) error {
 			if err := s.zellij.StopWebServer(ctx); err != nil {
 				return err
 			}
@@ -439,7 +450,10 @@ func (s *SharingService) teardownLocked(ctx context.Context, op *SharingOperatio
 		}})
 	}
 	for _, step := range steps {
-		if err := step.run(); err != nil {
+		stepCtx, cancel := context.WithTimeout(cleanupBase, rollbackTimeout)
+		err := step.run(stepCtx)
+		cancel()
+		if err != nil {
 			residuals = append(residuals, step.residual+": "+err.Error())
 		}
 	}

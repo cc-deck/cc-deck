@@ -31,13 +31,16 @@ type RelayConfig struct {
 	PollInterval  time.Duration
 }
 
+// defaultPollInterval is the sidebar state poll interval.
+const defaultPollInterval = 3 * time.Second
+
 // DefaultRelayConfig returns sensible defaults for the relay.
 func DefaultRelayConfig() RelayConfig {
 	return RelayConfig{
 		SampleRate:   16000,
 		VADConfig:    DefaultVADConfig(),
 		Commands:     BuildCommandMap(DefaultCommands),
-		PollInterval: 3 * time.Second,
+		PollInterval: defaultPollInterval,
 	}
 }
 
@@ -79,6 +82,10 @@ type VoiceRelay struct {
 // globalTerms is the list of glossary terms from the config file; pass nil
 // when no glossary is configured.
 func NewVoiceRelay(config RelayConfig, audio AudioSource, transcriber Transcriber, pipe PipeSender, globalTerms []string) *VoiceRelay {
+	// time.NewTicker panics on a non-positive interval.
+	if config.PollInterval <= 0 {
+		config.PollInterval = defaultPollInterval
+	}
 	r := &VoiceRelay{
 		config:      config,
 		audio:       audio,

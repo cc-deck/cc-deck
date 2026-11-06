@@ -349,6 +349,22 @@ func TestStopAttemptsEverySafetyActionAndRemovesState(t *testing.T) {
 	require.Equal(t, []string{"revoke-observer", "revoke-interactive", "stop-web"}, z.calls)
 }
 
+func TestStopCleanupSurvivesCallerCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	store, z := &startStore{op: activeOperation()}, &startZellij{}
+	provider := &startProvider{beforeStop: func() error {
+		cancel()
+		return nil
+	}}
+	got, err := NewService(store, z, provider).Stop(ctx, "")
+	require.NoError(t, err)
+	require.Equal(t, StateInactive, got.State)
+	require.Nil(t, store.op)
+	require.Equal(t, []string{"revoke-observer", "revoke-interactive", "stop-web"}, z.calls)
+	require.False(t, z.cleanupSawCanceled)
+}
+
 func TestStopIsIdempotentWhenNoOperationExists(t *testing.T) {
 	store, z, provider := &startStore{}, &startZellij{}, &startProvider{}
 	got, err := NewService(store, z, provider).Stop(context.Background(), "")

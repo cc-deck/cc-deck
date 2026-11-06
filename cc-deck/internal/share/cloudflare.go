@@ -16,6 +16,20 @@ import (
 
 const cloudflareReadyTimeout = 10 * time.Second
 
+const cloudflareLogDirPrefix = "cc-deck-cloudflared-"
+
+// removeCloudflareLog removes the tunnel log and its private directory.
+// The directory is removed only when it is one this provider created and is empty.
+func removeCloudflareLog(logPath string) {
+	if logPath == "" {
+		return
+	}
+	_ = os.Remove(logPath)
+	if dir := filepath.Dir(logPath); strings.HasPrefix(filepath.Base(dir), cloudflareLogDirPrefix) {
+		_ = os.Remove(dir)
+	}
+}
+
 type CloudflareProvider struct {
 	runner       CommandRunner
 	readyTimeout time.Duration
@@ -47,9 +61,15 @@ func (p *CloudflareProvider) Validate(ctx context.Context) error {
 	return nil
 }
 func (p *CloudflareProvider) Start(ctx context.Context, localURL string) (ProviderHandle, error) {
-	logPath := filepath.Join(os.TempDir(), fmt.Sprintf("cc-deck-cloudflared-%d.log", time.Now().UnixNano()))
+	// The log contains the public tunnel URL, so keep it in a private (0700) directory.
+	logDir, err := os.MkdirTemp("", cloudflareLogDirPrefix)
+	if err != nil {
+		return ProviderHandle{}, fmt.Errorf("create cloudflared log directory: %w", err)
+	}
+	logPath := filepath.Join(logDir, "cloudflared.log")
 	proc, e := p.runner.Start(ctx, "cloudflared", "tunnel", "--url", localURL, "--logfile", logPath, "--no-autoupdate")
 	if e != nil {
+		_ = os.RemoveAll(logDir)
 		return ProviderHandle{}, fmt.Errorf("start Cloudflare Quick Tunnel: %w", e)
 	}
 	rt := &cloudflareRuntime{process: proc, exited: make(chan error, 1)}
@@ -60,6 +80,10 @@ func (p *CloudflareProvider) Start(ctx context.Context, localURL string) (Provid
 	fingerprint, err := p.processFingerprint(ctx, proc.PID())
 	if err != nil {
 		_ = proc.Kill()
+		p.mu.Lock()
+		delete(p.processes, logPath)
+		p.mu.Unlock()
+		_ = os.RemoveAll(logDir)
 		return ProviderHandle{}, fmt.Errorf("capture cloudflared process identity: %w", err)
 	}
 	return ProviderHandle{PID: proc.PID(), Metadata: map[string]string{"log_path": logPath, "identity": logPath, "process_fingerprint": fingerprint}}, nil
@@ -150,7 +174,7 @@ func (p *CloudflareProvider) Stop(ctx context.Context, h ProviderHandle) error {
 	}
 	select {
 	case <-rt.exited:
-		_ = os.Remove(h.Metadata["log_path"])
+		removeCloudflareLog(h.Metadata["log_path"])
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
@@ -161,7 +185,7 @@ func (p *CloudflareProvider) Stop(ctx context.Context, h ProviderHandle) error {
 	}
 	select {
 	case <-rt.exited:
-		_ = os.Remove(h.Metadata["log_path"])
+		removeCloudflareLog(h.Metadata["log_path"])
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
@@ -201,7 +225,7 @@ func (p *CloudflareProvider) waitExternalGone(ctx context.Context, h ProviderHan
 		case <-tick.C:
 			_, err := p.processFingerprint(ctx, h.PID)
 			if err != nil && isProcessGone(err) {
-				_ = os.Remove(h.Metadata["log_path"])
+				removeCloudflareLog(h.Metadata["log_path"])
 				return true
 			}
 		}

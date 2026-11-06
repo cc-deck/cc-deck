@@ -13,6 +13,13 @@ func TestK8sDeployWorkspace_Type(t *testing.T) {
 	assert.Equal(t, WorkspaceTypeK8sDeploy, e.Type())
 }
 
+func TestZellijSessionListedMatchesExactCanonicalName(t *testing.T) {
+	out := "private-session [Created 1m ago]\ncc-deck-demo-old [Created 2m ago]\ncc-deck-demo (EXITED - attach to resurrect)\n"
+	assert.False(t, zellijSessionListed(out, "cc-deck-demo"), "other, prefixed, and exited sessions must not match")
+	assert.True(t, zellijSessionListed(out+"cc-deck-demo [Created 5s ago]\n", "cc-deck-demo"))
+	assert.False(t, zellijSessionListed("", "cc-deck-demo"))
+}
+
 func TestK8sDeployWorkspace_Name(t *testing.T) {
 	e := &K8sDeployWorkspace{name: "my-env"}
 	assert.Equal(t, "my-env", e.Name())

@@ -80,6 +80,10 @@ func readyAndMaybeShare(ctx context.Context, gf *GlobalFlags, workspace ws.Works
 		ready, err := ws.EnsureReady(ctx, workspace, ws.ReadyOptions{})
 		return nil, ready, err
 	}
+	// Reject unsupported backends before touching the local Zellij configuration.
+	if err := ws.CheckShareSupported(workspace); err != nil {
+		return nil, ws.ReadyResult{}, err
+	}
 	configChanged, configErr := sharing.EnsureZellijWebSharing("")
 	if configErr != nil {
 		return nil, ws.ReadyResult{}, fmt.Errorf("configure Zellij web sharing: %w", configErr)
@@ -107,7 +111,9 @@ func readyAndMaybeShare(ctx context.Context, gf *GlobalFlags, workspace ws.Works
 	}
 	invitations, err := service.Start(ctx, sharing.StartRequest{Workspace: workspace.Name(), Session: ws.ZellijSessionName(workspace.Name()), Provider: providerName})
 	if err != nil && ready.SessionCreated {
-		_ = workspace.KillSession(context.Background())
+		if cleanupErr := workspace.KillSession(context.Background()); cleanupErr != nil {
+			return invitations, ready, fmt.Errorf("%w; remove canonical session: %v", err, cleanupErr)
+		}
 	}
 	return invitations, ready, err
 }

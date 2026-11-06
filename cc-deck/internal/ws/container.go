@@ -356,6 +356,11 @@ func (e *ContainerWorkspace) Attach(ctx context.Context) error {
 		SetRemoteBG(remoteBG)
 	}
 
+	// Recreate the canonical session if it is gone (e.g. after `ws attach --reset`
+	// or a container restart), matching the other backends.
+	if _, err := e.EnsureSession(ctx, SessionStartOptions{}); err != nil {
+		return err
+	}
 	return podman.ExecWithCleanup(ctx, cName, []string{"zellij", "attach", ZellijSessionName(e.name)}, ResetBGEscape)
 }
 

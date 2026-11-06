@@ -364,7 +364,7 @@ func (e *K8sDeployWorkspace) EnsureSession(ctx context.Context, opts SessionStar
 	podName := k8sPodName(e.name)
 	kubeconfigArgs := e.kubeconfigArgs(inst)
 	name := ZellijSessionName(e.name)
-	if k8sHasZellijSession(ctx, ns, podName, kubeconfigArgs) {
+	if k8sHasZellijSession(ctx, ns, podName, kubeconfigArgs, ZellijSessionName(e.name)) {
 		return SessionStartResult{Name: name}, nil
 	}
 	cmd := []string{"zellij", "--layout", "cc-deck", "attach", "-b", name}
@@ -386,7 +386,7 @@ func (e *K8sDeployWorkspace) KillSession(ctx context.Context) error {
 	ns := e.resolveNamespace(inst)
 	podName := k8sPodName(e.name)
 	kubeconfigArgs := e.kubeconfigArgs(inst)
-	if !k8sHasZellijSession(ctx, ns, podName, kubeconfigArgs) {
+	if !k8sHasZellijSession(ctx, ns, podName, kubeconfigArgs, ZellijSessionName(e.name)) {
 		return nil
 	}
 	sessionName := zellijSessionPrefix + e.name
@@ -567,7 +567,7 @@ func (e *K8sDeployWorkspace) Status(ctx context.Context) (*WorkspaceStatus, erro
 		ns := e.resolveNamespace(inst)
 		podName := k8sPodName(e.name)
 		kubeconfigArgs := e.kubeconfigArgs(inst)
-		if k8sHasZellijSession(ctx, ns, podName, kubeconfigArgs) {
+		if k8sHasZellijSession(ctx, ns, podName, kubeconfigArgs, ZellijSessionName(e.name)) {
 			sessState = SessionStateExists
 		}
 	}
@@ -900,17 +900,26 @@ func k8sStandardLabels(wsName string) map[string]string {
 	}
 }
 
-// k8sHasZellijSession checks whether a Zellij session is running in the Pod.
-func k8sHasZellijSession(ctx context.Context, ns, podName string, kubeconfigArgs []string) bool {
+// k8sHasZellijSession checks whether the named Zellij session is running in the Pod.
+func k8sHasZellijSession(ctx context.Context, ns, podName string, kubeconfigArgs []string, sessionName string) bool {
 	args := append(kubeconfigArgs, "exec", "-n", ns, podName, "--", "zellij", "list-sessions", "-n")
 	cmd := exec.CommandContext(ctx, "kubectl", args...)
 	out, err := cmd.Output()
 	if err != nil {
 		return false
 	}
-	for _, line := range strings.Split(string(out), "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" && !strings.Contains(line, "(EXITED") {
+	return zellijSessionListed(string(out), sessionName)
+}
+
+// zellijSessionListed reports whether `zellij list-sessions -n` output contains
+// a live (not exited) session whose name exactly matches sessionName.
+func zellijSessionListed(out, sessionName string) bool {
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 0 || fields[0] != sessionName {
+			continue
+		}
+		if !strings.Contains(line, "(EXITED") {
 			return true
 		}
 	}
@@ -993,7 +1002,7 @@ func ReconcileK8sDeployWorkspaces(store *FileStateStore) error {
 			if inst.K8s.Profile != "" {
 				kubeconfigArgs = append(kubeconfigArgs, "--context", inst.K8s.Profile)
 			}
-			if k8sHasZellijSession(ctx, inst.K8s.Namespace, podName, kubeconfigArgs) {
+			if k8sHasZellijSession(ctx, inst.K8s.Namespace, podName, kubeconfigArgs, ZellijSessionName(inst.Name)) {
 				newSess = SessionStateExists
 			}
 		}
